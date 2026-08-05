@@ -52,6 +52,88 @@ export function isNotFoundError(error: { status?: number; code?: string; message
 }
 
 /**
+ * The Private engine arm ('v2' | 'v4') implied by an INSTANTIATED runtime provider, or null if the provider is
+ * not the on-device Transformers.js family. v2 = exactly `transformers-js`; v4 = exactly `transformers-js-v4`.
+ */
+export function privateArmFromRuntimeProvider(runtimeProvider: unknown): 'v2' | 'v4' | null {
+    const p = String(runtimeProvider ?? '').toLowerCase();
+    if (p === 'transformers-js') return 'v2';
+    if (p === 'transformers-js-v4') return 'v4';
+    return null;
+}
+
+/** The Private engine arm implied by a PERSISTED engine_version string, or null if it is not a Private arm. */
+export function privateArmFromPersistedVersion(engineVersion: unknown): 'v2' | 'v4' | null {
+    const v = String(engineVersion ?? '').toLowerCase();
+    if (v.trim() === '') return null;
+    if (/v4/.test(v)) return 'v4';
+    if (/transformers-js|private|v2/.test(v)) return 'v2';
+    return null;
+}
+
+/**
+ * EXACT Private arm/model/runtime mapping (P1 fix 3): the persisted row's arm MUST equal the arm of the engine
+ * that actually ran, the persisted model must be the non-fallback default, and the device must be exactly
+ * 'browser'. A runtime-v4 run persisted as v2 (or vice-versa), a tiny/fallback model, or a non-browser device
+ * are all rejected. Content-safe: compares arms + a tiny-model guard, never raw transcript.
+ */
+export function matchesPrivatePersistedArm(input: {
+    runtimeProvider?: unknown; runtimeModelId?: unknown;
+    persistedEngine?: unknown; persistedEngineVersion?: unknown; persistedModelName?: unknown; persistedDeviceType?: unknown;
+}): { ok: boolean; runtimeArm: 'v2' | 'v4' | null; persistedArm: 'v2' | 'v4' | null; reason: string } {
+    const runtimeArm = privateArmFromRuntimeProvider(input.runtimeProvider);
+    const persistedArm = privateArmFromPersistedVersion(input.persistedEngineVersion);
+    const engine = String(input.persistedEngine ?? '').toLowerCase();
+    const model = String(input.persistedModelName ?? '');
+    const runtimeModel = String(input.runtimeModelId ?? '').toLowerCase();
+    const enginePrivate = engine.includes('private') || /transformers-js/.test(engine);
+    const modelNonFallback = model.trim() !== '' && !/tiny/i.test(model);
+    const runtimeNonFallback = runtimeModel === '' || !/tiny/.test(runtimeModel);
+    const isBrowserDevice = input.persistedDeviceType === 'browser';
+    const armsAgree = runtimeArm !== null && persistedArm !== null && runtimeArm === persistedArm;
+    const ok = armsAgree && enginePrivate && modelNonFallback && runtimeNonFallback && isBrowserDevice;
+    const reason = ok ? ''
+        : runtimeArm === null ? `runtime provider is not a Private arm (${JSON.stringify(input.runtimeProvider)})`
+            : persistedArm === null ? `persisted engine_version is not a Private arm (${JSON.stringify(input.persistedEngineVersion)})`
+                : !armsAgree ? `arm mismatch: runtime=${runtimeArm} persisted=${persistedArm}`
+                    : !enginePrivate ? `persisted engine is not Private (${JSON.stringify(input.persistedEngine)})`
+                        : !modelNonFallback ? `persisted model is blank or the tiny fallback (${JSON.stringify(model)})`
+                            : !runtimeNonFallback ? `runtime model is the tiny fallback (${runtimeModel})`
+                                : `persisted device_type must be 'browser' (${JSON.stringify(input.persistedDeviceType)})`;
+    return { ok, runtimeArm, persistedArm, reason };
+}
+
+/**
+ * A CONTENT-SAFE snapshot of a persisted session for reload-equality checks (P1 fix 4): identifiers +
+ * measurements + engine identity, with the transcript reduced to its trimmed LENGTH only — never the raw text.
+ */
+export function contentSafeSessionSnapshot(row: Record<string, unknown> | null | undefined): Record<string, unknown> {
+    const r = row ?? {};
+    return {
+        id: r.id ?? null,
+        status: r.status ?? null,
+        transcriptLen: String(r.transcript ?? '').trim().length,
+        engine: r.engine ?? null,
+        engineVersion: r.engine_version ?? null,
+        modelName: r.model_name ?? null,
+        deviceType: r.device_type ?? null,
+    };
+}
+
+/** Content-safe equality of two session snapshots (P1 fix 4) — deep-equal on the content-safe fields only. */
+export function contentSafeSnapshotsEqual(
+    a: Record<string, unknown>, b: Record<string, unknown>,
+): { ok: boolean; reason: string } {
+    const keys = ['id', 'status', 'transcriptLen', 'engine', 'engineVersion', 'modelName', 'deviceType'];
+    for (const k of keys) {
+        if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) {
+            return { ok: false, reason: `content-safe field '${k}' changed across reload: ${JSON.stringify(a[k])} → ${JSON.stringify(b[k])}` };
+        }
+    }
+    return { ok: true, reason: '' };
+}
+
+/**
  * Structured Private producing-identity check for a LIVE recording. The verdict is anchored on the identity
  * emitted by the ACTUAL INSTANTIATED running engine — `__PRIVATE_STT_RUNTIME_DEBUG__.provider` (the v2 engine's
  * own `PrivateRuntimeDecision.provider`, published by PrivateSTT when it selects/instantiates; it also carries

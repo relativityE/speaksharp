@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { isPrivateV2PersistedDeviceType, extractUidFromAuthStorage, isNotFoundError, isPrivateRuntimeIdentity } from '../live/helpers/proofAuthority.ts';
+import {
+    isPrivateV2PersistedDeviceType, extractUidFromAuthStorage, isNotFoundError, isPrivateRuntimeIdentity,
+    privateArmFromRuntimeProvider, privateArmFromPersistedVersion, matchesPrivatePersistedArm,
+    contentSafeSessionSnapshot, contentSafeSnapshotsEqual,
+} from '../live/helpers/proofAuthority.ts';
 
 describe('#1151 proof-authority decisions (falsification)', () => {
     describe('persisted Private-v2 device_type', () => {
@@ -88,4 +92,64 @@ describe('#1151 proof-authority decisions (falsification)', () => {
     });
     // 8. cleanup/persistence falsifications (persisted device_type, early-UID capture, 404-only deletion proof)
     //    are the sibling describe blocks above and remain green — unchanged by this P1 correction.
+
+    describe('fix 3 — exact Private v2/v4 arm/model/runtime mapping', () => {
+        it('maps runtime + persisted providers to the correct arm', () => {
+            expect(privateArmFromRuntimeProvider('transformers-js')).toBe('v2');
+            expect(privateArmFromRuntimeProvider('transformers-js-v4')).toBe('v4');
+            expect(privateArmFromRuntimeProvider('web-speech-api')).toBeNull();
+            expect(privateArmFromRuntimeProvider('assemblyai')).toBeNull();
+            expect(privateArmFromPersistedVersion('private_v2:base')).toBe('v2');
+            expect(privateArmFromPersistedVersion('transformers-js')).toBe('v2');
+            expect(privateArmFromPersistedVersion('private_v4:base_q4')).toBe('v4');
+            expect(privateArmFromPersistedVersion('')).toBeNull();
+        });
+        const v2 = {
+            runtimeProvider: 'transformers-js', runtimeModelId: 'base',
+            persistedEngine: 'private', persistedEngineVersion: 'private_v2:base',
+            persistedModelName: 'base', persistedDeviceType: 'browser',
+        };
+        it('accepts an exact v2 (and v4) runtime↔persisted match', () => {
+            expect(matchesPrivatePersistedArm(v2).ok).toBe(true);
+            expect(matchesPrivatePersistedArm({
+                runtimeProvider: 'transformers-js-v4', runtimeModelId: 'base_q4',
+                persistedEngine: 'private', persistedEngineVersion: 'private_v4:base_q4',
+                persistedModelName: 'base_q4', persistedDeviceType: 'browser',
+            }).ok).toBe(true);
+        });
+        it('REJECTS an arm mismatch (runtime v4 persisted v2, and vice-versa)', () => {
+            expect(matchesPrivatePersistedArm({ ...v2, runtimeProvider: 'transformers-js-v4' }).ok).toBe(false);
+            expect(matchesPrivatePersistedArm({ ...v2, persistedEngineVersion: 'private_v4:base_q4' }).ok).toBe(false);
+        });
+        it('REJECTS a tiny/blank model, a non-browser device, a non-private engine, or a non-Private runtime', () => {
+            expect(matchesPrivatePersistedArm({ ...v2, persistedModelName: 'whisper-tiny.en' }).ok).toBe(false);
+            expect(matchesPrivatePersistedArm({ ...v2, runtimeModelId: 'whisper-tiny.en' }).ok).toBe(false);
+            expect(matchesPrivatePersistedArm({ ...v2, persistedModelName: '' }).ok).toBe(false);
+            expect(matchesPrivatePersistedArm({ ...v2, persistedDeviceType: 'wasm' }).ok).toBe(false);
+            expect(matchesPrivatePersistedArm({ ...v2, persistedEngine: 'native' }).ok).toBe(false);
+            expect(matchesPrivatePersistedArm({ ...v2, runtimeProvider: 'web-speech-api' }).ok).toBe(false);
+        });
+    });
+
+    describe('fix 4 — content-safe reload equality', () => {
+        const row = {
+            id: 's1', user_id: 'u1', status: 'completed', transcript: 'hello world words here',
+            engine: 'private', engine_version: 'private_v2:base', model_name: 'base', device_type: 'browser',
+        };
+        it('snapshot carries transcript LENGTH only — never the raw text', () => {
+            const snap = contentSafeSessionSnapshot(row);
+            expect(snap.transcriptLen).toBe('hello world words here'.length);
+            expect(JSON.stringify(snap)).not.toContain('hello world'); // no raw transcript leaks
+            expect(snap).toMatchObject({ id: 's1', status: 'completed', engine: 'private', deviceType: 'browser' });
+        });
+        it('equal for identical content-safe fields; UNEQUAL when any changes across reload', () => {
+            const a = contentSafeSessionSnapshot(row);
+            expect(contentSafeSnapshotsEqual(a, contentSafeSessionSnapshot({ ...row })).ok).toBe(true);
+            // same length but DIFFERENT text ⇒ still equal (content-safe compares length, not text)
+            expect(contentSafeSnapshotsEqual(a, contentSafeSessionSnapshot({ ...row, transcript: 'HELLO WORLD words here' })).ok).toBe(true);
+            expect(contentSafeSnapshotsEqual(a, contentSafeSessionSnapshot({ ...row, status: 'failed' })).ok).toBe(false);
+            expect(contentSafeSnapshotsEqual(a, contentSafeSessionSnapshot({ ...row, transcript: 'shorter' })).ok).toBe(false);
+            expect(contentSafeSnapshotsEqual(a, contentSafeSessionSnapshot({ ...row, engine_version: 'private_v4:base_q4' })).ok).toBe(false);
+        });
+    });
 });

@@ -10,16 +10,22 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
-import { isPrivateV2PersistedDeviceType, extractUidFromAuthStorage, isNotFoundError, isPrivateRuntimeIdentity } from './helpers/proofAuthority';
+import {
+    isPrivateV2PersistedDeviceType, extractUidFromAuthStorage, isNotFoundError, isPrivateRuntimeIdentity,
+    matchesPrivatePersistedArm, contentSafeSessionSnapshot, contentSafeSnapshotsEqual,
+} from './helpers/proofAuthority';
 
 // #1089 / #1129 — exact-production-SHA Private recording proof (rigorous).
 //
 // Proves the DEPLOYED build, on the exact merged SHA, drives the real customer loop with NO shortcut, NO
-// mocks and NO Cloud, and DURABLY persists a verified Private-v2 row:
+// mocks and NO Cloud, and DURABLY persists a Private recording whose SERVER-recorded attribution authority is
+// trusted (not the advisory sessions.attribution_status):
 //   fail-closed preconditions → fresh signup → /practice → visible entry → /session → Private (runtime
-//   identity: Transformers.js/WASM, no fallback, no provider request) → real fixture-fed recording →
-//   durable persisted row (queried by id+uid: completed, non-empty transcript, engine=private,
-//   attribution_status=verified, full v2 identity tuple) → UID-scoped fail-closed cleanup.
+//   identity: Transformers.js/WASM, no fallback, no HTTP/WS provider contact) → real fixture-fed recording →
+//   durable persisted row (completed, non-empty transcript, engine=private) with the EXACT runtime↔persisted
+//   arm mapping (fix 3) and a #1163 `session_attribution_authority` row (engine_class='private',
+//   authority_version='attrib_v1' — fix 5) → HARD RELOAD content-safe re-read (fix 4) → UID-scoped fail-closed
+//   cleanup with explicit auth/profile/session/attribution ZERO readback (fix 1 + fix 5 residue).
 //
 // Content-free evidence only. Never merged/dispatched until the workflow is on main and explicitly authorized.
 
@@ -73,7 +79,7 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
         // missing but an email was attempted, recover it by an EXACT-email, unique-result admin lookup
         // (pagination/errors fail closed) so the account is never orphaned.
         if (!capturedUid) {
-            let matches = [];
+            let matches: Array<{ id: string; email?: string | null }> = [];
             for (let p = 1; p <= 50; p++) {
                 const { data, error } = await admin.auth.admin.listUsers({ page: p, perPage: 200 });
                 if (error) throw new Error(`cleanup recovery listUsers failed (fail closed): ${error.message}`);
@@ -104,18 +110,44 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
         } else {
             expect(after?.user ?? null, 'auth user must be gone after cleanup (returned a user)').toBeNull();
         }
-        const { data: leftover, error: sErr } = await admin.from('sessions').select('id').eq('user_id', capturedUid);
-        if (sErr) throw new Error(`cleanup residue query failed (fail closed): ${sErr.message}`);
-        expect(leftover?.length ?? 0, 'no run-owned session residue').toBe(0);
+        // fix 1 + fix 5 — EXPLICIT zero readback across every run-owned surface (fail-closed). Auth is proven gone
+        // above (not-found re-fetch); now prove profile, session, and the #1163 attribution tables carry ZERO
+        // rows for this uid (they all cascade on the auth-user delete — this asserts the cascade actually cleared).
+        const residueChecks: Array<{ table: string; column: string }> = [
+            { table: 'sessions', column: 'user_id' },
+            { table: 'user_profiles', column: 'id' },                       // PK = auth user id
+            { table: 'session_attribution_authority', column: 'user_id' },
+            { table: 'session_attribution_challenge', column: 'user_id' },
+            { table: 'session_attribution_unattributed', column: 'user_id' },
+        ];
+        for (const { table, column } of residueChecks) {
+            const { count, error: rErr } = await admin
+                .from(table).select(column, { count: 'exact', head: true }).eq(column, capturedUid);
+            if (rErr) throw new Error(`cleanup residue query on ${table} failed (fail closed): ${rErr.message}`);
+            expect(count ?? 0, `no run-owned residue in ${table}`).toBe(0);
+        }
         capturedUid = '';
     });
 
     test('signup → /practice → visible entry → Private (no Cloud) → durable verified persisted row', async ({ page }) => {
         test.setTimeout(300_000);
 
-        // P1.2 — any Cloud/provider request during the run is a hard failure.
+        // P1.2 (fix 2) — any Cloud/provider contact during the run is a hard failure, over BOTH transports: an
+        // HTTP(S) request AND a WebSocket upgrade (AssemblyAI realtime streams over WS, so an HTTP-only sentinel
+        // would miss a live Cloud session). Both feed the same zero-tolerance list.
         const providerHits: string[] = [];
-        page.on('request', (req) => { if (PROVIDER_RE.test(req.url())) providerHits.push(new URL(req.url()).host); });
+        const noteIfProvider = (rawUrl: string) => {
+            if (!PROVIDER_RE.test(rawUrl)) return;
+            try { providerHits.push(new URL(rawUrl).host); } catch { providerHits.push(rawUrl); }
+        };
+        page.on('request', (req) => noteIfProvider(req.url()));
+        page.on('websocket', (ws) => noteIfProvider(ws.url()));
+
+        // Cross-step state: the INSTANTIATED runtime arm (fix 3), the persisted id + its content-safe snapshot
+        // (fix 4 reload equality).
+        let runtimeIdentity: { runtimeProvider: string | null; modelId: string | null } = { runtimeProvider: null, modelId: null };
+        let persistedId: string | null = null;
+        let preReloadSnapshot: Record<string, unknown> | null = null;
 
         await test.step('Open signup and assert NO test/mock injection + exact SHA before credentials', async () => {
             await page.goto('/auth/signup');
@@ -200,6 +232,8 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             });
             const runtimeVerdict = isPrivateRuntimeIdentity(identity);
             expect(runtimeVerdict.ok, `Private runtime identity: ${runtimeVerdict.reason} (${JSON.stringify(identity)})`).toBe(true);
+            // fix 3: remember the INSTANTIATED arm/model so the persisted row can be checked to MATCH it exactly.
+            runtimeIdentity = { runtimeProvider: runtimeVerdict.runtimeProvider, modelId: runtimeVerdict.modelId };
             await expectBenchmarkTranscriptOutput(page, 'private-proof', 60_000, 3);
             await startStop.click();
             await expect(startStop).toHaveAttribute('data-recording', 'false', { timeout: 120_000 });
@@ -207,12 +241,12 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             expect(providerHits, `no Cloud/provider requests allowed: ${providerHits.join(',')}`).toEqual([]);
         });
 
-        await test.step('Prove DURABLE persistence: query the exact row by id + uid', async () => {
+        await test.step('Prove DURABLE persistence: exact row + SERVER authority (not advisory status) + exact arm', async () => {
             await expect.poll(async () => page.evaluate(() =>
                 document.documentElement.getAttribute('data-session-persisted') === 'true'
                 && document.documentElement.getAttribute('data-session-persisted-id'),
             ), { timeout: 120_000 }).toBeTruthy();
-            const persistedId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
+            persistedId = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
             expect(persistedId, 'valid persisted session id').toMatch(/^[0-9a-f-]{36}$/i);
             if (!admin) throw new Error('admin client required for persisted-row proof (fail closed)');
             const { data: row, error } = await admin
@@ -223,17 +257,62 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             expect(row!.status, 'completed session').toBe('completed');
             expect((row!.transcript ?? '').trim().length, 'non-empty persisted transcript').toBeGreaterThan(0);
             expect(String(row!.engine).toLowerCase(), 'engine=private').toContain('private');
-            expect(row!.attribution_status, 'verified Private attribution').toBe('verified');
-            expect(row!.engine_version, 'Private-v2 identity: engine_version').toBeTruthy();
-            expect(row!.model_name, 'Private-v2 identity: model_name').toBeTruthy();
-            expect(isPrivateV2PersistedDeviceType(row!.device_type), `Private-v2 persisted device_type must be exactly 'browser', got ${JSON.stringify(row!.device_type)}`).toBe(true);
-            // Content-free evidence: NO identifiers (no session id / UID / email). Booleans + release SHA +
-            // engine identity + provider-call count only. The exact row was asserted above.
+            expect(isPrivateV2PersistedDeviceType(row!.device_type), `Private persisted device_type must be exactly 'browser', got ${JSON.stringify(row!.device_type)}`).toBe(true);
+
+            // fix 3 — EXACT Private arm/model/runtime mapping: the persisted arm MUST equal the arm that actually
+            // ran, with a non-fallback model and a browser device. A runtime↔persisted arm mismatch fails.
+            const armVerdict = matchesPrivatePersistedArm({
+                runtimeProvider: runtimeIdentity.runtimeProvider, runtimeModelId: runtimeIdentity.modelId,
+                persistedEngine: row!.engine, persistedEngineVersion: row!.engine_version,
+                persistedModelName: row!.model_name, persistedDeviceType: row!.device_type,
+            });
+            expect(armVerdict.ok, `exact Private arm mapping: ${armVerdict.reason}`).toBe(true);
+
+            // fix 5 — the trusted verdict is the SERVER-recorded #1163 authority, NOT the advisory
+            // sessions.attribution_status. A clean Private run MUST have an attrib_v1 authority with class 'private'.
+            const { data: authority, error: aErr } = await admin
+                .from('session_attribution_authority')
+                .select('engine_class,authority_version')
+                .eq('session_id', persistedId).eq('user_id', capturedUid).single();
+            if (aErr) throw new Error(`authority-row query failed (fail closed): ${aErr.message}`);
+            expect(authority!.authority_version, 'server authority is attrib_v1').toBe('attrib_v1');
+            expect(authority!.engine_class, 'server authority engine_class=private').toBe('private');
+
+            preReloadSnapshot = contentSafeSessionSnapshot(row as Record<string, unknown>);
+            // Content-free evidence: NO identifiers. Booleans + release SHA + engine identity + authority verdict +
+            // provider-call count only.
             console.log(`PRIVATE_RECORDING_PROOF_EVIDENCE ${JSON.stringify({
-                release: EXPECT_RELEASE_SHA, engine: row!.engine,
-                engineVersion: row!.engine_version, deviceType: row!.device_type, attribution: row!.attribution_status,
+                release: EXPECT_RELEASE_SHA, engine: row!.engine, engineVersion: row!.engine_version,
+                deviceType: row!.device_type, runtimeArm: armVerdict.runtimeArm, persistedArm: armVerdict.persistedArm,
+                authorityVersion: authority!.authority_version, engineClass: authority!.engine_class,
                 transcriptPersisted: (row!.transcript ?? '').trim().length > 0, providerRequests: providerHits.length,
             })}`);
+        });
+
+        await test.step('fix 4 — HARD RELOAD: the exact session re-reads content-safe-equal, authority intact', async () => {
+            if (!admin) throw new Error('admin client required for reload readback (fail closed)');
+            // A hard reload re-boots the app from scratch (no in-memory state). The DEPLOYED build must re-read the
+            // SAME durable session on the exact SHA, with content-safe equality (measurements + identity, never raw
+            // transcript). No provider contact is permitted during the reload either.
+            await page.reload({ waitUntil: 'domcontentloaded' });
+            const reloadRelease = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null);
+            expect(reloadRelease, 'still the exact deployed SHA after reload').toBe(EXPECT_RELEASE_SHA);
+            const { data: reread, error } = await admin
+                .from('sessions')
+                .select('id,user_id,status,transcript,engine,engine_version,model_name,device_type')
+                .eq('id', persistedId).eq('user_id', capturedUid).single();
+            if (error) throw new Error(`post-reload re-read failed (fail closed): ${error.message}`);
+            const after = contentSafeSessionSnapshot(reread as Record<string, unknown>);
+            const eq = contentSafeSnapshotsEqual(preReloadSnapshot as Record<string, unknown>, after);
+            expect(eq.ok, `content-safe session equality across reload: ${eq.reason}`).toBe(true);
+            // the server authority survives the reload too
+            const { count: authCount, error: aErr } = await admin
+                .from('session_attribution_authority')
+                .select('session_id', { count: 'exact', head: true })
+                .eq('session_id', persistedId).eq('user_id', capturedUid);
+            if (aErr) throw new Error(`post-reload authority re-read failed (fail closed): ${aErr.message}`);
+            expect(authCount ?? 0, 'authority row persists across reload').toBe(1);
+            expect(providerHits, `no Cloud/provider contact during/after reload: ${providerHits.join(',')}`).toEqual([]);
         });
     });
 });
