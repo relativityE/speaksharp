@@ -7,10 +7,6 @@ on:
         description: 'Whether this use case is authorized to publish Edge Functions'
         type: boolean
         required: true
-      edge_changes_present:
-        description: 'Caller-detected Edge source/shared-config change'
-        type: boolean
-        required: true
       operation:
         description: 'Independent migration/secrets operation'
         type: string
@@ -44,13 +40,21 @@ jobs:
     outputs:
       deploy_edge_functions: ${{ steps.resolve.outputs.deploy_edge_functions }}
     steps:
+      - name: Checkout caller commit with comparison history
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
       - id: resolve
         name: Resolve and validate Edge deployment configuration
         env:
           CALLED_DEPLOY_EDGE: ${{ inputs.deploy_edge_functions }}
-          EDGE_CHANGES_PRESENT: ${{ inputs.edge_changes_present }}
           OPERATION: ${{ inputs.operation }}
           EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           deploy_edge="$CALLED_DEPLOY_EDGE"
@@ -60,9 +64,17 @@ jobs:
               migrations|secrets) deploy_edge=false ;;
               *) echo "::error::unsupported deployment operation: $OPERATION"; exit 1 ;;
             esac
-          fi
-          if [ "$EDGE_CHANGES_PRESENT" = 'true' ] && [ "$deploy_edge" != 'true' ]; then
-            echo '::error::Edge source/shared configuration changed but deploy_edge_functions=false'
+          elif [ "$EVENT_NAME" = 'push' ]; then
+            sha_re='^[0-9a-f]{40}$'
+            if [[ ! "$BEFORE_SHA" =~ $sha_re || ! "$HEAD_SHA" =~ $sha_re || "$BEFORE_SHA" =~ ^0+$ ]]; then
+              echo "::error::cannot establish a trustworthy push base/head comparison"
+              exit 1
+            fi
+            git cat-file -e "$BEFORE_SHA^{commit}" || { echo "::error::push base commit is unavailable"; exit 1; }
+            git cat-file -e "$HEAD_SHA^{commit}" || { echo "::error::push head commit is unavailable"; exit 1; }
+            git diff --name-only "$BEFORE_SHA" "$HEAD_SHA" | scripts/validate-edge-deploy-scope.sh "$deploy_edge"
+          else
+            echo "::error::unsupported caller event: $EVENT_NAME"
             exit 1
           fi
           echo "deploy_edge_functions=$deploy_edge" >> "$GITHUB_OUTPUT"

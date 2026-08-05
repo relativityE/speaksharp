@@ -18,6 +18,5 @@ jobs:
     uses: ./.github/workflows/deploy-supabase-migrations.yml
     with:
       deploy_edge_functions: true
-      edge_changes_present: true
       operation: edge-functions
     secrets: inherit

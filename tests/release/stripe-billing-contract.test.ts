@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const readRepoFile = (...parts: string[]) =>
   readFileSync(resolve(process.cwd(), ...parts), 'utf8');
@@ -20,16 +21,18 @@ describe('paid soft-launch billing contract', () => {
   it('parameterizes Edge deployment by explicit use case without coupling migrations', () => {
     const reusable = readRepoFile('.github', 'workflows', 'deploy-supabase-migrations.yml');
     const releaseCaller = readRepoFile('.github', 'workflows', 'deploy-supabase-edge-release.yml');
+    const scopeValidator = readRepoFile('scripts', 'validate-edge-deploy-scope.sh');
 
     expect(reusable).toMatch(/workflow_call:[\s\S]*deploy_edge_functions:[\s\S]*type: boolean[\s\S]*required: true/);
     expect(reusable).not.toMatch(/deploy_edge_functions:[\s\S]{0,120}default:/);
-    expect(reusable).toMatch(/Edge source\/shared configuration changed but deploy_edge_functions=false/);
+    expect(reusable).not.toMatch(/edge_changes_present:\s*[\s\S]{0,80}type: boolean/);
+    expect(scopeValidator).toMatch(/Edge source\/shared configuration changed but deploy_edge_functions=false/);
+    expect(reusable).toMatch(/git diff --name-only "\$BEFORE_SHA" "\$HEAD_SHA"/);
     expect(reusable).toMatch(/deploy-edge-functions:[\s\S]*needs: \[validate-edge-configuration, deploy-production-db\][\s\S]*deploy_edge_functions == 'true'/);
     expect(reusable).toMatch(/needs\.deploy-production-db\.result == 'success'/);
     expect(reusable).toMatch(/verify-edge-functions:[\s\S]*deploy_edge_functions == 'true'/);
     expect(releaseCaller).toMatch(/uses: \.\/\.github\/workflows\/deploy-supabase-migrations\.yml/);
     expect(releaseCaller).toMatch(/deploy_edge_functions: true/);
-    expect(releaseCaller).toMatch(/edge_changes_present: true/);
     expect(releaseCaller).toMatch(/backend\/supabase\/functions\/\*\*/);
     expect(releaseCaller).not.toMatch(/tests\/|docs\/|frontend\//);
 
@@ -37,6 +40,16 @@ describe('paid soft-launch billing contract', () => {
     expect(reusable).toMatch(/inputs\.operation == 'migrations'/);
     expect(reusable).toMatch(/inputs\.operation == 'secrets'/);
     expect(reusable).toMatch(/inputs\.confirm/);
+
+    const validate = (paths: string[], deployEdge: boolean) => spawnSync(
+      'bash',
+      [resolve(process.cwd(), 'scripts', 'validate-edge-deploy-scope.sh'), String(deployEdge)],
+      { input: `${paths.join('\n')}\n`, encoding: 'utf8' },
+    );
+    expect(validate(['backend/supabase/functions/get-ai-suggestions/index.ts'], false).status).toBe(1);
+    expect(validate(['backend/supabase/config.toml'], false).status).toBe(1);
+    expect(validate(['tests/unit/example.test.ts', 'docs/release.md', 'frontend/src/App.tsx'], false).status).toBe(0);
+    expect(validate(['backend/supabase/functions/get-ai-suggestions/index.ts'], true).status).toBe(0);
   });
 
   it('persists Stripe customer ids through the webhook RPC contract', () => {
