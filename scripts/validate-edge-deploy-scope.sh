@@ -11,7 +11,7 @@ edge_change=false
 while IFS= read -r changed_path; do
   [[ -z "$changed_path" ]] && continue
   case "$changed_path" in
-    backend/supabase/functions/*|backend/supabase/config.toml|backend/supabase/import_map.json|.github/workflows/deploy-supabase-migrations.yml|.github/workflows/deploy-supabase-edge-release.yml)
+    backend/supabase/functions/*|backend/supabase/config.toml|backend/supabase/import_map.json|.github/workflows/deploy-supabase-migrations.yml|.github/workflows/deploy-supabase-edge-release.yml|scripts/validate-edge-deploy-scope.sh)
       edge_change=true
       ;;
   esac

@@ -34,6 +34,7 @@ describe('paid soft-launch billing contract', () => {
     expect(releaseCaller).toMatch(/uses: \.\/\.github\/workflows\/deploy-supabase-migrations\.yml/);
     expect(releaseCaller).toMatch(/deploy_edge_functions: true/);
     expect(releaseCaller).toMatch(/backend\/supabase\/functions\/\*\*/);
+    expect(releaseCaller).toMatch(/scripts\/validate-edge-deploy-scope\.sh/);
     expect(releaseCaller).not.toMatch(/tests\/|docs\/|frontend\//);
 
     // Migration/secrets decisions remain tied to the explicit operation, not the Edge Boolean.
