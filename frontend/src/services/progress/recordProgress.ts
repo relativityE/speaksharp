@@ -381,7 +381,9 @@ export async function reconcileProgressEvaluations(
         }
         if (coveredIds.has(s.id)) continue;
         if (s.status !== 'completed') continue;
-        if (!isTerminalAttribution(s.attribution_status)) continue;
+        // #1161 (finding 5): do NOT pre-filter on the advisory sessions.attribution_status — attest no longer
+        // promotes it, so an attested session can read 'pending' here. record_progress_evaluation is the
+        // authoritative gate (it reads the server-owned attribution authority); let it decide eligibility.
         const created = typeof s.created_at === 'string' ? Date.parse(s.created_at) : NaN;
         if (!Number.isFinite(created) || created < eraStart) continue; // pre-activation — never backfilled
         const id = await recordProgressEvaluation(s.id);
