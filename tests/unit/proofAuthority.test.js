@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     isPrivateV2PersistedDeviceType, extractUidFromAuthStorage, isNotFoundError, isPrivateRuntimeIdentity,
-    privateArmFromRuntimeProvider, privateArmFromPersistedVersion, matchesPrivatePersistedArm,
+    matchesPrivatePersistedArm, composeEngineVersion, resolveRecoveryMatch,
     contentSafeSessionSnapshot, contentSafeSnapshotsEqual,
 } from '../live/helpers/proofAuthority.ts';
 
@@ -93,41 +93,65 @@ describe('#1151 proof-authority decisions (falsification)', () => {
     // 8. cleanup/persistence falsifications (persisted device_type, early-UID capture, 404-only deletion proof)
     //    are the sibling describe blocks above and remain green — unchanged by this P1 correction.
 
-    describe('fix 3 — exact Private v2/v4 arm/model/runtime mapping', () => {
-        it('maps runtime + persisted providers to the correct arm', () => {
-            expect(privateArmFromRuntimeProvider('transformers-js')).toBe('v2');
-            expect(privateArmFromRuntimeProvider('transformers-js-v4')).toBe('v4');
-            expect(privateArmFromRuntimeProvider('web-speech-api')).toBeNull();
-            expect(privateArmFromRuntimeProvider('assemblyai')).toBeNull();
-            expect(privateArmFromPersistedVersion('private_v2:base')).toBe('v2');
-            expect(privateArmFromPersistedVersion('transformers-js')).toBe('v2');
-            expect(privateArmFromPersistedVersion('private_v4:base_q4')).toBe('v4');
-            expect(privateArmFromPersistedVersion('')).toBeNull();
-        });
+    describe('fix 2 (RETURN) — EXACT Private v2/v4 identity via repository mappings (no regex/substring)', () => {
+        // the exact repository tuples: v2 = private_v2:whisper-base.en, v4 = private_v4:base_q4
         const v2 = {
-            runtimeProvider: 'transformers-js', runtimeModelId: 'base',
-            persistedEngine: 'private', persistedEngineVersion: 'private_v2:base',
-            persistedModelName: 'base', persistedDeviceType: 'browser',
+            runtimeProvider: 'transformers-js', runtimeModelId: 'Xenova/whisper-base.en',
+            persistedEngine: 'private', persistedEngineVersion: 'private_v2:whisper-base.en',
+            persistedModelName: 'whisper-base.en', persistedDeviceType: 'browser',
         };
-        it('accepts an exact v2 (and v4) runtime↔persisted match', () => {
-            expect(matchesPrivatePersistedArm(v2).ok).toBe(true);
-            expect(matchesPrivatePersistedArm({
-                runtimeProvider: 'transformers-js-v4', runtimeModelId: 'base_q4',
-                persistedEngine: 'private', persistedEngineVersion: 'private_v4:base_q4',
-                persistedModelName: 'base_q4', persistedDeviceType: 'browser',
-            }).ok).toBe(true);
+        const v4 = {
+            runtimeProvider: 'transformers-js-v4', runtimeModelId: 'onnx-community/whisper-base.en',
+            persistedEngine: 'private', persistedEngineVersion: 'private_v4:base_q4',
+            persistedModelName: 'base_q4', persistedDeviceType: 'browser',
+        };
+        it('composeEngineVersion matches the app buildEngineVersion format', () => {
+            expect(composeEngineVersion('private_v2', 'whisper-base.en')).toBe('private_v2:whisper-base.en');
+            expect(composeEngineVersion('private_v4', 'base_q4')).toBe('private_v4:base_q4');
         });
-        it('REJECTS an arm mismatch (runtime v4 persisted v2, and vice-versa)', () => {
+        it('accepts the EXACT v2 and v4 repository tuples', () => {
+            expect(matchesPrivatePersistedArm(v2)).toMatchObject({ ok: true, arm: 'v2' });
+            expect(matchesPrivatePersistedArm(v4)).toMatchObject({ ok: true, arm: 'v4' });
+        });
+        it('REJECTS substring/near-miss engine_version — only EXACT `${variant}:${model}` passes', () => {
+            expect(matchesPrivatePersistedArm({ ...v2, persistedEngineVersion: 'private_v2:whisper-base.en-extra' }).ok).toBe(false);
+            expect(matchesPrivatePersistedArm({ ...v2, persistedEngineVersion: 'x-private_v2:whisper-base.en' }).ok).toBe(false);
+            expect(matchesPrivatePersistedArm({ ...v2, persistedEngineVersion: 'transformers-js' }).ok).toBe(false); // the OLD loose value
+            expect(matchesPrivatePersistedArm({ ...v2, persistedEngineVersion: 'private_v2:whisper-small.en' }).ok).toBe(false); // model≠engine_version model
+        });
+        it('REJECTS an arm mismatch (runtime v4 ↔ persisted v2, and vice-versa)', () => {
             expect(matchesPrivatePersistedArm({ ...v2, runtimeProvider: 'transformers-js-v4' }).ok).toBe(false);
-            expect(matchesPrivatePersistedArm({ ...v2, persistedEngineVersion: 'private_v4:base_q4' }).ok).toBe(false);
+            expect(matchesPrivatePersistedArm({ ...v4, runtimeProvider: 'transformers-js' }).ok).toBe(false);
         });
-        it('REJECTS a tiny/blank model, a non-browser device, a non-private engine, or a non-Private runtime', () => {
-            expect(matchesPrivatePersistedArm({ ...v2, persistedModelName: 'whisper-tiny.en' }).ok).toBe(false);
-            expect(matchesPrivatePersistedArm({ ...v2, runtimeModelId: 'whisper-tiny.en' }).ok).toBe(false);
-            expect(matchesPrivatePersistedArm({ ...v2, persistedModelName: '' }).ok).toBe(false);
+        it('REJECTS the tiny fallback, an unknown model, a non-browser device, a non-private engine, a non-Private runtime', () => {
+            expect(matchesPrivatePersistedArm({ ...v2, persistedEngineVersion: 'private_v2:whisper-tiny.en', persistedModelName: 'whisper-tiny.en' }).ok).toBe(false);
+            expect(matchesPrivatePersistedArm({ ...v2, runtimeModelId: 'Xenova/whisper-tiny.en' }).ok).toBe(false);
+            expect(matchesPrivatePersistedArm({ ...v2, persistedEngineVersion: 'private_v2:mystery', persistedModelName: 'mystery' }).ok).toBe(false);
             expect(matchesPrivatePersistedArm({ ...v2, persistedDeviceType: 'wasm' }).ok).toBe(false);
             expect(matchesPrivatePersistedArm({ ...v2, persistedEngine: 'native' }).ok).toBe(false);
             expect(matchesPrivatePersistedArm({ ...v2, runtimeProvider: 'web-speech-api' }).ok).toBe(false);
+            expect(matchesPrivatePersistedArm({ ...v2, runtimeProvider: 'assemblyai' }).ok).toBe(false);
+        });
+    });
+
+    describe('fix 1 (RETURN) — bounded recovery match decision (zero/one/ambiguous/not-run-owned)', () => {
+        const P = 'private-proof-';
+        const mk = (email, id = 'u') => ({ id, email });
+        it('ZERO when no user matches the exact email (→ caller retries / persistent-zero fails)', () => {
+            expect(resolveRecoveryMatch([], 'private-proof-x@example.com', P).status).toBe('zero');
+            expect(resolveRecoveryMatch([mk('other@example.com')], 'private-proof-x@example.com', P).status).toBe('zero');
+        });
+        it('ONE returns the uid for a unique run-owned exact match (zero→one transition)', () => {
+            const users = [mk('private-proof-x@example.com', 'uid-9'), mk('someone@example.com', 'z')];
+            expect(resolveRecoveryMatch(users, 'private-proof-x@example.com', P)).toEqual({ status: 'one', uid: 'uid-9' });
+        });
+        it('AMBIGUOUS when more than one user shares the exact email (fail closed)', () => {
+            const users = [mk('private-proof-x@example.com', 'a'), mk('PRIVATE-PROOF-X@example.com', 'b')];
+            expect(resolveRecoveryMatch(users, 'private-proof-x@example.com', P)).toEqual({ status: 'ambiguous', count: 2 });
+        });
+        it('NOT_RUN_OWNED when the sole exact match is not a run-owned account (refuse to delete)', () => {
+            const users = [mk('real-customer@example.com', 'c')];
+            expect(resolveRecoveryMatch(users, 'real-customer@example.com', P)).toMatchObject({ status: 'not_run_owned' });
         });
     });
 

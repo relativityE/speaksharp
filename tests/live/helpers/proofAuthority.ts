@@ -51,56 +51,78 @@ export function isNotFoundError(error: { status?: number; code?: string; message
     return /user_not_found|not[_\s-]?found|does not exist|no user/i.test(s);
 }
 
-/**
- * The Private engine arm ('v2' | 'v4') implied by an INSTANTIATED runtime provider, or null if the provider is
- * not the on-device Transformers.js family. v2 = exactly `transformers-js`; v4 = exactly `transformers-js-v4`.
- */
-export function privateArmFromRuntimeProvider(runtimeProvider: unknown): 'v2' | 'v4' | null {
-    const p = String(runtimeProvider ?? '').toLowerCase();
-    if (p === 'transformers-js') return 'v2';
-    if (p === 'transformers-js-v4') return 'v4';
-    return null;
-}
+// ── fix 2 (RETURN) — EXACT repository identity mappings; no substring/regex acceptance ───────────────────────
+// Mirror the app's own durable identity: PrivateSTT.getMetadata() sets engine_variant from the engine type and
+// buildEngineVersion() composes `${variant}:${model}`. These dictionaries ARE the repository mappings, checked by
+// exact value.
+export const PRIVATE_VARIANT_BY_RUNTIME_PROVIDER = Object.freeze({
+    'transformers-js': 'private_v2',
+    'transformers-js-v4': 'private_v4',
+} as const);
+// The non-fallback persisted models per arm (whisper-tiny.en is the v2 EMERGENCY fallback and must never persist;
+// v4 has no tiny variant). Exact membership, not a regex.
+export const PRIVATE_MODELS_BY_ARM = Object.freeze({
+    private_v2: Object.freeze(['whisper-base.en', 'whisper-small.en'] as const),
+    private_v4: Object.freeze(['base_q4', 'distil_q4'] as const),
+});
+export const PRIVATE_V2_FALLBACK_MODEL = 'whisper-tiny.en';
 
-/** The Private engine arm implied by a PERSISTED engine_version string, or null if it is not a Private arm. */
-export function privateArmFromPersistedVersion(engineVersion: unknown): 'v2' | 'v4' | null {
-    const v = String(engineVersion ?? '').toLowerCase();
-    if (v.trim() === '') return null;
-    if (/v4/.test(v)) return 'v4';
-    if (/transformers-js|private|v2/.test(v)) return 'v2';
-    return null;
-}
+/** Exact `engine_version` composition, identical to the app's buildEngineVersion(). */
+export function composeEngineVersion(variant: string, model: string): string { return `${variant}:${model}`; }
+
+type PrivateVariant = keyof typeof PRIVATE_MODELS_BY_ARM;
 
 /**
- * EXACT Private arm/model/runtime mapping (P1 fix 3): the persisted row's arm MUST equal the arm of the engine
- * that actually ran, the persisted model must be the non-fallback default, and the device must be exactly
- * 'browser'. A runtime-v4 run persisted as v2 (or vice-versa), a tiny/fallback model, or a non-browser device
- * are all rejected. Content-safe: compares arms + a tiny-model guard, never raw transcript.
+ * EXACT Private v2/v4 identity mapping (RETURN item 2). Uses the repository dictionaries + exact string equality —
+ * NO substring/regex acceptance. Requires ALL:
+ *   - the INSTANTIATED runtime provider maps to a known arm variant (`transformers-js`→`private_v2`,
+ *     `transformers-js-v4`→`private_v4`);
+ *   - the persisted `engine_version` is EXACTLY `${variant}:${model}` where variant equals the runtime's arm
+ *     (so a runtime-v4 run persisted as v2, or vice-versa, is rejected) and model EXACTLY equals `model_name`;
+ *   - `model_name` is an EXACT member of that arm's non-fallback model set (and is NOT `whisper-tiny.en`);
+ *   - the running model id is present and not the tiny fallback (liveness; the HF model path differs from the
+ *     persisted variant name, so it is NOT equated to `model_name`);
+ *   - `engine` is EXACTLY 'private' and `device_type` is EXACTLY 'browser'.
  */
 export function matchesPrivatePersistedArm(input: {
     runtimeProvider?: unknown; runtimeModelId?: unknown;
     persistedEngine?: unknown; persistedEngineVersion?: unknown; persistedModelName?: unknown; persistedDeviceType?: unknown;
-}): { ok: boolean; runtimeArm: 'v2' | 'v4' | null; persistedArm: 'v2' | 'v4' | null; reason: string } {
-    const runtimeArm = privateArmFromRuntimeProvider(input.runtimeProvider);
-    const persistedArm = privateArmFromPersistedVersion(input.persistedEngineVersion);
-    const engine = String(input.persistedEngine ?? '').toLowerCase();
+}): { ok: boolean; arm: 'v2' | 'v4' | null; expectedEngineVersion: string | null; reason: string } {
+    const provider = String(input.runtimeProvider ?? '');
+    const variant = (PRIVATE_VARIANT_BY_RUNTIME_PROVIDER as Record<string, PrivateVariant>)[provider] ?? null;
+    const arm = variant === 'private_v2' ? 'v2' : variant === 'private_v4' ? 'v4' : null;
     const model = String(input.persistedModelName ?? '');
-    const runtimeModel = String(input.runtimeModelId ?? '').toLowerCase();
-    const enginePrivate = engine.includes('private') || /transformers-js/.test(engine);
-    const modelNonFallback = model.trim() !== '' && !/tiny/i.test(model);
-    const runtimeNonFallback = runtimeModel === '' || !/tiny/.test(runtimeModel);
-    const isBrowserDevice = input.persistedDeviceType === 'browser';
-    const armsAgree = runtimeArm !== null && persistedArm !== null && runtimeArm === persistedArm;
-    const ok = armsAgree && enginePrivate && modelNonFallback && runtimeNonFallback && isBrowserDevice;
-    const reason = ok ? ''
-        : runtimeArm === null ? `runtime provider is not a Private arm (${JSON.stringify(input.runtimeProvider)})`
-            : persistedArm === null ? `persisted engine_version is not a Private arm (${JSON.stringify(input.persistedEngineVersion)})`
-                : !armsAgree ? `arm mismatch: runtime=${runtimeArm} persisted=${persistedArm}`
-                    : !enginePrivate ? `persisted engine is not Private (${JSON.stringify(input.persistedEngine)})`
-                        : !modelNonFallback ? `persisted model is blank or the tiny fallback (${JSON.stringify(model)})`
-                            : !runtimeNonFallback ? `runtime model is the tiny fallback (${runtimeModel})`
-                                : `persisted device_type must be 'browser' (${JSON.stringify(input.persistedDeviceType)})`;
-    return { ok, runtimeArm, persistedArm, reason };
+    const engineVersion = String(input.persistedEngineVersion ?? '');
+    const runtimeModel = String(input.runtimeModelId ?? '');
+    const expectedEngineVersion = variant ? composeEngineVersion(variant, model) : null;
+    if (variant === null) return { ok: false, arm, expectedEngineVersion, reason: `runtime provider ${JSON.stringify(input.runtimeProvider)} is not a known Private arm` };
+    if (model === PRIVATE_V2_FALLBACK_MODEL) return { ok: false, arm, expectedEngineVersion, reason: `persisted model is the tiny fallback (${model})` };
+    if (!(PRIVATE_MODELS_BY_ARM[variant] as readonly string[]).includes(model)) return { ok: false, arm, expectedEngineVersion, reason: `model_name ${JSON.stringify(model)} is not an exact ${variant} model` };
+    if (engineVersion !== expectedEngineVersion) return { ok: false, arm, expectedEngineVersion, reason: `engine_version ${JSON.stringify(engineVersion)} != exact ${JSON.stringify(expectedEngineVersion)}` };
+    if (runtimeModel === '' || runtimeModel.split('/').pop() === PRIVATE_V2_FALLBACK_MODEL) return { ok: false, arm, expectedEngineVersion, reason: `running model is absent or the tiny fallback (${JSON.stringify(input.runtimeModelId)})` };
+    if (input.persistedEngine !== 'private') return { ok: false, arm, expectedEngineVersion, reason: `engine must be exactly 'private' (${JSON.stringify(input.persistedEngine)})` };
+    if (input.persistedDeviceType !== 'browser') return { ok: false, arm, expectedEngineVersion, reason: `device_type must be exactly 'browser' (${JSON.stringify(input.persistedDeviceType)})` };
+    return { ok: true, arm, expectedEngineVersion, reason: '' };
+}
+
+/**
+ * Bounded cleanup-recovery decision (RETURN item 1) over a FULLY-paginated user list. Given all listed users, the
+ * exact created email (lowercased), and the run-owned email prefix, returns the deterministic verdict for one
+ * poll attempt: 'one' (unique run-owned match → uid), 'zero' (retry), 'ambiguous' (>1 → fail closed), or
+ * 'not_run_owned' (the sole match is not a run-owned account → refuse to delete). The caller polls on 'zero' up
+ * to a bound and fails on persistent 'zero'.
+ */
+export function resolveRecoveryMatch(
+    users: Array<{ id?: string; email?: string | null }>, createdEmailLower: string, runOwnedPrefix: string,
+): { status: 'one'; uid: string } | { status: 'zero' } | { status: 'ambiguous'; count: number } | { status: 'not_run_owned'; email: string | null } {
+    const matches = (users ?? []).filter((u) => (u?.email ?? '').toLowerCase() === createdEmailLower);
+    if (matches.length === 0) return { status: 'zero' };
+    if (matches.length > 1) return { status: 'ambiguous', count: matches.length };
+    const only = matches[0];
+    const email = only?.email ?? null;
+    if (!(email ?? '').toLowerCase().startsWith(runOwnedPrefix)) return { status: 'not_run_owned', email };
+    if (!only?.id) return { status: 'zero' };
+    return { status: 'one', uid: only.id };
 }
 
 /**

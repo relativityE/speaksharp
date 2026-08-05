@@ -12,7 +12,7 @@ import {
 import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
 import {
     isPrivateV2PersistedDeviceType, extractUidFromAuthStorage, isNotFoundError, isPrivateRuntimeIdentity,
-    matchesPrivatePersistedArm, contentSafeSessionSnapshot, contentSafeSnapshotsEqual,
+    matchesPrivatePersistedArm, contentSafeSessionSnapshot, contentSafeSnapshotsEqual, resolveRecoveryMatch,
 } from './helpers/proofAuthority';
 
 // #1089 / #1129 — exact-production-SHA Private recording proof (rigorous).
@@ -79,18 +79,31 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
         // missing but an email was attempted, recover it by an EXACT-email, unique-result admin lookup
         // (pagination/errors fail closed) so the account is never orphaned.
         if (!capturedUid) {
-            let matches: Array<{ id: string; email?: string | null }> = [];
-            for (let p = 1; p <= 50; p++) {
-                const { data, error } = await admin.auth.admin.listUsers({ page: p, perPage: 200 });
-                if (error) throw new Error(`cleanup recovery listUsers failed (fail closed): ${error.message}`);
-                const users = data?.users ?? [];
-                matches = matches.concat(users.filter((u) => u.email?.toLowerCase() === createdEmail.toLowerCase()));
-                if (users.length < 200) break;
+            // fix 1 (RETURN) — bounded full-pagination recovery POLLING. Each attempt FULLY paginates the user
+            // list, then resolveRecoveryMatch decides: 'one' (uid), 'ambiguous'/'not_run_owned' (fail closed), or
+            // 'zero' (retry — eventual consistency after signup). Persistent 'zero' across the bound FAILS CLOSED
+            // (never silently give up and orphan a just-created account).
+            const emailLower = createdEmail.toLowerCase();
+            const RUN_PREFIX = 'private-proof-';
+            const MAX_ATTEMPTS = 12;
+            let recovered = '';
+            for (let attempt = 1; attempt <= MAX_ATTEMPTS && !recovered; attempt++) {
+                const all: Array<{ id?: string; email?: string | null }> = [];
+                for (let p = 1; p <= 50; p++) {
+                    const { data, error } = await admin.auth.admin.listUsers({ page: p, perPage: 200 });
+                    if (error) throw new Error(`cleanup recovery listUsers failed (fail closed): ${error.message}`);
+                    const users = data?.users ?? [];
+                    all.push(...users);
+                    if (users.length < 200) break; // last page
+                }
+                const verdict = resolveRecoveryMatch(all, emailLower, RUN_PREFIX);
+                if (verdict.status === 'one') { recovered = verdict.uid; break; }
+                if (verdict.status === 'ambiguous') throw new Error(`cleanup recovery found ${verdict.count} accounts for the run email — refusing ambiguous delete (fail closed)`);
+                if (verdict.status === 'not_run_owned') throw new Error(`recovered account is not run-owned (${verdict.email}) — refusing to delete`);
+                if (attempt < MAX_ATTEMPTS) await new Promise((r) => setTimeout(r, 1000)); // 'zero' → back off + retry
             }
-            if (matches.length === 0) return; // signup did not create an account — nothing to clean
-            if (matches.length > 1) throw new Error(`cleanup recovery found ${matches.length} accounts for the run email — refusing ambiguous delete (fail closed)`);
-            if (!/^private-proof-/.test(createdEmail.toLowerCase())) throw new Error(`recovered account is not run-owned (${createdEmail}) — refusing to delete`);
-            capturedUid = matches[0].id;
+            if (!recovered) throw new Error(`cleanup recovery exhausted ${MAX_ATTEMPTS} attempts with no account for the run email (fail closed — possible orphan)`);
+            capturedUid = recovered;
         }
         const { data: got, error: getErr } = await admin.auth.admin.getUserById(capturedUid);
         if (getErr) throw new Error(`cleanup getUserById failed (fail closed): ${getErr.message}`);
@@ -259,14 +272,15 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             expect(String(row!.engine).toLowerCase(), 'engine=private').toContain('private');
             expect(isPrivateV2PersistedDeviceType(row!.device_type), `Private persisted device_type must be exactly 'browser', got ${JSON.stringify(row!.device_type)}`).toBe(true);
 
-            // fix 3 — EXACT Private arm/model/runtime mapping: the persisted arm MUST equal the arm that actually
-            // ran, with a non-fallback model and a browser device. A runtime↔persisted arm mismatch fails.
+            // fix 2/3 (RETURN) — EXACT Private v2/v4 identity via the repository dictionaries + exact string
+            // equality (engine_version === `${variant}:${model}`, model ∈ the arm's exact set, engine==='private',
+            // device==='browser'); a runtime↔persisted arm mismatch or a tiny/fallback model fails.
             const armVerdict = matchesPrivatePersistedArm({
                 runtimeProvider: runtimeIdentity.runtimeProvider, runtimeModelId: runtimeIdentity.modelId,
                 persistedEngine: row!.engine, persistedEngineVersion: row!.engine_version,
                 persistedModelName: row!.model_name, persistedDeviceType: row!.device_type,
             });
-            expect(armVerdict.ok, `exact Private arm mapping: ${armVerdict.reason}`).toBe(true);
+            expect(armVerdict.ok, `exact Private identity mapping: ${armVerdict.reason}`).toBe(true);
 
             // fix 5 — the trusted verdict is the SERVER-recorded #1163 authority, NOT the advisory
             // sessions.attribution_status. A clean Private run MUST have an attrib_v1 authority with class 'private'.
@@ -283,20 +297,25 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             // provider-call count only.
             console.log(`PRIVATE_RECORDING_PROOF_EVIDENCE ${JSON.stringify({
                 release: EXPECT_RELEASE_SHA, engine: row!.engine, engineVersion: row!.engine_version,
-                deviceType: row!.device_type, runtimeArm: armVerdict.runtimeArm, persistedArm: armVerdict.persistedArm,
+                deviceType: row!.device_type, arm: armVerdict.arm, expectedEngineVersion: armVerdict.expectedEngineVersion,
                 authorityVersion: authority!.authority_version, engineClass: authority!.engine_class,
                 transcriptPersisted: (row!.transcript ?? '').trim().length > 0, providerRequests: providerHits.length,
             })}`);
         });
 
-        await test.step('fix 4 — HARD RELOAD: the exact session re-reads content-safe-equal, authority intact', async () => {
-            if (!admin) throw new Error('admin client required for reload readback (fail closed)');
-            // A hard reload re-boots the app from scratch (no in-memory state). The DEPLOYED build must re-read the
-            // SAME durable session on the exact SHA, with content-safe equality (measurements + identity, never raw
-            // transcript). No provider contact is permitted during the reload either.
+        await test.step('fix 3 (RETURN) — customer-UI REOPEN of the exact session, HARD RELOAD, content-safe equal', async () => {
+            if (!admin) throw new Error('admin client required for reopen readback (fail closed)');
+            // Reopen the EXACT session through the CUSTOMER UI — the History/Analytics detail route a user visits.
+            await page.goto(`/analytics/${persistedId}`);
+            await expect(page).toHaveURL(new RegExp(`/analytics/${persistedId}`), { timeout: 45_000 });
+            await expect(page.getByTestId('session-detail-transcript'), 'the exact session reopens in the customer UI').toBeVisible({ timeout: 45_000 });
+            // HARD RELOAD: the deployed build re-boots from scratch and must re-read the SAME durable session on the
+            // exact SHA — the detail survives, and the DB re-read is content-safe-equal (measurements + identity;
+            // transcript LENGTH only, never raw text). No provider contact permitted during reopen/reload.
             await page.reload({ waitUntil: 'domcontentloaded' });
             const reloadRelease = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null);
             expect(reloadRelease, 'still the exact deployed SHA after reload').toBe(EXPECT_RELEASE_SHA);
+            await expect(page.getByTestId('session-detail-transcript'), 'the session detail survives a hard reload').toBeVisible({ timeout: 45_000 });
             const { data: reread, error } = await admin
                 .from('sessions')
                 .select('id,user_id,status,transcript,engine,engine_version,model_name,device_type')
@@ -304,15 +323,14 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             if (error) throw new Error(`post-reload re-read failed (fail closed): ${error.message}`);
             const after = contentSafeSessionSnapshot(reread as Record<string, unknown>);
             const eq = contentSafeSnapshotsEqual(preReloadSnapshot as Record<string, unknown>, after);
-            expect(eq.ok, `content-safe session equality across reload: ${eq.reason}`).toBe(true);
-            // the server authority survives the reload too
+            expect(eq.ok, `content-safe session equality across reopen+reload: ${eq.reason}`).toBe(true);
             const { count: authCount, error: aErr } = await admin
                 .from('session_attribution_authority')
                 .select('session_id', { count: 'exact', head: true })
                 .eq('session_id', persistedId).eq('user_id', capturedUid);
             if (aErr) throw new Error(`post-reload authority re-read failed (fail closed): ${aErr.message}`);
-            expect(authCount ?? 0, 'authority row persists across reload').toBe(1);
-            expect(providerHits, `no Cloud/provider contact during/after reload: ${providerHits.join(',')}`).toEqual([]);
+            expect(authCount ?? 0, 'authority row persists across reopen+reload').toBe(1);
+            expect(providerHits, `no Cloud/provider contact during reopen/reload: ${providerHits.join(',')}`).toEqual([]);
         });
     });
 });
