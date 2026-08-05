@@ -34,8 +34,9 @@ describe('paid soft-launch billing contract', () => {
     expect(releaseCaller).toMatch(/uses: \.\/\.github\/workflows\/deploy-supabase-migrations\.yml/);
     expect(releaseCaller).toMatch(/deploy_edge_functions: true/);
     expect(releaseCaller).toMatch(/backend\/supabase\/functions\/\*\*/);
-    expect(releaseCaller).toMatch(/scripts\/validate-edge-deploy-scope\.sh/);
     expect(releaseCaller).not.toMatch(/tests\/|docs\/|frontend\//);
+    expect(releaseCaller).not.toMatch(/- ['"]\.github\/workflows\//);
+    expect(releaseCaller).not.toMatch(/- ['"]scripts\/validate-edge-deploy-scope\.sh/);
 
     // Migration/secrets decisions remain tied to the explicit operation, not the Edge Boolean.
     expect(reusable).toMatch(/inputs\.operation == 'migrations'/);
@@ -49,8 +50,19 @@ describe('paid soft-launch billing contract', () => {
     );
     expect(validate(['backend/supabase/functions/get-ai-suggestions/index.ts'], false).status).toBe(1);
     expect(validate(['backend/supabase/config.toml'], false).status).toBe(1);
-    expect(validate(['tests/unit/example.test.ts', 'docs/release.md', 'frontend/src/App.tsx'], false).status).toBe(0);
+    expect(validate(['backend/supabase/import_map.json'], false).status).toBe(1);
+    expect(validate([
+      'tests/unit/example.test.ts',
+      'docs/release.md',
+      'frontend/src/App.tsx',
+      '.github/workflows/deploy-supabase-migrations.yml',
+      '.github/workflows/deploy-supabase-edge-release.yml',
+      'scripts/validate-edge-deploy-scope.sh',
+    ], false).status).toBe(0);
     expect(validate(['backend/supabase/functions/get-ai-suggestions/index.ts'], true).status).toBe(0);
+
+    expect(reusable.match(/supabase functions deploy attest-session-engine /g)).toHaveLength(1);
+    expect(reusable.match(/for function_name in[^\n]*attest-session-engine/g)).toHaveLength(1);
   });
 
   it('persists Stripe customer ids through the webhook RPC contract', () => {

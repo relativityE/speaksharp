@@ -7,9 +7,6 @@ on:
       - 'backend/supabase/functions/**'
       - 'backend/supabase/config.toml'
       - 'backend/supabase/import_map.json'
-      - '.github/workflows/deploy-supabase-migrations.yml'
-      - '.github/workflows/deploy-supabase-edge-release.yml'
-      - 'scripts/validate-edge-deploy-scope.sh'
 
 permissions:
   contents: read
