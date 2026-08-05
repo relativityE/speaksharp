@@ -13,13 +13,26 @@ const recoveryFile = process.env.PROOF_RECOVERY_FILE ?? `${evidenceDir}/account-
 if (!url || !serviceRole) throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required');
 if (!/^[a-z0-9-]{8,80}$/i.test(runId)) throw new Error('PROOF_RUN_ID must be a bounded opaque token');
 
+const email = `u3-${runId}@proof.invalid`;
 const admin = createClient(url, serviceRole, { auth: { autoRefreshToken: false, persistSession: false } });
+// Every table a proof account can own on the deployed Progress path. The CASCADE-FK tables it also
+// populates (usage_checkpoints, active_recording_lease, user_goals, custom_vocabulary) are removed
+// automatically by deleteUser() and so are gone-by-construction; only tables that survive a user delete
+// need explicit teardown + residue readback here.
+//   - `ownerColumn` drives the explicit DELETE (always keyed on user_id/id, run BEFORE deleteUser).
+//   - `residueColumn`/`residueValue`, when present, drive the zero-residue COUNT for a table whose FK is
+//     ON DELETE SET NULL: deleteUser() only NULLs the column and leaves the row, so counting by user_id
+//     afterwards would falsely read clean — the surviving row must be verified by its stable key instead.
 const tables = [
   { name: 'progress_recommendation_attempts', ownerColumn: 'user_id' },
   { name: 'progress_recommendations', ownerColumn: 'user_id' },
   { name: 'session_progress_evaluations', ownerColumn: 'user_id' },
   { name: 'sessions', ownerColumn: 'user_id' },
   { name: 'user_profiles', ownerColumn: 'id' },
+  // trial_entitlements: the on_auth_user_created_trial_profile trigger inserts one row per created account,
+  // and its user_id FK is ON DELETE SET NULL — deleteUser() orphans (does not remove) the row. Delete it by
+  // user_id before deleteUser, and verify residue by the deterministic email PK.
+  { name: 'trial_entitlements', ownerColumn: 'user_id', residueColumn: 'email', residueValue: email },
 ];
 
 function appendEnv(name, value) {
@@ -33,14 +46,13 @@ function persistEvidence(payload) {
   writeFileSync(`${evidenceDir}/account-lifecycle.json`, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
 }
 
-async function count(table, ownerColumn, userId) {
-  const { count: value, error } = await admin.from(table).select('*', { count: 'exact', head: true }).eq(ownerColumn, userId);
-  if (error) throw new Error(`${table}.${ownerColumn} count failed: ${error.message}`);
-  return value ?? 0;
+async function count(table, column, value) {
+  const { count: cnt, error } = await admin.from(table).select('*', { count: 'exact', head: true }).eq(column, value);
+  if (error) throw new Error(`${table}.${column} count failed: ${error.message}`);
+  return cnt ?? 0;
 }
 
 async function create() {
-  const email = `u3-${runId}@proof.invalid`;
   const password = `U3!${randomBytes(24).toString('base64url')}`;
   const { data, error } = await admin.auth.admin.createUser({
     email,
@@ -62,7 +74,6 @@ async function create() {
 }
 
 async function cleanup() {
-  const email = `u3-${runId}@proof.invalid`;
   let userId = (process.env.PROOF_USER_ID ?? '').trim();
   if (!/^[0-9a-f-]{36}$/i.test(userId)) {
     for (let page = 1; page <= 10 && !userId; page++) {
@@ -74,7 +85,11 @@ async function cleanup() {
   }
   if (!/^[0-9a-f-]{36}$/i.test(userId)) throw new Error(`run-owned proof account not found for ${runId}`);
 
-  const before = Object.fromEntries(await Promise.all(tables.map(async ({ name, ownerColumn }) => [name, await count(name, ownerColumn, userId)])));
+  // Residue is verified by the stable key: user_id for CASCADE/NOT-NULL owners, or residueColumn (email)
+  // for SET-NULL owners whose row survives deleteUser().
+  const residueCol = (t) => t.residueColumn ?? t.ownerColumn;
+  const residueVal = (t) => t.residueValue ?? userId;
+  const before = Object.fromEntries(await Promise.all(tables.map(async (t) => [t.name, await count(t.name, residueCol(t), residueVal(t))])));
   for (const { name, ownerColumn } of tables) {
     const { error } = await admin.from(name).delete().eq(ownerColumn, userId);
     if (error) throw new Error(`${name} cleanup failed: ${error.message}`);
@@ -82,7 +97,7 @@ async function cleanup() {
   const { error: deleteUserError } = await admin.auth.admin.deleteUser(userId);
   if (deleteUserError) throw new Error(`auth cleanup failed: ${deleteUserError.message}`);
 
-  const after = Object.fromEntries(await Promise.all(tables.map(async ({ name, ownerColumn }) => [name, await count(name, ownerColumn, userId)])));
+  const after = Object.fromEntries(await Promise.all(tables.map(async (t) => [t.name, await count(t.name, residueCol(t), residueVal(t))])));
   if (Object.values(after).some((value) => value !== 0)) throw new Error(`zero-residue check failed: ${JSON.stringify(after)}`);
   const { data: deletedAuth, error: authReadError } = await admin.auth.admin.getUserById(userId);
   if (authReadError && !/not found/i.test(authReadError.message)) throw new Error(`auth zero-residue readback failed: ${authReadError.message}`);
