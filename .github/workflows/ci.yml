@@ -226,7 +226,10 @@ jobs:
             echo "::error::unit-shard was skipped or cancelled; skipping coverage merge"
             exit 1
           fi
-          # We allow continuing even if UNIT_RESULT == "failure" to merge coverage and metrics
+          if [[ "$UNIT_RESULT" == "failure" ]]; then
+            echo "::error::unit-shard failed; skipping coverage merge to fail pipeline properly"
+            exit 1
+          fi
 
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -243,6 +246,9 @@ jobs:
           path: artifacts/coverage
           pattern: 'unit-artifacts-*'
           merge-multiple: true
+
+      - name: Code Quality Gate
+        run: pnpm quality
 
       - name: Run Coverage Merge
         run: pnpm ci:unit:merge

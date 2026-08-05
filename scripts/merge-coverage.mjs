@@ -104,3 +104,69 @@ if (metricsMergedCount > 0) {
 } else {
     console.warn('No unit-metrics files were merged!');
 }
+
+// --- Coverage Threshold Enforcement ---
+const summaryPath = path.join(coverageDir, 'coverage-summary.json');
+if (fs.existsSync(summaryPath)) {
+    const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
+
+    const thresholds = {
+        global: {
+            statements: 75,
+            branches: 75,
+            functions: 75,
+            lines: 75,
+        },
+        files: {
+            'frontend/src/services/transcription/ModelManager.ts': { statements: 75, branches: 75, functions: 70, lines: 75 },
+            'frontend/src/services/transcription/engines/transformers-js.worker.ts': { statements: 80, branches: 60, functions: 75, lines: 80 },
+            'frontend/src/services/transcription/modes/NativeBrowser.ts': { statements: 55, branches: 45, functions: 40, lines: 55 },
+            'frontend/src/services/transcription/modes/nativeBrowserStrategies.ts': { statements: 90, branches: 85, functions: 90, lines: 90 },
+            'frontend/src/services/transcription/utils/AudioProcessor.ts': { statements: 65, branches: 85, functions: 75, lines: 65 },
+            'frontend/src/services/transcription/utils/audio-processor.worker.ts': { statements: 60, branches: 80, functions: 75, lines: 60 },
+            'frontend/src/utils/sessionAnalysis.ts': { statements: 80, branches: 65, functions: 70, lines: 80 },
+            'frontend/src/utils/fillerWordUtils.ts': { statements: 75, branches: 90, functions: 65, lines: 75 },
+        }
+    };
+
+    let failed = false;
+
+    // Check global thresholds
+    const total = summary.total || {};
+    for (const key of ['statements', 'branches', 'functions', 'lines']) {
+        const actual = total[key] ? total[key].pct : 0;
+        const expected = thresholds.global[key];
+        if (actual < expected) {
+            console.error(`ERROR: Coverage for ${key} (${actual}%) does not meet global threshold (${expected}%)`);
+            failed = true;
+        }
+    }
+
+    // Check per-file thresholds
+    for (const [filePart, fileThresholds] of Object.entries(thresholds.files)) {
+        // Find matching file in summary since paths in summary might be absolute
+        const matchingKey = Object.keys(summary).find(k => k.includes(filePart));
+        if (matchingKey) {
+            const fileSummary = summary[matchingKey];
+            for (const key of ['statements', 'branches', 'functions', 'lines']) {
+                const actual = fileSummary[key] ? fileSummary[key].pct : 0;
+                const expected = fileThresholds[key];
+                if (actual < expected) {
+                    console.error(`ERROR: Coverage for ${key} in ${filePart} (${actual}%) does not meet threshold (${expected}%)`);
+                    failed = true;
+                }
+            }
+        } else {
+            console.warn(`WARNING: Could not find ${filePart} in coverage summary to enforce file-specific thresholds.`);
+        }
+    }
+
+    if (failed) {
+        console.error('ERROR: One or more coverage thresholds were not met.');
+        process.exit(1);
+    } else {
+        console.log('✅ All coverage thresholds met.');
+    }
+} else {
+    console.warn('WARNING: coverage-summary.json not found, skipping threshold enforcement.');
+}

@@ -80,7 +80,7 @@ case $STAGE in
         fi
         rm -rf artifacts/coverage/.tmp
         mkdir -p artifacts/coverage/.tmp
-        pnpm exec vitest run --config frontend/vitest.config.mjs --coverage --coverage.reporter=json --coverage.reportsDirectory="artifacts/coverage/shard-${UNIT_SHARD}" --shard="${UNIT_SHARD}/${UNIT_SHARD_TOTAL}" --reporter=default --reporter=./scripts/vitest-ci-reporter.mjs
+        CI_SHARD_MODE=true pnpm exec vitest run --config frontend/vitest.config.mjs --coverage --coverage.reporter=json --coverage.reportsDirectory="artifacts/coverage/shard-${UNIT_SHARD}" --shard="${UNIT_SHARD}/${UNIT_SHARD_TOTAL}" --reporter=default --reporter=./scripts/vitest-ci-reporter.mjs
         ;;
     build)
         echo "🚀 Running CI build stage..."
