@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     isPrivateV2PersistedDeviceType, extractUidFromAuthStorage, isNotFoundError, isPrivateRuntimeIdentity,
-    matchesPrivatePersistedArm, composeEngineVersion, resolveRecoveryMatch,
+    matchesPrivatePersistedArm, composeEngineVersion, resolveRecoveryMatch, pollForRecoveryUid, sha256Hex,
     contentSafeSessionSnapshot, contentSafeSnapshotsEqual,
 } from '../live/helpers/proofAuthority.ts';
 
@@ -93,10 +93,11 @@ describe('#1151 proof-authority decisions (falsification)', () => {
     // 8. cleanup/persistence falsifications (persisted device_type, early-UID capture, 404-only deletion proof)
     //    are the sibling describe blocks above and remain green — unchanged by this P1 correction.
 
-    describe('fix 2 (RETURN) — EXACT Private v2/v4 identity via repository mappings (no regex/substring)', () => {
-        // the exact repository tuples: v2 = private_v2:whisper-base.en, v4 = private_v4:base_q4
+    describe('fix 1 (RETURN) — EXACT runtime↔persisted Private v2/v4 identity via repository mappings', () => {
+        // v2: runtime model id EQUALS the persisted model key (whisper-base.en). v4: persisted variant key
+        // (base_q4) maps through PRIV_STT_V4_VARIANTS.MODEL_ID = onnx-community/whisper-base.en = runtime model.
         const v2 = {
-            runtimeProvider: 'transformers-js', runtimeModelId: 'Xenova/whisper-base.en',
+            runtimeProvider: 'transformers-js', runtimeModelId: 'whisper-base.en',
             persistedEngine: 'private', persistedEngineVersion: 'private_v2:whisper-base.en',
             persistedModelName: 'whisper-base.en', persistedDeviceType: 'browser',
         };
@@ -113,45 +114,81 @@ describe('#1151 proof-authority decisions (falsification)', () => {
             expect(matchesPrivatePersistedArm(v2)).toMatchObject({ ok: true, arm: 'v2' });
             expect(matchesPrivatePersistedArm(v4)).toMatchObject({ ok: true, arm: 'v4' });
         });
-        it('REJECTS substring/near-miss engine_version — only EXACT `${variant}:${model}` passes', () => {
+        it('v2 REJECTS a runtime model that is not EXACTLY the persisted model (the key gap)', () => {
+            expect(matchesPrivatePersistedArm({ ...v2, runtimeModelId: 'Xenova/whisper-base.en' }).ok).toBe(false); // HF path ≠ persisted key
+            expect(matchesPrivatePersistedArm({ ...v2, runtimeModelId: 'whisper-small.en' }).ok).toBe(false);
+            expect(matchesPrivatePersistedArm({ ...v2, runtimeModelId: 'anything-else' }).ok).toBe(false);
+        });
+        it('v4 REJECTS a runtime model that is not EXACTLY the canonical MODEL_ID for the persisted variant', () => {
+            expect(matchesPrivatePersistedArm({ ...v4, runtimeModelId: 'base_q4' }).ok).toBe(false); // the variant KEY, not the MODEL_ID
+            expect(matchesPrivatePersistedArm({ ...v4, runtimeModelId: 'onnx-community/distil-small.en' }).ok).toBe(false); // wrong variant's MODEL_ID
+            expect(matchesPrivatePersistedArm({ ...v4, persistedModelName: 'mystery_q4', persistedEngineVersion: 'private_v4:mystery_q4' }).ok).toBe(false);
+        });
+        it('REJECTS near-miss engine_version — only EXACT `${variant}:${model}` passes', () => {
             expect(matchesPrivatePersistedArm({ ...v2, persistedEngineVersion: 'private_v2:whisper-base.en-extra' }).ok).toBe(false);
             expect(matchesPrivatePersistedArm({ ...v2, persistedEngineVersion: 'x-private_v2:whisper-base.en' }).ok).toBe(false);
             expect(matchesPrivatePersistedArm({ ...v2, persistedEngineVersion: 'transformers-js' }).ok).toBe(false); // the OLD loose value
             expect(matchesPrivatePersistedArm({ ...v2, persistedEngineVersion: 'private_v2:whisper-small.en' }).ok).toBe(false); // model≠engine_version model
         });
-        it('REJECTS an arm mismatch (runtime v4 ↔ persisted v2, and vice-versa)', () => {
+        it('REJECTS arm mismatch, tiny fallback, non-browser device, non-private engine, non-Private runtime', () => {
             expect(matchesPrivatePersistedArm({ ...v2, runtimeProvider: 'transformers-js-v4' }).ok).toBe(false);
             expect(matchesPrivatePersistedArm({ ...v4, runtimeProvider: 'transformers-js' }).ok).toBe(false);
-        });
-        it('REJECTS the tiny fallback, an unknown model, a non-browser device, a non-private engine, a non-Private runtime', () => {
-            expect(matchesPrivatePersistedArm({ ...v2, persistedEngineVersion: 'private_v2:whisper-tiny.en', persistedModelName: 'whisper-tiny.en' }).ok).toBe(false);
-            expect(matchesPrivatePersistedArm({ ...v2, runtimeModelId: 'Xenova/whisper-tiny.en' }).ok).toBe(false);
-            expect(matchesPrivatePersistedArm({ ...v2, persistedEngineVersion: 'private_v2:mystery', persistedModelName: 'mystery' }).ok).toBe(false);
+            expect(matchesPrivatePersistedArm({ ...v2, runtimeModelId: 'whisper-tiny.en', persistedModelName: 'whisper-tiny.en', persistedEngineVersion: 'private_v2:whisper-tiny.en' }).ok).toBe(false);
             expect(matchesPrivatePersistedArm({ ...v2, persistedDeviceType: 'wasm' }).ok).toBe(false);
             expect(matchesPrivatePersistedArm({ ...v2, persistedEngine: 'native' }).ok).toBe(false);
-            expect(matchesPrivatePersistedArm({ ...v2, runtimeProvider: 'web-speech-api' }).ok).toBe(false);
             expect(matchesPrivatePersistedArm({ ...v2, runtimeProvider: 'assemblyai' }).ok).toBe(false);
         });
     });
 
-    describe('fix 1 (RETURN) — bounded recovery match decision (zero/one/ambiguous/not-run-owned)', () => {
+    describe('fix 2 (RETURN) — content-safe transcript digest (SHA-256, never raw text)', () => {
+        it('is deterministic and detects any change', () => {
+            expect(sha256Hex('hello world')).toBe(sha256Hex('hello world'));
+            expect(sha256Hex('hello world')).not.toBe(sha256Hex('hello worlD'));   // 1-char change ⇒ different digest
+            expect(sha256Hex('abc')).toMatch(/^[0-9a-f]{64}$/);                     // 64-hex SHA-256
+            expect(sha256Hex('abcd')).not.toBe(sha256Hex('abce'));                  // same length, different content
+        });
+    });
+
+    describe('fix 3 (RETURN) — recovery match decision + poll ORCHESTRATION (zero→one / stop / bound / ambiguous)', () => {
         const P = 'private-proof-';
         const mk = (email, id = 'u') => ({ id, email });
-        it('ZERO when no user matches the exact email (→ caller retries / persistent-zero fails)', () => {
+        const noSleep = async () => {};
+        it('resolveRecoveryMatch: zero / one / ambiguous / not_run_owned', () => {
             expect(resolveRecoveryMatch([], 'private-proof-x@example.com', P).status).toBe('zero');
             expect(resolveRecoveryMatch([mk('other@example.com')], 'private-proof-x@example.com', P).status).toBe('zero');
+            expect(resolveRecoveryMatch([mk('private-proof-x@example.com', 'uid-9')], 'private-proof-x@example.com', P)).toEqual({ status: 'one', uid: 'uid-9' });
+            expect(resolveRecoveryMatch([mk('private-proof-x@example.com', 'a'), mk('PRIVATE-PROOF-X@example.com', 'b')], 'private-proof-x@example.com', P)).toEqual({ status: 'ambiguous', count: 2 });
+            expect(resolveRecoveryMatch([mk('real-customer@example.com', 'c')], 'real-customer@example.com', P)).toMatchObject({ status: 'not_run_owned' });
         });
-        it('ONE returns the uid for a unique run-owned exact match (zero→one transition)', () => {
-            const users = [mk('private-proof-x@example.com', 'uid-9'), mk('someone@example.com', 'z')];
-            expect(resolveRecoveryMatch(users, 'private-proof-x@example.com', P)).toEqual({ status: 'one', uid: 'uid-9' });
+        const email = 'private-proof-x@example.com';
+        const base = { sleep: noSleep, createdEmailLower: email, runOwnedPrefix: P, maxAttempts: 12, delayMs: 5000 };
+        it('POLL zero→one: retries while zero, returns the uid on the attempt it appears', async () => {
+            let n = 0;
+            const listAllUsers = async () => (++n < 3 ? [] : [mk(email, 'uid-late')]); // appears on attempt 3
+            await expect(pollForRecoveryUid({ ...base, listAllUsers })).resolves.toBe('uid-late');
+            expect(n).toBe(3);
         });
-        it('AMBIGUOUS when more than one user shares the exact email (fail closed)', () => {
-            const users = [mk('private-proof-x@example.com', 'a'), mk('PRIVATE-PROOF-X@example.com', 'b')];
-            expect(resolveRecoveryMatch(users, 'private-proof-x@example.com', P)).toEqual({ status: 'ambiguous', count: 2 });
+        it('POLL stops on the FIRST one (no extra list calls)', async () => {
+            let n = 0;
+            const listAllUsers = async () => { n++; return [mk(email, 'uid-1')]; };
+            await expect(pollForRecoveryUid({ ...base, listAllUsers })).resolves.toBe('uid-1');
+            expect(n).toBe(1);
         });
-        it('NOT_RUN_OWNED when the sole exact match is not a run-owned account (refuse to delete)', () => {
-            const users = [mk('real-customer@example.com', 'c')];
-            expect(resolveRecoveryMatch(users, 'real-customer@example.com', P)).toMatchObject({ status: 'not_run_owned' });
+        it('POLL fails closed after the bound on persistent zero (exactly maxAttempts list calls)', async () => {
+            let n = 0;
+            const listAllUsers = async () => { n++; return []; };
+            await expect(pollForRecoveryUid({ ...base, maxAttempts: 4, listAllUsers })).rejects.toThrow(/exhausted 4 attempts/);
+            expect(n).toBe(4);
+        });
+        it('POLL stops WITHOUT deleting on ambiguous (throws on first, no retry)', async () => {
+            let n = 0;
+            const listAllUsers = async () => { n++; return [mk(email, 'a'), mk(email, 'b')]; };
+            await expect(pollForRecoveryUid({ ...base, listAllUsers })).rejects.toThrow(/refusing ambiguous delete/);
+            expect(n).toBe(1);
+        });
+        it('POLL fails closed on a listing/pagination error (never proceeds to delete)', async () => {
+            const listAllUsers = async () => { throw new Error('listUsers boom'); };
+            await expect(pollForRecoveryUid({ ...base, listAllUsers })).rejects.toThrow(/listUsers boom/);
         });
     });
 

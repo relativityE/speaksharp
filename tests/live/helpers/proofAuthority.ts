@@ -1,5 +1,12 @@
 // #1089 / #1151 — pure decision helpers for the exact-SHA Private recording proof, extracted so each P1
 // correction has a unit-level falsification test independent of the live run.
+import { createHash } from 'node:crypto';
+
+/** Content-safe digest of a transcript: SHA-256 hex. Compared instead of raw text so no transcript content ever
+ * appears in logs, errors, or artifacts (RETURN item 2 — customer-UI transcript equality by digest). */
+export function sha256Hex(text: unknown): string {
+    return createHash('sha256').update(String(text ?? ''), 'utf8').digest('hex');
+}
 
 /**
  * The persisted Private-v2 identity records `device_type = 'browser'` — the recording runs in the browser
@@ -59,49 +66,55 @@ export const PRIVATE_VARIANT_BY_RUNTIME_PROVIDER = Object.freeze({
     'transformers-js': 'private_v2',
     'transformers-js-v4': 'private_v4',
 } as const);
-// The non-fallback persisted models per arm (whisper-tiny.en is the v2 EMERGENCY fallback and must never persist;
-// v4 has no tiny variant). Exact membership, not a regex.
-export const PRIVATE_MODELS_BY_ARM = Object.freeze({
-    private_v2: Object.freeze(['whisper-base.en', 'whisper-small.en'] as const),
-    private_v4: Object.freeze(['base_q4', 'distil_q4'] as const),
-});
+// v4 variant KEY → the canonical Hugging Face MODEL_ID the v4 runtime actually reports (mirrors the repository's
+// PRIV_STT_V4_VARIANTS[key].MODEL_ID). For v2 there is NO such indirection: buildSttIdentity sets the runtime
+// modelId = the private model key, so v2's runtime model equals the PERSISTED model_name directly (exact tie).
+export const PRIVATE_V4_MODEL_ID = Object.freeze({
+    base_q4: 'onnx-community/whisper-base.en',
+    distil_q4: 'onnx-community/distil-small.en',
+} as const);
 export const PRIVATE_V2_FALLBACK_MODEL = 'whisper-tiny.en';
 
 /** Exact `engine_version` composition, identical to the app's buildEngineVersion(). */
 export function composeEngineVersion(variant: string, model: string): string { return `${variant}:${model}`; }
 
-type PrivateVariant = keyof typeof PRIVATE_MODELS_BY_ARM;
-
 /**
- * EXACT Private v2/v4 identity mapping (RETURN item 2). Uses the repository dictionaries + exact string equality —
- * NO substring/regex acceptance. Requires ALL:
- *   - the INSTANTIATED runtime provider maps to a known arm variant (`transformers-js`→`private_v2`,
- *     `transformers-js-v4`→`private_v4`);
- *   - the persisted `engine_version` is EXACTLY `${variant}:${model}` where variant equals the runtime's arm
- *     (so a runtime-v4 run persisted as v2, or vice-versa, is rejected) and model EXACTLY equals `model_name`;
- *   - `model_name` is an EXACT member of that arm's non-fallback model set (and is NOT `whisper-tiny.en`);
- *   - the running model id is present and not the tiny fallback (liveness; the HF model path differs from the
- *     persisted variant name, so it is NOT equated to `model_name`);
- *   - `engine` is EXACTLY 'private' and `device_type` is EXACTLY 'browser'.
+ * EXACT Private v2/v4 identity mapping (RETURN item 1). Ties the INSTANTIATED runtime model to the PERSISTED
+ * model/variant through the repository's own mappings, with exact string equality — no substring/regex, and no
+ * looser parallel "accepted persisted names" list. Requires ALL:
+ *   - runtime provider maps to a known arm (`transformers-js`→`private_v2`, `transformers-js-v4`→`private_v4`);
+ *   - `engine` is EXACTLY 'private'; `device_type` is EXACTLY 'browser';
+ *   - `engine_version` is EXACTLY `${variant}:${model_name}` (buildEngineVersion);
+ *   - v2: the running model id EXACTLY equals the persisted `model_name` (and is NOT the tiny fallback);
+ *   - v4: the persisted `model_name` is a canonical variant KEY, and the running model id EXACTLY equals that
+ *     variant's `PRIV_STT_V4_VARIANTS[key].MODEL_ID`.
  */
+export type PrivateArmResult = { ok: boolean; arm: 'v2' | 'v4' | null; expectedEngineVersion: string | null; reason: string };
+
 export function matchesPrivatePersistedArm(input: {
     runtimeProvider?: unknown; runtimeModelId?: unknown;
     persistedEngine?: unknown; persistedEngineVersion?: unknown; persistedModelName?: unknown; persistedDeviceType?: unknown;
-}): { ok: boolean; arm: 'v2' | 'v4' | null; expectedEngineVersion: string | null; reason: string } {
+}): PrivateArmResult {
     const provider = String(input.runtimeProvider ?? '');
-    const variant = (PRIVATE_VARIANT_BY_RUNTIME_PROVIDER as Record<string, PrivateVariant>)[provider] ?? null;
-    const arm = variant === 'private_v2' ? 'v2' : variant === 'private_v4' ? 'v4' : null;
+    const variant = (PRIVATE_VARIANT_BY_RUNTIME_PROVIDER as Record<string, 'private_v2' | 'private_v4'>)[provider] ?? null;
+    const arm: 'v2' | 'v4' | null = variant === 'private_v2' ? 'v2' : variant === 'private_v4' ? 'v4' : null;
     const model = String(input.persistedModelName ?? '');
     const engineVersion = String(input.persistedEngineVersion ?? '');
     const runtimeModel = String(input.runtimeModelId ?? '');
-    const expectedEngineVersion = variant ? composeEngineVersion(variant, model) : null;
-    if (variant === null) return { ok: false, arm, expectedEngineVersion, reason: `runtime provider ${JSON.stringify(input.runtimeProvider)} is not a known Private arm` };
-    if (model === PRIVATE_V2_FALLBACK_MODEL) return { ok: false, arm, expectedEngineVersion, reason: `persisted model is the tiny fallback (${model})` };
-    if (!(PRIVATE_MODELS_BY_ARM[variant] as readonly string[]).includes(model)) return { ok: false, arm, expectedEngineVersion, reason: `model_name ${JSON.stringify(model)} is not an exact ${variant} model` };
-    if (engineVersion !== expectedEngineVersion) return { ok: false, arm, expectedEngineVersion, reason: `engine_version ${JSON.stringify(engineVersion)} != exact ${JSON.stringify(expectedEngineVersion)}` };
-    if (runtimeModel === '' || runtimeModel.split('/').pop() === PRIVATE_V2_FALLBACK_MODEL) return { ok: false, arm, expectedEngineVersion, reason: `running model is absent or the tiny fallback (${JSON.stringify(input.runtimeModelId)})` };
-    if (input.persistedEngine !== 'private') return { ok: false, arm, expectedEngineVersion, reason: `engine must be exactly 'private' (${JSON.stringify(input.persistedEngine)})` };
-    if (input.persistedDeviceType !== 'browser') return { ok: false, arm, expectedEngineVersion, reason: `device_type must be exactly 'browser' (${JSON.stringify(input.persistedDeviceType)})` };
+    const expectedEngineVersion: string | null = variant ? composeEngineVersion(variant, model) : null;
+    const fail = (reason: string): PrivateArmResult => ({ ok: false, arm, expectedEngineVersion, reason });
+    if (variant === null) return fail(`runtime provider ${JSON.stringify(input.runtimeProvider)} is not a known Private arm`);
+    if (input.persistedEngine !== 'private') return fail(`engine must be exactly 'private' (${JSON.stringify(input.persistedEngine)})`);
+    if (input.persistedDeviceType !== 'browser') return fail(`device_type must be exactly 'browser' (${JSON.stringify(input.persistedDeviceType)})`);
+    if (engineVersion !== expectedEngineVersion) return fail(`engine_version ${JSON.stringify(engineVersion)} != exact ${JSON.stringify(expectedEngineVersion)}`);
+    if (variant === 'private_v2') {
+        if (model === PRIVATE_V2_FALLBACK_MODEL) return fail(`persisted v2 model is the tiny fallback (${model})`);
+        if (runtimeModel !== model) return fail(`runtime model ${JSON.stringify(runtimeModel)} != persisted v2 model ${JSON.stringify(model)}`);
+    } else {
+        const expectedModelId = (PRIVATE_V4_MODEL_ID as Record<string, string>)[model];
+        if (!expectedModelId) return fail(`persisted v4 variant ${JSON.stringify(model)} is not a canonical variant key`);
+        if (runtimeModel !== expectedModelId) return fail(`runtime model ${JSON.stringify(runtimeModel)} != canonical v4 MODEL_ID ${JSON.stringify(expectedModelId)}`);
+    }
     return { ok: true, arm, expectedEngineVersion, reason: '' };
 }
 
@@ -123,6 +136,29 @@ export function resolveRecoveryMatch(
     if (!(email ?? '').toLowerCase().startsWith(runOwnedPrefix)) return { status: 'not_run_owned', email };
     if (!only?.id) return { status: 'zero' };
     return { status: 'one', uid: only.id };
+}
+
+/**
+ * Bounded recovery-poll ORCHESTRATION (RETURN item 3), extracted with INJECTED list + sleep so all four caller
+ * paths are unit-testable: retries on 'zero' (zero→one), returns immediately on the first 'one', throws after the
+ * attempt bound (persistent zero → fail closed, no silent orphan), and throws WITHOUT deleting on 'ambiguous' /
+ * 'not_run_owned' / a listing error. Live use: maxAttempts=12, delayMs=5000 (a frozen 60s bound); unit tests
+ * inject a no-op sleep. `listAllUsers` must FULLY paginate and may throw (fail closed) on a listing error.
+ */
+export async function pollForRecoveryUid(opts: {
+    listAllUsers: () => Promise<Array<{ id?: string; email?: string | null }>>;
+    sleep: (ms: number) => Promise<void>;
+    createdEmailLower: string; runOwnedPrefix: string; maxAttempts: number; delayMs: number;
+}): Promise<string> {
+    for (let attempt = 1; attempt <= opts.maxAttempts; attempt++) {
+        const users = await opts.listAllUsers(); // throws on pagination/list error → fail closed (never deletes)
+        const verdict = resolveRecoveryMatch(users, opts.createdEmailLower, opts.runOwnedPrefix);
+        if (verdict.status === 'one') return verdict.uid;
+        if (verdict.status === 'ambiguous') throw new Error(`recovery: ${verdict.count} accounts for the run email — refusing ambiguous delete (fail closed)`);
+        if (verdict.status === 'not_run_owned') throw new Error(`recovery: sole match is not run-owned (${verdict.email}) — refusing to delete (fail closed)`);
+        if (attempt < opts.maxAttempts) await opts.sleep(opts.delayMs); // 'zero' → back off + retry
+    }
+    throw new Error(`recovery: exhausted ${opts.maxAttempts} attempts with no account for the run email (fail closed — possible orphan)`);
 }
 
 /**

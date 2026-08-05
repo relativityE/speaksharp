@@ -12,7 +12,7 @@ import {
 import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
 import {
     isPrivateV2PersistedDeviceType, extractUidFromAuthStorage, isNotFoundError, isPrivateRuntimeIdentity,
-    matchesPrivatePersistedArm, contentSafeSessionSnapshot, contentSafeSnapshotsEqual, resolveRecoveryMatch,
+    matchesPrivatePersistedArm, contentSafeSessionSnapshot, contentSafeSnapshotsEqual, pollForRecoveryUid, sha256Hex,
 } from './helpers/proofAuthority';
 
 // #1089 / #1129 — exact-production-SHA Private recording proof (rigorous).
@@ -79,31 +79,25 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
         // missing but an email was attempted, recover it by an EXACT-email, unique-result admin lookup
         // (pagination/errors fail closed) so the account is never orphaned.
         if (!capturedUid) {
-            // fix 1 (RETURN) — bounded full-pagination recovery POLLING. Each attempt FULLY paginates the user
-            // list, then resolveRecoveryMatch decides: 'one' (uid), 'ambiguous'/'not_run_owned' (fail closed), or
-            // 'zero' (retry — eventual consistency after signup). Persistent 'zero' across the bound FAILS CLOSED
-            // (never silently give up and orphan a just-created account).
-            const emailLower = createdEmail.toLowerCase();
-            const RUN_PREFIX = 'private-proof-';
-            const MAX_ATTEMPTS = 12;
-            let recovered = '';
-            for (let attempt = 1; attempt <= MAX_ATTEMPTS && !recovered; attempt++) {
-                const all: Array<{ id?: string; email?: string | null }> = [];
-                for (let p = 1; p <= 50; p++) {
-                    const { data, error } = await admin.auth.admin.listUsers({ page: p, perPage: 200 });
-                    if (error) throw new Error(`cleanup recovery listUsers failed (fail closed): ${error.message}`);
-                    const users = data?.users ?? [];
-                    all.push(...users);
-                    if (users.length < 200) break; // last page
-                }
-                const verdict = resolveRecoveryMatch(all, emailLower, RUN_PREFIX);
-                if (verdict.status === 'one') { recovered = verdict.uid; break; }
-                if (verdict.status === 'ambiguous') throw new Error(`cleanup recovery found ${verdict.count} accounts for the run email — refusing ambiguous delete (fail closed)`);
-                if (verdict.status === 'not_run_owned') throw new Error(`recovered account is not run-owned (${verdict.email}) — refusing to delete`);
-                if (attempt < MAX_ATTEMPTS) await new Promise((r) => setTimeout(r, 1000)); // 'zero' → back off + retry
-            }
-            if (!recovered) throw new Error(`cleanup recovery exhausted ${MAX_ATTEMPTS} attempts with no account for the run email (fail closed — possible orphan)`);
-            capturedUid = recovered;
+            // fix 1/3 (RETURN) — the extracted, injectable bounded poll orchestration. listAllUsers FULLY
+            // paginates (fail-closed on a listing error); the frozen live bound is 12×5s = 60s; the four decision
+            // paths (zero→one / stop-on-one / fail-after-bound / stop-on-ambiguous or error) are unit-tested.
+            capturedUid = await pollForRecoveryUid({
+                listAllUsers: async () => {
+                    const all: Array<{ id?: string; email?: string | null }> = [];
+                    for (let p = 1; p <= 50; p++) {
+                        const { data, error } = await admin.auth.admin.listUsers({ page: p, perPage: 200 });
+                        if (error) throw new Error(`cleanup recovery listUsers failed (fail closed): ${error.message}`);
+                        const users = data?.users ?? [];
+                        all.push(...users);
+                        if (users.length < 200) break; // last page
+                    }
+                    return all;
+                },
+                sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+                createdEmailLower: createdEmail.toLowerCase(), runOwnedPrefix: 'private-proof-',
+                maxAttempts: 12, delayMs: 5000,
+            });
         }
         const { data: got, error: getErr } = await admin.auth.admin.getUserById(capturedUid);
         if (getErr) throw new Error(`cleanup getUserById failed (fail closed): ${getErr.message}`);
@@ -161,6 +155,7 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
         let runtimeIdentity: { runtimeProvider: string | null; modelId: string | null } = { runtimeProvider: null, modelId: null };
         let persistedId: string | null = null;
         let preReloadSnapshot: Record<string, unknown> | null = null;
+        let persistedTranscriptSha = '';   // SHA-256 of the DB transcript (fix 2 — compare digests, never raw text)
 
         await test.step('Open signup and assert NO test/mock injection + exact SHA before credentials', async () => {
             await page.goto('/auth/signup');
@@ -293,6 +288,7 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             expect(authority!.engine_class, 'server authority engine_class=private').toBe('private');
 
             preReloadSnapshot = contentSafeSessionSnapshot(row as Record<string, unknown>);
+            persistedTranscriptSha = sha256Hex(row!.transcript);   // digest for the customer-UI equality proof below
             // Content-free evidence: NO identifiers. Booleans + release SHA + engine identity + authority verdict +
             // provider-call count only.
             console.log(`PRIVATE_RECORDING_PROOF_EVIDENCE ${JSON.stringify({
@@ -303,24 +299,35 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             })}`);
         });
 
-        await test.step('fix 3 (RETURN) — customer-UI REOPEN of the exact session, HARD RELOAD, content-safe equal', async () => {
+        await test.step('fix 2 (RETURN) — customer-UI REOPEN: RENDERED transcript digest == saved, before + after HARD RELOAD', async () => {
             if (!admin) throw new Error('admin client required for reopen readback (fail closed)');
-            // Reopen the EXACT session through the CUSTOMER UI — the History/Analytics detail route a user visits.
+            // Reopen the EXACT session through the CUSTOMER UI route and prove the UI RENDERS the saved transcript —
+            // by SHA-256 digest equality (rendered vs the persisted digest computed above), NEVER by raw text or by
+            // mere presence/length. Only digests appear in any assertion message.
             await page.goto(`/analytics/${persistedId}`);
             await expect(page).toHaveURL(new RegExp(`/analytics/${persistedId}`), { timeout: 45_000 });
-            await expect(page.getByTestId('session-detail-transcript'), 'the exact session reopens in the customer UI').toBeVisible({ timeout: 45_000 });
-            // HARD RELOAD: the deployed build re-boots from scratch and must re-read the SAME durable session on the
-            // exact SHA — the detail survives, and the DB re-read is content-safe-equal (measurements + identity;
-            // transcript LENGTH only, never raw text). No provider contact permitted during reopen/reload.
+            const detail = page.getByTestId('session-detail-transcript');
+            await expect(detail, 'the exact session reopens in the customer UI').toBeVisible({ timeout: 45_000 });
+            const uiShaBefore = sha256Hex(await detail.innerText());
+            expect(uiShaBefore === persistedTranscriptSha, `reopened UI transcript digest != persisted (before reload): ui=${uiShaBefore} db=${persistedTranscriptSha}`).toBe(true);
+
+            // HARD RELOAD: re-boot from scratch on the exact SHA; the RENDERED transcript digest must STILL match.
             await page.reload({ waitUntil: 'domcontentloaded' });
             const reloadRelease = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null);
             expect(reloadRelease, 'still the exact deployed SHA after reload').toBe(EXPECT_RELEASE_SHA);
-            await expect(page.getByTestId('session-detail-transcript'), 'the session detail survives a hard reload').toBeVisible({ timeout: 45_000 });
+            const detailAfter = page.getByTestId('session-detail-transcript');
+            await expect(detailAfter, 'the session detail survives a hard reload').toBeVisible({ timeout: 45_000 });
+            const uiShaAfter = sha256Hex(await detailAfter.innerText());
+            expect(uiShaAfter === persistedTranscriptSha, `reopened UI transcript digest != persisted (after reload): ui=${uiShaAfter} db=${persistedTranscriptSha}`).toBe(true);
+
+            // Structural DB re-read equality (non-transcript fields) + the DB transcript digest is stable + the
+            // server authority persists + zero provider contact throughout reopen/reload.
             const { data: reread, error } = await admin
                 .from('sessions')
                 .select('id,user_id,status,transcript,engine,engine_version,model_name,device_type')
                 .eq('id', persistedId).eq('user_id', capturedUid).single();
             if (error) throw new Error(`post-reload re-read failed (fail closed): ${error.message}`);
+            expect(sha256Hex(reread!.transcript) === persistedTranscriptSha, 'DB transcript digest stable across reload').toBe(true);
             const after = contentSafeSessionSnapshot(reread as Record<string, unknown>);
             const eq = contentSafeSnapshotsEqual(preReloadSnapshot as Record<string, unknown>, after);
             expect(eq.ok, `content-safe session equality across reopen+reload: ${eq.reason}`).toBe(true);
