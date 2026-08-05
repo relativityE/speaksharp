@@ -78,7 +78,9 @@ case $STAGE in
             echo "Usage: $0 unit-shard [n] [total]" >&2
             exit 1
         fi
-        pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false --shard="${UNIT_SHARD}/${UNIT_SHARD_TOTAL}" --reporter=default --reporter=./scripts/vitest-ci-reporter.mjs
+        rm -rf artifacts/coverage/.tmp
+        mkdir -p artifacts/coverage/.tmp
+        pnpm exec vitest run --config frontend/vitest.config.mjs --coverage --coverage.reporter=json --coverage.reportsDirectory="artifacts/coverage/shard-${UNIT_SHARD}" --shard="${UNIT_SHARD}/${UNIT_SHARD_TOTAL}" --reporter=default --reporter=./scripts/vitest-ci-reporter.mjs
         ;;
     build)
         echo "🚀 Running CI build stage..."
