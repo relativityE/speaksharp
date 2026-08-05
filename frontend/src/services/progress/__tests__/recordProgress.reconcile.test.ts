@@ -78,15 +78,18 @@ describe('#1045 durable recovery — reconcileProgressEvaluations', () => {
         expect(rpcNames()).not.toContain('record_progress_evaluation');
     });
 
-    it('ignores non-completed or non-terminal-attribution sessions in the sweep', async () => {
+    it('skips non-completed sessions, but the RPC (authority) — not the advisory column — decides attribution (finding 5)', async () => {
         coveredRows = [{ session_id: 's-old' }];
         const sessions = [
             sess('s-old', { created_at: '2026-07-20T00:00:00Z' }),
             sess('s-active', { created_at: '2026-07-25T00:00:00Z', status: 'active' }),
+            // #1161: attest no longer promotes sessions.attribution_status, so a completed+attested session can
+            // read 'pending' here. It must NOT be pre-filtered out — record_progress_evaluation (authority-gated)
+            // decides. Here the RPC returns an id (authorized) ⇒ it is swept.
             sess('s-pending', { created_at: '2026-07-26T00:00:00Z', attribution_status: 'pending' }),
         ];
         const res = await reconcileProgressEvaluations(USER, sessions);
-        expect(res.swept).toBe(0);
+        expect(res.swept).toBe(1);   // s-active skipped (non-completed); s-pending evaluated by the authority RPC
     });
 });
 

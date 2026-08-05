@@ -28,7 +28,10 @@
  */
 
 const ALLOWED_METHODS = "GET, POST, OPTIONS";
-const ALLOWED_HEADERS = "authorization, x-client-info, apikey, content-type";
+// `x-speaksharp-engine-type` (#1161): the attest-session-engine register op takes the engine class ONLY from this
+// authenticated request header, so the browser preflight must advertise it or the register request is blocked.
+// Header names are case-insensitive; kept lowercase to match the canonical list.
+const ALLOWED_HEADERS = "authorization, x-client-info, apikey, content-type, x-speaksharp-engine-type";
 
 /**
  * Built-in exact allowlist: confirmed product origins + local development origins.

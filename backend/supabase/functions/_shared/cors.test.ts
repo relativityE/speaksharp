@@ -201,6 +201,23 @@ Deno.test("preflight (OPTIONS): approved → 204 exact ACAO + Vary; hostile → 
   assertEquals(handleCorsPreflight(reqWith(PROD_ACTIVE, "GET"), ALLOWED), null);
 });
 
+Deno.test("#1161: preflight advertises the X-SpeakSharp-Engine-Type request header (register unblocked)", () => {
+  // The attest-session-engine register op requires this header; the browser preflight must advertise it or the
+  // register request is blocked before the handler. The approved-origin OPTIONS response must list it.
+  const pf = handleCorsPreflight(reqWith(PROD_ACTIVE, "OPTIONS"), ALLOWED);
+  assert(pf instanceof Response);
+  assertEquals(pf!.status, 204);
+  const allowHeaders = (pf!.headers.get("Access-Control-Allow-Headers") ?? "").toLowerCase();
+  assert(
+    allowHeaders.split(",").map((h) => h.trim()).includes("x-speaksharp-engine-type"),
+    `Access-Control-Allow-Headers must include x-speaksharp-engine-type; got "${allowHeaders}"`,
+  );
+  // The previously-allowed headers are preserved (case-insensitive).
+  for (const h of ["authorization", "x-client-info", "apikey", "content-type"]) {
+    assert(allowHeaders.includes(h), `allow-headers must still include ${h}`);
+  }
+});
+
 Deno.test("no-Origin server-to-server request: permitted, no fabricated ACAO", () => {
   const req = reqWith(undefined, "POST");
   // Not rejected — server-to-server / webhook / health-check.
