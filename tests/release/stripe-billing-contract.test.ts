@@ -17,6 +17,28 @@ describe('paid soft-launch billing contract', () => {
     expect(config).toMatch(/functions\/stripe-billing-portal\/index\.ts/);
   });
 
+  it('parameterizes Edge deployment by explicit use case without coupling migrations', () => {
+    const reusable = readRepoFile('.github', 'workflows', 'deploy-supabase-migrations.yml');
+    const releaseCaller = readRepoFile('.github', 'workflows', 'deploy-supabase-edge-release.yml');
+
+    expect(reusable).toMatch(/workflow_call:[\s\S]*deploy_edge_functions:[\s\S]*type: boolean[\s\S]*required: true/);
+    expect(reusable).not.toMatch(/deploy_edge_functions:[\s\S]{0,120}default:/);
+    expect(reusable).toMatch(/Edge source\/shared configuration changed but deploy_edge_functions=false/);
+    expect(reusable).toMatch(/deploy-edge-functions:[\s\S]*needs: \[validate-edge-configuration, deploy-production-db\][\s\S]*deploy_edge_functions == 'true'/);
+    expect(reusable).toMatch(/needs\.deploy-production-db\.result == 'success'/);
+    expect(reusable).toMatch(/verify-edge-functions:[\s\S]*deploy_edge_functions == 'true'/);
+    expect(releaseCaller).toMatch(/uses: \.\/\.github\/workflows\/deploy-supabase-migrations\.yml/);
+    expect(releaseCaller).toMatch(/deploy_edge_functions: true/);
+    expect(releaseCaller).toMatch(/edge_changes_present: true/);
+    expect(releaseCaller).toMatch(/backend\/supabase\/functions\/\*\*/);
+    expect(releaseCaller).not.toMatch(/tests\/|docs\/|frontend\//);
+
+    // Migration/secrets decisions remain tied to the explicit operation, not the Edge Boolean.
+    expect(reusable).toMatch(/inputs\.operation == 'migrations'/);
+    expect(reusable).toMatch(/inputs\.operation == 'secrets'/);
+    expect(reusable).toMatch(/inputs\.confirm/);
+  });
+
   it('persists Stripe customer ids through the webhook RPC contract', () => {
     const migration = readRepoFile(
       'backend',

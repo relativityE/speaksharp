@@ -1,9 +1,25 @@
 name: Deploy Supabase
 
 on:
-  push:
-    branches:
-      - main
+  workflow_call:
+    inputs:
+      deploy_edge_functions:
+        description: 'Whether this use case is authorized to publish Edge Functions'
+        type: boolean
+        required: true
+      edge_changes_present:
+        description: 'Caller-detected Edge source/shared-config change'
+        type: boolean
+        required: true
+      operation:
+        description: 'Independent migration/secrets operation'
+        type: string
+        required: true
+      confirm:
+        description: 'Explicit confirmation for migrations/secrets'
+        type: string
+        required: false
+        default: ''
   workflow_dispatch:
     inputs:
       operation:
@@ -23,8 +39,37 @@ on:
         default: ''
 
 jobs:
+  validate-edge-configuration:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_edge_functions: ${{ steps.resolve.outputs.deploy_edge_functions }}
+    steps:
+      - id: resolve
+        name: Resolve and validate Edge deployment configuration
+        env:
+          CALLED_DEPLOY_EDGE: ${{ inputs.deploy_edge_functions }}
+          EDGE_CHANGES_PRESENT: ${{ inputs.edge_changes_present }}
+          OPERATION: ${{ inputs.operation }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          deploy_edge="$CALLED_DEPLOY_EDGE"
+          if [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
+            case "$OPERATION" in
+              edge-functions|migrations-and-edge-functions|all) deploy_edge=true ;;
+              migrations|secrets) deploy_edge=false ;;
+              *) echo "::error::unsupported deployment operation: $OPERATION"; exit 1 ;;
+            esac
+          fi
+          if [ "$EDGE_CHANGES_PRESENT" = 'true' ] && [ "$deploy_edge" != 'true' ]; then
+            echo '::error::Edge source/shared configuration changed but deploy_edge_functions=false'
+            exit 1
+          fi
+          echo "deploy_edge_functions=$deploy_edge" >> "$GITHUB_OUTPUT"
+
   deploy-edge-functions:
-    if: ${{ github.event_name == 'push' || github.event.inputs.operation == 'edge-functions' }}
+    needs: [validate-edge-configuration, deploy-production-db]
+    if: ${{ always() && needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' && (needs.deploy-production-db.result == 'success' || needs.deploy-production-db.result == 'skipped') }}
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -50,19 +95,41 @@ jobs:
           supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy stripe-billing-portal --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
 
+  verify-edge-functions:
+    needs: [validate-edge-configuration, deploy-edge-functions]
+    if: ${{ needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' && needs.deploy-edge-functions.result == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+    steps:
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: 2.101.0
+      - name: Verify reviewed Edge Functions are deployed
+        run: |
+          set -euo pipefail
+          deployed="$(supabase functions list --project-ref "$SUPABASE_PROJECT_ID")"
+          for function_name in stripe-webhook check-usage-limit create-user observability-smoke assemblyai-token get-ai-suggestions stripe-checkout stripe-billing-portal; do
+            grep -Fq "$function_name" <<< "$deployed" || { echo "::error::$function_name missing after Edge deployment"; exit 1; }
+          done
+
   deploy-production-db:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.operation != 'edge-functions' }}
+    needs: validate-edge-configuration
+    if: ${{ inputs.operation != 'edge-functions' }}
     environment: production-db
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
-      OPERATION: ${{ github.event.inputs.operation }}
+      OPERATION: ${{ inputs.operation }}
     steps:
       - name: Validate confirmation
         run: |
-          user_input="$(echo "${{ github.event.inputs.confirm }}" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+          user_input="$(echo "${{ inputs.confirm }}" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
           if [ "$user_input" != "DEPLOY" ]; then
             echo "❌ Deployment cancelled - confirmation not provided"
             exit 1
@@ -93,7 +160,7 @@ jobs:
           echo "✅ Linked to Supabase project"
 
       - name: Push migrations to production
-        if: ${{ github.event.inputs.operation == 'migrations' || github.event.inputs.operation == 'migrations-and-edge-functions' || github.event.inputs.operation == 'all' }}
+        if: ${{ inputs.operation == 'migrations' || inputs.operation == 'migrations-and-edge-functions' || inputs.operation == 'all' }}
         working-directory: backend/supabase
         run: |
           echo "🛠️ Repairing migration history..."
@@ -107,7 +174,7 @@ jobs:
           echo "✅ Migrations applied successfully"
 
       - name: Lint production public schema
-        if: ${{ github.event.inputs.operation == 'migrations' || github.event.inputs.operation == 'migrations-and-edge-functions' || github.event.inputs.operation == 'all' }}
+        if: ${{ inputs.operation == 'migrations' || inputs.operation == 'migrations-and-edge-functions' || inputs.operation == 'all' }}
         working-directory: backend/supabase
         run: |
           echo "🔎 Linting production public schema..."
@@ -115,7 +182,7 @@ jobs:
           echo "✅ Production public schema lint passed"
 
       - name: Set Supabase secrets
-        if: ${{ github.event.inputs.operation == 'secrets' || github.event.inputs.operation == 'all' }}
+        if: ${{ inputs.operation == 'secrets' || inputs.operation == 'all' }}
         env:
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -146,22 +213,8 @@ jobs:
           fi
           echo "✅ AGENT_SECRET and ALLOWED_ORIGIN synchronized to Supabase (Stripe runtime secrets are Ops-managed in Supabase, NOT synced from GitHub)"
 
-      - name: Deploy Edge Functions
-        if: ${{ github.event.inputs.operation == 'migrations-and-edge-functions' || github.event.inputs.operation == 'all' }}
-        working-directory: backend/supabase
-        run: |
-          supabase functions deploy stripe-webhook --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy check-usage-limit --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy create-user --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy observability-smoke --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy assemblyai-token --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy get-ai-suggestions --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy stripe-billing-portal --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          echo "✅ Edge Functions deployed successfully"
-
       - name: Save migration list to file
-        if: ${{ github.event.inputs.operation == 'migrations' || github.event.inputs.operation == 'migrations-and-edge-functions' || github.event.inputs.operation == 'all' }}
+        if: ${{ inputs.operation == 'migrations' || inputs.operation == 'migrations-and-edge-functions' || inputs.operation == 'all' }}
         working-directory: backend/supabase
         run: |
           supabase migration list > migration_list.txt || true
@@ -169,7 +222,7 @@ jobs:
           echo "Saved migration list"
 
       - name: Add migration list to job summary
-        if: ${{ github.event.inputs.operation == 'migrations' || github.event.inputs.operation == 'migrations-and-edge-functions' || github.event.inputs.operation == 'all' }}
+        if: ${{ inputs.operation == 'migrations' || inputs.operation == 'migrations-and-edge-functions' || inputs.operation == 'all' }}
         run: |
           echo "### Migration list" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
