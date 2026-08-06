@@ -34,7 +34,7 @@ jobs:
       VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       PROOF_EVIDENCE_DIR: test-results/1047-production-proof
-      PROOF_RECOVERY_FILE: ${{ runner.temp }}/1047-proof-account.json
+      PROOF_RECOVERY_FILE: ${{ github.workspace }}/1047-proof-account.json
       PROGRESS_RECORD_MS: '45000'
     steps:
       - name: Validate authorization and inputs
