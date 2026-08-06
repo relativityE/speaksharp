@@ -29,6 +29,9 @@ const tables = [
   { name: 'session_progress_evaluations', ownerColumn: 'user_id' },
   { name: 'sessions', ownerColumn: 'user_id' },
   { name: 'user_profiles', ownerColumn: 'id' },
+  // user_issue_reports is ON DELETE SET NULL for user_id. We must explicitly delete it by user_id
+  // to ensure zero residue, even if the proof does not actively create issue reports.
+  { name: 'user_issue_reports', ownerColumn: 'user_id' },
   // trial_entitlements: the on_auth_user_created_trial_profile trigger inserts one row per created account,
   // and its user_id FK is ON DELETE SET NULL — deleteUser() orphans (does not remove) the row. Delete it by
   // user_id before deleteUser, and verify residue by the deterministic email PK.

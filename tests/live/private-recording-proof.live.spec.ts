@@ -104,6 +104,10 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
         const foundEmail = got?.user?.email?.toLowerCase() ?? '';
         if (foundEmail !== createdEmail.toLowerCase()) throw new Error(`UID/email disagreement — refusing to delete (uid=${capturedUid})`);
         if (!/^private-proof-/.test(foundEmail)) throw new Error(`refusing to delete a non-run-owned account (${foundEmail})`);
+        // user_issue_reports is ON DELETE SET NULL. Even though the test doesn't create reports,
+        // it must be explicitly deleted and checked to guarantee zero-residue for the generic proof loop.
+        const { error: uiDelErr } = await admin.from('user_issue_reports').delete().eq('user_id', capturedUid);
+        if (uiDelErr) throw new Error(`cleanup user_issue_reports delete failed (fail closed): ${uiDelErr.message}`);
         // trial_entitlements.user_id is ON DELETE SET NULL: the on_auth_user_created_trial_profile trigger inserts
         // one row per signup, and deleteUser() only NULLs the column — it does NOT remove the row (unlike the
         // cascade tables verified below). Delete it explicitly by user_id first, while the column still holds it.
