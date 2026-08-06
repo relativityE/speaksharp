@@ -450,10 +450,16 @@ export class SpeechRuntimeController {
             // identity for the dev/test badge + proof artifacts (also folded into __STT_EVIDENCE__().identity).
             installSttIdentityAccessor(window);
 
-            // Fix 1 Correction: Programmatic Mode Switch
-            (window as unknown as Record<string, unknown>).__E2E_SET_MODE__ = (mode: TranscriptionMode) => {
-                this.updatePolicy({ ...this.policy!, preferredMode: mode });
-            };
+            // Fix 1 Correction: Programmatic Mode Switch — TEST-ONLY write hook. It MUST NOT ship to the
+            // production bundle: the mock-free production proof (#1151) rejects any __E2E_/__MOCK_ injection
+            // surface, and a mode setter in prod is an engine-hierarchy nudge vector. ENV.isTest is false in
+            // the real production build (import.meta.env.MODE === 'production') and true in unit/e2e, so the
+            // read-only proof accessors above stay while this writer is gated out of production.
+            if (ENV.isTest) {
+                (window as unknown as Record<string, unknown>).__E2E_SET_MODE__ = (mode: TranscriptionMode) => {
+                    this.updatePolicy({ ...this.policy!, preferredMode: mode });
+                };
+            }
         }
     }
 
