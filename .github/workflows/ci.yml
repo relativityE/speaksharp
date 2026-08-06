@@ -174,39 +174,15 @@ jobs:
           STT_ENGINE: mock
         run: pnpm exec playwright test --config=playwright.config.ts --project=infra-probe
 
-  # BRANCH-PROTECTION COMPATIBILITY GATES (temporary).
-  # These names are still required by branch protection on `main`. They no longer run test shards —
-  # the unit suite executes exactly ONCE in `unit-coverage` (with coverage + per-file thresholds).
-  # Each gate FAILS unless both `unit-coverage` and `full-evidence` succeeded, so a required check can
-  # never pass while the real work failed, and a skipped dependency produces a failed (not skipped) check.
   unit-shard:
     name: unit-shard-${{ matrix.shard }}
-    needs: [scope, unit-coverage, full-evidence]
+    needs: scope
     if: always() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4]
-    steps:
-      - name: Compatibility Gate
-        env:
-          UNIT_RESULT: ${{ needs.unit-coverage.result }}
-          EVIDENCE_RESULT: ${{ needs.full-evidence.result }}
-        run: |
-          set -euo pipefail
-          echo "unit-coverage=$UNIT_RESULT full-evidence=$EVIDENCE_RESULT"
-          if [[ "$UNIT_RESULT" != "success" || "$EVIDENCE_RESULT" != "success" ]]; then
-            echo "::error::unit-shard-${{ matrix.shard }} compatibility gate FAILED (unit-coverage=$UNIT_RESULT, full-evidence=$EVIDENCE_RESULT)"
-            exit 1
-          fi
-          echo "Unit suite (single coverage run) and full evidence both succeeded."
-
-  unit-coverage:
-    name: unit-coverage
-    needs: scope
-    if: needs.scope.outputs.full_required == 'true'
-    runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -217,19 +193,73 @@ jobs:
           install-native-deps: 'true'
           install-playwright: 'false'
 
-      - name: Run Unit Coverage (the ONLY full unit execution)
+      - name: Run Unit Shard Execution
         env:
           VITEST_MAX_FORKS: '2'
-        run: pnpm ci:unit
+        run: pnpm ci:unit:shard ${{ matrix.shard }} 4
+
+      - name: Rename Unit Metrics
+        if: always()
+        run: mv unit-metrics.json artifacts/coverage/shard-${{ matrix.shard }}/unit-metrics.json || true
 
       - name: Upload Unit Artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: unit-artifacts-${{ matrix.shard }}
+          path: artifacts/coverage
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
+          if-no-files-found: warn
+
+  unit-coverage-merge:
+    name: unit-coverage-merge
+    needs: [scope, unit-shard]
+    if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require Upstream Success
+        env:
+          UNIT_RESULT: ${{ needs.unit-shard.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$UNIT_RESULT" == "skipped" || "$UNIT_RESULT" == "cancelled" ]]; then
+            echo "::error::unit-shard was skipped or cancelled; skipping coverage merge"
+            exit 1
+          fi
+          if [[ "$UNIT_RESULT" == "failure" ]]; then
+            echo "::error::unit-shard failed; skipping coverage merge to fail pipeline properly"
+            exit 1
+          fi
+
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-native-deps: 'false'
+          install-playwright: 'false'
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts/coverage
+          pattern: 'unit-artifacts-*'
+          merge-multiple: true
+
+      - name: Code Quality Gate
+        run: pnpm quality
+
+      - name: Run Coverage Merge
+        run: pnpm ci:unit:merge
+
+      - name: Upload Merged Coverage Artifacts
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: unit-artifacts
           path: |
             artifacts/coverage
-            frontend/coverage
             unit-metrics.json
           retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
@@ -443,14 +473,14 @@ jobs:
   # out keeps the required `report` gate thin AND keeps evidence inside the acceptance result.
   full-evidence:
     name: full-evidence
-    needs: [scope, unit-coverage, edge-tests, build, health-check, e2e, lighthouse-advisory]
+    needs: [scope, unit-coverage-merge, edge-tests, build, health-check, e2e, lighthouse-advisory]
     if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       # Fail BEFORE expensive setup/aggregation when required upstream work already failed.
       - name: Require Upstream Success
         env:
-          UNIT: ${{ needs.unit-coverage.result }}
+          UNIT: ${{ needs.unit-coverage-merge.result }}
           EDGE: ${{ needs.edge-tests.result }}
           BUILD: ${{ needs.build.result }}
           HEALTH: ${{ needs.health-check.result }}
@@ -599,7 +629,7 @@ jobs:
   # the aggregate has already reported success.
   report:
     name: report
-    needs: [scope, draft-checks, unit-coverage, edge-tests, build, health-check, e2e, full-evidence]
+    needs: [scope, draft-checks, unit-coverage-merge, edge-tests, build, health-check, e2e, full-evidence]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
@@ -608,7 +638,7 @@ jobs:
           FULL_REQUIRED: ${{ needs.scope.outputs.full_required }}
           SCOPE_RESULT: ${{ needs.scope.result }}
           DRAFT_RESULT: ${{ needs.draft-checks.result }}
-          UNIT_RESULT: ${{ needs.unit-coverage.result }}
+          UNIT_RESULT: ${{ needs.unit-coverage-merge.result }}
           EDGE_RESULT: ${{ needs.edge-tests.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           HEALTH_RESULT: ${{ needs.health-check.result }}

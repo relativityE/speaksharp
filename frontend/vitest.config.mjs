@@ -80,7 +80,9 @@ export default defineConfig({
       // Floor raised 60 -> 75 to lock in current actual coverage (~76.5% lines/stmts, 77.8%
       // functions, 80.2% branches) so regressions are caught. Branches held at 75 (not 80) for
       // headroom; a future sprint can target 80. CI fails with the exact shortfall message.
-      thresholds: {
+      // NOTE: We only apply thresholds if CI_SHARD_MODE is not true. In shard mode, each shard
+      // only tests a subset of files, so it would falsely fail coverage thresholds.
+      thresholds: process.env.CI_SHARD_MODE === 'true' ? undefined : {
         statements: 75,
         branches: 75,
         functions: 75,
