@@ -104,6 +104,11 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
         const foundEmail = got?.user?.email?.toLowerCase() ?? '';
         if (foundEmail !== createdEmail.toLowerCase()) throw new Error(`UID/email disagreement — refusing to delete (uid=${capturedUid})`);
         if (!/^private-proof-/.test(foundEmail)) throw new Error(`refusing to delete a non-run-owned account (${foundEmail})`);
+        // trial_entitlements.user_id is ON DELETE SET NULL: the on_auth_user_created_trial_profile trigger inserts
+        // one row per signup, and deleteUser() only NULLs the column — it does NOT remove the row (unlike the
+        // cascade tables verified below). Delete it explicitly by user_id first, while the column still holds it.
+        const { error: teDelErr } = await admin.from('trial_entitlements').delete().eq('user_id', capturedUid);
+        if (teDelErr) throw new Error(`cleanup trial_entitlements delete failed (fail closed): ${teDelErr.message}`);
         const { error: delErr } = await admin.auth.admin.deleteUser(capturedUid);
         if (delErr) throw new Error(`cleanup deleteUser failed (fail closed): ${delErr.message}`);
         // Prove deletion: ONLY an expected not-found re-fetch is proof. A returned user = still exists (fail);
@@ -133,6 +138,12 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             if (rErr) throw new Error(`cleanup residue query on ${table} failed (fail closed): ${rErr.message}`);
             expect(count ?? 0, `no run-owned residue in ${table}`).toBe(0);
         }
+        // trial_entitlements does NOT cascade (SET NULL), so verify it by its email PK (the trigger lowercases
+        // the email) — keying on user_id would read a false-clean after deleteUser() nulled it.
+        const { count: teCount, error: teResErr } = await admin
+            .from('trial_entitlements').select('email', { count: 'exact', head: true }).eq('email', createdEmail.toLowerCase());
+        if (teResErr) throw new Error(`cleanup residue query on trial_entitlements failed (fail closed): ${teResErr.message}`);
+        expect(teCount ?? 0, 'no run-owned residue in trial_entitlements').toBe(0);
         capturedUid = '';
     });
 
