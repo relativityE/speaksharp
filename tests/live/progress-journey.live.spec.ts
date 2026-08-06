@@ -30,6 +30,7 @@ import { test, expect } from './helpers/deployedLiveTest';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { AUDIO_ARGS, selectBenchmarkMode, preparePrivateModelIfPrompted } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
+import { injectAlignedFixtureAudio, resetFixtureAudioToStart } from './helpers/fixtureAudioStream';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 
@@ -177,6 +178,11 @@ async function recordEligiblePrivateSession(page: Page, previousId: string | nul
 
   const startStop = page.getByTestId('session-start-stop-button');
   await expect(startStop, 'record: start/stop present').toBeEnabled({ timeout: 60_000 });
+  // Restart the injected fixture at position 0 immediately before recording so THIS session captures real
+  // speech from the top of the WAV — not the free-running mid-stream position the process-global
+  // --use-file-for-fake-audio-capture device would otherwise be at ~15s into page setup (#1047: this is
+  // what left transcriptLength=0 → no eligible clarity sample → Progress panel stuck on "speak more").
+  await resetFixtureAudioToStart(page);
   await startStop.click();
   await expect(startStop, 'record: RECORDING engaged (Private)').toHaveAttribute('data-recording', 'true', { timeout: 240_000 });
   await page.waitForTimeout(RECORD_MS);
@@ -215,6 +221,12 @@ test.describe.serial('#1045 deployed Progress journey @live', () => {
 
   test('record → Progress panel → accept → next session resolves outcome', async ({ page }) => {
     test.setTimeout(15 * 60 * 1000);
+
+    // Deterministic speech injection (the proven #960 pattern already used by diag-cloud-start-285 and
+    // stt-switching-contract). Registered BEFORE any navigation: overrides getUserMedia with a fixture-fed
+    // MediaStream we can restart at position 0 per-recording (resetFixtureAudioToStart), so Private/Whisper
+    // transcribes real speech instead of the mid-stream/empty capture the free-running fake-audio device gave.
+    await injectAlignedFixtureAudio(page, HARVARD_BENCHMARK_LONG_AUDIO);
 
     // Capture check-usage-limit response bodies for the entitlement proof (step 4).
     const isEnt = (url: string) => /usage[-_]?limit|check[-_]?usage|entitlement/i.test(url);
