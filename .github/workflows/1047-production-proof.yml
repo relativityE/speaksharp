@@ -50,20 +50,14 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      # Use the shared composite action (same as the passing #1151 proof). It reads the pnpm version from
+      # package.json "packageManager" (currently 10.29.1) via pnpm/action-setup@v6, does Node 22 + a frozen
+      # install + Playwright chromium. This replaces the stale inline setup that pinned pnpm 10.14.0 against
+      # pnpm/action-setup@v4 — which conflicted with packageManager and failed setup on the first real run.
+      - name: Setup Environment (Node, pnpm, deps, Playwright)
+        uses: ./.github/actions/setup-environment
         with:
-          version: 10.14.0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install reviewed dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+          install-playwright: 'true'
 
       - name: Create unique disposable proof account
         run: node scripts/1047-production-proof-account.mjs create
