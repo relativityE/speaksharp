@@ -33,6 +33,10 @@ const tables = [
   // and its user_id FK is ON DELETE SET NULL — deleteUser() orphans (does not remove) the row. Delete it by
   // user_id before deleteUser, and verify residue by the deterministic email PK.
   { name: 'trial_entitlements', ownerColumn: 'user_id', residueColumn: 'email', residueValue: email },
+  // NOTE — DO NOT add `user_issue_reports` here. Its user_id FK is ON DELETE SET NULL BY DESIGN: the product
+  // deliberately RETAINS a user's "Report issue" feedback after their account is deleted (the row survives,
+  // unlinked). That survival is a feature, not residue — scrubbing it would risk erasing real user feedback if
+  // this cleanup were ever mis-scoped. This proof also never files an issue report, so there is nothing to clean.
 ];
 
 function appendEnv(name, value) {
