@@ -27,6 +27,7 @@ import { LandingHeroArt, QuickPracticeArt, GuidedRehearsalArt } from '@/componen
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import { AuthenticatedHome } from '@/components/practice/AuthenticatedHome';
+import { FreestyleOnrampDialog } from '@/components/practice/FreestyleOnrampDialog';
 import { useHomeStreak } from '@/components/practice/useHomeStreak';
 import { GuidedNotifyDialog } from '@/components/practice/GuidedNotifyDialog';
 import { GUIDED_WAITLIST_ENABLED } from '@/config/env';
@@ -36,6 +37,12 @@ import {
   trackPracticeEntryViewed, trackPracticeModeSelected,
   trackQuickPracticeStarted, trackGuidedRehearsalUnavailable,
 } from '@/services/practiceTelemetry';
+import { buildFreestyleSessionSearch, type FreestyleOnrampSelection } from '@/services/practice/practiceFocus';
+import {
+  getRecoverableDraftForUser,
+  SESSION_RECOVERY_DRAFT_STORAGE_KEY,
+} from '@/services/sessionRecoveryDraft';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 // Exact brand-teal ramp (spec): brand teal #0d7d74 for CTA fills / tagline / glyphs / border; header band is
 // the two-stop 135° gradient #0d7d74→#17a99b (blue-leaning, NOT emerald/mint and NOT the dark CTA teal
@@ -65,6 +72,17 @@ const GUIDED_BULLETS: Bullet[] = [
 ];
 
 interface Bullet { text: string; Icon: LucideIcon }
+
+function hasUnresolvedRecoveryForCalibration(userId: string | null | undefined): boolean {
+  if (!userId) return false;
+  try {
+    return getRecoverableDraftForUser(userId) !== null;
+  } catch {
+    // If browser storage cannot be inspected, fail closed: calibration must not
+    // compete with recovery work whose ownership/state cannot be established.
+    return true;
+  }
+}
 
 function ModeCard({ vars, art, title, promise, bullets, ctaLabel, ctaAria, ctaSolid, ctaNote, onClick, testid, cornerBadge }: {
   vars: React.CSSProperties; art: React.ReactNode; title: string; promise: string; bullets: Bullet[];
@@ -159,6 +177,36 @@ export default function PracticePage() {
   // Guided selection marks the Report Issue surface; the "Notify me" dialog is the real interest capture.
   const [guidedSelected, setGuidedSelected] = React.useState(false);
   const [notifyOpen, setNotifyOpen] = React.useState(false);
+  const [freestyleOnrampOpen, setFreestyleOnrampOpen] = React.useState(false);
+  const [privateTrialIntent, setPrivateTrialIntent] = React.useState(false);
+  const freestyleReturnFocusRef = React.useRef<HTMLElement | null>(null);
+  const runtimeCalibrationBlocked = useSessionStore((state) => state.engineSelectionLocked || state.pendingResolutionKind !== null);
+  // The recording controller rehydrates an owned recovery draft on SessionPage,
+  // but calibration starts from PracticePage. Read the same owner-scoped source
+  // synchronously so a reload cannot briefly present an unsafe calibration CTA.
+  const subscribeToRecoveryStorage = React.useCallback((notify: () => void) => {
+    const handleRecoveryStorageChange = (event: StorageEvent) => {
+      if (event.key !== null && event.key !== SESSION_RECOVERY_DRAFT_STORAGE_KEY) return;
+      notify();
+    };
+    window.addEventListener('storage', handleRecoveryStorageChange);
+    return () => window.removeEventListener('storage', handleRecoveryStorageChange);
+  }, []);
+  const readOwnedRecoveryState = React.useCallback(
+    () => hasUnresolvedRecoveryForCalibration(user?.id),
+    [user?.id],
+  );
+  const hasOwnedRecoveryDraft = React.useSyncExternalStore(
+    subscribeToRecoveryStorage,
+    readOwnedRecoveryState,
+    readOwnedRecoveryState,
+  );
+  const calibrationBlocked = runtimeCalibrationBlocked || hasOwnedRecoveryDraft;
+  const canStartCalibration = React.useCallback(() => {
+    const sessionState = useSessionStore.getState();
+    if (sessionState.engineSelectionLocked || sessionState.pendingResolutionKind !== null) return false;
+    return !hasUnresolvedRecoveryForCalibration(user?.id);
+  }, [user?.id]);
   const returning = React.useRef(false);
 
   React.useEffect(() => {
@@ -176,14 +224,24 @@ export default function PracticePage() {
 
   React.useEffect(() => () => { setSurface(null); }, [setSurface]);
 
-  // Freestyle: authed → /session directly; anonymous → account access preserving the /session intent via
-  // location.state.from (resolvePostAuthPath honors safe deep-links). Never auto-starts recording.
-  const startFreestyle = () => {
+  // #1116 increment 1: PracticePage owns the optional setup. Capture the exact CTA that opened it so
+  // cancel/Escape restores focus, then pass only validated stable IDs through the existing safe deep-link.
+  const openFreestyleOnramp = (privateTrial: boolean) => {
     setGuidedSelected(false);
     trackPracticeModeSelected('quick', 'landing_card');
+    freestyleReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setPrivateTrialIntent(privateTrial);
+    setFreestyleOnrampOpen(true);
+  };
+
+  const startFreestyle = () => openFreestyleOnramp(false);
+
+  const continueFreestyle = (selection: FreestyleOnrampSelection) => {
+    const search = buildFreestyleSessionSearch(selection, { privateTrial: privateTrialIntent });
+    setFreestyleOnrampOpen(false);
     trackQuickPracticeStarted('landing_card');
-    if (isAuthed) navigate('/session');
-    else navigate('/auth/signup', { state: { from: { pathname: '/session' } } });
+    if (isAuthed) navigate(`/session${search}`);
+    else navigate('/auth/signup', { state: { from: { pathname: '/session', search } } });
   };
 
   // #1047 anonymous handoff: the "Try a 5-minute private session" band promises Private, so it must
@@ -192,11 +250,7 @@ export default function PracticePage() {
   // when the account is eligible (never a silent Browser fallback, never auto-record/auto-download);
   // an ineligible account is told truthfully and stays on Browser.
   const startPrivateTrial = () => {
-    setGuidedSelected(false);
-    trackPracticeModeSelected('quick', 'landing_card');
-    trackQuickPracticeStarted('landing_card');
-    if (isAuthed) navigate('/session?trial=private');
-    else navigate('/auth/signup', { state: { from: { pathname: '/session', search: '?trial=private' } } });
+    openFreestyleOnramp(true);
   };
 
   // Guided "Notify me": open the real pre-launch interest dialog; content-free telemetry only. No nav.
@@ -241,6 +295,17 @@ export default function PracticePage() {
     />
   );
 
+  const freestyleOnramp = (
+    <FreestyleOnrampDialog
+      open={freestyleOnrampOpen}
+      onOpenChange={setFreestyleOnrampOpen}
+      onContinue={continueFreestyle}
+      returnFocusRef={freestyleReturnFocusRef}
+      calibrationBlocked={calibrationBlocked}
+      canStartCalibration={canStartCalibration}
+    />
+  );
+
   if (isAuthed) {
     return (
       // App.tsx owns the single <main id="main-content"> landmark; this is a plain content container.
@@ -253,6 +318,7 @@ export default function PracticePage() {
           defaultEmail={accountEmail}
           enabled={GUIDED_WAITLIST_ENABLED}
         />
+        {freestyleOnramp}
       </div>
     );
   }
@@ -314,6 +380,7 @@ export default function PracticePage() {
         defaultEmail=""
         enabled={GUIDED_WAITLIST_ENABLED}
       />
+      {freestyleOnramp}
     </div>
   );
 }

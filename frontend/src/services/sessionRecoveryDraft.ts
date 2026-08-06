@@ -1,6 +1,6 @@
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 
-const RECOVERY_DRAFT_KEY = 'speaksharp_unsaved_session_draft';
+export const SESSION_RECOVERY_DRAFT_STORAGE_KEY = 'speaksharp_unsaved_session_draft';
 
 export interface SessionRecoveryDraft {
   sessionId: string;
@@ -21,7 +21,7 @@ export function saveSessionRecoveryDraft(draft: Omit<SessionRecoveryDraft, 'save
   };
 
   try {
-    window.localStorage.setItem(RECOVERY_DRAFT_KEY, JSON.stringify(payload));
+    window.localStorage.setItem(SESSION_RECOVERY_DRAFT_STORAGE_KEY, JSON.stringify(payload));
   } catch {
     // Recovery is best-effort; never let storage policy/quota errors break stop.
   }
@@ -30,7 +30,7 @@ export function saveSessionRecoveryDraft(draft: Omit<SessionRecoveryDraft, 'save
 export function getSessionRecoveryDraft(): SessionRecoveryDraft | null {
   if (typeof window === 'undefined') return null;
 
-  const raw = window.localStorage.getItem(RECOVERY_DRAFT_KEY);
+  const raw = window.localStorage.getItem(SESSION_RECOVERY_DRAFT_STORAGE_KEY);
   if (!raw) return null;
 
   try {
@@ -88,7 +88,7 @@ export function clearSessionRecoveryDraft(sessionId?: string): void {
 
   if (!sessionId) {
     try {
-      window.localStorage.removeItem(RECOVERY_DRAFT_KEY);
+      window.localStorage.removeItem(SESSION_RECOVERY_DRAFT_STORAGE_KEY);
     } catch {
       // Best-effort cleanup.
     }
@@ -98,7 +98,7 @@ export function clearSessionRecoveryDraft(sessionId?: string): void {
   const draft = getSessionRecoveryDraft();
   if (!draft || draft.sessionId === sessionId) {
     try {
-      window.localStorage.removeItem(RECOVERY_DRAFT_KEY);
+      window.localStorage.removeItem(SESSION_RECOVERY_DRAFT_STORAGE_KEY);
     } catch {
       // Best-effort cleanup.
     }

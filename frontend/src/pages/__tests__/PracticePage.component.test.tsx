@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '../../../tests/support/test-utils';
+import { render, screen, fireEvent, waitFor, within } from '../../../tests/support/test-utils';
 import PracticePage from '../PracticePage';
 
 const navigateSpy = vi.fn();
@@ -13,6 +13,12 @@ vi.mock('@/services/practiceTelemetry', () => ({
   trackQuickPracticeStarted: vi.fn(),
   trackGuidedRehearsalUnavailable: vi.fn(),
 }));
+import { trackQuickPracticeStarted } from '@/services/practiceTelemetry';
+import {
+  clearSessionRecoveryDraft,
+  saveSessionRecoveryDraft,
+  SESSION_RECOVERY_DRAFT_STORAGE_KEY,
+} from '@/services/sessionRecoveryDraft';
 // The waitlist submit is mocked so the dialog can be exercised without a network call.
 const submitWaitlist = vi.fn();
 vi.mock('@/services/guidedWaitlistService', () => ({
@@ -33,13 +39,16 @@ vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: () => ({ data: undefine
 vi.mock('@/hooks/useRecentPracticeSummary', () => ({ useRecentPracticeSummary: vi.fn() }));
 import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
 const mockHistory = vi.mocked(useRecentPracticeSummary);
+const quickPracticeStarted = vi.mocked(trackQuickPracticeStarted);
 type HistoryReturn = ReturnType<typeof useRecentPracticeSummary>;
 
 const root = () => screen.getByTestId('practice-root');
 
 describe('PracticePage — one canonical auth-aware page (#1061)', () => {
   beforeEach(() => {
+    localStorage.clear();
     navigateSpy.mockReset();
+    quickPracticeStarted.mockClear();
     submitWaitlist.mockReset();
     submitWaitlist.mockResolvedValue({ ok: true });
     mockUser = { id: 'u-1', email: 'me@example.com' };
@@ -82,10 +91,120 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(screen.getByTestId('practice-card-guided')).toHaveAccessibleName(/notify me about guided rehearsal/i);
     });
 
-    it('Freestyle navigates DIRECTLY to /session', () => {
+    it('Freestyle opens the optional on-ramp and preserves its stable selections into /session', () => {
       render(<PracticePage />);
       fireEvent.click(screen.getByTestId('practice-card-quick'));
-      expect(navigateSpy).toHaveBeenCalledWith('/session');
+      expect(screen.getByTestId('freestyle-onramp-dialog')).toBeInTheDocument();
+      expect(quickPracticeStarted).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('radio', { name: 'Be more concise' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Give me a prompt' }));
+      fireEvent.click(screen.getByTestId('continue-freestyle-button'));
+      expect(quickPracticeStarted).toHaveBeenCalledTimes(1);
+      expect(quickPracticeStarted).toHaveBeenCalledWith('landing_card');
+      expect(navigateSpy).toHaveBeenCalledWith('/session?focus=concise&prompt=recent-work');
+    });
+
+    it('does not report practice started when optional setup is canceled', () => {
+      render(<PracticePage />);
+      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(quickPracticeStarted).not.toHaveBeenCalled();
+      expect(navigateSpy).not.toHaveBeenCalled();
+    });
+
+    it('blocks calibration when the authenticated owner has an unsaved recovery draft', () => {
+      saveSessionRecoveryDraft({
+        sessionId: 'recover-me',
+        userId: 'u-1',
+        transcript: 'unsaved private words',
+        durationSeconds: 12,
+        mode: 'private',
+      });
+      render(<PracticePage />);
+      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      expect(screen.getByRole('button', { name: 'Let me test with a sample' })).toBeDisabled();
+      expect(screen.getByText(/Finish the current recording or recovery step/)).toBeInTheDocument();
+    });
+
+    it('does not expose another account recovery draft through the calibration guard', () => {
+      saveSessionRecoveryDraft({
+        sessionId: 'other-account',
+        userId: 'user-B',
+        transcript: 'another account private words',
+        durationSeconds: 12,
+        mode: 'private',
+      });
+      render(<PracticePage />);
+      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      expect(screen.getByRole('button', { name: 'Let me test with a sample' })).toBeEnabled();
+    });
+
+    it('reacts to owner-scoped recovery changes from another tab without a reload', async () => {
+      render(<PracticePage />);
+      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      const calibrationButton = screen.getByRole('button', { name: 'Let me test with a sample' });
+      expect(calibrationButton).toBeEnabled();
+
+      saveSessionRecoveryDraft({
+        sessionId: 'cross-tab-owner-draft',
+        userId: 'u-1',
+        transcript: 'new unsaved private words',
+        durationSeconds: 14,
+        mode: 'private',
+      });
+      window.dispatchEvent(new StorageEvent('storage', { key: SESSION_RECOVERY_DRAFT_STORAGE_KEY }));
+      await waitFor(() => expect(calibrationButton).toBeDisabled());
+
+      clearSessionRecoveryDraft('cross-tab-owner-draft');
+      window.dispatchEvent(new StorageEvent('storage', { key: SESSION_RECOVERY_DRAFT_STORAGE_KEY }));
+      await waitFor(() => expect(calibrationButton).toBeEnabled());
+    });
+
+    it('ignores another account recovery storage event for the calibration guard', async () => {
+      render(<PracticePage />);
+      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      const calibrationButton = screen.getByRole('button', { name: 'Let me test with a sample' });
+
+      saveSessionRecoveryDraft({
+        sessionId: 'cross-tab-other-owner',
+        userId: 'user-B',
+        transcript: 'another account private words',
+        durationSeconds: 14,
+        mode: 'private',
+      });
+      window.dispatchEvent(new StorageEvent('storage', { key: SESSION_RECOVERY_DRAFT_STORAGE_KEY }));
+      await waitFor(() => expect(calibrationButton).toBeEnabled());
+    });
+
+    it('rechecks recovery at Start when another tab writes the current owner draft after mount', async () => {
+      render(<PracticePage />);
+      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      fireEvent.click(screen.getByRole('button', { name: 'Let me test with a sample' }));
+      saveSessionRecoveryDraft({
+        sessionId: 'cross-tab-after-mount',
+        userId: 'u-1',
+        transcript: 'new unsaved private words',
+        durationSeconds: 14,
+        mode: 'private',
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Start 30-second test' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/Finish the current recording or recovery step/);
+      expect(localStorage.getItem('speaksharp_active_session_lock')).toBeNull();
+    });
+
+    it('fails calibration closed when recovery storage cannot be inspected', () => {
+      const read = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new DOMException('storage denied', 'SecurityError');
+      });
+      try {
+        render(<PracticePage />);
+        fireEvent.click(screen.getByTestId('practice-card-quick'));
+        expect(screen.getByRole('button', { name: 'Let me test with a sample' })).toBeDisabled();
+      } finally {
+        read.mockRestore();
+      }
     });
 
     it('Guided "Notify me" opens the gated coming-soon dialog (waitlist OFF) — no form, no backend call, no nav', async () => {
@@ -166,18 +285,25 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).toHaveBeenCalledWith('/auth/signup');
     });
 
-    it('Freestyle FREE TRIAL strip CTA → account access carrying the Private-trial intent (no auto-record)', () => {
+    it('Freestyle FREE TRIAL preserves Private-trial and optional setup through account access', () => {
       render(<PracticePage />);
       fireEvent.click(screen.getByTestId('freestyle-trial-start'));
-      // The band promises Private, so the intent rides through signup via from.search (resolvePostAuthPath
-      // preserves it) → /session?trial=private. NOT a bare /session that silently lands on Browser.
-      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session', search: '?trial=private' } } });
+      fireEvent.click(screen.getByRole('radio', { name: 'Deliver clearly' }));
+      fireEvent.click(screen.getByTestId('continue-freestyle-button'));
+      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', {
+        state: { from: { pathname: '/session', search: '?focus=clarity&trial=private' } },
+      });
     });
 
-    it('Freestyle product card CTA → account access preserving /session intent', () => {
+    it('Freestyle product card preserves focus and prompt through signup', () => {
       render(<PracticePage />);
       fireEvent.click(screen.getByTestId('practice-card-quick'));
-      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session' } } });
+      fireEvent.click(screen.getByRole('radio', { name: 'Reduce filler words' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Give me a prompt' }));
+      fireEvent.click(screen.getByTestId('continue-freestyle-button'));
+      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', {
+        state: { from: { pathname: '/session', search: '?focus=fillers&prompt=recent-work' } },
+      });
     });
 
     it('Guided product card opens the gated coming-soon dialog (waitlist OFF), no form, no navigation', async () => {

@@ -44,6 +44,7 @@ test.describe('Simulated stale-chunk response recovery', () => {
       await page.evaluate(() => sessionStorage.setItem('__ss_full_loads', '0'));
       // #1042 PR3: the Freestyle card navigates directly to /session (no intermediate overview).
       await page.getByTestId('practice-card-quick').click();
+      await page.getByTestId('continue-freestyle-button').click();
 
       await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
       const startStop = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);

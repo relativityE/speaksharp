@@ -22,7 +22,7 @@ vi.mock('@/hooks/useRecentPracticeSummary', () => ({ useRecentPracticeSummary: (
 // renders without a QueryClientProvider, and the streak is irrelevant to surface attribution.
 vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: () => ({ data: undefined }) }));
 // #1061: PracticePage is now auth-aware; this suite exercises the AUTHENTICATED /practice reporting surface
-// (Freestyle → /session directly), so mock an authenticated user.
+// (Freestyle on-ramp → Continue → /session), so mock an authenticated user.
 vi.mock('@/contexts/AuthProvider', async (orig) => {
   const actual = await orig<typeof import('@/contexts/AuthProvider')>();
   return { ...actual, useAuthProvider: () => ({ user: { id: 'u-1' } }) };
@@ -78,7 +78,7 @@ async function reportAndCapture(expectedLabel: RegExp, expectedAreas: string[]) 
 }
 
 // #1042 PR3: the full-page overview + its `quick_practice_overview` surface were removed — /practice now
-// has TWO surfaces (chooser + Guided-unavailable), and the Freestyle card navigates directly to /session.
+// has TWO surfaces (chooser + Guided-unavailable), and the Freestyle on-ramp continues to /session.
 describe('Report Issue — /practice surface attribution (one route, two surfaces)', () => {
   beforeEach(() => submit.mockClear());
 
@@ -114,9 +114,11 @@ describe('Report Issue — /practice surface attribution (one route, two surface
     expect(first.practiceSurface).toBe('guided_rehearsal_unavailable');
   });
 
-  it('#1042 PR3: the Freestyle card navigates DIRECTLY to /session; a report there uses the Session · Speaking context', async () => {
+  it('continues from the Freestyle on-ramp to /session; a report there uses the Session · Speaking context', async () => {
     renderApp();
-    fireEvent.click(screen.getByTestId('practice-card-quick')); // navigate('/session') → PracticePage unmounts (no overview)
+    fireEvent.click(screen.getByTestId('practice-card-quick'));
+    expect(screen.getByTestId('freestyle-onramp-dialog')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('continue-freestyle-button'));
     expect(await screen.findByTestId('session-marker')).toBeInTheDocument();
     await openReport();
     expect(banner()).toHaveTextContent(/Session · Speaking/);

@@ -31,6 +31,25 @@ export function safeResetSessionTelemetry(sessionId: string): void {
 }
 
 /**
+ * Clear buffered events only when the bus still belongs to the expected session.
+ * This lets short-lived isolated clients discard their own raw evidence without
+ * erasing a successor recording that has already rebound the process-wide bus.
+ */
+export function safeResetSessionTelemetryIfCurrent(
+  expectedSessionId: string,
+  replacementSessionId = 'unset',
+): boolean {
+  try {
+    const telemetryBus = getSessionTelemetryBus();
+    if (telemetryBus.currentSessionId !== expectedSessionId) return false;
+    telemetryBus.reset(replacementSessionId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Safe shadow-publish entry point for emitters. Swallows ALL errors so shadow telemetry can never
  * affect the production transcript/audio path. This is the only call sites should use during the
  * shadow phase.

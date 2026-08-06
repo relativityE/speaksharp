@@ -88,6 +88,7 @@ test.describe('Genuine two-build rollover (Build A tab → Build B server)', () 
     // Navigate to the lazily-loaded /session — Build A requests its (now-missing) chunk → recovery.
     // #1042 PR3: the Freestyle card navigates directly to /session (no intermediate overview).
     await page.getByTestId('practice-card-quick').click();
+    await page.getByTestId('continue-freestyle-button').click();
 
     // Recovered onto a working /session.
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });

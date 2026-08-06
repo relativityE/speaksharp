@@ -208,6 +208,7 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
 
     // ── B. FREESTYLE PRACTICE → DIRECT /session (#1042 PR3: no intermediate overview) ──
     await page.getByTestId('practice-card-quick').click();
+    await page.getByTestId('continue-freestyle-button').click();
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
     // Recording does NOT auto-start: the start/stop control is present and not recording.
     const startStop = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
