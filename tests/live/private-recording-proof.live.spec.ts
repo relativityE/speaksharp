@@ -109,6 +109,9 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
         // cascade tables verified below). Delete it explicitly by user_id first, while the column still holds it.
         const { error: teDelErr } = await admin.from('trial_entitlements').delete().eq('user_id', capturedUid);
         if (teDelErr) throw new Error(`cleanup trial_entitlements delete failed (fail closed): ${teDelErr.message}`);
+        // DO NOT delete `user_issue_reports` here. Its user_id FK is ON DELETE SET NULL BY DESIGN — the product
+        // deliberately RETAINS "Report issue" feedback after account deletion (row survives, unlinked). That is a
+        // feature, not residue; scrubbing it would risk erasing real user feedback. This proof files none anyway.
         const { error: delErr } = await admin.auth.admin.deleteUser(capturedUid);
         if (delErr) throw new Error(`cleanup deleteUser failed (fail closed): ${delErr.message}`);
         // Prove deletion: ONLY an expected not-found re-fetch is proof. A returned user = still exists (fail);
