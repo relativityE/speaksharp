@@ -105,7 +105,7 @@ describe('SessionPage — #1047 simplification', () => {
         render(<SessionPage />);
 
         const titleBlock = screen.getByTestId('session-title-block');
-        const helpButton = screen.getByTestId('freestyle-help-button');
+        const helpButton = screen.getByTestId('freeform-help-button');
 
         expect(titleBlock).toContainElement(helpButton);
         expect(titleBlock).toContainElement(screen.getByText('Practice Session'));
@@ -269,7 +269,7 @@ describe('SessionPage — #1047 simplification', () => {
     it('keeps the new surfaces keyboard-reachable, focus-visible and narrow-viewport safe', () => {
         render(<SessionPage />);
 
-        const helpButton = screen.getByTestId('freestyle-help-button');
+        const helpButton = screen.getByTestId('freeform-help-button');
         // Focusable (never `disabled`, which would strip it from the tab order) with a visible ring.
         expect(helpButton.tagName).toBe('BUTTON');
         expect(helpButton).not.toBeDisabled();

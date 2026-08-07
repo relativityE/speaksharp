@@ -10,10 +10,10 @@ import {
 } from '@/components/ui/dialog';
 
 /**
- * #1042 PR2 — "How Freestyle Practice works" help overlay.
+ * #1042 PR2 — "How Raw Takes works" help overlay.
  *
  * A secondary, outlined button rendered directly above the Mic-ready status surface on the Practice
- * Session page. Opening it shows the approved Freestyle guide in a partial dialog (desktop) / bottom
+ * Session page. Opening it shows the approved Freeform guide in a partial dialog (desktop) / bottom
  * sheet (mobile). It NEVER navigates and NEVER starts recording — it is purely informational.
  *
  * Availability is driven ENTIRELY by the authoritative Session lifecycle projection passed in as
@@ -38,7 +38,7 @@ const HELP_FEEDBACK =
 const HELP_DISABLED_REASON =
     'Finish the current recording, save, or recovery step to view this guide.';
 
-export function FreestyleHelpOverlay({ available, className = '' }: { available: boolean; className?: string }) {
+export function FreeformHelpOverlay({ available, className = '' }: { available: boolean; className?: string }) {
     const [open, setOpen] = React.useState(false);
     const triggerRef = React.useRef<HTMLButtonElement>(null);
     const disabled = !available;
@@ -65,9 +65,9 @@ export function FreestyleHelpOverlay({ available, className = '' }: { available:
                 // aria-disabled (NOT native `disabled`) keeps the control focusable so the persistent
                 // explanation below is reachable by assistive tech; activation is blocked in onClick.
                 aria-disabled={disabled}
-                aria-describedby={disabled ? 'freestyle-help-disabled-reason' : undefined}
+                aria-describedby={disabled ? 'freeform-help-disabled-reason' : undefined}
                 data-disabled={disabled ? 'true' : 'false'}
-                data-testid="freestyle-help-button"
+                data-testid="freeform-help-button"
                 // `whitespace-normal` + `max-w-full` override the shared Button's `whitespace-nowrap`:
                 // at a 320px viewport the label is wider than the content box, and a nowrap island would
                 // push the page into horizontal scroll.
@@ -81,7 +81,7 @@ export function FreestyleHelpOverlay({ available, className = '' }: { available:
             </Button>
             {/* Persistent accessible explanation while disabled — meaning is carried by text, not styling. */}
             {disabled && (
-                <span id="freestyle-help-disabled-reason" className="sr-only">{HELP_DISABLED_REASON}</span>
+                <span id="freeform-help-disabled-reason" className="sr-only">{HELP_DISABLED_REASON}</span>
             )}
 
             <Dialog open={open} onOpenChange={setOpen}>
@@ -97,18 +97,18 @@ export function FreestyleHelpOverlay({ available, className = '' }: { available:
                     // translucent, letting the page bleed through; disabling the timing makes it fully opaque
                     // the instant it opens (mirrors the STT menu's `opaque` treatment for the same reason).
                     className="!duration-0 max-h-[85vh] overflow-y-auto sm:max-w-[600px] max-sm:!left-0 max-sm:!right-0 max-sm:!top-auto max-sm:!bottom-0 max-sm:!w-auto max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-b-none max-sm:!rounded-t-xl"
-                    data-testid="freestyle-help-overlay"
+                    data-testid="freeform-help-overlay"
                     // Guarantee focus returns to the trigger after close (Escape / close button / outside).
                     onCloseAutoFocus={(e) => { e.preventDefault(); triggerRef.current?.focus(); }}
                 >
                     <DialogTitle>{HELP_TITLE}</DialogTitle>
                     <DialogDescription>{HELP_INTRO}</DialogDescription>
-                    <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm text-foreground/85" data-testid="freestyle-help-steps">
+                    <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm text-foreground/85" data-testid="freeform-help-steps">
                         {HELP_STEPS.map((step) => (
                             <li key={step}>{step}</li>
                         ))}
                     </ol>
-                    <p className="mt-3 text-sm text-muted-foreground" data-testid="freestyle-help-feedback">
+                    <p className="mt-3 text-sm text-muted-foreground" data-testid="freeform-help-feedback">
                         {HELP_FEEDBACK}
                     </p>
                 </DialogContent>

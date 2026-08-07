@@ -72,29 +72,29 @@ describe('pageContext — resolvePageContext', () => {
 });
 
 describe('pageContext — /practice surfaces (closed contract)', () => {
-  // #1042 PR3: the full-page overview was removed, so the `quick_practice_overview` surface no longer
-  // exists — /practice now has exactly TWO surfaces (chooser + Guided-unavailable).
+  // #1042 PR3: the full-page overview was removed, so the `freeform_practice_overview` surface no longer
+  // exists — /practice now has exactly TWO surfaces (chooser + Objective-unavailable).
   it('distinguishes the two surfaces by label + journeyStep, all keeping /practice as the route', () => {
     const home = resolvePageContext('/practice', 'practice_home');
-    const guided = resolvePageContext('/practice', 'guided_rehearsal_unavailable');
+    const objective = resolvePageContext('/practice', 'objective_unavailable');
     expect(home).toMatchObject({ pageLabel: 'SpeakSharp Practice', journeyStep: 'chooser', practiceSurface: 'practice_home' });
-    // Tester-facing label is exactly "Guided Rehearsal"; availability lives in the token, not the label.
-    expect(guided).toMatchObject({ pageLabel: 'Guided Rehearsal', journeyStep: 'guided_unavailable', practiceSurface: 'guided_rehearsal_unavailable' });
-    expect(guided.pageLabel).not.toContain('unavailable');
-    for (const c of [home, guided]) { expect(c.pageKey).toBe('practice'); expect(c.canonicalRoute).toBe('/practice'); }
+    // Tester-facing label is exactly "Focus Points"; availability lives in the token, not the label.
+    expect(objective).toMatchObject({ pageLabel: 'Focus Points', journeyStep: 'objective_unavailable', practiceSurface: 'objective_unavailable' });
+    expect(objective.pageLabel).not.toContain('unavailable');
+    for (const c of [home, objective]) { expect(c.pageKey).toBe('practice'); expect(c.canonicalRoute).toBe('/practice'); }
     // The removed overview surface now fails closed to the chooser.
-    expect(resolvePageContext('/practice', 'quick_practice_overview').practiceSurface).toBe('practice_home');
+    expect(resolvePageContext('/practice', 'freeform_practice_overview').practiceSurface).toBe('practice_home');
   });
 
   it('FAILS CLOSED to practice_home for an invalid / absent / non-string surface', () => {
     expect(resolvePageContext('/practice', 'bogus_surface').practiceSurface).toBe('practice_home');
     expect(resolvePageContext('/practice', undefined).practiceSurface).toBe('practice_home');
     expect(resolvePageContext('/practice', 42 as unknown).practiceSurface).toBe('practice_home');
-    expect(resolvePageContext('/practice', 'quick_practice_overview; DROP TABLE').practiceSurface).toBe('practice_home');
+    expect(resolvePageContext('/practice', 'freeform_practice_overview; DROP TABLE').practiceSurface).toBe('practice_home');
   });
 
   it('ignores a surface off /practice (never attaches practiceSurface elsewhere)', () => {
-    const s = resolvePageContext('/session', 'quick_practice_overview');
+    const s = resolvePageContext('/session', 'freeform_practice_overview');
     expect(s).toMatchObject({ pageKey: 'session', canonicalRoute: '/session' });
     expect(s.practiceSurface).toBeUndefined();
   });
@@ -102,7 +102,7 @@ describe('pageContext — /practice surfaces (closed contract)', () => {
   it('issueAreasForContext returns SURFACE-specific areas on /practice, page areas elsewhere', () => {
     expect(issueAreasForContext(resolvePageContext('/practice', 'practice_home')).map((a) => a.value))
       .toEqual(['understanding_choices', 'navigation', 'visual_layout', 'other']);
-    expect(issueAreasForContext(resolvePageContext('/practice', 'guided_rehearsal_unavailable')).map((a) => a.value))
+    expect(issueAreasForContext(resolvePageContext('/practice', 'objective_unavailable')).map((a) => a.value))
       .toEqual(['availability', 'product_clarity', 'navigation', 'visual_layout', 'other']);
     expect(issueAreasForContext(resolvePageContext('/session')).map((a) => a.value)).toContain('transcription');
   });

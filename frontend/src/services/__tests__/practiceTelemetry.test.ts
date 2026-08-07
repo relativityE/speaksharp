@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import {
   trackPracticeEntryViewed, trackPracticeModeSelected, trackPracticeOverviewExpanded,
-  trackQuickPracticeStarted, trackGuidedRehearsalUnavailable,
+  trackFreeformPracticeStarted, trackObjectiveUnavailable,
   type PracticeEntrySource,
 } from '@/services/practiceTelemetry';
 
@@ -19,13 +19,13 @@ describe('practiceTelemetry — content-free, allowlisted events via AnalyticsBu
     trackPracticeEntryViewed(true);
     trackPracticeModeSelected('quick', 'landing_card');
     trackPracticeOverviewExpanded('quick');
-    trackQuickPracticeStarted('quick_overview');
-    trackGuidedRehearsalUnavailable();
+    trackFreeformPracticeStarted('freeform_overview');
+    trackObjectiveUnavailable();
 
     const names = push.mock.calls.map((c) => c[0]);
     expect(names).toEqual([
       'practice_entry_viewed', 'practice_mode_selected', 'practice_overview_expanded',
-      'quick_practice_started', 'guided_rehearsal_unavailable_selected',
+      'freeform_practice_started', 'objective_unavailable_selected',
     ]);
 
     // Every payload carries only allowlisted keys and no free-form user content.
@@ -37,14 +37,14 @@ describe('practiceTelemetry — content-free, allowlisted events via AnalyticsBu
       expect(FORBIDDEN_KEYS).not.toContain(key);
     });
     // `mode` is only ever the enum; no payload contains email-shaped or free-form content.
-    allProps.map((p) => p.mode).filter(Boolean).forEach((m) => expect(['quick', 'guided']).toContain(m));
+    allProps.map((p) => p.mode).filter(Boolean).forEach((m) => expect(['quick', 'objective']).toContain(m));
     allProps.forEach((p) => expect(JSON.stringify(p)).not.toMatch(/@/));
   });
 
   it('DROPS an out-of-enum entry_source instead of emitting arbitrary text', () => {
     // A future/hostile caller supplies a non-enum source; it must be normalized away (null), never sent.
     trackPracticeModeSelected('quick', 'evil_free_text' as PracticeEntrySource);
-    trackQuickPracticeStarted('http://leak.example/path' as PracticeEntrySource);
+    trackFreeformPracticeStarted('http://leak.example/path' as PracticeEntrySource);
     const props = push.mock.calls.map(([, p]) => (p ?? {}) as Record<string, unknown>);
     props.forEach((p) => expect(p.entry_source).toBeNull());
     // The arbitrary strings never appear anywhere in the payloads.
@@ -55,17 +55,17 @@ describe('practiceTelemetry — content-free, allowlisted events via AnalyticsBu
   });
 
   it('keeps valid enum sources', () => {
-    trackPracticeModeSelected('guided', 'landing_card');
-    trackQuickPracticeStarted('quick_overview');
+    trackPracticeModeSelected('objective', 'landing_card');
+    trackFreeformPracticeStarted('freeform_overview');
     expect(push.mock.calls[0][1]).toMatchObject({ entry_source: 'landing_card' });
-    expect(push.mock.calls[1][1]).toMatchObject({ entry_source: 'quick_overview' });
+    expect(push.mock.calls[1][1]).toMatchObject({ entry_source: 'freeform_overview' });
   });
 
-  it('guided-unavailable event is content-free: mode=guided + available=false, never the toast text', () => {
-    trackGuidedRehearsalUnavailable();
+  it('objective-unavailable event is content-free: mode=objective + available=false, never the toast text', () => {
+    trackObjectiveUnavailable();
     const [name, props] = push.mock.calls[0];
-    expect(name).toBe('guided_rehearsal_unavailable_selected');
-    expect(props).toMatchObject({ mode: 'guided', available: false });
+    expect(name).toBe('objective_unavailable_selected');
+    expect(props).toMatchObject({ mode: 'objective', available: false });
     expect(JSON.stringify(props)).not.toContain('not available at this time');
   });
 
@@ -75,7 +75,7 @@ describe('practiceTelemetry — content-free, allowlisted events via AnalyticsBu
     push.mockImplementationOnce(() => {
       throw new Error('analytics unavailable');
     });
-    expect(() => trackQuickPracticeStarted('quick_overview')).not.toThrow();
+    expect(() => trackFreeformPracticeStarted('freeform_overview')).not.toThrow();
     expect(push).toHaveBeenCalledTimes(1);
   });
 });

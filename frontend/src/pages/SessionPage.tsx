@@ -15,7 +15,7 @@ import { LiveRecordingCard } from '@/components/session/LiveRecordingCard';
 import { UnresolvedRecoveryBanner } from '@/components/session/UnresolvedRecoveryBanner';
 import { MobileActionBar } from '@/components/session/MobileActionBar';
 import { StatusNotificationBar } from '@/components/session/StatusNotificationBar';
-import { FreestyleHelpOverlay } from '@/components/session/FreestyleHelpOverlay';
+import { FreeformHelpOverlay } from '@/components/session/FreeformHelpOverlay';
 import { SttStatus } from '@/types/transcription';
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 import { SunsetModals } from '@/components/session/SunsetModals';
@@ -151,7 +151,7 @@ export const SessionPage: React.FC = () => {
 
     // 1. Determine Primary Status (Session State)
     const isActiveStt = sttStatus.type === 'initializing' || sttStatus.type === 'downloading' || sttStatus.type === 'fallback' || isListening;
-    // #1042 PR2: the "How Freestyle Practice works" help overlay is available only when the session is idle
+    // #1042 PR2: the "How Raw Takes works" help overlay is available only when the session is idle
     // (before recording / after a successful save). It is disabled during starting, initializing, recording,
     // stopping, finalizing/saving, or an unresolved recovery. This is derived ENTIRELY from the existing
     // authoritative projection (runtime FSM + isActiveStt + finalizing + pendingResolutionKind) — no second
@@ -290,7 +290,7 @@ export const SessionPage: React.FC = () => {
             className="min-h-screen bg-background pt-20"
         >
             {/* Page Header.
-                #1047: the "How Freestyle Practice works" guide now lives INSIDE this title block, centered
+                #1047: the "How Raw Takes works" guide now lives INSIDE this title block, centered
                 directly beneath the subhead, as its own dark-green island. It used to sit 12px above the
                 Mic-ready status bar as a white outlined button — two same-width white rounded rectangles
                 stacked, which read as a second status row instead of an action. Up here it is
@@ -301,7 +301,7 @@ export const SessionPage: React.FC = () => {
                         <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
                         <p className="text-xs font-semibold text-foreground/70">Record, review, and track your speaking patterns</p>
                     </div>
-                    <FreestyleHelpOverlay available={helpOverlayAvailable} />
+                    <FreeformHelpOverlay available={helpOverlayAvailable} />
                 </div>
             </div>
 

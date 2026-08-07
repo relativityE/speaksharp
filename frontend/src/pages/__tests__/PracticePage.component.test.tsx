@@ -10,12 +10,12 @@ vi.mock('react-router-dom', async (orig) => {
 vi.mock('@/services/practiceTelemetry', () => ({
   trackPracticeEntryViewed: vi.fn(),
   trackPracticeModeSelected: vi.fn(),
-  trackQuickPracticeStarted: vi.fn(),
-  trackGuidedRehearsalUnavailable: vi.fn(),
+  trackFreeformPracticeStarted: vi.fn(),
+  trackObjectiveUnavailable: vi.fn(),
 }));
 // The waitlist submit is mocked so the dialog can be exercised without a network call.
 const submitWaitlist = vi.fn();
-vi.mock('@/services/guidedWaitlistService', () => ({
+vi.mock('@/services/objectiveWaitlistService', () => ({
   submitGuidedWaitlist: (...a: unknown[]) => submitWaitlist(...a),
 }));
 
@@ -52,12 +52,12 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
     expect(container.querySelector('#main-content')).toBeNull();
   });
 
-  it('shows both product identities; Guided carries the SOON header badge + launch CTA', () => {
+  it('shows both product identities; Objective carries the SOON header badge + launch CTA', () => {
     render(<PracticePage />);
     expect(within(root()).getByRole('heading', { name: /^Raw Takes$/i })).toBeInTheDocument();
     expect(within(root()).getByRole('heading', { name: /^Focus Points$/i })).toBeInTheDocument();
-    // Guided "coming soon" is conveyed by the SOON header badge + the "Notify me at launch" CTA.
-    const badge = screen.getByTestId('guided-soon-badge');
+    // Objective "coming soon" is conveyed by the SOON header badge + the "Notify me at launch" CTA.
+    const badge = screen.getByTestId('objective-soon-badge');
     expect(badge).toHaveTextContent('SOON');
     expect(within(root()).getByText(/notify me at launch/i)).toBeInTheDocument();
     // No user-facing "Planned" anywhere.
@@ -78,23 +78,23 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(screen.queryByTestId('practice-hero-start-free')).not.toBeInTheDocument();
       expect(root().textContent ?? '').not.toMatch(/Public Impact/i);
       // Product cards own their actions.
-      expect(screen.getByTestId('practice-card-quick')).toHaveAccessibleName(/start raw takes/i);
-      expect(screen.getByTestId('practice-card-guided')).toHaveAccessibleName(/notify me about focus points/i);
+      expect(screen.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start raw takes/i);
+      expect(screen.getByTestId('practice-card-objective')).toHaveAccessibleName(/notify me about focus points/i);
     });
 
-    it('Freestyle navigates DIRECTLY to /session', () => {
+    it('Freeform navigates DIRECTLY to /session', () => {
       render(<PracticePage />);
-      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      fireEvent.click(screen.getByTestId('practice-card-freeform'));
       expect(navigateSpy).toHaveBeenCalledWith('/session');
     });
 
-    it('Guided "Notify me" opens the gated coming-soon dialog (waitlist OFF) — no form, no backend call, no nav', async () => {
+    it('Objective "Notify me" opens the gated coming-soon dialog (waitlist OFF) — no form, no backend call, no nav', async () => {
       render(<PracticePage />);
-      fireEvent.click(screen.getByTestId('practice-card-guided'));
-      expect(await screen.findByTestId('guided-notify-dialog')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('practice-card-objective'));
+      expect(await screen.findByTestId('objective-notify-dialog')).toBeInTheDocument();
       // Activation flag is OFF by default → honest coming-soon acknowledgement, NOT the capture form.
-      expect(screen.getByTestId('guided-notify-comingsoon')).toBeInTheDocument();
-      expect(screen.queryByTestId('guided-notify-email')).not.toBeInTheDocument();
+      expect(screen.getByTestId('objective-notify-comingsoon')).toBeInTheDocument();
+      expect(screen.queryByTestId('objective-notify-email')).not.toBeInTheDocument();
       expect(submitWaitlist).not.toHaveBeenCalled();
       expect(navigateSpy).not.toHaveBeenCalled();
     });
@@ -141,20 +141,20 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
   describe('anonymous state (`/`)', () => {
     beforeEach(() => { mockUser = null; });
 
-    it('shows the large hero, the Freestyle FREE TRIAL strip, and product cards WITH their own CTAs (no support section / continuity)', () => {
+    it('shows the large hero, the Freeform FREE TRIAL strip, and product cards WITH their own CTAs (no support section / continuity)', () => {
       render(<PracticePage />);
       expect(screen.getByTestId('practice-hero-start-free')).toBeVisible();
-      // Freestyle FREE TRIAL strip (the four support cards + connectors are removed).
-      const strip = screen.getByTestId('freestyle-trial-strip');
+      // Freeform FREE TRIAL strip (the four support cards + connectors are removed).
+      const strip = screen.getByTestId('freeform-trial-strip');
       expect(strip).toHaveTextContent(/free trial/i);
       expect(strip).toHaveTextContent(/try a 5-minute private session — no card, no script\./i);
-      expect(screen.queryByTestId('support-freestyle-explain')).not.toBeInTheDocument();
-      // Guided status is the SOON header badge (never "Planned").
-      expect(within(screen.getByTestId('practice-card-guided-card')).getByTestId('guided-soon-badge')).toHaveTextContent('SOON');
+      expect(screen.queryByTestId('support-freeform-explain')).not.toBeInTheDocument();
+      // Objective status is the SOON header badge (never "Planned").
+      expect(within(screen.getByTestId('practice-card-objective-card')).getByTestId('objective-soon-badge')).toHaveTextContent('SOON');
       expect(screen.queryByText(/Planned/)).toBeNull();
       // Product cards own their actions (anon shows CTAs, same as authed).
-      expect(screen.getByTestId('practice-card-quick')).toHaveAccessibleName(/start raw takes/i);
-      expect(screen.getByTestId('practice-card-guided')).toHaveAccessibleName(/notify me about focus points/i);
+      expect(screen.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start raw takes/i);
+      expect(screen.getByTestId('practice-card-objective')).toHaveAccessibleName(/notify me about focus points/i);
       // No authenticated continuity/account actions.
       expect(screen.queryByTestId('practice-continuity')).not.toBeInTheDocument();
       expect(screen.queryByTestId('practice-continuity-empty')).not.toBeInTheDocument();
@@ -166,30 +166,30 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).toHaveBeenCalledWith('/auth/signup');
     });
 
-    it('Freestyle FREE TRIAL strip CTA → account access carrying the Private-trial intent (no auto-record)', () => {
+    it('Freeform FREE TRIAL strip CTA → account access carrying the Private-trial intent (no auto-record)', () => {
       render(<PracticePage />);
-      fireEvent.click(screen.getByTestId('freestyle-trial-start'));
+      fireEvent.click(screen.getByTestId('freeform-trial-start'));
       // The band promises Private, so the intent rides through signup via from.search (resolvePostAuthPath
       // preserves it) → /session?trial=private. NOT a bare /session that silently lands on Browser.
       expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session', search: '?trial=private' } } });
     });
 
-    it('Freestyle product card CTA → account access preserving /session intent', () => {
+    it('Freeform product card CTA → account access preserving /session intent', () => {
       render(<PracticePage />);
-      fireEvent.click(screen.getByTestId('practice-card-quick'));
+      fireEvent.click(screen.getByTestId('practice-card-freeform'));
       expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session' } } });
     });
 
-    it('Guided product card opens the gated coming-soon dialog (waitlist OFF), no form, no navigation', async () => {
+    it('Objective product card opens the gated coming-soon dialog (waitlist OFF), no form, no navigation', async () => {
       render(<PracticePage />);
-      fireEvent.click(screen.getByTestId('practice-card-guided'));
-      expect(await screen.findByTestId('guided-notify-dialog')).toBeInTheDocument();
-      expect(screen.getByTestId('guided-notify-comingsoon')).toBeInTheDocument();
-      expect(screen.queryByTestId('guided-notify-email')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('practice-card-objective'));
+      expect(await screen.findByTestId('objective-notify-dialog')).toBeInTheDocument();
+      expect(screen.getByTestId('objective-notify-comingsoon')).toBeInTheDocument();
+      expect(screen.queryByTestId('objective-notify-email')).not.toBeInTheDocument();
       expect(submitWaitlist).not.toHaveBeenCalled();
       expect(navigateSpy).not.toHaveBeenCalled();
     });
   });
   // The ENABLED capture-form path (validation / honest success / honest failure) is covered directly in
-  // GuidedNotifyDialog.test.tsx with enabled={true}, independent of the page's activation flag.
+  // ObjectiveNotifyDialog.test.tsx with enabled={true}, independent of the page's activation flag.
 });

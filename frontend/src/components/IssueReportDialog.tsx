@@ -63,7 +63,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   runtimeState,
 }) => {
   const location = useLocation();
-  // Active /practice surface (Quick/Guided/home) from the shared provider — null off /practice. Snapshotted
+  // Active /practice surface (Quick/Objective/home) from the shared provider — null off /practice. Snapshotted
   // into pageContext at open time so the report is attributed to the surface the user was actually on.
   const { surface } = usePracticeSurface();
   const [open, setOpen] = React.useState(false);

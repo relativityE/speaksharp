@@ -16,7 +16,7 @@ interface AuthAwareRootProps {
  *  - authenticated session          → the authenticated home is `/practice` (replace: a Back press
  *    should not bounce the user between `/` and `/practice`);
  *  - no authenticated session       → render the SHARED PracticePage in its anonymous state (same hero +
- *    product choices; Freestyle routes through account access; no session history/account actions).
+ *    product choices; Freeform routes through account access; no session history/account actions).
  *
  * The decision is made ONLY from the resolved auth session — never from PostHog or any feature flag.
  * This does not affect other protected routes: `/session`, `/analytics`, `/analytics/:sessionId`
