@@ -34,12 +34,12 @@ export function PracticeOnramp({ className = '' }: { className?: string }) {
     // Fixed, top-center, non-modal: the empty wrapper lets clicks pass through to the mic/transcript;
     // only the card is interactive (pointer-events-auto). z-40 sits below the app nav (z-50).
     <div
-      className={`pointer-events-none fixed left-1/2 top-[76px] z-40 w-[min(680px,calc(100vw-1.5rem))] -translate-x-1/2 ${className}`}
+      className={`pointer-events-none fixed right-3 top-[76px] z-40 w-[min(420px,calc(100vw-1.5rem))] ${className}`}
     >
       <section
         data-testid="practice-onramp"
         aria-label="Reading helper — not sure what to say?"
-        className="pointer-events-auto rounded-xl border border-[color:var(--ss-border,#e2e8f0)] bg-[color:var(--ss-surface,#ffffff)]/95 p-3 shadow-lg backdrop-blur"
+        className="pointer-events-auto rounded-xl border border-[color:var(--ss-border,#e2e8f0)] bg-[color:var(--ss-surface,#ffffff)] p-3 shadow-xl"
       >
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-bold text-[color:var(--ss-text,#0f172a)]">
