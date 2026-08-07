@@ -28,7 +28,11 @@ runs:
   steps:
     - name: Setup pnpm
       uses: pnpm/action-setup@v6
-      # Version is read from package.json "packageManager" field
+      with:
+        # PIN to the packageManager version. Do NOT rely on drift: pnpm v11 (released 2026-08)
+        # breaks install here with ERR_PNPM_ENOENT (mkdir node_modules/@radix-ui). The engines
+        # range `>=10.29.1` otherwise lets action-setup resolve v11. Keep this == packageManager.
+        version: 10.29.1
 
     - name: Setup Node.js
       uses: actions/setup-node@v6
