@@ -50,11 +50,15 @@ A single forward migration renames every G1 object (empty tables → mechanical,
 ---
 
 ## 4. Phased PRs (independently reviewable, DAG order)
+
+**PR-0 — `refactor(objective): rename guided_ → objective_` (STANDALONE; `Refs #1149, #1046`).** The §2 rename **only**: tables + functions + enums + policies, in a **forward-only, additive** migration (does **not** rewrite or re-add the G1 migration). Nothing else. Per #1149, the internal-token rename must **not** be combined with #1046 feature/evidence logic — it lands and merges first, then the feature PRs build on the `objective_` names. (This is the re-sequenced split confirmed 2026-08-07.)
+
 1. **`feat(core): STT exclusivity` (enforcement)** — remove engine selector from UI; intent/`SpeechRuntimeController` demand `private`; internal v4→v2 is the only fallback; fail-closed. *No adapter-code deletion (that's #1184 fast-follow).*
-2. **`feat(objective): foundation`** — the §2 rename migration + `issue_objective_brief_v1`.
-3. **`feat(objective): focus-point capture`** — form (gated by `has_objective_capability()`), `productNames.ts` seam, unit/integration tests.
-4. **`feat(objective): feedback loop + parity`** — wire `recordProgress`/`record_progress_evaluation` + `objective_finalize_evidence_v1` → Hit/Missed panel.
-5. **`feat(objective): continuity readback`** — History + Analytics (`get_analytics_summary`) + PDF render `objective_evidence`/`objective_action`.
+2. **`feat(objective): focus-point capture`** — the new `issue_objective_brief_v1` write RPC (§3, created here — NOT in PR-0) + form gated by `has_objective_capability()` + unit/integration tests.
+3. **`feat(objective): feedback loop + parity`** — wire `recordProgress`/`record_progress_evaluation` + `objective_finalize_evidence_v1` → Hit/Missed panel.
+4. **`feat(objective): continuity readback`** — History + Analytics (`get_analytics_summary`) + PDF render `objective_evidence`/`objective_action`.
+
+**Parallel / independent — `feat(brand): customer language` (`Refs #1149`; NOT bundled with any PR above).** Product-name trial via a central `frontend/src/constants/productNames.ts`: **Freestyle Practice → "Raw Takes"** (alt *Rough Drafts*), **Guided Rehearsal → "Focus Points"** (alt *Focus Sessions*); app name reserved (shortlist: OffStage, ClearSpeak, SpeechSandbox, ClearCut, TrueLoop). This is #1149's **N2.1** Customer-language PR — independent of the `objective_` backend rename (backend never learns the product label).
 
 ---
 
