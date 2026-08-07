@@ -48,7 +48,7 @@ describe('AuthenticatedHome — the page asks two questions (#1047)', () => {
     it('asks "what would you like to do?" and offers exactly two answers', () => {
         renderHome();
         expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/what would you like to do\?/i);
-        expect(screen.getByRole('heading', { name: /^Raw Takes$/ })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: /^Rough Drafts$/ })).toBeInTheDocument();
         expect(screen.getByRole('heading', { name: /^Focus Points$/ })).toBeInTheDocument();
         expect(screen.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start your session/i);
         expect(screen.getByTestId('practice-card-objective')).toHaveAccessibleName(/notify me about focus points/i);

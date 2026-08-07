@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { FreeformHelpOverlay } from '../FreeformHelpOverlay';
 
-const TITLE = 'How Raw Takes works';
+const TITLE = 'How Rough Drafts works';
 const INTRO = "No agenda required. Choose a transcription method, start when you're ready, and speak freely.";
 const STEPS = [
     'Choose your transcription method.',

@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog';
 
 /**
- * #1042 PR2 — "How Raw Takes works" help overlay.
+ * #1042 PR2 — "How Rough Drafts works" help overlay.
  *
  * A secondary, outlined button rendered directly above the Mic-ready status surface on the Practice
  * Session page. Opening it shows the approved Freeform guide in a partial dialog (desktop) / bottom

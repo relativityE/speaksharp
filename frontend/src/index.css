@@ -99,7 +99,7 @@ All colors MUST be HSL.
     /* #1047 Practice Session surface tokens. The Session page uses the shadcn system (index.css),
        NOT the `.practice-root` warm palette in practice.css — so these live here with the rest of the
        app-shell tokens and are consumed as hsl(var(--…)); components carry no raw hex. */
-    /* Brand dark green — the filled "How Raw Takes works" island. It must NOT be another
+    /* Brand dark green — the filled "How Rough Drafts works" island. It must NOT be another
        white rounded rectangle: as a white ghost button above a white status bar it read as a second
        status row rather than as an action. */
     --session-green-deep: 164 74% 17%;
@@ -251,7 +251,7 @@ All colors MUST be HSL.
   box-shadow: var(--shadow-cta);
 }
 
-/* #1047: the soft dark-green lift under the "How Raw Takes works" island. */
+/* #1047: the soft dark-green lift under the "How Rough Drafts works" island. */
 .session-help-shadow {
   box-shadow: var(--shadow-session-help);
 }

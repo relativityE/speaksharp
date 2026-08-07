@@ -10,7 +10,7 @@
  * (Freeform teal / Objective violet), the routing, and the telemetry for BOTH states, so the two surfaces
  * cannot drift apart on what the buttons actually do.
  *
- * Raw Takes is the only working product; its action navigates to the unchanged /session (authed) or
+ * Rough Drafts is the only working product; its action navigates to the unchanged /session (authed) or
  * through account access preserving /session intent (anonymous), and never auto-starts recording. Objective
  * Rehearsal is "Coming Soon!" with a real "Notify me" pre-launch interest capture (ObjectiveNotifyDialog).
  */

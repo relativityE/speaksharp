@@ -151,7 +151,7 @@ export const SessionPage: React.FC = () => {
 
     // 1. Determine Primary Status (Session State)
     const isActiveStt = sttStatus.type === 'initializing' || sttStatus.type === 'downloading' || sttStatus.type === 'fallback' || isListening;
-    // #1042 PR2: the "How Raw Takes works" help overlay is available only when the session is idle
+    // #1042 PR2: the "How Rough Drafts works" help overlay is available only when the session is idle
     // (before recording / after a successful save). It is disabled during starting, initializing, recording,
     // stopping, finalizing/saving, or an unresolved recovery. This is derived ENTIRELY from the existing
     // authoritative projection (runtime FSM + isActiveStt + finalizing + pendingResolutionKind) — no second
@@ -290,7 +290,7 @@ export const SessionPage: React.FC = () => {
             className="min-h-screen bg-background pt-20"
         >
             {/* Page Header.
-                #1047: the "How Raw Takes works" guide now lives INSIDE this title block, centered
+                #1047: the "How Rough Drafts works" guide now lives INSIDE this title block, centered
                 directly beneath the subhead, as its own dark-green island. It used to sit 12px above the
                 Mic-ready status bar as a white outlined button — two same-width white rounded rectangles
                 stacked, which read as a second status row instead of an action. Up here it is

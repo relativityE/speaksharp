@@ -3,7 +3,7 @@ import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 import { TEST_IDS } from '../constants';
 
 /**
- * #1042 PR2 — "How Raw Takes works" Session help overlay.
+ * #1042 PR2 — "How Rough Drafts works" Session help overlay.
  *
  * Proves the overlay's behavior on the deployed-equivalent built app: it opens above the Mic-ready
  * status surface, shows the approved guide, closes on Escape / Close with focus return, is a bottom
