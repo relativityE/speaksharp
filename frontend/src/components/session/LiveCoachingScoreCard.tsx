@@ -293,7 +293,7 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                         ))}
                     </ol>
                 )}
-                <p className="mt-3 border-t border-border pt-2 text-xs font-medium text-foreground/60" data-testid="live-coaching-footer">
+                <p className="mt-3 border-t border-border pt-2 text-sm text-foreground/80" data-testid="live-coaching-footer">
                     Coaching updates as you speak.
                 </p>
             </div>

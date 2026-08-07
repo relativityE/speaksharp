@@ -151,7 +151,7 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
                         </p>
                         {support && (
                             <p
-                                className="mt-1 text-xs font-medium leading-snug text-foreground/75"
+                                className="mt-1 text-sm leading-snug text-foreground/80"
                                 data-testid={state === 'zero-detected' ? 'filler-explanation' : 'filler-support-text'}
                             >
                                 {support}

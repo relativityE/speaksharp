@@ -300,7 +300,7 @@ export const SessionPage: React.FC = () => {
                 <div className="flex flex-col items-start gap-[22px] text-left mb-[34px]" data-testid="session-title-block">
                     <div>
                         <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
-                        <p className="text-xs font-semibold text-foreground/70">Record, review, and track your speaking patterns</p>
+                        <p className="text-sm text-foreground/80">Record, review, and track your speaking patterns</p>
                     </div>
                     <FreeformHelpOverlay available={helpOverlayAvailable} />
                 </div>

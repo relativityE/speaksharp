@@ -34,12 +34,12 @@ export function PracticeOnramp({ className = '' }: { className?: string }) {
     // Fixed, top-center, non-modal: the empty wrapper lets clicks pass through to the mic/transcript;
     // only the card is interactive (pointer-events-auto). z-40 sits below the app nav (z-50).
     <div
-      className={`pointer-events-none fixed right-3 top-[76px] z-40 w-[min(420px,calc(100vw-1.5rem))] ${className}`}
+      className={`pointer-events-none fixed top-[76px] z-40 w-[min(560px,calc(100vw-1.5rem))] right-[max(0.75rem,calc((100vw-80rem)/2+1.5rem))] ${className}`}
     >
       <section
         data-testid="practice-onramp"
         aria-label="Reading helper — not sure what to say?"
-        className="pointer-events-auto rounded-xl border border-[color:var(--ss-border,#e2e8f0)] bg-[color:var(--ss-surface,#ffffff)] p-3 shadow-xl"
+        className="pointer-events-auto rounded-xl border border-[color:var(--ss-border,#e2e8f0)] bg-slate-100/85 dark:bg-slate-800/85 backdrop-blur-md p-4 shadow-2xl"
       >
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-bold text-[color:var(--ss-text,#0f172a)]">
@@ -70,12 +70,13 @@ export function PracticeOnramp({ className = '' }: { className?: string }) {
 
         {!collapsed && view === 'choose' && (
           <div data-testid="onramp-choose" className="mt-2 space-y-3">
-            <p className="text-base font-semibold leading-snug text-blue-700 dark:text-blue-300">
+            <p className="text-base leading-snug text-blue-700 dark:text-blue-300">
               Get a quick starter — or read a short sample aloud to try it out. Then press the mic; this stays up so you can read it.
             </p>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" size="sm" data-testid="onramp-give-prompt" onClick={showPrompt}>Give me a prompt</Button>
-              <Button type="button" size="sm" variant="outline" data-testid="onramp-test-sample" onClick={showSample}>
+              {/* Homage to the homepage mode palette: Open Floor green + Focus Points violet. */}
+              <Button type="button" size="sm" data-testid="onramp-give-prompt" onClick={showPrompt} className="bg-[#0d7d74] text-white hover:bg-[#0a5f58]">Give me a prompt</Button>
+              <Button type="button" size="sm" data-testid="onramp-test-sample" onClick={showSample} className="bg-[#7b5ce0] text-white hover:bg-[#6a4fd0]">
                 Let me test with a sample
               </Button>
             </div>
@@ -112,7 +113,7 @@ export function PracticeOnramp({ className = '' }: { className?: string }) {
         )}
 
         {!collapsed && (
-          <p className="mt-2 text-[11px] text-[color:var(--ss-text-muted,#64748b)]">
+          <p className="mt-2 text-sm text-foreground/80">
             Optional. Nothing here is saved or scored.
           </p>
         )}

@@ -113,13 +113,13 @@ export function FreeformHelpOverlay({ available, className = '' }: { available: 
                     onCloseAutoFocus={(e) => { e.preventDefault(); triggerRef.current?.focus(); }}
                 >
                     <DialogTitle><HelpTitle /></DialogTitle>
-                    <DialogDescription className="text-[15px] font-medium text-foreground">{HELP_INTRO}</DialogDescription>
+                    <DialogDescription className="text-[15px] text-foreground">{HELP_INTRO}</DialogDescription>
                     <ol className="mt-2 list-decimal space-y-2 pl-5 text-[15px] text-foreground" data-testid="freeform-help-steps">
                         {HELP_STEPS.map((step) => (
                             <li key={step}>{step}</li>
                         ))}
                     </ol>
-                    <p className="mt-3 text-sm font-medium text-foreground/90" data-testid="freeform-help-feedback">
+                    <p className="mt-3 text-[15px] text-foreground" data-testid="freeform-help-feedback">
                         {HELP_FEEDBACK}
                     </p>
                 </DialogContent>
