@@ -73,3 +73,35 @@ $$;
 
 REVOKE ALL ON FUNCTION public.issue_objective_brief_v1(uuid, text, integer, text, jsonb) FROM public;
 GRANT EXECUTE ON FUNCTION public.issue_objective_brief_v1(uuid, text, integer, text, jsonb) TO authenticated;
+
+-- Companion write path: a brief requires an owned objective_project, but objective_project is RLS
+-- SELECT-only too. This lets a user create a project (the container a brief attaches to). Same
+-- SECURITY DEFINER + owner-scoped pattern.
+CREATE OR REPLACE FUNCTION public.issue_objective_project_v1(p_title text)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_uid uuid := auth.uid();
+    v_id  uuid;
+BEGIN
+    IF v_uid IS NULL THEN
+        RAISE EXCEPTION 'auth required' USING errcode = '28000';
+    END IF;
+    IF NOT public.has_objective_capability() THEN
+        RAISE EXCEPTION 'objective capability required' USING errcode = '42501';
+    END IF;
+    IF btrim(coalesce(p_title, '')) = '' THEN
+        RAISE EXCEPTION 'title must be non-blank' USING errcode = '22023';
+    END IF;
+    INSERT INTO public.objective_project (user_id, title)
+    VALUES (v_uid, p_title)
+    RETURNING id INTO v_id;
+    RETURN v_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.issue_objective_project_v1(text) FROM public;
+GRANT EXECUTE ON FUNCTION public.issue_objective_project_v1(text) TO authenticated;
