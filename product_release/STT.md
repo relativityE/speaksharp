@@ -26,6 +26,14 @@ Canonical, per-engine statement of how each speech-to-text engine must behave: w
 
 Naming is a product decision owned by `PRODUCT_REQUIREMENTS.md`; the internal token / telemetry / DB value is stable and separate (e.g. Browser's DB value remains `native`).
 
+### Naming boundary (product name ↔ internal token) — policy
+
+This engine map is one instance of a codebase-wide rule that governs **all** customer-facing naming (engine names, mode names like Freestyle/Guided, feature labels), because the branding of these terms is not yet settled (`#1149`) and will change.
+
+- **Internal tokens are stable and never track marketing.** Database schema, RPC names, and telemetry tokens are chosen to be *functionally descriptive* and are frozen once shipped — renaming them destroys historical continuity (analytics, dashboards, existing rows) and forces risky backfill migrations. Examples that must **not** change with rebranding: `native` (Browser), `guided_brief` / `guided_session` / `guided_brief_point` and `issue_guided_brief_v1` (Guided), `private` / `private_v2` / `private_v4`.
+- **One translation seam, not scattered strings.** The presentation layer never hardcodes a product string. Customer-facing labels live in a single centralized constants module (`frontend/src/constants/productNames.ts`); the service layer (`SpeechRuntimeController`, progress services) accepts stable internal tokens and exposes typed enums to the UI. A rename touches exactly one file.
+- **Two phases.** *Now (pre-launch):* enforce the boundary above; do not rename schema/tokens. *Post-launch:* once `#1149` proves the names with real users, a dedicated tech-debt epic writes carefully-tested migrations to align tokens with the final names (optional; only if the residual translation cost justifies the migration risk).
+
 ## Shared cross-engine contract
 
 These rules bind **every** engine.
