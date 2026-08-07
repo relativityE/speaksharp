@@ -312,17 +312,25 @@ export const SessionPage: React.FC = () => {
                 surface — so a deployed state never contains two Analytics actions. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
                 {/* #1042 PR2's help affordance moved UP into the title block (#1047) — see the header above. */}
-                <StatusNotificationBar
-                    // #1047: the page owns the gap below the status bar, not the shared component.
-                    className="mb-[26px]"
-                    status={displayStatus}
-                    analyticsAction={postSaveReady ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
-                    privateCta={
-                        postSaveReady && mode === 'native' && canUsePrivateStt
-                            ? { onSelect: () => setMode('private') }
-                            : undefined
-                    }
-                />
+                {/* #1046 E (slice 0): the quiet "Mic ready" green bar said the same thing three times — it
+                    duplicated the recorder pill AND the "Ready on this device" card label. Suppress it at
+                    rest (ready/idle with no post-save actions). The bar STILL renders for every state it
+                    uniquely owns: attention (warming/recording/downloading/error/warning) and the single
+                    post-save surface (Analytics link + Private CTA). Hiding only the quiet state keeps all
+                    unique information while removing the triplication. */}
+                {!((displayStatus.type === 'ready' || displayStatus.type === 'idle') && !postSaveReady) && (
+                    <StatusNotificationBar
+                        // #1047: the page owns the gap below the status bar, not the shared component.
+                        className="mb-[26px]"
+                        status={displayStatus}
+                        analyticsAction={postSaveReady ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
+                        privateCta={
+                            postSaveReady && mode === 'native' && canUsePrivateStt
+                                ? { onSelect: () => setMode('private') }
+                                : undefined
+                        }
+                    />
+                )}
                 {/* #1033 Part-2b (A3/A4): unresolved-recording recovery. Driven by the controller's
                     pendingResolutionKind — NOT by local UI guesses — so what we offer always matches what
                     the runtime will actually do. Discard is two-step confirmed and reports honestly when
@@ -434,29 +442,6 @@ export const SessionPage: React.FC = () => {
                                     }}
                                 />
                             </LocalErrorBoundary>
-
-                            {/* StatusNotificationBar (above) is the SINGLE post-save surface. The separate
-                                "Next: Analytics" toast was removed so there is exactly one saved-state signal
-                                and one aria-live announcement. */}
-                            <div className="relative">
-                              <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
-                                <LiveTranscriptPanel
-                                    transcript={transcriptContent}
-                                    interimTranscript={interimTranscript}
-                                    history={history}
-                                    isListening={isListening}
-                                    sttMode={mode}
-                                    micLevel={micLevel}
-                                    hasSpeechActivity={hasSpeechActivity}
-                                    containerRef={transcriptContainerRef}
-                                    isFinalizing={isTranscriptFinalizing}
-                                    recordingDurationSeconds={scoringDurationSeconds}
-                                    nativeFormatting={nativeFormatting}
-                                    // No forced 340px floor: the panel now sizes to its content and grows
-                                    // as words arrive (#1047).
-                                />
-                              </LocalErrorBoundary>
-                            </div>
                         </div>
 
                         <LocalErrorBoundary isolationKey="live-coaching-score" componentName="LiveCoachingScoreCard">
@@ -476,6 +461,30 @@ export const SessionPage: React.FC = () => {
                                 // #1047: sizes to content, never stretched to match the recorder+transcript
                                 // column (see the grid comment above).
                                 className="min-h-0 self-start"
+                            />
+                        </LocalErrorBoundary>
+                    </div>
+
+                    {/* #1046 E (slice 0): the live transcript moved OUT of the left column to FULL WIDTH
+                        below both columns. Inside the two-column grid it stretched the left column tall
+                        while the right (coaching) column ended ~500px early; full-width below balances the
+                        columns and gives the transcript room to grow as words arrive. */}
+                    <div className="relative mt-6">
+                        <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
+                            <LiveTranscriptPanel
+                                transcript={transcriptContent}
+                                interimTranscript={interimTranscript}
+                                history={history}
+                                isListening={isListening}
+                                sttMode={mode}
+                                micLevel={micLevel}
+                                hasSpeechActivity={hasSpeechActivity}
+                                containerRef={transcriptContainerRef}
+                                isFinalizing={isTranscriptFinalizing}
+                                recordingDurationSeconds={scoringDurationSeconds}
+                                nativeFormatting={nativeFormatting}
+                                // No forced 340px floor: the panel now sizes to its content and grows
+                                // as words arrive (#1047).
                             />
                         </LocalErrorBoundary>
                     </div>
