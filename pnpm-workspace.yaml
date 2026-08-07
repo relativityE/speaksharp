@@ -1,6 +1,31 @@
 packages:
   - 'backend/functions/*'
   - 'frontend'
+
+# #1195: pnpm settings live HERE (not package.json#pnpm) for pnpm v11. v11 no longer reads
+# overrides / onlyBuiltDependencies / supportedArchitectures / auditConfig from package.json's `pnpm`
+# field; leaving them there silently drops them (e.g. the security overrides), so they are consolidated
+# below. Do NOT move these back to package.json.
+
+onlyBuiltDependencies:
+  - canvas
+  - core-js
+  - msw
+  - sharp
+
+# Security-forced version floors. These MUST remain enforced in pnpm-lock.yaml after any regen.
+overrides:
+  rimraf: ^5.0.0
+  node-domexception: ^2.0.2
+  glob: '>=10.5.0'
+  basic-ftp: ^5.2.0
+  protobufjs: ^7.5.5
+  shell-quote: '>=1.8.4'
+
+auditConfig:
+  ignoreGhsas:
+    - GHSA-5xrq-8626-4rwp
+
 # P1.5: @huggingface/transformers@4.2.0 (dormant Private v4) directly imports `Tensor` from
 # onnxruntime-common but does NOT declare it as a dependency; pnpm otherwise resolves the undeclared
 # import to the hoisted CommonJS onnxruntime-common@1.14.0 from the @xenova/transformers (v2) tree,
@@ -11,9 +36,14 @@ packageExtensions:
   '@huggingface/transformers@4.2.0':
     dependencies:
       onnxruntime-common: 1.24.3
+
+# Union of Linux (CI/Vercel, x64) + macOS (local dev, arm64) so both resolve platform binaries.
 supportedArchitectures:
   os:
-    - linux
     - current
+    - linux
+    - darwin
   cpu:
+    - current
     - x64
+    - arm64
