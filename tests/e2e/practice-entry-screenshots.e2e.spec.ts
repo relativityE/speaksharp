@@ -96,7 +96,7 @@ test.describe('Practice landing — default entry, Objective unavailable, surfac
     await expect(page.getByRole('heading', { name: /^Raw Takes$/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: /^Focus Points$/i })).toBeVisible();
     // #1042 PR3: Freeform CTA is "Start Raw Takes"; the legacy overview CTAs are gone.
-    await expect(page.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start raw takes/i);
+    await expect(page.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start your session/i);
     await expect(page.getByRole('button', { name: /open practice session|start speaking/i })).toHaveCount(0);
     await assertReport(page, 'SpeakSharp Practice', AREAS.practice_home);
 

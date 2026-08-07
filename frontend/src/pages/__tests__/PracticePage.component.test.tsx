@@ -78,7 +78,7 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(screen.queryByTestId('practice-hero-start-free')).not.toBeInTheDocument();
       expect(root().textContent ?? '').not.toMatch(/Public Impact/i);
       // Product cards own their actions.
-      expect(screen.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start raw takes/i);
+      expect(screen.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start your session/i);
       expect(screen.getByTestId('practice-card-objective')).toHaveAccessibleName(/notify me about focus points/i);
     });
 
@@ -153,7 +153,7 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(within(screen.getByTestId('practice-card-objective-card')).getByTestId('objective-soon-badge')).toHaveTextContent('SOON');
       expect(screen.queryByText(/Planned/)).toBeNull();
       // Product cards own their actions (anon shows CTAs, same as authed).
-      expect(screen.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start raw takes/i);
+      expect(screen.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start your session/i);
       expect(screen.getByTestId('practice-card-objective')).toHaveAccessibleName(/notify me about focus points/i);
       // No authenticated continuity/account actions.
       expect(screen.queryByTestId('practice-continuity')).not.toBeInTheDocument();

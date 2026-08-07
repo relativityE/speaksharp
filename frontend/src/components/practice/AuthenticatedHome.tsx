@@ -431,8 +431,8 @@ export function AuthenticatedHome({
                     expectTrailing="in ~5 min"
                     tiles={freeformTiles}
                     reassurance="No agenda or setup — just speak and improve"
-                    ctaLabel={`Start ${PRODUCT_NAMES.freeform}`}
-                    ctaAria={`Start ${PRODUCT_NAMES.freeform}`}
+                    ctaLabel={"Start your session"}
+                    ctaAria={"Start your session"}
                     onCta={onStartFreeform}
                     testid="practice-card-freeform"
                 />

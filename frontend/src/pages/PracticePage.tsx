@@ -134,11 +134,11 @@ function FreeformTrialStrip({ onStart }: { onStart: () => void }) {
         type="button"
         onClick={onStart}
         data-testid="freeform-trial-start"
-        aria-label={`Start ${PRODUCT_NAMES.freeform} with a 5-minute Private trial`}
+        aria-label={"Start your session with a 5-minute Private trial"}
         className="ss-ring inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-bold shadow-sm"
         style={{ background: '#d98a1f', color: '#241503' }}
       >
-        Start {PRODUCT_NAMES.freeform}<ArrowRight size={15} aria-hidden />
+        Start your session<ArrowRight size={15} aria-hidden />
       </button>
     </div>
   );
@@ -212,7 +212,7 @@ export default function PracticePage() {
     <ModeCard vars={FREEFORM_VARS} art={<FreeformArt />} title={PRODUCT_NAMES.freeform}
       promise="No script. No pressure. Just practice."
       bullets={FREEFORM_BULLETS}
-      ctaLabel={`Start ${PRODUCT_NAMES.freeform}`} ctaAria={`Start ${PRODUCT_NAMES.freeform}`}
+      ctaLabel={"Start your session"} ctaAria={"Start your session"}
       ctaSolid onClick={startFreeform} testid="practice-card-freeform" />
   );
   const guidedCard = (
