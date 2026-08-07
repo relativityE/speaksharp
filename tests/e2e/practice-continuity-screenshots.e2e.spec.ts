@@ -48,7 +48,7 @@ async function enterReturningPractice(page: Page) {
   // Both actions exist above the fold; the two-product chooser still renders below.
   await expect(page.getByTestId('home-last-session')).toBeVisible();
   await expect(page.getByTestId('home-analytics')).toBeVisible();
-  await expect(page.getByRole('heading', { name: /^Freestyle Practice$/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Raw Takes$/i })).toBeVisible();
 }
 
 // True only if the point at the element's centre hit-tests to the element itself (not an overlaying fixed

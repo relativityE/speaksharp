@@ -31,7 +31,7 @@ async function bootAnonymous(page: Page) {
 async function enterAnonLanding(page: Page) {
   await goToApp(page, '/');
   await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 30000 });
-  await expect(page.getByRole('heading', { name: /^Freestyle Practice$/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Raw Takes$/i })).toBeVisible();
   expect(new URL(page.url()).pathname).toBe('/');
 }
 
