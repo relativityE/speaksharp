@@ -93,16 +93,16 @@ test.describe('Practice landing — default entry, Guided unavailable, surface-a
     await shot(page, `${DIR}/01-chooser-desktop.png`);
     expect(await page.getByRole('main').count()).toBe(1); // App owns the sole landmark
     // Both products render; Guided is clearly marked unavailable (text, not color alone).
-    await expect(page.getByRole('heading', { name: /^Freestyle Practice$/i })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Raw Takes$/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Focus Points$/i })).toBeVisible();
     // #1042 PR3: Freestyle CTA is "Start Freestyle Practice"; the legacy overview CTAs are gone.
-    await expect(page.getByTestId('practice-card-quick')).toHaveAccessibleName(/start freestyle practice/i);
+    await expect(page.getByTestId('practice-card-quick')).toHaveAccessibleName(/start raw takes/i);
     await expect(page.getByRole('button', { name: /open practice session|start speaking/i })).toHaveCount(0);
     await assertReport(page, 'SpeakSharp Practice', AREAS.practice_home);
 
     // === GUIDED "COMING SOON!" + NOTIFY ME (#1061) — Guided card opens the gated coming-soon dialog (waitlist OFF) ===
     const guidedCta = page.getByTestId('practice-card-guided');
-    await expect(guidedCta).toHaveAccessibleName(/notify me about guided rehearsal/i);
+    await expect(guidedCta).toHaveAccessibleName(/notify me about focus points/i);
     // Guided status is the SOON header badge (never "Planned").
     await expect(page.getByTestId('guided-soon-badge')).toBeVisible();
     await expect(page.getByText('Planned', { exact: false })).toHaveCount(0);

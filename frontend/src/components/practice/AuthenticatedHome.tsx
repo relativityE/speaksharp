@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { NOT_ENOUGH_DATA, NOT_ENOUGH_DATA_COMPACT } from '@/utils/metricValidity';
 import { lastSessionView, streakLabel, type RecentSession, type PracticeStreak } from './homeEvidence';
+import { PRODUCT_NAMES } from '@/constants/productNames';
 
 export type { RecentSession };
 
@@ -405,7 +406,7 @@ export function AuthenticatedHome({
                     style={{ background: 'var(--ss-home-warn-tint)', color: 'var(--ss-home-warn-ink)' }}
                 >
                     <AlertCircle size={15} aria-hidden="true" className="shrink-0" />
-                    We couldn’t load your recent practice. You can still start Freestyle Practice below.
+                    We couldn’t load your recent practice. You can still start {PRODUCT_NAMES.freeform} below.
                 </p>
             )}
 
@@ -426,25 +427,25 @@ export function AuthenticatedHome({
                 <ProductCard
                     accent="teal"
                     eyebrow="Speak freely"
-                    title="Freestyle Practice"
+                    title={PRODUCT_NAMES.freeform}
                     expectTrailing="in ~5 min"
                     tiles={freestyleTiles}
                     reassurance="No agenda or setup — just speak and improve"
-                    ctaLabel="Start Freestyle Practice"
-                    ctaAria="Start Freestyle Practice"
+                    ctaLabel={`Start ${PRODUCT_NAMES.freeform}`}
+                    ctaAria={`Start ${PRODUCT_NAMES.freeform}`}
                     onCta={onStartFreestyle}
                     testid="practice-card-quick"
                 />
                 <ProductCard
                     accent="violet"
                     eyebrow="Hit your points"
-                    title="Guided Rehearsal"
+                    title={PRODUCT_NAMES.objective}
                     soon
                     expectTrailing="at launch"
                     tiles={guidedTiles}
                     reassurance="Set your points, rehearse until they land"
                     ctaLabel="Notify me at launch"
-                    ctaAria="Notify me about Guided Rehearsal"
+                    ctaAria={`Notify me about ${PRODUCT_NAMES.objective}`}
                     onCta={onNotifyGuided}
                     testid="practice-card-guided"
                 />

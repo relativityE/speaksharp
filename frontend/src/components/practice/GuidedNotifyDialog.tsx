@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PRODUCT_NAMES } from '@/constants/productNames';
 import { Label } from '@/components/ui/label';
 import { submitGuidedWaitlist, type GuidedWaitlistSource } from '@/services/guidedWaitlistService';
 
@@ -81,8 +82,8 @@ export function GuidedNotifyDialog({
         {!enabled ? (
           /* #1061 activation gate OFF — honest coming-soon acknowledgement; NO capture form, NO backend call. */
           <div data-testid="guided-notify-comingsoon">
-            <DialogTitle>Guided Rehearsal is coming soon!</DialogTitle>
-            <DialogDescription>We’re getting Guided Rehearsal ready.</DialogDescription>
+            <DialogTitle>{PRODUCT_NAMES.objective} is coming soon!</DialogTitle>
+            <DialogDescription>We’re getting {PRODUCT_NAMES.objective} ready.</DialogDescription>
             <p role="status" className="mt-4 text-sm font-medium text-[color:var(--ss-text)]">
               We’ll announce it here when it’s ready.
             </p>
@@ -92,12 +93,12 @@ export function GuidedNotifyDialog({
           </div>
         ) : (
         <>
-        <DialogTitle>Get notified about Guided Rehearsal</DialogTitle>
-        <DialogDescription>We’ll email you when Guided Rehearsal becomes available.</DialogDescription>
+        <DialogTitle>Get notified about {PRODUCT_NAMES.objective}</DialogTitle>
+        <DialogDescription>We’ll email you when {PRODUCT_NAMES.objective} becomes available.</DialogDescription>
 
         {status === 'success' ? (
           <p role="status" data-testid="guided-notify-success" className="mt-4 text-sm font-medium text-[color:var(--ss-text)]">
-            You’re on the list. We’ll let you know when Guided Rehearsal is available.
+            You’re on the list. We’ll let you know when {PRODUCT_NAMES.objective} is available.
           </p>
         ) : (
           <form onSubmit={(e) => { void handleSubmit(e); }} className="mt-4 space-y-4" noValidate>
@@ -125,7 +126,7 @@ export function GuidedNotifyDialog({
                 onChange={(e) => setConsent(e.target.checked)}
                 disabled={submitting}
               />
-              <span>Email me when Guided Rehearsal is available. See our{' '}
+              <span>Email me when {PRODUCT_NAMES.objective} is available. See our{' '}
                 <Link to="/privacy" className="underline underline-offset-2">Privacy Policy</Link>.
               </span>
             </label>

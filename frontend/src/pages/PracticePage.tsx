@@ -27,6 +27,7 @@ import { LandingHeroArt, QuickPracticeArt, GuidedRehearsalArt } from '@/componen
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import { AuthenticatedHome } from '@/components/practice/AuthenticatedHome';
+import { PRODUCT_NAMES } from '@/constants/productNames';
 import { useHomeStreak } from '@/components/practice/useHomeStreak';
 import { GuidedNotifyDialog } from '@/components/practice/GuidedNotifyDialog';
 import { GUIDED_WAITLIST_ENABLED } from '@/config/env';
@@ -133,11 +134,11 @@ function FreestyleTrialStrip({ onStart }: { onStart: () => void }) {
         type="button"
         onClick={onStart}
         data-testid="freestyle-trial-start"
-        aria-label="Start Freestyle Practice with a 5-minute Private trial"
+        aria-label={`Start ${PRODUCT_NAMES.freeform} with a 5-minute Private trial`}
         className="ss-ring inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-bold shadow-sm"
         style={{ background: '#d98a1f', color: '#241503' }}
       >
-        Start Freestyle<ArrowRight size={15} aria-hidden />
+        Start {PRODUCT_NAMES.freeform}<ArrowRight size={15} aria-hidden />
       </button>
     </div>
   );
@@ -208,17 +209,17 @@ export default function PracticePage() {
   };
 
   const freestyleCard = (
-    <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title="Freestyle Practice"
+    <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title={PRODUCT_NAMES.freeform}
       promise="No script. No pressure. Just practice."
       bullets={QUICK_BULLETS}
-      ctaLabel="Start Freestyle" ctaAria="Start Freestyle Practice"
+      ctaLabel={`Start ${PRODUCT_NAMES.freeform}`} ctaAria={`Start ${PRODUCT_NAMES.freeform}`}
       ctaSolid onClick={startFreestyle} testid="practice-card-quick" />
   );
   const guidedCard = (
-    <ModeCard vars={GUIDED_VARS} art={<GuidedRehearsalArt />} title="Guided Rehearsal"
+    <ModeCard vars={GUIDED_VARS} art={<GuidedRehearsalArt />} title={PRODUCT_NAMES.objective}
       promise="Prepare the points that must land."
       bullets={GUIDED_BULLETS} cornerBadge="SOON"
-      ctaLabel="Notify me at launch" ctaNote ctaAria="Notify me about Guided Rehearsal"
+      ctaLabel="Notify me at launch" ctaNote ctaAria={`Notify me about ${PRODUCT_NAMES.objective}`}
       onClick={openNotify} testid="practice-card-guided" />
   );
   const productGrid = (

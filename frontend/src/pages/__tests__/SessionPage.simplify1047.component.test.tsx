@@ -113,7 +113,7 @@ describe('SessionPage — #1047 simplification', () => {
         expect(helpButton).toHaveClass('bg-[hsl(var(--session-green-deep))]', 'text-[15px]', 'font-bold');
         expect(helpButton.querySelector('.lucide-play')).not.toBeNull();
         // Decorative glyph is hidden, so the accessible name is the guide's title alone.
-        expect(helpButton).toHaveAccessibleName('How Freestyle Practice works');
+        expect(helpButton).toHaveAccessibleName('How Raw Takes works');
     });
 
     it('demotes the at-rest status bar and separates it from the help island', () => {
