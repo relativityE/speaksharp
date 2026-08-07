@@ -117,17 +117,16 @@ describe('SessionPage — #1047 simplification', () => {
         expect(helpButton).toHaveAccessibleName(`How ${PRODUCT_NAMES.freeform} works`);
     });
 
-    it('demotes the at-rest status bar and separates it from the help island', () => {
+    it('suppresses the at-rest status bar entirely — its quiet state duplicated the recorder pill (#1046 E)', () => {
         render(<SessionPage />);
 
-        const statusBar = screen.getByTestId('live-session-header');
-        expect(statusBar).toHaveAttribute('data-quiet', 'true');
-        expect(statusBar).not.toHaveClass('surface-shadow');
-        // The separation is owned by the title block's bottom margin.
+        // #1046 slice 0: at rest (idle/ready, no post-save actions) the status bar said the same thing
+        // three times — it duplicated the recorder pill AND the "Ready on this device" card label. The
+        // #1047 demotion became removal: the quiet bar is not rendered at all. The bar still appears for
+        // attention states and the post-save surface (asserted separately below).
+        expect(screen.queryByTestId('live-session-header')).toBeNull();
+        // The title block still owns the separation below it.
         expect(screen.getByTestId('session-title-block')).toHaveClass('mb-[34px]');
-        // …and the status bar sits AFTER the title block in reading order.
-        expect(screen.getByTestId('session-title-block').compareDocumentPosition(statusBar))
-            .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     });
 
     it('shows the collapsed pre-recording filler row with EXACTLY ONE empty message', () => {

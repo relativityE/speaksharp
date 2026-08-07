@@ -226,9 +226,13 @@ describe('Session Control', () => {
         expect(mockHandleStartStop).toHaveBeenCalled();
     });
 
-    it('should show Ready status when not listening', () => {
+    it('suppresses the ambient status bar when at rest (#1046 E) — the recorder pill carries "ready"', () => {
         render(<SessionPage />);
-        expect(screen.getByTestId('session-status-indicator')).toHaveTextContent('Ready');
+        // #1046 slice 0: at rest (sttStatus 'ready'/'idle', no post-save actions) the ambient status
+        // bar is not rendered — the recorder pill ("Ready to record") and the "Ready on this device"
+        // card label already carry the ready signal, so the bar no longer duplicates them. The bar
+        // still renders for attention states — see the 'Connecting' test below.
+        expect(screen.queryByTestId('session-status-indicator')).toBeNull();
     });
 
     it('should show Connecting status when sttStatus type is initializing', () => {
