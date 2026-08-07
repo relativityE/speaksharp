@@ -22,7 +22,18 @@ import {
  * aria-disabled (still focusable) with a persistent accessible explanation, and cannot be opened.
  */
 
-const HELP_TITLE = `How ${PRODUCT_NAMES.freeform} works`;
+// PO polish: make the product name read distinctly from the framing words — the name is bold, while
+// "How"/"works" are lighter italic for contrast. Rendered as spans so the ACCESSIBLE NAME / heading
+// text stays the plain "How <name> works" (no quotes) for assistive tech and existing tests.
+function HelpTitle() {
+    return (
+        <>
+            <span className="font-normal italic opacity-90">How</span>{' '}
+            <span className="font-extrabold">{PRODUCT_NAMES.freeform}</span>{' '}
+            <span className="font-normal italic opacity-90">works</span>
+        </>
+    );
+}
 const HELP_INTRO =
     "No agenda required. Choose a transcription method, start when you're ready, and speak freely.";
 const HELP_STEPS: readonly string[] = [
@@ -77,7 +88,7 @@ export function FreeformHelpOverlay({ available, className = '' }: { available: 
                 {/* Decorative ▷ cue — a lucide glyph, never a Unicode character, and hidden from AT so the
                     accessible name stays exactly the guide's title. */}
                 <Play className="h-4 w-4 fill-current" aria-hidden="true" />
-                {HELP_TITLE}
+                <HelpTitle />
             </Button>
             {/* Persistent accessible explanation while disabled — meaning is carried by text, not styling. */}
             {disabled && (
@@ -101,7 +112,7 @@ export function FreeformHelpOverlay({ available, className = '' }: { available: 
                     // Guarantee focus returns to the trigger after close (Escape / close button / outside).
                     onCloseAutoFocus={(e) => { e.preventDefault(); triggerRef.current?.focus(); }}
                 >
-                    <DialogTitle>{HELP_TITLE}</DialogTitle>
+                    <DialogTitle><HelpTitle /></DialogTitle>
                     <DialogDescription>{HELP_INTRO}</DialogDescription>
                     <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm text-foreground/85" data-testid="freeform-help-steps">
                         {HELP_STEPS.map((step) => (
