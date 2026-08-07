@@ -36,6 +36,15 @@ describe('PracticeOnramp (#1116 session-page on-ramp)', () => {
     expect(screen.getByTestId('onramp-prompt')).toBeInTheDocument();
   });
 
+  it('collapses to a compact bar and expands again (floating, non-modal)', () => {
+    render(<PracticeOnramp />);
+    fireEvent.click(screen.getByTestId('onramp-collapse'));
+    expect(screen.queryByTestId('onramp-choose')).not.toBeInTheDocument();
+    expect(screen.getByTestId('practice-onramp')).toBeInTheDocument(); // still present, just collapsed
+    fireEvent.click(screen.getByTestId('onramp-expand'));
+    expect(screen.getByTestId('onramp-choose')).toBeInTheDocument();
+  });
+
   it('is dismissible', () => {
     render(<PracticeOnramp />);
     fireEvent.click(screen.getByTestId('onramp-dismiss'));
