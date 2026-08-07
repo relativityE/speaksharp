@@ -297,7 +297,7 @@ export const SessionPage: React.FC = () => {
                 stacked, which read as a second status row instead of an action. Up here it is
                 unambiguously an entry point into the page, and the status bar below it is free to recede. */}
             <div className="px-6 pt-4 max-w-7xl mx-auto">
-                <div className="flex flex-col items-center gap-[22px] text-center mb-[34px]" data-testid="session-title-block">
+                <div className="flex flex-col items-start gap-[22px] text-left mb-[34px]" data-testid="session-title-block">
                     <div>
                         <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
                         <p className="text-xs font-semibold text-foreground/70">Record, review, and track your speaking patterns</p>
