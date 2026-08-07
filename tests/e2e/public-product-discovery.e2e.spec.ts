@@ -56,7 +56,7 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await expect(page.getByTestId('support-freestyle-explain')).toHaveCount(0);
     // Guided status is the SOON header badge + the "Notify me at launch" CTA, never "Planned"; no continuity for anon.
     await expect(page.getByTestId('practice-card-guided-card').getByTestId('guided-soon-badge')).toBeVisible();
-    await expect(page.getByRole('button', { name: /notify me about guided rehearsal/i })).toContainText(/notify me at launch/i);
+    await expect(page.getByRole('button', { name: /notify me about focus points/i })).toContainText(/notify me at launch/i);
     await expect(page.getByText('Planned', { exact: false })).toHaveCount(0);
     await expect(page.getByTestId('home-last-session')).toHaveCount(0);
     await settle(page);
