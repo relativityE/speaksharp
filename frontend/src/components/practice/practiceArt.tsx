@@ -1,6 +1,6 @@
 /**
  * Practice-entry illustrations — hand-authored SVG (no stock art/avatars/external assets). They read
- * per-card accent CSS vars so Quick renders teal, Guided renders violet. aria-hidden (titles carry
+ * per-card accent CSS vars so Quick renders teal, Objective renders violet. aria-hidden (titles carry
  * meaning). Ported from the accepted #1017 design.
  */
 
@@ -8,7 +8,7 @@ import React from 'react';
 
 /**
  * Overall-landing shared graphic: one bold ORANGE voice (the SpeakSharp brand through-line) BRANCHING
- * into the teal (Quick) and violet (Guided) practice paths. Deliberately bold — strong line weights and
+ * into the teal (Quick) and violet (Objective) practice paths. Deliberately bold — strong line weights and
  * solid nodes so the "one voice → two ways to practice" idea reads instantly, without any caption.
  */
 export function LandingHeroArt() {
@@ -42,7 +42,7 @@ export function LandingHeroArt() {
 
 /** Quick Practice — waveform → transcript → delivery-feedback check. Uses a deep-teal INK
  * (`--ss-art-ink`) so it reads clearly on the LIGHT teal band; warm bars stay orange. */
-export function QuickPracticeArt({ emphasis = false }: { emphasis?: boolean }) {
+export function FreeformArt({ emphasis = false }: { emphasis?: boolean }) {
   const heights = [14, 26, 20, 38, 30, 46, 34, 52, 40, 30, 44, 24];
   const warmAt = new Set([5, 9]);
   const lines = [128, 96, 112];
@@ -66,9 +66,9 @@ export function QuickPracticeArt({ emphasis = false }: { emphasis?: boolean }) {
   );
 }
 
-/** Guided Rehearsal — agenda points → covered / partly / recovered / open outcomes. Rendered LIGHT-on-dark
+/** Focus Points — agenda points → covered / partly / recovered / open outcomes. Rendered LIGHT-on-dark
  * (light circles + dark-violet glyphs + brighter bars) so every row reads clearly on the deep violet band. */
-export function GuidedRehearsalArt({ emphasis = false }: { emphasis?: boolean }) {
+export function ObjectiveArt({ emphasis = false }: { emphasis?: boolean }) {
   const glyphInk = '#3A2E96'; // deep violet — reads on the light circles that sit over the dark band
   const rows = [
     { c: '#7FE8B6', w: 150, glyph: 'check' }, // covered = light green

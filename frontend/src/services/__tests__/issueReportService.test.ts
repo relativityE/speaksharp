@@ -60,18 +60,18 @@ describe('buildIssueReportMetadata — page context + sanitization', () => {
   it('validates issueArea against the ACTIVE /practice surface, rejecting cross-surface areas', () => {
     // #1042 PR3: overview surface removed — validate across the two remaining surfaces.
     const home = resolvePageContext('/practice', 'practice_home');
-    const guided = resolvePageContext('/practice', 'guided_rehearsal_unavailable');
+    const objective = resolvePageContext('/practice', 'objective_unavailable');
     // Valid for the active surface → kept.
     expect(buildIssueReportMetadata({ context: home, issueArea: 'understanding_choices' }).issueArea).toBe('understanding_choices');
-    expect(buildIssueReportMetadata({ context: guided, issueArea: 'availability' }).issueArea).toBe('availability');
+    expect(buildIssueReportMetadata({ context: objective, issueArea: 'availability' }).issueArea).toBe('availability');
     // Valid for a DIFFERENT surface → coerced to null (no cross-surface leakage).
     expect(buildIssueReportMetadata({ context: home, issueArea: 'availability' }).issueArea).toBeNull();
-    expect(buildIssueReportMetadata({ context: guided, issueArea: 'understanding_choices' }).issueArea).toBeNull();
+    expect(buildIssueReportMetadata({ context: objective, issueArea: 'understanding_choices' }).issueArea).toBeNull();
   });
 
   it('persists the active practiceSurface (and only a valid one) in metadata', () => {
-    expect(buildIssueReportMetadata({ context: resolvePageContext('/practice', 'guided_rehearsal_unavailable') }))
-      .toMatchObject({ practiceSurface: 'guided_rehearsal_unavailable', pageLabel: 'Guided Rehearsal', journeyStep: 'guided_unavailable', canonicalRoute: '/practice' });
+    expect(buildIssueReportMetadata({ context: resolvePageContext('/practice', 'objective_unavailable') }))
+      .toMatchObject({ practiceSurface: 'objective_unavailable', pageLabel: 'Focus Points', journeyStep: 'objective_unavailable', canonicalRoute: '/practice' });
     // Off /practice: no surface attached.
     expect(buildIssueReportMetadata({ context: resolvePageContext('/session') }).practiceSurface).toBeNull();
   });

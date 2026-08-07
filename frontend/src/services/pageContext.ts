@@ -11,6 +11,8 @@
  * separately in the report's `session_id` column (validated + ownership-guarded by the DB), NOT here.
  */
 
+import { PRODUCT_NAMES } from '@/constants/productNames';
+
 export type ProductMode = 'marketing' | 'practice' | 'session' | 'progress' | 'account' | 'other';
 
 export type PageKey =
@@ -28,14 +30,14 @@ export type PageKey =
  * distinguish them WITHOUT a route change and WITHOUT trusting arbitrary strings. Only these two tokens
  * are ever accepted; anything else fails closed to `practice_home`.
  */
-export type PracticeSurface = 'practice_home' | 'guided_rehearsal_unavailable';
+export type PracticeSurface = 'practice_home' | 'objective_unavailable';
 
 const PRACTICE_SURFACES: Record<PracticeSurface, { pageLabel: string; journeyStep: string }> = {
   practice_home: { pageLabel: 'SpeakSharp Practice', journeyStep: 'chooser' },
-  // Guided is planned, not a working product. The tester-facing LABEL is exactly "Guided Rehearsal"
-  // (availability is conveyed by the internal token `guided_rehearsal_unavailable` + issue-area, NOT the
+  // Objective is planned, not a working product. The tester-facing LABEL is exactly "Focus Points"
+  // (availability is conveyed by the internal token `objective_unavailable` + issue-area, NOT the
   // label). Prod Owner decision: the label must NOT read "(unavailable)".
-  guided_rehearsal_unavailable: { pageLabel: 'Guided Rehearsal', journeyStep: 'guided_unavailable' },
+  objective_unavailable: { pageLabel: PRODUCT_NAMES.objective, journeyStep: 'objective_unavailable' },
 };
 
 export function isPracticeSurface(x: unknown): x is PracticeSurface {
@@ -171,7 +173,7 @@ const PRACTICE_SURFACE_AREAS: Record<PracticeSurface, IssueAreaOption[]> = {
     { value: 'visual_layout', label: 'Visual / layout' },
     { value: 'other', label: 'Other' },
   ],
-  guided_rehearsal_unavailable: [
+  objective_unavailable: [
     { value: 'availability', label: 'Availability' },
     { value: 'product_clarity', label: 'Product clarity' },
     { value: 'navigation', label: 'Navigation' },
@@ -187,7 +189,7 @@ export function issueAreasFor(pageKey: PageKey): IssueAreaOption[] {
 
 /**
  * The allowlisted issue-area options for a resolved context. On `/practice` the options are
- * SURFACE-specific (Quick vs Guided vs home); everywhere else they are the page's set. This is the single
+ * SURFACE-specific (Quick vs Objective vs home); everywhere else they are the page's set. This is the single
  * source of truth both the dialog (display) and the service (validation) use.
  */
 export function issueAreasForContext(context: PageContext): IssueAreaOption[] {

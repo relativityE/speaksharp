@@ -9,10 +9,10 @@ import { TEST_IDS } from '../constants';
  * `/practice` (authenticated product state).
  *
  *  - Anonymous `/`: large hero + Start free; one honest Free Trial strip; product cards WITHOUT duplicate
- *    CTAs. Freestyle product CTA → signup → /session (real account-access composition, intent preserved);
- *    Guided product CTA → real "Notify me" dialog.
- *  - Authenticated `/practice`: compact welcome + continuity; product cards own their actions; Freestyle →
- *    /session directly; Guided "Notify me" opens the same dialog. Guided is "Coming Soon!" (no "Planned").
+ *    CTAs. Freeform product CTA → signup → /session (real account-access composition, intent preserved);
+ *    Objective product CTA → real "Notify me" dialog.
+ *  - Authenticated `/practice`: compact welcome + continuity; product cards own their actions; Freeform →
+ *    /session directly; Objective "Notify me" opens the same dialog. Objective is "Coming Soon!" (no "Planned").
  *
  * Screenshots: anonymous `/` and authenticated `/practice`, desktop + mobile → test-results/product-discovery.
  */
@@ -31,7 +31,7 @@ async function bootAnonymous(page: Page) {
 async function enterAnonLanding(page: Page) {
   await goToApp(page, '/');
   await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 30000 });
-  await expect(page.getByRole('heading', { name: /^Raw Takes$/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Open Floor$/i })).toBeVisible();
   expect(new URL(page.url()).pathname).toBe('/');
 }
 
@@ -50,12 +50,12 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await page.setViewportSize(DESKTOP);
     await enterAnonLanding(page);
     await expect(page.getByTestId('practice-hero-start-free')).toBeVisible();
-    // Freestyle FREE TRIAL strip (the four support cards are removed); product cards own their CTAs.
-    await expect(page.getByTestId('freestyle-trial-strip')).toBeVisible();
-    await expect(page.getByTestId('freestyle-trial-strip')).toContainText(/free trial/i);
-    await expect(page.getByTestId('support-freestyle-explain')).toHaveCount(0);
-    // Guided status is the SOON header badge + the "Notify me at launch" CTA, never "Planned"; no continuity for anon.
-    await expect(page.getByTestId('practice-card-guided-card').getByTestId('guided-soon-badge')).toBeVisible();
+    // Freeform FREE TRIAL strip (the four support cards are removed); product cards own their CTAs.
+    await expect(page.getByTestId('freeform-trial-strip')).toBeVisible();
+    await expect(page.getByTestId('freeform-trial-strip')).toContainText(/free trial/i);
+    await expect(page.getByTestId('support-freeform-explain')).toHaveCount(0);
+    // Objective status is the SOON header badge + the "Notify me at launch" CTA, never "Planned"; no continuity for anon.
+    await expect(page.getByTestId('practice-card-objective-card').getByTestId('objective-soon-badge')).toBeVisible();
     await expect(page.getByRole('button', { name: /notify me about focus points/i })).toContainText(/notify me at launch/i);
     await expect(page.getByText('Planned', { exact: false })).toHaveCount(0);
     await expect(page.getByTestId('home-last-session')).toHaveCount(0);
@@ -67,12 +67,12 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await settle(page);
     await page.screenshot({ path: `${DIR}/02-anonymous-root-mobile.png`, fullPage: true });
 
-    // Freestyle (product card CTA) → real account access → /session (intent preserved), no auto-record.
+    // Freeform (product card CTA) → real account access → /session (intent preserved), no auto-record.
     await page.setViewportSize(DESKTOP);
     await enterAnonLanding(page);
-    await page.getByTestId('practice-card-quick').click();
+    await page.getByTestId('practice-card-freeform').click();
     await expect(page).toHaveURL(/\/auth\/signup/, { timeout: 15000 });
-    await page.getByTestId('email-input').fill('anon-freestyle@example.com');
+    await page.getByTestId('email-input').fill('anon-freeform@example.com');
     await page.getByTestId('password-input').fill(PW);
     await page.getByTestId('sign-up-submit').click();
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
@@ -80,18 +80,18 @@ test.describe('#1061 one canonical auth-aware page', () => {
       .toHaveAttribute('data-recording', 'false', { timeout: 20000 });
   });
 
-  test('anonymous `/`: Guided "Notify me" opens the gated coming-soon dialog (waitlist OFF, no navigation)', async ({ page }) => {
+  test('anonymous `/`: Objective "Notify me" opens the gated coming-soon dialog (waitlist OFF, no navigation)', async ({ page }) => {
     await bootAnonymous(page);
     await enterAnonLanding(page);
-    await page.getByTestId('practice-card-guided').click();
-    await expect(page.getByTestId('guided-notify-dialog')).toBeVisible();
+    await page.getByTestId('practice-card-objective').click();
+    await expect(page.getByTestId('objective-notify-dialog')).toBeVisible();
     // Activation flag OFF in the shipped build → honest coming-soon acknowledgement, NOT a capture form.
-    await expect(page.getByTestId('guided-notify-comingsoon')).toBeVisible();
-    await expect(page.getByTestId('guided-notify-email')).toHaveCount(0);
+    await expect(page.getByTestId('objective-notify-comingsoon')).toBeVisible();
+    await expect(page.getByTestId('objective-notify-email')).toHaveCount(0);
     expect(new URL(page.url()).pathname).toBe('/');
   });
 
-  test('authenticated `/practice`: the choice question + continuity cluster; Freestyle → /session; Guided Notify me', async ({ page }) => {
+  test('authenticated `/practice`: the choice question + continuity cluster; Freeform → /session; Objective Notify me', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'free' });
     await navigateToRoute(page, '/practice');
     await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 30000 });
@@ -99,7 +99,7 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await expect(page.getByTestId('home-last-session-secondary')).toBeVisible();
     // No anonymous marketing support section after login.
     await expect(page.getByTestId('practice-support')).toHaveCount(0);
-    await expect(page.getByTestId('guided-soon-badge')).toBeVisible();
+    await expect(page.getByTestId('objective-soon-badge')).toBeVisible();
 
     await page.setViewportSize(DESKTOP);
     await settle(page);
@@ -108,13 +108,13 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await settle(page);
     await page.screenshot({ path: `${DIR}/04-authenticated-practice-mobile.png`, fullPage: true });
 
-    // Guided "Notify me" opens the gated coming-soon dialog (waitlist OFF); Freestyle goes directly to /session.
+    // Objective "Notify me" opens the gated coming-soon dialog (waitlist OFF); Freeform goes directly to /session.
     await page.setViewportSize(DESKTOP);
-    await page.getByTestId('practice-card-guided').click();
-    await expect(page.getByTestId('guided-notify-dialog')).toBeVisible();
-    await expect(page.getByTestId('guided-notify-comingsoon')).toBeVisible();
+    await page.getByTestId('practice-card-objective').click();
+    await expect(page.getByTestId('objective-notify-dialog')).toBeVisible();
+    await expect(page.getByTestId('objective-notify-comingsoon')).toBeVisible();
     await page.keyboard.press('Escape');
-    await page.getByTestId('practice-card-quick').click();
+    await page.getByTestId('practice-card-freeform').click();
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
   });
 });

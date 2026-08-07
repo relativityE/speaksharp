@@ -7,12 +7,12 @@
  * #1047: the two states no longer share a layout. A visitor needs to be convinced; a signed-in user needs
  * to choose. The authenticated surface is therefore its own component (`AuthenticatedHome`) with no hero,
  * no tagline and no marketing bullets — see that file for why. This page keeps the shared identities
- * (Freestyle teal / Guided violet), the routing, and the telemetry for BOTH states, so the two surfaces
+ * (Freeform teal / Objective violet), the routing, and the telemetry for BOTH states, so the two surfaces
  * cannot drift apart on what the buttons actually do.
  *
- * Freestyle Practice is the only working product; its action navigates to the unchanged /session (authed) or
- * through account access preserving /session intent (anonymous), and never auto-starts recording. Guided
- * Rehearsal is "Coming Soon!" with a real "Notify me" pre-launch interest capture (GuidedNotifyDialog).
+ * Rough Drafts is the only working product; its action navigates to the unchanged /session (authed) or
+ * through account access preserving /session intent (anonymous), and never auto-starts recording. Objective
+ * Rehearsal is "Coming Soon!" with a real "Notify me" pre-launch interest capture (ObjectiveNotifyDialog).
  */
 
 import React from 'react';
@@ -23,43 +23,43 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import '@/styles/practice.css';
-import { LandingHeroArt, QuickPracticeArt, GuidedRehearsalArt } from '@/components/practice/practiceArt';
+import { LandingHeroArt, FreeformArt, ObjectiveArt } from '@/components/practice/practiceArt';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import { AuthenticatedHome } from '@/components/practice/AuthenticatedHome';
 import { PRODUCT_NAMES } from '@/constants/productNames';
 import { useHomeStreak } from '@/components/practice/useHomeStreak';
-import { GuidedNotifyDialog } from '@/components/practice/GuidedNotifyDialog';
+import { ObjectiveNotifyDialog } from '@/components/practice/ObjectiveNotifyDialog';
 import { GUIDED_WAITLIST_ENABLED } from '@/config/env';
 import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
 import type { PracticeSurface } from '@/services/pageContext';
 import {
   trackPracticeEntryViewed, trackPracticeModeSelected,
-  trackQuickPracticeStarted, trackGuidedRehearsalUnavailable,
+  trackFreeformPracticeStarted, trackObjectiveUnavailable,
 } from '@/services/practiceTelemetry';
 
 // Exact brand-teal ramp (spec): brand teal #0d7d74 for CTA fills / tagline / glyphs / border; header band is
 // the two-stop 135° gradient #0d7d74→#17a99b (blue-leaning, NOT emerald/mint and NOT the dark CTA teal
 // #0a5f58); icon/pill tint #e6f4f2. The waveform/transcript art reads WHITE on the dark teal band.
-const QUICK_VARS: React.CSSProperties = {
+const FREEFORM_VARS: React.CSSProperties = {
   ['--ss-card' as string]: '#0d7d74', ['--ss-card-btn' as string]: '#0d7d74',
   ['--ss-card-soft' as string]: '#e6f4f2', ['--ss-card-panel' as string]: 'linear-gradient(135deg, #0d7d74 0%, #17a99b 100%)',
   ['--ss-card-border' as string]: '#0d7d74', ['--ss-card-warm' as string]: '#f4c77b',
   ['--ss-art-ink' as string]: 'rgba(255,255,255,0.9)',
 };
-// Guided violet — same 135° angle + light/dark relationship, violet tokens.
-const GUIDED_VARS: React.CSSProperties = {
+// Objective violet — same 135° angle + light/dark relationship, violet tokens.
+const OBJECTIVE_VARS: React.CSSProperties = {
   ['--ss-card' as string]: '#7b5ce0', ['--ss-card-btn' as string]: '#6a4fd0',
   ['--ss-card-soft' as string]: '#f0ecfb', ['--ss-card-panel' as string]: 'linear-gradient(135deg, #7b5ce0 0%, #9d7cf0 100%)',
   ['--ss-card-border' as string]: '#ded8f5', ['--ss-card-warm' as string]: 'var(--ss-coral)',
 };
 
-const QUICK_BULLETS: Bullet[] = [
+const FREEFORM_BULLETS: Bullet[] = [
   { text: 'No agenda or setup', Icon: Check },
   { text: 'Speak and see your live transcript', Icon: AudioLines },
   { text: 'Review fillers, delivery, and progress', Icon: LineChart },
 ];
-const GUIDED_BULLETS: Bullet[] = [
+const OBJECTIVE_BULLETS: Bullet[] = [
   { text: 'Prepare the points you need to cover', Icon: ListChecks },
   { text: 'Track covered and missed points', Icon: Target },
   { text: 'Rehearse corrections before the real moment', Icon: Repeat },
@@ -82,7 +82,7 @@ function ModeCard({ vars, art, title, promise, bullets, ctaLabel, ctaAria, ctaSo
           <div className="absolute inset-0 px-5 py-3">{art}</div>
           {cornerBadge && (
             <span
-              data-testid="guided-soon-badge"
+              data-testid="objective-soon-badge"
               style={{ position: 'absolute', top: 14, right: 14, background: 'rgba(255,255,255,0.94)', color: '#6a4fd0', fontSize: 11, fontWeight: 800, padding: '5px 11px', borderRadius: 999, letterSpacing: '0.05em' }}
             >{cornerBadge}</span>
           )}
@@ -111,18 +111,18 @@ function ModeCard({ vars, art, title, promise, bullets, ctaLabel, ctaAria, ctaSo
   );
 }
 
-/** Freestyle FREE TRIAL strip (anonymous only) — a compact promo above the product cards. It reuses the
- * SHARED Freestyle teal token (`--ss-session-panel`) so the repeated color communicates that the trial
- * belongs to Freestyle; it is deliberately smaller than the product card (promo vs. decision). The CTA
- * routes to Freestyle (account access → /session, never auto-recording) and does not imply Private is
+/** Freeform FREE TRIAL strip (anonymous only) — a compact promo above the product cards. It reuses the
+ * SHARED Freeform teal token (`--ss-session-panel`) so the repeated color communicates that the trial
+ * belongs to Freeform; it is deliberately smaller than the product card (promo vs. decision). The CTA
+ * routes to Freeform (account access → /session, never auto-recording) and does not imply Private is
  * already active — it is a trial offer. */
-function FreestyleTrialStrip({ onStart }: { onStart: () => void }) {
+function FreeformTrialStrip({ onStart }: { onStart: () => void }) {
   // DARK SLATE — deliberately NOT teal/violet: a neutral, system-level offer that gives the page its third
   // value step and (with the -mt overlap) kills the hard hero/page seam. Orange CTA uses near-black text
-  // (never white on orange). The private-trial offer belongs to Freestyle; the CTA routes to Freestyle.
+  // (never white on orange). The private-trial offer belongs to Freeform; the CTA routes to Freeform.
   return (
     <div
-      data-testid="freestyle-trial-strip"
+      data-testid="freeform-trial-strip"
       className="relative z-10 -mt-[26px] flex flex-col items-start gap-3 rounded-[13px] px-7 py-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4"
       style={{ background: '#1d4a45', boxShadow: '0 16px 34px -18px rgba(29,74,69,0.6)' }}
     >
@@ -133,12 +133,12 @@ function FreestyleTrialStrip({ onStart }: { onStart: () => void }) {
       <button
         type="button"
         onClick={onStart}
-        data-testid="freestyle-trial-start"
-        aria-label={`Start ${PRODUCT_NAMES.freeform} with a 5-minute Private trial`}
+        data-testid="freeform-trial-start"
+        aria-label={"Start your session with a 5-minute Private trial"}
         className="ss-ring inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-bold shadow-sm"
         style={{ background: '#d98a1f', color: '#241503' }}
       >
-        Start {PRODUCT_NAMES.freeform}<ArrowRight size={15} aria-hidden />
+        Start your session<ArrowRight size={15} aria-hidden />
       </button>
     </div>
   );
@@ -157,8 +157,8 @@ export default function PracticePage() {
   // check-usage-limit.streak_count and NOT a localStorage guess. Keyed by user id with stale-response
   // protection; the chip is always visible (loading → skeleton, else a settled label).
   const { streak: homeStreak, loading: homeStreakLoading } = useHomeStreak(user?.id ?? null);
-  // Guided selection marks the Report Issue surface; the "Notify me" dialog is the real interest capture.
-  const [guidedSelected, setGuidedSelected] = React.useState(false);
+  // Objective selection marks the Report Issue surface; the "Notify me" dialog is the real interest capture.
+  const [objectiveSelected, setGuidedSelected] = React.useState(false);
   const [notifyOpen, setNotifyOpen] = React.useState(false);
   const returning = React.useRef(false);
 
@@ -171,18 +171,18 @@ export default function PracticePage() {
   }, []);
 
   React.useEffect(() => {
-    const surface: PracticeSurface = guidedSelected ? 'guided_rehearsal_unavailable' : 'practice_home';
+    const surface: PracticeSurface = objectiveSelected ? 'objective_unavailable' : 'practice_home';
     setSurface(surface);
-  }, [guidedSelected, setSurface]);
+  }, [objectiveSelected, setSurface]);
 
   React.useEffect(() => () => { setSurface(null); }, [setSurface]);
 
-  // Freestyle: authed → /session directly; anonymous → account access preserving the /session intent via
+  // Freeform: authed → /session directly; anonymous → account access preserving the /session intent via
   // location.state.from (resolvePostAuthPath honors safe deep-links). Never auto-starts recording.
-  const startFreestyle = () => {
+  const startFreeform = () => {
     setGuidedSelected(false);
     trackPracticeModeSelected('quick', 'landing_card');
-    trackQuickPracticeStarted('landing_card');
+    trackFreeformPracticeStarted('landing_card');
     if (isAuthed) navigate('/session');
     else navigate('/auth/signup', { state: { from: { pathname: '/session' } } });
   };
@@ -195,32 +195,32 @@ export default function PracticePage() {
   const startPrivateTrial = () => {
     setGuidedSelected(false);
     trackPracticeModeSelected('quick', 'landing_card');
-    trackQuickPracticeStarted('landing_card');
+    trackFreeformPracticeStarted('landing_card');
     if (isAuthed) navigate('/session?trial=private');
     else navigate('/auth/signup', { state: { from: { pathname: '/session', search: '?trial=private' } } });
   };
 
-  // Guided "Notify me": open the real pre-launch interest dialog; content-free telemetry only. No nav.
+  // Objective "Notify me": open the real pre-launch interest dialog; content-free telemetry only. No nav.
   const openNotify = () => {
     setGuidedSelected(true);
-    trackPracticeModeSelected('guided', 'landing_card');
-    trackGuidedRehearsalUnavailable();
+    trackPracticeModeSelected('objective', 'landing_card');
+    trackObjectiveUnavailable();
     setNotifyOpen(true);
   };
 
   const freestyleCard = (
-    <ModeCard vars={QUICK_VARS} art={<QuickPracticeArt />} title={PRODUCT_NAMES.freeform}
+    <ModeCard vars={FREEFORM_VARS} art={<FreeformArt />} title={PRODUCT_NAMES.freeform}
       promise="No script. No pressure. Just practice."
-      bullets={QUICK_BULLETS}
-      ctaLabel={`Start ${PRODUCT_NAMES.freeform}`} ctaAria={`Start ${PRODUCT_NAMES.freeform}`}
-      ctaSolid onClick={startFreestyle} testid="practice-card-quick" />
+      bullets={FREEFORM_BULLETS}
+      ctaLabel={"Start your session"} ctaAria={"Start your session"}
+      ctaSolid onClick={startFreeform} testid="practice-card-freeform" />
   );
   const guidedCard = (
-    <ModeCard vars={GUIDED_VARS} art={<GuidedRehearsalArt />} title={PRODUCT_NAMES.objective}
+    <ModeCard vars={OBJECTIVE_VARS} art={<ObjectiveArt />} title={PRODUCT_NAMES.objective}
       promise="Prepare the points that must land."
-      bullets={GUIDED_BULLETS} cornerBadge="SOON"
+      bullets={OBJECTIVE_BULLETS} cornerBadge="SOON"
       ctaLabel="Notify me at launch" ctaNote ctaAria={`Notify me about ${PRODUCT_NAMES.objective}`}
-      onClick={openNotify} testid="practice-card-guided" />
+      onClick={openNotify} testid="practice-card-objective" />
   );
   const productGrid = (
     <div className="grid grid-cols-1 items-stretch gap-7 md:grid-cols-2">{freestyleCard}{guidedCard}</div>
@@ -235,8 +235,8 @@ export default function PracticePage() {
       recentFailed={Boolean(recentError)}
       streak={homeStreak}
       streakLoading={homeStreakLoading}
-      onStartFreestyle={startFreestyle}
-      onNotifyGuided={openNotify}
+      onStartFreeform={startFreeform}
+      onNotifyObjective={openNotify}
       onReviewLastSession={() => { if (lastSession) navigate(`/analytics/${lastSession.id}`); }}
       onViewAnalytics={() => navigate('/analytics')}
     />
@@ -247,7 +247,7 @@ export default function PracticePage() {
       // App.tsx owns the single <main id="main-content"> landmark; this is a plain content container.
       <div className="practice-root ss-landing-canvas min-h-screen font-sans antialiased" data-testid="practice-root">
         <div className="practice-content">{authenticatedHome}</div>
-        <GuidedNotifyDialog
+        <ObjectiveNotifyDialog
           open={notifyOpen}
           onOpenChange={setNotifyOpen}
           source="authenticated_practice"
@@ -294,11 +294,11 @@ export default function PracticePage() {
             </div>
           </div>
 
-        {/* ANONYMOUS: a compact Freestyle FREE TRIAL strip (shared Freestyle teal token) directly above
+        {/* ANONYMOUS: a compact Freeform FREE TRIAL strip (shared Freeform teal token) directly above
             the two product cards. The strip carries the trial promo; each product card owns its decision
             + action. No four-card support section. */}
         <div className="mx-auto mt-0 max-w-[1120px] px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] sm:px-10 md:pb-12 md:[padding-bottom:3rem]">
-          <FreestyleTrialStrip onStart={startPrivateTrial} />
+          <FreeformTrialStrip onStart={startPrivateTrial} />
           <div className="mb-6 mt-11 flex flex-col items-center text-center" data-testid="practice-support-heading">
             {/* Filled pill eyebrow (Rule 6) — small teal text on light grey would disappear. */}
             <span className="inline-flex items-center rounded-full px-4 py-2 text-[13px] font-extrabold uppercase tracking-[0.1em] text-white" style={{ background: '#0a5f58' }}>How it helps</span>
@@ -308,7 +308,7 @@ export default function PracticePage() {
         </div>
       </div>
 
-      <GuidedNotifyDialog
+      <ObjectiveNotifyDialog
         open={notifyOpen}
         onOpenChange={setNotifyOpen}
         source="anonymous_landing"

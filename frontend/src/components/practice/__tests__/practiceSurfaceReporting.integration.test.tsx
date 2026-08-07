@@ -13,7 +13,7 @@ vi.mock('@/services/issueReportService', async (orig) => {
 });
 vi.mock('@/services/practiceTelemetry', () => ({
   trackPracticeEntryViewed: vi.fn(), trackPracticeModeSelected: vi.fn(), trackPracticeOverviewExpanded: vi.fn(),
-  trackQuickPracticeStarted: vi.fn(), trackGuidedRehearsalUnavailable: vi.fn(),
+  trackFreeformPracticeStarted: vi.fn(), trackObjectiveUnavailable: vi.fn(),
 }));
 // #1042 PR4: PracticePage reads the most-recent session via useRecentPracticeSummary; mock it (new user /
 // no sessions) so this integration test needs no QueryClient/Auth provider and the surface flow is unchanged.
@@ -22,7 +22,7 @@ vi.mock('@/hooks/useRecentPracticeSummary', () => ({ useRecentPracticeSummary: (
 // renders without a QueryClientProvider, and the streak is irrelevant to surface attribution.
 vi.mock('@/hooks/useUsageLimit', () => ({ useUsageLimit: () => ({ data: undefined }) }));
 // #1061: PracticePage is now auth-aware; this suite exercises the AUTHENTICATED /practice reporting surface
-// (Freestyle → /session directly), so mock an authenticated user.
+// (Freeform → /session directly), so mock an authenticated user.
 vi.mock('@/contexts/AuthProvider', async (orig) => {
   const actual = await orig<typeof import('@/contexts/AuthProvider')>();
   return { ...actual, useAuthProvider: () => ({ user: { id: 'u-1' } }) };
@@ -77,8 +77,8 @@ async function reportAndCapture(expectedLabel: RegExp, expectedAreas: string[]) 
   return meta;
 }
 
-// #1042 PR3: the full-page overview + its `quick_practice_overview` surface were removed — /practice now
-// has TWO surfaces (chooser + Guided-unavailable), and the Freestyle card navigates directly to /session.
+// #1042 PR3: the full-page overview + its `freeform_practice_overview` surface were removed — /practice now
+// has TWO surfaces (chooser + Objective-unavailable), and the Freeform card navigates directly to /session.
 describe('Report Issue — /practice surface attribution (one route, two surfaces)', () => {
   beforeEach(() => submit.mockClear());
 
@@ -88,12 +88,12 @@ describe('Report Issue — /practice surface attribution (one route, two surface
     expect(meta).toMatchObject({ practiceSurface: 'practice_home', journeyStep: 'chooser', canonicalRoute: '/practice', pageKey: 'practice' });
   });
 
-  it('guided: internal token guided_rehearsal_unavailable but VISIBLE label exactly "Guided Rehearsal"', async () => {
+  it('objective: internal token objective_unavailable but VISIBLE label exactly "Focus Points"', async () => {
     renderApp();
-    fireEvent.click(screen.getByTestId('practice-card-guided')); // shows toast + marks surface (no preview)
+    fireEvent.click(screen.getByTestId('practice-card-objective')); // shows toast + marks surface (no preview)
     await openReport();
-    // Visible label is exactly "Guided Rehearsal" — never "(unavailable)".
-    expect(banner()).toHaveTextContent(/Reporting from:\s*Guided Rehearsal/);
+    // Visible label is exactly "Focus Points" — never "(unavailable)".
+    expect(banner()).toHaveTextContent(/Reporting from:\s*Focus Points/);
     expect(banner()).not.toHaveTextContent(/unavailable/i);
     expect(areaValues()).toEqual(['availability', 'product_clarity', 'navigation', 'visual_layout', 'other']);
     fireEvent.change(screen.getByTestId('issue-report-title'), { target: { value: 'A clear title' } });
@@ -103,20 +103,20 @@ describe('Report Issue — /practice surface attribution (one route, two surface
     const calls = submit.mock.calls;
     const meta = calls[calls.length - 1][0].metadata;
     // Internal token still records unavailability for triage.
-    expect(meta).toMatchObject({ practiceSurface: 'guided_rehearsal_unavailable', pageLabel: 'Guided Rehearsal', journeyStep: 'guided_unavailable', canonicalRoute: '/practice' });
+    expect(meta).toMatchObject({ practiceSurface: 'objective_unavailable', pageLabel: 'Focus Points', journeyStep: 'objective_unavailable', canonicalRoute: '/practice' });
   });
 
-  it('guided attribution PERSISTS after the toast (a report on the chooser attributes to Guided)', async () => {
+  it('objective attribution PERSISTS after the toast (a report on the chooser attributes to Objective)', async () => {
     renderApp();
-    fireEvent.click(screen.getByTestId('practice-card-guided'));
-    // Still on the chooser (no preview); a report opened now attributes to Guided.
-    const first = await reportAndCapture(/Guided Rehearsal/, ['availability', 'product_clarity', 'navigation', 'visual_layout', 'other']);
-    expect(first.practiceSurface).toBe('guided_rehearsal_unavailable');
+    fireEvent.click(screen.getByTestId('practice-card-objective'));
+    // Still on the chooser (no preview); a report opened now attributes to Objective.
+    const first = await reportAndCapture(/Focus Points/, ['availability', 'product_clarity', 'navigation', 'visual_layout', 'other']);
+    expect(first.practiceSurface).toBe('objective_unavailable');
   });
 
-  it('#1042 PR3: the Freestyle card navigates DIRECTLY to /session; a report there uses the Session · Speaking context', async () => {
+  it('#1042 PR3: the Freeform card navigates DIRECTLY to /session; a report there uses the Session · Speaking context', async () => {
     renderApp();
-    fireEvent.click(screen.getByTestId('practice-card-quick')); // navigate('/session') → PracticePage unmounts (no overview)
+    fireEvent.click(screen.getByTestId('practice-card-freeform')); // navigate('/session') → PracticePage unmounts (no overview)
     expect(await screen.findByTestId('session-marker')).toBeInTheDocument();
     await openReport();
     expect(banner()).toHaveTextContent(/Session · Speaking/);

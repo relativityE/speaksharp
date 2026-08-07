@@ -88,7 +88,7 @@ export const buildIssueReportMetadata = (input: {
     : undefined;
   const { context } = input;
   // Allowlist rule: issueArea is stored ONLY if it is a valid slug for THIS resolved context — which on
-  // /practice is the ACTIVE SURFACE's allowlist (Quick vs Guided vs home), not the whole page. Any
+  // /practice is the ACTIVE SURFACE's allowlist (Quick vs Objective vs home), not the whole page. Any
   // invalid, stale, cross-surface, injected, or empty value is coerced to null — the UI select is not
   // trusted as the sole gate.
   const validAreas = issueAreasForContext(context).map((a) => a.value);

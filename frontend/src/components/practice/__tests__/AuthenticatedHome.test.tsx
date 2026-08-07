@@ -5,7 +5,7 @@
  * "Filler words", and a user reads those as facts about their own speaking. So the suite pins:
  *   - the two choices are legible (title + CTA per card);
  *   - a missing or invalid value renders an em-dash, and NEVER a `0`, a `0:00` or a `+8%`;
- *   - Guided (unlaunched) shows nothing that could be mistaken for personalised results;
+ *   - Objective (unlaunched) shows nothing that could be mistaken for personalised results;
  *   - decorative graphics are hidden from assistive tech.
  */
 
@@ -14,6 +14,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within, cleanup } from '../../../../tests/support/test-utils';
 import { AuthenticatedHome } from '../AuthenticatedHome';
 import { lastSessionView, streakLabel, type RecentSession, type PracticeStreak } from '../homeEvidence';
+import { PRODUCT_NAMES } from '@/constants/productNames';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -31,8 +32,8 @@ function renderHome(overrides: Partial<React.ComponentProps<typeof Authenticated
         recentFailed: false,
         streak: { state: 'active', count: 4, lastQualifyingDate: '2026-07-30', timezone: 'America/New_York' } as PracticeStreak,
         streakLoading: false,
-        onStartFreestyle: vi.fn(),
-        onNotifyGuided: vi.fn(),
+        onStartFreeform: vi.fn(),
+        onNotifyObjective: vi.fn(),
         onReviewLastSession: vi.fn(),
         onViewAnalytics: vi.fn(),
         ...overrides,
@@ -48,10 +49,10 @@ describe('AuthenticatedHome — the page asks two questions (#1047)', () => {
     it('asks "what would you like to do?" and offers exactly two answers', () => {
         renderHome();
         expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/what would you like to do\?/i);
-        expect(screen.getByRole('heading', { name: /^Raw Takes$/ })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: new RegExp(`^${PRODUCT_NAMES.freeform}$`) })).toBeInTheDocument();
         expect(screen.getByRole('heading', { name: /^Focus Points$/ })).toBeInTheDocument();
-        expect(screen.getByTestId('practice-card-quick')).toHaveAccessibleName(/start raw takes/i);
-        expect(screen.getByTestId('practice-card-guided')).toHaveAccessibleName(/notify me about focus points/i);
+        expect(screen.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start your session/i);
+        expect(screen.getByTestId('practice-card-objective')).toHaveAccessibleName(/notify me about focus points/i);
     });
 
     it('carries NO marketing copy — no tagline, no peach hero, no bullet pitch', () => {
@@ -65,17 +66,17 @@ describe('AuthenticatedHome — the page asks two questions (#1047)', () => {
 
     it('the WHAT TO EXPECT eyebrow is the shared connective tissue — present on BOTH cards', () => {
         renderHome();
-        for (const testid of ['practice-card-quick-card', 'practice-card-guided-card']) {
+        for (const testid of ['practice-card-freeform-card', 'practice-card-objective-card']) {
             expect(within(screen.getByTestId(testid)).getByText(/what to expect/i)).toBeInTheDocument();
         }
         // Exact strings: "Notify me at launch" (the CTA) must not satisfy the trailing-text assertion.
-        expect(within(screen.getByTestId('practice-card-quick-card')).getByText('in ~5 min')).toBeInTheDocument();
-        expect(within(screen.getByTestId('practice-card-guided-card')).getByText('at launch')).toBeInTheDocument();
+        expect(within(screen.getByTestId('practice-card-freeform-card')).getByText('in ~5 min')).toBeInTheDocument();
+        expect(within(screen.getByTestId('practice-card-objective-card')).getByText('at launch')).toBeInTheDocument();
     });
 
-    it('the SOON pill is a flex sibling of the Guided title, inside the coloured band', () => {
+    it('the SOON pill is a flex sibling of the Objective title, inside the coloured band', () => {
         renderHome();
-        const badge = screen.getByTestId('guided-soon-badge');
+        const badge = screen.getByTestId('objective-soon-badge');
         expect(badge).toHaveTextContent('SOON');
         expect(badge.className).not.toMatch(/absolute/);
         // Title and pill share a parent, so the pill cannot overlap the title at any width.
@@ -84,10 +85,10 @@ describe('AuthenticatedHome — the page asks two questions (#1047)', () => {
 
     it('routes each choice to its own handler', () => {
         const { props } = renderHome();
-        fireEvent.click(screen.getByTestId('practice-card-quick'));
-        expect(props.onStartFreestyle).toHaveBeenCalledTimes(1);
-        fireEvent.click(screen.getByTestId('practice-card-guided'));
-        expect(props.onNotifyGuided).toHaveBeenCalledTimes(1);
+        fireEvent.click(screen.getByTestId('practice-card-freeform'));
+        expect(props.onStartFreeform).toHaveBeenCalledTimes(1);
+        fireEvent.click(screen.getByTestId('practice-card-objective'));
+        expect(props.onNotifyObjective).toHaveBeenCalledTimes(1);
         fireEvent.click(screen.getByTestId('home-analytics'));
         expect(props.onViewAnalytics).toHaveBeenCalledTimes(1);
     });
@@ -96,13 +97,13 @@ describe('AuthenticatedHome — the page asks two questions (#1047)', () => {
 describe('AuthenticatedHome — evidence, never fabrication', () => {
     it('never invents a "vs. last time" comparison or a last-session filler count', () => {
         renderHome();
-        const card = screen.getByTestId('practice-card-quick-card');
-        const vsTile = screen.getByTestId('practice-card-quick-tile-2');
+        const card = screen.getByTestId('practice-card-freeform-card');
+        const vsTile = screen.getByTestId('practice-card-freeform-tile-2');
         expect(vsTile).toHaveTextContent(/vs\. last time/i);
         expect(vsTile).toHaveTextContent('—');
         expect(vsTile).toHaveAttribute('data-evidence', 'none');
 
-        const fillerTile = screen.getByTestId('practice-card-quick-tile-1');
+        const fillerTile = screen.getByTestId('practice-card-freeform-tile-1');
         expect(fillerTile).toHaveTextContent(/filler words/i);
         expect(fillerTile).toHaveTextContent('—');
 
@@ -111,26 +112,26 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
         expect(text).not.toMatch(/\+\d+%/);
         expect(text).not.toMatch(/\b12 filler\b/i);
         // A missing value must never degrade to a zero: no bare 0 anywhere in the tile row.
-        expect(screen.getByTestId('practice-card-quick-tiles').textContent ?? '').not.toMatch(/\b0\b/);
+        expect(screen.getByTestId('practice-card-freeform-tiles').textContent ?? '').not.toMatch(/\b0\b/);
     });
 
-    it('Guided shows no personalised numbers at all — em-dashes under real labels', () => {
+    it('Objective shows no personalised numbers at all — em-dashes under real labels', () => {
         renderHome();
-        const tiles = screen.getByTestId('practice-card-guided-tiles');
+        const tiles = screen.getByTestId('practice-card-objective-tiles');
         expect(tiles).toHaveTextContent(/covered/i);
         expect(tiles).toHaveTextContent(/missed/i);
         expect(tiles).toHaveTextContent(/misses only/i);
         // No digits whatsoever: nothing that could read as "8/10" or "2 missed".
         expect(tiles.textContent ?? '').not.toMatch(/\d/);
         for (const i of [0, 1, 2]) {
-            expect(screen.getByTestId(`practice-card-guided-tile-${i}`)).toHaveAttribute('data-evidence', 'none');
+            expect(screen.getByTestId(`practice-card-objective-tile-${i}`)).toHaveAttribute('data-evidence', 'none');
         }
     });
 
     it('an unavailable tile keeps its row and its label — it is not hidden', () => {
         renderHome();
-        expect(screen.getByTestId('practice-card-quick-tiles').children).toHaveLength(3);
-        expect(screen.getByTestId('practice-card-guided-tiles').children).toHaveLength(3);
+        expect(screen.getByTestId('practice-card-freeform-tiles').children).toHaveLength(3);
+        expect(screen.getByTestId('practice-card-objective-tiles').children).toHaveLength(3);
     });
 
     /*
@@ -295,7 +296,7 @@ describe('AuthenticatedHome — accessibility & layout', () => {
 
     it('every em-dash is announced as missing data rather than read as a stray dash', () => {
         const { unmount } = renderHome();
-        expect(within(screen.getByTestId('practice-card-guided-tile-0')).getByText('Not enough data')).toBeInTheDocument();
+        expect(within(screen.getByTestId('practice-card-objective-tile-0')).getByText('Not enough data')).toBeInTheDocument();
         unmount();
 
         // The one last-session case that legitimately shows a dash carries the same sentence, so a

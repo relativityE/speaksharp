@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { PRODUCT_NAMES } from '@/constants/productNames';
 
 const sessionCoachingMock = vi.hoisted(() => ({
     getSessionCoachingAssignment: vi.fn(() => ({
@@ -105,7 +106,7 @@ describe('SessionPage — #1047 simplification', () => {
         render(<SessionPage />);
 
         const titleBlock = screen.getByTestId('session-title-block');
-        const helpButton = screen.getByTestId('freestyle-help-button');
+        const helpButton = screen.getByTestId('freeform-help-button');
 
         expect(titleBlock).toContainElement(helpButton);
         expect(titleBlock).toContainElement(screen.getByText('Practice Session'));
@@ -113,7 +114,7 @@ describe('SessionPage — #1047 simplification', () => {
         expect(helpButton).toHaveClass('bg-[hsl(var(--session-green-deep))]', 'text-[15px]', 'font-bold');
         expect(helpButton.querySelector('.lucide-play')).not.toBeNull();
         // Decorative glyph is hidden, so the accessible name is the guide's title alone.
-        expect(helpButton).toHaveAccessibleName('How Raw Takes works');
+        expect(helpButton).toHaveAccessibleName(`How ${PRODUCT_NAMES.freeform} works`);
     });
 
     it('demotes the at-rest status bar and separates it from the help island', () => {
@@ -269,7 +270,7 @@ describe('SessionPage — #1047 simplification', () => {
     it('keeps the new surfaces keyboard-reachable, focus-visible and narrow-viewport safe', () => {
         render(<SessionPage />);
 
-        const helpButton = screen.getByTestId('freestyle-help-button');
+        const helpButton = screen.getByTestId('freeform-help-button');
         // Focusable (never `disabled`, which would strip it from the tab order) with a visible ring.
         expect(helpButton.tagName).toBe('BUTTON');
         expect(helpButton).not.toBeDisabled();

@@ -10,15 +10,15 @@
 
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 
-export type PracticeMode = 'quick' | 'guided';
+export type PracticeMode = 'quick' | 'objective';
 
 /**
  * CLOSED entry-source enum. The telemetry service boundary must not accept arbitrary `source` strings —
  * a future caller could otherwise smuggle free-form/user content into the payload. Unknown values are
  * DROPPED (never emitted), so only these exact tokens can ever reach analytics.
  */
-export type PracticeEntrySource = 'landing_card' | 'quick_overview';
-const ENTRY_SOURCES: readonly PracticeEntrySource[] = ['landing_card', 'quick_overview'];
+export type PracticeEntrySource = 'landing_card' | 'freeform_overview';
+const ENTRY_SOURCES: readonly PracticeEntrySource[] = ['landing_card', 'freeform_overview'];
 const normalizeSource = (source: unknown): PracticeEntrySource | null =>
   typeof source === 'string' && (ENTRY_SOURCES as readonly string[]).includes(source)
     ? (source as PracticeEntrySource)
@@ -40,7 +40,7 @@ const emit = (event: string, props: Record<string, string | boolean | null>): vo
 export const trackPracticeEntryViewed = (returningUser: boolean): void =>
   emit('practice_entry_viewed', { returning_user: returningUser });
 
-/** A mode was chosen (Quick or Guided card). `source` is a closed enum; unknown values are dropped. */
+/** A mode was chosen (Quick or Objective card). `source` is a closed enum; unknown values are dropped. */
 export const trackPracticeModeSelected = (mode: PracticeMode, source: PracticeEntrySource): void =>
   emit('practice_mode_selected', { mode, entry_source: normalizeSource(source) });
 
@@ -49,13 +49,13 @@ export const trackPracticeOverviewExpanded = (mode: PracticeMode): void =>
   emit('practice_overview_expanded', { mode });
 
 /** Quick Practice's primary action fired — the user is handing off to the existing /session. */
-export const trackQuickPracticeStarted = (source: PracticeEntrySource): void =>
-  emit('quick_practice_started', { mode: 'quick', entry_source: normalizeSource(source) });
+export const trackFreeformPracticeStarted = (source: PracticeEntrySource): void =>
+  emit('freeform_practice_started', { mode: 'quick', entry_source: normalizeSource(source) });
 
 /**
- * Guided Rehearsal was selected while UNAVAILABLE (stays on /practice; shows the unavailable toast). This
+ * Focus Points was selected while UNAVAILABLE (stays on /practice; shows the unavailable toast). This
  * does NOT claim a preview was shown — `available: false` is a bounded, content-free flag. The toast text
  * itself is never sent.
  */
-export const trackGuidedRehearsalUnavailable = (): void =>
-  emit('guided_rehearsal_unavailable_selected', { mode: 'guided', available: false });
+export const trackObjectiveUnavailable = (): void =>
+  emit('objective_unavailable_selected', { mode: 'objective', available: false });

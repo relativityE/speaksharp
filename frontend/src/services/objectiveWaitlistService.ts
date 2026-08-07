@@ -3,9 +3,9 @@ import { analyticsBuffer } from './AnalyticsBuffer';
 import logger from '@/lib/logger';
 
 /**
- * #1061 Guided Rehearsal "Notify me" — client seam for the durable waitlist.
+ * #1061 Focus Points "Notify me" — client seam for the durable waitlist.
  *
- * The browser NEVER writes the table; it calls the `guided-waitlist` Edge Function, which uses the
+ * The browser NEVER writes the table; it calls the `objective-waitlist` Edge Function, which uses the
  * service-role key to normalize/validate/dedup server-side. This module only forwards the request and
  * emits a CONTENT-FREE conversion event (no email/PII ever leaves as an analytics property).
  */
@@ -31,7 +31,7 @@ export async function submitGuidedWaitlist(params: {
   let ok = false;
   try {
     const supabase = getSupabaseClient();
-    const { data, error } = await supabase.functions.invoke('guided-waitlist', {
+    const { data, error } = await supabase.functions.invoke('objective-waitlist', {
       body: { email, consent, source, product: GUIDED_PRODUCT },
     });
     ok = !error && !!(data as { ok?: boolean } | null)?.ok;

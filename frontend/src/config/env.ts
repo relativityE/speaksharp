@@ -11,7 +11,7 @@ import type { UserGoals } from '../types/goal';
 const CLIENT_ENV = {
   VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL as string | undefined,
   VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
-  // #1061 activation gate for the Guided Rehearsal "Notify me" waitlist. OFF until the Edge Function is
+  // #1061 activation gate for the Focus Points "Notify me" waitlist. OFF until the Edge Function is
   // deployed AND a confirmation-email provider is wired — until then the CTA shows an honest "coming soon"
   // acknowledgement and never calls the (undeployed) backend. Flip to 'true' as the separately-authorized
   // activation step; no code change required.

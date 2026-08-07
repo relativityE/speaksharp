@@ -1,6 +1,6 @@
 /**
  * Typed, scoped state that tells the GLOBAL Report Issue dialog which of the three closed `/practice`
- * surfaces is active, so a report is attributed to Quick vs Guided vs home WITHOUT a route change.
+ * surfaces is active, so a report is attributed to Quick vs Objective vs home WITHOUT a route change.
  *
  * Owned ABOVE both Navigation (where the Report Issue button lives) and the routed page content, so the
  * dialog and the page share one source of truth. It carries ONLY a validated `PracticeSurface` token —

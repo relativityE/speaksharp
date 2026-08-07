@@ -5,10 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PRODUCT_NAMES } from '@/constants/productNames';
 import { Label } from '@/components/ui/label';
-import { submitGuidedWaitlist, type GuidedWaitlistSource } from '@/services/guidedWaitlistService';
+import { submitGuidedWaitlist, type GuidedWaitlistSource } from '@/services/objectiveWaitlistService';
 
 /**
- * #1061 Guided Rehearsal "Notify me" dialog — the real pre-launch interest capture.
+ * #1061 Focus Points "Notify me" dialog — the real pre-launch interest capture.
  *
  * Accessibility (Radix Dialog provides focus-trap / Escape / focus-return / background lock):
  *  - accessible title + description, a labelled email field with associated validation copy,
@@ -22,7 +22,7 @@ import { submitGuidedWaitlist, type GuidedWaitlistSource } from '@/services/guid
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 type Status = 'idle' | 'submitting' | 'success' | 'error';
 
-export function GuidedNotifyDialog({
+export function ObjectiveNotifyDialog({
   open,
   onOpenChange,
   source,
@@ -78,17 +78,17 @@ export function GuidedNotifyDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" data-testid="guided-notify-dialog">
+      <DialogContent className="sm:max-w-md" data-testid="objective-notify-dialog">
         {!enabled ? (
           /* #1061 activation gate OFF — honest coming-soon acknowledgement; NO capture form, NO backend call. */
-          <div data-testid="guided-notify-comingsoon">
+          <div data-testid="objective-notify-comingsoon">
             <DialogTitle>{PRODUCT_NAMES.objective} is coming soon!</DialogTitle>
             <DialogDescription>We’re getting {PRODUCT_NAMES.objective} ready.</DialogDescription>
             <p role="status" className="mt-4 text-sm font-medium text-[color:var(--ss-text)]">
               We’ll announce it here when it’s ready.
             </p>
             <div className="mt-5 flex justify-end">
-              <Button type="button" data-testid="guided-notify-close" onClick={() => onOpenChange(false)}>Got it</Button>
+              <Button type="button" data-testid="objective-notify-close" onClick={() => onOpenChange(false)}>Got it</Button>
             </div>
           </div>
         ) : (
@@ -97,22 +97,22 @@ export function GuidedNotifyDialog({
         <DialogDescription>We’ll email you when {PRODUCT_NAMES.objective} becomes available.</DialogDescription>
 
         {status === 'success' ? (
-          <p role="status" data-testid="guided-notify-success" className="mt-4 text-sm font-medium text-[color:var(--ss-text)]">
+          <p role="status" data-testid="objective-notify-success" className="mt-4 text-sm font-medium text-[color:var(--ss-text)]">
             You’re on the list. We’ll let you know when {PRODUCT_NAMES.objective} is available.
           </p>
         ) : (
           <form onSubmit={(e) => { void handleSubmit(e); }} className="mt-4 space-y-4" noValidate>
             <div className="space-y-1.5">
-              <Label htmlFor="guided-notify-email">Email</Label>
+              <Label htmlFor="objective-notify-email">Email</Label>
               <Input
-                id="guided-notify-email"
-                data-testid="guided-notify-email"
+                id="objective-notify-email"
+                data-testid="objective-notify-email"
                 type="email"
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 aria-invalid={fieldError ? true : undefined}
-                aria-describedby={fieldError ? 'guided-notify-error' : undefined}
+                aria-describedby={fieldError ? 'objective-notify-error' : undefined}
                 disabled={submitting}
               />
             </div>
@@ -120,7 +120,7 @@ export function GuidedNotifyDialog({
             <label className="flex items-start gap-2 text-sm text-[color:var(--ss-text)]">
               <input
                 type="checkbox"
-                data-testid="guided-notify-consent"
+                data-testid="objective-notify-consent"
                 className="mt-0.5"
                 checked={consent}
                 onChange={(e) => setConsent(e.target.checked)}
@@ -132,19 +132,19 @@ export function GuidedNotifyDialog({
             </label>
 
             {fieldError && (
-              <p id="guided-notify-error" role="alert" data-testid="guided-notify-field-error" className="text-sm font-medium text-destructive">
+              <p id="objective-notify-error" role="alert" data-testid="objective-notify-field-error" className="text-sm font-medium text-destructive">
                 {fieldError}
               </p>
             )}
             {status === 'error' && (
-              <p role="alert" data-testid="guided-notify-error" className="text-sm font-medium text-destructive">
+              <p role="alert" data-testid="objective-notify-error" className="text-sm font-medium text-destructive">
                 We couldn’t save your request. Please try again.
               </p>
             )}
 
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>Cancel</Button>
-              <Button type="submit" data-testid="guided-notify-submit" disabled={submitting}>
+              <Button type="submit" data-testid="objective-notify-submit" disabled={submitting}>
                 {submitting ? 'Saving…' : 'Notify me'}
               </Button>
             </div>

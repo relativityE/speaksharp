@@ -12,8 +12,8 @@
  *   1. "What would you like to do?"  → the H1 IS the question; the two cards are the two answers.
  *   2. "What should I expect from it?" → three OUTCOME TILES per card: the artifacts a session
  *      produces, as a large value + a one-or-two-word label. Not promises, not adjectives.
- * A user should be able to choose by scanning the two colour blocks (teal = Freestyle, violet =
- * Guided), which is why each card's TITLE lives inside its coloured header band and not in the
+ * A user should be able to choose by scanning the two colour blocks (teal = Freeform, violet =
+ * Objective), which is why each card's TITLE lives inside its coloured header band and not in the
  * white body.
  *
  * WHY there are em-dashes
@@ -26,7 +26,7 @@
  * asserted. Missing evidence NEVER degrades to `0` — a zero is indistinguishable from a real zero.
  * Validity is decided by the shared #1091 layer (`@/utils/metricValidity`), never ad hoc here.
  *
- * Guided is unavailable, so every Guided tile is an em-dash or a capability label. It shows nothing
+ * Objective is unavailable, so every Objective tile is an em-dash or a capability label. It shows nothing
  * that could be mistaken for the user's personalised results, and its CTA activates nothing.
  */
 
@@ -47,7 +47,7 @@ type Accent = 'teal' | 'violet';
 /* Decorative motifs — aria-hidden; they carry no information that is not also in text.           */
 /* -------------------------------------------------------------------------------------------- */
 
-/** Five-bar waveform for the Freestyle band. One bar is amber: the warm through-line. */
+/** Five-bar waveform for the Freeform band. One bar is amber: the warm through-line. */
 function BandWaveform({ warm }: { warm: boolean }) {
     const bars = [12, 22, 30, 18, 25];
     return (
@@ -100,7 +100,7 @@ export interface OutcomeTile {
     /** Chooses the value typography. The renderer keys off THIS, never the literal string. */
     valueKind: OutcomeValueKind;
     Icon: LucideIcon;
-    /** `warm` is reserved for Freestyle's MIDDLE tile — the amber thread to the marketing hero. */
+    /** `warm` is reserved for Freeform's MIDDLE tile — the amber thread to the marketing hero. */
     tone: Accent | 'warm';
 }
 
@@ -187,7 +187,7 @@ function ProductCard({
                     the title at a narrow width. */}
                 {soon ? (
                     <span
-                        data-testid="guided-soon-badge"
+                        data-testid="objective-soon-badge"
                         className="shrink-0 rounded-full px-3 py-1 text-[11px] font-extrabold tracking-[0.05em]"
                         style={{ background: 'rgba(255,255,255,0.94)', color: 'var(--ss-home-violet-deep)' }}
                     >
@@ -309,23 +309,23 @@ export interface AuthenticatedHomeProps {
     /** True while the streak read is IN FLIGHT (incl. immediately after an account change) — the chip
      *  stays hidden until an active >=2-day streak resolves (no skeleton, no premature label). */
     streakLoading: boolean;
-    onStartFreestyle: () => void;
-    onNotifyGuided: () => void;
+    onStartFreeform: () => void;
+    onNotifyObjective: () => void;
     onReviewLastSession: () => void;
     onViewAnalytics: () => void;
 }
 
 export function AuthenticatedHome({
     lastSession, recentLoading, recentFailed, streak, streakLoading,
-    onStartFreestyle, onNotifyGuided, onReviewLastSession, onViewAnalytics,
+    onStartFreeform, onNotifyObjective, onReviewLastSession, onViewAnalytics,
 }: AuthenticatedHomeProps) {
     const last = lastSessionView(lastSession, { loading: recentLoading, failed: recentFailed });
     // The chip is shown ONLY for an active >=2-day streak. Loading, unavailable, lapsed, zero and
     // one-day states all resolve to `null` and render no chip (no skeleton, no reserved width).
     const streakText = streakLoading ? null : streakLabel(streak);
-    // Freestyle tiles. "Live" is a capability of the shipped product, not a claim about this user.
+    // Freeform tiles. "Live" is a capability of the shipped product, not a claim about this user.
     // The other two have no truthful source on Home today, so they say so.
-    const freestyleTiles: OutcomeTile[] = [
+    const freeformTiles: OutcomeTile[] = [
         // `Live` is a categorical capability, not a measurement — a quiet `status` value that blends
         // into the tile rather than the large `metric` typography reserved for real numbers.
         { label: 'Transcript', value: 'Live', valueKind: 'status', Icon: FileText, tone: 'teal' },
@@ -337,8 +337,8 @@ export function AuthenticatedHome({
         { label: 'Vs. last time', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: TrendingUp, tone: 'teal' },
     ];
 
-    // Guided has not launched: there are no results to report, and nothing here may look personalised.
-    const guidedTiles: OutcomeTile[] = [
+    // Objective has not launched: there are no results to report, and nothing here may look personalised.
+    const objectiveTiles: OutcomeTile[] = [
         { label: 'Covered', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Check, tone: 'violet' },
         { label: 'Missed', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Target, tone: 'violet' },
         { label: 'Misses only', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Repeat, tone: 'violet' },
@@ -429,12 +429,12 @@ export function AuthenticatedHome({
                     eyebrow="Speak freely"
                     title={PRODUCT_NAMES.freeform}
                     expectTrailing="in ~5 min"
-                    tiles={freestyleTiles}
+                    tiles={freeformTiles}
                     reassurance="No agenda or setup — just speak and improve"
-                    ctaLabel={`Start ${PRODUCT_NAMES.freeform}`}
-                    ctaAria={`Start ${PRODUCT_NAMES.freeform}`}
-                    onCta={onStartFreestyle}
-                    testid="practice-card-quick"
+                    ctaLabel={"Start your session"}
+                    ctaAria={"Start your session"}
+                    onCta={onStartFreeform}
+                    testid="practice-card-freeform"
                 />
                 <ProductCard
                     accent="violet"
@@ -442,12 +442,12 @@ export function AuthenticatedHome({
                     title={PRODUCT_NAMES.objective}
                     soon
                     expectTrailing="at launch"
-                    tiles={guidedTiles}
+                    tiles={objectiveTiles}
                     reassurance="Set your points, rehearse until they land"
                     ctaLabel="Notify me at launch"
                     ctaAria={`Notify me about ${PRODUCT_NAMES.objective}`}
-                    onCta={onNotifyGuided}
-                    testid="practice-card-guided"
+                    onCta={onNotifyObjective}
+                    testid="practice-card-objective"
                 />
             </div>
         </div>
