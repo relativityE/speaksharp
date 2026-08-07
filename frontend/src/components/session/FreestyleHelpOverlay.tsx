@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { PRODUCT_NAMES } from '@/constants/productNames';
 import {
     Dialog,
     DialogContent,
@@ -21,7 +22,7 @@ import {
  * aria-disabled (still focusable) with a persistent accessible explanation, and cannot be opened.
  */
 
-const HELP_TITLE = 'How Freestyle Practice works';
+const HELP_TITLE = `How ${PRODUCT_NAMES.freeform} works`;
 const HELP_INTRO =
     "No agenda required. Choose a transcription method, start when you're ready, and speak freely.";
 const HELP_STEPS: readonly string[] = [

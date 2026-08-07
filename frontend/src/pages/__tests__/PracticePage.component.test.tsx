@@ -54,8 +54,8 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
 
   it('shows both product identities; Guided carries the SOON header badge + launch CTA', () => {
     render(<PracticePage />);
-    expect(within(root()).getByRole('heading', { name: /^Freestyle Practice$/i })).toBeInTheDocument();
-    expect(within(root()).getByRole('heading', { name: /^Guided Rehearsal$/i })).toBeInTheDocument();
+    expect(within(root()).getByRole('heading', { name: /^Raw Takes$/i })).toBeInTheDocument();
+    expect(within(root()).getByRole('heading', { name: /^Focus Points$/i })).toBeInTheDocument();
     // Guided "coming soon" is conveyed by the SOON header badge + the "Notify me at launch" CTA.
     const badge = screen.getByTestId('guided-soon-badge');
     expect(badge).toHaveTextContent('SOON');
@@ -78,8 +78,8 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(screen.queryByTestId('practice-hero-start-free')).not.toBeInTheDocument();
       expect(root().textContent ?? '').not.toMatch(/Public Impact/i);
       // Product cards own their actions.
-      expect(screen.getByTestId('practice-card-quick')).toHaveAccessibleName(/start freestyle practice/i);
-      expect(screen.getByTestId('practice-card-guided')).toHaveAccessibleName(/notify me about guided rehearsal/i);
+      expect(screen.getByTestId('practice-card-quick')).toHaveAccessibleName(/start raw takes/i);
+      expect(screen.getByTestId('practice-card-guided')).toHaveAccessibleName(/notify me about focus points/i);
     });
 
     it('Freestyle navigates DIRECTLY to /session', () => {
@@ -153,8 +153,8 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(within(screen.getByTestId('practice-card-guided-card')).getByTestId('guided-soon-badge')).toHaveTextContent('SOON');
       expect(screen.queryByText(/Planned/)).toBeNull();
       // Product cards own their actions (anon shows CTAs, same as authed).
-      expect(screen.getByTestId('practice-card-quick')).toHaveAccessibleName(/start freestyle practice/i);
-      expect(screen.getByTestId('practice-card-guided')).toHaveAccessibleName(/notify me about guided rehearsal/i);
+      expect(screen.getByTestId('practice-card-quick')).toHaveAccessibleName(/start raw takes/i);
+      expect(screen.getByTestId('practice-card-guided')).toHaveAccessibleName(/notify me about focus points/i);
       // No authenticated continuity/account actions.
       expect(screen.queryByTestId('practice-continuity')).not.toBeInTheDocument();
       expect(screen.queryByTestId('practice-continuity-empty')).not.toBeInTheDocument();

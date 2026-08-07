@@ -48,10 +48,10 @@ describe('AuthenticatedHome — the page asks two questions (#1047)', () => {
     it('asks "what would you like to do?" and offers exactly two answers', () => {
         renderHome();
         expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/what would you like to do\?/i);
-        expect(screen.getByRole('heading', { name: /^Freestyle Practice$/ })).toBeInTheDocument();
-        expect(screen.getByRole('heading', { name: /^Guided Rehearsal$/ })).toBeInTheDocument();
-        expect(screen.getByTestId('practice-card-quick')).toHaveAccessibleName(/start freestyle practice/i);
-        expect(screen.getByTestId('practice-card-guided')).toHaveAccessibleName(/notify me about guided rehearsal/i);
+        expect(screen.getByRole('heading', { name: /^Raw Takes$/ })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: /^Focus Points$/ })).toBeInTheDocument();
+        expect(screen.getByTestId('practice-card-quick')).toHaveAccessibleName(/start raw takes/i);
+        expect(screen.getByTestId('practice-card-guided')).toHaveAccessibleName(/notify me about focus points/i);
     });
 
     it('carries NO marketing copy — no tagline, no peach hero, no bullet pitch', () => {
@@ -79,7 +79,7 @@ describe('AuthenticatedHome — the page asks two questions (#1047)', () => {
         expect(badge).toHaveTextContent('SOON');
         expect(badge.className).not.toMatch(/absolute/);
         // Title and pill share a parent, so the pill cannot overlap the title at any width.
-        expect(badge.parentElement).toContainElement(screen.getByRole('heading', { name: /^Guided Rehearsal$/ }));
+        expect(badge.parentElement).toContainElement(screen.getByRole('heading', { name: /^Focus Points$/ }));
     });
 
     it('routes each choice to its own handler', () => {
