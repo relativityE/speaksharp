@@ -1,44 +1,48 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { FreeformHelpOverlay } from '../FreeformHelpOverlay';
 import { PRODUCT_NAMES } from '@/constants/productNames';
 
 // Derive from the single product-name authority so a name trial never breaks this spec (#1149).
 const TITLE = `How ${PRODUCT_NAMES.freeform} works`;
-const INTRO = "No agenda required. Choose a transcription method, start when you're ready, and speak freely.";
-const STEPS = [
-    'Choose your transcription method.',
-    'Start when you are ready.',
-    'Speak freely.',
-    'Stop and wait while the recording is saved.',
-    'Review your transcript and available delivery feedback.',
-    'Choose one improvement for the next attempt.',
+// Modal redesign (#1116): three ideas, not six recorder steps — each a bold action + a clause.
+const STEP_ACTIONS = [
+    "Pick how you're transcribed",
+    'Speak as long as you like',
+    'Take one thing to improve',
 ];
-const FEEDBACK =
-    'After you stop, SpeakSharp saves your transcript and shows the delivery feedback available for that session.';
 const DISABLED_REASON = 'Finish the current recording, save, or recovery step to view this guide.';
 
-describe('FreeformHelpOverlay (#1042 PR2)', () => {
-    it('renders a secondary outlined trigger button and does NOT auto-open', () => {
+describe('FreeformHelpOverlay (#1042 PR2 / #1116 redesign)', () => {
+    it('renders the trigger button and does NOT auto-open', () => {
         render(<FreeformHelpOverlay available />);
         const btn = screen.getByTestId('freeform-help-button');
         expect(btn).toHaveTextContent(TITLE);
         expect(btn).toHaveAccessibleName(TITLE);
-        // Never auto-open.
         expect(screen.queryByTestId('freeform-help-overlay')).not.toBeInTheDocument();
     });
 
-    it('opens on click and shows the approved introduction, six steps, and feedback statement', () => {
+    it('opens on click and shows the title, exactly three steps, and a start CTA', () => {
         render(<FreeformHelpOverlay available />);
         fireEvent.click(screen.getByTestId('freeform-help-button'));
         const overlay = screen.getByTestId('freeform-help-overlay');
-        // Title is styled across spans (bold product name + italic framing); assert by heading
-        // accessible name, which concatenates the parts, rather than a single-text-node match.
+        // Title is styled across spans; assert by heading accessible name.
         expect(within(overlay).getByRole('heading', { name: TITLE })).toBeInTheDocument();
-        expect(within(overlay).getByText(INTRO)).toBeInTheDocument();
-        const steps = within(screen.getByTestId('freeform-help-steps')).getAllByRole('listitem');
-        expect(steps.map((li) => li.textContent)).toEqual(STEPS);
-        expect(screen.getByTestId('freeform-help-feedback')).toHaveTextContent(FEEDBACK);
+        const items = within(screen.getByTestId('freeform-help-steps')).getAllByRole('listitem');
+        expect(items).toHaveLength(3);
+        for (const action of STEP_ACTIONS) {
+            expect(within(overlay).getByText(action)).toBeInTheDocument();
+        }
+        expect(within(overlay).getByTestId('freeform-help-start')).toHaveTextContent(/got it — start speaking/i);
+    });
+
+    it('primary CTA closes the modal and calls onStart', async () => {
+        const onStart = vi.fn();
+        render(<FreeformHelpOverlay available onStart={onStart} />);
+        fireEvent.click(screen.getByTestId('freeform-help-button'));
+        fireEvent.click(screen.getByTestId('freeform-help-start'));
+        await waitFor(() => expect(screen.queryByTestId('freeform-help-overlay')).not.toBeInTheDocument());
+        expect(onStart).toHaveBeenCalledTimes(1);
     });
 
     it('closes on Escape and returns focus to the trigger button', async () => {
@@ -62,14 +66,12 @@ describe('FreeformHelpOverlay (#1042 PR2)', () => {
         render(<FreeformHelpOverlay available={false} />);
         const btn = screen.getByTestId('freeform-help-button');
         expect(btn).toHaveAttribute('aria-disabled', 'true');
-        // The disabled explanation is announced as the accessible description (persistent, not a tooltip).
         expect(btn).toHaveAccessibleDescription(DISABLED_REASON);
-        // Activation is blocked.
         fireEvent.click(btn);
         expect(screen.queryByTestId('freeform-help-overlay')).not.toBeInTheDocument();
     });
 
-    it('does not overstate feedback and never claims navigation/recording', () => {
+    it('never claims navigation/auto-recording', () => {
         render(<FreeformHelpOverlay available />);
         fireEvent.click(screen.getByTestId('freeform-help-button'));
         const overlay = screen.getByTestId('freeform-help-overlay');
