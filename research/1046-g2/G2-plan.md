@@ -69,3 +69,18 @@ A single forward migration renames every G1 object (empty tables → mechanical,
 - Focus-point persistence + feedback parity; exact-session readback across History/Analytics/PDF.
 - No duplicate attribution state in the frontend — server is the single source of truth.
 - Gates green: #1151, #1164; #1163 rolled out.
+
+## 6. G2 UX decisions (PO-locked 2026-08-07) — parity + live coverage rail
+Goal: **familiarity across product pages** — Focus Points must feel like Open Floor's sibling, not a different app.
+
+1. **"How Focus Points works" help overlay — parity with Open Floor.** Mirror the existing Open Floor overlay (`FreeformHelpOverlay` — "How Open Floor works"): same trigger placement, same non-modal/idle-only behavior, same collapsible pattern and testid style. Content = the Focus Points steps (set points → speak → per-point result → review/continue). A user who learned Open Floor should recognize the pattern instantly.
+2. **Coverage rail beside the transcript.** During a Focus Points session, the user's entered points render as a **list on the right, next to the live transcript / mic** (not blocking either — same non-modal discipline as the #1116 on-ramp). One row per focus point.
+3. **Per-point status = icon + colour (not colour alone, for accessibility):**
+   - **Red / hollow ○** = not covered yet
+   - **Yellow / half ◐** = partially covered / in progress
+   - **Green / filled ✓** = covered
+   The state marker is a small shape on the **left of each row**; the row label may also shift tone, but the **shape carries the meaning** so it works for colour-blind users. Never rely on colour alone.
+4. **Timing — v1 vs fast-follow (PO decision):**
+   - **v1 = compute coverage AT STOP** — when the session ends and per-point Hit/Missed is computed (matches §5's `Hit/Missed renders`), the rail colours in. Reliable, ships with G2.
+   - **Fast-follow = LIVE coverage while speaking** — colour the rail in real time as the running transcript matches each point. More ambitious (live transcript↔point matching, more failure modes); do it as an increment after v1 unless re-prioritised.
+5. **Consistency contract:** both modes share layout, help-overlay affordance, and the "non-modal aid beside the transcript" pattern (Open Floor on-ramp ↔ Focus Points coverage rail), so the product reads as one system.
