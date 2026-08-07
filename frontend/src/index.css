@@ -9,7 +9,7 @@ All colors MUST be HSL.
 @layer base {
   :root {
     /* Light page background: slightly deeper/less-bright so white cards separate more clearly. */
-    --background: 215 24% 82%;
+    --background: 215 24% 76%;
     --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;

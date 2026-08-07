@@ -32,7 +32,9 @@ describe('FreeformHelpOverlay (#1042 PR2)', () => {
         render(<FreeformHelpOverlay available />);
         fireEvent.click(screen.getByTestId('freeform-help-button'));
         const overlay = screen.getByTestId('freeform-help-overlay');
-        expect(within(overlay).getByText(TITLE)).toBeInTheDocument();
+        // Title is styled across spans (bold product name + italic framing); assert by heading
+        // accessible name, which concatenates the parts, rather than a single-text-node match.
+        expect(within(overlay).getByRole('heading', { name: TITLE })).toBeInTheDocument();
         expect(within(overlay).getByText(INTRO)).toBeInTheDocument();
         const steps = within(screen.getByTestId('freeform-help-steps')).getAllByRole('listitem');
         expect(steps.map((li) => li.textContent)).toEqual(STEPS);
