@@ -18,13 +18,13 @@ describe('PracticeOnramp (#1116 session-page on-ramp)', () => {
     expect(SPEAKING_PROMPTS.some((p) => shown.includes(p.text))).toBe(true);
   });
 
-  it('"Let me test with a sample" reveals a ≤1-min public-domain passage with attribution', () => {
+  it('"Let me test with a sample" reveals a ≤45s public-domain passage with attribution', () => {
     render(<PracticeOnramp />);
     fireEvent.click(screen.getByTestId('onramp-test-sample'));
     const first = SAMPLE_PASSAGES[0];
     expect(screen.getByTestId('onramp-sample-text')).toHaveTextContent(first.text.slice(0, 24));
     expect(screen.getByText(new RegExp(first.attribution.split(' · ')[0], 'i'))).toBeInTheDocument();
-    expect(first.estSeconds).toBeLessThanOrEqual(60);
+    expect(first.estSeconds).toBeLessThanOrEqual(45);
   });
 
   it('cycles to another sample and can switch to a prompt', () => {
@@ -51,10 +51,10 @@ describe('PracticeOnramp (#1116 session-page on-ramp)', () => {
     expect(screen.queryByTestId('practice-onramp')).not.toBeInTheDocument();
   });
 
-  it('every sample stays within the 30s–60s read budget', () => {
+  it('every sample stays within the 30–45s read budget', () => {
     for (const s of SAMPLE_PASSAGES) {
-      expect(s.estSeconds).toBeGreaterThanOrEqual(20);
-      expect(s.estSeconds).toBeLessThanOrEqual(60);
+      expect(s.estSeconds).toBeGreaterThanOrEqual(30);
+      expect(s.estSeconds).toBeLessThanOrEqual(45);
     }
   });
 });

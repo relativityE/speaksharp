@@ -4,11 +4,11 @@
  *
  * Two optional aids (never required, never scored):
  *  - SPEAKING_PROMPTS  → "Give me a prompt": short original speaking starters.
- *  - SAMPLE_PASSAGES   → "Let me test with a sample": a ≤1-minute PUBLIC-DOMAIN passage to read aloud
+ *  - SAMPLE_PASSAGES   → "Let me test with a sample": a 30–45s complete PUBLIC-DOMAIN passage to read aloud
  *    so a first-timer can try the product without composing anything.
  *
  * COPYRIGHT: sample passages are PUBLIC DOMAIN only (pre-1929 / U.S. government works). Do NOT add
- * modern copyrighted speeches (MLK, Churchill, JFK, etc.). Keep each read ≤ ~1 minute (~150 words).
+ * modern copyrighted speeches (MLK, Churchill, JFK, etc.). Keep each read in 30–45s (~70–105 words); curated set = one ~45s + two ~30s.
  * Internal identifiers are function-based (no product name) per the naming boundary (STT.md).
  */
 
@@ -32,46 +32,42 @@ export const SPEAKING_PROMPTS = [
 export type SpeakingPromptId = (typeof SPEAKING_PROMPTS)[number]['id'];
 
 /**
- * ≤1-minute read-aloud samples for "Let me test with a sample". PUBLIC DOMAIN ONLY.
- * `estSeconds` is an approximate read time at a relaxed ~140 wpm.
+ * 30–45 second read-aloud samples for "Let me test with a sample". PUBLIC DOMAIN ONLY.
+ * `estSeconds` is an approximate read time at a relaxed ~140 wpm; keep every passage in [30, 45].
  */
 export const SAMPLE_PASSAGES = [
   {
-    id: 'gettysburg',
-    title: 'The Gettysburg Address',
-    attribution: 'Abraham Lincoln, 1863 · public domain',
-    estSeconds: 60,
-    text:
-      'Four score and seven years ago our fathers brought forth on this continent a new nation, ' +
-      'conceived in liberty, and dedicated to the proposition that all men are created equal. ' +
-      'Now we are engaged in a great civil war, testing whether that nation, or any nation so conceived ' +
-      'and so dedicated, can long endure. It is for us the living, rather, to be dedicated here to the ' +
-      'unfinished work which they who fought here have thus far so nobly advanced — that this nation, ' +
-      'under God, shall have a new birth of freedom, and that government of the people, by the people, ' +
-      'for the people, shall not perish from the earth.',
-  },
-  {
-    id: 'hamlet-soliloquy',
-    title: 'Hamlet — "To be, or not to be"',
-    attribution: 'William Shakespeare · public domain',
+    id: 'man-in-the-arena',
+    title: 'The Man in the Arena',
+    attribution: 'Theodore Roosevelt, 1910 · public domain',
     estSeconds: 45,
     text:
-      'To be, or not to be, that is the question: whether ’tis nobler in the mind to suffer ' +
-      'the slings and arrows of outrageous fortune, or to take arms against a sea of troubles ' +
-      'and by opposing end them. To die — to sleep, no more; and by a sleep to say we end ' +
-      'the heart-ache and the thousand natural shocks that flesh is heir to: ’tis a consummation ' +
-      'devoutly to be wished.',
+      'It is not the critic who counts; not the man who points out how the strong man stumbles, or where ' +
+      'the doer of deeds could have done them better. The credit belongs to the man who is actually in ' +
+      'the arena, whose face is marred by dust and sweat and blood; who strives valiantly; who errs, who ' +
+      'comes short again and again; but who does actually strive to do the deeds; who spends himself in a ' +
+      'worthy cause; who at the best knows the triumph of high achievement.',
   },
   {
-    id: 'declaration',
-    title: 'The Declaration of Independence',
-    attribution: 'United States, 1776 · public domain',
-    estSeconds: 40,
+    id: 'nothing-to-fear',
+    title: '"The only thing we have to fear…"',
+    attribution: 'Franklin D. Roosevelt, 1933 · public domain',
+    estSeconds: 30,
     text:
-      'We hold these truths to be self-evident, that all men are created equal, that they are endowed ' +
-      'by their Creator with certain unalienable Rights, that among these are Life, Liberty and the ' +
-      'pursuit of Happiness. That to secure these rights, Governments are instituted among Men, ' +
-      'deriving their just powers from the consent of the governed.',
+      'This is preeminently the time to speak the truth, the whole truth, frankly and boldly. So, first of ' +
+      'all, let me assert my firm belief that the only thing we have to fear is fear itself — nameless, ' +
+      'unreasoning, unjustified terror which paralyzes needed efforts to convert retreat into advance.',
+  },
+  {
+    id: 'give-me-liberty',
+    title: '"Give me liberty, or give me death"',
+    attribution: 'Patrick Henry, 1775 · public domain',
+    estSeconds: 32,
+    text:
+      'Gentlemen may cry, peace, peace — but there is no peace. The war is actually begun! The next gale ' +
+      'that sweeps from the north will bring to our ears the clash of resounding arms! Why stand we here ' +
+      'idle? Is life so dear, or peace so sweet, as to be purchased at the price of chains and slavery? ' +
+      'Forbid it, Almighty God! Give me liberty, or give me death!',
   },
 ] as const;
 export type SamplePassageId = (typeof SAMPLE_PASSAGES)[number]['id'];
