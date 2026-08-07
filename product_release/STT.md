@@ -26,6 +26,14 @@ Canonical, per-engine statement of how each speech-to-text engine must behave: w
 
 Naming is a product decision owned by `PRODUCT_REQUIREMENTS.md`; the internal token / telemetry / DB value is stable and separate (e.g. Browser's DB value remains `native`).
 
+### Naming boundary (product name ↔ internal token) — policy
+
+Customer-facing names (engine names, **and mode names like "Freestyle"/"Guided"**, feature labels) are product decisions and **will change** — they are owned by the branding exercise (`#1149`). The codebase must not encode them.
+
+- **"Freestyle" and "Guided" are product names, not internal categories.** Backend schema, RPC names, and telemetry tokens must be **function-based** (describe the data/behavior, not the marketing term) and are frozen **once they carry production history**. Example: the practice-objectives feature uses `objective_*` (it stores the user's *objectives* for a session) — never `guided_*`, because "Guided" is a mode's marketing name.
+- **One translation seam, not scattered strings.** The UI never hardcodes a product string; customer labels live in a single module (`frontend/src/constants/productNames.ts`) and the service layer exposes typed enums over stable tokens. A rename touches one file, and the backend never learns of it.
+- **Pre-launch correction is allowed; post-launch is frozen.** A token that carries *no* production history yet is not truly shipped and may be corrected to its final function-based form before launch (see the G1 `guided_*` → `objective_*` rename, justified by provably-empty tables in #1046-G2). Once a token carries real rows/analytics, it is frozen; realignment then requires a dedicated, tested migration epic.
+
 ## Shared cross-engine contract
 
 These rules bind **every** engine.
