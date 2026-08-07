@@ -8,13 +8,15 @@
 
 ## 1. What G2 is (kept from the PO/PM/Dev drafts)
 
-Guided Rehearsal extends the **existing** Freestyle practice loop with an explicit, goal-oriented layer:
+Where Freestyle (#1042) is unstructured ("No agenda required. Speak freely"), Guided Rehearsal extends the **same** practice loop with an explicit, goal-oriented layer — the user declares outcomes to hit and rehearses until they consistently land them:
 1. **Before recording** the user declares *focus points* (a brief) — e.g. "reduce filler words", "slow down".
 2. **During recording** the session runs on **Private STT only**.
 3. **After recording** SpeakSharp evaluates delivery against those focus points (**Hit / Missed**) with clarity/quality parity to Freestyle.
 4. **Later** the outcome is reviewable in History, Analytics, and PDF export.
 
-Truthfulness bar (unchanged): on-device Private STT only; if the producing engine is not provably `private`, the Guided outcome is **voided gracefully** ("Guided evaluation unavailable — Private STT required"), never silently evaluated on another engine.
+**Truthfulness bar.** Engine identity is **client-declared and server-recorded via #1163 — NOT server-proven**; only a session whose recorded class is `private` may unlock Guided evaluation. "Private" = on-device transformers-js/WASM. If the producing class is anything else, the Guided outcome is **voided gracefully**, never silently evaluated on another engine. Exact user copy for the voided case: **"Guided Rehearsal requires on-device processing, which was unavailable this session."**
+
+Browser and Cloud are **ineligible for Guided and not surfaced** (per the #1184 Private-only pivot). Do **not** resurrect the pre-pivot framing of "Browser as the customer-facing secondary term" — that hierarchy is superseded by #1165/#1184.
 
 ---
 
@@ -43,6 +45,12 @@ G1 left `guided_brief` / `guided_brief_point` with RLS **`SELECT`-only** (no cli
 
 Everything else in the loop reuses existing G1/#1163 RPCs.
 
+### Mechanism details (verified against `main` — do not code to invented signatures)
+- **Attribution gate:** `get_session_engine_class_v1(p_session_id uuid) → text`. Guided evaluation proceeds only if it returns `private`.
+- **Fallback signal:** `attest_session_engine_v1(p_session_id uuid, p_runtime_evidence jsonb) → text`. **There is no `fallback_occurred` parameter** — fallback is carried *inside* `p_runtime_evidence`; a declared-`private`-vs-actual class mismatch resolves the session to `unattributed`. (Pre-session declaration is `issue_attribution_intent_v1`.)
+- **Loop driver:** `guided_select_action_v1(p_session_id uuid) → uuid` returns the next guided_action id (the next unmet required point); `guided_finalize_evidence_v1` finalizes Hit/Missed evidence.
+- **Frontend touch-points (extend, don't fork):** `frontend/src/services/SpeechRuntimeController.ts` and `frontend/src/services/progress/{recordProgress,loadSessionProgress,buildProgressEvaluation,progressPresentation}.ts`.
+
 ---
 
 ## 4. Phased PRs (independently reviewable; DAG order)
@@ -61,6 +69,7 @@ The **global** "no engine selector anywhere / Private-only UI" change is **#1184
 
 ## 5. Definition of Done
 - Exact-head CI/SCA green; independent binary review complete.
-- Playwright E2E: **positive** (`/practice?mode=guided` → supply points → record Private → Guided Hit/Missed renders) and **negative** (forced fallback → session saves, Guided outcome shows "unavailable").
+- Playwright E2E: **positive** (`/practice?mode=guided` → supply points → record Private → Guided Hit/Missed renders) and **negative proofs** — (a) forced fallback → session saves, class `unattributed`, Guided outcome hidden with the exact copy above; (b) a Cloud/Browser class is never granted Guided authority; (c) stale/missing attribution is treated as ineligible, not defaulted-in.
+- Exact-session readback: History/Analytics (`get_analytics_summary`)/PDF pull `guided_evidence` + `guided_action` for the *same* session id.
 - No duplicate attribution state in the frontend store — everything derives from the server's single source of truth.
 - Qualification gates green: #1151 (Private proof), #1164 (retention preflight); #1163 rolled out (done).
