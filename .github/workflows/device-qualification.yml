@@ -1,0 +1,67 @@
+name: Device Qualification Foundation (no evidence upload)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      # The matrix exercises real application markup/CSS and the real Private
+      # drop-in boundary. Keep this broad enough that a qualified surface or
+      # engine change cannot bypass its three-browser/five-viewport lane.
+      - 'frontend/**'
+      - 'scripts/build.config.js'
+      - 'scripts/serve-e2e.mjs'
+      - 'tests/e2e/helpers.ts'
+      - 'tests/e2e/helpers/**'
+      - 'tests/e2e/mock-routes.ts'
+      - 'backend/supabase/functions/_shared/test-fixtures.ts'
+      - 'tests/support/factories/session.factory.ts'
+      - 'tests/e2e/fixtures.ts'
+      - 'tests/constants.ts'
+      - '.github/actions/setup-environment/**'
+      - 'playwright.base.config.ts'
+      - 'playwright.device-qualification.config.ts'
+      - 'tests/e2e/device-qualification-foundation.e2e.spec.ts'
+      - 'tests/release/deviceQualificationContract.ts'
+      - 'tests/release/deviceQualificationContract.test.ts'
+      - '.github/workflows/device-qualification.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EVIDENCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  VITE_SUPABASE_URL: https://mock.supabase.co
+  VITE_SUPABASE_ANON_KEY: mock_anon_key
+  VITE_AUTH_MODE: mock
+  VITE_USE_MOCK_AUTH: 'true'
+
+jobs:
+  browser-matrix:
+    name: ${{ matrix.browser }} responsive/accessibility foundation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EVIDENCE_SHA }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install exact browser runtime
+        run: pnpm exec playwright install --with-deps "${{ matrix.browser }}"
+      - name: Build exact-head application
+        run: BUILD_ID="${{ env.EVIDENCE_SHA }}" pnpm build:test
+      - name: Run dependency-neutral matrix without retained browser artifacts
+        env:
+          DEVICE_BROWSER: ${{ matrix.browser }}
+        run: pnpm test:device-qualification

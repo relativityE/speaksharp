@@ -37,16 +37,6 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       body: JSON.stringify({ success: true })
     }));
 
-    await page.addInitScript(() => {
-      const win = window as Window & { __SS_E2E_STORAGE_ISOLATED_ONCE__?: boolean };
-      if (win.__SS_E2E_STORAGE_ISOLATED_ONCE__) return;
-      win.__SS_E2E_STORAGE_ISOLATED_ONCE__ = true;
-
-      Object.keys(localStorage)
-        .filter(k => k.startsWith('sb-'))
-        .forEach(k => localStorage.removeItem(k));
-    });
-
     // Attach Global Monitors (Console/Errors) before the spec-owned first app load.
     // Do not boot the app here: route/auth fixtures must install their contracts
     // first, or profile hydration can race ahead of the mock routes.

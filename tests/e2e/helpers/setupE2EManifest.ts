@@ -147,6 +147,11 @@ export async function setupE2EManifest(
     };
     void __name;
 
+    // addInitScript also runs in child frames. The application/auth manifest
+    // belongs to the top-level document; opaque/transient Firefox frames do
+    // not own the test session and may reject storage access during teardown.
+    if (window.top !== window) return;
+
     // 0. AUTHORITATIVE TIER SIGNAL
     const win = window as unknown as E2EWindow;
     win.__MOCK_PROFILE__ = { 
@@ -158,23 +163,34 @@ export async function setupE2EManifest(
 
     const localBrowserStorage = s;
 
-    // 1. CLEAR: Strict Zero baseline with Origin Guard
+    // 1. ISOLATE + SEED: one ordered callback owns both operations. The
+    // sessionStorage marker survives same-tab hard navigation but remains
+    // scoped to this Playwright page/context. That clears stale auth before
+    // the first app boot without racing or deleting the intended session.
     try {
-      if (win.location.origin !== 'null' && win.location.origin !== 'about:blank') {
-        win.localStorage.clear();
+      // Firefox can give a transient about:blank document the destination's
+      // origin while storage is still unavailable. Protocol is the reliable
+      // boundary: seed only the actual HTTP(S) application document.
+      if (win.location.protocol === 'http:' || win.location.protocol === 'https:') {
+        const isolationMarker = '__SS_E2E_AUTH_STORAGE_ISOLATED_ONCE__';
+        if (window.sessionStorage.getItem(isolationMarker) !== 'true') {
+          Object.keys(win.localStorage)
+            .filter(key => key.startsWith('sb-'))
+            .forEach(key => win.localStorage.removeItem(key));
+          window.sessionStorage.setItem(isolationMarker, 'true');
+        }
+
+        // 2. STORAGE: seed the intended tokens after first-boot isolation, in
+        // the same serialized init callback. about:blank has an opaque origin
+        // in WebKit, so both operations wait for the first real application
+        // document rather than producing a misleading SecurityError.
+        Object.entries(localBrowserStorage).forEach(([key, val]) => {
+          win.localStorage.setItem(key, val);
+        });
       }
     } catch (err) {
-      console.warn('[E2E] localStorage.clear failed in setupE2EManifest', err);
+      console.warn('[E2E] ordered auth-storage isolation/seed failed in setupE2EManifest', err);
     }
-
-    // 2. STORAGE: Re-inject tokens
-    Object.entries(localBrowserStorage).forEach(([key, val]) => {
-      try {
-        win.localStorage.setItem(key, val);
-      } catch (err) {
-        console.warn(`[E2E] localStorage.setItem failed for key ${key}`, err);
-      }
-    });
 
     const authSession = (() => {
       for (const value of Object.values(localBrowserStorage)) {
