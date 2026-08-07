@@ -29,10 +29,10 @@ runs:
     - name: Setup pnpm
       uses: pnpm/action-setup@v6
       with:
-        # PIN to the packageManager version. Do NOT rely on drift: pnpm v11 (released 2026-08)
-        # breaks install here with ERR_PNPM_ENOENT (mkdir node_modules/@radix-ui). The engines
-        # range `>=10.29.1` otherwise lets action-setup resolve v11. Keep this == packageManager.
-        version: 10.29.1
+        # EXPERIMENT (#1195): match the runner's pre-installed pnpm (v11.19.0) so action-setup does
+        # NOT downgrade-switch v11->v10. The switch is what leaves PNPM_HOME in a hybrid layout and
+        # causes the flaky ERR_PNPM_ENOENT (mkdir node_modules/@radix-ui). Keep this == packageManager.
+        version: 11.19.0
 
     - name: Setup Node.js
       uses: actions/setup-node@v6
