@@ -12,6 +12,7 @@ import { FillerWordsCard } from '@/components/session/FillerWordsCard';
 import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
 import { LiveCoachingScoreCard } from '@/components/session/LiveCoachingScoreCard';
 import { LiveRecordingCard } from '@/components/session/LiveRecordingCard';
+import { PracticeOnramp } from '@/components/session/PracticeOnramp';
 import { UnresolvedRecoveryBanner } from '@/components/session/UnresolvedRecoveryBanner';
 import { MobileActionBar } from '@/components/session/MobileActionBar';
 import { StatusNotificationBar } from '@/components/session/StatusNotificationBar';
@@ -391,6 +392,11 @@ export const SessionPage: React.FC = () => {
                     )}
                     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
                         <div className="flex flex-col gap-6">
+                            {/* #1116 on-ramp (v1, floating): removes the session-page "blank page" problem — a prompt
+                                starter or a ≤1-min public-domain sample to read aloud, readable while recording.
+                                Optional, dismissible, non-persistent. Ergonomics follow-up: dock into the 400px right
+                                rail alongside the Focus Points coverage table + clear the status bar (#1046/#1116). */}
+                            <PracticeOnramp />
                             <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
                                 <LiveRecordingCard
                                     mode={mode || 'native'}
