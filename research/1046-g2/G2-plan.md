@@ -84,3 +84,14 @@ Goal: **familiarity across product pages** — Focus Points must feel like Open 
    - **v1 = compute coverage AT STOP** — when the session ends and per-point Hit/Missed is computed (matches §5's `Hit/Missed renders`), the rail colours in. Reliable, ships with G2.
    - **Fast-follow = LIVE coverage while speaking** — colour the rail in real time as the running transcript matches each point. More ambitious (live transcript↔point matching, more failure modes); do it as an increment after v1 unless re-prioritised.
 5. **Consistency contract:** both modes share layout, help-overlay affordance, and the "non-modal aid beside the transcript" pattern (Open Floor on-ramp ↔ Focus Points coverage rail), so the product reads as one system.
+
+## 7. Activation flip — waitlist → live entry (REQUIRED final step; do not overlook)
+Backend completion alone does NOT surface Focus Points. Today the practice/landing page renders the Focus Points (objective) card as a **"Coming Soon!" waitlist** (`ObjectiveNotifyDialog`, gated by `GUIDED_WAITLIST_ENABLED`). The mode only becomes usable when this flip is done **as the last step of G2**, and ONLY once the full loop (capture → session → per-point feedback → History continuity) genuinely works:
+
+1. **Card CTA:** change the Focus Points card from "Notify me at launch" (opens `ObjectiveNotifyDialog`) → a real action that **starts a Focus Points session** (enter capture → `/session` objective flow). Same card, promoted from placeholder to live.
+2. **Flag:** turn off / retire `GUIDED_WAITLIST_ENABLED` for the objective card (or repurpose), so the waitlist path no longer renders.
+3. **Surfaces to update:** `PracticePage.tsx` (`ObjectiveArt`/`OBJECTIVE_*` card + `ctaLabel`/`ctaAria`), `AuthenticatedHome.tsx` objective card, and the `ObjectiveNotifyDialog` usage; add the **"How Focus Points works"** overlay (§6.1) alongside.
+4. **Tests/e2e:** the specs currently assert objective = "Coming Soon!" / "Notify me about Focus Points" — rewrite to assert the **live entry + start action** (no waitlist).
+5. **Truthfulness gate:** flip ONLY when the loop is real end-to-end; never surface a live card in front of a half-built mode. If any G2 piece is incomplete, the card stays waitlist.
+
+**No separate landing page** — this is the same practice/landing page's existing Focus Points card graduating from "Coming Soon" to a working mode with its own help overlay (mirrors Open Floor).
