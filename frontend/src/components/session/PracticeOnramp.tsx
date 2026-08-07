@@ -70,7 +70,7 @@ export function PracticeOnramp({ className = '' }: { className?: string }) {
 
         {!collapsed && view === 'choose' && (
           <div data-testid="onramp-choose" className="mt-2 space-y-3">
-            <p className="text-sm text-[color:var(--ss-text-muted,#475569)]">
+            <p className="text-base font-semibold leading-snug text-blue-700 dark:text-blue-300">
               Get a quick starter — or read a short sample aloud to try it out. Then press the mic; this stays up so you can read it.
             </p>
             <div className="flex flex-wrap gap-2">
