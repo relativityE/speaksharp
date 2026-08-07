@@ -14,7 +14,7 @@ export const PRODUCT_NAMES = {
   /** Application name. Reserved / not yet finalized (#1149). */
   app: 'SpeakSharp',
   /** Open, unstructured practice mode. */
-  freeform: 'Rough Drafts',
+  freeform: 'Open Floor',
   /** Structured practice against declared focus points. */
   objective: 'Focus Points',
 } as const;

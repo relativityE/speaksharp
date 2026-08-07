@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '../../../tests/support/test-utils';
 import PracticePage from '../PracticePage';
+import { PRODUCT_NAMES } from '@/constants/productNames';
 
 const navigateSpy = vi.fn();
 vi.mock('react-router-dom', async (orig) => {
@@ -54,7 +55,7 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
 
   it('shows both product identities; Objective carries the SOON header badge + launch CTA', () => {
     render(<PracticePage />);
-    expect(within(root()).getByRole('heading', { name: /^Rough Drafts$/i })).toBeInTheDocument();
+    expect(within(root()).getByRole('heading', { name: new RegExp(`^${PRODUCT_NAMES.freeform}$`, 'i') })).toBeInTheDocument();
     expect(within(root()).getByRole('heading', { name: /^Focus Points$/i })).toBeInTheDocument();
     // Objective "coming soon" is conveyed by the SOON header badge + the "Notify me at launch" CTA.
     const badge = screen.getByTestId('objective-soon-badge');

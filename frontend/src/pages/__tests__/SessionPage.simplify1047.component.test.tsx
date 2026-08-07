@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { PRODUCT_NAMES } from '@/constants/productNames';
 
 const sessionCoachingMock = vi.hoisted(() => ({
     getSessionCoachingAssignment: vi.fn(() => ({
@@ -113,7 +114,7 @@ describe('SessionPage — #1047 simplification', () => {
         expect(helpButton).toHaveClass('bg-[hsl(var(--session-green-deep))]', 'text-[15px]', 'font-bold');
         expect(helpButton.querySelector('.lucide-play')).not.toBeNull();
         // Decorative glyph is hidden, so the accessible name is the guide's title alone.
-        expect(helpButton).toHaveAccessibleName('How Rough Drafts works');
+        expect(helpButton).toHaveAccessibleName(`How ${PRODUCT_NAMES.freeform} works`);
     });
 
     it('demotes the at-rest status bar and separates it from the help island', () => {
