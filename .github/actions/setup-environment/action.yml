@@ -4,8 +4,14 @@ description: 'Sets up Node.js, pnpm and (opt-in) native deps, Playwright and the
 # CI-PERF: every capability beyond Node/pnpm/dependencies is OPT-IN and defaults to false.
 # Previously this action unconditionally installed ~80 apt packages (Canvas/Sharp build deps) and the
 # Supabase CLI in EVERY job — including jobs that never use them (build, report, Lighthouse, E2E,
-# health) — and restored the ~619 MB pnpm store TWICE (once via actions/setup-node's built-in
-# `cache: pnpm`, once via a redundant actions/cache step). Both are removed here.
+# health). That was removed for CI-PERF.
+#
+# #1195: pnpm is installed via COREPACK, not pnpm/action-setup. GitHub runners now pre-install pnpm
+# v11.19.0; pnpm/action-setup "switches" the runner's pnpm (even v11->v11) and leaves PNPM_HOME in a
+# hybrid layout, causing a flaky `ERR_PNPM_ENOENT: mkdir node_modules/@radix-ui` at install time.
+# Corepack installs the EXACT `packageManager` version into its own clean location, ignoring the
+# runner's pnpm — no switch, deterministic on any runner image. Version is chosen in ONE place
+# (package.json "packageManager"); everything else derives from it.
 inputs:
   install-dependencies:
     description: 'Run `pnpm install --frozen-lockfile`. Set false for jobs that only aggregate artifacts.'
@@ -26,20 +32,41 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - name: Setup pnpm
-      uses: pnpm/action-setup@v6
-      with:
-        # PIN to the packageManager version. Do NOT rely on drift: pnpm v11 (released 2026-08)
-        # breaks install here with ERR_PNPM_ENOENT (mkdir node_modules/@radix-ui). The engines
-        # range `>=10.29.1` otherwise lets action-setup resolve v11. Keep this == packageManager.
-        version: 10.29.1
-
     - name: Setup Node.js
       uses: actions/setup-node@v6
       with:
         node-version: '22'
-        # This ALREADY restores/saves the pnpm store. Do not add a second actions/cache step for it.
-        cache: 'pnpm'
+
+    - name: Activate pnpm via Corepack (single source = packageManager)
+      id: pnpm
+      shell: bash
+      run: |
+        # Install the EXACT packageManager pnpm cleanly. Do NOT use pnpm/action-setup (see #1195).
+        export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+        corepack enable
+        PM="$(node -p "require('./package.json').packageManager")"   # e.g. pnpm@10.29.1
+        corepack prepare "$PM" --activate
+        EXPECTED="${PM#pnpm@}"
+        ACTUAL="$(pnpm --version)"
+        echo "pnpm expected=$EXPECTED actual=$ACTUAL path=$(command -v pnpm)"
+        # Guardrail: any drift/switch producing a different version fails loudly HERE, not at a
+        # cryptic ENOENT later. This is the drift tripwire the whole outage was missing.
+        if [ "$EXPECTED" != "$ACTUAL" ]; then
+          echo "::error::pnpm version mismatch — expected $EXPECTED (packageManager) but got $ACTUAL"
+          exit 1
+        fi
+        echo "version=$ACTUAL" >> "$GITHUB_OUTPUT"
+        echo "store=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache pnpm store
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.pnpm.outputs.store }}
+        # Version IN the key: a store from one pnpm version can never restore into another
+        # (that cross-version restore is a documented failure mode — see #1195).
+        key: ${{ runner.os }}-pnpm-${{ steps.pnpm.outputs.version }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-pnpm-${{ steps.pnpm.outputs.version }}-
 
     - name: Install System Dependencies (Canvas/Sharp)
       if: runner.os == 'Linux' && inputs.install-native-deps == 'true'
