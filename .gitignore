@@ -1,5 +1,9 @@
 # --- Dependencies & Tools ---
-node_modules/
+# No trailing slash: ignores a node_modules DIRECTORY *and* a node_modules SYMLINK (a file).
+# A trailing-slash pattern (node_modules/) matches dirs only, which let local-dev symlinks get
+# committed and broke CI/Vercel (#1195).
+node_modules
+**/node_modules
 patches/
 .pnpm-debug.log*
 .history/
