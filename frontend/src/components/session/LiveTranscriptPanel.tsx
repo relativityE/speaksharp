@@ -505,7 +505,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         )}
                     </div>
                 ) : (
-                    <p className="text-[15px] font-medium text-muted-foreground" data-testid="live-transcript-empty">
+                    <p className="text-sm text-foreground/80" data-testid="live-transcript-empty">
                         Your words appear here as you speak.
                     </p>
                 )}
