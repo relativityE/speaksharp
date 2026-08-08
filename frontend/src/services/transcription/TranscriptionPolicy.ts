@@ -9,6 +9,7 @@
  */
 
 import logger from '@/lib/logger';
+import { emitEngineRequestCollapsedToPrivate, isRetiredEngineRequest } from './sttExclusivityTelemetry';
 
 export type TranscriptionMode = 'native' | 'cloud' | 'private' | 'mock';
 
@@ -136,6 +137,13 @@ export function resolveMode(
         throw new Error('No allowed transcription mode');
     }
 
+    // #1184 traceability: a retired-engine (native/cloud) request the policy disallows WILL collapse to
+    // Private below. Emit a PERSISTED event so any such request is queryable (this should never happen in
+    // healthy Private-only operation; a non-zero rate flags a bug or a stale caller).
+    if (isRetiredEngineRequest(userPreference) && !isModeAllowed(userPreference as TranscriptionMode, policy)) {
+        emitEngineRequestCollapsedToPrivate({ source: 'resolveMode', requestedMode: userPreference as string });
+    }
+
     // 1. Check user preference (if allowed)
     if (userPreference && isModeAllowed(userPreference, policy)) {
         logger.info({ resolved: userPreference, source: 'user-preference' }, '[TranscriptionPolicy] Resolved mode');
@@ -199,6 +207,11 @@ export function buildPolicyForUser(
     // native/cloud either (`allowNative/allowCloud` stay false, so `resolveMode` can only return 'private').
     // `options.allowCloud` can no longer widen the engine set — Cloud is never user-facing.
     void options;
+    // #1184 traceability: a native/cloud UI request is neutralized to Private here — record it as a
+    // persisted event so the collapse is queryable (fail-closed).
+    if (isRetiredEngineRequest(uiMode)) {
+        emitEngineRequestCollapsedToPrivate({ source: 'buildPolicyForUser', requestedMode: uiMode as string });
+    }
     // The tier flag now selects only the executionIntent LABEL (prod-free vs prod-pro) for observability;
     // both bases are Private-only, so engine capability is identical either way.
     const base = hasPrivateSttAccess ? PROD_PRO_POLICY : PROD_FREE_POLICY;

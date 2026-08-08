@@ -309,7 +309,8 @@ describe('useSpeechRecognition Integration', () => {
         await act(async () => { });
 
         await act(async () => {
-            await speechRuntimeController.warmUp('native');
+            // #1184: Private is the only engine — warm Private (this test exercises buffer/flush, not the engine).
+            await speechRuntimeController.warmUp('private');
         });
 
         await waitForReady();
