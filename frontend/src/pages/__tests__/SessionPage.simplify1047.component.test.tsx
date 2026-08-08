@@ -368,12 +368,13 @@ describe('SessionPage — #1047 simplification', () => {
         useSessionStore.setState({ completedSessionDurationSeconds: null });
     });
 
-    it('does not stretch the coaching card to the recorder column', () => {
+    it('stretches the coaching card to the mic card height (balanced equal-height top row) — #1046', () => {
         render(<SessionPage />);
 
+        // #1046 (PO): Coaching sits at the same level AND height as the recorder. The grid is
+        // items-stretch and the card takes h-full — it no longer self-starts short.
         const card = screen.getByTestId('live-coaching-score-card');
-        expect(card).toHaveClass('self-start');
-        expect(card).not.toHaveClass('self-stretch');
-        expect(card).not.toHaveClass('h-full');
+        expect(card).toHaveClass('h-full');
+        expect(card).not.toHaveClass('self-start');
     });
 });
