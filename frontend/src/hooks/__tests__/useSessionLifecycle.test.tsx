@@ -1021,7 +1021,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         expect(mockStore.getState().sttStatus).toEqual(warning);
     });
 
-    it('should force downgraded users back to native mode and clear stale private errors', async () => {
+    it('keeps a downgraded/Free user on Private (Private is universal — never a Browser downgrade)', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',
             isListening: false,
@@ -1068,15 +1068,12 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
 
         await waitFor(() => {
-            expect(mockStore.getState().sttMode).toBe('native');
-            expect(mockStore.getState().sttStatus).toEqual({
-                type: 'ready',
-                message: 'Ready to record'
-            });
+            // #1184: Free uses Private like everyone — a Free account is never downgraded to Browser/native.
+            expect(mockStore.getState().sttMode).toBe('private');
         });
     });
 
-    it('should ignore legacy future trial timestamps when the server says the Private sample is unavailable', async () => {
+    it('keeps Private selected regardless of Private-sample state (Private is universal)', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',
             isListening: false,
@@ -1122,11 +1119,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
 
         await waitFor(() => {
-            expect(mockStore.getState().sttMode).toBe('native');
-            expect(mockStore.getState().sttStatus).toEqual({
-                type: 'ready',
-                message: 'Ready to record'
-            });
+            expect(mockStore.getState().sttMode).toBe('private');
         });
     });
 
@@ -1184,10 +1177,9 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
-    it('should keep the implicit Native default for Pro users (Option A: no auto-promotion to Private)', async () => {
-        // Option A first-use trust fix: a fresh Pro user stays on the instant Browser/
-        // Native default and is NOT auto-promoted into the Private model-setup wall before
-        // their first transcript. Private remains an explicit user-selected mode.
+    it('promotes a default-native session to Private (Private is the only engine — #1184)', async () => {
+        // #1184: Private is the sole engine. A session still carrying the legacy 'native' default (not an
+        // explicit user choice) is promoted to Private, so no user is left on a retired Browser engine.
         const mockStore = createTestSessionStore({
             sttMode: 'native',
             isListening: false,
@@ -1232,7 +1224,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
 
         await waitFor(() => {
-            expect(mockStore.getState().sttMode).toBe('native');
+            expect(mockStore.getState().sttMode).toBe('private');
         });
     });
 
@@ -1331,9 +1323,9 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             },
         );
 
-        it('does not block Native mode regardless of data-model-status', () => {
-            expect(renderWithModelStatus('download-required', 'native', 'READY').current.isButtonDisabled).toBe(false);
-        });
+        // #1184: a plain 'native' session is now promoted to Private (Private is the only engine), so
+        // "native stays selectable" is no longer a real user state — the private-model gate above governs
+        // the mic. Native persisting only happens under the E2E force-native bridge, covered separately.
     });
 });
 
