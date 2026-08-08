@@ -587,11 +587,18 @@ export async function mockLiveTranscript(
   await simulateTranscription(page, lastPayload, true);
 }
 
-export async function selectTranscriptionEngine(page: Page, mode: 'native' | 'cloud' | 'private') {
-  const select = page.getByTestId('stt-mode-select');
-  await select.click();
-  const option = page.getByTestId(`stt-mode-${mode}`);
-  await option.click();
+/**
+ * #1184: Private is the ONLY transcription engine — the Private/Browser/Cloud selector was removed, so
+ * there is nothing to choose. The recorder card now shows a static Private indicator (the default and
+ * only engine). This helper is retained as a single honest checkpoint that the session is on Private;
+ * the `mode` parameter defaults to 'private' and any stale caller asking for another engine fails loud.
+ */
+export async function selectTranscriptionEngine(page: Page, mode: 'private' = 'private') {
+  if (mode !== 'private') {
+    throw new Error(`[#1184] Private is the only engine — cannot select '${mode}'. Update this test to the Private-only surface.`);
+  }
+  const indicator = page.getByTestId('stt-mode-select');
+  await expect(indicator).toHaveAttribute('data-state', 'private', { timeout: 15_000 });
 }
 
 export async function waitForToast(page: Page, message: string | RegExp) {

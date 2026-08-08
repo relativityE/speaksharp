@@ -14,7 +14,7 @@ test.describe('User-facing session and analytics regressions', () => {
   test('keeps final transcript visible when later interim text is blank', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
-    await selectTranscriptionEngine(page, 'native');
+    await selectTranscriptionEngine(page, 'private');
 
     const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
@@ -32,7 +32,7 @@ test.describe('User-facing session and analytics regressions', () => {
   test('shows explanations for live metrics after speech is captured', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session?coaching=treatment');
-    await selectTranscriptionEngine(page, 'native');
+    await selectTranscriptionEngine(page, 'private');
 
     const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
@@ -42,9 +42,13 @@ test.describe('User-facing session and analytics regressions', () => {
 
     await expect(page.getByTestId('live-coaching-score-card')).toBeVisible();
     await expect(page.getByTestId('live-session-score')).toHaveText('--');
-    // The score breakdown and transcript-quality caveat now live behind accessible help.
+    // The score breakdown now lives behind accessible help.
     await page.getByTestId('score-help').click();
-    await expect(page.getByTestId('live-score-quality-caveat')).toContainText(/miss filler words/i);
+    // #1184: the "may miss filler words" caveat is a Browser-SCOPED quality note (it warns about Web-Speech
+    // transcript gaps). It is gated to the Browser engine, so it does not render for a Private session —
+    // this is NOT a claim that Private is perfectly accurate (Private is on-device and mostly accurate);
+    // the caveat is simply Browser-specific.
+    await expect(page.getByTestId('live-score-quality-caveat')).toHaveCount(0);
     await expect(page.getByTestId('live-score-evidence')).toContainText(/pace, fillers, pauses/i);
     await expect(page.getByTestId('live-coaching-actions')).toContainText(/\w+/);
     await expect(page.getByText(/filler words detected|captured words/i)).toBeVisible();
@@ -56,7 +60,7 @@ test.describe('User-facing session and analytics regressions', () => {
 
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
-    await selectTranscriptionEngine(page, 'native');
+    await selectTranscriptionEngine(page, 'private');
 
     const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
     const transcriptPanel = page.getByTestId(TEST_IDS.TRANSCRIPT_PANEL);

@@ -58,7 +58,7 @@ async function assertSingleSavedSurface(page: Page) {
 }
 
 test.describe('Post-save consolidation', () => {
-  test('Native (eligible): ONE saved surface — bar + Analytics + quiet Private CTA, no toast, pill reset, bounded→persistent cue', async ({ page }) => {
+  test('Post-save (Private): ONE saved surface — bar + Analytics, no CTA, no toast, pill reset, bounded→persistent cue', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
     await expect(page.getByText(/Practice Session/i)).toBeVisible();
@@ -68,10 +68,9 @@ test.describe('Post-save consolidation', () => {
     await assertOneBarNoOldSurface(page);
     await expect(page.getByTestId('live-session-header')).toContainText(/Session saved ·/);
 
-    // De-dup: exactly ONE visible "Set up Private" nudge after save — the status-bar CTA, NOT the card nudge.
-    const cta = page.getByTestId('post-save-private-cta');
-    await expect(cta).toBeVisible();
-    await expect(cta).toHaveText(/Try Private — the main beta experience/i);
+    // #1184: Private is the only engine — there is no Browser→Private upsell CTA after save, and no
+    // separate first-run Private setup nudge.
+    await expect(page.getByTestId('post-save-private-cta')).toHaveCount(0);
     await expect(page.getByTestId('first-run-setup-private')).toHaveCount(0);
 
     // No "Next: Analytics" toast overlay; the recording-card pill does not duplicate the saved message.
@@ -144,7 +143,7 @@ test.describe('Post-save consolidation', () => {
     }
   });
 
-  test('Free (ineligible): Native session shows NO Private CTA and one saved surface', async ({ page }) => {
+  test('Free: post-save shows NO Private CTA and one saved surface', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'free' });
     await navigateToRoute(page, '/session');
     await recordAndStop(page);

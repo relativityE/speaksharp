@@ -45,10 +45,8 @@ describe('LiveRecordingCard — #1047', () => {
         expect(cue.parentElement?.querySelector('[data-testid="stt-mode-help"]')).toBeNull();
     });
 
-    it('keeps mode help reachable (it is the only touch path to per-mode info)', () => {
-        render(<LiveRecordingCard {...defaultProps} />);
-        expect(screen.getByTestId('stt-mode-help')).toBeInTheDocument();
-    });
+    // #1184: the "About transcription modes" help was removed with the selector (Private is the only
+    // engine); there is no per-mode info to reach. The engine identity lives in the header cue.
 
     it('renders the timer grey while idle and dark ink once running', () => {
         const { rerender } = render(<LiveRecordingCard {...defaultProps} />);

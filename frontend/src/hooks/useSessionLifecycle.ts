@@ -14,7 +14,7 @@ import { useSessionMetrics } from './useSessionMetrics';
 import { useUsageLimit, type UsageLimitCheck } from './useUsageLimit';
 import { useStreak } from './useStreak';
 import { useUserFillerWords } from './useUserFillerWords';
-import { getEffectiveSubscriptionStatus, hasActivePrivateSample, hasCloudSttEntitlement, isPro } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus, isPro } from '@/constants/subscriptionTiers';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
@@ -22,7 +22,6 @@ import { PRIV_STT } from '@/services/transcription/sttConstants';
 import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
-import { isPrivatePrimaryEnabled, resolveDefaultSttMode, sttFlagsReadyInitial, onSttFlagsReady } from '@/config/sttHierarchyFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 import {
@@ -73,10 +72,15 @@ export const useSessionLifecycle = () => {
 
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = isPro(effectiveSubscriptionStatus);
-    const hasPrivateSampleEntitlement = hasActivePrivateSample(usageLimit);
-    const canUsePrivateStt = isProUser || hasPrivateSampleEntitlement;
-    const canUseCloudStt = isProUser && hasCloudSttEntitlement(profile);
-    const shouldForceNativeMode = (ENV.isE2E && typeof window !== 'undefined' && window.__SS_E2E__?.forceNativeMode === true) || !canUsePrivateStt;
+    // #1184: Private is the ONLY STT, for EVERYONE — Free and Pro alike (PO 2026-08-08). Every authenticated
+    // user can use Private; Free vs Pro differ only on usage minutes, not the engine. Browser and Cloud are
+    // removed from the product entirely (no selector, no fallback). The prior `isPro || sample` gate + the
+    // private-sample trial are retired.
+    const canUsePrivateStt = true;
+    const canUseCloudStt = false;
+    // Native (Browser) is never a user destination now. The only remaining E2E force-native hook is honored
+    // so the deterministic infra probes can still exercise the instant path; product users always get Private.
+    const shouldForceNativeMode = ENV.isE2E && typeof window !== 'undefined' && window.__SS_E2E__?.forceNativeMode === true;
     const profileReadyForStt = isVerified && !!profile?.id && typeof profile?.subscription_status === 'string';
 
     const sttStatus = useSessionStore(state => state.sttStatus);
@@ -85,13 +89,12 @@ export const useSessionLifecycle = () => {
     const setSTTMode = useSessionStore(state => state.setSTTMode);
     const sunsetModal = useSessionStore(state => state.sunsetModal);
     const setSunsetModal = useSessionStore(state => state.setSunsetModal);
-    // #1120 S1: the default mode for a NEW/UNSET session is now flag-driven. With the Private-primary
-    // hierarchy flag OFF (default) this resolves to 'native' (today's instant-Browser first-use path), so
-    // there is zero e2e ripple — an unconditional flip previously broke the pro-defaults-Browser smokes and
-    // burned free-sample users into Private. With the flag ON (and the user able to use Private) it resolves
-    // to 'private', making Private the recommended first experience. The flag is the kill switch; activation
-    // is a PostHog flip, not a code change. An explicit in-session choice is always honored separately.
-    const defaultMode: TranscriptionMode = resolveDefaultSttMode(isPrivatePrimaryEnabled(), canUsePrivateStt);
+    // #1184: Private is the ONLY engine, so the default is unconditionally 'private' for every session.
+    // (The #1120 `stt_private_primary` flag is repurposed: under Private-only it no longer toggles
+    // Private-vs-Browser — it will select which Private VARIANT (v2 vs v4) is the default primary, decided by
+    // an apples-to-apples benchmark. That variant selection is a separate polish issue, not a launch gate;
+    // today v4 is hard-off so 'private' resolves to v2.)
+    const defaultMode: TranscriptionMode = 'private';
     const effectiveMode: TranscriptionMode = sttMode ?? defaultMode;
     const [privateModelStatus, setPrivateModelStatus] = useState<string>(() => {
         if (typeof document === 'undefined') return 'idle';
@@ -155,31 +158,15 @@ export const useSessionLifecycle = () => {
     const setCompletedSessionDuration = useSessionStore(state => state.setCompletedSessionDuration);
     const completedSessionDurationSeconds = useSessionStore(state => state.completedSessionDurationSeconds);
     const history = useSessionStore(state => state.history);
-    // First-use trust fix (Option A): do NOT auto-promote a fresh Native default to
-    // Private. Private is now an explicit user choice, so a new user is never pushed
-    // into the model-setup wall before their first transcript. Kept as a named flag
-    // so the dependent effects and their dependency arrays are otherwise unchanged.
-    // #1120 S1: promote a DEFAULT-native session to Private when the hierarchy flag turns on for a
-    // Private-capable user. Guards keep every existing invariant: never when the flag is off (→ false,
-    // today's behavior), never when Native is forced (E2E / no Private access), and never when the user
-    // EXPLICITLY chose a mode (modeSourceRef==='user') — an explicit choice is always honored. A fresh
-    // (unset) session is handled by the existing `!sttMode` default path, not this promotion.
+    // #1184: Private is the only engine, so a session that still carries the legacy 'native' default (not an
+    // explicit user choice) is promoted to Private. Never when Native is force-pinned for a deterministic E2E
+    // probe, and never over an explicit user choice (modeSourceRef==='user'). A fresh (unset) session is
+    // handled by the `!sttMode` default path. (The #1120 flag no longer gates this — there is no Browser to
+    // stay on; the flag is reserved for the future v2↔v4 variant selection.)
     const shouldPromoteNativeDefaultToPrivate =
-        isPrivatePrimaryEnabled() &&
-        canUsePrivateStt &&
         !shouldForceNativeMode &&
         sttMode === 'native' &&
         modeSourceRef.current !== 'user';
-
-    // #1120 S1: PostHog flags can resolve AFTER first render on a cold session; force one re-render when they
-    // arrive so isPrivatePrimaryEnabled() (read above for defaultMode + promotion) re-resolves and a
-    // premature 'native' default cannot latch. No-op when there is nothing to wait for (SSR / PostHog
-    // absent / a bounded E2E override present).
-    const [, setSttFlagTick] = useState(0);
-    useEffect(() => {
-        if (sttFlagsReadyInitial()) return;
-        return onSttFlagsReady(() => setSttFlagTick((t) => t + 1));
-    }, []);
 
     const speechRecognition = useSpeechRecognition(speechConfig);
     const {
