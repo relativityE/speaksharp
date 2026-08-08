@@ -610,7 +610,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                         <div className="relative">
                             {isListening && (
                                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                    <div className="absolute w-12 h-12 rounded-full bg-primary/20 animate-ping opacity-75" />
+                                    <div className="absolute w-16 h-16 rounded-full bg-primary/20 animate-ping opacity-75" />
                                 </div>
                             )}
 
@@ -629,12 +629,13 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     data-recording={isRecordingSignal}
                                     aria-label={isPrivateDownloadRequired ? 'Set up Private — download the on-device model' : 'Start Recording'}
                                     title={isPrivateDownloadRequired ? 'Click to download the on-device model (one-time)' : isDownloadingModel ? 'Downloading model…' : 'Start Recording'}
-                                    className="w-12 h-12 rounded-full bg-primary text-primary-foreground ring-1 ring-primary/35 hover:bg-primary/90 cta-shadow hover:scale-105 transition-all duration-300 p-0 disabled:cursor-not-allowed disabled:pointer-events-none disabled:bg-primary disabled:text-primary-foreground disabled:opacity-100 disabled:shadow-none disabled:ring-1 disabled:ring-primary/35"
+                                    className="w-16 h-16 rounded-full bg-primary text-primary-foreground ring-1 ring-primary/35 hover:bg-primary/90 cta-shadow hover:scale-105 transition-all duration-300 p-0 disabled:cursor-not-allowed disabled:pointer-events-none disabled:bg-primary disabled:text-primary-foreground disabled:opacity-100 disabled:shadow-none disabled:ring-1 disabled:ring-primary/35"
                                 >
-                                    <span className="relative flex h-6 w-6 items-center justify-center text-primary-foreground">
-                                        <Mic className="h-5 w-5" />
-                                        <span className="absolute h-0.5 w-7 -rotate-45 rounded-full bg-primary-foreground" aria-hidden="true" />
-                                    </span>
+                                    {/* #1046 slice 0.1: a PLAIN mic — no slash. A slashed mic is the "muted /
+                                        unavailable" convention, the opposite of a ready Start control. Permission-
+                                        denied is surfaced by the status pill / error state, not by defacing the
+                                        button. The button is also enlarged (w-16) so the mic is the page's hero. */}
+                                    <Mic className="h-7 w-7 text-primary-foreground" />
                                 </Button>
                             ) : (
                                 <Button
@@ -643,9 +644,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
                                     data-recording={isRecordingSignal}
                                     aria-label="Stop Recording"
-                                    className="w-12 h-12 rounded-full bg-destructive hover:bg-destructive/90 text-destructive-foreground active:scale-95 transition-all duration-300 animate-pulse p-0"
+                                    className="w-16 h-16 rounded-full bg-destructive hover:bg-destructive/90 text-destructive-foreground active:scale-95 transition-all duration-300 animate-pulse p-0"
                                 >
-                                    <Square className="w-5 h-5 fill-current" />
+                                    <Square className="w-6 h-6 fill-current" />
                                 </Button>
                             )}
                         </div>
