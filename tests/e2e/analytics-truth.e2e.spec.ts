@@ -15,14 +15,14 @@ const transcript = [
   'basically we can compare clarity pace like filler trends today',
 ].join(' ');
 
-for (const mode of ['native', 'cloud'] as const) {
-test(`Gate 2 mocked ${mode}: analytics values change from transcript events and survive reload/export`, async ({ page }) => {
+// #1184: Private is the only engine — the former native/cloud matrix collapses to a single Private run.
+test(`Gate 2 mocked private: analytics values change from transcript events and survive reload/export`, async ({ page }) => {
   await programmaticLoginWithRoutes(page, { userType: 'pro' });
-  const expectedEngineLabel = mode === 'native' ? /browser/i : new RegExp(mode, 'i');
+  const expectedEngineLabel = /private/i;
 
   await navigateToRoute(page, '/session');
-  await selectTranscriptionEngine(page, mode);
-  await expect(page.getByTestId(TEST_IDS.STT_MODE_SELECT)).toHaveAttribute('data-state', mode);
+  await selectTranscriptionEngine(page, 'private');
+  await expect(page.getByTestId(TEST_IDS.STT_MODE_SELECT)).toHaveAttribute('data-state', 'private');
 
   const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
   await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
@@ -60,10 +60,8 @@ test(`Gate 2 mocked ${mode}: analytics values change from transcript events and 
   await page.getByRole('button', { name: /Export PDF/i }).click();
   await expect(page.locator('body')).toHaveAttribute('data-pdf-token', 'watermarked');
 });
-}
 
-for (const mode of ['native', 'cloud'] as const) {
-test(`Gate 2 mocked ${mode}: session detail can return to dashboard`, async ({ page }) => {
+test(`Gate 2 mocked private: session detail can return to dashboard`, async ({ page }) => {
   await programmaticLoginWithRoutes(page, { userType: 'pro' });
   await navigateToRoute(page, '/analytics');
   await waitForFeature(page, 'analytics');
@@ -73,4 +71,3 @@ test(`Gate 2 mocked ${mode}: session detail can return to dashboard`, async ({ p
   await page.getByRole('link', { name: /Back to Dashboard/i }).click();
   await expect(page).toHaveURL('/analytics');
 });
-}

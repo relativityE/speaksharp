@@ -10,7 +10,7 @@
  * This spec is the runtime before/after proof for the false-unsaved-banner fix.
  */
 import { test, expect } from './fixtures';
-import { navigateToRoute, mockLiveTranscript, programmaticLoginWithRoutes, selectTranscriptionEngine } from './helpers';
+import { navigateToRoute, mockLiveTranscript, programmaticLoginWithRoutes } from './helpers';
 import { TEST_IDS } from '../constants';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
 
@@ -55,8 +55,10 @@ test.describe('Session recovery draft', () => {
     await expect(page.getByTestId(RECOVERY_BANNER)).toHaveCount(0);
   });
 
-  // Issue B: a prior session's transcript must not carry into a new mode after an STT mode switch.
-  test('does not carry a stale transcript across an STT mode switch', async ({ page }) => {
+  // Issue B: a prior session's transcript must not carry into a fresh session.
+  // #1184: Private is the only engine, so there is no STT mode switch to trigger this — the isolation is
+  // now proven by re-entering /session (a fresh mount), which must present an empty transcript.
+  test('does not carry a stale transcript into a fresh session', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
     await expect(page.getByText(/Practice Session/i)).toBeVisible();
@@ -73,8 +75,10 @@ test.describe('Session recovery draft', () => {
     await startButton.click();
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15000 });
 
-    // Switch STT mode -> the prior transcript must NOT be carried into the new mode/session.
-    await selectTranscriptionEngine(page, 'cloud');
+    // Re-enter /session (a fresh mount) -> the prior transcript must NOT be carried into the new session.
+    await navigateToRoute(page, '/analytics');
+    await navigateToRoute(page, '/session');
+    await expect(page.getByText(/Practice Session/i)).toBeVisible();
     await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).not.toContainText(/simulating multiple lines/i);
   });
 });

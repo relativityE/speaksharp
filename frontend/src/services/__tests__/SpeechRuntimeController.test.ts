@@ -732,19 +732,20 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     // startRecording assigns `this.policy = policy` SYNCHRONOUSLY, so the tier-only policy is overwritten and
     // the capability policy is the record-time authority. If startRecording ever stopped overwriting, or a
     // tier-only writer became the record authority, this fails — which is exactly the regression #1036 guards.
-    it('#1036: record-time authority — startRecording overwrites a stored tier-only policy with the capability policy', async () => {
+    it('#1036/#1184: record-time authority — startRecording overwrites the stored policy; every policy grants Private', async () => {
         setLock(false, 'IDLE', null);
-        // Provider/hook path stored first: TIER-ONLY policy for a free-user-with-sample → DENIES Private.
+        // #1184: tier no longer gates the engine — the former tier-only "DENIES Private" divergence is gone;
+        // every buildPolicyForUser result grants Private.
         const tierOnlyPolicy = buildPolicyForUser(false, 'private', { allowCloud: false });
         controller.updatePolicy(tierOnlyPolicy);
-        expect((controller as unknown as { policy: TranscriptionPolicy | null }).policy?.allowPrivate).toBe(false);
+        expect((controller as unknown as { policy: TranscriptionPolicy | null }).policy?.allowPrivate).toBe(true);
 
-        // Lifecycle path: the CAPABILITY (sample-aware) policy GRANTS Private and is what startRecording receives.
+        // The record-authority MECHANISM still holds: startRecording's policy overwrites the stored one.
         const capabilityPolicy = buildPolicyForUser(true, 'private', { allowCloud: false });
         const p = controller.startRecording(capabilityPolicy); // not awaited — this.policy is assigned synchronously
         const stored = (controller as unknown as { policy: TranscriptionPolicy | null }).policy;
-        expect(stored).toBe(capabilityPolicy);        // tier-only policy overwritten at record time
-        expect(stored?.allowPrivate).toBe(true);      // the record authority GRANTS Private to the sample user
+        expect(stored).toBe(capabilityPolicy);        // stored policy overwritten at record time
+        expect(stored?.allowPrivate).toBe(true);      // Private granted
 
         await controller.whenStable().catch(() => undefined);
         await p.catch(() => undefined);
@@ -1145,31 +1146,31 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setUnresolved(false);
     });
 
-    // (3) The queued producer policy is applied COHERENTLY across store + controller + service.
-    it.each([
-        { from: 'cloud', policy: () => buildPolicyForUser(true, 'cloud', { allowCloud: false }), label: 'Cloud revoked' },
-        { from: 'private', policy: () => buildPolicyForUser(false, 'private', { allowCloud: false }), label: 'Private revoked' },
-    ])('#1033 (3): $label — store, controller policy, and service agree after resolution', async ({ from, policy }) => {
+    // (3) #1184 fail-closed: a mid-recording entitlement change can NEVER move the engine off Private.
+    // Under STT exclusivity every policy is Private-only, so a hostile/stale change (even one requesting
+    // cloud) is not a producer change — there is nothing to queue, and store + controller stay Private.
+    it('#1033 (3)/#1184: a mid-recording entitlement change stays Private across store + controller (fail-closed)', async () => {
         const svcUpdate = vi.fn().mockResolvedValue(undefined);
         (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, updatePolicy: svcUpdate, warmUp: vi.fn() };
-        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, from as TranscriptionMode, { allowCloud: true });
-        useSessionStore.getState().setSTTMode(from as TranscriptionMode);
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: true });
+        useSessionStore.getState().setSTTMode('private');
         setLock(false, 'RECORDING', null);
         setUnresolved(true);
-        // entitlement change arrives mid-recording → rejected + queued
-        controller.updatePolicy(policy());
-        expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe(from);
-        // resolve → apply coherently
+        // A hostile/stale entitlement change requesting cloud arrives mid-recording — neutralized to Private.
+        controller.updatePolicy(buildPolicyForUser(true, 'cloud', { allowCloud: true }));
+        expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe('private'); // stays Private while locked
+        // resolve the recording — the engine is unchanged (Private), so nothing was queued to swap.
         (controller as unknown as { state: string }).state = 'READY';
         (controller as unknown as { markRecordingResolved: () => void }).markRecordingResolved();
         await (controller as unknown as { queuedPolicyApplication: Promise<void> | null }).queuedPolicyApplication;
         const ctrl = (controller as unknown as { policy: TranscriptionPolicy }).policy;
-        expect(ctrl.preferredMode).not.toBe(from);                     // stale selection cannot survive revocation
-        expect(useSessionStore.getState().sttMode).toBe(ctrl.preferredMode); // UI agrees with the controller
-        const svcCalls = svcUpdate.mock.calls;
-        expect(svcCalls.length).toBeGreaterThan(0); // the service WAS reconfigured at the boundary
-        const lastServicePolicy = svcCalls[svcCalls.length - 1][0] as TranscriptionPolicy;
-        expect(lastServicePolicy.preferredMode).toBe(ctrl.preferredMode); // service agrees with store + controller
+        expect(ctrl.preferredMode).toBe('private');                          // fail-closed: never leaves Private
+        expect(useSessionStore.getState().sttMode).toBe('private');          // store agrees
+        // The engine never changed (Private throughout), so any service reconfiguration is Private too —
+        // asserted per-call to avoid a conditional expect.
+        for (const call of svcUpdate.mock.calls) {
+            expect((call[0] as TranscriptionPolicy).preferredMode).toBe('private');
+        }
         expect((controller as unknown as { queuedProducerPolicy: unknown }).queuedProducerPolicy).toBeNull();
         setLock(false, 'IDLE', null);
     });
@@ -1276,23 +1277,22 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     });
 
     // (3) If the SERVICE rejects the queued policy, nothing may claim success.
-    it('#1033 (3-final): a service-rejected queued policy restores prior state, RETAINS the queue, and surfaces an error', async () => {
+    it('#1033 (3-final)/#1184: a mid-recording entitlement change is never a producer swap — nothing queues, engine stays Private (fail-closed)', async () => {
+        // Under STT exclusivity every policy is Private-only, so a mid-recording change is NOT a producer
+        // change: there is nothing to queue and nothing for the service to reject. The engine stays Private.
         const svcUpdate = vi.fn().mockRejectedValue(new Error('service refused policy'));
         (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, updatePolicy: svcUpdate, warmUp: vi.fn() };
         const prior = buildPolicyForUser(true, 'private', { allowCloud: true });
         (controller as unknown as { policy: TranscriptionPolicy }).policy = prior;
         useSessionStore.getState().setSTTMode('private');
         setLock(false, 'RECORDING', null); setUnresolved(true);
-        controller.updatePolicy(buildPolicyForUser(false, 'native', { allowCloud: false })); // queued while locked
-        expect((controller as unknown as { queuedProducerPolicy: unknown }).queuedProducerPolicy).not.toBeNull();
+        controller.updatePolicy(buildPolicyForUser(false, 'native', { allowCloud: false })); // neutralized to Private → not a producer change
+        expect((controller as unknown as { queuedProducerPolicy: unknown }).queuedProducerPolicy).toBeNull(); // nothing to queue
         (controller as unknown as { state: string }).state = 'READY';
         (controller as unknown as { markRecordingResolved: () => void }).markRecordingResolved();
         await (controller as unknown as { queuedPolicyApplication: Promise<void> | null }).queuedPolicyApplication;
-        // service refused → prior coherent state restored, queue KEPT for retry, user told it did not apply
-        expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe('private');
+        expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe('private'); // fail-closed
         expect(useSessionStore.getState().sttMode).toBe('private');
-        expect((controller as unknown as { queuedProducerPolicy: unknown }).queuedProducerPolicy).not.toBeNull();
-        expect(useSessionStore.getState().sttStatus.type).toBe('error');
         (controller as unknown as { queuedProducerPolicy: unknown }).queuedProducerPolicy = null;
         setLock(false, 'IDLE', null); setUnresolved(false);
     });
@@ -1456,14 +1456,16 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setLock(false, 'IDLE', null);
     });
 
-    it('#1033: updatePolicy ALLOWS a preferredMode change when unlocked', () => {
+    it('#1033/#1184: updatePolicy applies when unlocked, but a native request stays Private (fail-closed)', () => {
         setLock(false, 'READY', null);
         setUnresolved(false);
         (controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked = false;
         (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: false });
         expect(controller.isEngineSelectionLocked()).toBe(false);
+        // The update is ALLOWED when unlocked (mechanism), but buildPolicyForUser has already neutralized the
+        // native request to Private — the engine never leaves Private.
         controller.updatePolicy(buildPolicyForUser(true, 'native', { allowCloud: false }));
-        expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe('native');
+        expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe('private');
     });
 
     // #1033 (A) — the engine-selection bypass is closed on EVERY writer. While locked, the store mode, the
@@ -1492,15 +1494,16 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setLock(false, 'IDLE', null);
     });
 
-    it('#1033 (A): requestModeChange ACCEPTS when unlocked and applies store + policy', () => {
+    it('#1033 (A)/#1184: requestModeChange ACCEPTS when unlocked but a native request collapses to Private in BOTH layers (fail-closed)', () => {
         (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: true });
         (controller as unknown as { service: unknown }).service = null;
         useSessionStore.getState().setSTTMode('private');
         setLock(false, 'READY', null);
         const res = controller.requestModeChange('native', buildPolicyForUser(true, 'native', { allowCloud: true }));
         expect(res.accepted).toBe(true);
-        expect(useSessionStore.getState().sttMode).toBe('native');
-        expect(readPolicyA().preferredMode).toBe('native');
+        // fail-closed: neither the store nor the controller policy can leave Private for a native request.
+        expect(useSessionStore.getState().sttMode).toBe('private');
+        expect(readPolicyA().preferredMode).toBe('private');
     });
 
     it('#1033 (A): Cloud-preservation CANNOT restore a rejected engine while locked (the exact bypass)', () => {
@@ -2088,12 +2091,13 @@ describe('SpeechRuntimeController — policy-writer divergence (P2 regression gu
 
     const readPolicy = () => (controller as unknown as { policy: TranscriptionPolicy }).policy;
 
-    it('free-sample user stays Private-capable after provider(free) -> lifecycle(sample) writes', () => {
-        // 1) Provider resync: TIER-ONLY free policy (the free-sample user is not Pro) -> allowPrivate=false
+    it('#1184: both writers yield Private-capable — the former tier/writer divergence is gone (convergence)', () => {
+        // 1) Provider resync (tier-only, free user): under STT exclusivity this ALSO grants Private — the
+        //    former "tier-only denies Private" divergence is retired.
         controller.updatePolicy(buildPolicyForUser(false, null, { allowCloud: false }));
-        expect(readPolicy().allowPrivate).toBe(false); // transient idle state, pre-selection
+        expect(readPolicy().allowPrivate).toBe(true);
 
-        // 2) Session lifecycle: sample-aware CAPABILITY policy -> allowPrivate=true (governs at select/record)
+        // 2) Session lifecycle capability write: still Private-capable — both writers agree.
         controller.updatePolicy(buildPolicyForUser(true, 'private', { allowCloud: false }));
         expect(readPolicy().allowPrivate).toBe(true);
         expect(readPolicy().preferredMode).toBe('private');

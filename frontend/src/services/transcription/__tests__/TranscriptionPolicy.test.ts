@@ -152,9 +152,10 @@ describe('TranscriptionPolicy', () => {
             expect(buildPolicyForUser(true, 'cloud', { allowCloud: true }).allowFallback).toBe(false);
         });
 
-        it('keeps trial-style Pro users off Cloud when Cloud Pro feature access is disabled', () => {
-            const policy = buildPolicyForUser(true, 'cloud', { allowCloud: false });
-            expect(policy.allowNative).toBe(true);
+        it('#1184: is Private-only even when cloud is requested with allowCloud:true', () => {
+            // Under STT exclusivity, neither uiMode='cloud' nor allowCloud:true can widen the engine set.
+            const policy = buildPolicyForUser(true, 'cloud', { allowCloud: true });
+            expect(policy.allowNative).toBe(false);
             expect(policy.allowPrivate).toBe(true);
             expect(policy.allowCloud).toBe(false);
             expect(policy.preferredMode).toBe('private');
@@ -163,50 +164,81 @@ describe('TranscriptionPolicy', () => {
         });
     });
 
-    // Regression guard for the P2 "policy-writer divergence" thread: a free user with a valid
-    // private sample must end up Private-capable. The capability the Session lifecycle passes is
-    // `canUsePrivateStt = isPro || hasPrivateSampleEntitlement`. This locks the *start policy* the
-    // lifecycle builds (the recording authority) and documents the deliberate divergence vs the
-    // tier-only writers (TranscriptionProvider / useSpeechRecognition_prod) so a future change that
-    // either flips the lifecycle policy to tier-only OR collapses both to identical is caught.
-    describe('free private-sample user — policy-writer divergence (P2 guard)', () => {
-        it('lifecycle start policy for a free SAMPLE user is Private-capable (allowPrivate=true, Cloud off)', () => {
-            // free user, NOT Pro, but has a valid private sample -> canUsePrivateStt === true, canUseCloudStt === false
-            const hasPrivateSttAccess = true; // isPro(false) || hasPrivateSampleEntitlement(true)
-            const startPolicy = buildPolicyForUser(hasPrivateSttAccess, 'private', { allowCloud: false });
-            expect(startPolicy.allowPrivate).toBe(true);
-            expect(startPolicy.allowCloud).toBe(false);
-            expect(startPolicy.preferredMode).toBe('private');
+    // #1184 STT exclusivity RETIRES the former "policy-writer divergence": engine no longer varies by
+    // tier or by which writer builds the policy — EVERY buildPolicyForUser call is Private-only. This
+    // guard locks that: a future re-introduction of tier/engine branching would fail here.
+    describe('#1184: no tier/writer engine divergence — every policy is Private-only', () => {
+        it('free (tier-only isPro=false) yields Private-only, not native', () => {
+            const p = buildPolicyForUser(false, null, { allowCloud: false });
+            expect(p.allowPrivate).toBe(true);
+            expect(p.allowNative).toBe(false);
+            expect(p.allowCloud).toBe(false);
+            expect(p.preferredMode).toBe('private');
         });
 
-        it('documents the tier-only divergence: passing raw isPro=false for the same user yields allowPrivate=false', () => {
-            // This is what TranscriptionProvider / useSpeechRecognition_prod currently pass (tier only).
-            // It is intentionally NOT the recording authority — kept here so the divergence stays visible.
-            const tierOnlyPolicy = buildPolicyForUser(false, null, { allowCloud: false });
-            expect(tierOnlyPolicy.allowPrivate).toBe(false);
-            // ...and the correct capability-based call for the SAME user differs — the divergence:
-            expect(buildPolicyForUser(true, 'private', { allowCloud: false }).allowPrivate).toBe(true);
+        it('capability-based (true) and tier-only (false) now AGREE — Private-only both ways', () => {
+            const cap = buildPolicyForUser(true, 'private', { allowCloud: false });
+            const tier = buildPolicyForUser(false, 'private', { allowCloud: false });
+            expect(cap.allowPrivate).toBe(true);
+            expect(tier.allowPrivate).toBe(true);
+            expect(cap.allowNative).toBe(false);
+            expect(tier.allowNative).toBe(false);
+            expect(cap.allowCloud).toBe(false);
+            expect(tier.allowCloud).toBe(false);
         });
     });
 
     describe('Pre-built Policies', () => {
-        it('PROD_FREE_POLICY should only allow native', () => {
-            expect(PROD_FREE_POLICY.allowNative).toBe(true);
+        it('#1184: PROD_FREE_POLICY is Private-only', () => {
+            expect(PROD_FREE_POLICY.allowNative).toBe(false);
             expect(PROD_FREE_POLICY.allowCloud).toBe(false);
-            expect(PROD_FREE_POLICY.allowPrivate).toBe(false);
+            expect(PROD_FREE_POLICY.allowPrivate).toBe(true);
+            expect(PROD_FREE_POLICY.preferredMode).toBe('private');
         });
 
-        it('PROD_PRO_POLICY should allow all', () => {
-            expect(PROD_PRO_POLICY.allowNative).toBe(true);
-            expect(PROD_PRO_POLICY.allowCloud).toBe(true);
+        it('#1184: PROD_PRO_POLICY is Private-only (same engine posture as Free)', () => {
+            expect(PROD_PRO_POLICY.allowNative).toBe(false);
+            expect(PROD_PRO_POLICY.allowCloud).toBe(false);
             expect(PROD_PRO_POLICY.allowPrivate).toBe(true);
             expect(PROD_PRO_POLICY.allowFallback).toBe(false);
         });
 
+        // The deterministic native/cloud E2E policies still EXIST as code (native/cloud engine removal is
+        // the later, orderly layer-2 cleanup per #1165/#1184); they are simply no longer reachable through
+        // the user-facing resolution path.
         it('E2E policies should be deterministic', () => {
             expect(E2E_DETERMINISTIC_NATIVE.preferredMode).toBe('native');
             expect(E2E_DETERMINISTIC_CLOUD.preferredMode).toBe('cloud');
             expect(E2E_DETERMINISTIC_PRIVATE.preferredMode).toBe('private');
+        });
+    });
+
+    // #1184 FAIL-CLOSED GUARD: no matter what a caller requests (tier, uiMode, allowCloud), the
+    // user-facing resolution can ONLY ever be Private. This is the integrity backstop the STT-core
+    // cutover exists to enforce — it must fail if anyone reintroduces native/cloud resolution.
+    describe('#1184 fail-closed: user-facing resolution can never be native/cloud', () => {
+        it.each(['native', 'cloud', 'private', null] as (TranscriptionMode | null)[])(
+            'resolveMode(PROD_FREE_POLICY, %s) === private', (pref) => {
+                expect(resolveMode(PROD_FREE_POLICY, pref)).toBe('private');
+            });
+
+        it.each(['native', 'cloud', 'private', null] as (TranscriptionMode | null)[])(
+            'resolveMode(PROD_PRO_POLICY, %s) === private', (pref) => {
+                expect(resolveMode(PROD_PRO_POLICY, pref)).toBe('private');
+            });
+
+        it('buildPolicyForUser never yields a native/cloud-capable policy, for any inputs', () => {
+            for (const isPro of [false, true]) {
+                for (const uiMode of ['native', 'cloud', 'private', null] as (TranscriptionMode | null)[]) {
+                    for (const allowCloud of [false, true]) {
+                        const p = buildPolicyForUser(isPro, uiMode, { allowCloud });
+                        expect(p.allowNative).toBe(false);
+                        expect(p.allowCloud).toBe(false);
+                        expect(p.allowPrivate).toBe(true);
+                        expect(resolveMode(p, uiMode)).toBe('private');
+                    }
+                }
+            }
         });
     });
 });

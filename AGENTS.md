@@ -436,7 +436,7 @@ and live release identity.
   processing, saving, retry, recovery, or confirmed discard.
 - A selection change applies only to the next recording. Never silently fall back or
   hand off between engines during a recording.
-- User-facing choices are `Private`, `Browser`, and `Cloud`; `native` remains an internal
+- Only user-facing STT is Private; `native` remains an internal
   engine token and must not be exposed as the product label.
 - Cloud requires explicit user selection. Private must never silently fall back to Cloud
   because that changes privacy and cost.

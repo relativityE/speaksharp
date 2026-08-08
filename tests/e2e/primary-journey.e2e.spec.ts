@@ -7,8 +7,12 @@
  * 
  * Coverage:
  * - Core Features: Recording lifecycle, deterministic persistence, and session history.
- * - Free Features: Native Browser STT, Marketing/Upgrade funnels, and simplified analytics.
- * - Pro Features: Engine toggling (Whisper/Cloud), advanced analytics details, and PDF exports.
+ * - Free Features: Marketing/Upgrade funnels and simplified analytics.
+ * - Pro Features: advanced analytics details and PDF exports.
+ *
+ * #1184: Private is the ONLY engine for every tier — the former engine-toggling / Cloud-Pro-gating /
+ * Free-native branch is gone. Both tiers run the identical Private recording path; they differ only on
+ * usage minutes, upgrade funnels, and analytics detail. The matrix keeps one Free and one Pro scenario.
  */
 import { test, expect } from './fixtures';
 import {
@@ -22,22 +26,12 @@ import { MOCK_TRANSCRIPTS_WITH_FILLERS } from './fixtures/mockData';
 
 const SCENARIOS = [
   {
-    name: 'Free Tier (Native)',
+    name: 'Free Tier (Private)',
     userType: 'free' as const,
-    mode: 'native' as const,
-    expectedModePattern: /native|browser/i
-  },
-  {
-    name: 'Pro Tier (Cloud)',
-    userType: 'pro' as const,
-    mode: 'cloud' as const,
-    expectedModePattern: /cloud/i
   },
   {
     name: 'Pro Tier (Private)',
     userType: 'pro' as const,
-    mode: 'private' as const,
-    expectedModePattern: /private|on-device/i
   }
 ];
 
@@ -53,30 +47,13 @@ test.describe('Primary User Journey Matrix', () => {
 
 
 
-      // 3. Verify Tier Gating & Mode Selection (SUBTLE UX BRANCHING)
+      // 3. Verify the engine surface: Private is the only engine for every tier — a static indicator,
+      // no selector, no tier-gated options. (#1184)
       const modeButton = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
       await expect(modeButton).toBeVisible();
-
-      if (scenario.userType === 'pro') {
-        // Pro users: Verify full engine toggling logic
-        await selectTranscriptionEngine(page, scenario.mode);
-        // Verify selected mode persistence on the authoritative control.
-        await expect(modeButton).toHaveAttribute('data-state', scenario.mode, { timeout: 10000 });
-      } else {
-        // Free users: Verify Marketing Funnel (Options are visible but disabled)
-        await modeButton.click();
-        const privateOption = page.getByRole('menuitemradio', { name: /private/i });
-        const cloudOption = page.getByRole('menuitemradio', { name: /cloud/i });
-
-        await expect(privateOption).toBeVisible();
-        await expect(privateOption).toHaveAttribute('aria-disabled', 'true');
-        await expect(cloudOption).toHaveAttribute('aria-disabled', 'true');
-
-        // Close menu & verify current selection is the only one allowed
-        await page.keyboard.press('Escape');
-        const buttonText = await modeButton.textContent();
-        expect(buttonText).toMatch(scenario.expectedModePattern);
-      }
+      await selectTranscriptionEngine(page, 'private');
+      await expect(modeButton).toHaveAttribute('data-state', 'private', { timeout: 10000 });
+      await expect(modeButton).toContainText(/private/i);
 
       // 4. Recording Lifecycle (Accessibility Label Logic)
       const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);

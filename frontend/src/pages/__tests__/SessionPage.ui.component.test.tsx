@@ -1,9 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithAllProviders as render } from '../../../tests/support/test-utils/render';
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { SessionPage } from '../SessionPage';
-import { TEST_IDS } from '@/constants/testIds';
 import * as UsageLimitHook from '@/hooks/useUsageLimit';
 import * as SessionStore from '@/stores/useSessionStore';
 import * as VocalAnalysisHook from '@/hooks/useVocalAnalysis';
@@ -63,8 +61,8 @@ const DEFAULT_LIFECYCLE_MOCK = {
     isListening: false,
     isReady: true,
     isProUser: false,
-    canUsePrivateStt: false,
-    mode: 'native',
+    canUsePrivateStt: true,
+    mode: 'private',
     sttStatus: { type: 'ready', message: '' },
     modelLoadingProgress: null,
     metrics: {
@@ -87,7 +85,10 @@ const DEFAULT_LIFECYCLE_MOCK = {
     sunsetModal: { type: 'daily', open: false }
 };
 
-describe('SessionPage - STT Mode Selection UI', () => {
+// #1184: the "STT Mode Selection UI" suite is retired — Private is the only engine, there is no selector
+// to open, no Private/Browser/Cloud options to enable/disable, and no mode change to trigger. What remains
+// is the entitlement→SunsetModals contract (a Free sample user is NOT treated as paid Pro for the upgrade CTA).
+describe('SessionPage - entitlement → SunsetModals', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -113,137 +114,6 @@ describe('SessionPage - STT Mode Selection UI', () => {
             data: { can_start: true, remaining_seconds: 1800, limit_seconds: 1800, is_pro: false },
             isLoading: false,
         } as unknown as ReturnType<typeof UsageLimitHook.useUsageLimit>);
-    });
-
-    it('should disable Pro options (Private, Cloud) for Free users', async () => {
-        const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-        mockUseSessionLifecycle.mockReturnValue({
-            ...DEFAULT_LIFECYCLE_MOCK,
-            isProUser: false
-        } as unknown as ReturnType<typeof useSessionLifecycle>);
-
-        render(<SessionPage />);
-
-        const trigger = screen.getByTestId(TEST_IDS.STT_MODE_SELECT);
-        await user.click(trigger);
-
-        const onDeviceItem = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
-        const cloudItem = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
-
-        expect(onDeviceItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
-        expect(cloudItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
-    });
-
-    it('should enable options for Pro users', async () => {
-        const user = userEvent.setup({ pointerEventsCheck: 0 });
-
-        mockUseSessionLifecycle.mockReturnValue({
-            ...DEFAULT_LIFECYCLE_MOCK,
-            isProUser: true,
-            canUsePrivateStt: true,
-            canUseCloudStt: true
-        } as unknown as ReturnType<typeof useSessionLifecycle>);
-
-        render(<SessionPage />);
-
-        const trigger = screen.getByTestId(TEST_IDS.STT_MODE_SELECT);
-        await user.click(trigger);
-
-        const onDeviceItem = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
-        const cloudItem = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
-
-        expect(onDeviceItem.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');
-        expect(cloudItem.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');
-    });
-
-    it('should correctly trigger mode change', async () => {
-        const user = userEvent.setup({ pointerEventsCheck: 0 });
-        const setModeSpy = vi.fn();
-
-        mockUseSessionLifecycle.mockReturnValue({
-            ...DEFAULT_LIFECYCLE_MOCK,
-            isProUser: true,
-            canUsePrivateStt: true,
-            setMode: setModeSpy
-        } as unknown as ReturnType<typeof useSessionLifecycle>);
-
-        render(<SessionPage />);
-
-        const trigger = await screen.findByTestId(TEST_IDS.STT_MODE_SELECT);
-        await user.click(trigger);
-
-        const privateItem = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
-        await user.click(privateItem);
-
-        expect(setModeSpy).toHaveBeenCalledWith('private');
-    });
-
-    it('keeps Browser available while a Private-sample user has Private setup downloading', async () => {
-        const user = userEvent.setup({ pointerEventsCheck: 0 });
-        const setModeSpy = vi.fn();
-
-        mockUseSessionLifecycle.mockReturnValue({
-            ...DEFAULT_LIFECYCLE_MOCK,
-            mode: 'private',
-            isProUser: true,
-            canUsePrivateStt: true,
-            canUseCloudStt: false,
-            modelLoadingProgress: 42,
-            setMode: setModeSpy
-        } as unknown as ReturnType<typeof useSessionLifecycle>);
-
-        render(<SessionPage />);
-
-        await user.click(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
-        const browserItem = await screen.findByTestId(TEST_IDS.STT_MODE_NATIVE);
-        const cloudItem = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
-
-        expect(cloudItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
-        await user.click(browserItem);
-
-        expect(setModeSpy).toHaveBeenCalledWith('native');
-    });
-
-    it('keeps Cloud available during Private setup only for subscribed Pro users', async () => {
-        const user = userEvent.setup({ pointerEventsCheck: 0 });
-        const setModeSpy = vi.fn();
-
-        mockUseSessionLifecycle.mockReturnValue({
-            ...DEFAULT_LIFECYCLE_MOCK,
-            mode: 'private',
-            isProUser: true,
-            canUsePrivateStt: true,
-            canUseCloudStt: true,
-            modelLoadingProgress: 42,
-            setMode: setModeSpy
-        } as unknown as ReturnType<typeof useSessionLifecycle>);
-
-        render(<SessionPage />);
-
-        await user.click(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
-        const cloudItem = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
-
-        expect(cloudItem.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');
-        await user.click(cloudItem);
-
-        expect(setModeSpy).toHaveBeenCalledWith('cloud');
-    });
-
-    it('enables Private for a free user with an available Private sample (canUsePrivateStt, not paid Pro)', async () => {
-        const user = userEvent.setup({ pointerEventsCheck: 0 });
-        mockUseSessionLifecycle.mockReturnValue({
-            ...DEFAULT_LIFECYCLE_MOCK,
-            isProUser: false,
-            canUsePrivateStt: true,
-            canUseCloudStt: false,
-        } as unknown as ReturnType<typeof useSessionLifecycle>);
-        render(<SessionPage />);
-        await user.click(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
-        const priv = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
-        const cloud = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
-        expect(priv.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');
-        expect(cloud.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
     });
 
     it('passes REAL paid-pro (not the sample capability) to SunsetModals so free sample users keep the upgrade CTA', async () => {

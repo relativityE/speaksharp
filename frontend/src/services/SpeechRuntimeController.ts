@@ -29,6 +29,7 @@ import { getSupabaseClient } from '../lib/supabaseClient';
 import type { UserProfile } from '@/types/user';
 import type { TranscriptUpdate, HistorySegment, SttStatus } from '@/types/transcription';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
+import { emitEngineRequestCollapsedToPrivate, isRetiredEngineRequest } from '@/services/transcription/sttExclusivityTelemetry';
 import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
 import { STT_CONFIG } from '@/config';
@@ -1169,6 +1170,10 @@ export class SpeechRuntimeController {
      * that resolves when the service is instantiated and the engine is initialized.
      */
     public async warmUp(mode: TranscriptionMode = 'private'): Promise<void> {
+        // #1184 NOTE: warm-up still honors the requested `mode` and its lock-rejection contract (below). It is
+        // NOT a resolution/collapse point — the Private-only funnel is the policy layer (resolveMode /
+        // buildPolicyForUser / requestModeChange). Warming a retired engine directly is a residual layer-2
+        // leak (engine-code removal) tracked on #1165/#1184, not a "collapsed to Private" event.
         // Phase 1: Ensure Service Genesis (Once per session)
         await this.initializeInfrastructure();
         const requestId = ++this.warmUpRequestId;
@@ -1348,7 +1353,15 @@ export class SpeechRuntimeController {
             logger.warn({ to: nextMode, state: this.state, kind: this.pendingResolutionKind() }, '[controller] requestModeChange rejected — engine selection locked (#1033)');
             return { accepted: false, reason: 'engine_selection_locked' };
         }
-        useSessionStore.getState().setSTTMode(nextMode);
+        // #1184 STT exclusivity: the store must reference the RESOLVED engine of the applied policy, not the
+        // raw requested mode — so a request for a non-Private engine cannot leave the store (a layer) on an
+        // engine the policy won't run. Under Private-only this collapses any request to 'private' (fail-closed);
+        // under the legacy multi-engine policy it is a no-op (preferredMode === the requested mode).
+        if (isRetiredEngineRequest(nextMode)) {
+            emitEngineRequestCollapsedToPrivate({ source: 'requestModeChange', requestedMode: nextMode });
+        }
+        const resolvedMode = nextPolicy.preferredMode ?? nextMode;
+        useSessionStore.getState().setSTTMode(resolvedMode);
         this.updatePolicy(nextPolicy);
         return { accepted: true };
     }

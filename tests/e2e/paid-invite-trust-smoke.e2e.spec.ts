@@ -12,14 +12,15 @@ const TRUST_SMOKE_TRANSCRIPT = [
 ].join(' ');
 
 test.describe('Paid invite trust smoke', () => {
-  test('starts a fresh Pro session on Browser, saves, and offers review plus Private setup', async ({ page }) => {
+  test('starts a fresh Pro session on Private, saves, and offers review (no Browser→Private upsell)', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
 
     const modeButton = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
     await expect(modeButton).toBeVisible();
-    await expect(modeButton).toHaveAttribute('data-state', 'native');
-    await expect(modeButton).toContainText(/Browser/i);
+    // #1184: Private is the only engine — the recorder shows a static Private indicator, no Browser default.
+    await expect(modeButton).toHaveAttribute('data-state', 'private');
+    await expect(modeButton).toContainText(/Private/i);
     await expect(page.getByText(/Private model setup required/i)).toHaveCount(0);
 
     const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
@@ -34,14 +35,13 @@ test.describe('Paid invite trust smoke', () => {
     await startButton.click();
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
 
-    // Consolidated post-save experience: ONE status bar carries the reconciliation copy, the Analytics
-    // action, and the quiet Private CTA (Native + eligible) — the separate post-save surface is gone.
+    // Consolidated post-save experience: ONE status bar carries the reconciliation copy and the Analytics
+    // action — the separate post-save surface is gone.
     await expect(page.getByTestId('post-save-review-actions')).toHaveCount(0);
     await expect(page.getByTestId('live-session-header')).toContainText(/Session saved ·/);
     await expect(page.getByTestId('post-save-review-session-link')).toHaveAttribute('href', '/analytics');
-    await expect(page.getByTestId('post-save-private-cta')).toContainText(/Private/i);
-
-    await page.getByTestId('post-save-private-cta').click();
+    // #1184: no Browser→Private upsell CTA after save — the session was already Private.
+    await expect(page.getByTestId('post-save-private-cta')).toHaveCount(0);
     await expect(modeButton).toHaveAttribute('data-state', 'private');
   });
 
