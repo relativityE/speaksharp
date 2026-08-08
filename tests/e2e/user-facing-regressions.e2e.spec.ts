@@ -14,7 +14,7 @@ test.describe('User-facing session and analytics regressions', () => {
   test('keeps final transcript visible when later interim text is blank', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
-    await selectTranscriptionEngine(page, 'native');
+    await selectTranscriptionEngine(page, 'private');
 
     const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
@@ -32,7 +32,7 @@ test.describe('User-facing session and analytics regressions', () => {
   test('shows explanations for live metrics after speech is captured', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session?coaching=treatment');
-    await selectTranscriptionEngine(page, 'native');
+    await selectTranscriptionEngine(page, 'private');
 
     const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
@@ -56,7 +56,7 @@ test.describe('User-facing session and analytics regressions', () => {
 
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
-    await selectTranscriptionEngine(page, 'native');
+    await selectTranscriptionEngine(page, 'private');
 
     const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
     const transcriptPanel = page.getByTestId(TEST_IDS.TRANSCRIPT_PANEL);

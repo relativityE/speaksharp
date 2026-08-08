@@ -67,41 +67,24 @@ async function assertDeployedReleaseIsLive(page: Page) {
     );
 }
 
-async function selectNativeMode(page: Page) {
+/**
+ * #1184: Private is the ONLY engine — there is no selector and no Native/Cloud choice. This helper
+ * confirms the static Private indicator and makes the recorder ready to start. On a fresh production
+ * browser the on-device model is not cached, so the mic first acts as the "Set up Private" download
+ * control; we click it to trigger the on-device download (no paid STT API — still $0) and wait until it
+ * becomes a ready Start control. If the model is already cached, the mic is already a ready Start control.
+ */
+async function ensurePrivateReady(page: Page) {
     const modeSelect = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
+    await expect(modeSelect).toHaveAttribute('data-state', 'private', { timeout: 15000 });
 
-    if (await modeSelect.isVisible()) {
-        if ((await modeSelect.getAttribute('data-state')) !== 'native') {
-            await modeSelect.evaluate((el: HTMLElement) => {
-                el.scrollIntoView({ block: 'center', inline: 'center' });
-                el.dispatchEvent(new PointerEvent('pointerdown', {
-                    bubbles: true,
-                    cancelable: true,
-                    pointerType: 'mouse',
-                    button: 0,
-                }));
-                el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
-                el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
-                el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
-            });
-
-            const nativeByTestId = page.getByTestId(TEST_IDS.STT_MODE_NATIVE);
-            const nativeByRole = page.getByRole('menuitemradio', { name: /Native/i });
-            const nativeOption = (await nativeByTestId.isVisible({ timeout: 3000 }).catch(() => false))
-                ? nativeByTestId
-                : nativeByRole;
-
-            await nativeOption.click({ timeout: 5000 });
-        }
-
-        await expect(modeSelect).toHaveAttribute('data-state', 'native', { timeout: 5000 });
-        await expect(page.locator('body')).toHaveAttribute('data-stt-policy', 'native', { timeout: 5000 });
-        return;
+    const mic = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+    const label = await mic.getAttribute('aria-label');
+    if (label && /Set up Private/i.test(label)) {
+        await mic.click(); // triggers the on-device model download; no network transcription is performed
+        await expect(mic).toHaveAttribute('aria-label', 'Start Recording', { timeout: 120000 });
     }
-
-    // High-fidelity fallback for legacy UI.
-    await page.getByRole('button', { name: /Native|Cloud AI|Private|On-Device/i }).click();
-    await page.getByRole('menuitemradio', { name: /Native/i }).click();
+    await expect(mic).toBeEnabled({ timeout: 15000 });
 }
 
 
@@ -192,28 +175,19 @@ test.describe('Production Smoke Canary @canary', () => {
             }, null, 2),
         });
 
-        const nudge = page.getByTestId('private-trial-nudge');
-        const remaining = u.private_sample_seconds_remaining ?? 0;
+        // #1184: Private is the ONLY engine for every account — Free and Pro alike. There is no
+        // Browser/Cloud choice and no Free→Private trial nudge (the sample-trial machinery is retired).
+        // Every account can start a Private session; `can_start` reflects usage-minute availability, not
+        // engine access. Pro still surfaces the Pro badge.
         if (u.is_pro) {
-            // Pro → the Pro badge; the Free→Private trial nudge must NOT appear.
             await expect(page.getByTestId(TEST_IDS.PRO_BADGE)).toBeVisible({ timeout: 15000 });
-            await expect(nudge).toHaveCount(0);
-        } else if (u.private_sample_available && remaining > 0) {
-            // Free with an AVAILABLE sample → the idle Browser session offers the Private trial nudge.
-            await expect(nudge).toBeVisible({ timeout: 15000 });
-            await expect(nudge).toContainText(/Private/i);
-        } else {
-            // Free with an EXHAUSTED / unavailable sample → NO trial nudge, and the session is still
-            // functional on Browser (the truthful "no fallback surprise" state). `can_start` stays true
-            // because Browser transcription is always available to a Free account.
-            await expect(nudge).toHaveCount(0);
-            expect(u.can_start, 'Free Browser recording must remain available when the sample is exhausted').toBe(true);
-            await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeEnabled();
         }
+        await expect(page.getByTestId('private-trial-nudge')).toHaveCount(0);
+        await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible();
 
-        // 3. Configure for Native STT (Free/Low Risk)
-        debugLog('[CANARY] Configuring Native STT mode...');
-        await selectNativeMode(page);
+        // 3. Confirm the Private engine surface and make the recorder ready (on-device model; $0).
+        debugLog('[CANARY] Confirming Private STT and readying the recorder...');
+        await ensurePrivateReady(page);
 
         // 4. Start Session
         debugLog('[CANARY] Starting session...');
