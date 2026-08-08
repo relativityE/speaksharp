@@ -100,23 +100,25 @@ test.describe('Practice landing — default entry, Objective unavailable, surfac
     await expect(page.getByRole('button', { name: /open practice session|start speaking/i })).toHaveCount(0);
     await assertReport(page, 'SpeakSharp Practice', AREAS.practice_home);
 
-    // === GUIDED "COMING SOON!" + NOTIFY ME (#1061) — Objective card opens the gated coming-soon dialog (waitlist OFF) ===
+    // === FOCUS POINTS ACTIVATED (#1046 slice 5b) — the Objective card opens the real capture dialog ===
     const guidedCta = page.getByTestId('practice-card-objective');
-    await expect(guidedCta).toHaveAccessibleName(/notify me about focus points/i);
-    // Objective status is the SOON header badge (never "Planned").
-    await expect(page.getByTestId('objective-soon-badge')).toBeVisible();
+    await expect(guidedCta).toHaveAccessibleName(/start focus points/i);
+    // The pre-launch SOON badge is gone now that the product is live (and never "Planned").
+    await expect(page.getByTestId('objective-soon-badge')).toHaveCount(0);
     await expect(page.getByText('Planned', { exact: false })).toHaveCount(0);
     await shot(page, `${DIR}/02a-objective-before-desktop.png`);
 
     await guidedCta.click();
-    await expect(page.getByTestId('objective-notify-dialog')).toBeVisible();
-    await expect(page.getByTestId('objective-notify-comingsoon')).toBeVisible(); // activation OFF → no capture form
-    expect(new URL(page.url()).pathname).toBe('/practice');
-    await shot(page, `${DIR}/02b-objective-notify-desktop.png`);
-    // Visible Report Issue label is EXACTLY "Focus Points" and the surface attributes to Objective.
-    await page.keyboard.press('Escape');
+    // The real capture form (goal + focus points), NOT the retired notify/coming-soon dialog.
+    await expect(page.getByTestId('objective-setup-dialog')).toBeVisible();
+    await expect(page.getByTestId('objective-setup-form')).toBeVisible();
     await expect(page.getByTestId('objective-notify-dialog')).toHaveCount(0);
-    await assertReport(page, 'Focus Points', AREAS.objective_unavailable);
+    expect(new URL(page.url()).pathname).toBe('/practice'); // opening captures nothing / navigates nowhere
+    await shot(page, `${DIR}/02b-objective-setup-desktop.png`);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('objective-setup-dialog')).toHaveCount(0);
+    // Focus Points is no longer a separate reportable surface — a report on the chooser is the home surface.
+    await assertReport(page, 'SpeakSharp Practice', AREAS.practice_home);
 
     // Keyboard focus on the Freeform CTA.
     const freeformCta = page.getByTestId('practice-card-freeform');
@@ -129,8 +131,8 @@ test.describe('Practice landing — default entry, Objective unavailable, surfac
     await enterPractice(page);
     await shot(page, `${DIR}/04-chooser-mobile.png`);
     await page.getByTestId('practice-card-objective').click();
-    await expect(page.getByTestId('objective-notify-dialog')).toBeVisible();
-    await shot(page, `${DIR}/05-objective-notify-mobile.png`);
+    await expect(page.getByTestId('objective-setup-dialog')).toBeVisible();
+    await shot(page, `${DIR}/05-objective-setup-mobile.png`);
     await page.keyboard.press('Escape');
 
     // Up to here NOTHING navigated to /session (Objective opens a dialog; Freeform not yet clicked).

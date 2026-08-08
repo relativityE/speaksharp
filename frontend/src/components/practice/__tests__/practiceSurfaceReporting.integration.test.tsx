@@ -77,41 +77,16 @@ async function reportAndCapture(expectedLabel: RegExp, expectedAreas: string[]) 
   return meta;
 }
 
-// #1042 PR3: the full-page overview + its `freeform_practice_overview` surface were removed — /practice now
-// has TWO surfaces (chooser + Objective-unavailable), and the Freeform card navigates directly to /session.
-describe('Report Issue — /practice surface attribution (one route, two surfaces)', () => {
+// #1042 PR3: the full-page overview + its `freeform_practice_overview` surface were removed. #1046 slice 5b
+// then ACTIVATED Focus Points, so /practice no longer has an "Objective-unavailable" surface: the Freeform
+// card navigates directly to /session, and the Focus Points card opens the capture dialog (no surface mark).
+describe('Report Issue — /practice surface attribution (chooser surface)', () => {
   beforeEach(() => submit.mockClear());
 
   it('practice_home (chooser): shows SpeakSharp Practice + home areas, stores practice_home', async () => {
     renderApp();
     const meta = await reportAndCapture(/SpeakSharp Practice/, ['understanding_choices', 'navigation', 'visual_layout', 'other']);
     expect(meta).toMatchObject({ practiceSurface: 'practice_home', journeyStep: 'chooser', canonicalRoute: '/practice', pageKey: 'practice' });
-  });
-
-  it('objective: internal token objective_unavailable but VISIBLE label exactly "Focus Points"', async () => {
-    renderApp();
-    fireEvent.click(screen.getByTestId('practice-card-objective')); // shows toast + marks surface (no preview)
-    await openReport();
-    // Visible label is exactly "Focus Points" — never "(unavailable)".
-    expect(banner()).toHaveTextContent(/Reporting from:\s*Focus Points/);
-    expect(banner()).not.toHaveTextContent(/unavailable/i);
-    expect(areaValues()).toEqual(['availability', 'product_clarity', 'navigation', 'visual_layout', 'other']);
-    fireEvent.change(screen.getByTestId('issue-report-title'), { target: { value: 'A clear title' } });
-    fireEvent.change(screen.getByTestId('issue-report-description'), { target: { value: 'A description with enough length.' } });
-    fireEvent.click(screen.getByTestId('issue-report-submit'));
-    await waitFor(() => expect(submit).toHaveBeenCalled());
-    const calls = submit.mock.calls;
-    const meta = calls[calls.length - 1][0].metadata;
-    // Internal token still records unavailability for triage.
-    expect(meta).toMatchObject({ practiceSurface: 'objective_unavailable', pageLabel: 'Focus Points', journeyStep: 'objective_unavailable', canonicalRoute: '/practice' });
-  });
-
-  it('objective attribution PERSISTS after the toast (a report on the chooser attributes to Objective)', async () => {
-    renderApp();
-    fireEvent.click(screen.getByTestId('practice-card-objective'));
-    // Still on the chooser (no preview); a report opened now attributes to Objective.
-    const first = await reportAndCapture(/Focus Points/, ['availability', 'product_clarity', 'navigation', 'visual_layout', 'other']);
-    expect(first.practiceSurface).toBe('objective_unavailable');
   });
 
   it('#1042 PR3: the Freeform card navigates DIRECTLY to /session; a report there uses the Session · Speaking context', async () => {

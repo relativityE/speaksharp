@@ -12,13 +12,11 @@ vi.mock('@/services/practiceTelemetry', () => ({
   trackPracticeEntryViewed: vi.fn(),
   trackPracticeModeSelected: vi.fn(),
   trackFreeformPracticeStarted: vi.fn(),
-  trackObjectiveUnavailable: vi.fn(),
 }));
-// The waitlist submit is mocked so the dialog can be exercised without a network call.
-const submitWaitlist = vi.fn();
-vi.mock('@/services/objectiveWaitlistService', () => ({
-  submitGuidedWaitlist: (...a: unknown[]) => submitWaitlist(...a),
-}));
+
+// #1046 slice 5b: Focus Points is ACTIVATED. The card opens the capture form (ObjectiveSetupForm),
+// which persists a brief via issue_objective_* RPCs. These tests only OPEN the dialog (no submit), so
+// the brief service is never called and the real store is left untouched — no store/network mock needed.
 
 // #1061: PracticePage is the ONE canonical auth-aware page. Default = authenticated; anon tests set null.
 let mockUser: { id: string; email?: string } | null = { id: 'u-1', email: 'me@example.com' };
@@ -41,8 +39,6 @@ const root = () => screen.getByTestId('practice-root');
 describe('PracticePage — one canonical auth-aware page (#1061)', () => {
   beforeEach(() => {
     navigateSpy.mockReset();
-    submitWaitlist.mockReset();
-    submitWaitlist.mockResolvedValue({ ok: true });
     mockUser = { id: 'u-1', email: 'me@example.com' };
     mockHistory.mockReturnValue({ data: [], isLoading: false } as unknown as HistoryReturn);
   });
@@ -53,15 +49,13 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
     expect(container.querySelector('#main-content')).toBeNull();
   });
 
-  it('shows both product identities; Objective carries the SOON header badge + launch CTA', () => {
+  it('shows both product identities; Focus Points is ACTIVATED — no SOON badge, a real start CTA (#1046 5b)', () => {
     render(<PracticePage />);
     expect(within(root()).getByRole('heading', { name: new RegExp(`^${PRODUCT_NAMES.freeform}$`, 'i') })).toBeInTheDocument();
     expect(within(root()).getByRole('heading', { name: /^Focus Points$/i })).toBeInTheDocument();
-    // Objective "coming soon" is conveyed by the SOON header badge + the "Notify me at launch" CTA.
-    const badge = screen.getByTestId('objective-soon-badge');
-    expect(badge).toHaveTextContent('SOON');
-    expect(within(root()).getByText(/notify me at launch/i)).toBeInTheDocument();
-    // No user-facing "Planned" anywhere.
+    // The pre-launch "coming soon" affordances are gone: no SOON badge, no "notify me" CTA.
+    expect(screen.queryByTestId('objective-soon-badge')).not.toBeInTheDocument();
+    expect(within(root()).queryByText(/notify me/i)).not.toBeInTheDocument();
     expect(root().textContent ?? '').not.toMatch(/Planned/);
   });
 
@@ -80,7 +74,7 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(root().textContent ?? '').not.toMatch(/Public Impact/i);
       // Product cards own their actions.
       expect(screen.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start your session/i);
-      expect(screen.getByTestId('practice-card-objective')).toHaveAccessibleName(/notify me about focus points/i);
+      expect(screen.getByTestId('practice-card-objective')).toHaveAccessibleName(/start focus points/i);
     });
 
     it('Freeform navigates DIRECTLY to /session', () => {
@@ -89,14 +83,14 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).toHaveBeenCalledWith('/session');
     });
 
-    it('Objective "Notify me" opens the gated coming-soon dialog (waitlist OFF) — no form, no backend call, no nav', async () => {
+    it('Focus Points opens the capture dialog (no navigation until a brief is saved)', async () => {
       render(<PracticePage />);
       fireEvent.click(screen.getByTestId('practice-card-objective'));
-      expect(await screen.findByTestId('objective-notify-dialog')).toBeInTheDocument();
-      // Activation flag is OFF by default → honest coming-soon acknowledgement, NOT the capture form.
-      expect(screen.getByTestId('objective-notify-comingsoon')).toBeInTheDocument();
-      expect(screen.queryByTestId('objective-notify-email')).not.toBeInTheDocument();
-      expect(submitWaitlist).not.toHaveBeenCalled();
+      expect(await screen.findByTestId('objective-setup-dialog')).toBeInTheDocument();
+      // The real capture form — a goal field + focus-point inputs — not the retired notify form.
+      expect(screen.getByTestId('objective-setup-form')).toBeInTheDocument();
+      expect(screen.queryByTestId('objective-notify-dialog')).not.toBeInTheDocument();
+      // Opening navigates nowhere — the route into the session happens on a saved brief (onReady).
       expect(navigateSpy).not.toHaveBeenCalled();
     });
 
@@ -150,12 +144,12 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(strip).toHaveTextContent(/free trial/i);
       expect(strip).toHaveTextContent(/try a 5-minute private session — no card, no script\./i);
       expect(screen.queryByTestId('support-freeform-explain')).not.toBeInTheDocument();
-      // Objective status is the SOON header badge (never "Planned").
-      expect(within(screen.getByTestId('practice-card-objective-card')).getByTestId('objective-soon-badge')).toHaveTextContent('SOON');
+      // Focus Points is activated — no SOON badge on the anonymous card either.
+      expect(screen.queryByTestId('objective-soon-badge')).not.toBeInTheDocument();
       expect(screen.queryByText(/Planned/)).toBeNull();
       // Product cards own their actions (anon shows CTAs, same as authed).
       expect(screen.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start your session/i);
-      expect(screen.getByTestId('practice-card-objective')).toHaveAccessibleName(/notify me about focus points/i);
+      expect(screen.getByTestId('practice-card-objective')).toHaveAccessibleName(/start focus points/i);
       // No authenticated continuity/account actions.
       expect(screen.queryByTestId('practice-continuity')).not.toBeInTheDocument();
       expect(screen.queryByTestId('practice-continuity-empty')).not.toBeInTheDocument();
@@ -181,16 +175,11 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session' } } });
     });
 
-    it('Objective product card opens the gated coming-soon dialog (waitlist OFF), no form, no navigation', async () => {
+    it('Focus Points (anonymous) → sign-up first (the brief RPCs require auth); no capture dialog', () => {
       render(<PracticePage />);
       fireEvent.click(screen.getByTestId('practice-card-objective'));
-      expect(await screen.findByTestId('objective-notify-dialog')).toBeInTheDocument();
-      expect(screen.getByTestId('objective-notify-comingsoon')).toBeInTheDocument();
-      expect(screen.queryByTestId('objective-notify-email')).not.toBeInTheDocument();
-      expect(submitWaitlist).not.toHaveBeenCalled();
-      expect(navigateSpy).not.toHaveBeenCalled();
+      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/practice' } } });
+      expect(screen.queryByTestId('objective-setup-dialog')).not.toBeInTheDocument();
     });
   });
-  // The ENABLED capture-form path (validation / honest success / honest failure) is covered directly in
-  // ObjectiveNotifyDialog.test.tsx with enabled={true}, independent of the page's activation flag.
 });

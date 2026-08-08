@@ -10,9 +10,9 @@ import { TEST_IDS } from '../constants';
  *
  *  - Anonymous `/`: large hero + Start free; one honest Free Trial strip; product cards WITHOUT duplicate
  *    CTAs. Freeform product CTA → signup → /session (real account-access composition, intent preserved);
- *    Objective product CTA → real "Notify me" dialog.
+ *    Focus Points CTA → signup first (the brief RPCs require auth).
  *  - Authenticated `/practice`: compact welcome + continuity; product cards own their actions; Freeform →
- *    /session directly; Objective "Notify me" opens the same dialog. Objective is "Coming Soon!" (no "Planned").
+ *    /session directly; Focus Points opens the real capture dialog (#1046 slice 5b — activated, no "Planned").
  *
  * Screenshots: anonymous `/` and authenticated `/practice`, desktop + mobile → test-results/product-discovery.
  */
@@ -54,9 +54,9 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await expect(page.getByTestId('freeform-trial-strip')).toBeVisible();
     await expect(page.getByTestId('freeform-trial-strip')).toContainText(/free trial/i);
     await expect(page.getByTestId('support-freeform-explain')).toHaveCount(0);
-    // Objective status is the SOON header badge + the "Notify me at launch" CTA, never "Planned"; no continuity for anon.
-    await expect(page.getByTestId('practice-card-objective-card').getByTestId('objective-soon-badge')).toBeVisible();
-    await expect(page.getByRole('button', { name: /notify me about focus points/i })).toContainText(/notify me at launch/i);
+    // Focus Points is activated (#1046 5b): no SOON badge, a real start CTA; never "Planned"; no continuity for anon.
+    await expect(page.getByTestId('objective-soon-badge')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /start focus points/i })).toContainText(/start your session/i);
     await expect(page.getByText('Planned', { exact: false })).toHaveCount(0);
     await expect(page.getByTestId('home-last-session')).toHaveCount(0);
     await settle(page);
@@ -80,18 +80,16 @@ test.describe('#1061 one canonical auth-aware page', () => {
       .toHaveAttribute('data-recording', 'false', { timeout: 20000 });
   });
 
-  test('anonymous `/`: Objective "Notify me" opens the gated coming-soon dialog (waitlist OFF, no navigation)', async ({ page }) => {
+  test('anonymous `/`: Focus Points routes to sign-up first (the brief RPCs require auth)', async ({ page }) => {
     await bootAnonymous(page);
     await enterAnonLanding(page);
     await page.getByTestId('practice-card-objective').click();
-    await expect(page.getByTestId('objective-notify-dialog')).toBeVisible();
-    // Activation flag OFF in the shipped build → honest coming-soon acknowledgement, NOT a capture form.
-    await expect(page.getByTestId('objective-notify-comingsoon')).toBeVisible();
-    await expect(page.getByTestId('objective-notify-email')).toHaveCount(0);
-    expect(new URL(page.url()).pathname).toBe('/');
+    // Anonymous users authenticate before capturing a brief — no capture dialog is shown here.
+    await expect(page).toHaveURL(/\/auth\/signup/, { timeout: 15000 });
+    await expect(page.getByTestId('objective-setup-dialog')).toHaveCount(0);
   });
 
-  test('authenticated `/practice`: the choice question + continuity cluster; Freeform → /session; Objective Notify me', async ({ page }) => {
+  test('authenticated `/practice`: the choice question + continuity cluster; Freeform → /session; Focus Points → capture dialog', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'free' });
     await navigateToRoute(page, '/practice');
     await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 30000 });
@@ -99,7 +97,7 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await expect(page.getByTestId('home-last-session-secondary')).toBeVisible();
     // No anonymous marketing support section after login.
     await expect(page.getByTestId('practice-support')).toHaveCount(0);
-    await expect(page.getByTestId('objective-soon-badge')).toBeVisible();
+    await expect(page.getByTestId('objective-soon-badge')).toHaveCount(0); // Focus Points is activated (#1046 5b)
 
     await page.setViewportSize(DESKTOP);
     await settle(page);
@@ -108,11 +106,11 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await settle(page);
     await page.screenshot({ path: `${DIR}/04-authenticated-practice-mobile.png`, fullPage: true });
 
-    // Objective "Notify me" opens the gated coming-soon dialog (waitlist OFF); Freeform goes directly to /session.
+    // Focus Points opens the real capture dialog; Freeform goes directly to /session.
     await page.setViewportSize(DESKTOP);
     await page.getByTestId('practice-card-objective').click();
-    await expect(page.getByTestId('objective-notify-dialog')).toBeVisible();
-    await expect(page.getByTestId('objective-notify-comingsoon')).toBeVisible();
+    await expect(page.getByTestId('objective-setup-dialog')).toBeVisible();
+    await expect(page.getByTestId('objective-setup-form')).toBeVisible();
     await page.keyboard.press('Escape');
     await page.getByTestId('practice-card-freeform').click();
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
