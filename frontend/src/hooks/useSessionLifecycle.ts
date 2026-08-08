@@ -87,9 +87,10 @@ export const useSessionLifecycle = () => {
     // First-use trust fix (paid soft launch, Option A): fresh/default sessions start
     // on the instant Browser/Native path so a new user never hits the Private model-
     // setup wall before their first transcript. Private stays available as an explicit
-    // user-selected mode. No mode persistence in this release — every new session
-    // defaults to Native; a Pro user opts into Private per session.
-    const defaultMode: TranscriptionMode = 'native';
+    // #1184 Private-primary: a new session defaults to Private when the user can actually run it
+    // (Pro or an available sample), else Browser. This makes the "● Private" header truthful rather
+    // than aspirational — a user who cannot run Private is never shown Private. No mode persistence.
+    const defaultMode: TranscriptionMode = canUsePrivateStt ? 'private' : 'native';
     const effectiveMode: TranscriptionMode = sttMode ?? defaultMode;
     const [privateModelStatus, setPrivateModelStatus] = useState<string>(() => {
         if (typeof document === 'undefined') return 'idle';
