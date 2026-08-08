@@ -37,12 +37,21 @@ test.describe('#1046 Focus Points — full loop (setup → record → coverage r
         await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
         await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 20000 });
 
-        // 4) Record with the mock engine — cover point 1, leave point 2 unmentioned.
+        // 4) Record with the mock engine — a session must clear MIN_SESSION_DURATION_SECONDS (5s) and the
+        // save-quality guard (real speech, enough meaningful words) to persist, so drive a multi-line,
+        // word-rich recording spread across >5s of wall-clock. Point 1 ("Name the price") is covered by the
+        // spoken text; point 2 is left unmentioned.
         await page.getByTestId('session-start-stop-button').click();
         await page.waitForSelector('html[data-runtime-state="RECORDING"]', { timeout: 15000 });
-        await simulateTranscription(page, 'The price is nine ninety nine dollars for the full plan.', true);
-        // Let the session accrue enough duration to persist, then stop.
-        await page.waitForTimeout(1500);
+        const lines = [
+            'Today I want to walk through the whole plan clearly and confidently for you.',
+            'The price is nine ninety nine dollars per month for the complete plan.',
+            'Let me make sure that first point lands well before we wrap everything up here.',
+        ];
+        for (const line of lines) {
+            await simulateTranscription(page, line, true);
+            await page.waitForTimeout(2200);
+        }
         await page.getByTestId('session-start-stop-button').click();
 
         // 5) After finalize, the Focus Points coverage rail appears with one row per declared point.
