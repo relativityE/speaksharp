@@ -27,6 +27,7 @@ const initialState: SessionState = {
     captureLimitReached: null,
     completedSessionDurationSeconds: null,
     activeObjectiveBrief: null,
+    objectiveCoverageResult: null,
     pauseMetrics: {
         totalPauses: 0,
         averagePauseDuration: 0,
@@ -198,6 +199,7 @@ export function createTestSessionStore(
         setCaptureLimitReached: vi.fn((captureLimitReached) => set({ captureLimitReached })),
         setCompletedSessionDuration: vi.fn((completedSessionDurationSeconds) => set({ completedSessionDurationSeconds })),
         setActiveObjectiveBrief: vi.fn((activeObjectiveBrief) => set({ activeObjectiveBrief })),
+        setObjectiveCoverageResult: vi.fn((objectiveCoverageResult) => set({ objectiveCoverageResult })),
         setTranscriptFinalizing: vi.fn((isTranscriptFinalizing) =>
             set({
                 isTranscriptFinalizing,

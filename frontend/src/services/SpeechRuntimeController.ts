@@ -2432,6 +2432,10 @@ export class SpeechRuntimeController {
         // this one, and clear the prior finalized signal so its settled UI (toast/cue/copy) does not linger.
         this.finalizeSequence++;
         useSessionStore.getState().setFinalizedAnalysis(null);
+        // #1046 slice 5a: a new recording also clears any prior Focus Points coverage rail, so the
+        // settled UI from an earlier objective session never lingers onto this one (mirrors the
+        // finalizedAnalysis clear above; the brief itself is consumed separately at the stop seam).
+        useSessionStore.getState().setObjectiveCoverageResult(null);
         const recordingId = crypto.randomUUID();
         this.currentRecordingId = recordingId;
         pushNativeRuntimeTrace('controller_start_requested', {
@@ -3632,6 +3636,17 @@ export class SpeechRuntimeController {
                                         idempotencyKey: sessionId,
                                         segments,
                                         durationSeconds,
+                                    }).then((objResult) => {
+                                        // #1046 slice 5a: publish per-point coverage for the settled Session
+                                        // page's Focus Points rail. FAILS CLOSED — only a fully-successful
+                                        // finalize carrying coverage publishes a rail; any failed stage leaves
+                                        // objectiveCoverageResult null, so a broken session shows no rail rather
+                                        // than a fabricated one.
+                                        if (objResult.ok && objResult.coverage) {
+                                            useSessionStore.getState().setObjectiveCoverageResult(
+                                                objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
+                                            );
+                                        }
                                     }),
                                 ).catch((objErr) => logger.warn({ objErr, sessionId }, '[controller] objective finalization failed (non-fatal)'));
                             }

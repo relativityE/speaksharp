@@ -3,11 +3,23 @@ import { FillerCounts } from '@/utils/fillerWordUtils';
 import type { FinalizedFillerReconciliation } from '@/utils/finalizedSessionAnalysis';
 import logger from '@/lib/logger';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
+import type { CoverageStatus } from '@/services/rehearsal/outcomeScorecard';
 import { SttStatus, HistorySegment } from '@/types/transcription';
 import type { FinalizeEngineKey } from '@/services/transcription/finalizeRateStore';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import { ENV } from '@/config/TestFlags';
 import { syncForensicAnchors } from '@/lib/forensicAnchors';
+
+/**
+ * One Focus Points rail row: the point's brief id, the label to display, and its resolved coverage
+ * status. Structurally matches the CoverageRail component's `CoverageRailPoint` prop (kept independent
+ * so the store never imports a component), so a stored array can be passed straight to the rail.
+ */
+export interface ObjectiveCoverageRow {
+    id: string;
+    label: string;
+    status: CoverageStatus;
+}
 
 interface TranscriptState {
     transcript: string;
@@ -93,6 +105,14 @@ export interface SessionState {
      * brief can never leak an Open Floor recording into Focus Points scoring (the isolation invariant).
      */
     activeObjectiveBrief: { projectId: string; briefId: string } | null;
+    /**
+     * #1046 slice 5a: per-point Focus Points coverage for the settled Session page, or null when the
+     * completed recording was not a Focus Points session. Mirrors {@link finalizedAnalysis}'s lifecycle
+     * exactly — null until an objective session finalizes, SET at the stop seam after coverage is
+     * computed, and CLEARED at the start of every new recording so a prior brief's rail can never
+     * linger onto a later Open Floor session (the isolation invariant, at the UI layer).
+     */
+    objectiveCoverageResult: ObjectiveCoverageRow[] | null;
     pauseMetrics: PauseMetrics;
     sessionSaved: boolean;
     nativeFormatting: NativeFormattingUiState;
@@ -130,6 +150,7 @@ interface SessionActions {
     setCaptureLimitReached: (info: { bufferedSeconds: number; limitSeconds: number } | null) => void;
     setCompletedSessionDuration: (seconds: number | null) => void;
     setActiveObjectiveBrief: (brief: { projectId: string; briefId: string } | null) => void;
+    setObjectiveCoverageResult: (rows: ObjectiveCoverageRow[] | null) => void;
     setPauseMetrics: (metrics: PauseMetrics) => void;
     setLockHeldByOther: (held: boolean) => void;
     setSessionSaved: (saved: boolean) => void;
@@ -168,6 +189,7 @@ const initialState: SessionState = {
     captureLimitReached: null,
     completedSessionDurationSeconds: null,
     activeObjectiveBrief: null,
+    objectiveCoverageResult: null,
     pauseMetrics: {
         totalPauses: 0,
         averagePauseDuration: 0,
@@ -446,6 +468,7 @@ export const useSessionStore = create<SessionStore>((set) => {
 
     setCompletedSessionDuration: (completedSessionDurationSeconds) => set({ completedSessionDurationSeconds }),
     setActiveObjectiveBrief: (activeObjectiveBrief) => set({ activeObjectiveBrief }),
+    setObjectiveCoverageResult: (objectiveCoverageResult) => set({ objectiveCoverageResult }),
 
     setTranscriptFinalizing: (isTranscriptFinalizing) =>
         set({

@@ -12,6 +12,7 @@ import { FillerWordsCard } from '@/components/session/FillerWordsCard';
 import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
 import { LiveCoachingScoreCard } from '@/components/session/LiveCoachingScoreCard';
 import { LiveRecordingCard } from '@/components/session/LiveRecordingCard';
+import { CoverageRail } from '@/components/session/CoverageRail';
 import { PracticeOnramp } from '@/components/session/PracticeOnramp';
 import { UnresolvedRecoveryBanner } from '@/components/session/UnresolvedRecoveryBanner';
 import { MobileActionBar } from '@/components/session/MobileActionBar';
@@ -57,6 +58,9 @@ export const SessionPage: React.FC = () => {
     const completedSessionDurationSeconds = useSessionStore(state => state.completedSessionDurationSeconds);
     const nativeFormatting = useSessionStore(state => state.nativeFormatting);
     const finalizedAnalysis = useSessionStore(state => state.finalizedAnalysis);
+    // #1046 slice 5a: per-point Focus Points coverage, published by the stop seam after an objective
+    // session finalizes; null for Open Floor sessions (and cleared at the next recording start).
+    const objectiveCoverageResult = useSessionStore(state => state.objectiveCoverageResult);
 
     const {
         isListening,
@@ -474,6 +478,18 @@ export const SessionPage: React.FC = () => {
                             />
                         </LocalErrorBoundary>
                     </div>
+
+                    {/* #1046 slice 5a: Focus Points coverage rail. Renders ONLY once an objective session
+                        has finalized (objectiveCoverageResult is non-null) — it is null for Open Floor
+                        sessions and cleared at the next recording start, so this never shows on a freeform
+                        run. Presentational; the finalize seam is the sole source of truth. (When the session
+                        overhaul lands, this becomes slot D of the shared shell; for now it sits below the
+                        main row as its own full-width band.) */}
+                    {objectiveCoverageResult && objectiveCoverageResult.length > 0 && (
+                        <div className="mt-6" data-testid="session-coverage-rail">
+                            <CoverageRail points={objectiveCoverageResult} />
+                        </div>
+                    )}
 
                     {/* #1046 E (slice 0): the live transcript moved OUT of the left column to FULL WIDTH
                         below both columns. Inside the two-column grid it stretched the left column tall
