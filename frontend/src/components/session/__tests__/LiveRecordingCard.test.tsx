@@ -114,7 +114,7 @@ describe('LiveRecordingCard', () => {
         render(<LiveRecordingCard {...defaultProps} mode="private" canUsePrivate={true} canUseCloudStt={false} />);
 
         // Short cue visible; the explanatory detail lives behind the "About transcription modes" help.
-        expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Mic ready on this device');
+        expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Private · on this device');
         // #1064: the concise privacy explanation is not a default paragraph; it lives behind the help.
         expect(screen.queryByText(/Transcription runs on this device/i)).toBeNull();
         // The help lists all three modes; Private's description sets the on-device expectation.
@@ -273,7 +273,7 @@ describe('LiveRecordingCard', () => {
         // #1047: the cue now states WHERE the audio is handled ("Ready on this device") rather than
         // repeating the method name, per the Product Owner's Session spec. #1041's requirement that the
         // active method stay identifiable is preserved by the mode trigger, asserted below.
-        expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Mic ready on this device');
+        expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Browser · on this device');
         expect(screen.getByTestId('stt-mode-cue')).not.toHaveTextContent(/quick preview/i);
         expect(screen.queryByText(/FREE BROWSER/i)).toBeNull();
 
@@ -386,7 +386,7 @@ describe('LiveRecordingCard', () => {
     it('surfaces the Cloud external-server explanation through help, not a default paragraph', () => {
         render(<LiveRecordingCard {...defaultProps} mode="cloud" canUseCloudStt={true} />);
 
-        expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('External server');
+        expect(screen.getByTestId('stt-mode-cue')).toHaveTextContent('Cloud · external server');
         expect(screen.queryByText(/sent to an external transcription server/i)).toBeNull();
         fireEvent.click(screen.getByTestId('stt-mode-help'));
         expect(screen.getByText(/Audio is sent to an external transcription server/i)).toBeInTheDocument();

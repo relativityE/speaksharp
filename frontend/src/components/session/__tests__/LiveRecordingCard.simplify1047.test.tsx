@@ -37,7 +37,7 @@ describe('LiveRecordingCard — #1047', () => {
         render(<LiveRecordingCard {...defaultProps} />);
 
         const cue = screen.getByTestId('stt-mode-cue');
-        expect(cue).toHaveTextContent('Mic ready on this device');
+        expect(cue).toHaveTextContent('Private · on this device');
         // 13px/700 muted grey — orange is reserved for meaningful accents (the record button).
         expect(cue).toHaveClass('text-[13px]', 'font-bold', 'text-foreground');
         expect(cue).not.toHaveClass('text-primary');

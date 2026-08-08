@@ -348,13 +348,16 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     // the demoted label the spec actually asked for. Cloud is the one case that must NOT say
     // "on this device" — audio leaves the machine, and that distinction is the whole point of the
     // label — so it keeps its own truthful wording.
+    // #1184 Private-primary: the header status line NAMES the engine (so it reads "● Private …"),
+    // truthfully — Private says "on this device"; Cloud must NOT (audio leaves the machine); Browser
+    // names itself. The engine name is what the removed dropdown used to carry, now a plain status.
     let sttCue: string;
     if (mode === 'cloud') {
-        sttCue = 'External server';
-    } else if (mode === 'private' && isPrivateDownloadRequired) {
-        sttCue = 'Private on-device';
+        sttCue = 'Cloud · external server';
+    } else if (mode === 'private') {
+        sttCue = isPrivateDownloadRequired ? 'Private · on-device (setup)' : 'Private · on this device';
     } else {
-        sttCue = 'Mic ready on this device';
+        sttCue = 'Browser · on this device';
     }
 
     // "About transcription modes" — a single, touch-friendly help surface that lists ALL THREE mode

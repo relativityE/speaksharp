@@ -87,8 +87,12 @@ export const useSessionLifecycle = () => {
     // First-use trust fix (paid soft launch, Option A): fresh/default sessions start
     // on the instant Browser/Native path so a new user never hits the Private model-
     // setup wall before their first transcript. Private stays available as an explicit
-    // user-selected mode. No mode persistence in this release — every new session
-    // defaults to Native; a Pro user opts into Private per session.
+    // #1184 Private-primary default is deferred to the #1120 flag/E2E-override mechanism: an
+    // unconditional flip ripples across e2e (pro-defaults-Browser smokes; free-sample users would be
+    // auto-defaulted into Private, burning the sample instead of opting in via the nudge) and E2E
+    // Private recording isn't deterministic without that override. Kept native here; the truthful
+    // "● Private" header still renders whenever the engine IS private (engine-named cue below). No
+    // mode persistence.
     const defaultMode: TranscriptionMode = 'native';
     const effectiveMode: TranscriptionMode = sttMode ?? defaultMode;
     const [privateModelStatus, setPrivateModelStatus] = useState<string>(() => {
