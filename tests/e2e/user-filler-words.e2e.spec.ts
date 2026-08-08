@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { navigateToRoute, mockLiveTranscript, attachLiveTranscript, waitForE2EEvent, waitForModelReady } from './helpers';
+import { navigateToRoute, mockLiveTranscript, attachLiveTranscript, waitForModelReady } from './helpers';
 import { ROUTES, TEST_IDS } from '../constants';
 
 test.describe('User Filler Words UI & Detection (Local)', () => {
@@ -103,13 +103,10 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
         // Forensic Readiness Gate (Invariant I3)
         await waitForModelReady(userPage, 15000);
 
-        // 6. Start Session (Native Mode) and Wait for Bridge Ready
-        // Use Promise.all to setup listener BEFORE triggering the action that causes the event
-        await Promise.all([
-            waitForE2EEvent(userPage, 'e2e:speech-recognition-ready'),
-            userPage.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click()
-        ]);
-
+        // 6. Start Session. #1184: the 'e2e:speech-recognition-ready' determinism event only fired on an
+        // explicit native mode-change; in the Private-default path it does not fire, so the authoritative
+        // start gate is the data-recording attribute below.
+        await userPage.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
         await expect(userPage.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toHaveAttribute('data-recording', 'true', { timeout: 10000 });
 
         // 6. Inject Transcript containing the custom word "detectiontest"
