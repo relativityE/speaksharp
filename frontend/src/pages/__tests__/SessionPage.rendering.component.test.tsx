@@ -23,6 +23,7 @@ vi.mock('@/services/sessionCoachingExperiment', () => sessionCoachingMock);
 import { render, screen, cleanup } from '../../../tests/support/test-utils';
 import { SessionPage } from '../SessionPage';
 import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 
 // Mock everything
@@ -297,5 +298,36 @@ describe('Transcript Display', () => {
         render(<SessionPage />);
         expect(screen.getByText(/Hello/)).toBeInTheDocument();
         expect(screen.getByText(/world/)).toBeInTheDocument();
+    });
+});
+
+describe('Focus Points coverage rail (#1046 slice 5a)', () => {
+    // SessionPage reads objectiveCoverageResult straight from the real store; the stop seam is what
+    // publishes it in production, so here we drive the store directly to prove the render gate.
+    afterEach(() => {
+        useSessionStore.setState({ objectiveCoverageResult: null });
+    });
+
+    it('does not render the coverage rail for a non-objective (Open Floor) session', () => {
+        useSessionStore.setState({ objectiveCoverageResult: null });
+        render(<SessionPage />);
+        expect(screen.queryByTestId('session-coverage-rail')).toBeNull();
+        expect(screen.queryByTestId('coverage-rail')).toBeNull();
+    });
+
+    it('renders the coverage rail with per-point rows once an objective session has finalized', () => {
+        useSessionStore.setState({
+            objectiveCoverageResult: [
+                { id: 'p1', label: 'Name the price', status: 'covered' },
+                { id: 'p2', label: 'Handle the objection', status: 'missing' },
+            ],
+        });
+        render(<SessionPage />);
+        expect(screen.getByTestId('session-coverage-rail')).toBeInTheDocument();
+        expect(screen.getByTestId('coverage-rail')).toBeInTheDocument();
+        // 1 of 2 covered — the summary is derived, not passed in.
+        expect(screen.getByTestId('coverage-rail-summary')).toHaveTextContent('1/2 covered');
+        expect(screen.getByText('Name the price')).toBeInTheDocument();
+        expect(screen.getByText('Handle the objection')).toBeInTheDocument();
     });
 });
