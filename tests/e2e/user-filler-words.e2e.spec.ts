@@ -98,23 +98,10 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
 
         await userPage.keyboard.press('Escape'); // Close settings
 
-        // 5. Ensure Native Mode is selected
+        // 5. #1184: Private is the only engine — there is no selector to pick native. The mock engine
+        // services Private, so this filler-words flow just waits for the engine to be ready and records.
         // Forensic Readiness Gate (Invariant I3)
         await waitForModelReady(userPage, 15000);
-
-        const modeTrigger = userPage.getByTestId(TEST_IDS.STT_MODE_SELECT);
-        if (await modeTrigger.isVisible()) {
-            const currentMode = await modeTrigger.getAttribute('data-state');
-            if (currentMode !== 'native') {
-                const bboxFW = await modeTrigger.boundingBox();
-                if (bboxFW) {
-                    await userPage.mouse.click(bboxFW.x + bboxFW.width / 2, bboxFW.y + bboxFW.height / 2);
-                } else {
-                    await modeTrigger.click({ force: true });
-                }
-                await userPage.getByRole('menuitemradio', { name: /Native/i }).click();
-            }
-        }
 
         // 6. Start Session (Native Mode) and Wait for Bridge Ready
         // Use Promise.all to setup listener BEFORE triggering the action that causes the event

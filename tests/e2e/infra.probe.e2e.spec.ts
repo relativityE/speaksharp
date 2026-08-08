@@ -26,12 +26,10 @@ test.describe('Core System Validation (Deterministic)', () => {
   test.beforeEach(async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'free' });
     await goToApp(page, '/session');
-    const modeSelect = page.getByTestId('stt-mode-select');
-    await expect(modeSelect).toBeVisible({ timeout: 15000 });
-    if (await modeSelect.getAttribute('data-state') !== 'native') {
-      await modeSelect.click();
-      await page.getByTestId('stt-mode-native').click();
-    }
+    // #1184: Private is the only engine — there is no selector to pick native. The static Private
+    // indicator confirms the recorder surface is mounted before the deterministic probes run. The mock
+    // engine services Private just as it did native, so the infra probes stay deterministic.
+    await expect(page.getByTestId('stt-mode-select')).toBeVisible({ timeout: 15000 });
   });
 
   // 1. App Boot Integrity
@@ -75,11 +73,10 @@ test.describe('Core System Validation (Deterministic)', () => {
   test('Forensic Audit: negotiator identity guard is active', async ({ page }) => {
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
 
-    // DOM-anchored deterministic assertion — no log scraping. The selected
-    // product mode remains native; the E2E bridge supplies the lightweight
-    // injected engine behind that mode.
-    await expect(page.locator('html')).toHaveAttribute('data-stt-mode', 'native');
-    await expect(page.locator('html')).toHaveAttribute('data-stt-resolved-mode', 'native');
+    // DOM-anchored deterministic assertion — no log scraping. #1184: Private is the only engine, so the
+    // resolved product mode is Private; the E2E bridge supplies the lightweight injected engine behind it.
+    await expect(page.locator('html')).toHaveAttribute('data-stt-mode', 'private');
+    await expect(page.locator('html')).toHaveAttribute('data-stt-resolved-mode', 'private');
     await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'READY');
     await expect.poll(async () => page.evaluate(() => {
       const win = window as unknown as E2EWindow;
