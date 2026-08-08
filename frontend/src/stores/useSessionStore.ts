@@ -86,6 +86,13 @@ export interface SessionState {
      * keeps the correct duration. Cleared when a new recording starts.
      */
     completedSessionDurationSeconds: number | null;
+    /**
+     * #1046 slice 3b-ii: the Focus Points brief the CURRENT recording is being made against, or null for
+     * a freeform (Open Floor) recording. Set at objective-session entry (slice 5); read at the stop seam
+     * to finalize per-point coverage; CONSUMED (set null) immediately after finalize fires, so a stale
+     * brief can never leak an Open Floor recording into Focus Points scoring (the isolation invariant).
+     */
+    activeObjectiveBrief: { projectId: string; briefId: string } | null;
     pauseMetrics: PauseMetrics;
     sessionSaved: boolean;
     nativeFormatting: NativeFormattingUiState;
@@ -122,6 +129,7 @@ interface SessionActions {
     setTranscriptFinalizing: (finalizing: boolean) => void;
     setCaptureLimitReached: (info: { bufferedSeconds: number; limitSeconds: number } | null) => void;
     setCompletedSessionDuration: (seconds: number | null) => void;
+    setActiveObjectiveBrief: (brief: { projectId: string; briefId: string } | null) => void;
     setPauseMetrics: (metrics: PauseMetrics) => void;
     setLockHeldByOther: (held: boolean) => void;
     setSessionSaved: (saved: boolean) => void;
@@ -159,6 +167,7 @@ const initialState: SessionState = {
     isTranscriptFinalizing: false,
     captureLimitReached: null,
     completedSessionDurationSeconds: null,
+    activeObjectiveBrief: null,
     pauseMetrics: {
         totalPauses: 0,
         averagePauseDuration: 0,
@@ -436,6 +445,7 @@ export const useSessionStore = create<SessionStore>((set) => {
     setCaptureLimitReached: (captureLimitReached) => set({ captureLimitReached }),
 
     setCompletedSessionDuration: (completedSessionDurationSeconds) => set({ completedSessionDurationSeconds }),
+    setActiveObjectiveBrief: (activeObjectiveBrief) => set({ activeObjectiveBrief }),
 
     setTranscriptFinalizing: (isTranscriptFinalizing) =>
         set({

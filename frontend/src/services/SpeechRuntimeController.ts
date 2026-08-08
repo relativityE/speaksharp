@@ -3610,6 +3610,32 @@ export class SpeechRuntimeController {
                                 userId: this.capturedUserId,
                             }).catch((progressErr) => logger.warn({ progressErr, sessionId }, '[controller] progress recording failed (non-fatal)'));
 
+                            // #1046 slice 3b-ii: if this recording was made against a Focus Points brief,
+                            // finalize per-point coverage now — the same guarded, idempotent, strictly
+                            // non-fatal seam as Progress. The brief is CONSUMED (set null) before the async
+                            // call so a stale brief can never attach a later Open Floor recording (the
+                            // Freestyle-vs-Focus-Points isolation invariant). Fires only when a brief is
+                            // present AND metrics persisted; the orchestrator itself also fails closed
+                            // (server-verified Private-only), so it can never fabricate a score.
+                            const objectiveBrief = useSessionStore.getState().activeObjectiveBrief;
+                            if (objectiveBrief && metricsOk) {
+                                useSessionStore.getState().setActiveObjectiveBrief(null);
+                                const segments = useSessionStore.getState().chunks
+                                    .filter((c) => c.isFinal)
+                                    .map((c) => ({ text: c.transcript, startSec: c.timestamp }));
+                                const durationSeconds = useSessionStore.getState().completedSessionDurationSeconds ?? 0;
+                                void import('@/services/objective/finalizeObjectiveSessionOnSave').then(({ finalizeObjectiveSessionOnSave }) =>
+                                    finalizeObjectiveSessionOnSave({
+                                        projectId: objectiveBrief.projectId,
+                                        briefId: objectiveBrief.briefId,
+                                        sourceSessionId: sessionId,
+                                        idempotencyKey: sessionId,
+                                        segments,
+                                        durationSeconds,
+                                    }),
+                                ).catch((objErr) => logger.warn({ objErr, sessionId }, '[controller] objective finalization failed (non-fatal)'));
+                            }
+
                             clearSessionRecoveryDraft(sessionId);
 
                             this.updateStreakInternal();
