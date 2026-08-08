@@ -31,15 +31,12 @@ export function PracticeOnramp({ className = '' }: { className?: string }) {
   const showSample = () => { const n = getNextSample(sampleIdx); setSampleIdx(n.index); setView('sample'); };
 
   return (
-    // Below lg: render IN-FLOW (relative, full width) so the card takes its own vertical space and never
-    // overlaps the recorder/mode-selector on narrow screens — the fixed overlay was intercepting pointer
-    // events on the mic controls at 320-390px (worsened once the at-rest status bar was removed, which
-    // moved the recorder up under it). At lg+ it becomes the non-modal floating aid: the empty wrapper is
-    // pointer-events-none so clicks pass through to the mic/transcript; only the card is interactive. z-40
-    // sits below the app nav (z-50).
-    <div
-      className={`relative mb-4 w-full lg:pointer-events-none lg:fixed lg:top-[76px] lg:z-40 lg:mb-0 lg:w-[min(560px,calc(100vw-1.5rem))] lg:right-[max(0.75rem,calc((100vw-80rem)/2+1.5rem))] ${className}`}
-    >
+    // #1046 slice 0.1: render IN-FLOW at ALL widths (relative, full width). The fixed floating card was
+    // covering the recorder + Live Coaching cards on desktop and intercepting mic/selector clicks on
+    // mobile. In-flow it takes its own space above the recorder and never overlaps anything. (The
+    // prompt/sample OUTPUT will move into the Live Transcript panel in a follow-up so the box itself can
+    // shrink; for now it sits in-flow, un-covering the controls.)
+    <div className={`relative mb-4 w-full ${className}`}>
       <section
         data-testid="practice-onramp"
         aria-label="Reading helper — not sure what to say?"

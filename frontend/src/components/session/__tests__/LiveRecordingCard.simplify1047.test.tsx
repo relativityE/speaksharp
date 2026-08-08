@@ -65,7 +65,7 @@ describe('LiveRecordingCard — #1047', () => {
         expect(runningTimer).toHaveClass('text-foreground');
     });
 
-    it('EXCLUDED FROM #1047: the record button keeps its orange fill and outlined mic glyph', () => {
+    it('the record button keeps its orange fill and shows a PLAIN mic (no muted slash)', () => {
         const { container } = render(<LiveRecordingCard {...defaultProps} />);
 
         const record = screen.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
@@ -75,9 +75,10 @@ describe('LiveRecordingCard — #1047', () => {
         expect(record).not.toHaveClass('bg-destructive');
         expect(record).toHaveAttribute('aria-label', 'Start Recording');
 
-        // The OUTLINED mic: the lucide mic plus the diagonal slash overlay, unchanged.
+        // #1046 slice 0.1: a PLAIN mic — the diagonal slash overlay is GONE (a slashed mic reads as
+        // "muted/unavailable", the opposite of a ready Start control).
         expect(container.querySelector('.lucide-mic')).not.toBeNull();
-        expect(record.querySelector('.-rotate-45')).not.toBeNull();
+        expect(record.querySelector('.-rotate-45')).toBeNull();
     });
 });
 
