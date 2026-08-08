@@ -492,7 +492,8 @@ describe('Navigation', () => {
             authed();
             renderNavigation('/analytics');
             const icons = primaryNav().querySelectorAll('svg');
-            expect(icons.length).toBe(3);
+            // Home, Session, Analytics, FAQ (#1200) — one decorative icon per primary section.
+            expect(icons.length).toBe(4);
             icons.forEach((icon) => expect(icon).toHaveAttribute('aria-hidden', 'true'));
         });
     });
