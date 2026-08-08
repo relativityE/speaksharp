@@ -10,9 +10,10 @@
  * (Freeform teal / Objective violet), the routing, and the telemetry for BOTH states, so the two surfaces
  * cannot drift apart on what the buttons actually do.
  *
- * Rough Drafts is the only working product; its action navigates to the unchanged /session (authed) or
- * through account access preserving /session intent (anonymous), and never auto-starts recording. Objective
- * Rehearsal is "Coming Soon!" with a real "Notify me" pre-launch interest capture (ObjectiveNotifyDialog).
+ * Both products are live. Open Floor navigates to the unchanged /session (authed) or through account
+ * access preserving the /session intent (anonymous), never auto-starting recording. Focus Points (#1046
+ * slice 5b) opens the capture form (ObjectiveSetupDialog) for authed users, binds the saved brief, and
+ * routes into the session; anonymous users go through sign-up first (the brief RPCs require auth).
  */
 
 import React from 'react';
@@ -29,13 +30,13 @@ import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext
 import { AuthenticatedHome } from '@/components/practice/AuthenticatedHome';
 import { PRODUCT_NAMES } from '@/constants/productNames';
 import { useHomeStreak } from '@/components/practice/useHomeStreak';
-import { ObjectiveNotifyDialog } from '@/components/practice/ObjectiveNotifyDialog';
-import { GUIDED_WAITLIST_ENABLED } from '@/config/env';
+import { ObjectiveSetupDialog } from '@/components/practice/ObjectiveSetupDialog';
+import { useSessionStore } from '@/stores/useSessionStore';
 import { useRecentPracticeSummary } from '@/hooks/useRecentPracticeSummary';
 import type { PracticeSurface } from '@/services/pageContext';
 import {
   trackPracticeEntryViewed, trackPracticeModeSelected,
-  trackFreeformPracticeStarted, trackObjectiveUnavailable,
+  trackFreeformPracticeStarted,
 } from '@/services/practiceTelemetry';
 
 // Exact brand-teal ramp (spec): brand teal #0d7d74 for CTA fills / tagline / glyphs / border; header band is
@@ -148,7 +149,6 @@ export default function PracticePage() {
   const navigate = useNavigate();
   const { user } = useAuthProvider();
   const isAuthed = !!user;
-  const accountEmail = (user as { email?: string } | null | undefined)?.email ?? '';
   const { setSurface } = usePracticeSurface();
   // #1042 PR4: narrow recent-session read (authed only; the hook is disabled without a user).
   const { data: recentSessions, isLoading: recentLoading, error: recentError } = useRecentPracticeSummary();
@@ -159,7 +159,7 @@ export default function PracticePage() {
   const { streak: homeStreak, loading: homeStreakLoading } = useHomeStreak(user?.id ?? null);
   // Objective selection marks the Report Issue surface; the "Notify me" dialog is the real interest capture.
   const [objectiveSelected, setGuidedSelected] = React.useState(false);
-  const [notifyOpen, setNotifyOpen] = React.useState(false);
+  const [objectiveSetupOpen, setObjectiveSetupOpen] = React.useState(false);
   const returning = React.useRef(false);
 
   React.useEffect(() => {
@@ -200,12 +200,24 @@ export default function PracticePage() {
     else navigate('/auth/signup', { state: { from: { pathname: '/session', search: '?trial=private' } } });
   };
 
-  // Objective "Notify me": open the real pre-launch interest dialog; content-free telemetry only. No nav.
-  const openNotify = () => {
-    setGuidedSelected(true);
+  // #1046 slice 5b: Focus Points is ACTIVATED. Authed users set their points in a modal, then route
+  // into the session; anonymous users go to sign-up first (the brief RPCs require auth). Content-free
+  // telemetry only.
+  const startObjective = () => {
     trackPracticeModeSelected('objective', 'landing_card');
-    trackObjectiveUnavailable();
-    setNotifyOpen(true);
+    if (isAuthed) {
+      setObjectiveSetupOpen(true);
+    } else {
+      navigate('/auth/signup', { state: { from: { pathname: '/practice' } } });
+    }
+  };
+
+  // A saved brief binds to the store and routes into the session; the stop seam then finalizes per-point
+  // coverage (slice 5a). setActiveObjectiveBrief is CONSUMED at the stop seam, so binding here is safe.
+  const handleObjectiveReady = ({ briefId, projectId }: { briefId: string; projectId: string }) => {
+    useSessionStore.getState().setActiveObjectiveBrief({ projectId, briefId });
+    setObjectiveSetupOpen(false);
+    navigate('/session');
   };
 
   const freestyleCard = (
@@ -218,9 +230,9 @@ export default function PracticePage() {
   const guidedCard = (
     <ModeCard vars={OBJECTIVE_VARS} art={<ObjectiveArt />} title={PRODUCT_NAMES.objective}
       promise="Prepare the points that must land."
-      bullets={OBJECTIVE_BULLETS} cornerBadge="SOON"
-      ctaLabel="Notify me at launch" ctaNote ctaAria={`Notify me about ${PRODUCT_NAMES.objective}`}
-      onClick={openNotify} testid="practice-card-objective" />
+      bullets={OBJECTIVE_BULLETS}
+      ctaLabel="Start your session" ctaAria={`Start ${PRODUCT_NAMES.objective}`}
+      ctaSolid onClick={startObjective} testid="practice-card-objective" />
   );
   const productGrid = (
     <div className="grid grid-cols-1 items-stretch gap-7 md:grid-cols-2">{freestyleCard}{guidedCard}</div>
@@ -236,7 +248,7 @@ export default function PracticePage() {
       streak={homeStreak}
       streakLoading={homeStreakLoading}
       onStartFreeform={startFreeform}
-      onNotifyObjective={openNotify}
+      onStartObjective={startObjective}
       onReviewLastSession={() => { if (lastSession) navigate(`/analytics/${lastSession.id}`); }}
       onViewAnalytics={() => navigate('/analytics')}
     />
@@ -247,12 +259,10 @@ export default function PracticePage() {
       // App.tsx owns the single <main id="main-content"> landmark; this is a plain content container.
       <div className="practice-root ss-landing-canvas min-h-screen font-sans antialiased" data-testid="practice-root">
         <div className="practice-content">{authenticatedHome}</div>
-        <ObjectiveNotifyDialog
-          open={notifyOpen}
-          onOpenChange={setNotifyOpen}
-          source="authenticated_practice"
-          defaultEmail={accountEmail}
-          enabled={GUIDED_WAITLIST_ENABLED}
+        <ObjectiveSetupDialog
+          open={objectiveSetupOpen}
+          onOpenChange={setObjectiveSetupOpen}
+          onReady={handleObjectiveReady}
         />
       </div>
     );
@@ -307,14 +317,6 @@ export default function PracticePage() {
           {productGrid}
         </div>
       </div>
-
-      <ObjectiveNotifyDialog
-        open={notifyOpen}
-        onOpenChange={setNotifyOpen}
-        source="anonymous_landing"
-        defaultEmail=""
-        enabled={GUIDED_WAITLIST_ENABLED}
-      />
     </div>
   );
 }

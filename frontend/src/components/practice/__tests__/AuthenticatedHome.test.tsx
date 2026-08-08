@@ -33,7 +33,7 @@ function renderHome(overrides: Partial<React.ComponentProps<typeof Authenticated
         streak: { state: 'active', count: 4, lastQualifyingDate: '2026-07-30', timezone: 'America/New_York' } as PracticeStreak,
         streakLoading: false,
         onStartFreeform: vi.fn(),
-        onNotifyObjective: vi.fn(),
+        onStartObjective: vi.fn(),
         onReviewLastSession: vi.fn(),
         onViewAnalytics: vi.fn(),
         ...overrides,
@@ -52,7 +52,7 @@ describe('AuthenticatedHome — the page asks two questions (#1047)', () => {
         expect(screen.getByRole('heading', { name: new RegExp(`^${PRODUCT_NAMES.freeform}$`) })).toBeInTheDocument();
         expect(screen.getByRole('heading', { name: /^Focus Points$/ })).toBeInTheDocument();
         expect(screen.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start your session/i);
-        expect(screen.getByTestId('practice-card-objective')).toHaveAccessibleName(/notify me about focus points/i);
+        expect(screen.getByTestId('practice-card-objective')).toHaveAccessibleName(/start focus points/i);
     });
 
     it('carries NO marketing copy — no tagline, no peach hero, no bullet pitch', () => {
@@ -69,18 +69,15 @@ describe('AuthenticatedHome — the page asks two questions (#1047)', () => {
         for (const testid of ['practice-card-freeform-card', 'practice-card-objective-card']) {
             expect(within(screen.getByTestId(testid)).getByText(/what to expect/i)).toBeInTheDocument();
         }
-        // Exact strings: "Notify me at launch" (the CTA) must not satisfy the trailing-text assertion.
         expect(within(screen.getByTestId('practice-card-freeform-card')).getByText('in ~5 min')).toBeInTheDocument();
-        expect(within(screen.getByTestId('practice-card-objective-card')).getByText('at launch')).toBeInTheDocument();
+        expect(within(screen.getByTestId('practice-card-objective-card')).getByText('every session')).toBeInTheDocument();
     });
 
-    it('the SOON pill is a flex sibling of the Objective title, inside the coloured band', () => {
+    it('Focus Points is ACTIVATED (#1046 slice 5b) — no "SOON" pill on the Objective card', () => {
         renderHome();
-        const badge = screen.getByTestId('objective-soon-badge');
-        expect(badge).toHaveTextContent('SOON');
-        expect(badge.className).not.toMatch(/absolute/);
-        // Title and pill share a parent, so the pill cannot overlap the title at any width.
-        expect(badge.parentElement).toContainElement(screen.getByRole('heading', { name: /^Focus Points$/ }));
+        // The pre-launch badge is gone now that the card opens the real capture flow.
+        expect(screen.queryByTestId('objective-soon-badge')).not.toBeInTheDocument();
+        expect(within(screen.getByTestId('practice-card-objective-card')).queryByText('SOON')).not.toBeInTheDocument();
     });
 
     it('routes each choice to its own handler', () => {
@@ -88,7 +85,7 @@ describe('AuthenticatedHome — the page asks two questions (#1047)', () => {
         fireEvent.click(screen.getByTestId('practice-card-freeform'));
         expect(props.onStartFreeform).toHaveBeenCalledTimes(1);
         fireEvent.click(screen.getByTestId('practice-card-objective'));
-        expect(props.onNotifyObjective).toHaveBeenCalledTimes(1);
+        expect(props.onStartObjective).toHaveBeenCalledTimes(1);
         fireEvent.click(screen.getByTestId('home-analytics'));
         expect(props.onViewAnalytics).toHaveBeenCalledTimes(1);
     });
@@ -285,8 +282,11 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
 describe('AuthenticatedHome — accessibility & layout', () => {
     it('decorative graphics are hidden from assistive tech', () => {
         const { container } = renderHome();
-        const motif = screen.getByTestId('home-band-motif');
-        expect(motif).toHaveAttribute('aria-hidden', 'true');
+        // Both product cards now carry the decorative band waveform (#1046 5b: the Objective card's SOON
+        // pill is gone, so it shows the same motif as Freeform). Every instance must be aria-hidden.
+        const motifs = screen.getAllByTestId('home-band-motif');
+        expect(motifs.length).toBeGreaterThanOrEqual(2);
+        for (const motif of motifs) expect(motif).toHaveAttribute('aria-hidden', 'true');
         // Every SVG-ish glyph square is aria-hidden; no decorative node is exposed.
         for (const icon of Array.from(container.querySelectorAll('svg'))) {
             const hiddenAncestor = icon.closest('[aria-hidden="true"]');

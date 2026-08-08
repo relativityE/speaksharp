@@ -310,14 +310,14 @@ export interface AuthenticatedHomeProps {
      *  stays hidden until an active >=2-day streak resolves (no skeleton, no premature label). */
     streakLoading: boolean;
     onStartFreeform: () => void;
-    onNotifyObjective: () => void;
+    onStartObjective: () => void;
     onReviewLastSession: () => void;
     onViewAnalytics: () => void;
 }
 
 export function AuthenticatedHome({
     lastSession, recentLoading, recentFailed, streak, streakLoading,
-    onStartFreeform, onNotifyObjective, onReviewLastSession, onViewAnalytics,
+    onStartFreeform, onStartObjective, onReviewLastSession, onViewAnalytics,
 }: AuthenticatedHomeProps) {
     const last = lastSessionView(lastSession, { loading: recentLoading, failed: recentFailed });
     // The chip is shown ONLY for an active >=2-day streak. Loading, unavailable, lapsed, zero and
@@ -440,13 +440,12 @@ export function AuthenticatedHome({
                     accent="violet"
                     eyebrow="Hit your points"
                     title={PRODUCT_NAMES.objective}
-                    soon
-                    expectTrailing="at launch"
+                    expectTrailing="every session"
                     tiles={objectiveTiles}
                     reassurance="Set your points, rehearse until they land"
-                    ctaLabel="Notify me at launch"
-                    ctaAria={`Notify me about ${PRODUCT_NAMES.objective}`}
-                    onCta={onNotifyObjective}
+                    ctaLabel="Set your focus points"
+                    ctaAria={`Start ${PRODUCT_NAMES.objective}`}
+                    onCta={onStartObjective}
                     testid="practice-card-objective"
                 />
             </div>
