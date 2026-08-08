@@ -31,10 +31,14 @@ export function PracticeOnramp({ className = '' }: { className?: string }) {
   const showSample = () => { const n = getNextSample(sampleIdx); setSampleIdx(n.index); setView('sample'); };
 
   return (
-    // Fixed, top-center, non-modal: the empty wrapper lets clicks pass through to the mic/transcript;
-    // only the card is interactive (pointer-events-auto). z-40 sits below the app nav (z-50).
+    // Below lg: render IN-FLOW (relative, full width) so the card takes its own vertical space and never
+    // overlaps the recorder/mode-selector on narrow screens — the fixed overlay was intercepting pointer
+    // events on the mic controls at 320-390px (worsened once the at-rest status bar was removed, which
+    // moved the recorder up under it). At lg+ it becomes the non-modal floating aid: the empty wrapper is
+    // pointer-events-none so clicks pass through to the mic/transcript; only the card is interactive. z-40
+    // sits below the app nav (z-50).
     <div
-      className={`pointer-events-none fixed top-[76px] z-40 w-[min(560px,calc(100vw-1.5rem))] right-[max(0.75rem,calc((100vw-80rem)/2+1.5rem))] ${className}`}
+      className={`relative mb-4 w-full lg:pointer-events-none lg:fixed lg:top-[76px] lg:z-40 lg:mb-0 lg:w-[min(560px,calc(100vw-1.5rem))] lg:right-[max(0.75rem,calc((100vw-80rem)/2+1.5rem))] ${className}`}
     >
       <section
         data-testid="practice-onramp"
