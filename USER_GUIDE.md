@@ -82,4 +82,4 @@ Early tester access is automatic for new accounts.
 
 ---
 
-*Need more help? Join our community or contact support at support@speaksharp.app.*
+*Need more help? Use the in-app **Report issue** action to reach us.*

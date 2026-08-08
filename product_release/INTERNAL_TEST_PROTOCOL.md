@@ -129,7 +129,7 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
   It clears browser model storage, creates a fresh account, prepares Private STT, records,
   stops, and verifies save/history like a first-time tester.
 - This suite owns its own cleanup (fresh account is deleted in `afterEach`). The reusable
-  live-test accounts (`*-reuse@speaksharp.app`) are intentional and must **not** be deleted by
+  live-test accounts (`*-reuse@example.com`) are intentional and must **not** be deleted by
   hygiene tooling. Confirm persistent `auth.users` Δ = 0 around any live run.
 
 ---

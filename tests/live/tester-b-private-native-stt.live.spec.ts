@@ -115,7 +115,7 @@ function makeTesterAccount(label: SttMode) {
   // residue). The Pro/trial state is mocked client-side via __E2E_DEPS__, so the account only needs
   // to exist and sign in; no DB provisioning required.
   return {
-    email: `tester-b-${label}-reuse@speaksharp.app`,
+    email: `tester-b-${label}-reuse@${process.env.LIVE_TEST_EMAIL_DOMAIN ?? 'example.com'}`,
     password: process.env.TESTER_B_REUSE_PASSWORD ?? 'SpeakSharpTesterB-Reuse!Aa9',
   };
 }

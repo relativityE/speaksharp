@@ -108,7 +108,7 @@ test.describe('Private-sample telemetry — live app wiring @live', () => {
         });
 
         const unique = `${Date.now()}-${process.env.GITHUB_RUN_ID ?? 'local'}`;
-        const email = `private-sample-telemetry-${unique}@speaksharp.app`;
+        const email = `private-sample-telemetry-${unique}@${process.env.LIVE_TEST_EMAIL_DOMAIN ?? 'example.com'}`;
         const password = `SpeakSharpSample-${unique}!`;
         createdEmail = email;
 

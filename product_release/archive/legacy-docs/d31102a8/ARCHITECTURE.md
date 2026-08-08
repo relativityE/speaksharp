@@ -1433,7 +1433,7 @@ Canary tests (`tests/canary/*.spec.ts`) are specialized smoke tests that run aga
    - The `canaryLogin` helper in `tests/canary/smoke.canary.spec.ts` uses these credentials to perform a real login against the live Supabase project.
 5. **Execution**: Playwright runs the tests using the `playwright.canary.config.ts`, which targets the local Vite server but communicates with the live backend.
 6. **Safety Mechanism**: If `CANARY_PASSWORD` is not detected in the environment, the tests will automatically skip using `test.skip()` to prevent false failures in local development environments where secrets aren't present.
-7. **Debuggable Users**: Automated cleanup (previously `cleanup-canary.mjs`) has been removed as of 2026-02-09. Instead, each run uses a unique email (`canary-${run_id}@speaksharp.app`) and persists the user in the database to allow for post-run forensic debugging.
+7. **Debuggable Users**: Automated cleanup (previously `cleanup-canary.mjs`) has been removed as of 2026-02-09. Instead, each run uses a unique email (`canary-${run_id}@example.com`) and persists the user in the database to allow for post-run forensic debugging.
 
 **Workflow Visualization:**
 ```mermaid
@@ -1891,7 +1891,7 @@ stripe listen --forward-to localhost:5173/api/webhook
 ```
 
 **Why Needed:**
-- Production: Stripe sends webhooks to `https://speaksharp.app/api/webhook`
+- Production: Stripe sends webhooks to `https://[third-party origin redacted #1148]/api/webhook` (historical: the unowned third-party host)
 - Local: Stripe cannot reach `localhost:5173` directly
 - Solution: CLI creates tunnel: `Stripe Cloud → stripe listen → localhost`
 
@@ -3106,7 +3106,7 @@ Maintainers should consult the ROADMAP.md Tech Debt sections before starting maj
 
 **What it does:**
 1. **Provisioning:** Runs `scripts/provision-canary.mjs` (derived from `setup-test-users.mjs`) which:
-     - Idempotently creates/updates `canary-user@speaksharp.app`
+     - Idempotently creates/updates `canary-user@example.com`
      - Enforces PRO tier (`subscription_status: 'pro'`)
      - Verifies login capability before test runs
 2. **Execution:** Runs `tests/e2e/canary/smoke.canary.spec.ts` using `CANARY_EMAIL`/`CANARY_PASSWORD` env vars.
@@ -3127,7 +3127,7 @@ Maintainers should consult the ROADMAP.md Tech Debt sections before starting maj
 - `CANARY_PASSWORD` (**Required** - no default)
 
 **Environment Variables (Hardcoded Defaults):**
-- `CANARY_EMAIL`: `canary-user@speaksharp.app` (default, not a secret)
+- `CANARY_EMAIL`: `canary-user@example.com` (default, not a secret)
 
 **Troubleshooting:**
 ```bash
@@ -3162,7 +3162,7 @@ gh run view $RUN_ID --log-failed
 - Use `gh` commands instead for canary validation
 
 **Known Issue / Tech Debt:**
-- `CANARY_EMAIL` is hardcoded as `canary-user@speaksharp.app` (not configurable via secret)
+- `CANARY_EMAIL` is hardcoded as `canary-user@example.com` (not configurable via secret)
 - Schedule trigger is commented out pending stability validation
 
 **Design Origins:**
@@ -3182,7 +3182,7 @@ The canary test was architected by combining patterns from two proven systems:
 > `CANARY_PASSWORD` is the **lynchpin secret** required for canary tests. Without it, both provisioning and testing will fail immediately.
 
 The secret is used in two places:
-1. **Provisioning:** Sets/updates the password for `canary-user@speaksharp.app` in Supabase
+1. **Provisioning:** Sets/updates the password for `canary-user@example.com` in Supabase
 2. **Testing:** Logs in as the canary user to validate the critical path
 
 To add the secret: **Settings → Secrets and variables → Actions → New repository secret** → Name: `CANARY_PASSWORD`

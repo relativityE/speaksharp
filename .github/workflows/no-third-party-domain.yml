@@ -1,0 +1,30 @@
+name: "No third-party domain (zero-reference guard)"
+
+# #1148 — fails CI if any tracked text file reintroduces the third-party, unaffiliated domain the Product
+# Owner determined is not owned by or affiliated with SpeakSharp. Case-insensitive, incl. www/sub-domains and
+# common URL/HTML dot encodings. The scanner + contract test never contain the forbidden contiguous string.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: no-third-party-domain-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: "zero-reference scan"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Scan tracked text for the forbidden domain
+        run: node scripts/no-third-party-domain-scan.mjs

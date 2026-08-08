@@ -43,7 +43,10 @@ jobs:
           # create-or-sync pattern) instead of minting a new canary-* user each run and bloating
           # auth.users. The job concurrency guard above (one run per ref, cancel-in-progress) already
           # prevents overlapping runs, so a fixed email is safe.
-          CANARY_EMAIL: canary@speaksharp.app
+          # #1148: the canary identity is INJECTED as a repository variable (not hard-coded) — the prior
+          # value used an unowned third-party domain and is recorded for the #1146 cleanup. `vars.CANARY_EMAIL`
+          # must be configured; if absent the provision/smoke step fails closed rather than using a domain.
+          CANARY_EMAIL: ${{ vars.CANARY_EMAIL }}
           # Ceiling guard: at most CANARY_MAX canary-like accounts may exist (reuse, never accumulate).
           # The legacy canary-<runid> residue has been deleted, so this is now fail-closed: if a stray
           # canary-* account ever reappears (count > 1), the canary job hard-fails to surface it.
@@ -56,7 +59,7 @@ jobs:
           VITE_TEST_MODE: "true"
           VITE_USE_LIVE_DB: "true"
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
-          CANARY_EMAIL: canary@speaksharp.app
+          CANARY_EMAIL: ${{ vars.CANARY_EMAIL }} # #1148: injected repo var, not a hard-coded domain
           BASE_URL: https://speaksharp-public.vercel.app/
           # #1106 deploy-race gate: the commit this run was triggered from. The canary must confirm the
           # deployed build (window.__APP_RELEASE__) equals this SHA BEFORE it asserts product behavior —
@@ -76,6 +79,9 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CANARY_MAX: '1'
           CANARY_ENFORCE: fail
+          # #1148 P1: exact, injected legacy canary identities explicitly deferred to the #1146 cleanup — NOT
+          # counted against CANARY_MAX (they would otherwise fail every run) but reported as sanitation debt.
+          CANARY_CEILING_EXCLUDE: ${{ vars.CANARY_CEILING_EXCLUDE }}
         run: node scripts/canary-ceiling.mjs
 
       - name: Upload Test Results

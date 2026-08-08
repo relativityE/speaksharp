@@ -1,0 +1,101 @@
+#!/usr/bin/env node
+// #1148 — zero-reference scanner for the third-party, unaffiliated domain the Product Owner determined
+// is NOT owned by or affiliated with SpeakSharp. Fails CI if any tracked text file reintroduces it.
+//
+// DENY/ALLOW authority model (generic — NOT competitor-specific business logic):
+//   - DENY: the SpeakSharp brand token immediately followed by a dot-then-TLD, in any case, including
+//     `www`/sub-domain prefixes and common URL/HTML encodings of the dot. The forbidden host is the brand
+//     directly joined to the TLD.
+//   - ALLOW: the approved release-proof authority `speaksharp-public.vercel.app` (brand + `-public.vercel.`
+//     + TLD) never matches, because DENY requires the brand IMMEDIATELY followed by the dot+TLD.
+//
+// This file is itself scanned. It deliberately NEVER contains the forbidden contiguous string: the pattern
+// is assembled from fragments at runtime, so the scanner cannot flag itself.
+
+import { execSync } from 'node:child_process';
+import { readFileSync, lstatSync, readlinkSync } from 'node:fs';
+
+const BRAND = 'speak' + 'sharp';   // SpeakSharp brand token (also present, legitimately, in the approved host)
+const TLD = 'a' + 'pp';            // the third-party TLD
+// The dot between brand and TLD, in every form it can hide in tracked text:
+//   - a plain dot `.`
+//   - a regex-source ESCAPED dot `\.` (how the domain hid inside a RegExp literal, evading the naive audit)
+//   - URL/HTML encodings: %2e, &#46;, &#x2e;
+//     JavaScript string escapes for the dot: . (unicode) and \x2e (hex) — an executable hostname could
+//     be assembled from the brand + one of these + the TLD. Matched literally; the `i` flag covers case.
+const DOT = '(?:\\\\?\\.|%2e'
+    + '|&#0*46;?'         // HTML decimal, incl. leading-zero AND semicolonless forms (&#46; / &#046; / &#46)
+    + '|&#x0*2e;?'        // HTML hex, incl. leading-zero/case AND semicolonless forms (&#x2e; / &#x02e; / &#x2e)
+    + '|&period;?'        // named HTML entity, incl. semicolonless (&period)
+    + '|\\\\u002e'        // JS 4-hex unicode escape (.)
+    + '|\\\\u\\{0*2e\\}'  // JS ES6 code-point escape (\u{2e} / \u{02e})
+    + '|\\\\x2e'          // JS hex escape (\x2e)
+    + ')';
+// DENY = brand immediately followed by dot+TLD. `www.`/`alpha.` prefixes still contain this substring, so
+// they are caught; the approved `-public.vercel.` host does not (brand is not immediately followed by the dot).
+export const FORBIDDEN = new RegExp(BRAND + DOT + TLD, 'i');
+export const FORBIDDEN_GLOBAL = new RegExp(BRAND + DOT + TLD, 'ig');
+
+/** Return every matching substring in `text` (empty array = clean). */
+export function scanText(text) {
+    const m = text.match(FORBIDDEN_GLOBAL);
+    return m ? [...m] : [];
+}
+
+// --- Binary / non-text exclusions: we scan tracked TEXT only. ---
+const BINARY_EXT = new Set([
+    'wav', 'mp3', 'ogg', 'flac', 'm4a', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'pdf', 'zip', 'gz',
+    'tgz', 'br', 'woff', 'woff2', 'ttf', 'eot', 'onnx', 'bin', 'wasm', 'node', 'mp4', 'webm', 'avif',
+]);
+function looksBinary(buf) {
+    const n = Math.min(buf.length, 8000);
+    for (let i = 0; i < n; i++) if (buf[i] === 0) return true; // NUL byte → treat as binary
+    return false;
+}
+
+function trackedFiles() {
+    return execSync('git ls-files -z', { encoding: 'buffer' })
+        .toString('utf8').split('\0').filter(Boolean);
+}
+
+function main() {
+    const offenders = [];
+    for (const file of trackedFiles()) {
+        // #1148: scan the tracked PATH/filename itself first — a directory or file name can carry the
+        // forbidden domain regardless of the file's content type (binary included), so this runs before the
+        // binary-content skip below.
+        if (FORBIDDEN.test(file)) offenders.push(`${file} (path)`);
+        let text;
+        try {
+            // #1150: for a tracked SYMLINK, scan the tracked BLOB — the link's target TEXT — WITHOUT
+            // dereferencing it. readFileSync(symlink) would follow the link and scan the target file's
+            // contents instead, so a symlink whose stored target is the forbidden domain would slip through
+            // (and a broken link would be silently skipped). lstat + readlink read the blob directly.
+            if (lstatSync(file).isSymbolicLink()) {
+                text = readlinkSync(file);
+            } else {
+                const ext = (file.split('.').pop() || '').toLowerCase();
+                if (BINARY_EXT.has(ext)) continue;
+                const buf = readFileSync(file);
+                if (looksBinary(buf)) continue;
+                text = buf.toString('utf8');
+            }
+        } catch { continue; }
+        const hits = scanText(text);
+        if (hits.length) {
+            text.split('\n').forEach((line, i) => {
+                if (FORBIDDEN.test(line)) offenders.push(`${file}:${i + 1}`);
+            });
+        }
+    }
+    if (offenders.length) {
+        console.error(`[no-third-party-domain] FAIL — ${offenders.length} reintroduced reference(s) to the forbidden third-party domain (#1148):`);
+        for (const o of offenders) console.error(`  - ${o}`);
+        console.error('Remove them; route support to the in-app Report issue action and use the approved Vercel host / injected test identities.');
+        process.exit(1);
+    }
+    console.log('[no-third-party-domain] OK — zero references in tracked text.');
+}
+
+// Run as CLI only (so the contract test can import the matcher without scanning).
+if (process.argv[1] && process.argv[1].endsWith('no-third-party-domain-scan.mjs')) main();

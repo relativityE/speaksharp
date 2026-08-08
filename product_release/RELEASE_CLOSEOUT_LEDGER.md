@@ -107,7 +107,7 @@ Pre-onboarding production cleanup + recurring-drift fix. All deletes were gated 
 
 - **Removed:** 959 legacy `canary-<runid>` accounts; 227 + 29 + 17 test/promo residue across Phases 1/2/2b/2c/Pass A; 14 Stripe-proof test accounts (Pass B, after owner confirmed Stripe **test-mode**).
 - **Schema fix:** `usage_checkpoints.user_id` → `ON DELETE CASCADE` (migration `20260625120000`) so user deletes cascade; promo tables (`promo_attempts`/`promo_redemptions`, NO ACTION) handled by scoped per-id cleanup (no global cascade — they may carry budget meaning).
-- **Recurring-drift root cause fixed:** 5 live specs that minted a unique account every run now reuse stable `-reuse@speaksharp.app` accounts (`tester-b`, `private-decode-ab`, `private-longform`, `account-mutex`); `first-time-tester` keeps fresh-account behavior but deletes it via `afterEach` (#869 passed the missing service-role key into the job; the classifier KEEPs the `-reuse` convention so the stable accounts aren't re-flagged as residue). Canary is fail-closed `CANARY_MAX=1`.
+- **Recurring-drift root cause fixed:** 5 live specs that minted a unique account every run now reuse stable `-reuse@example.com` accounts (`tester-b`, `private-decode-ab`, `private-longform`, `account-mutex`); `first-time-tester` keeps fresh-account behavior but deletes it via `afterEach` (#869 passed the missing service-role key into the job; the classifier KEEPs the `-reuse` convention so the stable accounts aren't re-flagged as residue). Canary is fail-closed `CANARY_MAX=1`.
 
 ## Dev posture
 

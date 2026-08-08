@@ -78,7 +78,7 @@ A: Navigate to your **Settings** or click the **"Upgrade to Pro"** button in the
 
 If you've been provided with a **One-Time Code**, follow these steps to activate your account:
 
-1.  Navigate to the [Sign Up page](https://speaksharp-public.vercel.app/auth/signup). Production: Stripe sends webhooks to `https://speaksharp-public.vercel.app/api/webhook`
+1.  Navigate to the [Sign Up page](https://speaksharp-public.vercel.app/auth/signup). Production: Stripe sends webhooks to `https://[third-party origin redacted #1148]/api/webhook` (historical: the unowned third-party host)
 2.  Click the **"Pro Plan"** card.
 3.  Click the link that says **"Have a one-time 'pro' user promo code?"** below the password field.
 4.  Enter your 7-digit numeric code into the field.
@@ -88,4 +88,4 @@ If you've been provided with a **One-Time Code**, follow these steps to activate
 
 ---
 
-*Need more help? Join our community or contact support at support@speaksharp.app.*
+*Need more help? Use the in-app **Report issue** action to reach us.*

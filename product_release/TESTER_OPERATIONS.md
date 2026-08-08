@@ -80,7 +80,7 @@ Acceptance criteria for a "successful session" (save/history/detail, custom word
 - Run `.github/workflows/live-release-matrix.yml` with the first-time-tester / sample suite. It clears browser model storage, creates a fresh account, prepares Private STT, records, stops, and verifies save/history like a first-time tester.
 - **A green run does NOT prove the disposable account was deleted.** The suite attempts cleanup in `afterEach` (`deleteTesterByEmail` in `tests/live/first-time-tester-private-trial.live.spec.ts`), but it **does not check the `deleteUser` result and performs no post-delete verification** — its `catch` only `console.warn`s, and a missing service-role key skips deletion entirely with a warning. So a passing run can still leave a `first-time-tester-*` account in production.
 - **Therefore cleanup is only complete when proven by one of:** (a) a **scoped post-run orphan audit** confirming **zero** remaining `first-time-tester-*` accounts, or (b) a hardened suite that asserts a **zero-result lookup** for the created email after deletion. Until one of those runs, treat the account as **possibly orphaned** and record it. (Hardening the suite is tracked as an open item → `ROADMAP.md`.)
-- The reusable live-test accounts (`*-reuse@speaksharp.app`) are intentional and must **not** be deleted by hygiene tooling. Confirm persistent `auth.users` Δ = 0 around any live run.
+- The reusable live-test accounts (`*-reuse@example.com`) are intentional and must **not** be deleted by hygiene tooling. Confirm persistent `auth.users` Δ = 0 around any live run.
 - Record the run (ID, result) in `RELEASE_STATUS.md`; the dated artifact is indexed by `EVIDENCE_INDEX.md`. This proof does not become "current status" — it is point-in-time evidence.
 
 ---
