@@ -1,22 +1,11 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, Lock, Mic, Square, ChevronDown, Loader2 } from 'lucide-react';
+import { AlertCircle, Lock, Mic, Square, Loader2 } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuTrigger,
-    DropdownMenuRadioGroup,
-    DropdownMenuRadioItem,
-} from '@/components/ui/dropdown-menu';
 
 import { RuntimeState } from '@/services/SpeechRuntimeController';
-import { HelpPopover } from './HelpPopover';
-import { ModeDescriptionFlyout, STT_FLYOUT_ID } from './ModeDescriptionFlyout';
-import { PRIV_STT_MODELS, PRIV_STT } from '@/services/transcription/sttConstants';
 import { PRIVATE_SAMPLE_EVENTS, emitPrivateSample } from '@/services/transcription/privateSampleTelemetry';
-import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
 import { formatTrialAllotmentTitle, formatTrialRemainingTitle } from '@/utils/privateSampleDuration';
 
 
@@ -90,18 +79,12 @@ import { SESSION_SURFACE_CLASS } from '@/components/session/sessionSurface';
 const RECORDING_BAR_HEIGHTS = [6, 11, 16, 9, 13, 7, 14, 10, 12, 8] as const;
 
 // Compact ONE-LINE mode row. The per-mode description is NOT inlined here — hovering or keyboard-
-// focusing a row drives the SINGLE controlled ModeDescriptionFlyout (one bubble, disjoint from the
-// menu). No per-row tooltip elements.
-const STT_MODE_ITEM_CLASS =
-    'group relative py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground focus:bg-muted focus:text-foreground';
-
 const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     mode,
     isListening,
     isReady,
     canUsePrivate,
     isPaidProUser = canUsePrivate,
-    canUseCloudStt = canUsePrivate,
     privateTrialAvailable = false,
     privateTrialFresh = false,
     privateTrialRemainingSeconds = 0,
@@ -119,7 +102,6 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     isFinalizing = false,
     className = "",
     engineSelectionLocked = false,
-    pendingResolutionKind = null,
     onModeChange,
     onStartStop,
     onDownloadModel,
@@ -174,27 +156,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         emitPrivateSample(PRIVATE_SAMPLE_EVENTS.NUDGE_SELECTED);
         handleModeChange('private');
     };
-    // Truthful locked-state copy: say what is actually blocking and what resolves it — never a generic
-    // "recording in progress" when the real reason is an unsaved recording awaiting Retry Save/Discard.
-    const lockedReason =
-        pendingResolutionKind === 'initial_save' || pendingResolutionKind === 'full_save'
-            ? 'Save or discard your unsaved recording to change the transcription method'
-            : pendingResolutionKind === 'attribution'
-                ? 'Finish saving your last recording to change the transcription method'
-                : isListening
-                    ? 'Stop recording to change the transcription method'
-                    : 'Finish your current recording to change the transcription method';
-
-    // Single controlled description surface for the mode dropdown: one `activeMode` (the hovered/focused
-    // row) drives one ModeDescriptionFlyout. Mutually exclusive by construction — moving to another row
-    // just changes activeMode; leaving the menu or closing it clears it. NOT three separate bubbles.
-    const [menuOpen, setMenuOpen] = React.useState(false);
-    const [activeMode, setActiveMode] = React.useState<RecordingMode | null>(null);
-    const menuContentRef = React.useRef<HTMLDivElement>(null);
-    // The touch "About transcription modes" help and the mode dropdown are MUTUALLY EXCLUSIVE: at most
-    // one description/help surface exists at a time. Both are controlled here so opening one closes the
-    // other (and the flyout is already gated on menuOpen, so it hides whenever About opens).
-    const [aboutOpen, setAboutOpen] = React.useState(false);
+    // #1184: the STT selector is removed (Private is the only engine), so the locked-reason copy, the
+    // mode-dropdown state, and the flyout/About state that drove it are gone. Engine selection can no
+    // longer change, so there is nothing to lock or describe as switchable.
 
     // Deriving visibility and recording state from the master FSM + Intent
     // isIndicatorVisible: Shows the waveform when the engine is active OR initializing
@@ -307,42 +271,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         // must still win here; otherwise fall back to the idle wording.
         pillText = displayStatusMessage || 'Ready to record';
     }
-    const getModeLabel = (m: RecordingMode) => {
-        switch (m) {
-            case 'native': return 'Browser';
-            case 'private': return 'Private';
-            case 'cloud': return 'Cloud';
-        }
-    };
-    // #891 beta: individual Private recordings are capped (decode latency control). Surface it up front.
-    const privateCapSeconds = PRIV_STT.MAX_PRIVATE_RECORDING_SECONDS;
-    const privateCapLabel = privateCapSeconds % 60 === 0 ? `${privateCapSeconds / 60} minutes` : `${privateCapSeconds}s`;
-    const privateModeDescription = isPaidProUser
-        ? `Private transcription runs on your device after setup — audio processing stays local. During beta, each recording is capped at ${privateCapLabel} and saves automatically.`
-        : canUsePrivate
-            ? `Try one Private sample session — up to ${privateCapLabel} per recording during beta. Transcription runs on your device and stays local.`
-            : 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports.';
-    const cloudModeDescription = canUseCloudStt
-        ? 'Highest accuracy for Pro. Audio is sent for cloud transcription.'
-        : 'Cloud transcription is a paid Early Access feature.';
-    // Canonical per-mode descriptions shown as the dropdown option tooltip (revealed on hover /
-    // keyboard focus). Unlocked options use the approved copy — the same wording as the
-    // selected-mode help below; locked options keep their entitlement explanation.
-    const cloudOptionDesc = canUseCloudStt
-        ? 'Audio is sent to an external transcription server. Cloud is available for Pro users.'
-        : cloudModeDescription;
-    const nativeOptionDesc = "Uses your browser's speech recognition. Availability and accuracy vary by browser. Chrome recommended.";
-    // #1064: the concise privacy explanation for the AVAILABLE Private option (tooltip / About body /
-    // flyout). The operational details (beta cap, sample-session limit, auto-save, entitlement) stay in
-    // privateModeDescription — do NOT fold them into this sentence. When unavailable, fall back to the
-    // entitlement explanation so access restrictions remain readable.
-    const privateOptionDesc = canUsePrivate
-        ? 'Transcription runs on this device. Audio is not uploaded.'
-        : privateModeDescription;
-
-    // Short, scannable STT cue shown by default; the explanatory detail lives behind the accessible
-    // help affordance (hover/focus/click/tap), never as a large paragraph.
-    const modelSizeMB = PRIV_STT_MODELS.CANDIDATES[resolvePrivateModel()].approxMB;
+    // #1184: mode labels, per-mode descriptions, and the model-size note are removed with the selector —
+    // there is one engine (Private) and the header cue names it. The Private per-recording cap still
+    // applies at the engine level; it simply is no longer surfaced through the removed selector copy.
     // #1047: this label states DEVICE READINESS, not the engine name. It read "Browser" in native
     // mode, which both duplicated the mode pill sitting a few pixels to its right and quietly replaced
     // the demoted label the spec actually asked for. Cloud is the one case that must NOT say
@@ -360,43 +291,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         sttCue = 'Browser · on this device';
     }
 
-    // "About transcription modes" — a single, touch-friendly help surface that lists ALL THREE mode
-    // descriptions together, so someone can read about (e.g.) Cloud WITHOUT selecting it first. Same
-    // per-mode copy the desktop row tooltips use. This is informational only; the dropdown remains the
-    // sole mode-selection control. Rendered through the existing HelpPopover affordance (no new icon):
-    // opens on hover / keyboard-focus / click / tap, closes on Escape / outside click.
-    const aboutModesHelp = (
-        <div className="space-y-2.5" data-testid="stt-modes-about">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-foreground/50">About transcription modes</p>
-            <div>
-                <p className="font-semibold text-foreground">Private</p>
-                <p className="font-normal normal-case text-foreground/75" data-testid="stt-about-private">{privateOptionDesc}</p>
-                {isPrivateDownloadRequired && (
-                    <p className="mt-0.5 text-[11px] font-normal text-foreground/55" data-testid="private-model-size-note">
-                        {`One-time download of the on-device speech model (about ${modelSizeMB} MB). Your audio is transcribed in your browser and never uploaded. If site storage is cleared, setup may be required again.`}
-                    </p>
-                )}
-            </div>
-            <div>
-                <p className="font-semibold text-foreground">Browser</p>
-                <p className="font-normal normal-case text-foreground/75" data-testid="stt-about-native">{nativeOptionDesc}</p>
-            </div>
-            <div>
-                <p className="font-semibold text-foreground">Cloud — Pro</p>
-                <p className="font-normal normal-case text-foreground/75" data-testid="stt-about-cloud">{cloudOptionDesc}</p>
-            </div>
-        </div>
-    );
-
-    // Content for the single flyout, resolved from the active row (same per-mode copy as the About panel).
-    const activeFlyout = ((): { title: string; body: string } => {
-        switch (activeMode) {
-            case 'private': return { title: 'Private', body: privateOptionDesc };
-            case 'native': return { title: 'Browser', body: nativeOptionDesc };
-            case 'cloud': return { title: 'Cloud — Pro', body: cloudOptionDesc };
-            default: return { title: '', body: '' };
-        }
-    })();
+    // #1184: the "About transcription modes" help panel and the per-row flyout are removed with the
+    // selector — there are no modes to describe/choose. The header cue ("Private · on this device") + the
+    // sr-only privacy descriptor carry the engine's identity + privacy claim.
 
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
@@ -443,145 +340,24 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                         must NOT be `shrink-0`: the mode-select trigger inside is `w-full sm:w-auto`, so on
                         mobile it needs a wrapper that can take the remaining row width, or `w-full` would
                         resolve against a content-sized box and collapse the control. */}
+                    {/* #1184: Private is the ONLY STT — there is no engine choice, so the selector dropdown,
+                        the "About transcription modes" help, and the mode-description flyout are removed
+                        (Browser + Cloud are gone from the product). A compact, non-interactive indicator
+                        restates the engine truthfully beside the controls; the header cue above carries the
+                        full "Private · on this device" wording, and the privacy sentence stays available to
+                        screen readers via the persistent descriptor. */}
                     <div className="flex min-w-0 flex-1 flex-col items-end gap-1 sm:flex-none">
-                    <DropdownMenu open={menuOpen} onOpenChange={(o) => { setMenuOpen(o); if (o) setAboutOpen(false); if (!o) setActiveMode(null); }}>
-                        <DropdownMenuTrigger asChild disabled={selectionLocked}>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-10 w-full justify-center gap-1.5 rounded-md border border-border px-3.5 text-[11px] font-semibold text-foreground transition-all hover:bg-muted hover:text-foreground sm:w-auto"
-                                title={selectionLocked ? lockedReason : "Select mode"}
-                                aria-disabled={selectionLocked}
-                                data-locked={selectionLocked ? 'true' : 'false'}
-                                data-testid={TEST_IDS.STT_MODE_SELECT}
-                                data-state={mode}
-                            >
-                                <span className="text-primary">•</span>
-                                {getModeLabel(mode)}
-                                {!selectionLocked && <ChevronDown className="h-2.5 w-2.5 opacity-50" />}
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                            ref={menuContentRef}
-                            align="end"
-                            // opaque: the STT menu must stay fully opaque at EVERY frame of the open
-                            // transition — never let the mic/timer/status pill show through the fade.
-                            opaque
-                            className="w-56 max-w-[calc(100vw-2rem)]"
-                            onPointerLeave={() => setActiveMode(null)}
+                        <div
+                            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-border px-3.5 text-[11px] font-semibold text-foreground"
+                            data-testid={TEST_IDS.STT_MODE_SELECT}
+                            data-state="private"
+                            aria-describedby="stt-private-descriptor"
                         >
-                            {/* Private-first hierarchy (P0.2): Private (Stays local) → Browser → Cloud (Pro).
-                                ONLY Private carries the Stays local privacy descriptor. Rows are compact one-
-                                liners; hover / keyboard-focus sets a SINGLE activeMode that drives one
-                                ModeDescriptionFlyout (rendered below, disjoint from this menu) — mutually
-                                exclusive by construction, never per-row tooltip elements. */}
-                            <DropdownMenuRadioGroup value={mode} onValueChange={(v) => handleModeChange(v as RecordingMode)}>
-                                <DropdownMenuRadioItem
-                                    value="private"
-                                    className={STT_MODE_ITEM_CLASS}
-                                    data-testid={TEST_IDS.STT_MODE_PRIVATE}
-                                    disabled={!canUsePrivate}
-                                    onPointerEnter={() => setActiveMode('private')}
-                                    onFocus={() => setActiveMode('private')}
-                                    // #1064: accessible NAME stays "Private" (the method); "Stays local" + the approved
-                                    // privacy sentence are exposed as the accessible DESCRIPTION via the PERSISTENT
-                                    // stt-private-descriptor ONLY (never the flyout id) — so a focused screen reader
-                                    // hears the privacy explanation exactly once.
-                                    aria-describedby="stt-private-descriptor"
-                                >
-                                    <span className="flex items-center gap-1.5">
-                                        {/* #1064: FOUR distinct signals kept separate. Privacy ARCHITECTURE = a GREEN
-                                            OUTLINED lock, shown ONLY when Private is available; it must never read as the
-                                            muted "unavailable" lock. When unavailable, show ONLY the muted entitlement
-                                            lock (never two locks together) — access restriction is carried by the disabled
-                                            state + entitlement copy, not by the privacy lock. */}
-                                        {canUsePrivate
-                                            ? <Lock className="h-3 w-3 text-green-600 dark:text-green-500" aria-hidden="true" data-testid="stt-private-lock" />
-                                            : <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
-                                        Private
-                                        {/* #1064: privacy BENEFIT descriptor badge — the "Stays local" TEXT carries the
-                                            meaning (not color alone). Primary tint when available; muted when unavailable
-                                            so the privacy identity stays truthful even when access is restricted. Visual
-                                            only (aria-hidden): the accessible NAME stays exactly "Private"; "Stays local"
-                                            is announced via the persistent stt-private-descriptor (mirrors Browser / Quick
-                                            preview) so it is never doubled into the name. */}
-                                        <span
-                                            data-testid="stt-mode-tag-stays-local"
-                                            aria-hidden="true"
-                                            className={`ml-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${canUsePrivate ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}
-                                        >Stays local</span>
-                                    </span>
-                                </DropdownMenuRadioItem>
-                                <DropdownMenuRadioItem
-                                    value="native"
-                                    className={STT_MODE_ITEM_CLASS}
-                                    data-testid={TEST_IDS.STT_MODE_NATIVE}
-                                    onPointerEnter={() => setActiveMode('native')}
-                                    onFocus={() => setActiveMode('native')}
-                                    // #1041: accessible NAME stays "Browser" (the method); the "Quick preview" descriptor
-                                    // + approved explanation are exposed as the accessible DESCRIPTION via the PERSISTENT
-                                    // stt-native-descriptor ONLY. The visual flyout still renders on hover/focus, but its id
-                                    // is deliberately NOT added here — otherwise a focused screen reader would hear the same
-                                    // description twice (persistent descriptor + flyout).
-                                    aria-describedby="stt-native-descriptor"
-                                >
-                                    <span className="flex items-center gap-1.5">
-                                        Browser
-                                        {/* #1041: secondary descriptor badge for the Browser method — visual only
-                                            (aria-hidden); its text is announced via the accessible description above. */}
-                                        <span data-testid="stt-mode-tag-quick-preview" aria-hidden="true" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Quick preview</span>
-                                    </span>
-                                </DropdownMenuRadioItem>
-                                <DropdownMenuRadioItem
-                                    value="cloud"
-                                    className={STT_MODE_ITEM_CLASS}
-                                    data-testid={TEST_IDS.STT_MODE_CLOUD}
-                                    disabled={!canUseCloudStt}
-                                    onPointerEnter={() => setActiveMode('cloud')}
-                                    onFocus={() => setActiveMode('cloud')}
-                                    aria-describedby={activeMode === 'cloud' ? STT_FLYOUT_ID : undefined}
-                                >
-                                    <span className="flex items-center gap-1.5">
-                                        {!canUseCloudStt && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
-                                        Cloud
-                                        <span data-testid="stt-mode-tag-pro" className="ml-1 rounded bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Pro</span>
-                                    </span>
-                                </DropdownMenuRadioItem>
-                            </DropdownMenuRadioGroup>
-                            {/* #1041: the Browser option's accessible description — the "Quick preview" descriptor plus
-                                the approved explanation, available to screen readers without becoming part of the name. */}
-                            <span id="stt-native-descriptor" className="sr-only">{`Quick preview. ${nativeOptionDesc}`}</span>
-                            {/* #1064: the Private option's accessible description — "Stays local" plus the approved
-                                privacy sentence, exposed to screen readers as the description (not part of the name). */}
-                            <span id="stt-private-descriptor" className="sr-only">Stays local. Transcription runs on this device; audio is not uploaded.</span>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                    {/* Mode help lives BELOW the pill, not on the row with it. It is deliberately not
-                        deleted: it is the only touch-reachable way to read about a mode WITHOUT
-                        selecting it, and ten existing #1041/#1064 assertions require the trigger to be
-                        mounted without first opening the dropdown (see the PR body for the list), so
-                        folding it into the menu would remove a real accessibility affordance. */}
-                    <HelpPopover
-                        label="About transcription modes"
-                        testId="stt-mode-help"
-                        panelClassName="w-72"
-                        triggerSizeClass="h-9 w-9"
-                        open={aboutOpen}
-                        onOpenChange={(o) => { setAboutOpen(o); if (o) { setMenuOpen(false); setActiveMode(null); } }}
-                    >
-                        {aboutModesHelp}
-                    </HelpPopover>
+                            <Lock className="h-3 w-3 text-green-600 dark:text-green-500" aria-hidden="true" data-testid="stt-private-lock" />
+                            Private
+                        </div>
+                        <span id="stt-private-descriptor" className="sr-only">Stays local. Transcription runs on this device; audio is not uploaded.</span>
                     </div>
-                    {/* The ONE description surface. Disjoint from the menu, beside it, at most one at a time;
-                        suppressed (falls back to the About panel) when no non-overlapping side fits. */}
-                    <ModeDescriptionFlyout
-                        open={menuOpen && activeMode !== null}
-                        anchorRef={menuContentRef}
-                        mode={activeMode}
-                        title={activeFlyout.title}
-                        body={activeFlyout.body}
-                        avoidSelector='[data-testid="live-coaching-score-card"]'
-                    />
                 </div>
 
                 {/* #1047 conversion repair: the compact Free→Private trial nudge. This is the pre-save
