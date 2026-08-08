@@ -141,9 +141,14 @@ BEGIN
     IF v_src.engine IS NULL OR lower(v_src.engine) NOT LIKE 'private%' THEN
         RAISE EXCEPTION 'source recording is not a verified Private engine' USING errcode = '42501';
     END IF;
-    -- Freestyle-vs-Objective isolation: the recording must have been server-registered as a Objective source. A
-    -- verified-Private FREESTYLE recording (never registered) cannot attach — verified-Private alone is not
-    -- Objective intent.
+    -- Requires the recording to be server-registered in objective_source_recording (register_source is
+    -- service-role only, so a client cannot self-register). CORRECTION (2026-08-08): the prior comment
+    -- overstated this as "verified-Private alone is not Objective intent". In fact there is NO server-
+    -- verifiable objective/Freestyle "mode" — `sessions` has no such column, and register_source only
+    -- checks verified-Private + ownership, not intent. So this guard proves only "a service-role path
+    -- stamped this recording", NOT that it was recorded in Focus Points mode. The Open-Floor-vs-Focus-
+    -- Points separation therefore rests on server-side discipline: only stamp recordings that came through
+    -- the genuine Focus Points flow (see the objective-register-source Edge Function / its invoker).
     IF NOT EXISTS (SELECT 1 FROM public.objective_source_recording WHERE session_id = p_source_session_id AND user_id = v_uid) THEN
         RAISE EXCEPTION 'source recording is not registered for Objective (a Freestyle recording cannot attach)' USING errcode = '42501';
     END IF;
