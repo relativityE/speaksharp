@@ -74,7 +74,8 @@ test.describe('Core System Validation (Deterministic)', () => {
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
 
     // DOM-anchored deterministic assertion — no log scraping. #1184: Private is the only engine, so the
-    // resolved product mode is Private; the E2E bridge supplies the lightweight injected engine behind it.
+    // negotiator resolves Private end-to-end (in E2E the private engine is a mock stub, but it resolves as
+    // Private, not the retired native stub).
     await expect(page.locator('html')).toHaveAttribute('data-stt-mode', 'private');
     await expect(page.locator('html')).toHaveAttribute('data-stt-resolved-mode', 'private');
     await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'READY');
