@@ -1,0 +1,153 @@
+name: "SECURITY DEFINER classification (disposable Postgres)"
+
+# #1097 PR-A — read-only classification evidence, NOT a permanent CI system.
+#
+# Stands up throwaway `postgres` service containers, applies the classification prelude and then EVERY
+# committed migration under backend/supabase/migrations/*.sql (timestamp-prefixed files, in order) — VERBATIM
+# EXCEPT the single allowlisted RLS-policy normalization documented below (scripts/secdef-normalize-migration.mjs;
+# function / GRANT / REVOKE / table DDL is never transformed) — and runs the portable psql classification
+# matrix. It records, per SECURITY DEFINER function, the effective
+# EXECUTE authority (PUBLIC/anon/authenticated) and search_path (incl. pg_temp exposure) that the committed
+# migrations PRODUCE on the PostgreSQL major versions Supabase plausibly runs.
+#
+# Scope of the claim: this proves the effective privilege state produced by the committed migrations applied
+# to a real PostgreSQL. It does NOT read the hosted Supabase instance — that state is `deployed-unverified`
+# and requires a separately authorized read-only check. NOTHING is applied to any hosted database and no
+# production credential is used; there are no secrets in this workflow.
+#
+# VERSION MATRIX: the production PostgreSQL major version is not recorded in-repo, so this runs the plausible
+# Supabase range (15/16/17). Recording the production major in-repo would let this collapse to one job.
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/**'
+      - 'tests/db/secdef-classification-prelude.sql'
+      - 'tests/db/secdef-classification-matrix.sql'
+      - 'tests/db/secdef-normalize.contract.test.js'
+      - 'scripts/secdef-normalize-migration.mjs'
+      - '.github/workflows/secdef-classification.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: secdef-classification-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  classify:
+    name: "classify (postgres:${{ matrix.pg }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '16', '17']
+
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: disposable_ci_only
+          POSTGRES_DB: classify_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Disposable container on localhost. Not a credential of any real system.
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: disposable_ci_only
+      PGDATABASE: classify_test
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Install psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          psql --version
+
+      - name: Record server version
+        run: |
+          set -euo pipefail
+          {
+            echo "## postgres:${{ matrix.pg }}"
+            echo '```'
+            psql -Atc "select version()"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply the classification prelude (throwaway environment only)
+        run: psql -v ON_ERROR_STOP=1 -f tests/db/secdef-classification-prelude.sql
+
+      - name: Apply every committed migration (timestamp-prefixed, in order) — verbatim except allowlisted RLS-policy normalization
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          applied=0
+          # Only the canonical timestamped migrations, applied in filename order. Non-timestamped helper
+          # files (e.g. rotate_sessions.sql, test_usage_rpc.sql) are NOT part of the ordered migration set
+          # and are skipped; we log that explicitly rather than silently include or drop them.
+          for f in $(ls backend/supabase/migrations/*.sql | sort); do
+            base="$(basename "$f")"
+            # Supabase applies any `<digits>_name.sql` in filename order. Accept BOTH 14-digit
+            # (YYYYMMDDHHMMSS) and shorter 8-digit (YYYYMMDD) version prefixes — e.g.
+            # 20251217_add_webhook_idempotency.sql — while still skipping non-versioned helper files
+            # (rotate_sessions.sql, test_usage_rpc.sql) that Supabase itself would not apply.
+            if [[ ! "$base" =~ ^[0-9]{8,}_ ]]; then
+              echo "SKIP (not a versioned migration): $base"
+              continue
+            fi
+            echo "apply: $base"
+            # Function definitions and GRANT/REVOKE/table DDL are replayed VERBATIM. A deterministic ALLOWLIST
+            # (scripts/secdef-normalize-migration.mjs, proven by tests/db/secdef-normalize.contract.test.js)
+            # normalizes ONLY known historical RLS-policy DDL defects needed to construct the disposable
+            # classification database — nothing else is transformed. Any UNallowlisted migration is applied
+            # unchanged; if it then fails, ON_ERROR_STOP + `set -euo pipefail` FAIL CLOSED (never silently
+            # normalized). This disposable replay verifies the effective state the committed migrations
+            # PRODUCE — it does NOT verify the hosted Supabase instance.
+            norm="$(mktemp)"
+            node scripts/secdef-normalize-migration.mjs "$f" > "$norm"
+            psql -v ON_ERROR_STOP=1 -f "$norm"
+            rm -f "$norm"
+            applied=$((applied+1))
+          done
+          echo "applied $applied timestamped migrations verbatim (except the allowlisted RLS-policy normalization)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Run the SECURITY DEFINER classification matrix
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f tests/db/secdef-classification-matrix.sql 2>&1 | tee classify-output.txt
+          # The matrix RAISEs (→ non-zero under ON_ERROR_STOP) on any integrity/vacuity/discrimination
+          # failure; also assert the completion banner so a silently truncated run cannot read as a pass.
+          grep -q 'SECDEF CLASSIFICATION COMPLETE' classify-output.txt
+
+      - name: Publish classification evidence
+        if: always()
+        run: |
+          {
+            echo "### Classification output (postgres:${{ matrix.pg }})"
+            echo '```'
+            cat classify-output.txt 2>/dev/null || echo '(no output captured)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload classification artifact
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: secdef-classification-pg${{ matrix.pg }}
+          path: classify-output.txt
+          retention-days: 30
+          if-no-files-found: warn

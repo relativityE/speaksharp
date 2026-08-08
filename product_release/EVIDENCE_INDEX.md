@@ -134,6 +134,7 @@ These are dated proofs that live in interim files today and move under `evidence
 | `evidence/ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` (moves from root at closeout) | Dated entitlement audit: Pro daily/monthly cap reconciliation (policy constant vs deployed `tier_configs`), AI-quota verification, fail-closed guard checks. | `ENTITLEMENTS_AND_BILLING.md` (requirement) + `ROADMAP.md` (open ops) |
 | `product_release/SCA_EXCEPTIONS.md` — pinned-audit execution result (2026-07-15) | Dated SCA pinned-audit result + the single ignored advisory rationale. | `OPERATIONS_AND_SECURITY.md` |
 | `product_release/RELEASE_CLOSEOUT_LEDGER.md` — dated proof rows (§B doc-gap closures, §E DB-hygiene closeout) | Dated documentation-gap and DB-hygiene closeout records. | `ROADMAP.md` (open) + this index (dated) |
+| `product_release/evidence/1097-secdef-classification.md` — #1097 PR-A | SECURITY DEFINER function classification, verified by applying the committed migrations to a disposable Postgres (effective PUBLIC/anon/authenticated EXECUTE + `pg_temp` search_path per function). `source-applied; deployed-unverified` (hosted ACL is a separate credentialed check). | `OPERATIONS_AND_SECURITY.md` (security) + `#1141`/`#1128` roadmap (remediation risk → PR-B) |
 | Manual hardware evidence logs (captured per the `TESTER_OPERATIONS.md` run; e.g. dated Chrome physical-mic proof) | Real-device Native/Private hardware run logs (browser/version, spoken sentence, stop/save/history/analytics). | `QUALITY.md` (protocol) + `TESTER_OPERATIONS.md` (run) |
 
 ---
