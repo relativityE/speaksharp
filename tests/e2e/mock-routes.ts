@@ -544,6 +544,38 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
             body: JSON.stringify({ token: 'mock-assemblyai-token' }),
         });
     });
+
+    // --- #1046 Focus Points (objective) loop ---
+    // Registered AFTER the catch-all RPC handler so these specific handlers win. RPCs that return a
+    // scalar (project id / brief id / session id / evidence count) serialize the raw JSON value, matching
+    // how the client reads `data` directly (see objectiveBriefService / objectiveSessionService).
+    await registerRoute(page, /\/rest\/v1\/rpc\/issue_objective_project_v1(\?.*)?$/, async (route) => {
+        await route.fulfill({ status: 200, headers: SUPABASE_HEADERS, body: JSON.stringify('proj-e2e-1') });
+    });
+    await registerRoute(page, /\/rest\/v1\/rpc\/issue_objective_brief_v1(\?.*)?$/, async (route) => {
+        await route.fulfill({ status: 200, headers: SUPABASE_HEADERS, body: JSON.stringify('brief-e2e-1') });
+    });
+    await registerRoute(page, /\/rest\/v1\/rpc\/objective_start_session_v1(\?.*)?$/, async (route) => {
+        await route.fulfill({ status: 200, headers: SUPABASE_HEADERS, body: JSON.stringify('objsess-e2e-1') });
+    });
+    await registerRoute(page, /\/rest\/v1\/rpc\/objective_finalize_evidence_v1(\?.*)?$/, async (route) => {
+        await route.fulfill({ status: 200, headers: SUPABASE_HEADERS, body: JSON.stringify(2) });
+    });
+    // GET /rest/v1/objective_brief_point — the declared points, order preserved (matcher zips by index).
+    await registerRoute(page, /\/rest\/v1\/objective_brief_point(\?.*)?$/, async (route) => {
+        await route.fulfill({
+            status: 200,
+            headers: SUPABASE_HEADERS,
+            body: JSON.stringify([
+                { id: 'pt-1', label: 'Name the price', cue: 'nine ninety nine', sort_order: 0 },
+                { id: 'pt-2', label: 'Handle the objection', cue: 'too expensive', sort_order: 1 },
+            ]),
+        });
+    });
+    // Edge fn: objective-register-source → registered:true (register succeeds).
+    await registerRoute(page, /\/functions\/v1\/objective-register-source(\?.*)?$/, async (route) => {
+        await route.fulfill({ status: 200, headers: SUPABASE_HEADERS, body: JSON.stringify({ registered: true }) });
+    });
 }
 
 /**
