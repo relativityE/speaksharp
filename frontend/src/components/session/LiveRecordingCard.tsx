@@ -354,7 +354,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     } else if (mode === 'private' && isPrivateDownloadRequired) {
         sttCue = 'Private on-device';
     } else {
-        sttCue = 'Ready on this device';
+        sttCue = 'Mic ready on this device';
     }
 
     // "About transcription modes" — a single, touch-friendly help surface that lists ALL THREE mode
@@ -398,7 +398,10 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
             <div className={`${SESSION_SURFACE_CLASS} relative z-10 flex flex-col gap-2.5 p-4 surface-shadow-primary ${className}`} data-testid="live-recording-card">
-                <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+                {/* #1046 slice 0.2: the card HEADER is the status line the removed ambient bar used to
+                    carry — permission + device on the left, engine on the right — split from the mic
+                    cluster below by a hairline (matches the recorder-card mockup). */}
+                <div className="flex flex-col items-stretch gap-3 border-b border-[hsl(var(--border))] pb-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex min-w-0 items-start gap-2 sm:w-[min(100%,260px)]">
                         {isPrivateDownloadRequired && (
                             <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-primary">
@@ -406,15 +409,15 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             </div>
                         )}
                         <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
-                                {/* #1047: demoted to a quiet 13px/700 muted label. It used to be primary-orange
-                                    with a `?` icon beside it, which made a CARD LABEL compete with the card's
-                                    own content — and orange is reserved for meaningful accents (the record
-                                    button), not for naming things. The `?` moved off the label and next to the
-                                    mode selector, where mode help actually belongs; it is deliberately NOT
-                                    deleted, because it is the only touch-reachable way to read about a mode
-                                    without selecting it (#1041/#1064 accessibility). */}
-                                <span className="text-[13px] font-bold leading-snug text-muted-foreground" data-testid="stt-mode-cue">
+                            <div className="flex items-center gap-2">
+                                {/* #1046 slice 0.2: a small status dot carries the permission+device state
+                                    (green = mic ready). Cloud is the one case audio leaves the device — amber
+                                    there — so the dot never over-promises "on this device". */}
+                                <span
+                                    aria-hidden="true"
+                                    className={`h-2 w-2 shrink-0 rounded-full ${mode === 'cloud' ? 'bg-amber-500' : 'bg-[hsl(var(--session-green-deep))]'}`}
+                                />
+                                <span className="text-[13px] font-bold leading-snug text-foreground" data-testid="stt-mode-cue">
                                     {sttCue}
                                 </span>
                             </div>
