@@ -22,6 +22,7 @@ import { PRIV_STT } from '@/services/transcription/sttConstants';
 import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
+import { isPrivatePrimaryEnabled, resolveDefaultSttMode, sttFlagsReadyInitial, onSttFlagsReady } from '@/config/sttHierarchyFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 import {
@@ -84,16 +85,13 @@ export const useSessionLifecycle = () => {
     const setSTTMode = useSessionStore(state => state.setSTTMode);
     const sunsetModal = useSessionStore(state => state.sunsetModal);
     const setSunsetModal = useSessionStore(state => state.setSunsetModal);
-    // First-use trust fix (paid soft launch, Option A): fresh/default sessions start
-    // on the instant Browser/Native path so a new user never hits the Private model-
-    // setup wall before their first transcript. Private stays available as an explicit
-    // #1184 Private-primary default is deferred to the #1120 flag/E2E-override mechanism: an
-    // unconditional flip ripples across e2e (pro-defaults-Browser smokes; free-sample users would be
-    // auto-defaulted into Private, burning the sample instead of opting in via the nudge) and E2E
-    // Private recording isn't deterministic without that override. Kept native here; the truthful
-    // "● Private" header still renders whenever the engine IS private (engine-named cue below). No
-    // mode persistence.
-    const defaultMode: TranscriptionMode = 'native';
+    // #1120 S1: the default mode for a NEW/UNSET session is now flag-driven. With the Private-primary
+    // hierarchy flag OFF (default) this resolves to 'native' (today's instant-Browser first-use path), so
+    // there is zero e2e ripple — an unconditional flip previously broke the pro-defaults-Browser smokes and
+    // burned free-sample users into Private. With the flag ON (and the user able to use Private) it resolves
+    // to 'private', making Private the recommended first experience. The flag is the kill switch; activation
+    // is a PostHog flip, not a code change. An explicit in-session choice is always honored separately.
+    const defaultMode: TranscriptionMode = resolveDefaultSttMode(isPrivatePrimaryEnabled(), canUsePrivateStt);
     const effectiveMode: TranscriptionMode = sttMode ?? defaultMode;
     const [privateModelStatus, setPrivateModelStatus] = useState<string>(() => {
         if (typeof document === 'undefined') return 'idle';
@@ -161,7 +159,27 @@ export const useSessionLifecycle = () => {
     // Private. Private is now an explicit user choice, so a new user is never pushed
     // into the model-setup wall before their first transcript. Kept as a named flag
     // so the dependent effects and their dependency arrays are otherwise unchanged.
-    const shouldPromoteNativeDefaultToPrivate = false;
+    // #1120 S1: promote a DEFAULT-native session to Private when the hierarchy flag turns on for a
+    // Private-capable user. Guards keep every existing invariant: never when the flag is off (→ false,
+    // today's behavior), never when Native is forced (E2E / no Private access), and never when the user
+    // EXPLICITLY chose a mode (modeSourceRef==='user') — an explicit choice is always honored. A fresh
+    // (unset) session is handled by the existing `!sttMode` default path, not this promotion.
+    const shouldPromoteNativeDefaultToPrivate =
+        isPrivatePrimaryEnabled() &&
+        canUsePrivateStt &&
+        !shouldForceNativeMode &&
+        sttMode === 'native' &&
+        modeSourceRef.current !== 'user';
+
+    // #1120 S1: PostHog flags can resolve AFTER first render on a cold session; force one re-render when they
+    // arrive so isPrivatePrimaryEnabled() (read above for defaultMode + promotion) re-resolves and a
+    // premature 'native' default cannot latch. No-op when there is nothing to wait for (SSR / PostHog
+    // absent / a bounded E2E override present).
+    const [, setSttFlagTick] = useState(0);
+    useEffect(() => {
+        if (sttFlagsReadyInitial()) return;
+        return onSttFlagsReady(() => setSttFlagTick((t) => t + 1));
+    }, []);
 
     const speechRecognition = useSpeechRecognition(speechConfig);
     const {
