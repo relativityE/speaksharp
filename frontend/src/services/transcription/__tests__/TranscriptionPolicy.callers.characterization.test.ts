@@ -21,14 +21,11 @@ import {
  *   3. hooks/useSessionLifecycle.ts (modeChange)→ first=canUsePrivateStt (CAPABILITY);                  mode = requested (cloud→native if no cloud)
  *   4. hooks/useSpeechRecognition_prod.ts       → first=isEffectiveProUser (TIER); non-pro mode → 'native'
  *
- * FINDING (see assertions): the callers are NOT policy-identical — they diverge in two ways:
- *   (a) Private access for a free-user-with-sample (capability grants, tier-only deny), and
- *   (b) preferredMode / allowFallback for a non-pro user with a non-native selected mode (provider→null,
- *       hook→'native', lifecycle→requested).
- * BOTH divergences are INERT because only the lifecycle callers feed the record path and
- * `SpeechRuntimeController.startRecording` makes the lifecycle policy the sole record-time authority —
- * proven directly in `SpeechRuntimeController.test.ts` ("#1036: record-time authority ...").
- * So there is no USER-VISIBLE inconsistency and no selector refactor is warranted.
+ * #1184 UPDATE (STT exclusivity): `buildPolicyForUser` is now Private-only for ALL inputs, so the former
+ * caller divergences — (a) Private access for a free-user-with-sample, and (b) preferredMode for a non-pro
+ * user with a non-native selected mode — are RETIRED. Every caller converges on an identical Private-only
+ * policy. The (paidPro × sample × cloudEnt × requestedMode) matrix below is retained to PROVE that
+ * convergence: no caller, under any input, can produce a native/cloud-capable policy.
  */
 
 type State = {
@@ -74,51 +71,35 @@ for (const paidPro of BOOLS)
             for (const requestedMode of MODES)
                 matrix.push({ paidPro, hasPrivateSample, hasCloudEnt, requestedMode });
 
-const isFreeWithSample = (s: State) => !s.paidPro && s.hasPrivateSample;
-
-describe('#1036: buildPolicyForUser caller characterization', () => {
-    it('base policies are the two documented profiles (fixture guard)', () => {
-        expect(PROD_FREE_POLICY.allowPrivate).toBe(false);
+describe('#1036 → #1184: buildPolicyForUser callers all CONVERGE on Private-only', () => {
+    it('base policies are both Private-only (fixture guard)', () => {
+        expect(PROD_FREE_POLICY.allowPrivate).toBe(true);
+        expect(PROD_FREE_POLICY.allowNative).toBe(false);
+        expect(PROD_FREE_POLICY.allowCloud).toBe(false);
         expect(PROD_PRO_POLICY.allowPrivate).toBe(true);
+        expect(PROD_PRO_POLICY.allowNative).toBe(false);
+        expect(PROD_PRO_POLICY.allowCloud).toBe(false);
     });
 
-    it('allowNative and allowCloud NEVER diverge across the four callers', () => {
-        const nativeOrCloudDisagreements = matrix.filter(s => {
-            const p = callers.provider(s), h = callers.hook(s), l = callers.lifecycle(s);
-            return new Set([p.allowNative, h.allowNative, l.allowNative]).size !== 1
-                || new Set([p.allowCloud, h.allowCloud, l.allowCloud]).size !== 1;
-        });
-        expect(nativeOrCloudDisagreements).toEqual([]);
-        // Cloud is granted iff paidPro && cloudEnt, uniformly.
-        for (const s of matrix) expect(callers.lifecycle(s).allowCloud).toBe(s.paidPro && s.hasCloudEnt);
-    });
-
-    it('Private access diverges ONLY in the free-user-with-sample state (entitlement source)', () => {
-        const privateDisagreements = matrix.filter(s => {
-            const providerP = callers.provider(s).allowPrivate;
-            const hookP = callers.hook(s).allowPrivate;
-            const lifeP = callers.lifecycle(s).allowPrivate;
-            return new Set([providerP, hookP, lifeP]).size !== 1;
-        });
-        // Every disagreeing state is exactly a free-user-with-sample state, and there is at least one.
-        expect(privateDisagreements.every(isFreeWithSample)).toBe(true);
-        expect(privateDisagreements.length).toBeGreaterThan(0);
-        for (const s of privateDisagreements) {
-            expect(callers.lifecycle(s).allowPrivate).toBe(true);  // capability grants
-            expect(callers.provider(s).allowPrivate).toBe(false);  // tier-only deny
-            expect(callers.hook(s).allowPrivate).toBe(false);
+    it('#1184: every caller, across the full (paidPro × sample × cloudEnt × requestedMode) matrix, yields an identical Private-only policy', () => {
+        for (const s of matrix) {
+            for (const caller of [callers.provider, callers.hook, callers.lifecycle]) {
+                const p = caller(s);
+                expect(p.allowNative).toBe(false);
+                expect(p.allowCloud).toBe(false);
+                expect(p.allowPrivate).toBe(true);
+                expect(p.preferredMode).toBe('private');
+            }
         }
     });
 
-    it('preferredMode CAN diverge for a non-pro user with a non-native selected mode (mode normalization)', () => {
-        // A free user who has selected "private": provider forces null→base, hook forces 'native',
-        // lifecycle passes 'private'. This is a REAL policy difference — documented here, proven inert
-        // by the record-time authority test (only the lifecycle policy governs a recording).
-        const s: State = { paidPro: false, hasPrivateSample: false, hasCloudEnt: false, requestedMode: 'private' };
-        expect(callers.provider(s).preferredMode).toBe('native');   // requested→null → base FREE preferredMode
-        expect(callers.hook(s).preferredMode).toBe('native');       // forced native
-        expect(callers.lifecycle(s).preferredMode).toBe('private'); // passes the requested mode
-        // The divergence is confined to preferredMode/executionIntent/fallback; capability (private/cloud/native) matches here.
-        expect(callers.lifecycle(s).allowPrivate).toBe(false);      // free, no sample → still no Private capability
+    it('#1184: the former tier/entitlement/mode divergences are GONE — every capability agrees across callers', () => {
+        for (const s of matrix) {
+            const p = callers.provider(s), h = callers.hook(s), l = callers.lifecycle(s);
+            expect(new Set([p.allowNative, h.allowNative, l.allowNative]).size).toBe(1);
+            expect(new Set([p.allowCloud, h.allowCloud, l.allowCloud]).size).toBe(1);
+            expect(new Set([p.allowPrivate, h.allowPrivate, l.allowPrivate]).size).toBe(1);
+            expect(new Set([p.preferredMode, h.preferredMode, l.preferredMode]).size).toBe(1);
+        }
     });
 });

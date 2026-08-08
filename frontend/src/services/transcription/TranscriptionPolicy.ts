@@ -37,26 +37,28 @@ export interface TranscriptionPolicy {
 
 /**
  * Free tier production policy.
- * Only Native Browser is available.
+ * #1184 STT exclusivity: Private is the ONLY engine for every user, Free included. Native/Cloud are
+ * never resolved — tiers differ on usage minutes, not engine.
  */
 export const PROD_FREE_POLICY: TranscriptionPolicy = {
-    allowNative: true,
+    allowNative: false,
     allowCloud: false,
-    allowPrivate: false,
-    preferredMode: 'native',
+    allowPrivate: true,
+    preferredMode: 'private',
     allowFallback: false,
     executionIntent: 'prod-free',
 };
 
 /**
  * Pro tier production policy.
- * All modes available, user preference or UI selection determines mode.
+ * #1184 STT exclusivity: identical engine posture to Free — Private only. Pro differs on minutes, not
+ * engine; Cloud/Native are never resolved.
  */
 export const PROD_PRO_POLICY: TranscriptionPolicy = {
-    allowNative: true,
-    allowCloud: true,
+    allowNative: false,
+    allowCloud: false,
     allowPrivate: true,
-    preferredMode: 'private', // Optimized for zero variable cost
+    preferredMode: 'private',
     allowFallback: false,
     executionIntent: 'prod-pro',
 };
@@ -191,19 +193,26 @@ export function buildPolicyForUser(
     uiMode?: TranscriptionMode | null,
     options?: { allowCloud?: boolean }
 ): TranscriptionPolicy {
+    // #1184 STT exclusivity: Private is the ONLY engine. The tier flag and `allowCloud` are retained for
+    // call-site compatibility but can NO LONGER widen the engine set — a Free user, a Pro user, and any
+    // requested `allowCloud:true` all resolve to the same Private-only policy. `uiMode` cannot re-enable
+    // native/cloud either (`allowNative/allowCloud` stay false, so `resolveMode` can only return 'private').
+    // `options.allowCloud` can no longer widen the engine set — Cloud is never user-facing.
+    void options;
+    // The tier flag now selects only the executionIntent LABEL (prod-free vs prod-pro) for observability;
+    // both bases are Private-only, so engine capability is identical either way.
     const base = hasPrivateSttAccess ? PROD_PRO_POLICY : PROD_FREE_POLICY;
-    const allowCloud = hasPrivateSttAccess ? options?.allowCloud ?? base.allowCloud : false;
     const hasExplicitMode = uiMode !== undefined && uiMode !== null;
-    const preferredMode = uiMode === 'cloud' && !allowCloud
-        ? base.preferredMode
-        : uiMode ?? base.preferredMode;
 
     return {
         ...base,
-        allowCloud,
-        preferredMode,
-        // Disable fallback if user explicitly selected a mode (Privacy Guard)
+        allowNative: false,
+        allowCloud: false,
+        allowPrivate: true,
+        preferredMode: 'private',
+        // Disable fallback if the caller passed an explicit mode (Privacy Guard); Private's only
+        // permitted internal fallback is another Private variant (v2 <-> v4), handled downstream.
         allowFallback: hasExplicitMode ? false : base.allowFallback,
-        executionIntent: `${base.executionIntent}-${preferredMode ?? 'default'}`,
+        executionIntent: `${base.executionIntent}-private`,
     };
 }
