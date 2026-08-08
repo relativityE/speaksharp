@@ -68,7 +68,7 @@ describe('navSections — route -> active section resolution', () => {
     });
 
     it('never matches two sections for the same route', () => {
-        const mapped = ['/', '/practice', '/practice/warmup', '/session', '/session/abc123', '/analytics', '/analytics/42'];
+        const mapped = ['/', '/practice', '/practice/warmup', '/session', '/session/abc123', '/analytics', '/analytics/42', '/faq'];
         for (const route of mapped) {
             expect(findMatchingNavSections(route)).toHaveLength(1);
         }
@@ -77,7 +77,7 @@ describe('navSections — route -> active section resolution', () => {
     });
 
     it('exposes one config entry per page so adding a page is a single-entry change', () => {
-        expect(NAV_SECTIONS.map((s) => s.id)).toEqual(['home', 'session', 'analytics']);
+        expect(NAV_SECTIONS.map((s) => s.id)).toEqual(['home', 'session', 'analytics', 'faq']);
         for (const section of NAV_SECTIONS) {
             expect(section.label).toBeTruthy();
             expect(section.path.startsWith('/')).toBe(true);
