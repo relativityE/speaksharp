@@ -37,9 +37,9 @@ describe('LiveRecordingCard — #1047', () => {
         render(<LiveRecordingCard {...defaultProps} />);
 
         const cue = screen.getByTestId('stt-mode-cue');
-        expect(cue).toHaveTextContent('Ready on this device');
+        expect(cue).toHaveTextContent('Mic ready on this device');
         // 13px/700 muted grey — orange is reserved for meaningful accents (the record button).
-        expect(cue).toHaveClass('text-[13px]', 'font-bold', 'text-muted-foreground');
+        expect(cue).toHaveClass('text-[13px]', 'font-bold', 'text-foreground');
         expect(cue).not.toHaveClass('text-primary');
         // The `?` no longer sits beside the label; it belongs to the mode selector.
         expect(cue.parentElement?.querySelector('[data-testid="stt-mode-help"]')).toBeNull();

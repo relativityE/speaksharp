@@ -402,13 +402,18 @@ export const SessionPage: React.FC = () => {
                             {trialUnavailableNotice}
                         </div>
                     )}
-                    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
-                        <div className="flex flex-col gap-6">
-                            {/* #1116 on-ramp (v1, floating): removes the session-page "blank page" problem — a prompt
-                                starter or a ≤1-min public-domain sample to read aloud, readable while recording.
-                                Optional, dismissible, non-persistent. Ergonomics follow-up: dock into the 400px right
-                                rail alongside the Focus Points coverage table + clear the status bar (#1046/#1116). */}
+                    {/* #1116 on-ramp — sits TOP-RIGHT above the balanced mic+coaching row so it never
+                        pushes the mic card down or covers a card. Full width on mobile; right-aligned and
+                        rail-width on desktop. */}
+                    <div className="mb-6 flex lg:justify-end">
+                        <div className="w-full lg:w-[400px]">
                             <PracticeOnramp />
+                        </div>
+                    </div>
+                    {/* Balanced main row: mic (left) + Live Coaching (right) at the SAME top level and the
+                        SAME height (items-stretch). The transcript spans full width below. */}
+                    <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
+                        <div className="flex flex-col gap-6">
                             <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
                                 <LiveRecordingCard
                                     mode={mode || 'native'}
@@ -462,9 +467,10 @@ export const SessionPage: React.FC = () => {
                                 engine={mode || 'native'}
                                 isListening={isListening}
                                 experimentAssignment={coachingAssignment}
-                                // #1047: sizes to content, never stretched to match the recorder+transcript
-                                // column (see the grid comment above).
-                                className="min-h-0 self-start"
+                                // #1046: stretch to the mic card's height so the two form a balanced,
+                                // equal-height top row (grid items-stretch). (Was self-start under #1047;
+                                // PO now wants Coaching level + same height as the recorder.)
+                                className="min-h-0 h-full"
                             />
                         </LocalErrorBoundary>
                     </div>
