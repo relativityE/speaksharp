@@ -572,9 +572,13 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
             ]),
         });
     });
-    // Edge fn: objective-register-source → registered:true (register succeeds).
-    await registerRoute(page, /\/functions\/v1\/objective-register-source(\?.*)?$/, async (route) => {
-        await route.fulfill({ status: 200, headers: SUPABASE_HEADERS, body: JSON.stringify({ registered: true }) });
+    // Edge fn: objective-register-source → registered:true. Uses the SAME glob + contentType shape as the
+    // other functions.invoke mocks (check-usage-limit / assemblyai-token). The Supabase functions client
+    // parses `data` from the JSON body; a plain `application/json` content type is what it expects — the
+    // /rest-style SUPABASE_HEADERS (with Content-Range) made it read `registered` as undefined and the
+    // client rejected the register step, failing the whole finalize closed.
+    await registerRoute(page, '**/functions/v1/objective-register-source', async (route) => {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ registered: true }) });
     });
 }
 
