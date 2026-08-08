@@ -3,19 +3,25 @@ import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 import { TEST_IDS } from '../constants';
 
 /**
- * #1042 PR2 — "How Rough Drafts works" Session help overlay.
+ * #1042 PR2 / #1116 — "How Open Floor works" Session help overlay.
  *
- * Proves the overlay's behavior on the deployed-equivalent built app: it opens above the Mic-ready
- * status surface, shows the approved guide, closes on Escape / Close with focus return, is a bottom
- * sheet on mobile, and is disabled (cannot open) while a recording is active — never navigating and
- * never starting a recording. Screenshots (desktop + mobile, open + disabled) → the 1-day CI artifact.
+ * Proves the overlay's behavior on the deployed-equivalent built app: it lives in the session title
+ * block, opens as a fully-opaque floating panel with THREE steps and a start CTA, closes on
+ * Escape / Close / the CTA with focus return, is a bottom sheet on mobile, and is disabled (cannot
+ * open) while a recording is active — never navigating and never starting a recording itself.
+ *
+ * Redesign note (#1116): the modal was cut from six steps + intro + closing paragraph to three
+ * action items + a teal "Got it — start speaking" CTA; the intro/feedback paragraphs were removed.
+ * The at-rest status bar it used to sit "above" is suppressed (#1046 slice 0), so this asserts the
+ * button's placement in the title block instead.
  */
 
 const DIR = 'test-results/freeform-help';
 const DESKTOP = { width: 1280, height: 900 };
 const MOBILE = { width: 390, height: 844 };
-const INTRO = "No agenda required. Choose a transcription method, start when you";
-const FEEDBACK = 'delivery feedback available for that session';
+// One of the three redesigned step action lines — proves the new content, not the retired copy.
+const STEP_ACTION = "Pick how you're transcribed";
+const START_CTA = /got it — start speaking/i;
 
 async function openSession(page: Page) {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
@@ -25,20 +31,18 @@ async function openSession(page: Page) {
 }
 
 test.describe('#1042 PR2 Freeform help overlay', () => {
-    test('desktop: opens above Mic ready, closes on Escape with focus return, disabled while recording', async ({ page }) => {
+    test('desktop: opens with three steps + CTA, closes on Escape with focus return, disabled while recording', async ({ page }) => {
         await openSession(page);
         await page.setViewportSize(DESKTOP);
 
         const help = page.getByTestId('freeform-help-button');
         await expect(help).toHaveAttribute('aria-disabled', 'false');
-        // The help affordance sits ABOVE the Mic-ready status surface (earlier in DOM order).
-        const order = await page.evaluate(() => {
-            const btn = document.querySelector('[data-testid="freeform-help-button"]');
-            const status = document.querySelector('[data-testid="status-message-text"]');
-            if (!btn || !status) return null;
-            return btn.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING ? 'above' : 'below';
-        });
-        expect(order).toBe('above');
+        // The help affordance lives in the session title block (an entry point, not a status row).
+        await expect(page.getByTestId('session-title-block')).toContainText('How');
+        const inTitleBlock = await help.evaluate(
+            (el) => !!el.closest('[data-testid="session-title-block"]'),
+        );
+        expect(inTitleBlock).toBe(true);
 
         await help.click();
         const overlay = page.getByTestId('freeform-help-overlay');
@@ -47,9 +51,10 @@ test.describe('#1042 PR2 Freeform help overlay', () => {
         await expect
             .poll(async () => overlay.evaluate((el) => parseFloat(getComputedStyle(el).opacity || '1')))
             .toBe(1);
-        await expect(overlay).toContainText(INTRO);
-        await expect(page.getByTestId('freeform-help-steps').getByRole('listitem')).toHaveCount(6);
-        await expect(page.getByTestId('freeform-help-feedback')).toContainText(FEEDBACK);
+        // The redesigned content: exactly three steps, a real action line, and the start CTA.
+        await expect(page.getByTestId('freeform-help-steps').getByRole('listitem')).toHaveCount(3);
+        await expect(overlay).toContainText(STEP_ACTION);
+        await expect(page.getByTestId('freeform-help-start')).toHaveText(START_CTA);
         await page.screenshot({ path: `${DIR}/01-desktop-open.png`, fullPage: true });
 
         // Escape closes and focus returns to the trigger.
@@ -57,10 +62,10 @@ test.describe('#1042 PR2 Freeform help overlay', () => {
         await expect(overlay).toHaveCount(0);
         await expect(help).toBeFocused();
 
-        // Close control also closes.
+        // The primary CTA also closes the modal.
         await help.click();
         await expect(overlay).toBeVisible();
-        await page.getByRole('button', { name: /close/i }).click();
+        await page.getByTestId('freeform-help-start').click();
         await expect(overlay).toHaveCount(0);
 
         // Disabled while a recording is active — cannot open, never starts/stops recording itself.
@@ -86,7 +91,7 @@ test.describe('#1042 PR2 Freeform help overlay', () => {
         await expect
             .poll(async () => overlay.evaluate((el) => parseFloat(getComputedStyle(el).opacity || '1')))
             .toBe(1);
-        await expect(overlay).toContainText(INTRO);
+        await expect(overlay).toContainText(STEP_ACTION);
         await page.screenshot({ path: `${DIR}/03-mobile-open.png`, fullPage: true });
         await page.keyboard.press('Escape');
         await expect(overlay).toHaveCount(0);

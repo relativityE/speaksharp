@@ -313,12 +313,16 @@ export const SessionPage: React.FC = () => {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
                 {/* #1042 PR2's help affordance moved UP into the title block (#1047) — see the header above. */}
                 {/* #1046 E (slice 0): the quiet "Mic ready" green bar said the same thing three times — it
-                    duplicated the recorder pill AND the "Ready on this device" card label. Suppress it at
-                    rest (ready/idle with no post-save actions). The bar STILL renders for every state it
-                    uniquely owns: attention (warming/recording/downloading/error/warning) and the single
-                    post-save surface (Analytics link + Private CTA). Hiding only the quiet state keeps all
-                    unique information while removing the triplication. */}
-                {!((displayStatus.type === 'ready' || displayStatus.type === 'idle') && !postSaveReady) && (
+                    duplicated the recorder pill AND the "Ready on this device" card label. Suppress it ONLY
+                    in the TRULY at-rest state: ready/idle, NOT recording, no post-save actions. The bar
+                    STILL renders for every state it uniquely owns — attention (warming/recording/
+                    downloading/error/warning) and the single post-save surface (Analytics + Private CTA).
+                    The `!isListening` guard is load-bearing: `displayStatus` can read 'ready'/'idle' during
+                    an active recording, and the bar carries `session-status-indicator` (with `data-engine`)
+                    that the recording-signal contract relies on — so it must never be unmounted mid-record.
+                    (Unmounting/remounting it across start also created a slow-CI race where the freshly
+                    mounted indicator briefly reported engine 'none'.) */}
+                {!((displayStatus.type === 'ready' || displayStatus.type === 'idle') && !postSaveReady && !isListening) && (
                     <StatusNotificationBar
                         // #1047: the page owns the gap below the status bar, not the shared component.
                         className="mb-[26px]"
