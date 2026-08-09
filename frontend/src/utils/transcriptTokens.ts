@@ -8,10 +8,17 @@ import type { TranscriptToken } from '@/components/session/LiveTranscript';
  * Error tags (`[inaudible]` etc.) render as plain text — they are not fillers.
  */
 export function tokensFromTranscript(text: string, userWords: string[] = []): TranscriptToken[] {
-    return parseTranscriptForHighlighting(text ?? '', userWords).map((t) => ({
-        text: t.transcript,
-        filler: t.type === 'filler',
-    }));
+    return parseTranscriptForHighlighting(text ?? '', userWords)
+        // #1231: parseTranscriptForHighlighting emits whitespace as its OWN tokens (it splits with
+        // `split(/(\s+)/)` to preserve spacing). LiveTranscript already inserts a single space after every
+        // token, so passing those whitespace tokens through compounds into 2–3 spaces per word gap — a
+        // rendering artifact that left tripled spaces in the transcript's textContent (and broke RegExp
+        // transcript assertions, which don't normalize whitespace). Drop them; the separator is enough.
+        .filter((t) => t.transcript.trim() !== '')
+        .map((t) => ({
+            text: t.transcript,
+            filler: t.type === 'filler',
+        }));
 }
 
 /**

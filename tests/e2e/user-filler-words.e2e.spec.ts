@@ -95,7 +95,16 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
 
         await userPage.keyboard.press('Escape'); // Close popover
 
-        // 5. Record a second session whose transcript contains the custom word, so it produces a real count.
+        // 5. #1231: the custom-word manager lives in the after-state, so adding the word left us in the
+        //    review state (no `mic-start`). Reset to a fresh before-state — the tracked word persists
+        //    across the reload (it is saved to `user_filler_words`) so the NEXT session's analysis counts
+        //    it. This mirrors the origin/main flow (word tracked BEFORE the analysed recording), which the
+        //    after-state-only manager otherwise can't express in a single load.
+        await navigateToRoute(userPage, ROUTES.SESSION);
+        await userPage.waitForFunction(() => window.__e2eProfileLoaded__ === true, null, { timeout: 30000 });
+        await userPage.waitForFunction(() => window.__e2eBridgeReady__ === true, null, { timeout: 10000 });
+
+        // 6. Record a session whose transcript contains the custom word, so it produces a real count.
         await startRecording(userPage);
         await mockLiveTranscript(userPage, ['This is a detectiontest for antigravity.']);
         await userPage.waitForTimeout(5200);
