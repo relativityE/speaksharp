@@ -29,6 +29,10 @@ export interface TranscriptCardProps {
     chosenPrompt?: string | null;
     /** Re-roll the taken prompt (↻). */
     onRerollPrompt?: () => void;
+    /** Live/after header meta beside the title (e.g. `184 words · 2.6 fillers/min`). */
+    headerMeta?: React.ReactNode;
+    /** Footer strip below the body (e.g. the live note, or the after stats strip). */
+    footer?: React.ReactNode;
     /** Transcript content for the live/after states; when present it wins over the offer. */
     children?: React.ReactNode;
 }
@@ -47,6 +51,8 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
     onReadSample,
     chosenPrompt,
     onRerollPrompt,
+    headerMeta,
+    footer,
     children,
 }) => {
     const hasContent = React.Children.count(children) > 0;
@@ -65,6 +71,11 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                 <div className="flex items-center gap-2">
                     <OrangeTick />
                     <h2 className="text-[14px] font-extrabold text-[#1f2733]">Live Transcript</h2>
+                    {headerMeta && (
+                        <span className="text-[12px] font-semibold text-[#414b5c]" data-testid="transcript-header-meta">
+                            {headerMeta}
+                        </span>
+                    )}
                 </div>
                 <div className="flex items-center gap-3">
                     {showingEmpty && (
@@ -124,6 +135,12 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                             Your words appear here as you speak.
                         </p>
                     )}
+                </div>
+            )}
+
+            {footer && (
+                <div className="mt-3 border-t border-[#eef2f7] pt-2 text-[12px] text-[#414b5c]" data-testid="transcript-footer">
+                    {footer}
                 </div>
             )}
         </div>
