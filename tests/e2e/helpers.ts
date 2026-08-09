@@ -218,14 +218,13 @@ export async function waitForRouteControls(page: Page, route: string, timeout: n
 
     await expect(sessionPage).toBeVisible({ timeout });
 
-    const recordingCard = page.getByTestId('live-recording-card');
-    await expect(recordingCard).toBeVisible({ timeout });
-    await expect(recordingCard.getByTestId('stt-mode-select')).toBeVisible({ timeout });
-
-    const startStopControls = page.locator(
-      '[data-testid="session-start-stop-button"], [data-testid="session-start-stop-button-mobile"]'
-    );
-    await expect(startStopControls.first()).toBeVisible({ timeout });
+    // #1222: the session page is the Private-only overhaul shell. The recorder surface is the fixed shell
+    // plus the before-state mic card (or the recorder bar once recording) — there is no engine selector and
+    // start/stop are split (`mic-start` / `recorder-stop`).
+    await expect(page.getByTestId('session-shell')).toBeVisible({ timeout });
+    await expect(
+      page.getByTestId('mic-card').or(page.getByTestId('recorder-bar')),
+    ).toBeVisible({ timeout });
     return;
   }
 
