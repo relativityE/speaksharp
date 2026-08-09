@@ -6,6 +6,7 @@ import { resolveSessionState } from '@/utils/sessionStateMachine';
 import { usePromptOfferDismissed } from '@/hooks/usePromptOfferDismissed';
 import { useHeldTip } from '@/hooks/useHeldTip';
 import { LiveTip } from './LiveTip';
+import { FillerBreakdown } from './FillerBreakdown';
 import { computeAggregateProgress, signalsFromSession } from '@/utils/aggregateProgress';
 import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptTokens';
@@ -188,6 +189,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             progress={progress}
             progressMode="aggregate"
             finalizing={isFinalizing}
+            fillerFooter={<FillerBreakdown fillerData={fillerData} stats={`${metricsFillerCount} fillers · ${wordCount(transcriptContent)} words`} />}
             verdict={{ ...verdictFromSuggestions(aiSuggestions, fillerData), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
         />
     );
