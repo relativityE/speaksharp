@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for personal session-over-session Progress and the single next practice action)
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-08-08
-**Last Verified:** 2026-08-08 — §5/§6/§7 reconciled to the shipped v1 measure per the #1222 Product-Owner decision (2026-08-08): the session-over-session movement is a **signed percentage change in fillers per minute vs the baseline**, not "points". Verified against the implementation (`frontend/src/utils/progressVsBaseline.ts`, surfaced by the session-page Progress card `components/session/ProgressVsBaseline.tsx`) and the filler-evidence contract (`validatedFillerTotal`, `sessionAnalysis.ts`). No run IDs, SHAs, or current release posture are carried here.
+**Last Verified:** 2026-08-08 — §5/§6/§7 reconciled per the #1222 Product-Owner decision (2026-08-08): Progress is the **SpeakSharp Score successor** — a session-over-session improvement in a **composite clear-delivery measure**, now expressed as a **signed percentage** vs baseline (points → percentage, for defensibility). **Filler rate is one component** of that composite and is the component **v1 surfaces** (`frontend/src/utils/progressVsBaseline.ts`, session-page card `components/session/ProgressVsBaseline.tsx`, filler-evidence `validatedFillerTotal`/`sessionAnalysis.ts`); more components are added later without changing this contract. No run IDs, SHAs, or current release posture are carried here.
 **Applies To:** Every surface that tells a user how their practice is changing over time and what to practise next — Progress, Session review, and history.
 **Class:** Product requirement / decision.
 **Authority:** The source for what Progress means, which sessions may influence it, how direction is derived and worded, the exactly-two-takeaway output contract (of which exactly one is an action), and what must never be claimed.
@@ -40,7 +40,7 @@ Progress is a **personal, session-over-session comparison**: this eligible sessi
 - **No grade or rating** of the user or of a session.
 - **No cross-user comparison** — no percentile, ranking, leaderboard, cohort placement, or "better than N% of speakers".
 - **No "overall speaking quality/ability" claim.** Progress measures a defined, observable delivery metric — never the whole of speaking.
-- **No presenting one metric as overall Progress.** The plotted value is the **filler-rate percentage** (fillers per minute vs baseline) and is labelled as exactly that — never as overall speaking quality or ability.
+- **No presenting one metric as overall Progress.** Progress is a **composite** clear-delivery measure shown as a **percentage** change vs baseline (§5); when a single component (e.g. the v1 filler rate) is surfaced, it is labelled as exactly that component — never as overall speaking quality or ability.
 - **No fabricated positive.** If the evidence does not support a positive statement, the honest evidence state is shown instead.
 
 ### `clarity_score` is an evidence input, not the product model
@@ -88,12 +88,13 @@ Every excluded session records a deterministic exclusion reason (`too_short`, `t
 
 ## 5. The measurement
 
-**Value (v1):** the signed **percentage** change in the user's **filler rate (fillers per minute)** against their **baseline**; the change against the previous comparable session is also recorded. A **positive** percentage means **fewer** fillers per minute than the baseline (an improvement); a **negative** percentage means more (reported with the same neutral tone — §6). *(Metric decision: #1222, Product Owner, 2026-08-08 — replaces the earlier "clear-delivery in points" framing, which was never shipped. The `clarity_score` composite remains a legacy internal evidence input only — §2 — and is not the plotted value.)*
+**Value:** the signed **percentage** change in the user's **clear-delivery progress measure** against their **baseline**; the change against the previous comparable session is also recorded. This is the **successor to the retired SpeakSharp Score** — the same session-over-session improvement idea, now expressed as a **percentage** rather than points because a percentage is easier to explain and to defend ("+18% since your baseline"). *(Metric-unit decision: #1222, Product Owner, 2026-08-08 — points → percentage.)*
 
-- **Filler rate, never a raw count.** The measure is `fillers ÷ spoken-minutes`, so a longer session is never penalised for having more total fillers. The canonical per-session filler total is the validated total (`validatedFillerTotal`, `sessionAnalysis.ts`); a session with **no valid filler evidence** contributes nothing and is excluded — never counted as a flattering zero.
+- **A composite of a few delivery components — not a single metric.** Clear delivery is made up of a handful of measured components; **filler rate (fillers per minute) is one of them**, and it is the component **v1 surfaces** (the mockups' "N% fewer fillers than session 1"). Additional components are added over time **without changing this contract** — each is still a session-over-session percentage against the same baseline, and no single component is ever presented as the whole of Progress (§2).
+- **Rates, never raw counts.** Each component is a rate or ratio, so a longer session is never penalised for having more of something. For the v1 filler component the canonical per-session total is the validated total (`validatedFillerTotal`, `sessionAnalysis.ts`); a session with **no valid evidence for a component** contributes nothing to that component — never counted as a flattering zero.
 - **Baseline = the first eligible *future* session.** There is **no historical backfill** in v1. Until a baseline exists, Progress shows an honest "not enough data yet" / "baseline established" state — never a fabricated zero.
-- **Evidence is exact — no rounding-equivalence hazard.** The inputs are an integer filler count and a duration, so the rate is computed from exact values; only the **displayed** percentage and rate are rounded (to 1 decimal), and all arithmetic uses the unrounded rate.
-- **Percentage, with a guarded denominator.** The denominator is the baseline rate. When the **baseline rate is 0** (a genuinely filler-free baseline over the comparable-duration floor) there is no meaningful percentage, so the session is reported as **at baseline / no meaningful change** rather than dividing by zero — a percentage is never fabricated from an undefined division.
+- **Evidence is exact — no rounding-equivalence hazard.** Component inputs (e.g. an integer filler count and a duration) are exact, so each rate is computed from exact values; only the **displayed** percentage is rounded (to 1 decimal), and all arithmetic uses the unrounded values.
+- **Percentage, with a guarded denominator.** The denominator is the baseline value of the component. When a **baseline value is 0** (e.g. a genuinely filler-free baseline over the comparable-duration floor) there is no meaningful percentage for that component, so it is reported as **at baseline / no meaningful change** rather than dividing by zero — a percentage is never fabricated from an undefined division.
 
 ---
 
@@ -137,7 +138,7 @@ The action is selected **deterministically** and:
 A number is only trustworthy if the user can see what produced it. Every displayed movement must be able to expose, on request:
 
 - the **two sessions** being compared (the current session and the previous comparable session, or the baseline);
-- the **metric** that moved and its **unit** (percentage change in fillers per minute vs baseline);
+- the **component** that moved and its **unit** (a percentage change vs baseline — for the v1 filler component, percentage change in fillers per minute);
 - the **evidence inputs** behind that metric for both sessions (canonical filler count, spoken duration, and — for context — word count and WPM);
 - the **cohort** (engine, engine version, model name, formula version) that made them comparable;
 - **why a comparison is unavailable**, when it is — the deterministic exclusion reason, never a blank or a zero.
@@ -146,7 +147,7 @@ No displayed movement may depend on evidence the user cannot inspect.
 
 ## 7b. Worked example (canonical)
 
-*Illustrative shape only — the numbers are an example, not measured data.*
+*Illustrative shape only — the numbers are an example, not measured data. Shown for the **v1 filler-rate component**; other components resolve the same way against the same baseline.*
 
 | Session | Eligible | Filler rate (fillers/min) | Shown |
 |---|---|---|---|
