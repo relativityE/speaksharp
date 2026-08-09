@@ -39,6 +39,11 @@ export interface SessionOverhaulViewProps {
     onStartStop: () => void;
     /** Real practice history (newest-first is fine; the adapter re-orders). */
     history: PracticeSession[];
+    /** #1222 S12a — Private model lifecycle so a first-time user can download + start on the new page. */
+    privateModelStatus?: string;
+    modelLoadingProgress?: number | null;
+    onDownloadModel?: () => void;
+    isButtonDisabled?: boolean;
 }
 
 export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
@@ -52,6 +57,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     metricsFillerCount,
     onStartStop,
     history,
+    privateModelStatus,
+    modelLoadingProgress,
+    onDownloadModel,
+    isButtonDisabled,
 }) => {
     const permissionError = sttStatus.type === 'error';
     const sessionState = resolveSessionState({
@@ -97,7 +106,14 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     if (sessionState === 'before') {
         return (
             <SessionBeforeState
-                mic={{ onStart: onStartStop, error: permissionError ? sttStatus.message : null }}
+                mic={{
+                    onStart: onStartStop,
+                    error: permissionError ? sttStatus.message : null,
+                    privateModelStatus,
+                    modelLoadingProgress,
+                    onDownloadModel,
+                    disabled: isButtonDisabled,
+                }}
                 transcript={{
                     offerDismissed: offer.dismissed,
                     onDismissOffer: offer.dismiss,

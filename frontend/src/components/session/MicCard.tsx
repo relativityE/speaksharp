@@ -25,6 +25,18 @@ export interface MicCardProps {
     onSelectDevice?: (deviceId: string) => void;
     /** Permission / device error — rendered in place; the page stays in `before`. */
     error?: string | null;
+    /**
+     * Private on-device model status (#1222 S12a parity): 'idle' | 'loading' | 'ready' |
+     * 'download-required' | 'init-failed' | 'error'. Private needs a one-time local model download before it
+     * can transcribe, so a first-time user must be able to trigger + watch that here.
+     */
+    privateModelStatus?: string;
+    /** 0..1 download/init progress while the model is loading. */
+    modelLoadingProgress?: number | null;
+    /** Begin the one-time model download (when download-required). */
+    onDownloadModel?: () => void;
+    /** Disable the primary control (busy: initialising / downloading / stopping). */
+    disabled?: boolean;
 }
 
 const MicGlyph: React.FC = () => (
@@ -37,16 +49,43 @@ const MicGlyph: React.FC = () => (
     </svg>
 );
 
-export const MicCard: React.FC<MicCardProps> = ({ onStart, devices, selectedDeviceId, onSelectDevice, error }) => {
+export const MicCard: React.FC<MicCardProps> = ({
+    onStart, devices, selectedDeviceId, onSelectDevice, error,
+    privateModelStatus = 'ready', modelLoadingProgress, onDownloadModel, disabled,
+}) => {
     const deviceList = devices ?? [];
     const hasPicker = deviceList.length > 0;
 
+    const downloadRequired = privateModelStatus === 'download-required';
+    const loading = privateModelStatus === 'loading';
+    const modelError = privateModelStatus === 'init-failed' || privateModelStatus === 'error';
+    const pct = typeof modelLoadingProgress === 'number' ? Math.round(Math.max(0, Math.min(1, modelLoadingProgress)) * 100) : null;
+
+    // Status line (top-left): ready / needs one-time download / preparing / problem.
+    const status = downloadRequired
+        ? { dot: '#d98a1f', text: '#a8571f', label: 'One-time setup needed' }
+        : loading
+            ? { dot: '#d98a1f', text: '#a8571f', label: pct != null ? `Preparing private transcription… ${pct}%` : 'Preparing private transcription…' }
+            : modelError
+                ? { dot: '#a8321f', text: '#a8321f', label: 'Private transcription needs another try' }
+                : { dot: '#146b4a', text: '#146b4a', label: 'Mic ready on this device' };
+
+    // Primary action: download when required, otherwise start. Disabled while loading/busy.
+    const primaryHandler = downloadRequired ? (onDownloadModel ?? onStart) : onStart;
+    const primaryDisabled = !!disabled || loading;
+    const primaryTitle = downloadRequired
+        ? 'Download to start speaking'
+        : loading ? 'Getting ready…' : 'Press to start speaking';
+    const primarySub = downloadRequired
+        ? 'One-time · downloads to this device, then stays local'
+        : loading ? (pct != null ? `${pct}% ready` : 'a few seconds') : 'Space bar works too · aim for 60 seconds';
+
     return (
-        <div className="rounded-xl border border-[#dbe2ec] bg-white p-4" data-testid="mic-card">
+        <div className="rounded-xl border border-[#dbe2ec] bg-white p-4" data-testid="mic-card" data-model-status={privateModelStatus}>
             <div className="flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-[13px] font-extrabold text-[#146b4a]">
-                    <span className="inline-block h-2 w-2 rounded-full bg-[#146b4a]" aria-hidden="true" />
-                    Mic ready on this device
+                <span className="flex items-center gap-1.5 text-[13px] font-extrabold" style={{ color: status.text }} data-testid="mic-status">
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: status.dot }} aria-hidden="true" />
+                    {status.label}
                 </span>
                 {hasPicker && (
                     <select
@@ -65,19 +104,24 @@ export const MicCard: React.FC<MicCardProps> = ({ onStart, devices, selectedDevi
 
             <button
                 type="button"
-                onClick={onStart}
-                data-testid="mic-start"
-                className="mt-3 flex w-full items-center gap-4 rounded-lg text-left"
+                onClick={primaryHandler}
+                disabled={primaryDisabled}
+                aria-label={downloadRequired ? 'Download to start speaking' : 'Start speaking'}
+                data-testid={downloadRequired ? 'mic-download' : 'mic-start'}
+                className="mt-3 flex w-full items-center gap-4 rounded-lg text-left disabled:opacity-60"
             >
                 <span
-                    className="flex h-[76px] w-[76px] shrink-0 items-center justify-center rounded-full bg-[#d98a1f]"
+                    className="relative flex h-[76px] w-[76px] shrink-0 items-center justify-center rounded-full bg-[#d98a1f]"
                     aria-hidden="true"
                 >
                     <MicGlyph />
+                    {loading && pct != null && (
+                        <span className="absolute -bottom-1 rounded-full bg-[#241503] px-1.5 py-0.5 text-[10px] font-bold text-white" data-testid="mic-progress">{pct}%</span>
+                    )}
                 </span>
                 <span>
-                    <span className="block text-[17px] font-extrabold text-[#1f2733]">Press to start speaking</span>
-                    <span className="block text-[13px] text-[#414b5c]">Space bar works too · aim for 60 seconds</span>
+                    <span className="block text-[17px] font-extrabold text-[#1f2733]">{primaryTitle}</span>
+                    <span className="block text-[13px] text-[#414b5c]">{primarySub}</span>
                 </span>
             </button>
 

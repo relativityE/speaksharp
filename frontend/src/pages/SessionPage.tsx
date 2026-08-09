@@ -415,6 +415,12 @@ export const SessionPage: React.FC = () => {
                         metricsFillerCount={metrics.fillerCount}
                         onStartStop={() => { void handleStartStop(); }}
                         history={practiceHistory ?? []}
+                        privateModelStatus={privateModelStatus}
+                        modelLoadingProgress={visibleModelLoadingProgress}
+                        onDownloadModel={() => {
+                            void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
+                        }}
+                        isButtonDisabled={isButtonDisabled}
                     />
                 ) : (
                 <>

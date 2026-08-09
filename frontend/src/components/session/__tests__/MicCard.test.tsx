@@ -37,4 +37,28 @@ describe('MicCard (#1222 slot A)', () => {
         expect(screen.getByTestId('mic-error')).toHaveTextContent('Microphone access was blocked.');
         expect(screen.getByRole('alert')).toBeInTheDocument();
     });
+
+    // #1222 S12a — Private model lifecycle so a first-time user can download + start.
+    it('download-required: the primary control downloads the model instead of starting', () => {
+        const onStart = vi.fn();
+        const onDownloadModel = vi.fn();
+        render(<MicCard onStart={onStart} privateModelStatus="download-required" onDownloadModel={onDownloadModel} />);
+        expect(screen.getByTestId('mic-card')).toHaveAttribute('data-model-status', 'download-required');
+        expect(screen.getByText(/Download to start speaking/i)).toBeInTheDocument();
+        fireEvent.click(screen.getByTestId('mic-download'));
+        expect(onDownloadModel).toHaveBeenCalledOnce();
+        expect(onStart).not.toHaveBeenCalled();
+    });
+
+    it('loading: shows progress and disables start', () => {
+        render(<MicCard onStart={vi.fn()} privateModelStatus="loading" modelLoadingProgress={0.42} />);
+        expect(screen.getByTestId('mic-progress')).toHaveTextContent('42%');
+        expect(screen.getByText(/Preparing private transcription/i)).toBeInTheDocument();
+        expect(screen.getByTestId('mic-start')).toBeDisabled();
+    });
+
+    it('disabled prop blocks the start control (busy)', () => {
+        render(<MicCard onStart={vi.fn()} disabled />);
+        expect(screen.getByTestId('mic-start')).toBeDisabled();
+    });
 });
