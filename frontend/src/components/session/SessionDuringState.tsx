@@ -45,6 +45,8 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                     onRestoreOffer={() => {}}
                     onTakePrompt={() => {}}
                     onReadSample={() => {}}
+                    live
+                    isPrivate
                     headerMeta={formatLiveMeta(transcript.words, transcript.fillersPerMin)}
                     footer="Fillers are highlighted as they happen. Nothing is scored until you stop."
                 >

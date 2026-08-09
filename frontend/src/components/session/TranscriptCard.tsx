@@ -33,6 +33,18 @@ export interface TranscriptCardProps {
     headerMeta?: React.ReactNode;
     /** Footer strip below the body (e.g. the live note, or the after stats strip). */
     footer?: React.ReactNode;
+    /**
+     * #1231 R1: recording → show a "● Live" chip in the header. The transcript is being written + corrected
+     * in real time; the chip (plus the settling-text treatment in LiveTranscript) tells the user the live
+     * edge is intentionally in flux, so re-writes read as expected, not a glitch.
+     */
+    live?: boolean;
+    /**
+     * #1231 R1: post-Stop decode in progress → show a distinct finalizing banner at the top of the card so
+     * the multi-second wait is never silent. `isPrivate` picks the local-processing wording.
+     */
+    finalizing?: boolean;
+    isPrivate?: boolean;
     /** Transcript content for the live/after states; when present it wins over the offer. */
     children?: React.ReactNode;
 }
@@ -53,6 +65,9 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
     onRerollPrompt,
     headerMeta,
     footer,
+    live,
+    finalizing,
+    isPrivate,
     children,
 }) => {
     const hasContent = React.Children.count(children) > 0;
@@ -71,6 +86,16 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                 <div className="flex items-center gap-2">
                     <OrangeTick />
                     <h2 className="text-[14px] font-extrabold text-[#1f2733]">Live Transcript</h2>
+                    {live && (
+                        <span
+                            className="flex items-center gap-1 rounded-full bg-[#fdf3e2] px-2 py-0.5 text-[11px] font-bold text-[#a8571f]"
+                            data-testid="transcript-live-indicator"
+                            aria-label="Live — transcript updates as you speak"
+                        >
+                            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#d98a1f]" aria-hidden="true" />
+                            Live
+                        </span>
+                    )}
                     {headerMeta && (
                         <span className="text-[12px] font-semibold text-[#414b5c]" data-testid="transcript-header-meta">
                             {headerMeta}
@@ -101,6 +126,19 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                     )}
                 </div>
             </div>
+
+            {/* #1231 R1: finalizing banner — a distinct strip (not woven into the transcript) so the post-Stop
+                decode wait is clearly signalled and never mistaken for transcript content. */}
+            {finalizing && (
+                <div
+                    className="mb-3 flex items-center gap-2 rounded-lg bg-[#fdf3e2] px-3 py-2 text-[13px] font-semibold text-[#a8571f]"
+                    role="status"
+                    data-testid="transcript-finalizing-banner"
+                >
+                    <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#d98a1f]" aria-hidden="true" />
+                    {isPrivate ? 'Finalizing your transcript locally…' : 'Finalizing your transcript…'}
+                </div>
+            )}
 
             {/* Body */}
             {hasContent ? (

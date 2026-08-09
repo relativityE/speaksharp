@@ -66,6 +66,24 @@ describe('TranscriptCard (#1222 S3)', () => {
         expect(onRerollPrompt).toHaveBeenCalledOnce();
     });
 
+    // #1231 R1 — live + finalizing feedback.
+    it('shows a "● Live" indicator in the header while recording', () => {
+        render(<TranscriptCard {...base} offerDismissed live><p>words</p></TranscriptCard>);
+        expect(screen.getByTestId('transcript-live-indicator')).toBeInTheDocument();
+    });
+
+    it('shows a distinct finalizing banner (private wording) during the post-stop decode', () => {
+        render(<TranscriptCard {...base} offerDismissed finalizing isPrivate><p>words</p></TranscriptCard>);
+        const banner = screen.getByTestId('transcript-finalizing-banner');
+        expect(banner).toHaveTextContent(/Finalizing your transcript locally/i);
+        expect(banner).toHaveAttribute('role', 'status');
+    });
+
+    it('no finalizing banner when not finalizing', () => {
+        render(<TranscriptCard {...base} offerDismissed><p>words</p></TranscriptCard>);
+        expect(screen.queryByTestId('transcript-finalizing-banner')).toBeNull();
+    });
+
     it('transcript content wins over the offer (later live/after states)', () => {
         render(
             <TranscriptCard {...base}>

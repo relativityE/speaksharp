@@ -54,6 +54,9 @@ export interface SessionOverhaulViewProps {
     /** The saved session's two takeaways (after-state verdict); null → honest deterministic fallback. */
     aiSuggestions?: TwoTakeaways | null;
     onSeeAllSessions?: () => void;
+    /** #1231 R1 — live-updating tail (rendered muted/settling) + post-Stop finalizing banner. */
+    interimTranscript?: string;
+    isFinalizing?: boolean;
 }
 
 export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
@@ -75,6 +78,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     wpm,
     aiSuggestions,
     onSeeAllSessions,
+    interimTranscript,
+    isFinalizing,
 }) => {
     const permissionError = sttStatus.type === 'error';
     const sessionState = resolveSessionState({
@@ -99,6 +104,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const { amplitudes, recordedCount } = waveformFromLevels(levelsRef.current);
 
     const tokens = tokensFromTranscript(transcriptContent);
+    // during: append the live-updating tail as muted "interim" tokens so re-writes read as intentional.
+    const duringTokens = interimTranscript && interimTranscript.trim()
+        ? [...tokens, ...tokensFromTranscript(interimTranscript).map((t) => ({ ...t, interim: true }))]
+        : tokens;
     const fillerBars = tokens
         .map((t, i) => (t.filler ? Math.round((i / Math.max(1, tokens.length - 1)) * 71) : -1))
         .filter((n) => n >= 0);
@@ -149,7 +158,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         return (
             <SessionDuringState
                 recorder={{ elapsedSeconds: elapsedTime, amplitudes, recordedCount, deviceLabel: 'Private', onStop: onStartStop }}
-                transcript={{ tokens, words: wordCount(transcriptContent), fillersPerMin: liveFillersPerMin(metricsFillerCount, elapsedTime) }}
+                transcript={{ tokens: duringTokens, words: wordCount(transcriptContent), fillersPerMin: liveFillersPerMin(metricsFillerCount, elapsedTime) }}
                 progress={progress}
                 progressMode="aggregate"
                 liveTip={heldTip ? <LiveTip tip={heldTip} /> : undefined}
@@ -178,6 +187,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             }}
             progress={progress}
             progressMode="aggregate"
+            finalizing={isFinalizing}
             verdict={{ ...verdictFromSuggestions(aiSuggestions, fillerData), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
         />
     );

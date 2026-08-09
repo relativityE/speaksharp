@@ -13,6 +13,11 @@ export interface TranscriptToken {
     text: string;
     /** True when this token is a detected filler ("um", "you know", "like", …). */
     filler?: boolean;
+    /**
+     * #1231 R1: this token is in the live-updating tail — the model may still revise it. Rendered muted so
+     * the user sees the "still deciding" edge settle into solid body text; live re-writes read as intended.
+     */
+    interim?: boolean;
     /** after: playback position of this filler, seconds — used by onFillerSeek. */
     seekSeconds?: number;
 }
@@ -58,7 +63,13 @@ export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCare
                             <mark data-testid="live-filler" style={fillerStyle}>{t.text}</mark>
                         )
                     ) : (
-                        <span>{t.text}</span>
+                        // #1231 R1: the live-updating tail renders muted (settling) → solid once locked in.
+                        <span
+                            data-testid={t.interim ? 'live-interim' : undefined}
+                            style={t.interim ? { color: '#8a94a6' } : undefined}
+                        >
+                            {t.text}
+                        </span>
                     )}{' '}
                 </React.Fragment>
             ))}

@@ -30,9 +30,13 @@ export interface SessionAfterStateProps {
     verdict: SessionVerdictProps;
     /** #1222 S8 — Focus Points swaps slot D (verdict → resolved coverage rail); defaults to the verdict. */
     slotDContent?: React.ReactNode;
+    /** #1231 R1 — post-Stop decode still running → finalizing banner on the transcript card. */
+    finalizing?: boolean;
+    /** #1231 R2 — per-word filler breakdown + custom-word manager; replaces the plain stats footer. */
+    fillerFooter?: React.ReactNode;
 }
 
-export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, transcript, progress, progressMode, verdict, slotDContent }) => {
+export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, transcript, progress, progressMode, verdict, slotDContent, finalizing, fillerFooter }) => {
     return (
         <SessionShell
             sessionState="after"
@@ -44,15 +48,17 @@ export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, 
                     onRestoreOffer={() => {}}
                     onTakePrompt={() => {}}
                     onReadSample={() => {}}
+                    finalizing={finalizing}
+                    isPrivate
                     headerMeta={transcript.headerMeta}
-                    footer={
+                    footer={fillerFooter ?? (
                         <span className="flex items-center justify-between">
                             <span data-testid="after-stats">{transcript.stats}</span>
                             <button type="button" className="font-bold text-[#0d7d74] hover:underline" data-testid="after-add-fillers">
                                 Add your filler words
                             </button>
                         </span>
-                    }
+                    )}
                 >
                     <LiveTranscript tokens={transcript.tokens} onFillerSeek={transcript.onFillerSeek} />
                 </TranscriptCard>

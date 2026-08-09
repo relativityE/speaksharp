@@ -36,6 +36,13 @@ describe('LiveTranscript (#1222 slot B during)', () => {
         expect(screen.queryByTestId('live-caret')).toBeNull();
     });
 
+    it('renders the live-updating (interim) tail muted so re-writes read as intentional (#1231 R1)', () => {
+        render(<LiveTranscript tokens={[{ text: 'so' }, { text: 'today', interim: true }]} />);
+        const interim = screen.getByTestId('live-interim');
+        expect(interim).toHaveTextContent('today');
+        expect(interim).toHaveStyle({ color: 'rgb(138, 148, 166)' }); // #8a94a6 muted/settling
+    });
+
     it('after: fillers become seek buttons and the caret is dropped', () => {
         const onFillerSeek = vi.fn();
         render(<LiveTranscript tokens={tokens} onFillerSeek={onFillerSeek} />);

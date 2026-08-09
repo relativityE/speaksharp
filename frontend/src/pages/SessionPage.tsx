@@ -422,6 +422,8 @@ export const SessionPage: React.FC = () => {
                     wpm={metrics.wpm}
                     aiSuggestions={practiceHistory?.[0]?.ai_suggestions ?? undefined}
                     onSeeAllSessions={() => navigate('/analytics')}
+                    interimTranscript={interimTranscript}
+                    isFinalizing={isTranscriptFinalizing}
                 />
                 {RENDER_LEGACY_BODY && (
                 <>
