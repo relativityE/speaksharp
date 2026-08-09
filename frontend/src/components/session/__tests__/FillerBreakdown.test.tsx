@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '../../../../tests/support/test-utils';
+import { render, screen } from '../../../../tests/support/test-utils';
 import { describe, it, expect } from 'vitest';
 import { FillerBreakdown } from '../FillerBreakdown';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
@@ -6,7 +6,8 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 const fillers = (o: Record<string, number>): FillerCounts =>
     Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { count: v }])) as unknown as FillerCounts;
 
-// #1231 R2 — per-word breakdown (which words to target) + custom-word manager.
+// #1231 R2 — per-word breakdown (which words to target). Review-only: adding custom words happens in the
+// before-state MicCard, never here (a word must be tracked BEFORE a session to be counted in it).
 describe('FillerBreakdown (#1231 R2)', () => {
     it('ranks filler words by count, descending', () => {
         render(<FillerBreakdown fillerData={fillers({ like: 2, um: 5, 'you know': 1, total: 8 })} />);
@@ -26,10 +27,8 @@ describe('FillerBreakdown (#1231 R2)', () => {
         expect(screen.getByText('+5 more')).toBeInTheDocument();
     });
 
-    it('opens the custom-word manager from "Add your filler words"', () => {
+    it('is review-only — it does NOT offer the custom-word manager (that lives before recording)', () => {
         render(<FillerBreakdown fillerData={fillers({ um: 1 })} />);
-        fireEvent.click(screen.getByTestId('add-custom-word-button'));
-        // The manager renders its custom-word input once the popover opens.
-        expect(screen.getByPlaceholderText(/literally/i)).toBeInTheDocument();
+        expect(screen.queryByTestId('add-custom-word-button')).toBeNull();
     });
 });

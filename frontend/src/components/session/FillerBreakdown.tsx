@@ -1,15 +1,15 @@
 import React from 'react';
-import { Settings } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Button } from '@/components/ui/button';
-import { UserFillerWordsManager } from './UserFillerWordsManager';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 
 /**
  * #1231 R2 — the after-state filler breakdown: a lean, ranked per-word list ("um ×4 · like ×2 · you know
- * ×1") so the user can see *which* fillers to target next, plus the "Add your filler words" manager to
- * personalise what's tracked. This is the on-session actionable view; the Analytics page keeps the deeper
- * cross-session trend. It sits quietly under the transcript — it never competes with the verdict/progress.
+ * ×1") so the user can see *which* fillers to target next. This is the on-session actionable REVIEW view;
+ * the Analytics page keeps the deeper cross-session trend. It sits quietly under the transcript — it never
+ * competes with the verdict/progress.
+ *
+ * Adding custom filler words happens BEFORE recording (in the before-state MicCard), never here — a word
+ * must be tracked before a session to be counted in it (PO 2026-08-09). So this after-state view is
+ * review-only: no manager.
  *
  * The full legacy `FillerWordsCard` (before/zero/counts state machine, badges, explanation) is retired by
  * the redesign; this keeps only the parts that make fillers actionable on-session.
@@ -35,32 +35,13 @@ function rankedFillers(fillerData?: FillerCounts | null): { word: string; count:
 }
 
 export const FillerBreakdown: React.FC<FillerBreakdownProps> = ({ fillerData, stats, maxWords = 6 }) => {
-    const [managerOpen, setManagerOpen] = React.useState(false);
     const ranked = rankedFillers(fillerData);
     const shown = ranked.slice(0, maxWords);
     const extra = ranked.length - shown.length;
 
     return (
         <div className="flex flex-col gap-2" data-testid="filler-breakdown">
-            <div className="flex items-center justify-between gap-3">
-                {stats && <span className="text-[12px] text-[#414b5c]" data-testid="after-stats">{stats}</span>}
-                <Popover open={managerOpen} onOpenChange={setManagerOpen}>
-                    <PopoverTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-[#0d7d74] hover:bg-[#0d7d74]/10 hover:text-[#0d7d74]"
-                            data-testid="add-custom-word-button"
-                        >
-                            <Settings className="h-4 w-4" aria-hidden="true" />
-                            Add your filler words
-                        </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-80 border-[#dbe2ec] bg-white">
-                        <UserFillerWordsManager />
-                    </PopoverContent>
-                </Popover>
-            </div>
+            {stats && <span className="text-[12px] text-[#414b5c]" data-testid="after-stats">{stats}</span>}
 
             {shown.length > 0 ? (
                 <ul className="flex flex-wrap items-center gap-1.5" data-testid="filler-breakdown-list">
