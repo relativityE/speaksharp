@@ -25,12 +25,14 @@ export interface SessionDuringStateProps {
         chosenPrompt?: string | null;
     };
     progress: ProgressVsBaselineResult;
+    /** #1206 — 'aggregate' shows the composite session-progress card; defaults to the single-signal card. */
+    progressMode?: 'filler' | 'aggregate';
     liveTip?: React.ReactNode;
     /** #1222 S8 — Focus Points swaps slot D (coaching → coverage rail); defaults to the coaching card. */
     slotDContent?: React.ReactNode;
 }
 
-export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder, transcript, progress, liveTip, slotDContent }) => {
+export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder, transcript, progress, progressMode, liveTip, slotDContent }) => {
     return (
         <SessionShell
             sessionState="during"
@@ -49,7 +51,7 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                     <LiveTranscript tokens={transcript.tokens} />
                 </TranscriptCard>
             }
-            slotC={<ProgressVsBaseline result={progress} sessionState="during" />}
+            slotC={<ProgressVsBaseline result={progress} sessionState="during" mode={progressMode} />}
             slotD={slotDContent ?? <CoachingCard sessionState="during" liveTip={liveTip} />}
         />
     );

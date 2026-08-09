@@ -17,9 +17,34 @@
  */
 import posthog from 'posthog-js';
 import logger from '@/lib/logger';
+import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 
 /** PostHog flag key. Keep in sync with the PostHog project. */
 export const SESSION_OVERHAUL_FLAG_KEY = 'session_overhaul_v1' as const;
+
+/** Sticky per-browser override so a reviewer can turn the new page on/off immediately, no deploy/flag. */
+const OVERRIDE_STORAGE_KEY = 'speaksharp_session_overhaul_override';
+
+/**
+ * Immediate, per-browser override read from `?overhaul=1|0` (sticky in localStorage) — lets the PO/reviewer
+ * see the new page the moment they add the param and on every later refresh, independent of the PostHog
+ * rollout. `?overhaul=0` forces it off again. Returns undefined when no override is set. Never throws.
+ */
+function readOverride(): boolean | undefined {
+  try {
+    if (typeof window !== 'undefined' && typeof window.location?.search === 'string') {
+      const param = new URLSearchParams(window.location.search).get('overhaul');
+      if (param === '1' || param === 'true') { safeLocalStorageSet(OVERRIDE_STORAGE_KEY, '1'); return true; }
+      if (param === '0' || param === 'false') { safeLocalStorageSet(OVERRIDE_STORAGE_KEY, '0'); return false; }
+    }
+    const stored = safeLocalStorageGet(OVERRIDE_STORAGE_KEY);
+    if (stored === '1') return true;
+    if (stored === '0') return false;
+  } catch (error) {
+    logger.debug?.({ error }, '[sessionOverhaulFlags] override read failed; ignoring');
+  }
+  return undefined;
+}
 
 const HARD_DISABLED: boolean = (() => {
   try {
@@ -45,6 +70,10 @@ function readFlag(key: string): boolean {
  */
 export function isSessionOverhaulEnabled(): boolean {
   if (typeof window === 'undefined') return false;
+  // A per-browser override (from `?overhaul=1|0`) wins so a reviewer sees the new page immediately, but a
+  // HARD build disable still trumps everything (kill switch).
   if (HARD_DISABLED) return false;
+  const override = readOverride();
+  if (override !== undefined) return override;
   return readFlag(SESSION_OVERHAUL_FLAG_KEY);
 }

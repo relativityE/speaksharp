@@ -25,12 +25,14 @@ export interface SessionAfterStateProps {
         onFillerSeek: (token: TranscriptToken, index: number) => void;
     };
     progress: ProgressVsBaselineResult;
+    /** #1206 — 'aggregate' shows the composite session-progress card; defaults to the single-signal card. */
+    progressMode?: 'filler' | 'aggregate';
     verdict: SessionVerdictProps;
     /** #1222 S8 — Focus Points swaps slot D (verdict → resolved coverage rail); defaults to the verdict. */
     slotDContent?: React.ReactNode;
 }
 
-export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, transcript, progress, verdict, slotDContent }) => {
+export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, transcript, progress, progressMode, verdict, slotDContent }) => {
     return (
         <SessionShell
             sessionState="after"
@@ -55,7 +57,7 @@ export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, 
                     <LiveTranscript tokens={transcript.tokens} onFillerSeek={transcript.onFillerSeek} />
                 </TranscriptCard>
             }
-            slotC={<ProgressVsBaseline result={progress} sessionState="after" />}
+            slotC={<ProgressVsBaseline result={progress} sessionState="after" mode={progressMode} />}
             slotD={slotDContent ?? <CoachingCard sessionState="after" verdict={<SessionVerdict {...verdict} />} />}
         />
     );

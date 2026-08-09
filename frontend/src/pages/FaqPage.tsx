@@ -56,8 +56,17 @@ const FAQ_GROUPS: readonly FaqGroup[] = [
                 id: 'how-progress-measured',
                 question: 'How is my progress measured?',
                 answer: [
-                    'Your progress draws on the practice evidence from your session: speaking pace, detected filler words, delivery signals, and transcript quality.',
-                    'It is directional — a transparent read on how a session went, built only from the signals shown to you. It is not a black box or a portable grade.',
+                    'Session progress is one percentage built — in the open — from four signals we measure in your own session: filler rate (filler words per minute), clarity, speaking pace (words per minute), and pause rhythm. Nothing hidden feeds it.',
+                    'Combining these four levels out the natural swing of any single one, so the number is steadier and harder to game. It compares this session with your baseline (your first session) — a personal, session-over-session read, never a grade or a comparison with other people.',
+                    'The number is deliberately in the background. What matters most is the two takeaways — what worked and what to try next — drawn straight from what you actually did this session. Acting on those next time is the real goal.',
+                ],
+            },
+            {
+                id: 'baseline-signal',
+                question: 'What is the "baseline signal"?',
+                answer: [
+                    'The baseline signal is your first session’s combined reading of the same four signals — filler rate, clarity, speaking pace, and pause rhythm — taken together as your personal starting point. Because there is nothing earlier to compare it with, your first session shows this baseline signal instead of a change percentage.',
+                    'From your next session on, progress is shown as the change in those four signals versus this baseline. If a signal is too short or has no usable evidence, we leave it out rather than invent a number — again, in the interest of showing you only what we can actually measure.',
                 ],
             },
             {

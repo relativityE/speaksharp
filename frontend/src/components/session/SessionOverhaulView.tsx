@@ -4,8 +4,8 @@ import { SessionDuringState } from './SessionDuringState';
 import { SessionAfterState } from './SessionAfterState';
 import { resolveSessionState } from '@/utils/sessionStateMachine';
 import { usePromptOfferDismissed } from '@/hooks/usePromptOfferDismissed';
-import { progressFromSessionHistory, progressInputsFromSessions } from '@/utils/progressInputsFromSessions';
-import { computeProgressVsBaseline } from '@/utils/progressVsBaseline';
+import { computeAggregateProgress, signalsFromSession } from '@/utils/aggregateProgress';
+import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptTokens';
 import type { PracticeSession } from '@/types/session';
 import type { SttStatus } from '@/types/transcription';
@@ -76,14 +76,23 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         .map((t, i) => (t.filler ? Math.round((i / Math.max(1, tokens.length - 1)) * 71) : -1))
         .filter((n) => n >= 0);
 
-    // Progress: real history; during appends the in-progress session so the % ticks live.
-    const baseProgress = progressFromSessionHistory(history);
-    const liveProgress = React.useMemo(() => {
-        if (sessionState !== 'during' || elapsedTime <= 0) return baseProgress;
-        // Reuse the validated adapter for prior sessions, then append the in-progress one so the % ticks live.
-        const inputs = [...progressInputsFromSessions(history), { fillerCount: metricsFillerCount, durationSeconds: elapsedTime }];
-        return computeProgressVsBaseline(inputs);
-    }, [sessionState, history, elapsedTime, metricsFillerCount, baseProgress]);
+    // #1206 — session progress is the AGGREGATE of the four signals (filler/clarity/pace/pause), computed
+    // from real completed sessions. It is a session-completion read, so all three states show the same
+    // standing aggregate (last completed vs baseline) rather than a fragile live tick; the number is
+    // background anyway (the coaching takeaways are the product).
+    const progress = React.useMemo<ProgressVsBaselineResult>(() => {
+        const oldestFirst = [...history].reverse().map(signalsFromSession);
+        const agg = computeAggregateProgress(oldestFirst);
+        return {
+            isBaseline: agg.isBaseline,
+            tooShort: agg.tooShort,
+            currentRate: agg.currentQuality,
+            baselineRate: agg.baselineQuality,
+            deltaPercent: agg.aggregatePercent,
+            direction: agg.direction,
+            trend: agg.trend,
+        };
+    }, [history]);
 
     if (sessionState === 'before') {
         return (
@@ -96,7 +105,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     onTakePrompt: onStartStop,
                     onReadSample: onStartStop,
                 }}
-                progress={baseProgress}
+                progress={progress}
+                progressMode="aggregate"
             />
         );
     }
@@ -106,7 +116,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             <SessionDuringState
                 recorder={{ elapsedSeconds: elapsedTime, amplitudes, recordedCount, deviceLabel: 'Private', onStop: onStartStop }}
                 transcript={{ tokens, words: wordCount(transcriptContent), fillersPerMin: liveFillersPerMin(metricsFillerCount, elapsedTime) }}
-                progress={liveProgress}
+                progress={progress}
+                progressMode="aggregate"
             />
         );
     }
@@ -130,7 +141,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 stats: `${metricsFillerCount} fillers · ${wordCount(transcriptContent)} words`,
                 onFillerSeek: () => {},
             }}
-            progress={baseProgress}
+            progress={progress}
+            progressMode="aggregate"
             verdict={{ verdictLine: '', fix: '', onPracticeAgain: onStartStop, onSeeAllSessions: () => {} }}
         />
     );

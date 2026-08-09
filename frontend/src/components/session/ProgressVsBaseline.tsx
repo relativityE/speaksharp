@@ -11,6 +11,12 @@ import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 export interface ProgressVsBaselineProps {
     result: ProgressVsBaselineResult;
     sessionState: 'before' | 'during' | 'after';
+    /**
+     * 'filler' (default) — the single-signal card ("N% fewer fillers", "/min" units).
+     * 'aggregate' — the #1206 composite: "N% better/worse than your baseline"; the footer numbers are the
+     * composite "baseline signal" (0–100), not a per-minute rate.
+     */
+    mode?: 'filler' | 'aggregate';
 }
 
 const GREEN = '#146b4a';
@@ -33,8 +39,16 @@ const DELTA_CONTEXT: Record<ProgressVsBaselineProps['sessionState'], string> = {
     after: 'than session 1',
 };
 
-export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, sessionState }) => {
+export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, sessionState, mode = 'filler' }) => {
     const { isBaseline, tooShort, currentRate, baselineRate, deltaPercent, direction, trend } = result;
+    const isAgg = mode === 'aggregate';
+    // Unit + noun differ by mode; filler mode is unchanged (existing tests are byte-identical).
+    const unit = isAgg ? '' : '/min';
+    const headerLabel = isAgg ? 'Session progress' : 'Progress vs baseline';
+    const deltaNoun = isAgg
+        ? (direction === 'regressed' ? 'worse' : 'better')
+        : `${direction === 'regressed' ? 'more' : 'fewer'} fillers`;
+    const baselineLabel = isAgg ? 'Baseline signal' : 'Baseline';
 
     return (
         <div
@@ -44,13 +58,13 @@ export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, 
             role="group"
             aria-label="Progress versus baseline"
         >
-            <p className="text-[11px] font-bold uppercase tracking-wide text-[#414b5c]">Progress vs baseline</p>
+            <p className="text-[11px] font-bold uppercase tracking-wide text-[#414b5c]">{headerLabel}</p>
 
             {isBaseline ? (
                 <div className="mt-2" data-testid="progress-baseline-set">
-                    <p className="text-[20px] font-extrabold text-[#1f2733]">Baseline set</p>
+                    <p className="text-[20px] font-extrabold text-[#1f2733]">{isAgg ? 'Baseline signal set' : 'Baseline set'}</p>
                     <p className="mt-1 text-[13px] text-[#414b5c]">
-                        {baselineRate}/min — we&apos;ll compare every session from here.
+                        {baselineRate}{unit} — we&apos;ll compare every session from here.
                     </p>
                 </div>
             ) : tooShort ? (
@@ -69,7 +83,7 @@ export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, 
                             {(deltaPercent ?? 0) >= 0 ? '+' : '−'}{Math.abs(deltaPercent ?? 0)}%
                         </span>
                         <span className="text-[13px] font-bold leading-snug text-[#1f2733]">
-                            {direction === 'regressed' ? 'more' : 'fewer'} fillers
+                            {deltaNoun}
                             <br />
                             {DELTA_CONTEXT[sessionState]}
                         </span>
@@ -95,8 +109,8 @@ export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, 
                     </div>
 
                     <div className="mt-2 flex items-center justify-between text-[12px] text-[#414b5c]">
-                        <span>Baseline {baselineRate}/min</span>
-                        <span data-testid="progress-current">{CURRENT_LABEL[sessionState]} {currentRate}/min</span>
+                        <span>{baselineLabel} {baselineRate}{unit}</span>
+                        <span data-testid="progress-current">{CURRENT_LABEL[sessionState]} {currentRate}{unit}</span>
                     </div>
                 </>
             )}
