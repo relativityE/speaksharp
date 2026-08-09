@@ -1,5 +1,8 @@
 **Status:** Authoritative (SSOT for personal session-over-session Progress and the single next practice action)
 **Owner:** Product Owner (relativityE)
+
+> **UPDATE 2026-08-09 (PO decision):** the headline comparison target changed from the **baseline (first) session** to the user's **PREVIOUS comparable session** — "±n% vs your previous session". The code (`utils/aggregateProgress.ts`, `components/session/ProgressVsBaseline.tsx`) and the user-facing FAQ already reflect this. §5/§6/§7 below still describe the earlier baseline framing (including the illustrative tables and `baseline_session_id` telemetry) and are pending a full reconcile under **#1051** (docs closeout). Where this note and the sections below disagree, **this note wins** on the comparison target. The first session still shows a no-delta starting state.
+
 **Last Reviewed:** 2026-08-08
 **Last Verified:** 2026-08-08 — §5/§6/§7 reconciled per the #1222 Product-Owner decision (2026-08-08): Progress is the **SpeakSharp Score successor** — a session-over-session improvement in a **composite clear-delivery measure**, now expressed as a **signed percentage** vs baseline (points → percentage, for defensibility). **Filler rate is one component** of that composite and is the component **v1 surfaces** (`frontend/src/utils/progressVsBaseline.ts`, session-page card `components/session/ProgressVsBaseline.tsx`, filler-evidence `validatedFillerTotal`/`sessionAnalysis.ts`); more components are added later without changing this contract. No run IDs, SHAs, or current release posture are carried here.
 **Applies To:** Every surface that tells a user how their practice is changing over time and what to practise next — Progress, Session review, and history.

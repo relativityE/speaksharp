@@ -196,7 +196,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         return (
             <SessionDuringState
                 recorder={{ elapsedSeconds: elapsedTime, amplitudes, recordedCount, deviceLabel: 'Private', onStop: onStartStop }}
-                transcript={{ tokens: duringTokens, words: wordCount(transcriptContent), fillersPerMin: liveFillersPerMin(metricsFillerCount, elapsedTime) }}
+                transcript={{ tokens: duringTokens, words: wordCount(transcriptContent), fillersPerMin: liveFillersPerMin(metricsFillerCount, elapsedTime), chosenPrompt }}
                 progress={progress}
                 progressMode="aggregate"
                 liveTip={heldTip ? <LiveTip tip={heldTip} /> : undefined}
