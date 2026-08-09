@@ -37,11 +37,18 @@ const FAILURE_COPY: Record<ObjectiveBriefFailureReason, string> = {
 interface PointDraft {
     id: number;
     label: string;
-    cue: string;
 }
 
 let nextPointId = 1;
-const makePoint = (): PointDraft => ({ id: nextPointId++, label: '', cue: '' });
+const makePoint = (): PointDraft => ({ id: nextPointId++, label: '' });
+
+// #1046: the "What are you rehearsing?" quick-pick topics. Four common contexts + "Other" (free text).
+const TOPIC_OPTIONS = [
+    'Job interview',
+    'Sales or product pitch',
+    'Conference talk / keynote',
+    'Team update / standup',
+] as const;
 
 export function ObjectiveSetupForm({
     onReady,
@@ -52,6 +59,8 @@ export function ObjectiveSetupForm({
     className?: string;
 }) {
     const [goal, setGoal] = React.useState('');
+    // Dropdown selection: '' (unchosen), a TOPIC_OPTIONS value, or 'other' (reveals the free-text field).
+    const [topic, setTopic] = React.useState('');
     const [points, setPoints] = React.useState<PointDraft[]>(() => [makePoint(), makePoint(), makePoint()]);
     const [submitting, setSubmitting] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
@@ -59,8 +68,13 @@ export function ObjectiveSetupForm({
     const labelledPoints = points.filter((p) => p.label.trim() !== '');
     const canSubmit = goal.trim() !== '' && labelledPoints.length >= 1 && !submitting;
 
-    const updatePoint = (id: number, field: 'label' | 'cue', value: string) => {
-        setPoints((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)));
+    const onTopicChange = (value: string) => {
+        setTopic(value);
+        // A preset IS the goal; 'Other'/unchosen clears it so the free-text field drives the goal.
+        setGoal(value === 'other' || value === '' ? '' : value);
+    };
+    const updatePoint = (id: number, value: string) => {
+        setPoints((prev) => prev.map((p) => (p.id === id ? { ...p, label: value } : p)));
     };
     const addPoint = () => {
         setPoints((prev) => (prev.length >= OBJECTIVE_MAX_POINTS ? prev : [...prev, makePoint()]));
@@ -79,7 +93,7 @@ export function ObjectiveSetupForm({
         try {
             result = await startObjectiveBrief({
                 goal,
-                points: labelledPoints.map((p) => ({ label: p.label, cue: p.cue })),
+                points: labelledPoints.map((p) => ({ label: p.label })),
             });
         } catch {
             result = { ok: false, reason: 'error' };
@@ -110,15 +124,31 @@ export function ObjectiveSetupForm({
                 <Label htmlFor="objective-goal" className="text-[13px] font-bold text-foreground">
                     What are you rehearsing?
                 </Label>
-                <Input
+                <select
                     id="objective-goal"
-                    data-testid="objective-goal-input"
-                    value={goal}
-                    onChange={(e) => setGoal(e.target.value)}
-                    placeholder="e.g. 2-minute sales pitch"
-                    className="mt-1.5"
-                    maxLength={140}
-                />
+                    data-testid="objective-goal-select"
+                    value={topic}
+                    onChange={(e) => onTopicChange(e.target.value)}
+                    className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                    <option value="">Choose a topic…</option>
+                    {TOPIC_OPTIONS.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                    ))}
+                    <option value="other">Other…</option>
+                </select>
+                {topic === 'other' && (
+                    <Input
+                        data-testid="objective-goal-input"
+                        aria-label="What are you rehearsing?"
+                        value={goal}
+                        onChange={(e) => setGoal(e.target.value)}
+                        placeholder="e.g. 2-minute wedding toast"
+                        className="mt-1.5"
+                        maxLength={140}
+                        autoFocus
+                    />
+                )}
             </div>
 
             <div className="mt-6">
@@ -137,18 +167,9 @@ export function ObjectiveSetupForm({
                                     data-testid={`objective-point-label-${i}`}
                                     aria-label={`Focus point ${i + 1}`}
                                     value={p.label}
-                                    onChange={(e) => updatePoint(p.id, 'label', e.target.value)}
+                                    onChange={(e) => updatePoint(p.id, e.target.value)}
                                     placeholder={i === 0 ? 'e.g. Name the price' : 'Another point to cover'}
                                     maxLength={120}
-                                />
-                                <Input
-                                    data-testid={`objective-point-cue-${i}`}
-                                    aria-label={`Reminder for focus point ${i + 1} (optional)`}
-                                    value={p.cue}
-                                    onChange={(e) => updatePoint(p.id, 'cue', e.target.value)}
-                                    placeholder="Optional reminder"
-                                    maxLength={140}
-                                    className="mt-1.5 h-8 text-[13px] text-foreground/80"
                                 />
                             </div>
                             <button
