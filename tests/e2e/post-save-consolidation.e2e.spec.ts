@@ -128,8 +128,9 @@ test.describe('Post-save consolidation', () => {
   test('Private: one bar, Analytics only, NO Private CTA, NO toast, NEVER Browser-omission copy', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
+    // #1184/#1222: Private is the only engine on the new page — selectTranscriptionEngine confirms the
+    // session controls are present; there is no stt-mode-select data-state indicator to assert.
     await selectTranscriptionEngine(page, 'private');
-    await expect(page.getByTestId(TEST_IDS.STT_MODE_SELECT)).toHaveAttribute('data-state', 'private', { timeout: 10000 });
 
     await recordAndStop(page);
 
@@ -162,7 +163,8 @@ test.describe('Post-save consolidation', () => {
     // Let the native formatter reach terminal (the displayed final text is settled).
     await expect(page.getByTestId('post-save-review-session-link')).toBeVisible({ timeout: 15000 });
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
-    const sessionText = norm(await page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).innerText());
+    // #1222: the session-page transcript surface is the live-transcript card (was transcript-container).
+    const sessionText = norm(await page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT).innerText());
     expect(sessionText.length).toBeGreaterThan(0);
 
     await navigateToRoute(page, '/analytics');

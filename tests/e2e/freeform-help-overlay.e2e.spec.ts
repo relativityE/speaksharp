@@ -1,6 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
-import { TEST_IDS } from '../constants';
+import { programmaticLoginWithRoutes, navigateToRoute, startRecording, stopRecording } from './helpers';
 
 /**
  * #1042 PR2 / #1116 — "How Open Floor works" Session help overlay.
@@ -69,16 +68,15 @@ test.describe('#1042 PR2 Freeform help overlay', () => {
         await expect(overlay).toHaveCount(0);
 
         // Disabled while a recording is active — cannot open, never starts/stops recording itself.
-        const startStop = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-        await startStop.click();
-        await expect(startStop).toHaveAttribute('data-recording', 'true', { timeout: 15_000 });
+        await startRecording(page);
+        await expect(page.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during', { timeout: 15_000 });
         await expect(help).toHaveAttribute('aria-disabled', 'true');
         await help.click({ force: true });
         await expect(page.getByTestId('freeform-help-overlay')).toHaveCount(0);
         await page.screenshot({ path: `${DIR}/02-desktop-disabled.png`, fullPage: true });
         // Stop the recording to leave a clean state.
-        await startStop.click();
-        await expect(startStop).toHaveAttribute('data-recording', 'false', { timeout: 20_000 });
+        await stopRecording(page);
+        await expect(page.locator('html')).not.toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 20_000 });
     });
 
     test('mobile: opens as a bottom sheet', async ({ page }) => {

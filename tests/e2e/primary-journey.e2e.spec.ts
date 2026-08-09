@@ -20,6 +20,8 @@ import {
   mockLiveTranscript,
   selectTranscriptionEngine,
   programmaticLoginWithRoutes,
+  startRecording,
+  stopRecording,
 } from './helpers';
 import { TEST_IDS } from '../constants';
 import { MOCK_TRANSCRIPTS_WITH_FILLERS } from './fixtures/mockData';
@@ -47,54 +49,40 @@ test.describe('Primary User Journey Matrix', () => {
 
 
 
-      // 3. Verify the engine surface: Private is the only engine for every tier — a static indicator,
-      // no selector, no tier-gated options. (#1184)
-      const modeButton = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
-      await expect(modeButton).toBeVisible();
+      // 3. Verify the engine surface: Private is the only engine for every tier — there is no selector
+      // on the new session page; the recorder surface (mic card) IS the confirmation. (#1184/#1222)
       await selectTranscriptionEngine(page, 'private');
-      await expect(modeButton).toHaveAttribute('data-state', 'private', { timeout: 10000 });
-      await expect(modeButton).toContainText(/private/i);
+      await expect(page.getByTestId(TEST_IDS.MIC_CARD)).toBeVisible();
 
-      // 4. Recording Lifecycle (Accessibility Label Logic)
-      const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-      await expect(page.getByLabel(/Start Recording/i)).toBeVisible();
+      // 4. Recording Lifecycle (#1231): start (before-state `mic-start`) and stop (during-state
+      // `recorder-stop`) are split — no single toggle, no `data-recording` attribute. `startRecording`
+      // waits for the model + the RECORDING runtime signal.
+      await startRecording(page);
 
-      // Deterministic Sync: Wait for engine handshake before clicking start
-      await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
-
-      await startButton.click();
-
-      // Verify recording state via attribute & Accessibility Label
-      await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
-      await expect(page.getByLabel(/Stop Recording/i)).toBeVisible();
-
-      // 5. Simulate Speech using the central file transcript fixture
-      // #1047: this fixture carries real tracked fillers. The assertion below is that the evidence
-      // band EXPANDS because the user produced filler evidence — previously it passed against a grid
-      // of thirteen `0` chips, which proved only that the grid rendered, not that anything was
-      // detected. Driving a real count makes the proof mean what it claims.
+      // 5. Simulate Speech using the central file transcript fixture. This fixture carries real tracked
+      // fillers so the after-state per-word breakdown (below) is driven by genuine evidence.
       await mockLiveTranscript(page, MOCK_TRANSCRIPTS_WITH_FILLERS as unknown as string[]);
 
-      // Verify the session page story is live: transcript plus the current
-      // evidence band, rather than the legacy standalone metric cards.
-      await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).not.toContainText('Listening...');
-      await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText(/simulating multiple lines/i);
-      await expect(page.getByTestId('filler-words-card')).toHaveAttribute('data-filler-state', 'counts', { timeout: 15000 });
-      await expect(page.getByTestId('filler-words-list')).toBeVisible({ timeout: 15000 });
-      await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).not.toHaveText('', { timeout: 15000 });
+      // The live transcript renders the streamed words (#1222 slot B → `live-transcript`).
+      await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toContainText(/simulating multiple lines/i);
 
       // The product intentionally refuses to persist sub-5-second sessions.
       // Keep this proof aligned with the user-facing save contract instead of
       // expecting persistence from an invalidly short recording.
       await page.waitForTimeout(5200);
 
-      // 6. Stop Recording
-      await startButton.click();
-      await expect(page.getByLabel(/Start Recording/i)).toBeVisible({ timeout: 10000 });
+      // 6. Stop Recording → the review (after) state.
+      await stopRecording(page);
 
       // 7. Verify Deterministic Persistence Signal
       const html = page.locator('html');
       await expect(html).toHaveAttribute('data-session-persisted', 'true', { timeout: 15000 });
+
+      // #1231 R2: the retired `filler-words-card` state machine is replaced by the after-state
+      // `FillerBreakdown` — a ranked per-word list. The fixture produced real fillers, so the list shows.
+      await expect(page.getByTestId('filler-breakdown')).toBeVisible({ timeout: 15000 });
+      await expect(page.getByTestId('filler-breakdown-list')).toBeVisible({ timeout: 15000 });
+      await expect(page.getByTestId('filler-breakdown-word').first()).toBeVisible({ timeout: 15000 });
       // 8. Navigation to Analytics through the canonical route helper. The
       // persistence signal above proves the session write path completed; this
       // avoids racing the route-transition shell under parallel workers.

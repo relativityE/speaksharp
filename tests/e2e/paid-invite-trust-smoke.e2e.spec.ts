@@ -2,7 +2,10 @@ import { test, expect } from './fixtures';
 import {
   navigateToRoute,
   programmaticLoginWithRoutes,
+  selectTranscriptionEngine,
   simulateTranscription,
+  startRecording,
+  stopRecording,
 } from './helpers';
 import { TEST_IDS } from '../constants';
 
@@ -16,23 +19,18 @@ test.describe('Paid invite trust smoke', () => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
 
-    const modeButton = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
-    await expect(modeButton).toBeVisible();
-    // #1184: Private is the only engine — the recorder shows a static Private indicator, no Browser default.
-    await expect(modeButton).toHaveAttribute('data-state', 'private');
-    await expect(modeButton).toContainText(/Private/i);
+    // #1184/#1222: Private is the only engine — no selector to choose; the recorder surface confirms it.
+    await selectTranscriptionEngine(page, 'private');
     await expect(page.getByText(/Private model setup required/i)).toHaveCount(0);
 
-    const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-    await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
-    await startButton.click();
-    await expect(startButton).toHaveAttribute('data-recording', 'true');
+    await startRecording(page);
+    await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 15_000 });
 
     await simulateTranscription(page, TRUST_SMOKE_TRANSCRIPT, true);
-    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText(/paid invite trust smoke/i);
+    await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toContainText(/paid invite trust smoke/i);
 
     await page.waitForTimeout(5_200);
-    await startButton.click();
+    await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
 
     // Consolidated post-save experience: ONE status bar carries the reconciliation copy and the Analytics
@@ -42,7 +40,6 @@ test.describe('Paid invite trust smoke', () => {
     await expect(page.getByTestId('post-save-review-session-link')).toHaveAttribute('href', '/analytics');
     // #1184: no Browser→Private upsell CTA after save — the session was already Private.
     await expect(page.getByTestId('post-save-private-cta')).toHaveCount(0);
-    await expect(modeButton).toHaveAttribute('data-state', 'private');
   });
 
   test('shows the account-linked support-follow-up disclosure for authenticated reports', async ({ page }) => {
