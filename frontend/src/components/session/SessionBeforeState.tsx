@@ -18,16 +18,18 @@ export interface SessionBeforeStateProps {
     mic: MicCardProps;
     transcript: Omit<TranscriptCardProps, 'children'>;
     progress: ProgressVsBaselineResult;
+    /** #1222 S8 — Focus Points swaps slot D (coaching → capture step); defaults to the coaching card. */
+    slotDContent?: React.ReactNode;
 }
 
-export const SessionBeforeState: React.FC<SessionBeforeStateProps> = ({ mic, transcript, progress }) => {
+export const SessionBeforeState: React.FC<SessionBeforeStateProps> = ({ mic, transcript, progress, slotDContent }) => {
     return (
         <SessionShell
             sessionState="before"
             slotA={<MicCard {...mic} />}
             slotB={<TranscriptCard {...transcript} />}
             slotC={<ProgressVsBaseline result={progress} sessionState="before" />}
-            slotD={<CoachingCard sessionState="before" />}
+            slotD={slotDContent ?? <CoachingCard sessionState="before" />}
         />
     );
 };

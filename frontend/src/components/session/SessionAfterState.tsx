@@ -26,9 +26,11 @@ export interface SessionAfterStateProps {
     };
     progress: ProgressVsBaselineResult;
     verdict: SessionVerdictProps;
+    /** #1222 S8 — Focus Points swaps slot D (verdict → resolved coverage rail); defaults to the verdict. */
+    slotDContent?: React.ReactNode;
 }
 
-export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, transcript, progress, verdict }) => {
+export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, transcript, progress, verdict, slotDContent }) => {
     return (
         <SessionShell
             sessionState="after"
@@ -54,7 +56,7 @@ export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, 
                 </TranscriptCard>
             }
             slotC={<ProgressVsBaseline result={progress} sessionState="after" />}
-            slotD={<CoachingCard sessionState="after" verdict={<SessionVerdict {...verdict} />} />}
+            slotD={slotDContent ?? <CoachingCard sessionState="after" verdict={<SessionVerdict {...verdict} />} />}
         />
     );
 };
