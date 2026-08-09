@@ -37,10 +37,13 @@ export function FaqMenu() {
                 <button
                     type="button"
                     data-testid="faq-trigger"
+                    aria-label="FAQ"
                     className="nav-item"
                 >
                     <HelpCircle className="h-4 w-4" aria-hidden="true" />
-                    <span>FAQ</span>
+                    {/* Label hides on very small widths so the header never overflows at 320px; the icon
+                        + aria-label keep it reachable and accessible on mobile. */}
+                    <span className="hidden sm:inline">FAQ</span>
                 </button>
             </PopoverTrigger>
             <PopoverContent

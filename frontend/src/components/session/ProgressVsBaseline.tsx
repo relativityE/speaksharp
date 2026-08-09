@@ -39,6 +39,22 @@ const DELTA_CONTEXT: Record<ProgressVsBaselineProps['sessionState'], string> = {
     after: 'than session 1',
 };
 
+/**
+ * Render the delta-context line, emphasising a trailing session number so "than session 1" reads with the
+ * "1" clearly picked out (heavier weight + tabular numerals). Contexts without a trailing number (e.g.
+ * "so far this session") render unchanged.
+ */
+function renderContext(context: string): React.ReactNode {
+    const match = context.match(/^(.*?\s)(\d+)$/);
+    if (!match) return context;
+    return (
+        <>
+            {match[1]}
+            <span className="font-extrabold tabular-nums text-[#0f1722]" data-testid="progress-baseline-session">{match[2]}</span>
+        </>
+    );
+}
+
 export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, sessionState, mode = 'filler' }) => {
     const { isBaseline, tooShort, currentRate, baselineRate, deltaPercent, direction, trend } = result;
     const isAgg = mode === 'aggregate';
@@ -97,7 +113,7 @@ export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, 
                         <span className="text-[13px] font-bold leading-snug text-[#1f2733]">
                             {deltaNoun}
                             <br />
-                            {DELTA_CONTEXT[sessionState]}
+                            {renderContext(DELTA_CONTEXT[sessionState])}
                         </span>
                     </div>
 

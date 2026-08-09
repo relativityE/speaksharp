@@ -320,7 +320,7 @@ export const SessionPage: React.FC = () => {
                 During/after this block is gone and the live workflow owns the frame. */}
             {beforeState && (
                 <div className="px-6 pt-4 max-w-7xl mx-auto">
-                    <div className="flex items-start justify-between gap-4 mb-[34px]" data-testid="session-title-block">
+                    <div className="mb-[34px] flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4" data-testid="session-title-block">
                         <div>
                             <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
                             <p className="text-sm text-foreground/70" data-testid="session-subtitle">{sessionSubtitle}</p>
