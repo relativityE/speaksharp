@@ -218,14 +218,13 @@ export async function waitForRouteControls(page: Page, route: string, timeout: n
 
     await expect(sessionPage).toBeVisible({ timeout });
 
-    const recordingCard = page.getByTestId('live-recording-card');
-    await expect(recordingCard).toBeVisible({ timeout });
-    await expect(recordingCard.getByTestId('stt-mode-select')).toBeVisible({ timeout });
-
-    const startStopControls = page.locator(
-      '[data-testid="session-start-stop-button"], [data-testid="session-start-stop-button-mobile"]'
-    );
-    await expect(startStopControls.first()).toBeVisible({ timeout });
+    // #1222: the session page is the Private-only overhaul shell. The recorder surface is the fixed shell
+    // plus the before-state mic card (or the recorder bar once recording) — there is no engine selector and
+    // start/stop are split (`mic-start` / `recorder-stop`).
+    await expect(page.getByTestId('session-shell')).toBeVisible({ timeout });
+    await expect(
+      page.getByTestId('mic-card').or(page.getByTestId('recorder-bar')),
+    ).toBeVisible({ timeout });
     return;
   }
 
@@ -597,8 +596,32 @@ export async function selectTranscriptionEngine(page: Page, mode: 'private' = 'p
   if (mode !== 'private') {
     throw new Error(`[#1184] Private is the only engine — cannot select '${mode}'. Update this test to the Private-only surface.`);
   }
-  const indicator = page.getByTestId('stt-mode-select');
-  await expect(indicator).toHaveAttribute('data-state', 'private', { timeout: 15_000 });
+  // #1222: the session page is Private-only with NO engine selector — the recorder surface itself is the
+  // confirmation. On the new page the before-state mic card (`mic-card`) is the Private recorder; there is
+  // nothing to select. Confirm the recorder surface is present (mic card before, or the recorder bar once
+  // recording), rather than the removed `stt-mode-select`.
+  await expect(
+    page.getByTestId('mic-card').or(page.getByTestId('recorder-bar')),
+  ).toBeVisible({ timeout: 15_000 });
+}
+
+/**
+ * #1231: start a recording on the new session page. Start (before-state `mic-start`) and stop
+ * (during-state `recorder-stop`) are SPLIT — there is no single toggle and no `data-recording` attribute.
+ * Recording state is read from the runtime signal + the shell's `data-session-state`.
+ */
+export async function startRecording(page: Page) {
+  await waitForModelReady(page);
+  await page.getByTestId('mic-start').click();
+  await Promise.race([
+    page.waitForSelector('html[data-runtime-state="RECORDING"]', { timeout: 15_000 }),
+    page.waitForSelector('[data-testid="session-shell"][data-session-state="during"]', { timeout: 15_000 }),
+  ]);
+}
+
+/** #1231: stop the active recording (during-state `recorder-stop`). Callers assert the post-save surfaces. */
+export async function stopRecording(page: Page) {
+  await page.getByTestId('recorder-stop').click();
 }
 
 export async function waitForToast(page: Page, message: string | RegExp) {

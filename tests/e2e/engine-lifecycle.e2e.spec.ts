@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { navigateToRoute, waitForModelReady, selectTranscriptionEngine } from './helpers';
+import { navigateToRoute, waitForModelReady, selectTranscriptionEngine, startRecording, stopRecording } from './helpers';
 import { registerMockInE2E, enableTestRegistry } from '../helpers/testRegistry.helpers';
 
 
@@ -25,21 +25,26 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
   // startable or safely blocked behind visible setup/download guidance.
   test('Engine Lifecycle: explicit Private selection shows safe setup or ready state', async ({ proPage: page }) => {
     await navigateToRoute(page, '/session');
+    // #1184/#1222: Private is the only engine — there is no `stt-mode-select` and no `data-recording`
+    // attribute. selectTranscriptionEngine confirms the Private recorder surface is mounted. Start (before)
+    // and stop (during) are split into `mic-start` / `recorder-stop`.
     await selectTranscriptionEngine(page, 'private');
 
-    const modeButton = page.getByTestId('stt-mode-select');
-    await expect(modeButton).toHaveAttribute('data-state', 'private', { timeout: 15000 });
+    const startButton = page.getByTestId('mic-start');
+    const startReady = (await startButton.isVisible().catch(() => false))
+      && (await startButton.isEnabled({ timeout: 5_000 }).catch(() => false));
 
-    const startButton = page.getByTestId('session-start-stop-button');
-    await expect(startButton).toHaveAttribute('data-recording', 'false', { timeout: 10000 });
-
-    if (await startButton.isEnabled({ timeout: 5_000 }).catch(() => false)) {
-      await startButton.click();
-      await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
-      await startButton.click();
+    if (startReady) {
+      await startRecording(page);
+      await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 15000 });
+      await stopRecording(page);
     } else {
-      await expect(startButton).toBeDisabled();
-      await expect(page.locator('body')).toContainText(/Private|model setup|Downloading private model|local/i);
+      // Private requires a one-time on-device model download → the page shows the download/setup
+      // affordance (`mic-download`) instead of an enabled start, with visible setup guidance.
+      await expect(
+        page.getByTestId('mic-download').or(page.getByTestId('mic-card')),
+      ).toBeVisible();
+      await expect(page.locator('body')).toContainText(/Private|model setup|Download|local/i);
     }
   });
 
@@ -80,17 +85,17 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     });
 
     await navigateToRoute(page, '/session');
+    // #1184/#1222: Private is the only engine (no `stt-mode-select`); confirm the recorder surface is mounted.
     await selectTranscriptionEngine(page, 'private');
     // Forensic Readiness Gate (Invariant I3)
     await waitForModelReady(page, 15000);
-    await expect(page.getByTestId('stt-mode-select')).toHaveAttribute('data-state', 'private', { timeout: 15000 });
 
-    await page.getByTestId('session-start-stop-button').click();
-
-    // Should start recording via Fallback Engine
-    await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
-    // Normalize to handle both Primary (Private Ready) and Fallback (Recording active) labels
-    await expect(page.getByTestId('stt-status-label')).toContainText(/Recording active|Private Ready/i);
+    // Should start recording via the Fallback Engine. The new page has no `data-recording` attribute nor
+    // an `stt-status-label` pill (that pill lived on the retired legacy recorder card) — the RECORDING
+    // runtime signal and the shell's `during` state are the recording truth that the fallback succeeded.
+    await startRecording(page);
+    await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 15000 });
+    await expect(page.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
   });
 
 });

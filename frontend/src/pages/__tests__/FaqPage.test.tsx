@@ -35,11 +35,33 @@ describe('FaqPage', () => {
         expect(within(item).getByText(/never uploaded to a server/i)).toBeInTheDocument();
     });
 
-    it('carries the progress explanation migrated from the "?" popover', () => {
+    it('explains session progress as an aggregate of four signals, baseline-anchored, coaching-first', () => {
         render(<FaqPage />);
         const item = screen.getByTestId('faq-item-how-progress-measured');
-        expect(within(item).getByText(/speaking pace, detected filler words/i)).toBeInTheDocument();
-        expect(within(item).getByText(/directional/i)).toBeInTheDocument();
+        // The four signals that make up the aggregate.
+        expect(within(item).getByText(/filler rate.*clarity.*speaking pace.*pause rhythm/i)).toBeInTheDocument();
+        // Personal, baseline-anchored — never a grade or cross-user comparison.
+        expect(within(item).getByText(/baseline/i)).toBeInTheDocument();
+        expect(within(item).getByText(/never a grade/i)).toBeInTheDocument();
+        // The number is background; the takeaways are the point.
+        expect(within(item).getByText(/what worked and what to try next/i)).toBeInTheDocument();
+    });
+
+    it('explains the "baseline signal" as the four named signals combined (transparency)', () => {
+        render(<FaqPage />);
+        const item = screen.getByTestId('faq-item-baseline-signal');
+        // Names the four constituent signals — the baseline signal IS these, not a separate concept.
+        expect(within(item).getByText(/filler rate, clarity, speaking pace, and pause rhythm/i)).toBeInTheDocument();
+        expect(within(item).getByText(/starting point/i)).toBeInTheDocument();
+        expect(within(item).getByText(/versus this baseline/i)).toBeInTheDocument();
+    });
+
+    it('explains Private STT as a locally-downloaded model (one-time download)', () => {
+        render(<FaqPage />);
+        const item = screen.getByTestId('faq-item-what-is-private-stt');
+        expect(within(item).getByText(/runs entirely inside your browser/i)).toBeInTheDocument();
+        expect(within(item).getByText(/one-time step/i)).toBeInTheDocument();
+        expect(within(item).getByText(/never sent to us/i)).toBeInTheDocument();
     });
 
     it('explains the two practice modes', () => {

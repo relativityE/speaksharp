@@ -120,10 +120,11 @@ describe('SessionPage Logic', () => {
     });
 
     describe('Interaction Logic', () => {
-        it('should call handleStartStop via controlled button', () => {
+        // #1222: the new session page's before-state mic control is `mic-start` (onStart → handleStartStop).
+        it('should call handleStartStop via the mic control', () => {
             render(<SessionPage />);
 
-            screen.getByTestId('start-stop-btn').click();
+            screen.getByTestId('mic-start').click();
 
             expect(mockHandleStartStop).toHaveBeenCalledTimes(1);
         });

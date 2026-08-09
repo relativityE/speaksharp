@@ -29,6 +29,8 @@ export interface SSE2EManifest {
     DEBUG_ENABLED?: boolean;
     /** #1120 S1: bounded E2E-only STT Private-primary hierarchy override (true=ON, false=OFF). */
     sttPrivatePrimary?: boolean;
+    /** #1222 S12c: bounded E2E-only session-overhaul override (true=ON, false=OFF). */
+    sessionOverhaul?: boolean;
   };
   registry?: Record<string, unknown>;
 }
@@ -87,6 +89,17 @@ export const ENV = {
   get e2eSttHierarchyOverride(): boolean | undefined {
     if (!this.isE2E) return undefined;
     const v = getWindow().__SS_E2E__?.flags?.sttPrivatePrimary;
+    return typeof v === 'boolean' ? v : undefined;
+  },
+  /**
+   * #1222 S12c: bounded, prod-inert E2E-only override for the session overhaul so Playwright can drive the
+   * NEW page deterministically (legacy-page e2e leave it unset → the test default of OFF). `true` = overhaul
+   * ON, `false` = OFF, `undefined` = normal default. Returns a value ONLY when the manifest is active AND
+   * `ENV.isE2E`; `undefined` everywhere else (incl. prod).
+   */
+  get e2eSessionOverhaulOverride(): boolean | undefined {
+    if (!this.isE2E) return undefined;
+    const v = getWindow().__SS_E2E__?.flags?.sessionOverhaul;
     return typeof v === 'boolean' ? v : undefined;
   },
 

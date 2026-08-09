@@ -324,7 +324,10 @@ async function startPrivateAndCollect(page: Page, options: HarnessOptions, query
   await navigateToRoute(page, `/session${query ?? ''}`);
   await reinforceBrowserControlHarness(page, options);
   await selectTranscriptionEngine(page, 'private');
-  const startButton = page.getByTestId('session-start-stop-button');
+  // #1222/#1231: start is the before-state `mic-start` (start/stop are split on the new session page).
+  // This production-like harness resolves the runtime by its own __PRIVATE_STT_RUNTIME_DEBUG__ signal
+  // (below), not the mock-engine READY barrier, so it clicks directly rather than via startRecording().
+  const startButton = page.getByTestId('mic-start');
   await expect(startButton).toBeEnabled({ timeout: 15_000 });
   await startButton.click();
 

@@ -1,0 +1,106 @@
+import React from 'react';
+
+/**
+ * #1222 — the waveform, shared by the `during` recorder bar and the `after` scrubber (spec §4).
+ *
+ * Hard rule: bars are `flex: 1; min-width: 2px` with a 2px gap — **never a fixed width**, or the track
+ * won't fill and the playhead will disagree with the audio. ~72 bars. Recorded audio is orange
+ * (`#d98a1f`); the un-recorded tail is `#e0e6ee`.
+ *
+ * Two modes:
+ *   • during  → `recordedCount` bars are orange (growing left→right), the rest are the grey tail.
+ *   • after   → all bars grey EXCEPT `fillerBars` (orange filler positions); an optional `playedFraction`
+ *              draws a travelling playhead. Clicking a bar seeks (`onSeek` with the bar's fraction).
+ */
+export interface WaveformProps {
+    /** Per-bar heights, 0..1. Length defines the bar count (~72). */
+    amplitudes: number[];
+    /** during: how many leading bars are recorded (orange). */
+    recordedCount?: number;
+    /** after: indices that sit on a filler (left orange even in the grey resting track). */
+    fillerBars?: number[];
+    /** after: 0..1 playback position; draws the playhead and seeking. */
+    playedFraction?: number;
+    /** after: seek to a bar; receives 0..1. */
+    onSeek?: (fraction: number) => void;
+    className?: string;
+    'data-testid'?: string;
+}
+
+const ORANGE = '#d98a1f';
+const TAIL = '#e0e6ee';
+
+export const Waveform: React.FC<WaveformProps> = ({
+    amplitudes,
+    recordedCount,
+    fillerBars,
+    playedFraction,
+    onSeek,
+    className,
+    'data-testid': testId = 'waveform',
+}) => {
+    const fillerSet = React.useMemo(() => new Set(fillerBars ?? []), [fillerBars]);
+    const n = amplitudes.length;
+    const seekable = typeof onSeek === 'function';
+
+    const colorFor = (i: number): string => {
+        // during: leading `recordedCount` bars orange.
+        if (typeof recordedCount === 'number') return i < recordedCount ? ORANGE : TAIL;
+        // after: resting grey with orange fillers.
+        return fillerSet.has(i) ? ORANGE : TAIL;
+    };
+
+    return (
+        <div
+            className={className}
+            data-testid={testId}
+            style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: 2, height: 40, width: '100%' }}
+        >
+            {amplitudes.map((a, i) => {
+                const heightPct = Math.max(8, Math.min(100, Math.round(a * 100)));
+                const bar = (
+                    <span
+                        key={i}
+                        data-testid={`${testId}-bar`}
+                        data-recorded={typeof recordedCount === 'number' ? i < recordedCount : undefined}
+                        data-filler={fillerSet.has(i) || undefined}
+                        style={{
+                            flex: '1 1 0',
+                            minWidth: 2,
+                            height: `${heightPct}%`,
+                            backgroundColor: colorFor(i),
+                            borderRadius: 1,
+                        }}
+                    />
+                );
+                if (!seekable) return bar;
+                return (
+                    <button
+                        key={i}
+                        type="button"
+                        aria-label={`Seek to ${Math.round((i / Math.max(1, n - 1)) * 100)}%`}
+                        onClick={() => onSeek?.(n > 1 ? i / (n - 1) : 0)}
+                        style={{ flex: '1 1 0', minWidth: 2, height: '100%', display: 'flex', alignItems: 'flex-end', padding: 0, border: 0, background: 'transparent', cursor: 'pointer' }}
+                    >
+                        {bar}
+                    </button>
+                );
+            })}
+
+            {typeof playedFraction === 'number' && (
+                <span
+                    aria-hidden="true"
+                    data-testid={`${testId}-playhead`}
+                    style={{
+                        position: 'absolute',
+                        top: 0,
+                        bottom: 0,
+                        left: `${Math.max(0, Math.min(1, playedFraction)) * 100}%`,
+                        width: 2,
+                        backgroundColor: '#241503',
+                    }}
+                />
+            )}
+        </div>
+    );
+};

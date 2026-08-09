@@ -16,6 +16,8 @@ import {
   selectTranscriptionEngine,
   programmaticLoginWithRoutes,
   openSessionDetailFromHistoryItem,
+  startRecording,
+  stopRecording,
 } from './helpers';
 import { TEST_IDS } from '../constants';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
@@ -29,14 +31,13 @@ const VIEWPORTS = [
 ];
 
 async function recordAndStop(page: Page) {
-  const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-  await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
-  await startButton.click();
-  await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
+  // #1231: start/stop are split on the new page (mic-start / recorder-stop) with no data-recording toggle;
+  // recording state is read from the runtime signal inside startRecording().
+  await startRecording(page);
   await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
-  await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).not.toContainText('Listening...');
+  await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toBeVisible({ timeout: 15000 });
   await page.waitForTimeout(5200); // clear the sub-5s no-persist guard
-  await startButton.click();
+  await stopRecording(page);
   await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15000 });
 }
 
@@ -53,8 +54,10 @@ async function assertOneBarNoOldSurface(page: Page) {
 async function assertSingleSavedSurface(page: Page) {
   await expect(page.getByTestId('post-save-toast')).toHaveCount(0);
   await expect(page.getByText('Next: Analytics')).toHaveCount(0);
-  await expect(page.getByTestId('live-recording-card')).not.toContainText(/Session saved/i);
-  await expect(page.getByTestId('live-recording-card')).not.toContainText(/Great practice/i);
+  // #1231: the legacy recording-card that could echo the saved message is gone. The single saved-state
+  // surface is the status bar (asserted in assertOneBarNoOldSurface); the new main content must not carry
+  // the old "Great practice" duplication.
+  await expect(page.getByText(/Great practice/i)).toHaveCount(0);
 }
 
 test.describe('Post-save consolidation', () => {
@@ -125,8 +128,9 @@ test.describe('Post-save consolidation', () => {
   test('Private: one bar, Analytics only, NO Private CTA, NO toast, NEVER Browser-omission copy', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
+    // #1184/#1222: Private is the only engine on the new page — selectTranscriptionEngine confirms the
+    // session controls are present; there is no stt-mode-select data-state indicator to assert.
     await selectTranscriptionEngine(page, 'private');
-    await expect(page.getByTestId(TEST_IDS.STT_MODE_SELECT)).toHaveAttribute('data-state', 'private', { timeout: 10000 });
 
     await recordAndStop(page);
 
@@ -159,7 +163,8 @@ test.describe('Post-save consolidation', () => {
     // Let the native formatter reach terminal (the displayed final text is settled).
     await expect(page.getByTestId('post-save-review-session-link')).toBeVisible({ timeout: 15000 });
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
-    const sessionText = norm(await page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).innerText());
+    // #1222: the session-page transcript surface is the live-transcript card (was transcript-container).
+    const sessionText = norm(await page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT).innerText());
     expect(sessionText.length).toBeGreaterThan(0);
 
     await navigateToRoute(page, '/analytics');

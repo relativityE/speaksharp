@@ -21,6 +21,8 @@ import { FreeformHelpOverlay } from '@/components/session/FreeformHelpOverlay';
 import { SttStatus } from '@/types/transcription';
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 import { SunsetModals } from '@/components/session/SunsetModals';
+import { SessionOverhaulView } from '@/components/session/SessionOverhaulView';
+import { usePracticeHistory } from '@/hooks/usePracticeHistory';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import {
     getSessionCoachingAssignment,
@@ -29,7 +31,7 @@ import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
 import { formatSampleCapLine } from '@/utils/privateSampleDuration';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 
 /**
  * ARCHITECTURE:
@@ -38,6 +40,10 @@ import { useSearchParams } from 'react-router-dom';
  * have been extracted into useSessionLifecycle.
  */
 export const SessionPage: React.FC = () => {
+    // #1222: the session overhaul is now the ONLY session page (PO 2026-08-08) — rendered unconditionally.
+    // The legacy body below is retained (never rendered) pending the test-migration ticket; the `as boolean`
+    // keeps TS flow-narrowing intact in the dead branch. Legacy components remain in the repo, unused.
+    const RENDER_LEGACY_BODY = false as boolean;
     const { session: authSession } = useAuthProvider();
     // #1033 A5/A6: the resolved authenticated owner. Recovery reads/rehydration are scoped to it and
     // fail closed while it is unresolved — never an unscoped read.
@@ -48,6 +54,8 @@ export const SessionPage: React.FC = () => {
     const previousTranscriptScrollHeightRef = useRef(0);
     const [coachingAssignment] = useState(() => getSessionCoachingAssignment());
     const { data: usageLimit } = useUsageLimit();
+    // #1222: real session history feeds the overhaul's Progress card (slot C, aggregate).
+    const { data: practiceHistory } = usePracticeHistory();
     // #1033 Part-2b: authoritative engine-selection lock + pending recovery, published by the controller.
     const engineSelectionLocked = useSessionStore(state => state.engineSelectionLocked);
     const pendingResolutionKind = useSessionStore(state => state.pendingResolutionKind);
@@ -123,6 +131,7 @@ export const SessionPage: React.FC = () => {
     // still owns first-time setup). An ineligible account is told truthfully and stays on Browser. The
     // intent is consumed once (guarded + URL cleaned) so a refresh/re-render can't re-apply it.
     const [searchParams, setSearchParams] = useSearchParams();
+    const navigate = useNavigate();
     const [trialUnavailableNotice, setTrialUnavailableNotice] = useState<string | null>(null);
     const trialHandledRef = useRef(false);
     useEffect(() => {
@@ -389,6 +398,35 @@ export const SessionPage: React.FC = () => {
 
             {/* Main Content — one live workflow: controls, transcript + coach, evidence band. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-36 md:pb-6 mt-0">
+                {/* #1222: the session page is the fixed 4-slot overhaul shell driven by the live runtime
+                    (before/during/after). The surrounding chrome — header, status bar, recovery banner,
+                    sunset modals, mobile action bar — wraps it. This is the only session page. */}
+                <SessionOverhaulView
+                    authUserId={authUserId}
+                    isListening={isListening}
+                    sttStatus={sttStatus}
+                    elapsedTime={elapsedTime}
+                    micLevel={micLevel}
+                    transcriptContent={transcriptContent}
+                    showAnalyticsPrompt={showAnalyticsPrompt}
+                    metricsFillerCount={metrics.fillerCount}
+                    onStartStop={() => { void handleStartStop(); }}
+                    history={practiceHistory ?? []}
+                    privateModelStatus={privateModelStatus}
+                    modelLoadingProgress={visibleModelLoadingProgress}
+                    onDownloadModel={() => {
+                        void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
+                    }}
+                    isButtonDisabled={isButtonDisabled}
+                    fillerData={metrics.fillerData}
+                    wpm={metrics.wpm}
+                    aiSuggestions={practiceHistory?.[0]?.ai_suggestions ?? undefined}
+                    onSeeAllSessions={() => navigate('/analytics')}
+                    interimTranscript={interimTranscript}
+                    isFinalizing={isTranscriptFinalizing}
+                />
+                {RENDER_LEGACY_BODY && (
+                <>
                 {/* #1047: columns size to their CONTENT. `items-stretch` forced both columns to the height
                     of the taller one, which is what let the coaching card's `margin-top:auto` footer open
                     ~116px of blank space in the middle of that card, and what kept the empty transcript
@@ -571,6 +609,8 @@ export const SessionPage: React.FC = () => {
                         </LocalErrorBoundary>
                     </div>
                 </div>
+                </>
+                )}
             </div>
 
             {/* Mobile Sticky Action Bar */}

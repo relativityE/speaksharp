@@ -23,7 +23,7 @@ test.describe('Exhaustive User Feature Matrix', () => {
     // 1. Verify Session Limit Visibility
     await navigateToRoute(page, '/session');
     await page.waitForURL('**/session');
-    const startButton = page.getByTestId('session-start-stop-button');
+    const startButton = page.getByTestId('mic-start');
     await expect(startButton).toBeVisible();
 
     // Check for Free-tier limit messaging
@@ -64,7 +64,7 @@ test.describe('Exhaustive User Feature Matrix', () => {
     await page.waitForURL('**/session');
 
     // Default mode should allow Cloud STT as Pro
-    const startButton = page.getByTestId('session-start-stop-button');
+    const startButton = page.getByTestId('mic-start');
     await expect(startButton).toBeVisible();
 
     // Deterministic Sync: Wait for engine handshake before clicking start

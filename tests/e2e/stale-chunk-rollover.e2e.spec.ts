@@ -91,7 +91,7 @@ test.describe('Genuine two-build rollover (Build A tab → Build B server)', () 
 
     // Recovered onto a working /session.
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
-    const startStop = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+    const startStop = page.getByTestId(TEST_IDS.MIC_START);
     await expect(startStop, 'transcription interface renders').toBeVisible({ timeout: 30000 });
     await expect(startStop).toHaveAccessibleName(/start/i);                 // no auto-record
     await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible(); // auth retained

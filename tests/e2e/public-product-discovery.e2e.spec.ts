@@ -76,8 +76,8 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await page.getByTestId('password-input').fill(PW);
     await page.getByTestId('sign-up-submit').click();
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
-    await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON))
-      .toHaveAttribute('data-recording', 'false', { timeout: 20000 });
+    // #1222: landed on the session page in the idle before-state (mic card shown, not auto-recording).
+    await expect(page.getByTestId(TEST_IDS.MIC_CARD)).toBeVisible({ timeout: 20000 });
   });
 
   test('anonymous `/`: Focus Points routes to sign-up first (the brief RPCs require auth)', async ({ page }) => {

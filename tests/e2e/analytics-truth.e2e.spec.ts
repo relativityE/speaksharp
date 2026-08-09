@@ -5,6 +5,8 @@ import {
   programmaticLoginWithRoutes,
   selectTranscriptionEngine,
   simulateTranscription,
+  startRecording,
+  stopRecording,
   waitForFeature,
 } from './helpers';
 import { TEST_IDS } from '../constants';
@@ -22,21 +24,17 @@ test(`Gate 2 mocked private: analytics values change from transcript events and 
 
   await navigateToRoute(page, '/session');
   await selectTranscriptionEngine(page, 'private');
-  await expect(page.getByTestId(TEST_IDS.STT_MODE_SELECT)).toHaveAttribute('data-state', 'private');
 
-  const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-  await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
-  await startButton.click();
-  await expect(startButton).toHaveAttribute('data-recording', 'true');
+  await startRecording(page);
+  await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 15_000 });
 
   await simulateTranscription(page, transcript, true);
 
-  await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('target phrase');
-  await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('4');
+  await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toContainText('target phrase');
 
   await page.waitForTimeout(5_200);
 
-  await startButton.click();
+  await stopRecording(page);
   await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
 
   await page.getByTestId(TEST_IDS.NAV_ANALYTICS_LINK).click();

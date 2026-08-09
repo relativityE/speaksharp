@@ -4,6 +4,8 @@ import {
   navigateToRoute,
   openSessionDetailFromHistoryItem,
   programmaticLoginWithRoutes,
+  startRecording,
+  stopRecording,
   waitForFeature,
   waitForPersistenceSignal,
   waitForTranscriptionService,
@@ -17,18 +19,17 @@ test.describe('Signal contract invariants', () => {
     await navigateToRoute(page, '/session');
 
     const html = page.locator('html');
-    const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-    const transcriptPanel = page.getByTestId(TEST_IDS.TRANSCRIPT_PANEL);
-    const transcriptContainer = page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
+    // #1222/#1231: start/stop are split (mic-start / recorder-stop) and there is no `data-recording`
+    // attribute; the RECORDING runtime signal is the sole recording truth. The transcript surface on the
+    // new page is the always-mounted `transcript-card` (it hosts `live-transcript` once tokens arrive).
+    const transcriptCard = page.getByTestId(TEST_IDS.TRANSCRIPT_CARD);
     const statusIndicator = page.getByTestId(TEST_IDS.SESSION_STATUS_INDICATOR);
 
-    await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
-    await startButton.click();
+    await startRecording(page);
 
     await expect(html).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 15_000 });
-    await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 15_000 });
-    await expect(transcriptPanel).toBeVisible();
-    await expect(transcriptContainer).toBeVisible();
+    await expect(page.getByTestId(TEST_IDS.SESSION_SHELL)).toHaveAttribute('data-session-state', 'during');
+    await expect(transcriptCard).toBeVisible();
     await expect(statusIndicator).not.toHaveAttribute('data-engine', 'none');
   });
 
@@ -36,16 +37,13 @@ test.describe('Signal contract invariants', () => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
 
-    const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-
-    await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
-    await startButton.click();
-    await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 15_000 });
+    await startRecording(page);
+    await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 15_000 });
 
     await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
     await waitForTranscriptionService(page, 'TRANSCRIPT_PULSE');
 
-    await startButton.click();
+    await stopRecording(page);
     await waitForPersistenceSignal(page, 15_000);
 
     await page.getByTestId(TEST_IDS.NAV_ANALYTICS_LINK).click();
