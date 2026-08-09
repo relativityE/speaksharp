@@ -597,8 +597,13 @@ export async function selectTranscriptionEngine(page: Page, mode: 'private' = 'p
   if (mode !== 'private') {
     throw new Error(`[#1184] Private is the only engine — cannot select '${mode}'. Update this test to the Private-only surface.`);
   }
-  const indicator = page.getByTestId('stt-mode-select');
-  await expect(indicator).toHaveAttribute('data-state', 'private', { timeout: 15_000 });
+  // #1222: the session page is Private-only with NO engine selector — the recorder surface itself is the
+  // confirmation. On the new page the before-state mic card (`mic-card`) is the Private recorder; there is
+  // nothing to select. Confirm the recorder surface is present (mic card before, or the recorder bar once
+  // recording), rather than the removed `stt-mode-select`.
+  await expect(
+    page.getByTestId('mic-card').or(page.getByTestId('recorder-bar')),
+  ).toBeVisible({ timeout: 15_000 });
 }
 
 export async function waitForToast(page: Page, message: string | RegExp) {
