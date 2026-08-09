@@ -9,6 +9,10 @@ import { formatTimer } from '@/utils/sessionFormat';
  *
  * There is NO audio download — audio is for review inside the session only. Presentational: playback state
  * and seeking come from the container.
+ *
+ * `audioAvailable={false}` (PO 2026-08-08, transcript-only review): the app retains no audio, so the play
+ * button, time readout and travelling playhead are omitted; the waveform stays as a static filler MAP and
+ * the legend still reads "▮ marks a filler". Clicking a bar then seeks the TRANSCRIPT, not audio.
  */
 export interface PlaybackScrubberProps {
     playing: boolean;
@@ -20,6 +24,8 @@ export interface PlaybackScrubberProps {
     fillerBars: number[];
     /** Seek to a 0..1 fraction of the track. */
     onSeek: (fraction: number) => void;
+    /** When false, hide audio-playback affordances (no retained audio). Default true. */
+    audioAvailable?: boolean;
 }
 
 export const PlaybackScrubber: React.FC<PlaybackScrubberProps> = ({
@@ -30,31 +36,36 @@ export const PlaybackScrubber: React.FC<PlaybackScrubberProps> = ({
     amplitudes,
     fillerBars,
     onSeek,
+    audioAvailable = true,
 }) => {
     const played = durationSeconds > 0 ? positionSeconds / durationSeconds : 0;
 
     return (
         <div className="rounded-xl border border-[#dbe2ec] bg-white px-4 py-3" data-testid="playback-scrubber">
             <div className="flex items-center gap-3">
-                <button
-                    type="button"
-                    onClick={onTogglePlay}
-                    data-testid="scrubber-play"
-                    aria-label={playing ? 'Pause' : 'Play'}
-                    className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#d98a1f] text-[16px] text-[#241503]"
-                >
-                    <span aria-hidden="true">{playing ? '❚❚' : '▶'}</span>
-                </button>
+                {audioAvailable && (
+                    <button
+                        type="button"
+                        onClick={onTogglePlay}
+                        data-testid="scrubber-play"
+                        aria-label={playing ? 'Pause' : 'Play'}
+                        className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#d98a1f] text-[16px] text-[#241503]"
+                    >
+                        <span aria-hidden="true">{playing ? '❚❚' : '▶'}</span>
+                    </button>
+                )}
 
-                <span className="text-[13px] font-semibold [font-variant-numeric:tabular-nums] text-[#1f2733]" data-testid="scrubber-time">
-                    {formatTimer(positionSeconds)} / {formatTimer(durationSeconds)}
-                </span>
+                {audioAvailable && (
+                    <span className="text-[13px] font-semibold [font-variant-numeric:tabular-nums] text-[#1f2733]" data-testid="scrubber-time">
+                        {formatTimer(positionSeconds)} / {formatTimer(durationSeconds)}
+                    </span>
+                )}
 
                 <div className="min-w-0 flex-1">
                     <Waveform
                         amplitudes={amplitudes}
                         fillerBars={fillerBars}
-                        playedFraction={played}
+                        playedFraction={audioAvailable ? played : undefined}
                         onSeek={onSeek}
                         data-testid="scrubber-waveform"
                     />

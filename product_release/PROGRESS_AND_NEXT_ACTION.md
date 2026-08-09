@@ -34,6 +34,8 @@ This document owns **the personal progress loop and the one next action**. It ro
 
 Progress is a **personal, session-over-session comparison**: this eligible session against the user's **previous comparable session** and against their **baseline**, with the observable evidence behind the movement, and **one measurable next action**.
 
+**The number is background; the two takeaways are the product (PO 2026-08-08).** The progress % is quiet supporting context — we never ask the user to stare at or optimise a number. What carries the value is the **two takeaways** ("What worked" ≤6 words / "Try next" ≤8 words, §7), intensely grounded in *that user's own session signals*. **Success is the user adjusting their next session based on that guidance** — not the number moving. Surfaces must present the % as secondary and the takeaways as primary. The v1 aggregate signal set + rollout live in **#1206**.
+
 **Prohibited, without exception:**
 
 - **No universal or absolute score.** No 0–10, no 0–100, no single number presented as how good the user is.
@@ -95,6 +97,7 @@ Every excluded session records a deterministic exclusion reason (`too_short`, `t
 - **Baseline = the first eligible *future* session.** There is **no historical backfill** in v1. Until a baseline exists, Progress shows an honest "not enough data yet" / "baseline established" state — never a fabricated zero.
 - **Evidence is exact — no rounding-equivalence hazard.** Component inputs (e.g. an integer filler count and a duration) are exact, so each rate is computed from exact values; only the **displayed** percentage is rounded (to 1 decimal), and all arithmetic uses the unrounded values.
 - **Percentage, with a guarded denominator.** The denominator is the baseline value of the component. When a **baseline value is 0** (e.g. a genuinely filler-free baseline over the comparable-duration floor) there is no meaningful percentage for that component, so it is reported as **at baseline / no meaningful change** rather than dividing by zero — a percentage is never fabricated from an undefined division.
+- **v1 aggregate signal set + rollout → #1206.** Target components: filler rate, clarity, pace/WPM, pause rhythm. **v1 ships filler rate + clarity** (equal weight, direction-normalized, anchored to the session-1 baseline); pace/WPM (needs an ideal-range/band transform) and pause rhythm (needs evidence coverage) round out the aggregate once fixed. **Session 1 shows its aggregate AS the "baseline signal"** (the user's starting reference; FAQ #1200 explains it), no delta. A signal is included only when it has valid evidence in BOTH sessions being compared. **We do NOT measure tone or confidence** (no prosody) — those are inferences/future work and must not be presented as measured. A future secondary line "vs last session" = `aggregate(N) − aggregate(N−1)` is documented but deferred.
 
 ---
 

@@ -21,6 +21,9 @@ import { FreeformHelpOverlay } from '@/components/session/FreeformHelpOverlay';
 import { SttStatus } from '@/types/transcription';
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 import { SunsetModals } from '@/components/session/SunsetModals';
+import { SessionOverhaulView } from '@/components/session/SessionOverhaulView';
+import { isSessionOverhaulEnabled } from '@/config/sessionOverhaulFlags';
+import { usePracticeHistory } from '@/hooks/usePracticeHistory';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import {
     getSessionCoachingAssignment,
@@ -38,6 +41,10 @@ import { useSearchParams } from 'react-router-dom';
  * have been extracted into useSessionLifecycle.
  */
 export const SessionPage: React.FC = () => {
+    // #1222 S11: the session overhaul renders behind ONE flag, OFF by default (kill switch). Computed first
+    // (a pure read, not a hook) so the practice-history query below only runs when the overhaul is ON —
+    // the flag-OFF default path fires no extra fetch and is byte-identical to today.
+    const overhaulEnabled = isSessionOverhaulEnabled();
     const { session: authSession } = useAuthProvider();
     // #1033 A5/A6: the resolved authenticated owner. Recovery reads/rehydration are scoped to it and
     // fail closed while it is unresolved — never an unscoped read.
@@ -48,6 +55,9 @@ export const SessionPage: React.FC = () => {
     const previousTranscriptScrollHeightRef = useRef(0);
     const [coachingAssignment] = useState(() => getSessionCoachingAssignment());
     const { data: usageLimit } = useUsageLimit();
+    // #1222 S11: real session history feeds the overhaul's Progress card (slot C). Only fetched when the
+    // overhaul flag is ON — flag-OFF makes no request.
+    const { data: practiceHistory } = usePracticeHistory({ enabled: overhaulEnabled });
     // #1033 Part-2b: authoritative engine-selection lock + pending recovery, published by the controller.
     const engineSelectionLocked = useSessionStore(state => state.engineSelectionLocked);
     const pendingResolutionKind = useSessionStore(state => state.pendingResolutionKind);
@@ -389,6 +399,25 @@ export const SessionPage: React.FC = () => {
 
             {/* Main Content — one live workflow: controls, transcript + coach, evidence band. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-36 md:pb-6 mt-0">
+                {/* #1222 S11: when the overhaul flag is ON, the main content is the fixed 4-slot shell driven
+                    by the live runtime (before/during/after). The surrounding chrome — header, status bar,
+                    recovery banner, sunset modals, mobile action bar — is shared with both paths. Flag OFF
+                    (default) renders today's layout unchanged. */}
+                {overhaulEnabled ? (
+                    <SessionOverhaulView
+                        authUserId={authUserId}
+                        isListening={isListening}
+                        sttStatus={sttStatus}
+                        elapsedTime={elapsedTime}
+                        micLevel={micLevel}
+                        transcriptContent={transcriptContent}
+                        showAnalyticsPrompt={showAnalyticsPrompt}
+                        metricsFillerCount={metrics.fillerCount}
+                        onStartStop={() => { void handleStartStop(); }}
+                        history={practiceHistory ?? []}
+                    />
+                ) : (
+                <>
                 {/* #1047: columns size to their CONTENT. `items-stretch` forced both columns to the height
                     of the taller one, which is what let the coaching card's `margin-top:auto` footer open
                     ~116px of blank space in the middle of that card, and what kept the empty transcript
@@ -571,6 +600,8 @@ export const SessionPage: React.FC = () => {
                         </LocalErrorBoundary>
                     </div>
                 </div>
+                </>
+                )}
             </div>
 
             {/* Mobile Sticky Action Bar */}
