@@ -199,6 +199,16 @@ export const SessionPage: React.FC = () => {
         : null;
     // After a saved Native session, the status-bar Private CTA replaces the Browser-card nudge — never both.
 
+    // #1222 G1: the title block (heading + dynamic subtitle + help entry) renders ONLY in the before-state
+    // (idle: not recording, not finalizing, no post-save prompt). During/after it recedes so the live
+    // workflow owns the frame — matching the PO's G1 mockup.
+    const beforeState = !isListening && !showAnalyticsPrompt && !isTranscriptFinalizing;
+    // Dynamic subtitle from REAL history. practiceHistory is newest-first, so the oldest (baseline) is last.
+    const completedSessions = practiceHistory?.length ?? 0;
+    const baselineIso = completedSessions > 0 ? practiceHistory?.[practiceHistory.length - 1]?.created_at : null;
+    const baselineDateLabel = baselineIso ? new Date(baselineIso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : null;
+    const sessionSubtitle = baselineDateLabel ? `Session ${completedSessions + 1} · baseline set ${baselineDateLabel}` : 'Session 1 · your baseline starts here';
+
     // Status resolution logic
     const getBaseStatus = (): SttStatus => {
         // 1. High Priority: FSM Failure Hold (Controller Lock)
@@ -303,21 +313,22 @@ export const SessionPage: React.FC = () => {
             data-testid="session-page" 
             className="min-h-screen bg-background pt-20"
         >
-            {/* Page Header.
-                #1047: the "How Rough Drafts works" guide now lives INSIDE this title block, centered
-                directly beneath the subhead, as its own dark-green island. It used to sit 12px above the
-                Mic-ready status bar as a white outlined button — two same-width white rounded rectangles
-                stacked, which read as a second status row instead of an action. Up here it is
-                unambiguously an entry point into the page, and the status bar below it is free to recede. */}
-            <div className="px-6 pt-4 max-w-7xl mx-auto">
-                <div className="flex flex-col items-start gap-[22px] text-left mb-[34px]" data-testid="session-title-block">
-                    <div>
-                        <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
-                        <p className="text-sm text-foreground/80">Record, review, and track your speaking patterns</p>
+            {/* Page Header (#1222 G1).
+                The title block renders ONLY in the before-state. It is a ROW: heading + dynamic subtitle on
+                the left, the "How Rough Drafts works" help entry aligned top-right. The subtitle is derived
+                from real history (session number + baseline date), so the page states its progress up front.
+                During/after this block is gone and the live workflow owns the frame. */}
+            {beforeState && (
+                <div className="px-6 pt-4 max-w-7xl mx-auto">
+                    <div className="flex items-start justify-between gap-4 mb-[34px]" data-testid="session-title-block">
+                        <div>
+                            <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
+                            <p className="text-sm text-foreground/70" data-testid="session-subtitle">{sessionSubtitle}</p>
+                        </div>
+                        <FreeformHelpOverlay available={helpOverlayAvailable} className="shrink-0" />
                     </div>
-                    <FreeformHelpOverlay available={helpOverlayAvailable} />
                 </div>
-            </div>
+            )}
 
             {/* Status Bar - Spans full width of the main content area.
                 Post-save, this ONE bar carries the reconciliation copy (left), the quiet Private CTA

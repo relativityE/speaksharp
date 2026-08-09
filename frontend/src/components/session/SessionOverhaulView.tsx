@@ -8,6 +8,8 @@ import { useHeldTip } from '@/hooks/useHeldTip';
 import { LiveTip } from './LiveTip';
 import { FillerBreakdown } from './FillerBreakdown';
 import { computeAggregateProgress, signalsFromSession } from '@/utils/aggregateProgress';
+import { getNextPrompt, getNextSample } from '@/services/practice/practiceOnramp';
+import { CustomWordsBar } from './CustomWordsBar';
 import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptTokens';
 import { liveTipFromMetrics, verdictFromSuggestions, type TwoTakeaways } from '@/utils/liveCoaching';
@@ -91,6 +93,34 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
 
     const offer = usePromptOfferDismissed(authUserId);
 
+    // #1222 G1 prompt/sample bug fix: "Give me a prompt" / "Read a sample" must SHOW the text in the
+    // transcript frame — the user reads it, THEN presses the mic. They must NOT start recording. The chosen
+    // text stays visible in the before-state transcript (TranscriptCard renders `chosenPrompt` in place) and
+    // is re-rollable via ↻ (re-invokes the last kind).
+    const [chosenPrompt, setChosenPrompt] = React.useState<string | null>(null);
+    const [promptIdx, setPromptIdx] = React.useState<number | null>(null);
+    const [sampleIdx, setSampleIdx] = React.useState<number | null>(null);
+    const [lastKind, setLastKind] = React.useState<'prompt' | 'sample' | null>(null);
+
+    const takePrompt = React.useCallback(() => {
+        const { index, prompt } = getNextPrompt(promptIdx);
+        setPromptIdx(index);
+        setChosenPrompt(prompt.text);
+        setLastKind('prompt');
+    }, [promptIdx]);
+
+    const readSample = React.useCallback(() => {
+        const { index, sample } = getNextSample(sampleIdx);
+        setSampleIdx(index);
+        setChosenPrompt(sample.text);
+        setLastKind('sample');
+    }, [sampleIdx]);
+
+    const reRoll = React.useCallback(() => {
+        if (lastKind === 'sample') readSample();
+        else takePrompt();
+    }, [lastKind, readSample, takePrompt]);
+
     // #1222 S12b — one live coaching tip (during), held ≥8s (useHeldTip). Candidate is null when idle.
     const tipCandidate = isListening ? liveTipFromMetrics({ fillerData, wpm, elapsedSeconds: elapsedTime }) : null;
     const heldTip = useHeldTip(tipCandidate);
@@ -133,25 +163,32 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
 
     if (sessionState === 'before') {
         return (
-            <SessionBeforeState
-                mic={{
-                    onStart: onStartStop,
-                    error: permissionError ? sttStatus.message : null,
-                    privateModelStatus,
-                    modelLoadingProgress,
-                    onDownloadModel,
-                    disabled: isButtonDisabled,
-                }}
-                transcript={{
-                    offerDismissed: offer.dismissed,
-                    onDismissOffer: offer.dismiss,
-                    onRestoreOffer: offer.restore,
-                    onTakePrompt: onStartStop,
-                    onReadSample: onStartStop,
-                }}
-                progress={progress}
-                progressMode="aggregate"
-            />
+            <>
+                <SessionBeforeState
+                    mic={{
+                        onStart: onStartStop,
+                        error: permissionError ? sttStatus.message : null,
+                        privateModelStatus,
+                        modelLoadingProgress,
+                        onDownloadModel,
+                        disabled: isButtonDisabled,
+                    }}
+                    transcript={{
+                        offerDismissed: offer.dismissed,
+                        onDismissOffer: offer.dismiss,
+                        onRestoreOffer: offer.restore,
+                        onTakePrompt: takePrompt,
+                        onReadSample: readSample,
+                        chosenPrompt,
+                        onRerollPrompt: reRoll,
+                    }}
+                    progress={progress}
+                    progressMode="aggregate"
+                />
+                {/* #1222 G1: the custom filler-word manager is a full-width bar BELOW the 2-col shell in the
+                    before-state — "Tracking N filler words" left, "Add your filler words" right. */}
+                <CustomWordsBar className="mt-[14px]" />
+            </>
         );
     }
 

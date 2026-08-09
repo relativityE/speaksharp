@@ -1,8 +1,4 @@
 import React from 'react';
-import { Settings } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Button } from '@/components/ui/button';
-import { UserFillerWordsManager } from './UserFillerWordsManager';
 
 /**
  * #1222 slot A (before) — the mic card. Sizes to content (~150px). STT is **Private only** (#1184/#1229):
@@ -59,7 +55,6 @@ export const MicCard: React.FC<MicCardProps> = ({
 }) => {
     const deviceList = devices ?? [];
     const hasPicker = deviceList.length > 0;
-    const [managerOpen, setManagerOpen] = React.useState(false);
 
     const downloadRequired = privateModelStatus === 'download-required';
     const loading = privateModelStatus === 'loading';
@@ -137,27 +132,6 @@ export const MicCard: React.FC<MicCardProps> = ({
                     {error}
                 </p>
             )}
-
-            {/* #1231 (PO 2026-08-09): custom filler words are declared BEFORE recording so they are tracked in
-                the session's live count — never after. This is the only entry point to the manager. */}
-            <div className="mt-3 border-t border-[#eef2f7] pt-2">
-                <Popover open={managerOpen} onOpenChange={setManagerOpen}>
-                    <PopoverTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-[#0d7d74] hover:bg-[#0d7d74]/10 hover:text-[#0d7d74]"
-                            data-testid="add-custom-word-button"
-                        >
-                            <Settings className="h-4 w-4" aria-hidden="true" />
-                            Add your filler words
-                        </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-80 border-[#dbe2ec] bg-white">
-                        <UserFillerWordsManager />
-                    </PopoverContent>
-                </Popover>
-            </div>
         </div>
     );
 };

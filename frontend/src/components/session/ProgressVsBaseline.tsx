@@ -58,7 +58,19 @@ export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, 
             role="group"
             aria-label="Progress versus baseline"
         >
-            <p className="text-[11px] font-bold uppercase tracking-wide text-[#414b5c]">{headerLabel}</p>
+            <div className="flex items-start justify-between gap-2">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-[#414b5c]">{headerLabel}</p>
+                {/* #1222 G1: unobtrusive help affordance top-right — explains what the percentage means. */}
+                <button
+                    type="button"
+                    data-testid="progress-help"
+                    aria-label="How progress is measured"
+                    title="Progress vs baseline: your % change in filler words per minute vs your first session."
+                    className="-mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[#c5cfdd] text-[10px] font-bold leading-none text-[#414b5c] hover:bg-[#eef2f7]"
+                >
+                    ?
+                </button>
+            </div>
 
             {isBaseline ? (
                 <div className="mt-2" data-testid="progress-baseline-set">

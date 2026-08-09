@@ -78,6 +78,14 @@ const FAQ_GROUPS: readonly FaqGroup[] = [
                 ],
             },
             {
+                id: 'first-session-no-percent',
+                question: 'Why doesn’t my first session show a progress percentage?',
+                answer: [
+                    'A percentage is always a change versus something earlier, and your first session has nothing to compare against — so it shows “baseline set”, not a number. This is by design, for every user.',
+                    'You start seeing a progress percentage from your second qualifying session onward. A session qualifies once it is long enough to measure (about 30 seconds); very short takes are skipped so a stray few seconds never sets or moves your baseline. So if you already see a percentage like “+5% vs session 1”, it means your account has at least two qualifying sessions on record.',
+                ],
+            },
+            {
                 id: 'filler-words',
                 question: 'What counts as a filler word?',
                 answer: [
