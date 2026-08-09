@@ -3,13 +3,16 @@
  *
  * The legacy `filler-words-card` before/zero/counts `data-filler-state` STATE MACHINE (thirteen `0` chips,
  * two empty messages, the #894 disclosure) is RETIRED with the page overhaul. The after-state now carries a
- * lean `FillerBreakdown` (#1231 R2): before a take there is no filler surface at all (so it can never make a
- * claim it has not earned), and once a session is recorded the breakdown either shows the ranked per-word
- * counts (`filler-breakdown-list` / `filler-breakdown-word` / `filler-breakdown-count`) or the honest empty
- * state (`filler-breakdown-empty`).
+ * lean, REVIEW-ONLY `FillerBreakdown` (#1231 R2): before a take there is no filler RESULT surface at all (so
+ * it can never make a claim it has not earned), and once a session is recorded the breakdown either shows the
+ * ranked per-word counts (`filler-breakdown-list` / `filler-breakdown-word` / `filler-breakdown-count`) or the
+ * honest empty state (`filler-breakdown-empty`).
+ *
+ * The custom-word MANAGER (`add-custom-word-button`) is a BEFORE-state control (PO 2026-08-09): a word must be
+ * tracked before a session to be counted in it, so you declare fillers before recording — never in the review.
  *
  * These specs pin the two states that carry a RESULT claim — a completed take with no fillers, and one with
- * real fillers — plus the invariant that nothing is claimed before a take.
+ * real fillers — plus the invariant that no RESULT is claimed before a take.
  */
 import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
@@ -33,15 +36,17 @@ async function recordAndStop(page: Page, lines: readonly string[]) {
 }
 
 test.describe('#1047/#1231 filler breakdown states', () => {
-  test('before recording: no filler surface is shown (no premature/zero claim)', async ({ page }) => {
+  test('before recording: no filler RESULT surface, but the custom-word manager is available', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
 
-    // The before-state is the mic card; the filler breakdown (and its custom-word manager) belong to the
-    // after-state, so nothing about fillers is claimed before a take has happened.
+    // The before-state is the mic card. No filler RESULT surface is claimed before a take has happened…
     await expect(page.getByTestId(TEST_IDS.MIC_CARD)).toBeVisible({ timeout: 15000 });
     await expect(page.getByTestId('filler-breakdown')).toHaveCount(0);
-    await expect(page.getByTestId(TEST_IDS.SESSION_SETTINGS_BUTTON)).toHaveCount(0);
+
+    // …but the custom-word MANAGER is a before-state control: you declare fillers BEFORE recording so they
+    // are tracked in the session's live count (PO 2026-08-09).
+    await expect(page.getByTestId(TEST_IDS.SESSION_SETTINGS_BUTTON)).toBeVisible();
 
     // The retired zero-grid empty messages must not appear either.
     await expect(page.getByText(/No filler words detected yet/i)).toHaveCount(0);
@@ -63,8 +68,8 @@ test.describe('#1047/#1231 filler breakdown states', () => {
     // The ranked list stays absent: there is no evidence to show.
     await expect(page.getByTestId('filler-breakdown-list')).toHaveCount(0);
     await expect(page.getByTestId('filler-breakdown-word')).toHaveCount(0);
-    // The custom-word manager stays available in the after-state.
-    await expect(page.getByTestId(TEST_IDS.SESSION_SETTINGS_BUTTON)).toBeVisible();
+    // The after-state is review-only — the custom-word manager is a before-state control, not shown here.
+    await expect(page.getByTestId(TEST_IDS.SESSION_SETTINGS_BUTTON)).toHaveCount(0);
   });
 
   test('completed WITH fillers: after-state ranks only the words that occurred', async ({ page }) => {
@@ -87,6 +92,7 @@ test.describe('#1047/#1231 filler breakdown states', () => {
       await expect(counts.nth(i)).not.toHaveText('×0');
     }
 
-    await expect(page.getByTestId(TEST_IDS.SESSION_SETTINGS_BUTTON)).toBeVisible();
+    // The after-state is review-only — the custom-word manager is a before-state control, not shown here.
+    await expect(page.getByTestId(TEST_IDS.SESSION_SETTINGS_BUTTON)).toHaveCount(0);
   });
 });
