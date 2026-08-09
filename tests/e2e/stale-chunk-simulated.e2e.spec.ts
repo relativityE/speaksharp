@@ -46,7 +46,7 @@ test.describe('Simulated stale-chunk response recovery', () => {
       await page.getByTestId('practice-card-freeform').click();
 
       await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
-      const startStop = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+      const startStop = page.getByTestId(TEST_IDS.MIC_START);
       await expect(startStop).toBeVisible({ timeout: 30000 });
       await expect(startStop).toHaveAccessibleName(/start/i); // recording did NOT auto-start
       await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible(); // auth retained

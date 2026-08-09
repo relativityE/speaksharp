@@ -143,8 +143,10 @@ test.describe('Practice landing — default entry, Objective unavailable, surfac
     await enterPractice(page);
     await page.getByTestId('practice-card-freeform').click();
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
-    // Must NOT auto-start recording — the Session start control is present and not recording.
-    await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toHaveAttribute('data-recording', 'false', { timeout: 20000 });
+    // Must NOT auto-start recording — the Session before-state (mic control) is present, not recording
+    // (#1222: start/stop split; recording state is on the shell, not a data-recording button attribute).
+    await expect(page.getByTestId(TEST_IDS.MIC_START)).toBeVisible({ timeout: 20000 });
+    await expect(page.getByTestId(TEST_IDS.SESSION_SHELL)).toHaveAttribute('data-session-state', 'before');
     await assertReport(page, 'Session · Speaking', AREAS.session);
 
     // CDP assertions: clean, self-contained page throughout.

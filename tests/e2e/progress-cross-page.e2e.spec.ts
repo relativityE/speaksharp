@@ -200,7 +200,7 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     await screenshotMatrix(page, 'practice');
 
     await navigateToRoute(page, '/session');
-    await expect(page.getByTestId('session-start-stop-button')).toBeVisible();
+    await expect(page.getByTestId('mic-start')).toBeVisible();
     await assertAxe(page);
     await screenshotMatrix(page, 'session');
 

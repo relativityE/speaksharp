@@ -20,7 +20,7 @@ test.describe('Error State Handling', () => {
             await expect(userPage.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
 
             // Start button should be present
-            const startButton = userPage.getByTestId('session-start-stop-button');
+            const startButton = userPage.getByTestId('mic-start');
             await expect(startButton).toBeVisible({ timeout: 10000 });
 
             debugLog('[TEST] ✅ Session page loaded with start button');
@@ -32,7 +32,7 @@ test.describe('Error State Handling', () => {
             await expect(userPage.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
 
             // Try to start session (using mock session mode)
-            const startButton = userPage.getByTestId('session-start-stop-button');
+            const startButton = userPage.getByTestId('mic-start');
             await expect(startButton).toBeVisible({ timeout: 10000 });
 
             if (await startButton.isEnabled()) {
@@ -62,7 +62,7 @@ test.describe('Error State Handling', () => {
             await expect(userPage.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
 
             // Session page should still show UI
-            const startButton = userPage.getByTestId('session-start-stop-button');
+            const startButton = userPage.getByTestId('mic-start');
             await expect(startButton).toBeVisible({ timeout: 10000 });
 
             debugLog('[TEST] ✅ Token endpoint failure handled gracefully');

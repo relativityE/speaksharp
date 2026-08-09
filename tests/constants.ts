@@ -98,6 +98,13 @@ export const TEST_IDS = {
   // Session page
   SESSION_SIDEBAR: 'session-sidebar',
   SESSION_START_STOP_BUTTON: 'session-start-stop-button',
+  // #1222/#1231: the new session page splits start (before) / stop (during) and renames the transcript.
+  MIC_START: 'mic-start',
+  RECORDER_STOP: 'recorder-stop',
+  SESSION_SHELL: 'session-shell',
+  MIC_CARD: 'mic-card',
+  TRANSCRIPT_CARD: 'transcript-card',
+  LIVE_TRANSCRIPT: 'live-transcript',
   SESSION_STATUS_INDICATOR: 'session-status-indicator',
   TRANSCRIPT_PANEL: 'transcript-panel',
   TRANSCRIPT_CONTAINER: 'transcript-container',
