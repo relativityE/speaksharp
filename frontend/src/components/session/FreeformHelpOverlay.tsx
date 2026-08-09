@@ -26,14 +26,14 @@ import {
  * action so the modal offers a way to start, not just an explanation.
  */
 
-// The product name reads distinctly from the framing words — name bold, "How"/"works" lighter italic.
-// Rendered as spans so the ACCESSIBLE NAME / heading text stays the plain "How <name> works".
+// The product name reads distinctly from the framing words — name BOLD only, "How"/"works" plain normal
+// weight, no italics (PO 2026-08-09). Rendered as spans so the ACCESSIBLE NAME stays "How <name> works".
 function HelpTitle() {
     return (
         <>
-            <span className="font-normal italic opacity-90">How</span>{' '}
+            <span className="font-normal">How</span>{' '}
             <span className="font-extrabold">{PRODUCT_NAMES.freeform}</span>{' '}
-            <span className="font-normal italic opacity-90">works</span>
+            <span className="font-normal">works</span>
         </>
     );
 }

@@ -1,32 +1,30 @@
-import React from 'react';
-import { ChevronDown } from 'lucide-react';
-
 /**
- * In-app FAQ / help home (#1200).
+ * Shared FAQ content (#1200 / #1222).
  *
- * This is the single place explanations live. Detail that used to sit in per-surface
- * "?" popovers and in the paragraphs embedded in the session mic card is consolidated
- * here so the session UI can stay scannable — the "?" affordances retire into this page
- * rather than each carrying its own copy.
+ * This is the single source of truth for the in-app FAQ copy. It was extracted out of
+ * the former standalone FaqPage so the FAQ can be rendered inline from the global nav
+ * (see @/components/faq/FaqMenu) on whatever page the user is currently on, with no
+ * navigation and no dedicated /faq route.
  *
- * Rendered with native <details>/<summary> disclosure: keyboard-operable and
- * screen-reader-labelled with no ARIA wiring, and readable with JS disabled.
+ * Keep the copy verbatim — the explanations here are the canonical wording for privacy,
+ * progress, and the two practice modes.
  */
-interface FaqItem {
-    /** Stable slug — drives the per-item test id and the deep-link anchor. */
+
+export interface FaqItem {
+    /** Stable slug — drives the per-item anchor/test hooks. */
     id: string;
     question: string;
     /** Paragraphs; each renders as its own <p>. */
     answer: string[];
 }
 
-interface FaqGroup {
+export interface FaqSection {
     id: string;
     title: string;
     items: FaqItem[];
 }
 
-const FAQ_GROUPS: readonly FaqGroup[] = [
+export const FAQ_SECTIONS: readonly FaqSection[] = [
     {
         id: 'privacy',
         title: 'Your privacy',
@@ -78,6 +76,14 @@ const FAQ_GROUPS: readonly FaqGroup[] = [
                 ],
             },
             {
+                id: 'first-session-no-percent',
+                question: 'Why doesn’t my first session show a progress percentage?',
+                answer: [
+                    'A percentage is always a change versus something earlier, and your first session has nothing to compare against — so it shows “baseline set”, not a number. This is by design, for every user.',
+                    'You start seeing a progress percentage from your second qualifying session onward. A session qualifies once it is long enough to measure (about 30 seconds); very short takes are skipped so a stray few seconds never sets or moves your baseline. So if you already see a percentage like “+5% vs session 1”, it means your account has at least two qualifying sessions on record.',
+                ],
+            },
+            {
                 id: 'filler-words',
                 question: 'What counts as a filler word?',
                 answer: [
@@ -101,63 +107,3 @@ const FAQ_GROUPS: readonly FaqGroup[] = [
         ],
     },
 ];
-
-const FaqItemRow: React.FC<{ item: FaqItem }> = ({ item }) => (
-    <details
-        id={`faq-${item.id}`}
-        data-testid={`faq-item-${item.id}`}
-        className="group border-b border-border last:border-b-0"
-    >
-        <summary
-            className="flex cursor-pointer list-none items-center justify-between gap-4 py-4 text-left text-base font-semibold text-foreground marker:content-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-        >
-            <span>{item.question}</span>
-            <ChevronDown
-                aria-hidden="true"
-                className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180"
-            />
-        </summary>
-        <div className="space-y-2 pb-4 text-sm leading-relaxed text-muted-foreground">
-            {item.answer.map((paragraph, i) => (
-                <p key={i}>{paragraph}</p>
-            ))}
-        </div>
-    </details>
-);
-
-const FaqPage: React.FC = () => (
-    <main
-        data-testid="faq-page"
-        className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 lg:py-14"
-    >
-        <header className="mb-8">
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">
-                Frequently asked questions
-            </h1>
-            <p className="mt-2 text-base text-muted-foreground">
-                Short answers to how SpeakSharp works. Can&apos;t find what you need? Use the
-                report button in the top bar to reach us.
-            </p>
-        </header>
-
-        <div className="space-y-8">
-            {FAQ_GROUPS.map((group) => (
-                <section key={group.id} data-testid={`faq-group-${group.id}`} aria-labelledby={`faq-group-heading-${group.id}`}>
-                    <h2
-                        id={`faq-group-heading-${group.id}`}
-                        className="mb-2 text-xs font-bold uppercase tracking-wider text-muted-foreground"
-                    >
-                        {group.title}
-                    </h2>
-                    <div className="rounded-xl border border-border bg-card px-5 shadow-sm">
-                        {group.items.map((item) => (
-                            <FaqItemRow key={item.id} item={item} />
-                        ))}
-                    </div>
-                </section>
-            ))}
-        </div>
-    </main>
-);
-
-export default FaqPage;

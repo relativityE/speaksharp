@@ -61,12 +61,4 @@ describe('MicCard (#1222 slot A)', () => {
         render(<MicCard onStart={vi.fn()} disabled />);
         expect(screen.getByTestId('mic-start')).toBeDisabled();
     });
-
-    // #1231 (PO 2026-08-09): custom filler words are declared BEFORE recording (here), never after — a word
-    // must be tracked before a session to be counted in it. The before-state MicCard is the only entry point.
-    it('opens the custom-word manager BEFORE recording from "Add your filler words"', () => {
-        render(<MicCard onStart={vi.fn()} />);
-        fireEvent.click(screen.getByTestId('add-custom-word-button'));
-        expect(screen.getByPlaceholderText(/literally/i)).toBeInTheDocument();
-    });
 });

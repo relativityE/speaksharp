@@ -39,6 +39,22 @@ const DELTA_CONTEXT: Record<ProgressVsBaselineProps['sessionState'], string> = {
     after: 'than session 1',
 };
 
+/**
+ * Render the delta-context line, emphasising a trailing session number so "than session 1" reads with the
+ * "1" clearly picked out (heavier weight + tabular numerals). Contexts without a trailing number (e.g.
+ * "so far this session") render unchanged.
+ */
+function renderContext(context: string): React.ReactNode {
+    const match = context.match(/^(.*?\s)(\d+)$/);
+    if (!match) return context;
+    return (
+        <>
+            {match[1]}
+            <span className="font-extrabold tabular-nums text-[#0f1722]" data-testid="progress-baseline-session">{match[2]}</span>
+        </>
+    );
+}
+
 export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, sessionState, mode = 'filler' }) => {
     const { isBaseline, tooShort, currentRate, baselineRate, deltaPercent, direction, trend } = result;
     const isAgg = mode === 'aggregate';
@@ -58,7 +74,19 @@ export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, 
             role="group"
             aria-label="Progress versus baseline"
         >
-            <p className="text-[11px] font-bold uppercase tracking-wide text-[#414b5c]">{headerLabel}</p>
+            <div className="flex items-start justify-between gap-2">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-[#414b5c]">{headerLabel}</p>
+                {/* #1222 G1: unobtrusive help affordance top-right — explains what the percentage means. */}
+                <button
+                    type="button"
+                    data-testid="progress-help"
+                    aria-label="How progress is measured"
+                    title="Progress vs baseline: your % change in filler words per minute vs your first session."
+                    className="-mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[#c5cfdd] text-[10px] font-bold leading-none text-[#414b5c] hover:bg-[#eef2f7]"
+                >
+                    ?
+                </button>
+            </div>
 
             {isBaseline ? (
                 <div className="mt-2" data-testid="progress-baseline-set">
@@ -85,7 +113,7 @@ export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, 
                         <span className="text-[13px] font-bold leading-snug text-[#1f2733]">
                             {deltaNoun}
                             <br />
-                            {DELTA_CONTEXT[sessionState]}
+                            {renderContext(DELTA_CONTEXT[sessionState])}
                         </span>
                     </div>
 

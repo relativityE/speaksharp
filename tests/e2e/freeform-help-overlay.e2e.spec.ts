@@ -67,11 +67,12 @@ test.describe('#1042 PR2 Freeform help overlay', () => {
         await page.getByTestId('freeform-help-start').click();
         await expect(overlay).toHaveCount(0);
 
-        // Disabled while a recording is active — cannot open, never starts/stops recording itself.
+        // #1222 mockup: the whole title row (which hosts "How Open Floor works") is a BEFORE-state
+        // affordance only — during recording it is dropped so the transcript/slots get the room. So once
+        // recording starts, the help button is ABSENT (not merely disabled) and the overlay cannot open.
         await startRecording(page);
         await expect(page.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during', { timeout: 15_000 });
-        await expect(help).toHaveAttribute('aria-disabled', 'true');
-        await help.click({ force: true });
+        await expect(page.getByTestId('freeform-help-button')).toHaveCount(0);
         await expect(page.getByTestId('freeform-help-overlay')).toHaveCount(0);
         await page.screenshot({ path: `${DIR}/02-desktop-disabled.png`, fullPage: true });
         // Stop the recording to leave a clean state.
