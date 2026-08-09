@@ -179,6 +179,20 @@ const Navigation = () => {
             <div className="flex min-w-0 items-center gap-2 sm:gap-4">
               {session ? (
                 <>
+                  {/* Header-actions order (PO 2026-08-09): Report issue · FAQ · subscription badge · avatar.
+                      FAQ sits BETWEEN Report issue and the subscription designation; the PRO/Upgrade badge
+                      sits next to the account identity (avatar) below. */}
+                  <IssueReportDialog
+                    userId={session.user?.id ?? null}
+                    plan={effectiveSubscriptionStatus}
+                    sttMode={reportSttMode}
+                    runtimeState={reportRuntimeState}
+                  />
+                  {/* FAQ is an INLINE dropdown, not a page — it opens on whatever page the user is on
+                      (including /session) and never navigates away. It lives in the always-visible
+                      header actions so it is reachable on every viewport, unlike the desktop-only
+                      primary nav and the session-suppressed mobile bar. */}
+                  <FaqMenu />
                   {showNavUpgrade && (
                     <Button
                       onClick={() => { void handleUpgrade(); }}
@@ -207,17 +221,6 @@ const Navigation = () => {
                       PRO
                     </Badge>
                   )}
-                  {/* FAQ is an INLINE dropdown, not a page — it opens on whatever page the user is on
-                      (including /session) and never navigates away. It lives in the always-visible
-                      header actions so it is reachable on every viewport, unlike the desktop-only
-                      primary nav and the session-suppressed mobile bar. */}
-                  <FaqMenu />
-                  <IssueReportDialog
-                    userId={session.user?.id ?? null}
-                    plan={effectiveSubscriptionStatus}
-                    sttMode={reportSttMode}
-                    runtimeState={reportRuntimeState}
-                  />
                   {/*
                     * Account identity. The full email used to be printed here; at realistic address
                     * lengths it pushed the right-hand action group into the primary nav links and
