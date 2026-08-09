@@ -1,35 +1,30 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import posthog from 'posthog-js';
-import { isSessionOverhaulEnabled, SESSION_OVERHAUL_FLAG_KEY } from '../sessionOverhaulFlags';
+import { describe, it, expect, afterEach } from 'vitest';
+import { isSessionOverhaulEnabled } from '../sessionOverhaulFlags';
 
-// #1222 S11 — the overhaul flag defaults OFF and fails closed; a per-browser ?overhaul override wins.
-describe('sessionOverhaulFlags (#1222 S11)', () => {
-    afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
+// #1222 — production defaults ON (no URL param); test builds default OFF so the legacy-page suites stay
+// valid, unless the bounded E2E manifest override opts in.
+describe('sessionOverhaulFlags (#1222)', () => {
+    // The manifest override is only read when the E2E manifest is active (ENV.isE2E), so toggle isActive too.
+    const m = () => (window as unknown as { __SS_E2E__?: { isActive?: boolean; flags?: Record<string, unknown> } }).__SS_E2E__;
+    const setFlag = (v: boolean | undefined) => {
+        const manifest = m();
+        if (!manifest?.flags) return;
+        if (v === undefined) { delete manifest.flags.sessionOverhaul; manifest.isActive = false; }
+        else { manifest.flags.sessionOverhaul = v; manifest.isActive = true; }
+    };
+    afterEach(() => setFlag(undefined));
 
-    it('is OFF when PostHog has not enabled the flag', () => {
-        vi.spyOn(posthog, 'isFeatureEnabled').mockReturnValue(false);
+    it('defaults OFF under test so the legacy page (and its suites) stay in effect', () => {
         expect(isSessionOverhaulEnabled()).toBe(false);
     });
 
-    it('is ON only when the PostHog flag is enabled', () => {
-        const spy = vi.spyOn(posthog, 'isFeatureEnabled').mockReturnValue(true);
+    it('the E2E manifest override turns it ON deterministically (the overhaul e2e path)', () => {
+        setFlag(true);
         expect(isSessionOverhaulEnabled()).toBe(true);
-        expect(spy).toHaveBeenCalledWith(SESSION_OVERHAUL_FLAG_KEY);
     });
 
-    it('fails closed (OFF) when the flag read throws', () => {
-        vi.spyOn(posthog, 'isFeatureEnabled').mockImplementation(() => { throw new Error('not ready'); });
-        expect(isSessionOverhaulEnabled()).toBe(false);
-    });
-
-    it('a sticky ?overhaul override wins over the PostHog flag (reviewer sees it immediately)', () => {
-        // Simulate a prior ?overhaul=1 visit having stored the sticky override.
-        localStorage.setItem('speaksharp_session_overhaul_override', '1');
-        vi.spyOn(posthog, 'isFeatureEnabled').mockReturnValue(false); // rollout still OFF
-        expect(isSessionOverhaulEnabled()).toBe(true);
-
-        localStorage.setItem('speaksharp_session_overhaul_override', '0');
-        vi.spyOn(posthog, 'isFeatureEnabled').mockReturnValue(true); // rollout ON, but user opted out
+    it('the E2E manifest override can also force it OFF', () => {
+        setFlag(false);
         expect(isSessionOverhaulEnabled()).toBe(false);
     });
 });
