@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for personal session-over-session Progress and the single next practice action)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-07-31
-**Last Verified:** 2026-07-31 — contract derived from the approved #1045 Product-Owner decisions and verified against the current code paths cited inline (`sessionAnalysis.ts`, `speakingScore.ts`, `SpeechRuntimeController.ts`, `attributionStatus.ts`). No run IDs, SHAs, or current release posture are carried here.
+**Last Reviewed:** 2026-08-08
+**Last Verified:** 2026-08-08 — §5/§6/§7 reconciled to the shipped v1 measure per the #1222 Product-Owner decision (2026-08-08): the session-over-session movement is a **signed percentage change in fillers per minute vs the baseline**, not "points". Verified against the implementation (`frontend/src/utils/progressVsBaseline.ts`, surfaced by the session-page Progress card `components/session/ProgressVsBaseline.tsx`) and the filler-evidence contract (`validatedFillerTotal`, `sessionAnalysis.ts`). No run IDs, SHAs, or current release posture are carried here.
 **Applies To:** Every surface that tells a user how their practice is changing over time and what to practise next — Progress, Session review, and history.
 **Class:** Product requirement / decision.
 **Authority:** The source for what Progress means, which sessions may influence it, how direction is derived and worded, the exactly-two-takeaway output contract (of which exactly one is an action), and what must never be claimed.
@@ -40,7 +40,7 @@ Progress is a **personal, session-over-session comparison**: this eligible sessi
 - **No grade or rating** of the user or of a session.
 - **No cross-user comparison** — no percentile, ranking, leaderboard, cohort placement, or "better than N% of speakers".
 - **No "overall speaking quality/ability" claim.** Progress measures a defined, observable delivery metric — never the whole of speaking.
-- **No presenting one metric as overall Progress.** While the plotted value is clear delivery, it is labelled as clear delivery.
+- **No presenting one metric as overall Progress.** The plotted value is the **filler-rate percentage** (fillers per minute vs baseline) and is labelled as exactly that — never as overall speaking quality or ability.
 - **No fabricated positive.** If the evidence does not support a positive statement, the honest evidence state is shown instead.
 
 ### `clarity_score` is an evidence input, not the product model
@@ -88,12 +88,12 @@ Every excluded session records a deterministic exclusion reason (`too_short`, `t
 
 ## 5. The measurement
 
-**Value:** the signed change in the clear-delivery measure, in **points**, against the user's baseline; the change against the previous comparable session is also recorded.
+**Value (v1):** the signed **percentage** change in the user's **filler rate (fillers per minute)** against their **baseline**; the change against the previous comparable session is also recorded. A **positive** percentage means **fewer** fillers per minute than the baseline (an improvement); a **negative** percentage means more (reported with the same neutral tone — §6). *(Metric decision: #1222, Product Owner, 2026-08-08 — replaces the earlier "clear-delivery in points" framing, which was never shipped. The `clarity_score` composite remains a legacy internal evidence input only — §2 — and is not the plotted value.)*
 
-- **Baseline = the first eligible *future* session.** There is **no historical backfill** in v1: existing `sessions.clarity_score` values are rounded integers and are **never rewritten**. Until a baseline exists, Progress shows an honest "not enough data yet" state — never a fabricated zero.
-- **Evidence must be stored unrounded, from the first eligible future session onward.** `calculateClarityScore()` currently rounds to an integer. **The implementation must introduce** an unrounded counterpart that supplies raw evidence while every existing display remains byte-identical, and **before activation, equivalence tests must prove** that rounding the raw value reproduces the current function exactly across boundary and representative cases. *(None of this exists yet; implementation status → `ROADMAP.md` / `RELEASE_STATUS.md`.)*
-- **All arithmetic must use stored unrounded values; rounding happens only at render.**
-- **Points, not percentages** — there is no denominator, so no division-by-near-zero hazard.
+- **Filler rate, never a raw count.** The measure is `fillers ÷ spoken-minutes`, so a longer session is never penalised for having more total fillers. The canonical per-session filler total is the validated total (`validatedFillerTotal`, `sessionAnalysis.ts`); a session with **no valid filler evidence** contributes nothing and is excluded — never counted as a flattering zero.
+- **Baseline = the first eligible *future* session.** There is **no historical backfill** in v1. Until a baseline exists, Progress shows an honest "not enough data yet" / "baseline established" state — never a fabricated zero.
+- **Evidence is exact — no rounding-equivalence hazard.** The inputs are an integer filler count and a duration, so the rate is computed from exact values; only the **displayed** percentage and rate are rounded (to 1 decimal), and all arithmetic uses the unrounded rate.
+- **Percentage, with a guarded denominator.** The denominator is the baseline rate. When the **baseline rate is 0** (a genuinely filler-free baseline over the comparable-duration floor) there is no meaningful percentage, so the session is reported as **at baseline / no meaningful change** rather than dividing by zero — a percentage is never fabricated from an undefined division.
 
 ---
 
@@ -101,13 +101,13 @@ Every excluded session records a deterministic exclusion reason (`too_short`, `t
 
 | State | Wording |
 |---|---|
-| Improved | **"Clear delivery moved up 4 points."** |
-| Declined | **"Clear delivery moved down 2 points."** |
+| Improved | **"18% fewer fillers than your baseline."** (positive percentage) |
+| Declined | **"12% more fillers than your baseline."** (negative percentage, same size + neutral tone) |
 | Below meaningful-movement policy | **"No meaningful change yet."** |
 | No baseline yet | **"Baseline established — we'll compare future eligible sessions with this one."** |
 | Not comparable | **"Not enough comparable data yet"** + the reason |
 
-Direction is described as **movement**, never as praise, blame, or a verdict. "Moved down" is not a failure statement; it is an observation about one measure of one session.
+Direction is described as **movement**, never as praise, blame, or a verdict. "More fillers than your baseline" is not a failure statement; it is an observation about one measure of one session, shown at the same size and in the same neutral tone as an improvement — never scolded.
 
 The minimum movement that counts as meaningful is a **product policy value**, set by the Product Owner and recorded with the formula version. It is **not inferred from observed variance** — natural session-to-session variation is not measurement noise.
 
@@ -137,8 +137,8 @@ The action is selected **deterministically** and:
 A number is only trustworthy if the user can see what produced it. Every displayed movement must be able to expose, on request:
 
 - the **two sessions** being compared (the current session and the previous comparable session, or the baseline);
-- the **metric** that moved and its **unit** (points of clear delivery);
-- the **evidence inputs** behind that metric for both sessions (word count, canonical filler count, error-marker count, WPM);
+- the **metric** that moved and its **unit** (percentage change in fillers per minute vs baseline);
+- the **evidence inputs** behind that metric for both sessions (canonical filler count, spoken duration, and — for context — word count and WPM);
 - the **cohort** (engine, engine version, model name, formula version) that made them comparable;
 - **why a comparison is unavailable**, when it is — the deterministic exclusion reason, never a blank or a zero.
 
@@ -148,14 +148,14 @@ No displayed movement may depend on evidence the user cannot inspect.
 
 *Illustrative shape only — the numbers are an example, not measured data.*
 
-| Session | Eligible | Clear delivery (raw) | Shown |
+| Session | Eligible | Filler rate (fillers/min) | Shown |
 |---|---|---|---|
-| 1st eligible | yes | 71.4 | **"Baseline established"** — no movement claimed |
-| 2nd eligible, same cohort | yes | 75.2 | **"Clear delivery moved up 4 points since your baseline."** (75.2 − 71.4 = 3.8, rendered as 4) |
+| 1st eligible | yes | 3.4 | **"Baseline established"** — no movement claimed |
+| 2nd eligible, same cohort | yes | 2.4 | **"29% fewer fillers than your baseline."** ((3.4 − 2.4) ÷ 3.4 = 29.4%, rendered as 29%) |
 | 3rd, 22 s long | **no** | — | No movement. Recorded `eligible=false`, `too_short`. Progress is unchanged — **not** reset, **not** zero |
-| 4th eligible, engine changed | yes | 80.1 | **"Not enough comparable data yet"** — new cohort; **no** cross-cohort difference is computed |
+| 4th eligible, engine changed | yes | 2.1 | **"Not enough comparable data yet"** — new cohort; **no** cross-cohort difference is computed |
 
-Arithmetic uses stored unrounded values; only the displayed figure is rounded. An ineligible session never moves, resets, or dilutes Progress.
+The percentage is computed from the exact (unrounded) filler rates; only the displayed figure is rounded. An ineligible session never moves, resets, or dilutes Progress.
 
 ## 7c. Completion is not performance
 
@@ -171,7 +171,7 @@ Finishing a session, practising often, or maintaining a streak are **participati
 
 - **Always recorded — for every evaluation, eligible or not.** These are the facts needed to *prove* an eligibility decision or an exclusion afterwards, so each must be persisted or immutably referenced:
   - `session_id`;
-  - transcript / clear-delivery **evidence availability** (the fact that evidence was present or absent — not the transcript itself);
+  - transcript / filler-evidence **availability** (the fact that valid filler evidence was present or absent — not the transcript itself);
   - `engine`, `engine_version`, `model_name`;
   - `attribution_status`;
   - `duration` and `word_count`;
@@ -179,7 +179,7 @@ Finishing a session, practising often, or maintaining a streak are **participati
   - `eligible` (bool), and — when `eligible = false` — the deterministic `exclusion_reasons` from §4.
 
   Without all of these, an exclusion cannot be audited later: *"why was this session not counted?"* must be answerable from the record alone, never recomputed from mutable state.
-- **Recorded only when `eligible = true`:** the unrounded clear-delivery value and its remaining inputs (canonical filler count, error-marker count, WPM), the cohort key, and explicit **`baseline_session_id`** and **`previous_comparable_session_id`** references. Baseline and previous-comparable references stay **eligible-only** — an ineligible evaluation never carries them.
+- **Recorded only when `eligible = true`:** the unrounded filler rate and its inputs (canonical filler count, spoken duration; plus word count and WPM for context), the cohort key, and explicit **`baseline_session_id`** and **`previous_comparable_session_id`** references. Baseline and previous-comparable references stay **eligible-only** — an ineligible evaluation never carries them.
 - **Only eligible records influence Progress**, the direction statement, or either takeaway. An ineligible record is retained as an honest audit trail and is never averaged in.
 - Records are **additive**: no existing session row is ever rewritten.
 
