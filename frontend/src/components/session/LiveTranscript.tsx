@@ -1,25 +1,41 @@
 import React from 'react';
 
 /**
- * #1222 slot B (during) — the live transcript body, rendered as the `children` of the single slot-B
- * `TranscriptCard` (so the card never remounts, spec §1). Text is 19px/1.75 in a `min-height:420px` body.
+ * #1222 slot B — the transcript body, rendered as the `children` of the single slot-B `TranscriptCard`
+ * (so the card never remounts across states, spec §1). Text is 19px/1.75 in a `min-height:420px` body.
  *
- * Fillers highlight the INSTANT they land (spec §4): background `#fdf3e2`, a 2px `#d98a1f` bottom border,
- * 3px radius. A 2px orange caret marks the live insertion point. Nothing is scored until Stop.
+ * during (§4): fillers highlight the INSTANT they land (background `#fdf3e2`, 2px `#d98a1f` bottom border,
+ * 3px radius); a 2px orange caret marks the live insertion point.
+ * after  (§5): the SAME body, now seekable — clicking a highlighted filler jumps playback to it. Pass
+ * `onFillerSeek` to turn fillers into seek buttons and drop the caret.
  */
 export interface TranscriptToken {
     text: string;
     /** True when this token is a detected filler ("um", "you know", "like", …). */
     filler?: boolean;
+    /** after: playback position of this filler, seconds — used by onFillerSeek. */
+    seekSeconds?: number;
 }
 
 export interface LiveTranscriptProps {
     tokens: TranscriptToken[];
-    /** Show the live insertion caret (during recording). */
+    /** Show the live insertion caret (during recording). Ignored when seekable. */
     showCaret?: boolean;
+    /** after: makes fillers clickable seek targets; receives (token, index). */
+    onFillerSeek?: (token: TranscriptToken, index: number) => void;
 }
 
-export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCaret = true }) => {
+const fillerStyle: React.CSSProperties = {
+    backgroundColor: '#fdf3e2',
+    borderBottom: '2px solid #d98a1f',
+    borderRadius: 3,
+    padding: '0 2px',
+    color: '#241503',
+};
+
+export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCaret = true, onFillerSeek }) => {
+    const seekable = typeof onFillerSeek === 'function';
+
     return (
         <div
             data-testid="live-transcript"
@@ -28,24 +44,25 @@ export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCare
             {tokens.map((t, i) => (
                 <React.Fragment key={i}>
                     {t.filler ? (
-                        <mark
-                            data-testid="live-filler"
-                            style={{
-                                backgroundColor: '#fdf3e2',
-                                borderBottom: '2px solid #d98a1f',
-                                borderRadius: 3,
-                                padding: '0 2px',
-                                color: '#241503',
-                            }}
-                        >
-                            {t.text}
-                        </mark>
+                        seekable ? (
+                            <button
+                                type="button"
+                                data-testid="live-filler"
+                                onClick={() => onFillerSeek?.(t, i)}
+                                aria-label={`Play from "${t.text}"`}
+                                style={{ ...fillerStyle, cursor: 'pointer', border: 0, borderBottom: '2px solid #d98a1f', font: 'inherit' }}
+                            >
+                                {t.text}
+                            </button>
+                        ) : (
+                            <mark data-testid="live-filler" style={fillerStyle}>{t.text}</mark>
+                        )
                     ) : (
                         <span>{t.text}</span>
                     )}{' '}
                 </React.Fragment>
             ))}
-            {showCaret && (
+            {showCaret && !seekable && (
                 <span
                     aria-hidden="true"
                     data-testid="live-caret"

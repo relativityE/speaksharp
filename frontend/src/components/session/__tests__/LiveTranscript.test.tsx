@@ -1,5 +1,5 @@
-import { render, screen } from '../../../../tests/support/test-utils';
-import { describe, it, expect } from 'vitest';
+import { render, screen, fireEvent } from '../../../../tests/support/test-utils';
+import { describe, it, expect, vi } from 'vitest';
 import { LiveTranscript } from '../LiveTranscript';
 import { formatLiveMeta } from '@/utils/sessionFormat';
 
@@ -34,5 +34,17 @@ describe('LiveTranscript (#1222 slot B during)', () => {
         expect(screen.getByTestId('live-caret')).toBeInTheDocument();
         rerender(<LiveTranscript tokens={tokens} showCaret={false} />);
         expect(screen.queryByTestId('live-caret')).toBeNull();
+    });
+
+    it('after: fillers become seek buttons and the caret is dropped', () => {
+        const onFillerSeek = vi.fn();
+        render(<LiveTranscript tokens={tokens} onFillerSeek={onFillerSeek} />);
+        expect(screen.queryByTestId('live-caret')).toBeNull(); // seekable → no live caret
+        const fillers = screen.getAllByTestId('live-filler');
+        expect(fillers[0].tagName).toBe('BUTTON');
+        fireEvent.click(fillers[1]); // "like", index 3
+        expect(onFillerSeek).toHaveBeenCalledOnce();
+        expect(onFillerSeek.mock.calls[0][0]).toMatchObject({ text: 'like' });
+        expect(onFillerSeek.mock.calls[0][1]).toBe(3);
     });
 });
