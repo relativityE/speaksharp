@@ -86,16 +86,6 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                 <div className="flex items-center gap-2">
                     <OrangeTick />
                     <h2 className="text-[14px] font-extrabold text-[#1f2733]">Live Transcript</h2>
-                    {live && (
-                        <span
-                            className="flex items-center gap-1 rounded-full bg-[#fdf3e2] px-2 py-0.5 text-[11px] font-bold text-[#a8571f]"
-                            data-testid="transcript-live-indicator"
-                            aria-label="Live — transcript updates as you speak"
-                        >
-                            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#d98a1f]" aria-hidden="true" />
-                            Live
-                        </span>
-                    )}
                     {headerMeta && (
                         <span className="text-[12px] font-semibold text-[#414b5c]" data-testid="transcript-header-meta">
                             {headerMeta}
@@ -127,16 +117,21 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                 </div>
             </div>
 
-            {/* #1231 R1: finalizing banner — a distinct strip (not woven into the transcript) so the post-Stop
-                decode wait is clearly signalled and never mistaken for transcript content. */}
-            {finalizing && (
+            {/* #1231 R1 / PO 2026-08-09: ONE prominent status banner at the top of the transcript. While
+                recording it reads "Live draft…" (the words update + self-correct in real time); the instant
+                Stop is clicked it flips IN PLACE to "Finalizing…" so the post-Stop decode wait is never
+                silent. Mutually exclusive; finalizing wins (it is the post-Stop state). */}
+            {(finalizing || live) && (
                 <div
                     className="mb-3 flex items-center gap-2 rounded-lg bg-[#fdf3e2] px-3 py-2 text-[13px] font-semibold text-[#a8571f]"
                     role="status"
-                    data-testid="transcript-finalizing-banner"
+                    data-testid={finalizing ? 'transcript-finalizing-banner' : 'transcript-live-indicator'}
+                    aria-label={finalizing ? undefined : 'Live draft — the transcript updates and self-corrects as you speak'}
                 >
                     <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#d98a1f]" aria-hidden="true" />
-                    {isPrivate ? 'Finalizing your transcript locally…' : 'Finalizing your transcript…'}
+                    {finalizing
+                        ? (isPrivate ? 'Finalizing your transcript locally…' : 'Finalizing your transcript…')
+                        : 'Live draft — words update and self-correct as you speak'}
                 </div>
             )}
 

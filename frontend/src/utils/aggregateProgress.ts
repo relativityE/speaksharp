@@ -7,13 +7,14 @@ import { hasValidPauseEvidence } from './metricValidity';
  * delivery signals, not a single metric: aggregating levels out the per-signal variance so the headline is
  * stable. The number is BACKGROUND (see PROGRESS_AND_NEXT_ACTION.md §2); the two takeaways are the product.
  *
- * Model (PO 2026-08-08):
+ * Model (PO 2026-08-09):
  *  - Each signal is mapped to a 0..1 **quality** (higher = better), which folds in its direction and, for
  *    band signals (pace, pause), its ideal range — so "faster WPM" is not blindly "better".
- *  - Session 1 = baseline (its composite quality is the "baseline signal"); no delta.
- *  - Session N: for each signal with valid evidence in BOTH N and the baseline, the signed % change vs the
- *    baseline quality; the session **aggregate** = the MEAN of those per-signal %s (equal weight, v1).
- *  - A signal missing evidence in either session is left out; a baseline quality of 0 is skipped (no /0).
+ *  - Session 1 = the starting reference (no previous session to compare against); no delta.
+ *  - Session N: for each signal with valid evidence in BOTH N and the PREVIOUS comparable session, the signed
+ *    % change vs the previous session's quality; the session **aggregate** = the MEAN of those per-signal %s
+ *    (equal weight, v1).
+ *  - A signal missing evidence in either session is left out; a previous-session quality of 0 is skipped (no /0).
  *
  * v1 signals: filler rate, clarity, pace/WPM, pause rhythm. All thresholds are MVP and tunable (#1206).
  */
@@ -52,22 +53,22 @@ export type ProgressDirection = 'improved' | 'regressed' | 'flat';
 
 export interface AggregateComponent {
     key: 'filler' | 'clarity' | 'pace' | 'pause';
-    /** Signed % change of this signal's quality vs baseline; null when not comparable this session. */
+    /** Signed % change of this signal's quality vs the previous session; null when not comparable this session. */
     deltaPercent: number | null;
 }
 
 export interface AggregateProgressResult {
     isBaseline: boolean;
     tooShort: boolean;
-    /** Signed aggregate % vs baseline (+ = better); null on baseline / too-short / nothing comparable. */
+    /** Signed aggregate % vs the previous session (+ = better); null on first session / too-short / nothing comparable. */
     aggregatePercent: number | null;
     direction: ProgressDirection;
-    /** Composite quality (0..100) of session 1 — the "baseline signal" shown as the starting reference. */
+    /** Composite quality (0..100) of the PREVIOUS comparable session — the reference the delta is measured against. */
     baselineQuality: number | null;
     /** Composite quality (0..100) of the current session. */
     currentQuality: number | null;
     components: AggregateComponent[];
-    /** Composite quality (0..100) per comparable session, baseline pinned leftmost, capped at 6. */
+    /** Composite quality (0..100) per comparable session, oldest pinned leftmost, capped at 6. */
     trend: number[];
 }
 
@@ -111,19 +112,23 @@ export function computeAggregateProgress(sessionsOldestFirst: SessionSignals[]):
 
     if (!comparable(current)) {
         return { ...empty, tooShort: true,
-            baselineQuality: priorComparable.length ? qOf(priorComparable[0]) : null };
+            baselineQuality: priorComparable.length ? qOf(priorComparable[priorComparable.length - 1]) : null };
     }
 
     if (priorComparable.length === 0) {
-        // First comparable session — it defines the baseline; no delta.
+        // First comparable session — no previous session to compare against, so it is the starting
+        // reference only; no delta.
         return { ...empty, isBaseline: true, baselineQuality: qOf(current), currentQuality: qOf(current), trend: [qOf(current)] };
     }
 
-    const baseline = priorComparable[0];
-    const baseQ = qualities(baseline);
+    // Compare against the PREVIOUS comparable session (the one immediately before the current one), not the
+    // first session. The first session remains the starting reference; every session after it is measured
+    // against the session before it.
+    const previous = priorComparable[priorComparable.length - 1];
+    const baseQ = qualities(previous);
     const curQ = qualities(current);
 
-    // Per-signal % change of quality vs baseline; included only when both sides have evidence and base>0.
+    // Per-signal % change of quality vs the previous session; included only when both sides have evidence and base>0.
     const components: AggregateComponent[] = KEYS.map((key) => {
         const b = baseQ[key];
         const c = curQ[key];
@@ -142,7 +147,7 @@ export function computeAggregateProgress(sessionsOldestFirst: SessionSignals[]):
 
     return {
         isBaseline: false, tooShort: false, aggregatePercent, direction,
-        baselineQuality: qOf(baseline), currentQuality: qOf(current), components, trend,
+        baselineQuality: qOf(previous), currentQuality: qOf(current), components, trend,
     };
 }
 

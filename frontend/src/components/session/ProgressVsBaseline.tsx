@@ -34,15 +34,15 @@ const CURRENT_LABEL: Record<ProgressVsBaselineProps['sessionState'], string> = {
 
 // The headline context clause differs per state.
 const DELTA_CONTEXT: Record<ProgressVsBaselineProps['sessionState'], string> = {
-    before: 'than session 1',
+    before: 'than last session',
     during: 'so far this session',
-    after: 'than session 1',
+    after: 'than last session',
 };
 
 /**
- * Render the delta-context line, emphasising a trailing session number so "than session 1" reads with the
- * "1" clearly picked out (heavier weight + tabular numerals). Contexts without a trailing number (e.g.
- * "so far this session") render unchanged.
+ * Render the delta-context line, emphasising a trailing session number when one is present (heavier weight +
+ * tabular numerals). Contexts without a trailing number (e.g. "than last session", "so far this session")
+ * render unchanged.
  */
 function renderContext(context: string): React.ReactNode {
     const match = context.match(/^(.*?\s)(\d+)$/);
@@ -64,7 +64,7 @@ export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, 
     const deltaNoun = isAgg
         ? (direction === 'regressed' ? 'worse' : 'better')
         : `${direction === 'regressed' ? 'more' : 'fewer'} fillers`;
-    const baselineLabel = isAgg ? 'Baseline signal' : 'Baseline';
+    const baselineLabel = 'Previous session';
 
     return (
         <div
@@ -81,7 +81,7 @@ export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, 
                     type="button"
                     data-testid="progress-help"
                     aria-label="How progress is measured"
-                    title="Progress vs baseline: your % change in filler words per minute vs your first session."
+                    title="Session progress: your % change vs your previous session."
                     className="-mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-[#c5cfdd] text-[10px] font-bold leading-none text-[#414b5c] hover:bg-[#eef2f7]"
                 >
                     ?
@@ -92,7 +92,7 @@ export const ProgressVsBaseline: React.FC<ProgressVsBaselineProps> = ({ result, 
                 <div className="mt-2" data-testid="progress-baseline-set">
                     <p className="text-[20px] font-extrabold text-[#1f2733]">{isAgg ? 'Baseline signal set' : 'Baseline set'}</p>
                     <p className="mt-1 text-[13px] text-[#414b5c]">
-                        {baselineRate}{unit} — we&apos;ll compare every session from here.
+                        {baselineRate}{unit} — we&apos;ll compare each session with the one before.
                     </p>
                 </div>
             ) : tooShort ? (

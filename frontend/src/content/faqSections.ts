@@ -63,7 +63,7 @@ export const FAQ_SECTIONS: readonly FaqSection[] = [
                 question: 'How is my progress measured?',
                 answer: [
                     'Session progress is one percentage built — in the open — from four signals we measure in your own session: filler rate (filler words per minute), clarity, speaking pace (words per minute), and pause rhythm. Nothing hidden feeds it.',
-                    'Combining these four levels out the natural swing of any single one, so the number is steadier and harder to game. It compares this session with your baseline (your first session) — a personal, session-over-session read, never a grade or a comparison with other people.',
+                    'Combining these four levels out the natural swing of any single one, so the number is steadier and harder to game. It compares this session with your previous session — a personal, session-over-session read, never a grade or a comparison with other people.',
                     'The number is deliberately in the background. What matters most is the two takeaways — what worked and what to try next — drawn straight from what you actually did this session. Acting on those next time is the real goal.',
                 ],
             },
@@ -71,16 +71,16 @@ export const FAQ_SECTIONS: readonly FaqSection[] = [
                 id: 'baseline-signal',
                 question: 'What is the "baseline signal"?',
                 answer: [
-                    'The baseline signal is your first session’s combined reading of the same four signals — filler rate, clarity, speaking pace, and pause rhythm — taken together as your personal starting point. Because there is nothing earlier to compare it with, your first session shows this baseline signal instead of a change percentage.',
-                    'From your next session on, progress is shown as the change in those four signals versus this baseline. If a signal is too short or has no usable evidence, we leave it out rather than invent a number — again, in the interest of showing you only what we can actually measure.',
+                    'Your first session is your starting point: it is a combined reading of the same four signals — filler rate, clarity, speaking pace, and pause rhythm — taken together. Because there is nothing earlier to compare it with, your first session shows this reading instead of a change percentage.',
+                    'From your next session on, progress is shown as the change in those four signals versus the session right before it — not versus your first session. If a signal is too short or has no usable evidence, we leave it out rather than invent a number — again, in the interest of showing you only what we can actually measure.',
                 ],
             },
             {
                 id: 'first-session-no-percent',
                 question: 'Why doesn’t my first session show a progress percentage?',
                 answer: [
-                    'A percentage is always a change versus something earlier, and your first session has nothing to compare against — so it shows “baseline set”, not a number. This is by design, for every user.',
-                    'You start seeing a progress percentage from your second qualifying session onward. A session qualifies once it is long enough to measure (about 30 seconds); very short takes are skipped so a stray few seconds never sets or moves your baseline. So if you already see a percentage like “+5% vs session 1”, it means your account has at least two qualifying sessions on record.',
+                    'A percentage is always a change versus an earlier session, and your first session has nothing before it to compare against — so it shows “baseline set”, not a number. This is by design, for every user.',
+                    'You start seeing a progress percentage from your second qualifying session onward, and it is always the change versus your previous session. A session qualifies once it is long enough to measure (about 30 seconds); very short takes are skipped so a stray few seconds never sets or moves your progress. So if you already see a percentage like “+5% vs your previous session”, it means your account has at least two qualifying sessions on record.',
                 ],
             },
             {
