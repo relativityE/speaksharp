@@ -1,4 +1,4 @@
-import { BarChart3, HelpCircle, Home, Mic, type LucideIcon } from 'lucide-react';
+import { BarChart3, Home, Mic, type LucideIcon } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 
 /**
@@ -9,7 +9,12 @@ import { TEST_IDS } from '@/constants/testIds';
  * this list and the active-state resolution reads the same list, so no page file ever
  * carries its own "am I the current nav item?" styling.
  */
-export type NavSectionId = 'home' | 'session' | 'analytics' | 'faq';
+/**
+ * The FAQ is intentionally NOT a section here: it is an inline dropdown (see
+ * @/components/faq/FaqMenu) rendered directly in the nav, never a routed page — so it has
+ * no path and no active-state resolution.
+ */
+export type NavSectionId = 'home' | 'session' | 'analytics';
 
 export interface NavSection {
     id: NavSectionId;
@@ -58,14 +63,6 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         matchPaths: ['/analytics'],
         icon: BarChart3,
         testId: TEST_IDS.NAV_ANALYTICS_LINK,
-    },
-    {
-        id: 'faq',
-        label: 'FAQ',
-        path: '/faq',
-        matchPaths: ['/faq'],
-        icon: HelpCircle,
-        testId: TEST_IDS.NAV_FAQ_LINK,
     },
 ] as const;
 

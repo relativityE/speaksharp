@@ -492,8 +492,10 @@ describe('Navigation', () => {
             authed();
             renderNavigation('/analytics');
             const icons = primaryNav().querySelectorAll('svg');
-            // Home, Session, Analytics, FAQ (#1200) — one decorative icon per primary section.
-            expect(icons.length).toBe(4);
+            // Home, Session, Analytics — one decorative icon per primary section. FAQ is no
+            // longer a routed section; it is an inline dropdown in the header actions, outside
+            // this Primary landmark.
+            expect(icons.length).toBe(3);
             icons.forEach((icon) => expect(icon).toHaveAttribute('aria-hidden', 'true'));
         });
     });

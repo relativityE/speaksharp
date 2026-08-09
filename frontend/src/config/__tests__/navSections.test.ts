@@ -68,7 +68,8 @@ describe('navSections — route -> active section resolution', () => {
     });
 
     it('never matches two sections for the same route', () => {
-        const mapped = ['/', '/practice', '/practice/warmup', '/session', '/session/abc123', '/analytics', '/analytics/42', '/faq'];
+        // /faq is intentionally absent: the FAQ is an inline dropdown, not a routed section.
+        const mapped = ['/', '/practice', '/practice/warmup', '/session', '/session/abc123', '/analytics', '/analytics/42'];
         for (const route of mapped) {
             expect(findMatchingNavSections(route)).toHaveLength(1);
         }
@@ -77,7 +78,9 @@ describe('navSections — route -> active section resolution', () => {
     });
 
     it('exposes one config entry per page so adding a page is a single-entry change', () => {
-        expect(NAV_SECTIONS.map((s) => s.id)).toEqual(['home', 'session', 'analytics', 'faq']);
+        // FAQ is deliberately NOT a section: it renders as an inline dropdown control in the
+        // nav (see @/components/faq/FaqMenu), never as a routed page.
+        expect(NAV_SECTIONS.map((s) => s.id)).toEqual(['home', 'session', 'analytics']);
         for (const section of NAV_SECTIONS) {
             expect(section.label).toBeTruthy();
             expect(section.path.startsWith('/')).toBe(true);

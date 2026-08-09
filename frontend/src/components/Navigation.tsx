@@ -18,6 +18,7 @@ import {
   trackConversionCtaViewed,
 } from "@/services/conversionFunnel";
 import { IssueReportDialog } from "@/components/IssueReportDialog";
+import { FaqMenu } from "@/components/faq/FaqMenu";
 import { toast } from '@/lib/toast';
 import { useSessionStore } from "@/stores/useSessionStore";
 
@@ -206,6 +207,11 @@ const Navigation = () => {
                       PRO
                     </Badge>
                   )}
+                  {/* FAQ is an INLINE dropdown, not a page — it opens on whatever page the user is on
+                      (including /session) and never navigates away. It lives in the always-visible
+                      header actions so it is reachable on every viewport, unlike the desktop-only
+                      primary nav and the session-suppressed mobile bar. */}
+                  <FaqMenu />
                   <IssueReportDialog
                     userId={session.user?.id ?? null}
                     plan={effectiveSubscriptionStatus}
