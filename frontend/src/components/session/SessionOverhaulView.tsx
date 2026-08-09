@@ -4,9 +4,13 @@ import { SessionDuringState } from './SessionDuringState';
 import { SessionAfterState } from './SessionAfterState';
 import { resolveSessionState } from '@/utils/sessionStateMachine';
 import { usePromptOfferDismissed } from '@/hooks/usePromptOfferDismissed';
+import { useHeldTip } from '@/hooks/useHeldTip';
+import { LiveTip } from './LiveTip';
 import { computeAggregateProgress, signalsFromSession } from '@/utils/aggregateProgress';
 import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptTokens';
+import { liveTipFromMetrics, verdictFromSuggestions, type TwoTakeaways } from '@/utils/liveCoaching';
+import type { FillerCounts } from '@/utils/fillerWordUtils';
 import type { PracticeSession } from '@/types/session';
 import type { SttStatus } from '@/types/transcription';
 
@@ -44,6 +48,12 @@ export interface SessionOverhaulViewProps {
     modelLoadingProgress?: number | null;
     onDownloadModel?: () => void;
     isButtonDisabled?: boolean;
+    /** #1222 S12b — live coaching (during) + verdict (after) sources. */
+    fillerData?: FillerCounts | null;
+    wpm?: number | null;
+    /** The saved session's two takeaways (after-state verdict); null → honest deterministic fallback. */
+    aiSuggestions?: TwoTakeaways | null;
+    onSeeAllSessions?: () => void;
 }
 
 export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
@@ -61,6 +71,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     modelLoadingProgress,
     onDownloadModel,
     isButtonDisabled,
+    fillerData,
+    wpm,
+    aiSuggestions,
+    onSeeAllSessions,
 }) => {
     const permissionError = sttStatus.type === 'error';
     const sessionState = resolveSessionState({
@@ -70,6 +84,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     });
 
     const offer = usePromptOfferDismissed(authUserId);
+
+    // #1222 S12b — one live coaching tip (during), held ≥8s (useHeldTip). Candidate is null when idle.
+    const tipCandidate = isListening ? liveTipFromMetrics({ fillerData, wpm, elapsedSeconds: elapsedTime }) : null;
+    const heldTip = useHeldTip(tipCandidate);
 
     // Sample the scalar mic level into a rolling buffer while recording (reset when idle).
     const levelsRef = React.useRef<number[]>([]);
@@ -134,6 +152,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 transcript={{ tokens, words: wordCount(transcriptContent), fillersPerMin: liveFillersPerMin(metricsFillerCount, elapsedTime) }}
                 progress={progress}
                 progressMode="aggregate"
+                liveTip={heldTip ? <LiveTip tip={heldTip} /> : undefined}
             />
         );
     }
@@ -159,7 +178,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             }}
             progress={progress}
             progressMode="aggregate"
-            verdict={{ verdictLine: '', fix: '', onPracticeAgain: onStartStop, onSeeAllSessions: () => {} }}
+            verdict={{ ...verdictFromSuggestions(aiSuggestions, fillerData), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
         />
     );
 };

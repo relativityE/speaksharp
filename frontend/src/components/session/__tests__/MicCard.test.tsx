@@ -50,10 +50,10 @@ describe('MicCard (#1222 slot A)', () => {
         expect(onStart).not.toHaveBeenCalled();
     });
 
-    it('loading: shows progress and disables start', () => {
+    it('downloading: shows "Downloading… N%" and greys/disables the mic until ready', () => {
         render(<MicCard onStart={vi.fn()} privateModelStatus="loading" modelLoadingProgress={0.42} />);
         expect(screen.getByTestId('mic-progress')).toHaveTextContent('42%');
-        expect(screen.getByText(/Preparing private transcription/i)).toBeInTheDocument();
+        expect(screen.getByTestId('mic-status')).toHaveTextContent(/Downloading private transcription… 42%/i);
         expect(screen.getByTestId('mic-start')).toBeDisabled();
     });
 

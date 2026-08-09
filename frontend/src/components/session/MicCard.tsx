@@ -61,24 +61,26 @@ export const MicCard: React.FC<MicCardProps> = ({
     const modelError = privateModelStatus === 'init-failed' || privateModelStatus === 'error';
     const pct = typeof modelLoadingProgress === 'number' ? Math.round(Math.max(0, Math.min(1, modelLoadingProgress)) * 100) : null;
 
-    // Status line (top-left): ready / needs one-time download / preparing / problem.
+    // Status line (top-left): ready / needs one-time download / DOWNLOADING (with %) / problem. While the
+    // model downloads, this is the user's progress cue (it replaces the removed status-notification bar).
     const status = downloadRequired
-        ? { dot: '#d98a1f', text: '#a8571f', label: 'One-time setup needed' }
+        ? { dot: '#d98a1f', text: '#a8571f', label: 'One-time download needed' }
         : loading
-            ? { dot: '#d98a1f', text: '#a8571f', label: pct != null ? `Preparing private transcription… ${pct}%` : 'Preparing private transcription…' }
+            ? { dot: '#d98a1f', text: '#a8571f', label: pct != null ? `Downloading private transcription… ${pct}%` : 'Downloading private transcription…' }
             : modelError
                 ? { dot: '#a8321f', text: '#a8321f', label: 'Private transcription needs another try' }
                 : { dot: '#146b4a', text: '#146b4a', label: 'Mic ready on this device' };
 
-    // Primary action: download when required, otherwise start. Disabled while loading/busy.
+    // Primary action: download when required, otherwise start. The mic is GREYED OUT + disabled for the
+    // whole download (loading), then re-enabled to record once the model is ready.
     const primaryHandler = downloadRequired ? (onDownloadModel ?? onStart) : onStart;
     const primaryDisabled = !!disabled || loading;
     const primaryTitle = downloadRequired
         ? 'Download to start speaking'
-        : loading ? 'Getting ready…' : 'Press to start speaking';
+        : loading ? 'Downloading…' : 'Press to start speaking';
     const primarySub = downloadRequired
         ? 'One-time · downloads to this device, then stays local'
-        : loading ? (pct != null ? `${pct}% ready` : 'a few seconds') : 'Space bar works too · aim for 60 seconds';
+        : loading ? (pct != null ? `${pct}% downloaded — the mic unlocks when it’s ready` : 'the mic unlocks when it’s ready') : 'Space bar works too · aim for 60 seconds';
 
     return (
         <div className="rounded-xl border border-[#dbe2ec] bg-white p-4" data-testid="mic-card" data-model-status={privateModelStatus}>

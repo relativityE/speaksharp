@@ -56,6 +56,14 @@ describe('FaqPage', () => {
         expect(within(item).getByText(/versus this baseline/i)).toBeInTheDocument();
     });
 
+    it('explains Private STT as a locally-downloaded model (one-time download)', () => {
+        render(<FaqPage />);
+        const item = screen.getByTestId('faq-item-what-is-private-stt');
+        expect(within(item).getByText(/runs entirely inside your browser/i)).toBeInTheDocument();
+        expect(within(item).getByText(/one-time step/i)).toBeInTheDocument();
+        expect(within(item).getByText(/never sent to us/i)).toBeInTheDocument();
+    });
+
     it('explains the two practice modes', () => {
         render(<FaqPage />);
         const item = screen.getByTestId('faq-item-open-floor-vs-focus-points');

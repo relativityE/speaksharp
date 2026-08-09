@@ -40,6 +40,14 @@ const FAQ_GROUPS: readonly FaqGroup[] = [
                 ],
             },
             {
+                id: 'what-is-private-stt',
+                question: 'What is Private transcription, and why does it download something the first time?',
+                answer: [
+                    'Private transcription (Private STT) is a small speech-to-text model that runs entirely inside your browser. The first time you use it, that model is downloaded to your device — a one-time step. You will see the download progress on the mic card, and the mic unlocks as soon as it is ready.',
+                    'After that first download the model is cached, so later sessions start quickly. Because the model runs locally, your audio is processed on your device and never sent to us or anyone else — that is what makes it private.',
+                ],
+            },
+            {
                 id: 'audio-stored',
                 question: 'Is my audio recorded or stored?',
                 answer: [

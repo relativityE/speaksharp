@@ -32,7 +32,7 @@ import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
 import { formatSampleCapLine } from '@/utils/privateSampleDuration';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 
 /**
  * ARCHITECTURE:
@@ -133,6 +133,7 @@ export const SessionPage: React.FC = () => {
     // still owns first-time setup). An ineligible account is told truthfully and stays on Browser. The
     // intent is consumed once (guarded + URL cleaned) so a refresh/re-render can't re-apply it.
     const [searchParams, setSearchParams] = useSearchParams();
+    const navigate = useNavigate();
     const [trialUnavailableNotice, setTrialUnavailableNotice] = useState<string | null>(null);
     const trialHandledRef = useRef(false);
     useEffect(() => {
@@ -421,6 +422,10 @@ export const SessionPage: React.FC = () => {
                             void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
                         }}
                         isButtonDisabled={isButtonDisabled}
+                        fillerData={metrics.fillerData}
+                        wpm={metrics.wpm}
+                        aiSuggestions={practiceHistory?.[0]?.ai_suggestions ?? undefined}
+                        onSeeAllSessions={() => navigate('/analytics')}
                     />
                 ) : (
                 <>
