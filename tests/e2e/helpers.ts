@@ -605,6 +605,25 @@ export async function selectTranscriptionEngine(page: Page, mode: 'private' = 'p
   ).toBeVisible({ timeout: 15_000 });
 }
 
+/**
+ * #1231: start a recording on the new session page. Start (before-state `mic-start`) and stop
+ * (during-state `recorder-stop`) are SPLIT — there is no single toggle and no `data-recording` attribute.
+ * Recording state is read from the runtime signal + the shell's `data-session-state`.
+ */
+export async function startRecording(page: Page) {
+  await waitForModelReady(page);
+  await page.getByTestId('mic-start').click();
+  await Promise.race([
+    page.waitForSelector('html[data-runtime-state="RECORDING"]', { timeout: 15_000 }),
+    page.waitForSelector('[data-testid="session-shell"][data-session-state="during"]', { timeout: 15_000 }),
+  ]);
+}
+
+/** #1231: stop the active recording (during-state `recorder-stop`). Callers assert the post-save surfaces. */
+export async function stopRecording(page: Page) {
+  await page.getByTestId('recorder-stop').click();
+}
+
 export async function waitForToast(page: Page, message: string | RegExp) {
   const toast = page.locator('li[data-sonner-toast]');
   if (typeof message === 'string') {
