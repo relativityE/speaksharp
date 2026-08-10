@@ -32,6 +32,19 @@ describe('FocusPointsRail — topic line + rename (#1046 G6/G7)', () => {
         expect(screen.getByText('What you covered')).toBeInTheDocument();
     });
 
+    it('after: a missed point states the real cause (last-covered timestamp) then the forward move — no fabricated waste', () => {
+        const afterRows: FocusCoverageRow[] = [
+            { label: 'What is it?', status: 'covered', covered: true, coveredAtSec: 21, quote: 'the small calls' },
+            { label: 'Effects', status: 'covered', covered: true, coveredAtSec: 64, quote: 'ten boring ones' },
+            { label: 'One habit', status: 'missing', covered: false, coveredAtSec: null, quote: null },
+        ];
+        render(<FocusPointsRail rows={afterRows} topic="Micro-Decisions" sessionState="after" />);
+        const missed = screen.getByTestId('focus-point-2-not-detected');
+        expect(missed).toHaveTextContent('Didn’t come up this time. Point 2 ran to 1:04 — leading with this one next attempt is the easy fix.');
+        // Honest: no "waste"/"behind"/"seconds off-point" phrasing.
+        for (const b of ['wasted', 'behind', 'off-point', 'seconds off']) expect(missed.textContent!.toLowerCase()).not.toContain(b);
+    });
+
     it('omits the topic block entirely when no topic is set (blank or null)', () => {
         const { rerender } = render(<FocusPointsRail rows={rows} topic={null} sessionState="before" />);
         expect(screen.queryByTestId('focus-points-topic')).not.toBeInTheDocument();
