@@ -20,8 +20,6 @@ export interface FocusPointsRailProps {
     sessionState: 'before' | 'during' | 'after';
     /** During: the first not-yet-covered point — highlighted "Still to cover". */
     nextIndex?: number | null;
-    /** After: where the time went, for the missed point(s). */
-    missedReason?: string | null;
     onEdit?: () => void;
     onRetry?: () => void;
     onNewSet?: () => void;
@@ -50,7 +48,6 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
     rows,
     sessionState,
     nextIndex,
-    missedReason,
     onEdit,
     onRetry,
     onNewSet,
@@ -88,7 +85,7 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                         : isMissed
                             ? 'rounded-lg border border-[#f0dcb8] bg-[#fdf3e2] px-3 py-2'
                             : '';
-                    const statusWord = row.covered ? 'Covered' : isMissed ? 'Not covered' : isNext ? 'Still to cover' : 'Pending';
+                    const statusWord = row.covered ? 'Covered' : isMissed ? 'Not detected' : isNext ? 'Still to cover' : 'Pending';
                     return (
                         <li key={i} data-testid={`focus-point-${i}`} data-status={row.covered ? 'covered' : isMissed ? 'missing' : 'pending'} className={`flex items-start gap-[11px] ${rowTint}`}>
                             <Marker kind={kind} index={i} />
@@ -103,9 +100,13 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                                     </p>
                                 )}
                                 {isNext && <p className="mt-0.5 text-[12px] font-bold text-[#6d28d9]">Still to cover</p>}
-                                {isMissed && missedReason && (
-                                    <p className="mt-1 text-[13px] font-semibold leading-snug text-[#8a5510]" data-testid={`focus-point-${i}-missed-reason`}>
-                                        {missedReason}
+                                {/* Reviewer truthfulness fix: the local keyword engine measures whether a point's
+                                    words appeared, NOT how time was spent. So a point it couldn't verify is
+                                    "Not detected" (a paraphrase may have covered it) — never a "Missed"
+                                    accusation — and the feedback is an ACTION for the retry, not a made-up cause. */}
+                                {isMissed && (
+                                    <p className="mt-1 text-[13px] font-semibold leading-snug text-[#8a5510]" data-testid={`focus-point-${i}-not-detected`}>
+                                        Not detected — on your retry, lead with this point.
                                     </p>
                                 )}
                             </div>

@@ -91,7 +91,7 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         expect(screen.getByTestId('coverage-this-run-count')).toHaveTextContent('1/2');
         // The missed point is the most important line — it says where the time went.
-        expect(screen.getByTestId('focus-point-1-missed-reason')).toBeInTheDocument();
+        expect(screen.getByTestId('focus-point-1-not-detected')).toBeInTheDocument();
         expect(screen.getByTestId('focus-points-retry')).toBeInTheDocument();
         expect(screen.getByTestId('focus-delivery-strip')).toBeInTheDocument();
     });

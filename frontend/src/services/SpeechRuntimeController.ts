@@ -3631,7 +3631,7 @@ export class SpeechRuntimeController {
                             // finalize per-point coverage now — the same guarded, idempotent, strictly
                             // non-fatal seam as Progress. The brief is CONSUMED (set null) before the async
                             // call so a stale brief can never attach a later Open Floor recording (the
-                            // Freestyle-vs-Focus-Points isolation invariant). Fires only when a brief is
+                            // Open-Floor-vs-Focus-Points isolation invariant). Fires only when a brief is
                             // present AND metrics persisted; the orchestrator itself also fails closed
                             // (server-verified Private-only), so it can never fabricate a score.
                             const objectiveBrief = useSessionStore.getState().activeObjectiveBrief;

@@ -9,7 +9,6 @@ describe('focusCoverage.deriveFocusCoverage', () => {
         expect(c.total).toBe(2);
         expect(c.coveredCount).toBe(0);
         expect(c.nextIndex).toBe(0);
-        expect(c.missedReason).toBeNull();
         expect(c.rows.every((r) => !r.covered)).toBe(true);
     });
 
@@ -23,10 +22,12 @@ describe('focusCoverage.deriveFocusCoverage', () => {
         expect(c.nextIndex).toBe(1);
     });
 
-    it('names where the time went for the missed point', () => {
+    it('leaves an unmatched point uncovered (reported as "Not detected" by the rail, no time-speculation)', () => {
         const c = deriveFocusCoverage(POINTS, 'I will name the price now.', 84);
-        expect(c.missedReason).toMatch(/the time went there/i);
-        expect(c.missedReason).toMatch(/point 1/);
+        expect(c.coveredCount).toBe(1);
+        expect(c.rows[1].covered).toBe(false);
+        // The util no longer fabricates a "where the time went" reason (removed for truthfulness).
+        expect('missedReason' in c).toBe(false);
     });
 
     it('never un-ticks a latched point even if the transcript no longer matches', () => {
