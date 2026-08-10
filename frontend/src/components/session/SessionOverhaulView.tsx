@@ -10,8 +10,11 @@ import { FillerBreakdown } from './FillerBreakdown';
 import { computeAggregateProgress, signalsFromSession } from '@/utils/aggregateProgress';
 import { getNextPrompt, getNextSample } from '@/services/practice/practiceOnramp';
 import { CustomWordsBar } from './CustomWordsBar';
-import { CoverageRail, type CoverageRailPoint } from './CoverageRail';
-import { FocusPointsPlan } from './FocusPointsPlan';
+import { type CoverageRailPoint } from './CoverageRail';
+import { CoverageThisRun } from './CoverageThisRun';
+import { FocusPointsRail } from './FocusPointsRail';
+import { FocusDeliveryStrip } from './FocusDeliveryStrip';
+import { deriveFocusCoverage, markCoveredTokens, type FocusCoverage } from '@/utils/focusCoverage';
 import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptTokens';
 import { liveTipFromMetrics, verdictFromSuggestions, type TwoTakeaways } from '@/utils/liveCoaching';
@@ -70,8 +73,15 @@ export interface SessionOverhaulViewProps {
      * (after) instead of the verdict. null/empty ⇒ an Open Floor session (unchanged coaching path).
      */
     objectivePoints?: string[] | null;
-    /** #1046 Focus Points — per-point coverage resolved at stop (same shape as the rail); null until then. */
+    /** #1046 Focus Points — per-point coverage resolved at stop (same shape as the rail); null until then.
+     *  Retained for the SessionPage contract; the view now derives its own live+final coverage from the
+     *  transcript (see focusCoverage) so slot C, slot D, and the highlights share one source. */
     objectiveCoverage?: CoverageRailPoint[] | null;
+    /** #1046 Focus Points slot-D actions. Edit → point editor (before); Retry → same set again (after);
+     *  New set → fresh brief (after). Retry falls back to a plain restart when no handler is supplied. */
+    onEditPoints?: () => void;
+    onRetryPoints?: () => void;
+    onNewSet?: () => void;
 }
 
 export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
@@ -97,7 +107,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     isFinalizing,
     finalizeEstimateSeconds,
     objectivePoints,
-    objectiveCoverage,
+    onEditPoints,
+    onRetryPoints,
+    onNewSet,
 }) => {
     const permissionError = sttStatus.type === 'error';
     const sessionState = resolveSessionState({
@@ -192,26 +204,48 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         };
     }, [history]);
 
-    // #1046 Focus Points: a brief is active when we were handed declared point labels. Slot D then carries
-    // the points (plan before/during, resolved coverage after) instead of the coaching card / verdict, so a
-    // Focus Points session is visibly its own thing on the shared shell — not an Open Floor session.
+    // #1046 Focus Points: a brief is active when we were handed declared point labels. This is a distinct
+    // product on the shared shell (spec: "slots are shared; semantics are not"). Slot C becomes coverage,
+    // slot D becomes the points, filler chrome is gone, and the transcript highlights mean coverage.
     const isObjective = Array.isArray(objectivePoints) && objectivePoints.length > 0;
-    const planPoints = React.useMemo(
-        () => (objectivePoints ?? []).map((label, i) => ({ id: `fp-${i}`, label })),
-        [objectivePoints],
-    );
-    const objectivePlanSlotD = isObjective ? <FocusPointsPlan points={planPoints} /> : undefined;
-    // after: show the resolved coverage rail once it exists; until then keep the plan (nothing scored yet).
-    const objectiveAfterSlotD = isObjective
-        ? (objectiveCoverage && objectiveCoverage.length > 0
-            ? <CoverageRail points={objectiveCoverage} />
-            : <FocusPointsPlan points={planPoints} />)
+
+    // Live coverage, derived from the growing transcript via the local keyword matcher (nothing leaves the
+    // device). `coveredLatch` guarantees a lit tick never regresses (spec §6); it resets on a fresh session.
+    const coveredLatch = React.useRef<Set<number>>(new Set());
+    if (isObjective && sessionState === 'before') coveredLatch.current = new Set();
+    let coverage: FocusCoverage | null = null;
+    if (isObjective) {
+        coverage = deriveFocusCoverage(objectivePoints ?? [], transcriptContent, elapsedTime, coveredLatch.current);
+        coverage.rows.forEach((r, i) => { if (r.covered) coveredLatch.current.add(i); });
+    }
+
+    // For Focus Points the transcript highlights mean COVERAGE (purple during / green after), never
+    // fillers — mark the covering spans on the base tokens (fillers cleared) and re-append the live tail.
+    const fpTokens = isObjective && coverage ? markCoveredTokens(tokens, coverage.coveredQuotes) : null;
+    const fpDuringTokens = fpTokens
+        ? (interimTranscript && interimTranscript.trim()
+            ? [...fpTokens, ...tokensFromTranscript(interimTranscript).map((t) => ({ ...t, interim: true }))]
+            : fpTokens)
+        : duringTokens;
+
+    const coverageSlotC = coverage
+        ? <CoverageThisRun covered={coverage.coveredCount} total={coverage.total} sessionState={sessionState} elapsedSeconds={elapsedTime} />
+        : undefined;
+    const objectivePlanSlotD = coverage
+        ? <FocusPointsRail rows={coverage.rows} sessionState="before" onEdit={onEditPoints} />
+        : undefined;
+    const objectiveDuringSlotD = coverage
+        ? <FocusPointsRail rows={coverage.rows} sessionState="during" nextIndex={coverage.nextIndex} />
+        : undefined;
+    const objectiveAfterSlotD = coverage
+        ? <FocusPointsRail rows={coverage.rows} sessionState="after" missedReason={coverage.missedReason} onRetry={onRetryPoints ?? onStartStop} onNewSet={onNewSet} />
         : undefined;
 
     if (sessionState === 'before') {
         return (
             <>
                 <SessionBeforeState
+                    slotCContent={coverageSlotC}
                     slotDContent={objectivePlanSlotD}
                     mic={{
                         onStart: onStartStop,
@@ -252,42 +286,73 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         return (
             <SessionDuringState
                 recorder={{ elapsedSeconds: elapsedTime, amplitudes, recordedCount, deviceLabel: 'Private', onStop: onStartStop }}
-                transcript={{ tokens: duringTokens, words: wordCount(transcriptContent), fillersPerMin: liveFillersPerMin(metricsFillerCount, elapsedTime), chosenPrompt, chosenPromptTitle, chosenPromptAttribution }}
+                transcript={{
+                    tokens: isObjective ? fpDuringTokens : duringTokens,
+                    words: wordCount(transcriptContent),
+                    fillersPerMin: liveFillersPerMin(metricsFillerCount, elapsedTime),
+                    chosenPrompt,
+                    chosenPromptTitle,
+                    chosenPromptAttribution,
+                    // #1046 Focus Points: no filler chrome; the transcript footer speaks to coverage instead.
+                    hideFillers: isObjective,
+                    footer: isObjective ? 'Highlighted spans are where a point landed.' : undefined,
+                    coverageMode: isObjective ? 'during' : undefined,
+                }}
                 progress={progress}
                 progressMode="aggregate"
-                liveTip={heldTip ? <LiveTip tip={heldTip} /> : undefined}
-                slotDContent={objectivePlanSlotD}
+                slotCContent={coverageSlotC}
+                liveTip={isObjective ? undefined : (heldTip ? <LiveTip tip={heldTip} /> : undefined)}
+                slotDContent={objectiveDuringSlotD}
             />
         );
     }
 
     // after — transcript-only review (no retained audio).
     return (
-        <SessionAfterState
-            scrubber={{
-                playing: false,
-                onTogglePlay: () => {},
-                positionSeconds: 0,
-                durationSeconds: elapsedTime,
-                amplitudes,
-                fillerBars,
-                onSeek: () => {},
-                audioAvailable: false,
-            }}
-            transcript={{
-                tokens,
-                headerMeta: `${wordCount(transcriptContent)} words · tap a highlight to jump to it`,
-                stats: `${metricsFillerCount} fillers · ${wordCount(transcriptContent)} words`,
-                onFillerSeek: () => {},
-            }}
-            progress={progress}
-            progressMode="aggregate"
-            finalizing={isFinalizing}
-            finalizeEstimateSeconds={finalizeEstimateSeconds}
-            fillerFooter={<FillerBreakdown fillerData={fillerData} stats={`${metricsFillerCount} fillers · ${wordCount(transcriptContent)} words`} />}
-            verdict={{ ...verdictFromSuggestions(aiSuggestions, fillerData), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
-            slotDContent={objectiveAfterSlotD}
-        />
+        <>
+            <SessionAfterState
+                scrubber={{
+                    playing: false,
+                    onTogglePlay: () => {},
+                    positionSeconds: 0,
+                    durationSeconds: elapsedTime,
+                    amplitudes,
+                    fillerBars,
+                    onSeek: () => {},
+                    audioAvailable: false,
+                }}
+                transcript={{
+                    tokens: isObjective && fpTokens ? fpTokens : tokens,
+                    // Honest copy: the app retains no audio (transcript-only review), so highlights mark
+                    // where each point landed rather than being audio-seek targets.
+                    headerMeta: isObjective
+                        ? `${wordCount(transcriptContent)} words · ${coverage?.coveredCount ?? 0} of ${coverage?.total ?? 0} points covered`
+                        : `${wordCount(transcriptContent)} words · tap a highlight to jump to it`,
+                    stats: `${metricsFillerCount} fillers · ${wordCount(transcriptContent)} words`,
+                    onFillerSeek: () => {},
+                    coverageMode: isObjective ? 'after' : undefined,
+                }}
+                progress={progress}
+                progressMode="aggregate"
+                slotCContent={coverageSlotC}
+                finalizing={isFinalizing}
+                finalizeEstimateSeconds={finalizeEstimateSeconds}
+                // #1046 Focus Points: highlights mean coverage here, not fillers — the footer says so, and
+                // the filler breakdown is deferred to the delivery strip below (spec §4/§5).
+                fillerFooter={isObjective
+                    ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
+                    : <FillerBreakdown fillerData={fillerData} stats={`${metricsFillerCount} fillers · ${wordCount(transcriptContent)} words`} />}
+                verdict={{ ...verdictFromSuggestions(aiSuggestions, fillerData), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
+                slotDContent={objectiveAfterSlotD}
+            />
+            {isObjective && (
+                <FocusDeliveryStrip
+                    fillerCount={metricsFillerCount}
+                    fillerData={fillerData}
+                    hasMissedPoint={Boolean(coverage && coverage.coveredCount < coverage.total)}
+                />
+            )}
+        </>
     );
 };
 

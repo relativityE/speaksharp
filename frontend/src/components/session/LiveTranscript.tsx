@@ -20,6 +20,12 @@ export interface TranscriptToken {
     interim?: boolean;
     /** after: playback position of this filler, seconds — used by onFillerSeek. */
     seekSeconds?: number;
+    /**
+     * #1046 Focus Points: this token is inside a covering phrase. Highlighted for COVERAGE, not disfluency
+     * — purple during, green after (see `coverageMode`). Orange stays reserved for the mic and fillers, so
+     * a coverage token never renders as a filler.
+     */
+    covered?: boolean;
 }
 
 export interface LiveTranscriptProps {
@@ -28,6 +34,11 @@ export interface LiveTranscriptProps {
     showCaret?: boolean;
     /** after: makes fillers clickable seek targets; receives (token, index). */
     onFillerSeek?: (token: TranscriptToken, index: number) => void;
+    /**
+     * #1046 Focus Points: when set, `covered` tokens highlight as coverage (purple `during` / green
+     * `after`) instead of fillers being highlighted at all.
+     */
+    coverageMode?: 'during' | 'after';
 }
 
 const fillerStyle: React.CSSProperties = {
@@ -38,7 +49,14 @@ const fillerStyle: React.CSSProperties = {
     color: '#241503',
 };
 
-export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCaret = true, onFillerSeek }) => {
+const coverageStyle = (mode: 'during' | 'after'): React.CSSProperties => ({
+    backgroundColor: mode === 'during' ? '#f5f0ff' : '#e7f4ed',
+    borderBottom: `2px solid ${mode === 'during' ? '#6d28d9' : '#1f9d6b'}`,
+    borderRadius: 3,
+    padding: '0 2px',
+});
+
+export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCaret = true, onFillerSeek, coverageMode }) => {
     const seekable = typeof onFillerSeek === 'function';
 
     return (
@@ -48,7 +66,9 @@ export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCare
         >
             {tokens.map((t, i) => (
                 <React.Fragment key={i}>
-                    {t.filler ? (
+                    {coverageMode && t.covered ? (
+                        <mark data-testid="coverage-span" style={coverageStyle(coverageMode)}>{t.text}</mark>
+                    ) : t.filler ? (
                         seekable ? (
                             <button
                                 type="button"

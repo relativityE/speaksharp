@@ -218,7 +218,15 @@ export const SessionPage: React.FC = () => {
     const completedSessions = practiceHistory?.length ?? 0;
     const baselineIso = completedSessions > 0 ? practiceHistory?.[practiceHistory.length - 1]?.created_at : null;
     const baselineDateLabel = baselineIso ? new Date(baselineIso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : null;
-    const sessionSubtitle = baselineDateLabel ? `Session ${completedSessions + 1} · baseline set ${baselineDateLabel}` : 'Session 1 · your baseline starts here';
+    // #1046 Focus Points: the subtitle names the SET, not the session history — "baseline" is an Open-Floor
+    // concept. A Focus Points run reads "Focus Points · N points" (attempt-of-a-set numbering is deferred
+    // with the same-set retry comparison).
+    const objectivePointCount = activeObjectiveBrief?.points?.length ?? 0;
+    const sessionSubtitle = isObjectiveSession
+        ? `Focus Points · ${objectivePointCount} point${objectivePointCount === 1 ? '' : 's'}`
+        : baselineDateLabel
+            ? `Session ${completedSessions + 1} · baseline set ${baselineDateLabel}`
+            : 'Session 1 · your baseline starts here';
 
     // Status resolution logic
     const getBaseStatus = (): SttStatus => {

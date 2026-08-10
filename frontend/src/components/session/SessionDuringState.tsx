@@ -26,6 +26,12 @@ export interface SessionDuringStateProps {
         /** #1116 — a read-aloud SAMPLE's title + attribution (author/source), for credit while reading. */
         chosenPromptTitle?: string | null;
         chosenPromptAttribution?: string | null;
+        /** #1046 Focus Points — omit the fillers/min from the header (filler chrome is off for FP). */
+        hideFillers?: boolean;
+        /** Override the footer line (Focus Points uses a coverage-highlight note, not the filler note). */
+        footer?: React.ReactNode;
+        /** #1046 Focus Points — highlight `covered` tokens as coverage (purple) instead of fillers. */
+        coverageMode?: 'during' | 'after';
     };
     progress: ProgressVsBaselineResult;
     /** #1206 — 'aggregate' shows the composite session-progress card; defaults to the single-signal card. */
@@ -33,9 +39,11 @@ export interface SessionDuringStateProps {
     liveTip?: React.ReactNode;
     /** #1222 S8 — Focus Points swaps slot D (coaching → coverage rail); defaults to the coaching card. */
     slotDContent?: React.ReactNode;
+    /** #1046 — Focus Points swaps slot C (progress-vs-baseline → coverage-this-run). */
+    slotCContent?: React.ReactNode;
 }
 
-export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder, transcript, progress, progressMode, liveTip, slotDContent }) => {
+export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder, transcript, progress, progressMode, liveTip, slotDContent, slotCContent }) => {
     // #1222 (PO 2026-08-10): a long taken sample used to fill the transcript card and hide the user's own
     // live words. The reading prompt is now HEIGHT-BOUNDED (its own scroll) AND collapsible, so the live
     // transcript is always visible below it and the reader can reclaim the space entirely once they've read.
@@ -54,8 +62,8 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                     onReadSample={() => {}}
                     live
                     isPrivate
-                    headerMeta={formatLiveMeta(transcript.words, transcript.fillersPerMin)}
-                    footer="Fillers are highlighted as they happen. Nothing is scored until you stop."
+                    headerMeta={transcript.hideFillers ? `${transcript.words} words` : formatLiveMeta(transcript.words, transcript.fillersPerMin)}
+                    footer={transcript.footer ?? 'Fillers are highlighted as they happen. Nothing is scored until you stop.'}
                 >
                     {/* #1222 (PO 2026-08-09): the taken prompt/sample must stay READABLE while recording —
                         pinned at the top of the transcript so you read it aloud and watch your live words
@@ -92,10 +100,10 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                             )}
                         </div>
                     )}
-                    <LiveTranscript tokens={transcript.tokens} />
+                    <LiveTranscript tokens={transcript.tokens} coverageMode={transcript.coverageMode} />
                 </TranscriptCard>
             }
-            slotC={<ProgressVsBaseline result={progress} sessionState="during" mode={progressMode} />}
+            slotC={slotCContent ?? <ProgressVsBaseline result={progress} sessionState="during" mode={progressMode} />}
             slotD={slotDContent ?? <CoachingCard sessionState="during" liveTip={liveTip} />}
         />
     );
