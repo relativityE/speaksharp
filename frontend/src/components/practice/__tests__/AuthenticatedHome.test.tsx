@@ -92,11 +92,11 @@ describe('AuthenticatedHome — the page asks two questions (#1047)', () => {
 });
 
 describe('AuthenticatedHome — evidence, never fabrication', () => {
-    it('never invents a "vs. last time" comparison or a last-session filler count', () => {
+    it('never invents a "vs. previous session" comparison or a last-session filler count', () => {
         renderHome();
         const card = screen.getByTestId('practice-card-freeform-card');
         const vsTile = screen.getByTestId('practice-card-freeform-tile-2');
-        expect(vsTile).toHaveTextContent(/vs\. last time/i);
+        expect(vsTile).toHaveTextContent(/vs\. previous session/i);
         expect(vsTile).toHaveTextContent('—');
         expect(vsTile).toHaveAttribute('data-evidence', 'none');
 
@@ -116,8 +116,8 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
         renderHome();
         const tiles = screen.getByTestId('practice-card-objective-tiles');
         expect(tiles).toHaveTextContent(/covered/i);
-        expect(tiles).toHaveTextContent(/missed/i);
-        expect(tiles).toHaveTextContent(/misses only/i);
+        expect(tiles).toHaveTextContent(/not detected/i);
+        expect(tiles).toHaveTextContent(/retry specific points/i);
         // No digits whatsoever: nothing that could read as "8/10" or "2 missed".
         expect(tiles.textContent ?? '').not.toMatch(/\d/);
         for (const i of [0, 1, 2]) {

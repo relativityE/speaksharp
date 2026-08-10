@@ -334,14 +334,14 @@ export function AuthenticatedHome({
         { label: 'Filler words', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: MessageSquare, tone: 'warm' },
         // Home must NOT invent its own comparison. Until SpeakSharp Progress ships there is no
         // defensible "vs. last time" figure, so none is shown.
-        { label: 'Vs. last time', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: TrendingUp, tone: 'teal' },
+        { label: 'Vs. previous session', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: TrendingUp, tone: 'teal' },
     ];
 
     // Objective has not launched: there are no results to report, and nothing here may look personalised.
     const objectiveTiles: OutcomeTile[] = [
         { label: 'Covered', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Check, tone: 'violet' },
-        { label: 'Missed', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Target, tone: 'violet' },
-        { label: 'Misses only', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Repeat, tone: 'violet' },
+        { label: 'Not detected', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Target, tone: 'violet' },
+        { label: 'Retry specific points', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Repeat, tone: 'violet' },
     ];
 
     return (

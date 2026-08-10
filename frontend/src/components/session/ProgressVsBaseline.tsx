@@ -34,9 +34,9 @@ const CURRENT_LABEL: Record<ProgressVsBaselineProps['sessionState'], string> = {
 
 // The headline context clause differs per state.
 const DELTA_CONTEXT: Record<ProgressVsBaselineProps['sessionState'], string> = {
-    before: 'than last session',
+    before: 'than previous session',
     during: 'so far this session',
-    after: 'than last session',
+    after: 'than previous session',
 };
 
 /**
