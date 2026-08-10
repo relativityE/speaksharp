@@ -91,6 +91,9 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         render(<SessionOverhaulView {...base} objectivePoints={POINTS} showAnalyticsPrompt transcriptContent="I will name the price now." elapsedTime={84} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        // §Duplication acceptance check: the coverage fraction appears EXACTLY ONCE (Slot C). The transcript
+        // header must NOT repeat it as a second "n of m points covered" scoreboard.
+        expect(screen.queryByText(/of 2 points covered/i)).toBeNull();
         // The missed point is the most important line — it names the honest cause + the forward move.
         expect(screen.getByTestId('focus-point-1-not-detected')).toBeInTheDocument();
         expect(screen.getByTestId('focus-points-retry')).toBeInTheDocument();

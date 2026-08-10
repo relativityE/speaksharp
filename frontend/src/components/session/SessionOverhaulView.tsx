@@ -372,8 +372,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     tokens: isObjective && fpTokens ? fpTokens : tokens,
                     // Honest copy: the app retains no audio (transcript-only review), so highlights mark
                     // where each point landed rather than being audio-seek targets.
+                    // §Duplication: the coverage FRACTION appears exactly once, in Slot C — never repeated
+                    // here. The FP header speaks to the highlights, not a second `n of m` scoreboard.
                     headerMeta: isObjective
-                        ? `${wordCount(transcriptContent)} words · ${coverage?.coveredCount ?? 0} of ${coverage?.total ?? 0} points covered`
+                        ? `${wordCount(transcriptContent)} words · green marks where each point landed`
                         : `${wordCount(transcriptContent)} words · tap a highlight to jump to it`,
                     stats: `${metricsFillerCount} fillers · ${wordCount(transcriptContent)} words`,
                     onFillerSeek: () => {},

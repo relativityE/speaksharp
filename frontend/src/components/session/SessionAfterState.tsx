@@ -32,7 +32,7 @@ export interface SessionAfterStateProps {
     verdict: SessionVerdictProps;
     /** #1222 S8 — Focus Points swaps slot D (verdict → resolved coverage rail); defaults to the verdict. */
     slotDContent?: React.ReactNode;
-    /** #1046 — Focus Points swaps slot C (progress-vs-baseline → coverage-this-run). */
+    /** #1046 — Focus Points swaps slot C (progress-vs-baseline → Coverage & pace). */
     slotCContent?: React.ReactNode;
     /** #1231 R1 — post-Stop decode still running → finalizing banner on the transcript card. */
     finalizing?: boolean;

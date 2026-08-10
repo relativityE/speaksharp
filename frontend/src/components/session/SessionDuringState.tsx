@@ -46,7 +46,7 @@ export interface SessionDuringStateProps {
     liveTip?: React.ReactNode;
     /** #1222 S8 — Focus Points swaps slot D (coaching → coverage rail); defaults to the coaching card. */
     slotDContent?: React.ReactNode;
-    /** #1046 — Focus Points swaps slot C (progress-vs-baseline → coverage-this-run). */
+    /** #1046 — Focus Points swaps slot C (progress-vs-baseline → Coverage & pace). */
     slotCContent?: React.ReactNode;
 }
 
