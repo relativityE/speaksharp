@@ -1,5 +1,6 @@
 import type { PracticeSession } from '@/types/session';
 import { countFillerWords, type FillerCounts } from './fillerWordUtils';
+import { countedFillerTotal } from './fillerTiers';
 
 export interface CoreSessionMetrics {
     wordCount: number;
@@ -21,6 +22,9 @@ interface CoreSessionMetricsInput {
     durationSeconds: number;
     fillerData?: FillerCounts | PracticeSession['filler_words'] | null;
     userWords?: string[];
+    // #1231 slice 2: count discourse markers toward the headline too (the user's opt-in preference).
+    // Default false — the headline is true fillers (um/uh/ah) + the user's own words.
+    includeDiscourseMarkers?: boolean;
 }
 
 const ERROR_TAG_REGEX = /\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/gi;
@@ -287,6 +291,7 @@ export const calculateCoreSessionMetrics = ({
     durationSeconds,
     fillerData,
     userWords = [],
+    includeDiscourseMarkers = false,
 }: CoreSessionMetricsInput): CoreSessionMetrics => {
     const normalizedFillerData = fillerData as FillerCounts | null | undefined;
     const hasSuppliedFillerData = normalizedFillerData && Object.keys(normalizedFillerData).length > 0;
@@ -298,7 +303,12 @@ export const calculateCoreSessionMetrics = ({
     );
     const wordCount = countTranscriptWords(transcript);
     const wpm = calculateWpm(wordCount, durationSeconds);
-    const fillerCount = getFillerTotal(derivedFillerData);
+    // #1231 slice 2: the headline is the TRUE-filler tier (um/uh/ah + user words, + discourse when opted in),
+    // DERIVED from per-key data uniformly across all history. The `?? getFillerTotal` fallback covers the
+    // rare total-only snapshot with no per-key breakdown (legacy comprehensive total) so the number is never
+    // blank; every real per-key session is re-tiered. `fillerData` is UNCHANGED (full per-key breakdown for
+    // the display), so the per-word chips still show every tracked word.
+    const fillerCount = countedFillerTotal(derivedFillerData, { includeDiscourseMarkers, userWords }) ?? getFillerTotal(derivedFillerData);
     const errorCount = (transcript.match(ERROR_TAG_REGEX) || []).length;
     const isClarityScorable = wordCount >= MIN_RELIABLE_SCORING_WORDS;
     const clarityScore = isClarityScorable ? calculateClarityScore({ wordCount, fillerCount, errorCount, wpm }) : 0;
@@ -319,7 +329,7 @@ export const calculateCoreSessionMetrics = ({
     };
 };
 
-const getCustomWordList = (customWords: PracticeSession['custom_words']): string[] => {
+export const getCustomWordList = (customWords: PracticeSession['custom_words']): string[] => {
     if (!customWords) return [];
     if (Array.isArray(customWords)) {
         return customWords
@@ -329,7 +339,12 @@ const getCustomWordList = (customWords: PracticeSession['custom_words']): string
     return Object.keys(customWords);
 };
 
-export const getSessionAnalysisMetrics = (session: PracticeSession): CoreSessionMetrics => {
+export const getSessionAnalysisMetrics = (
+    session: PracticeSession,
+    // #1231 slice 2: the reader's discourse-marker preference. Default false so any util/test caller gets
+    // the true-filler headline; component callers pass the user's DB-backed pref.
+    { includeDiscourseMarkers = false }: { includeDiscourseMarkers?: boolean } = {},
+): CoreSessionMetrics => {
     // #SSOT: persisted canonical (live) filler data is authoritative. Recount the transcript ONLY when the
     // persisted filler data is missing/malformed — NEVER merely because a recount is larger. A valid
     // persisted zero stays zero (previous behavior wrongly took max(persisted, recount) and inflated it).
@@ -341,9 +356,17 @@ export const getSessionAnalysisMetrics = (session: PracticeSession): CoreSession
         transcript: session.transcript || '',
         durationSeconds: session.duration || 0,
         fillerData,
+        userWords: customWordsList,
+        includeDiscourseMarkers,
     });
     const wordCount = Math.max(metrics.wordCount, session.total_words ?? 0);
     const wpm = session.wpm ?? calculateWpm(wordCount, session.duration || 0);
+    // #1131 (preserved): the PERSISTED clarity score is authoritative when present — an expired session
+    // (transcript nulled) can no longer be recomputed, so its stored clarity must survive. Only recompute
+    // when there is no stored score. Note (#1231): the filler HEADLINE is re-tiered to true fillers, which
+    // feeds the recompute branch for new/unscored sessions; clarity is NOT the session-over-session Progress
+    // metric (that is the filler RATE, re-tiered uniformly in progressInputsFromSessions), so a stored-vs-
+    // recomputed clarity mix does not manufacture a progress trend. clarity_v1 remains provisional.
     const clarityScore = session.clarity_score ?? calculateClarityScore({
         wordCount,
         fillerCount: metrics.fillerCount,

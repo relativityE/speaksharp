@@ -334,7 +334,10 @@ describe('AnalyticsDashboard', () => {
             ],
         });
 
-        expect(screen.getByTestId('filler-count-value')).toHaveTextContent('5');
+        // #1231: the headline is the TRUE-filler tier — um(2); "like"(3) is a discourse marker, excluded by
+        // default. The synthetic `total` row is still NOT double-counted (it is skipped, not summed in): a
+        // double-count bug would surface a wrong number here, never a clean 2.
+        expect(screen.getByTestId('filler-count-value')).toHaveTextContent('2');
     });
 
     it('SSOT: shows the persisted canonical filler count and does not inflate it from the transcript', () => {

@@ -36,7 +36,8 @@ const FIXTURES: Array<FillerDivergenceInputs & { name: string }> = [
   },
   {
     name: 'match',
-    transcript: 'um so the update is ready',
+    // #1231: two TRUE fillers (um + uh) so the recount agrees with the live count under true-filler tiering.
+    transcript: 'um uh the update is ready',
     elapsedSeconds: 12,
     liveFillerData: live(2),
     engine: 'native',
@@ -58,8 +59,8 @@ describe('Phase 5.8 precursor — filler divergence measurement (numbers only)',
   it('measures live filler vs transcript recount + clarity/score impact per category', () => {
     const reports: FillerDivergenceReport[] = FIXTURES.map((f) => measureFillerDivergence(f));
 
-    // Private finalize replacement: clean re-decode has 1 filler; live over-counted 4. The clarity/score
-    // impact is MATERIAL (not cosmetic): clarity +50, score +1.3 when moving to the recount.
+    // Private finalize replacement: clean re-decode has 1 TRUE filler (um); live over-counted 4. The
+    // clarity/score impact is MATERIAL (not cosmetic): clarity +50, score +1.3 when moving to the recount.
     expect(reports[0].recountFillerCount).toBe(1);
     expect(reports[0].liveFillerCount).toBe(4);
     expect(reports[0].delta).toBe(-3);
@@ -69,29 +70,32 @@ describe('Phase 5.8 precursor — filler divergence measurement (numbers only)',
     expect(reports[0].clarityDelta).toBe(50);
     expect(reports[0].scoreDelta).toBe(1.3);
 
-    // Cloud partial overlap: recount 'so' + 'basically' = 2; live double-counted 4. clarity +35, score +0.7.
-    expect(reports[1].recountFillerCount).toBe(2);
-    expect(reports[1].delta).toBe(-2);
+    // Cloud partial overlap: #1231 — the recount's only "fillers" are discourse markers ('so'/'basically'),
+    // which are NOT counted by default, so the true-filler recount is 0; live double-counted 4. The gap is
+    // even wider now: clarity +85, score +2.4 (the live over-count was penalising legitimate speech).
+    expect(reports[1].recountFillerCount).toBe(0);
+    expect(reports[1].delta).toBe(-4);
     expect(reports[1].match).toBe(false);
-    expect(reports[1].clarityDelta).toBe(35);
-    expect(reports[1].scoreDelta).toBe(0.7);
+    expect(reports[1].clarityDelta).toBe(85);
+    expect(reports[1].scoreDelta).toBe(2.4);
 
-    // Match: um + so = 2, live agrees → zero downstream impact.
+    // Match: two TRUE fillers (um + uh) = 2, live agrees → zero downstream impact.
     expect(reports[2].recountFillerCount).toBe(2);
     expect(reports[2].delta).toBe(0);
     expect(reports[2].match).toBe(true);
     expect(reports[2].clarityDelta).toBe(0);
     expect(reports[2].scoreDelta).toBe(0);
 
-    // Custom-word drift: recount (with userWords) catches "actually" + "honestly"×2 = 3; live saw 1.
-    // Recount here scores LOWER (more fillers found): clarity −37, score −0.8.
-    expect(reports[3].recountFillerCount).toBe(3);
-    expect(reports[3].delta).toBe(2);
+    // Custom-word drift: #1231 — the recount (with userWords) counts the user's word "honestly"×2 (custom
+    // words always count) but NOT "actually" (a default-excluded discourse marker) = 2; live saw 1.
+    // Recount scores LOWER (more real fillers found): clarity −18, score −0.4.
+    expect(reports[3].recountFillerCount).toBe(2);
+    expect(reports[3].delta).toBe(1);
     expect(reports[3].usedCustomWords).toBe(true);
-    expect(reports[3].clarityDelta).toBe(-37);
-    expect(reports[3].scoreDelta).toBe(-0.8);
-    // Without userWords the recount would miss the custom filler → proves custom-word coverage matters.
-    expect(measureFillerDivergence({ ...FIXTURES[3], userWords: [] }).recountFillerCount).toBe(1);
+    expect(reports[3].clarityDelta).toBe(-18);
+    expect(reports[3].scoreDelta).toBe(-0.4);
+    // Without userWords the recount misses the custom filler AND "actually" is discourse → 0 true fillers.
+    expect(measureFillerDivergence({ ...FIXTURES[3], userWords: [] }).recountFillerCount).toBe(0);
 
     // No transcript text in any report (privacy).
     const json = JSON.stringify(reports);
@@ -106,9 +110,9 @@ describe('Phase 5.8 precursor — filler divergence measurement (numbers only)',
     expect(summary.total).toBe(4);
     expect(summary.exactMatches).toBe(1);
     expect(summary.divergent).toBe(3);
-    expect(summary.avgDelta).toBe(-0.75);   // (-3 -2 +0 +2)/4
-    expect(summary.avgAbsDelta).toBe(1.75); // (3 +2 +0 +2)/4
-    expect(summary.maxAbsDelta).toBe(3);
+    expect(summary.avgDelta).toBe(-1.5);   // (-3 -4 +0 +1)/4
+    expect(summary.avgAbsDelta).toBe(2);   // (3 +4 +0 +1)/4
+    expect(summary.maxAbsDelta).toBe(4);
     expect(summary.byCategory['private-finalize-replacement']).toBe(1);
     expect(summary.byCategory['cloud-partial-overlap']).toBe(1);
     expect(summary.byCategory['live-counter-drift']).toBe(1);
