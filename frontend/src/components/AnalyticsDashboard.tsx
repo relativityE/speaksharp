@@ -1066,8 +1066,9 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         )}
                     </div>
 
-                    {/* Narrative-first: action first, reason second. One recommendation, the driver, and
-                        a connecting sentence — the four cards below are the supporting evidence. */}
+                    {/* #G4 §1 HERO — "Do this next". The single instruction leads (imperative sentence), the
+                        quantified evidence sits directly beneath it (numbers bold, inline), and three concrete
+                        "what to try" steps sit in the purple insight column. Quantitative drives qualitative. */}
                     {Number(overallStats.totalSessions) > 0 && (() => {
                         const summary = getNarrativeSummary({
                             avgWpm: overallStats.averageWPM,
@@ -1075,14 +1076,58 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             avgFillerWordsPerMin: overallStats.avgFillerWordsPerMin,
                             avgClarity: overallStats.avgClarity,
                         });
+                        const wpm = Math.round(Number(overallStats.averageWPM) || 0);
+                        const fillers = Math.round((Number(overallStats.avgFillerWordsPerMin) || 0) * 10) / 10;
+                        const clarity = Math.round(Number(overallStats.avgClarity) || 0);
+                        const pauses = Math.round((Number(overallStats.avgPausesPerMin) || 0) * 10) / 10;
+                        // Per-driver evidence (numbers bold inline) + three physical steps. Falls back to a
+                        // maintenance instruction when every signal is on target (summary.driver === null).
+                        const detail: { evidence: React.ReactNode; steps: string[] } = (() => {
+                            switch (summary.driver) {
+                                case 'pace':
+                                    return { evidence: <>You&rsquo;re averaging <strong>{wpm} wpm</strong> against your <strong>130&ndash;150</strong> target. {summary.why}</>,
+                                        steps: ['Read your opening 20% faster than feels right.', 'Slow down only for the one line you most want remembered.', 'Stop at 60 seconds and check the pace band.'] };
+                                case 'filler words':
+                                    return { evidence: <>You&rsquo;re at <strong>{fillers}/min</strong> filler words. {summary.why}</>,
+                                        steps: ['Swap one filler for a half-second silent pause.', 'Slow the sentence you rush most — fillers cluster there.', 'Re-record the same 30 seconds and count them out loud.'] };
+                                case 'pause rhythm':
+                                    return { evidence: <>Your pauses run <strong>{pauses}/min</strong>. {summary.why}</>,
+                                        steps: ['Finish the whole phrase before you pause.', 'Take one deliberate breath before the key point.', 'Cut mid-word restarts — pause, then continue.'] };
+                                case 'clear delivery':
+                                    return { evidence: <>Your clarity is <strong>{clarity}%</strong>. {summary.why}</>,
+                                        steps: ['Say the main point first, the context second.', 'One idea per sentence — split the long ones.', 'End each thought on a falling tone, not a trailing one.'] };
+                                default:
+                                    return { evidence: <>{summary.why}</>,
+                                        steps: ['Keep the pace steady.', 'Land the takeaway cleanly.', 'Record another take to hold the trend.'] };
+                            }
+                        })();
                         return (
-                            <div className="rounded-xl border border-primary/20 bg-primary/5 p-5" data-testid="try-this-next">
-                                <p className="text-xs font-bold uppercase tracking-wide text-primary">Try this next</p>
-                                <p className="mt-1 text-base font-semibold text-foreground" data-testid="try-this-next-action">{summary.action}</p>
-                                {summary.driverDisplay && (
-                                    <p className="mt-2 text-sm font-semibold text-foreground/80" data-testid="try-this-next-driver">Main driver: {summary.driverDisplay}</p>
-                                )}
-                                <p className="mt-0.5 text-xs font-medium text-foreground/65" data-testid="try-this-next-why">{summary.why}</p>
+                            <div className="rounded-xl border border-[#dbe2ec] border-t-[3px] border-t-[#6d28d9] bg-white p-6 shadow-sm" data-testid="try-this-next">
+                                <div className="grid gap-6 md:grid-cols-[1fr_300px] md:items-start">
+                                    <div>
+                                        <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-[#6d28d9]">◎ Do this next</p>
+                                        <p className="mt-2 text-[30px] font-extrabold leading-[1.1] tracking-[-0.02em] text-[#1f2733]" data-testid="try-this-next-action">{summary.action}</p>
+                                        <p className="mt-3 text-[16px] leading-relaxed text-[#232c3a]" data-testid="try-this-next-why">{detail.evidence}</p>
+                                        <div className="mt-5 flex items-center gap-4">
+                                            <a href="/session" className="inline-flex items-center rounded-[10px] bg-[#0d7d74] px-4 py-2.5 text-[15px] font-bold text-white hover:bg-[#0a5f58]" data-testid="hero-practise-now">Practise this now</a>
+                                            <details className="text-[13px] font-bold text-[#0d7d74]">
+                                                <summary className="cursor-pointer list-none hover:underline" data-testid="hero-method">How we worked this out</summary>
+                                                <p className="mt-2 max-w-md text-[13px] font-normal leading-snug text-[#414b5c]">We compare each delivery signal (pace, fillers, clarity, pause rhythm) against its target across your last 6 sessions and surface the one with the largest, most persistent gap — never more than one at a time.</p>
+                                            </details>
+                                        </div>
+                                    </div>
+                                    <div className="rounded-lg bg-[#f5f0ff] p-4" data-testid="hero-what-to-try">
+                                        <p className="text-[11px] font-extrabold uppercase tracking-wide text-[#5b21b6]">What to try</p>
+                                        <ol className="mt-3 space-y-3">
+                                            {detail.steps.map((step, i) => (
+                                                <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-[#232c3a]">
+                                                    <span className="font-extrabold text-[#6d28d9]">{i + 1}</span>
+                                                    <span>{step}</span>
+                                                </li>
+                                            ))}
+                                        </ol>
+                                    </div>
+                                </div>
                             </div>
                         );
                     })()}
