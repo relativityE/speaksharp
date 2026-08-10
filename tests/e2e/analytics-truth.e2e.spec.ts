@@ -42,11 +42,13 @@ test(`Gate 2 mocked private: analytics values change from transcript events and 
   await expect(page.getByTestId(TEST_IDS.ANALYTICS_DASHBOARD)).toBeVisible();
 
   const latestSession = page.getByTestId(/session-history-item-/).first();
-  await expect(latestSession).toContainText('4');
+  // #1231: the headline filler count is the TRUE-filler tier — "Um" (1). The fixture's other tracked words
+  // (like/you know/basically/actually) are discourse markers, shown in the breakdown but not counted here.
+  await expect(latestSession).toContainText('1');
   await openSessionDetailFromHistoryItem(page, latestSession);
   await expect(page.getByTestId(TEST_IDS.STAT_CARD_SPEAKING_PACE).locator('.text-3xl').first()).not.toHaveText('0');
   await expect(page.getByTestId(TEST_IDS.CLARITY_SCORE_VALUE)).toContainText('%');
-  await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('4');
+  await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('1');
   await expect(page.getByTestId('session-engine-metadata')).toContainText(expectedEngineLabel);
   await expect(page.getByText(/target phrase should be tracked/i)).toBeVisible();
 
