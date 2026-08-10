@@ -82,11 +82,18 @@ interface StatCardProps {
     testId?: string;
 }
 
-// Tone → color for the decoded coaching label (good = on target, watch = drifting, off = needs work).
-const COACHING_TONE_TEXT: Record<CoachingMetric['tone'], string> = {
-    good: 'text-emerald-700',
-    watch: 'text-amber-700',
-    off: 'text-rose-700',
+// #G4 §2: one chip scale + number color for the four signal cards. `nodata` = no evidence yet (NEED 2 MORE),
+// `ontrack` = on target (good), `fix` = needs attention (watch/off). Colors from the four-role palette.
+type G4Status = 'fix' | 'ontrack' | 'nodata';
+const G4_CHIP: Record<G4Status, { text: string; cls: string }> = {
+    fix: { text: 'FIX THIS', cls: 'bg-[#fdf3e2] text-[#8a5510]' },
+    ontrack: { text: 'ON TRACK', cls: 'bg-[#e7f4ed] text-[#146b4a]' },
+    nodata: { text: 'NEED 2 MORE', cls: 'bg-[#eef1f6] text-[#5a6472]' },
+};
+const G4_NUM_COLOR: Record<G4Status, string> = {
+    fix: 'text-[#a8321f]',
+    ontrack: 'text-[#146b4a]',
+    nodata: 'text-[#8b95a5]',
 };
 
 interface SessionHistoryItemProps {
@@ -384,20 +391,27 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
 
     // Narrative-first: when the value is decoded into a coaching label, the LABEL is the anchor and
     // the raw number drops to small supporting detail (action first, reason second, metrics third).
-    if (interpretation && !evidenceMissing) {
+    if (interpretation) {
+        // #G4 §2: every signal card is the SAME four parts in the same order — name, status chip, coloured
+        // number+unit, one sentence. `nodata` states its unlock path instead of a dead "Not enough data".
+        const status: G4Status = evidenceMissing ? 'nodata' : (interpretation.tone === 'good' ? 'ontrack' : 'fix');
+        const chip = G4_CHIP[status];
+        const unitText = displayUnit ? (displayUnit === 'WPM' ? ' wpm' : displayUnit) : '';
+        const sentence = evidenceMissing
+            ? 'A couple more sessions and we can read this.'
+            : status === 'ontrack'
+                ? 'On track — leave this alone.'
+                : `${interpretation.label}${microcopy ? ` — ${microcopy}` : ''}`;
         return (
             <Card className={`rounded-xl p-5 ${className}`} data-testid={resolvedTestId}>
-                <p
-                    className={`text-2xl font-bold tracking-tight ${COACHING_TONE_TEXT[interpretation.tone]}`}
-                    data-testid={`${resolvedTestId}-interpretation`}
-                >
-                    {interpretation.label}
+                <div className="flex items-start justify-between gap-2">
+                    <p className="text-[12px] font-extrabold uppercase tracking-wide text-[#414b5c]">{label}</p>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${chip.cls}`} data-testid={`${resolvedTestId}-chip`}>{chip.text}</span>
+                </div>
+                <p className={`mt-3 text-[34px] font-extrabold leading-none ${G4_NUM_COLOR[status]}`} data-testid={`${resolvedTestId}-interpretation`}>
+                    {evidenceMissing ? '—' : <>{displayValue}<span className="ml-1 text-[14px] font-bold text-foreground/55">{unitText}</span></>}
                 </p>
-                <p className="mt-1 text-sm font-semibold text-foreground/80">{label}</p>
-                <p className="mt-1 text-xs font-medium text-foreground/55" data-testid={`${resolvedTestId}-detail`}>
-                    {/* Cue first, number second: e.g. "Steady spacing helps ideas land · 8/min". */}
-                    {microcopy ? `${microcopy} · ` : ''}{displayValue}{displayUnit ? (displayUnit === 'WPM' ? ` ${displayUnit}` : displayUnit) : ''}
-                </p>
+                <p className="mt-2 text-[13px] leading-snug text-[#414b5c]" data-testid={`${resolvedTestId}-detail`}>{sentence}</p>
             </Card>
         );
     }
