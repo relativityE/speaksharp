@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings } from 'lucide-react';
+import { Settings, Info } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { UserFillerWordsManager } from './UserFillerWordsManager';
@@ -40,9 +40,11 @@ export const CustomWordsBar: React.FC<{ className?: string }> = ({ className }) 
                     role="button"
                     aria-label={`Tracking ${trackedCount} filler words. Hover or focus to see the list.`}
                     data-testid="tracked-filler-trigger"
-                    className="cursor-default rounded text-[13px] font-semibold text-[#414b5c] underline decoration-dotted decoration-[#b6c0cf] underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="inline-flex cursor-help items-center gap-1.5 rounded text-[13px] font-semibold text-[#414b5c] outline-none hover:text-[#1f2733] focus-visible:ring-2 focus-visible:ring-ring"
                 >
                     Tracking {trackedCount} filler words
+                    {/* The (i) tells the user the count is hoverable — reveals WHICH words are tracked. */}
+                    <Info className="h-[15px] w-[15px] text-[#8a97a8]" aria-hidden="true" />
                 </span>
                 <div
                     role="tooltip"

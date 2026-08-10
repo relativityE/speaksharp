@@ -5,10 +5,11 @@ import { CustomWordsBar } from '../CustomWordsBar';
 // #1222 G1 — the full-width before-state bar: "Tracking N filler words" left, "Add your filler words"
 // right (opens the custom-word manager). The manager lives here now, not in the MicCard.
 describe('CustomWordsBar (#1222 G1)', () => {
-    it('shows the tracked filler-word count', () => {
+    it('shows the tracked filler-word count — exactly the 13 built-in words when no custom words', () => {
         render(<CustomWordsBar />);
         const bar = screen.getByTestId('custom-words-bar');
-        expect(bar).toHaveTextContent(/Tracking\s+\d+\s+filler words/i);
+        // 13 = the static FILLER_WORD_KEYS set; custom additions add to this (reactive via the hook).
+        expect(bar).toHaveTextContent('Tracking 13 filler words');
     });
 
     it('reveals the custom-word manager when "Add your filler words" is clicked', () => {
