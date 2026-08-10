@@ -11,8 +11,9 @@ import { computeAggregateProgress, signalsFromSession } from '@/utils/aggregateP
 import { getNextPrompt, getNextSample } from '@/services/practice/practiceOnramp';
 import { CustomWordsBar } from './CustomWordsBar';
 import { type CoverageRailPoint } from './CoverageRail';
-import { CoverageThisRun } from './CoverageThisRun';
+import { CoveragePace } from './CoveragePace';
 import { FocusPointsRail } from './FocusPointsRail';
+import { useFocusNudge } from '@/hooks/useFocusNudge';
 import { FocusDeliveryStrip } from './FocusDeliveryStrip';
 import { deriveFocusCoverage, markCoveredTokens, type FocusCoverage } from '@/utils/focusCoverage';
 import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
@@ -76,6 +77,8 @@ export interface SessionOverhaulViewProps {
     /** #1046 G6/G7 — the Focus Points topic (the `goal`), shown above the points in slot D and NEVER scored
      *  as one. null ⇒ Open Mic, or a set saved before the topic was threaded. */
     objectiveTopic?: string | null;
+    /** #1046 G6/G7 §2 — the pace guide (seconds/point); null when skipped → no pace UI, no pace nudge. */
+    objectivePaceGuideSecPerPoint?: number | null;
     /** #1046 Focus Points — per-point coverage resolved at stop (same shape as the rail); null until then.
      *  Retained for the SessionPage contract; the view now derives its own live+final coverage from the
      *  transcript (see focusCoverage) so slot C, slot D, and the highlights share one source. */
@@ -111,6 +114,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     finalizeEstimateSeconds,
     objectivePoints,
     objectiveTopic,
+    objectivePaceGuideSecPerPoint,
     onEditPoints,
     onRetryPoints,
     onNewSet,
@@ -244,8 +248,24 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             : fpTokens)
         : duringTokens;
 
-    const coverageSlotC = coverage
-        ? <CoverageThisRun covered={coverage.coveredCount} total={coverage.total} sessionState={sessionState} elapsedSeconds={elapsedTime} />
+    // §2 nudge — the live coaching for Focus Points, computed here (hook called unconditionally) and rendered
+    // INSIDE the Coverage & pace card. Silent unless the pace ratio breaks (or the no-guide coverage fallback).
+    const guideSecPerPoint = isObjective ? (objectivePaceGuideSecPerPoint ?? null) : null;
+    const nudge = useFocusNudge({
+        sessionState,
+        elapsedSec: elapsedTime,
+        coveredCount: coverage?.coveredCount ?? 0,
+        totalPoints: coverage?.total ?? 0,
+        guideSecPerPoint,
+        nextPointNumber: coverage && coverage.nextIndex != null ? coverage.nextIndex + 1 : null,
+    });
+    // §2 Slot C — Coverage & pace. NOT rendered in `before` (the rail begins with Slot D). during carries the
+    // live nudge; after freezes the bar and shows `actual`.
+    const objectiveDuringSlotC = coverage
+        ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={elapsedTime} guideSecPerPoint={guideSecPerPoint} sessionState="during" nudge={nudge} />
+        : undefined;
+    const objectiveAfterSlotC = coverage
+        ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={elapsedTime} guideSecPerPoint={guideSecPerPoint} sessionState="after" />
         : undefined;
     const objectivePlanSlotD = coverage
         ? <FocusPointsRail rows={coverage.rows} topic={objectiveTopic ?? null} sessionState="before" onEdit={onEditPoints} />
@@ -261,7 +281,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         return (
             <>
                 <SessionBeforeState
-                    slotCContent={coverageSlotC}
+                    hideSlotC={isObjective}
                     slotDContent={objectivePlanSlotD}
                     mic={{
                         onStart: onStartStop,
@@ -327,7 +347,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 }}
                 progress={progress}
                 progressMode="aggregate"
-                slotCContent={coverageSlotC}
+                slotCContent={objectiveDuringSlotC}
                 liveTip={isObjective ? undefined : (heldTip ? <LiveTip tip={heldTip} /> : undefined)}
                 slotDContent={objectiveDuringSlotD}
             />
@@ -361,7 +381,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 }}
                 progress={progress}
                 progressMode="aggregate"
-                slotCContent={coverageSlotC}
+                slotCContent={objectiveAfterSlotC}
                 finalizing={isFinalizing}
                 finalizeEstimateSeconds={finalizeEstimateSeconds}
                 // #1046 Focus Points: highlights mean coverage here, not fillers — the footer says so, and
