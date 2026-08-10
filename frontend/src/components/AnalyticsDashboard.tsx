@@ -11,7 +11,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ProgressPanel } from '@/components/progress/ProgressPanel';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Carousel, CarouselContent, CarouselItem, type CarouselApi } from '@/components/ui/carousel';
 import { ErrorDisplay } from './ErrorDisplay';
 import AISuggestions from './session/AISuggestions';
 import { generateSessionPdf } from '../lib/pdfGenerator';
@@ -679,35 +678,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         return STAT_CARD_OPTIONS.filter(option => selectedSet.has(option.id));
     }, [customStatCards, isCustomFocus, selectedToolGroup]);
 
-    // Carousel API state
-    const [api, setApi] = useState<CarouselApi>();
-    const [current, setCurrent] = useState(0);
-    const [count, setCount] = useState(0);
-
-    useEffect(() => {
-        if (!api) {
-            return;
-        }
-
-        setCount(api.scrollSnapList().length);
-        setCurrent(api.selectedScrollSnap() + 1);
-
-        api.on("select", () => {
-            setCurrent(api.selectedScrollSnap() + 1);
-        });
-    }, [api]);
-
-    // Update count when the analytics focus changes
-    useEffect(() => {
-        if (api) {
-            api.reInit();
-            setCount(api.scrollSnapList().length);
-            window.requestAnimationFrame(() => {
-                api.scrollTo(0);
-                setCurrent(1);
-            });
-        }
-    }, [selectedFocusId, api]);
+    // #G4 §3: the analysis carousel is retired in favor of a stacked layout — every selected tool is
+    // rendered in order (no embla API, no active-slide gating, no indicator dots).
 
     // Optimization: Memoize filtered analysis slides for O(1) lookup in render path
     const displayedAnalysisSlides = useMemo(() => {
@@ -717,7 +689,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             .filter((option): option is AnalysisSlideConfig => Boolean(option));
     }, [customAnalysisSlides, isCustomFocus, selectedToolGroup]);
 
-    const activeAnalysisIndex = current > 0 ? current - 1 : 0;
     const focusLabel = isCustomFocus ? 'Custom' : selectedToolGroup.label;
     const focusPurpose = isCustomFocus
         ? 'Inspect specific metrics when you already know the signal you want to measure.'
@@ -1204,90 +1175,59 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         )}
                     </div>
 
-                    {/* Analysis Carousel */}
-                    <div className="space-y-2">
-                        <Carousel className="w-full" opts={{ loop: true }} setApi={setApi}>
-                            <CarouselContent>
-                                {displayedAnalysisSlides.map((option, index) => (
-                                    <CarouselItem key={option.id} className="basis-full">
-                                        <div>
-                                            {index === activeAnalysisIndex ? (
-                                                <>
-                                                    {/* Render content based on ID */}
-                                                    {option.id === 'pace_trend' && (
-                                                        <div>
-                                                            <TrendChart
-                                                                title="Speaking Pace Trend"
-                                                                description="Track your words per minute over time"
-                                                                data={trendData}
-                                                                metric="wpm"
-                                                            />
-                                                        </div>
-                                                    )}
-                                                    {option.id === 'clarity_trend' && (
-                                                        <div>
-                                                            <TrendChart
-                                                                title="Clarity Trend"
-                                                                description="Monitor your speech clarity percentage"
-                                                                data={trendData}
-                                                                metric="clarity"
-                                                            />
-                                                        </div>
-                                                    )}
-                                                    {option.id === 'pause_trend' && (
-                                                        <div>
-                                                            <TrendChart
-                                                                title="Pause Rhythm Trend"
-                                                                description="Pauses per minute across your sessions"
-                                                                data={trendData}
-                                                                metric="pauses"
-                                                            />
-                                                        </div>
-                                                    )}
-                                                    {option.id === 'weekly_activity' && (
-                                                        <WeeklyActivityChart />
-                                                    )}
-                                                    {option.id === 'filler_words' && (
-                                                        <Card>
-                                                            <CardHeader><CardTitle>Filler Words</CardTitle></CardHeader>
-                                                            <CardContent className="space-y-6">
-                                                                {overallStats.chartData.length > 1 ? (
-                                                                    <FillerWordsTrendChart data={overallStats.chartData} />
-                                                                ) : (
-                                                                    <div className="flex h-[150px] items-center justify-center rounded-lg border border-dashed border-[hsl(var(--border-strong))] bg-muted/70 px-6 text-center text-sm font-semibold text-foreground/75"><p>Complete at least two sessions to see your filler word trend.</p></div>
-                                                                )}
-                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                                    <TopFillerWords />
-                                                                    <FillerWordTable trendData={fillerWordTrends} />
-                                                                </div>
-                                                            </CardContent>
-                                                        </Card>
-                                                    )}
-                                                    {option.id === 'stt_comparison' && (
-                                                        <STTAccuracyVsBenchmark />
-                                                    )}
-                                                </>
+                    {/* #G4 §3: Analysis tools — stacked (carousel retired). Every selected tool renders in full,
+                        in order, so nothing hides behind a swipe and each chart is scannable at once. */}
+                    <div className="space-y-6">
+                        {displayedAnalysisSlides.map((option) => (
+                            <div key={option.id}>
+                                {option.id === 'pace_trend' && (
+                                    <TrendChart
+                                        title="Speaking Pace Trend"
+                                        description="Track your words per minute over time"
+                                        data={trendData}
+                                        metric="wpm"
+                                    />
+                                )}
+                                {option.id === 'clarity_trend' && (
+                                    <TrendChart
+                                        title="Clarity Trend"
+                                        description="Monitor your speech clarity percentage"
+                                        data={trendData}
+                                        metric="clarity"
+                                    />
+                                )}
+                                {option.id === 'pause_trend' && (
+                                    <TrendChart
+                                        title="Pause Rhythm Trend"
+                                        description="Pauses per minute across your sessions"
+                                        data={trendData}
+                                        metric="pauses"
+                                    />
+                                )}
+                                {option.id === 'weekly_activity' && (
+                                    <WeeklyActivityChart />
+                                )}
+                                {option.id === 'filler_words' && (
+                                    <Card>
+                                        <CardHeader><CardTitle>Filler Words</CardTitle></CardHeader>
+                                        <CardContent className="space-y-6">
+                                            {overallStats.chartData.length > 1 ? (
+                                                <FillerWordsTrendChart data={overallStats.chartData} />
                                             ) : (
-                                                <div className="min-h-[240px]" aria-hidden="true" />
+                                                <div className="flex h-[150px] items-center justify-center rounded-lg border border-dashed border-[hsl(var(--border-strong))] bg-muted/70 px-6 text-center text-sm font-semibold text-foreground/75"><p>Complete at least two sessions to see your filler word trend.</p></div>
                                             )}
-
-                                        </div>
-                                    </CarouselItem>
-                                ))
-                                }
-                            </CarouselContent>
-                        </Carousel>
-                        {/* Carousel Indicators */}
-                        <div className="flex justify-center gap-2 py-1">
-                            {Array.from({ length: count }).map((_, index) => (
-                                <button
-                                    key={index}
-                                    className={`h-2 rounded-full transition-all duration-300 ${index + 1 === current ? 'w-8 bg-secondary' : 'w-2 bg-muted-foreground/30'}`}
-                                    onClick={() => api?.scrollTo(index)}
-                                    aria-label={`Go to slide ${index + 1}`}
-                                />
-                            ))}
-                        </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                <TopFillerWords />
+                                                <FillerWordTable trendData={fillerWordTrends} />
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                )}
+                                {option.id === 'stt_comparison' && (
+                                    <STTAccuracyVsBenchmark />
+                                )}
+                            </div>
+                        ))}
 
                         {/* Session History Section - Moved below carousel */}
                         <div id="session-history-section">
