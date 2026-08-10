@@ -34,8 +34,6 @@ export interface FocusCoverage {
     coveredCount: number;
     /** First not-yet-covered point index — the during-state "Still to cover"; null when all covered. */
     nextIndex: number | null;
-    /** For a missed point: where the time went ("You spent 38s on point 1 — the time went there"). */
-    missedReason: string | null;
     /** Covering phrases, in transcript order, for the coverage highlights in slot B. */
     coveredQuotes: string[];
 }
@@ -105,7 +103,7 @@ export function deriveFocusCoverage(
     const cleanPoints = (points ?? []).filter((p) => (p ?? '').trim() !== '');
     const total = cleanPoints.length;
     if (total === 0) {
-        return { rows: [], total: 0, coveredCount: 0, nextIndex: null, missedReason: null, coveredQuotes: [] };
+        return { rows: [], total: 0, coveredCount: 0, nextIndex: null, coveredQuotes: [] };
     }
 
     const segments = segmentTranscript(transcript, elapsedSeconds);
@@ -133,34 +131,10 @@ export function deriveFocusCoverage(
         total,
         coveredCount,
         nextIndex: nextIndex === -1 ? null : nextIndex,
-        missedReason: deriveMissedReason(rows, elapsedSeconds),
         coveredQuotes,
     };
 }
-
-/**
- * "Where did the time go?" — for the missed point, name the covered point that consumed the most time,
- * derived from the gaps between coverage events. Returns null when nothing is missed or nothing is
- * covered (no basis for the sentence). Only the single largest-consumer point is named (spec §3).
- */
-function deriveMissedReason(rows: FocusCoverageRow[], elapsedSeconds: number): string | null {
-    const missing = rows.some((r) => !r.covered);
-    if (!missing) return null;
-
-    const coveredWithTime = rows
-        .map((r, i) => ({ i, at: r.coveredAtSec }))
-        .filter((x): x is { i: number; at: number } => x.at != null)
-        .sort((a, b) => a.at - b.at);
-    if (coveredWithTime.length === 0) return null;
-
-    const end = Number.isFinite(elapsedSeconds) && elapsedSeconds > 0 ? elapsedSeconds : coveredWithTime[coveredWithTime.length - 1].at;
-    let worst = { pointNumber: coveredWithTime[0].i + 1, seconds: 0 };
-    for (let k = 0; k < coveredWithTime.length; k++) {
-        const start = coveredWithTime[k].at;
-        const next = k + 1 < coveredWithTime.length ? coveredWithTime[k + 1].at : end;
-        const spent = Math.max(0, Math.round(next - start));
-        if (spent > worst.seconds) worst = { pointNumber: coveredWithTime[k].i + 1, seconds: spent };
-    }
-    if (worst.seconds <= 0) return null;
-    return `Never came up. You spent ${worst.seconds} seconds on point ${worst.pointNumber} — the time went there.`;
-}
+// #1046 reviewer truthfulness: the former deriveMissedReason ("you spent Ns on point X — the time went
+// there") was removed. The local keyword engine measures keyword evidence + timestamps, NOT causal time
+// allocation, so that sentence overclaimed. An undetected point now simply reads "Not detected" with an
+// action for the retry (see FocusPointsRail).

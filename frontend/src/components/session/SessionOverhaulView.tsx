@@ -248,7 +248,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         ? <FocusPointsRail rows={coverage.rows} sessionState="during" nextIndex={coverage.nextIndex} />
         : undefined;
     const objectiveAfterSlotD = coverage
-        ? <FocusPointsRail rows={coverage.rows} sessionState="after" missedReason={coverage.missedReason} onRetry={onRetryPoints ?? onStartStop} onNewSet={onNewSet} />
+        ? <FocusPointsRail rows={coverage.rows} sessionState="after" onRetry={onRetryPoints ?? onStartStop} onNewSet={onNewSet} />
         : undefined;
 
     if (sessionState === 'before') {
