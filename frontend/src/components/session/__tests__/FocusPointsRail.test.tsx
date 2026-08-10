@@ -4,9 +4,9 @@ import { FocusPointsRail } from '../FocusPointsRail';
 import type { FocusCoverageRow } from '@/utils/focusCoverage';
 
 const rows: FocusCoverageRow[] = [
-    { label: 'a', covered: false, coveredAtSec: null, quote: null },
-    { label: 'b', covered: false, coveredAtSec: null, quote: null },
-    { label: 'c', covered: false, coveredAtSec: null, quote: null },
+    { label: 'a', status: 'missing', covered: false, coveredAtSec: null, quote: null },
+    { label: 'b', status: 'missing', covered: false, coveredAtSec: null, quote: null },
+    { label: 'c', status: 'missing', covered: false, coveredAtSec: null, quote: null },
 ];
 
 // #1046 G6/G7 — the topic is a header above the points (never a point), and the card is "Points to cover".
