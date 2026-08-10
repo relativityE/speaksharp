@@ -68,37 +68,38 @@ describe('SessionOverhaulView (#1222 S11)', () => {
 describe('SessionOverhaulView Focus Points (#1046)', () => {
     const POINTS = ['Name the price', 'State the guarantee'];
 
-    it('objective before → coverage card (0/N) + points rail; no prompt offer', () => {
+    it('objective before → NO coverage/pace card (slot C absent), points rail present; no prompt offer', () => {
         render(<SessionOverhaulView {...base} objectivePoints={POINTS} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
-        expect(screen.getByTestId('coverage-this-run')).toBeInTheDocument();
-        expect(screen.getByTestId('coverage-this-run-count')).toHaveTextContent('0/2');
+        // §2: Slot C does not render in `before` — the rail begins with Slot D (the one intentional break).
+        expect(screen.queryByTestId('coverage-pace')).toBeNull();
+        expect(screen.queryByTestId('session-slot-c')).toBeNull();
         expect(screen.getByTestId('focus-points-rail')).toBeInTheDocument();
         expect(screen.getByTestId('focus-point-0')).toHaveTextContent('Name the price');
-        // The Open-Floor prompt offer does not belong on Focus Points.
+        // The Open-Mic prompt offer does not belong on Focus Points.
         expect(screen.queryByTestId('prompt-offer')).toBeNull();
     });
 
-    it('objective during → a covered point ticks live in slot C and slot D', () => {
+    it('objective during → Coverage & pace shows the count and a covered point ticks in slot D', () => {
         render(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent="I will name the price now." elapsedTime={20} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
-        expect(screen.getByTestId('coverage-this-run-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
         expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
     });
 
     it('objective after → coverage count, missed-point reason, retry + delivery strip', () => {
         render(<SessionOverhaulView {...base} objectivePoints={POINTS} showAnalyticsPrompt transcriptContent="I will name the price now." elapsedTime={84} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
-        expect(screen.getByTestId('coverage-this-run-count')).toHaveTextContent('1/2');
-        // The missed point is the most important line — it says where the time went.
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        // The missed point is the most important line — it names the honest cause + the forward move.
         expect(screen.getByTestId('focus-point-1-not-detected')).toBeInTheDocument();
         expect(screen.getByTestId('focus-points-retry')).toBeInTheDocument();
         expect(screen.getByTestId('focus-delivery-strip')).toBeInTheDocument();
     });
 
-    it('no brief (Open Mic) → no coverage card / points rail; the prompt offer is present', () => {
+    it('no brief (Open Mic) → no coverage/pace card / points rail; the prompt offer is present', () => {
         render(<SessionOverhaulView {...base} objectivePoints={null} />);
-        expect(screen.queryByTestId('coverage-this-run')).toBeNull();
+        expect(screen.queryByTestId('coverage-pace')).toBeNull();
         expect(screen.queryByTestId('focus-points-rail')).toBeNull();
         expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
     });

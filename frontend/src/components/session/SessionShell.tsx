@@ -47,9 +47,14 @@ export const SessionShell: React.FC<SessionShellProps> = ({ sessionState, slotA,
             </div>
             {/* Rail: C sizes to content, D fills. */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
-                <section data-slot="C" data-testid="session-slot-c" aria-label="Progress" style={{ flex: '0 0 auto' }}>
-                    {slotC}
-                </section>
+                {/* Slot C sizes to content; when it has no content (Focus Points `before` — §2's one
+                    intentional break, "this one card arrives late") the section is omitted entirely so the
+                    rail begins cleanly with Slot D rather than leaving a gap. */}
+                {slotC != null && slotC !== false && (
+                    <section data-slot="C" data-testid="session-slot-c" aria-label="Progress" style={{ flex: '0 0 auto' }}>
+                        {slotC}
+                    </section>
+                )}
                 <section data-slot="D" data-testid="session-slot-d" aria-label="Coaching" style={{ flex: '1 1 auto', minHeight: 0 }}>
                     {slotD}
                 </section>

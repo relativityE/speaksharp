@@ -56,18 +56,29 @@ export function ObjectiveSetupForm({
 }: {
     /** Called with the persisted ids + the declared point labels once the brief is saved — the caller binds
      *  them to the store and routes into the session (the labels drive the before/during Focus Points list). */
-    onReady?: (result: { briefId: string; projectId: string; points: string[] }) => void;
+    onReady?: (result: { briefId: string; projectId: string; points: string[]; topic: string; paceGuideSecPerPoint: number | null }) => void;
     className?: string;
 }) {
     const [goal, setGoal] = React.useState('');
     // Dropdown selection: '' (unchosen), a TOPIC_OPTIONS value, or 'other' (reveals the free-text field).
     const [topic, setTopic] = React.useState('');
     const [points, setPoints] = React.useState<PointDraft[]>(() => [makePoint(), makePoint(), makePoint()]);
+    // #1046 G6/G7 §0/§2: the pace GUIDE — minutes per point, default 1, half-min steps 0.5–3. null = skipped
+    // (everything pace-related then vanishes and pace nudges never fire). It NEVER blocks Start speaking.
+    const [paceGuideMin, setPaceGuideMin] = React.useState<number | null>(1);
     const [submitting, setSubmitting] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
 
     const labelledPoints = points.filter((p) => p.label.trim() !== '');
     const canSubmit = goal.trim() !== '' && labelledPoints.length >= 1 && !submitting;
+    // Derived total is never typed — the unit the user can estimate is per-point, and it stays correct as
+    // the set grows. Recomputed live from the labelled-point count.
+    const paceTotalMin = paceGuideMin != null ? Math.round(labelledPoints.length * paceGuideMin * 10) / 10 : null;
+    const fmtMin = (m: number) => (Number.isInteger(m) ? `${m}` : `${m}`);
+    const adjustPace = (delta: number) => setPaceGuideMin((prev) => {
+        const next = Math.round(((prev ?? 1) + delta) * 2) / 2; // snap to 0.5
+        return Math.max(0.5, Math.min(3, next));
+    });
 
     const onTopicChange = (value: string) => {
         setTopic(value);
@@ -104,6 +115,11 @@ export function ObjectiveSetupForm({
                 briefId: result.briefId,
                 projectId: result.projectId,
                 points: labelledPoints.map((p) => p.label.trim()),
+                // #1046 G6/G7: the topic is a first-class field (the `goal`), shown above the points in slot D
+                // and NEVER an element of points[] / never scored as one.
+                topic: goal.trim(),
+                // §0/§2: the pace guide as seconds/point (null when skipped → no pace UI, no pace nudge).
+                paceGuideSecPerPoint: paceGuideMin != null ? Math.round(paceGuideMin * 60) : null,
             });
             return; // leave the button in its submitting state while the caller navigates away
         }
@@ -201,6 +217,46 @@ export function ObjectiveSetupForm({
                         Add a point
                     </button>
                 )}
+            </div>
+
+            {/* §0/§2 Pace guide — minutes per point, derived total live, skippable, never blocks Start. */}
+            <div data-testid="objective-pace-guide" className="mt-6 rounded-xl border border-[#eef1f6] bg-[#f7f9fc] p-4">
+                <div className="flex items-center justify-between gap-3">
+                    <div>
+                        <div className="text-[14px] font-extrabold text-[#2b3446]">Pace guide</div>
+                        <div className="mt-0.5 text-[12px] font-semibold text-[#8b95a5]">A guide, not a limit.</div>
+                    </div>
+                    {paceGuideMin != null ? (
+                        <div className="flex items-center gap-2">
+                            <div className="flex items-center overflow-hidden rounded-[9px] border border-[#dbe2ec] bg-white">
+                                <button type="button" data-testid="objective-pace-dec" aria-label="Less time per point"
+                                    onClick={() => adjustPace(-0.5)} disabled={paceGuideMin <= 0.5}
+                                    className="px-[11px] py-2 text-[15px] font-bold text-[#8b95a5] hover:bg-muted disabled:opacity-30">−</button>
+                                <span data-testid="objective-pace-value" className="min-w-[46px] px-1.5 py-2 text-center text-[15px] font-extrabold tabular-nums text-[#2b3446]">{fmtMin(paceGuideMin)} min</span>
+                                <button type="button" data-testid="objective-pace-inc" aria-label="More time per point"
+                                    onClick={() => adjustPace(0.5)} disabled={paceGuideMin >= 3}
+                                    className="px-[11px] py-2 text-[15px] font-bold text-[#8b95a5] hover:bg-muted disabled:opacity-30">+</button>
+                            </div>
+                            <span className="whitespace-nowrap text-[13px] font-bold text-[#414b5c]">/point</span>
+                        </div>
+                    ) : (
+                        <button type="button" data-testid="objective-pace-restore" onClick={() => setPaceGuideMin(1)}
+                            className="text-[13px] font-bold text-[#6d28d9] hover:underline">Add a guide</button>
+                    )}
+                </div>
+                <div className="mt-[13px] flex items-center justify-between gap-3 border-t border-[#e6ebf2] pt-3">
+                    {paceGuideMin != null ? (
+                        <span data-testid="objective-pace-total" className="text-[13px] font-bold text-[#414b5c]">
+                            {labelledPoints.length} point{labelledPoints.length === 1 ? '' : 's'} × {fmtMin(paceGuideMin)} min ≈ <strong className="font-extrabold text-[#2b3446]">{fmtMin(paceTotalMin ?? 0)} min</strong>
+                        </span>
+                    ) : (
+                        <span className="text-[13px] font-semibold text-[#8b95a5]">No pace guide — you’ll see coverage only.</span>
+                    )}
+                    {paceGuideMin != null && (
+                        <button type="button" data-testid="objective-pace-skip" onClick={() => setPaceGuideMin(null)}
+                            className="whitespace-nowrap text-[13px] font-bold text-[#8b95a5] hover:underline">Skip the guide</button>
+                    )}
+                </div>
             </div>
 
             {error && (

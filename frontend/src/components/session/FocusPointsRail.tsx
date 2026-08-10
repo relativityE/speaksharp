@@ -18,6 +18,9 @@ import type { FocusCoverageRow } from '@/utils/focusCoverage';
 export interface FocusPointsRailProps {
     rows: FocusCoverageRow[];
     sessionState: 'before' | 'during' | 'after';
+    /** #1046 G6/G7: the topic (the `goal`), shown above the points as an unnumbered header — never a point,
+     *  never checked for coverage. null/blank ⇒ no topic line (e.g. a set saved before topic was threaded). */
+    topic?: string | null;
     /** During: the first not-yet-covered point — highlighted "Still to cover". */
     nextIndex?: number | null;
     onEdit?: () => void;
@@ -47,13 +50,29 @@ const Marker: React.FC<{ kind: 'pending' | 'covered' | 'next' | 'missed'; index:
 export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
     rows,
     sessionState,
+    topic,
     nextIndex,
     onEdit,
     onRetry,
     onNewSet,
 }) => {
     const isAfter = sessionState === 'after';
-    const title = isAfter ? 'What you covered' : 'Your points';
+    // §3: the card names the TASK, not ownership. before/during = "Points to cover"; after = "What you covered".
+    const title = isAfter ? 'What you covered' : 'Points to cover';
+    const topicLabel = (topic ?? '').trim();
+
+    // §3 missed-point cause: derived from REAL coverage timestamps (the elapsed between coverage events),
+    // never a fabricated "you wasted N seconds". The last-covered point's landing time explains why the run
+    // reached the missed one late — then a forward action. Honest because both the point number and the
+    // timestamp are facts the coverage engine actually produced.
+    const coveredWithTime = rows.filter((r) => r.covered && r.coveredAtSec != null);
+    const lastCovered = coveredWithTime.length
+        ? coveredWithTime.reduce((a, b) => (a.coveredAtSec! >= b.coveredAtSec! ? a : b))
+        : null;
+    const lastCoveredNumber = lastCovered ? rows.indexOf(lastCovered) + 1 : null;
+    const missedCause = lastCovered
+        ? `Didn’t come up this time. Point ${lastCoveredNumber} ran to ${fmtClock(lastCovered.coveredAtSec!)} — leading with this one next attempt is the easy fix.`
+        : 'Didn’t come up this time — leading with this one next attempt is the easy fix.';
 
     return (
         <section
@@ -75,7 +94,16 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                 )}
             </div>
 
-            <ol className="mt-3 space-y-[13px]" data-testid="focus-points-rail-list">
+            {/* §3: the topic is a header, never a point — no marker, no numeral, never checked for coverage.
+                It sits above the list with a divider so it reads as context, not an item to cover. */}
+            {topicLabel !== '' && (
+                <div data-testid="focus-points-topic" className="border-b border-[#eef1f6] pb-[14px]">
+                    <div className="mb-1 mt-3 text-[17px] font-extrabold tracking-[-0.02em] text-[#1f2733]">{topicLabel}</div>
+                    <div className="text-[12px] font-bold uppercase tracking-[0.04em] text-[#8b95a5]">Your topic</div>
+                </div>
+            )}
+
+            <ol className="mt-[14px] space-y-[13px]" data-testid="focus-points-rail-list">
                 {rows.map((row, i) => {
                     const isNext = sessionState === 'during' && !row.covered && nextIndex === i;
                     const isMissed = isAfter && !row.covered;
@@ -105,8 +133,8 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                                     "Not detected" (a paraphrase may have covered it) — never a "Missed"
                                     accusation — and the feedback is an ACTION for the retry, not a made-up cause. */}
                                 {isMissed && (
-                                    <p className="mt-1 text-[13px] font-semibold leading-snug text-[#8a5510]" data-testid={`focus-point-${i}-not-detected`}>
-                                        Not detected — on your retry, lead with this point.
+                                    <p className="mt-1 text-[13px] leading-snug text-[#8a5510]" data-testid={`focus-point-${i}-not-detected`}>
+                                        {missedCause}
                                     </p>
                                 )}
                             </div>
