@@ -29,6 +29,7 @@ import {
 } from '@/services/sessionCoachingExperiment';
 import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { useSessionStore } from '@/stores/useSessionStore';
+import { estimateFinalizeSeconds } from '@/services/transcription/finalizeRateStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
 import { formatSampleCapLine } from '@/utils/privateSampleDuration';
 import { useSearchParams, useNavigate } from 'react-router-dom';
@@ -74,6 +75,9 @@ export const SessionPage: React.FC = () => {
     // Points works". null ⇒ an Open Floor session (unchanged).
     const activeObjectiveBrief = useSessionStore(state => state.activeObjectiveBrief);
     const isObjectiveSession = Boolean(activeObjectiveBrief);
+    // #891 — engine-specific finalize RTF (self-corrects from real decodes) for the "Finalizing… ~Ns"
+    // countdown; the estimate itself is computed below once the recording duration is in scope.
+    const activeEngineVersion = useSessionStore(state => state.activeEngineVersion);
 
     const {
         isListening,
@@ -176,6 +180,8 @@ export const SessionPage: React.FC = () => {
     // authoritative projection (runtime FSM + isActiveStt + finalizing + pendingResolutionKind) — no second
     // lock model. The controller's recording lifecycle is INITIATING/ENGINE_INITIALIZING/RECORDING/STOPPING.
     const scoringDurationSeconds = completedSessionDurationSeconds ?? elapsedTime;
+    // #891 — estimate now that the recording duration is in scope; feeds the "Finalizing… ~Ns" countdown.
+    const finalizeEstimateSeconds = estimateFinalizeSeconds(activeEngineVersion, scoringDurationSeconds);
 
     const helpOverlayAvailable = !(
         // engineSelectionLocked is set synchronously on Start INTENT (before the FSM reaches INITIATING),
@@ -440,6 +446,7 @@ export const SessionPage: React.FC = () => {
                     onSeeAllSessions={() => navigate('/analytics')}
                     interimTranscript={interimTranscript}
                     isFinalizing={isTranscriptFinalizing}
+                    finalizeEstimateSeconds={finalizeEstimateSeconds}
                     objectivePoints={activeObjectiveBrief?.points ?? null}
                     objectiveCoverage={objectiveCoverageResult}
                 />

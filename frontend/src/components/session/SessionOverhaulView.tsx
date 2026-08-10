@@ -62,6 +62,8 @@ export interface SessionOverhaulViewProps {
     /** #1231 R1 — live-updating tail (rendered muted/settling) + post-Stop finalizing banner. */
     interimTranscript?: string;
     isFinalizing?: boolean;
+    /** #891 — finalize-time estimate (s) for the "Finalizing… ~Ns" countdown in the transcript banner. */
+    finalizeEstimateSeconds?: number | null;
     /**
      * #1046 Focus Points — when a Focus Points brief is active this is the declared point labels; slot D then
      * becomes the points plan (before/during) instead of the coaching card, and the resolved coverage rail
@@ -93,6 +95,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     onSeeAllSessions,
     interimTranscript,
     isFinalizing,
+    finalizeEstimateSeconds,
     objectivePoints,
     objectiveCoverage,
 }) => {
@@ -110,6 +113,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // text stays visible in the before-state transcript (TranscriptCard renders `chosenPrompt` in place) and
     // is re-rollable via ↻ (re-invokes the last kind).
     const [chosenPrompt, setChosenPrompt] = React.useState<string | null>(null);
+    // #1116 — a read-aloud SAMPLE also carries a title + attribution (author/source) so the reader gets
+    // full credit and can identify the passage; a generated speaking prompt has neither.
+    const [chosenPromptTitle, setChosenPromptTitle] = React.useState<string | null>(null);
+    const [chosenPromptAttribution, setChosenPromptAttribution] = React.useState<string | null>(null);
     const [promptIdx, setPromptIdx] = React.useState<number | null>(null);
     const [sampleIdx, setSampleIdx] = React.useState<number | null>(null);
     const [lastKind, setLastKind] = React.useState<'prompt' | 'sample' | null>(null);
@@ -118,6 +125,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         const { index, prompt } = getNextPrompt(promptIdx);
         setPromptIdx(index);
         setChosenPrompt(prompt.text);
+        setChosenPromptTitle(null);
+        setChosenPromptAttribution(null);
         setLastKind('prompt');
     }, [promptIdx]);
 
@@ -125,6 +134,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         const { index, sample } = getNextSample(sampleIdx);
         setSampleIdx(index);
         setChosenPrompt(sample.text);
+        setChosenPromptTitle(sample.title);
+        setChosenPromptAttribution(sample.attribution);
         setLastKind('sample');
     }, [sampleIdx]);
 
@@ -209,6 +220,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                         onTakePrompt: takePrompt,
                         onReadSample: readSample,
                         chosenPrompt,
+                        chosenPromptTitle,
+                        chosenPromptAttribution,
                         onRerollPrompt: reRoll,
                     }}
                     progress={progress}
@@ -225,7 +238,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         return (
             <SessionDuringState
                 recorder={{ elapsedSeconds: elapsedTime, amplitudes, recordedCount, deviceLabel: 'Private', onStop: onStartStop }}
-                transcript={{ tokens: duringTokens, words: wordCount(transcriptContent), fillersPerMin: liveFillersPerMin(metricsFillerCount, elapsedTime), chosenPrompt }}
+                transcript={{ tokens: duringTokens, words: wordCount(transcriptContent), fillersPerMin: liveFillersPerMin(metricsFillerCount, elapsedTime), chosenPrompt, chosenPromptTitle, chosenPromptAttribution }}
                 progress={progress}
                 progressMode="aggregate"
                 liveTip={heldTip ? <LiveTip tip={heldTip} /> : undefined}
@@ -256,6 +269,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             progress={progress}
             progressMode="aggregate"
             finalizing={isFinalizing}
+            finalizeEstimateSeconds={finalizeEstimateSeconds}
             fillerFooter={<FillerBreakdown fillerData={fillerData} stats={`${metricsFillerCount} fillers · ${wordCount(transcriptContent)} words`} />}
             verdict={{ ...verdictFromSuggestions(aiSuggestions, fillerData), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
             slotDContent={objectiveAfterSlotD}

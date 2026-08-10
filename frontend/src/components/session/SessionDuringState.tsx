@@ -23,6 +23,9 @@ export interface SessionDuringStateProps {
         fillersPerMin: number;
         /** The taken prompt stays visible through recording (§3); shown as header meta prefix. */
         chosenPrompt?: string | null;
+        /** #1116 — a read-aloud SAMPLE's title + attribution (author/source), for credit while reading. */
+        chosenPromptTitle?: string | null;
+        chosenPromptAttribution?: string | null;
     };
     progress: ProgressVsBaselineResult;
     /** #1206 — 'aggregate' shows the composite session-progress card; defaults to the single-signal card. */
@@ -64,7 +67,7 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                         >
                             <div className="mb-1 flex items-center justify-between gap-2">
                                 <span className="text-[11px] font-bold uppercase tracking-wide text-[#6d28d9]">
-                                    Read this aloud
+                                    {transcript.chosenPromptTitle ? `Read aloud · ${transcript.chosenPromptTitle}` : 'Read this aloud'}
                                 </span>
                                 {/* Reclaim the space entirely — the live transcript below must never be hidden. */}
                                 <button
@@ -82,6 +85,9 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                             {!promptCollapsed && (
                                 <div className="max-h-[22vh] overflow-y-auto pr-1">
                                     {transcript.chosenPrompt}
+                                    {transcript.chosenPromptAttribution && (
+                                        <div className="mt-1.5 text-[12px] italic text-[#6b5b8a]">— {transcript.chosenPromptAttribution}</div>
+                                    )}
                                 </div>
                             )}
                         </div>

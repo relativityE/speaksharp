@@ -27,6 +27,10 @@ export interface TranscriptCardProps {
     onReadSample: () => void;
     /** The prompt the user took, shown in place; when set the offer is replaced by this. */
     chosenPrompt?: string | null;
+    /** #1116 — for a read-aloud SAMPLE, its title + attribution (author/source) so the reader gets full
+     *  credit and can identify the passage. Absent for the generated speaking prompts. */
+    chosenPromptTitle?: string | null;
+    chosenPromptAttribution?: string | null;
     /** Re-roll the taken prompt (↻). */
     onRerollPrompt?: () => void;
     /** Live/after header meta beside the title (e.g. `184 words · 2.6 fillers/min`). */
@@ -45,6 +49,11 @@ export interface TranscriptCardProps {
      */
     finalizing?: boolean;
     isPrivate?: boolean;
+    /**
+     * #891 / PO 2026-08-10: honest finalize-time estimate (seconds) for the post-Stop decode, shown in the
+     * "Finalizing…" banner as a live "~Ns" countdown so the wait is never a silent unknown. Null → no number.
+     */
+    finalizeEstimateSeconds?: number | null;
     /** Transcript content for the live/after states; when present it wins over the offer. */
     children?: React.ReactNode;
 }
@@ -62,14 +71,31 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
     onTakePrompt,
     onReadSample,
     chosenPrompt,
+    chosenPromptTitle,
+    chosenPromptAttribution,
     onRerollPrompt,
     headerMeta,
     footer,
     live,
     finalizing,
     isPrivate,
+    finalizeEstimateSeconds,
     children,
 }) => {
+    // #891 — live countdown for the "Finalizing…" wait. Seed from the estimate when finalizing begins, then
+    // tick down once a second (floored at 1s so it never shows 0 or negative while the decode is still going).
+    const [finalizeRemaining, setFinalizeRemaining] = React.useState<number | null>(null);
+    React.useEffect(() => {
+        if (finalizing && finalizeEstimateSeconds && finalizeEstimateSeconds > 0) {
+            setFinalizeRemaining(finalizeEstimateSeconds);
+            const t = setInterval(() => {
+                setFinalizeRemaining((r) => (r == null ? null : Math.max(1, r - 1)));
+            }, 1000);
+            return () => clearInterval(t);
+        }
+        setFinalizeRemaining(null);
+    }, [finalizing, finalizeEstimateSeconds]);
+
     const hasContent = React.Children.count(children) > 0;
     const hasChosenPrompt = !hasContent && !!chosenPrompt;
     const showingOffer = !hasContent && !hasChosenPrompt && !offerDismissed;
@@ -117,21 +143,23 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                 </div>
             </div>
 
-            {/* #1231 R1 / PO 2026-08-09: ONE prominent status banner at the top of the transcript. While
-                recording it reads "Live draft…" (the words update + self-correct in real time); the instant
-                Stop is clicked it flips IN PLACE to "Finalizing…" so the post-Stop decode wait is never
-                silent. Mutually exclusive; finalizing wins (it is the post-Stop state). */}
+            {/* #1231 R1 / PO 2026-08-10: ONE prominent status banner at the top of the transcript, so the
+                user is never judging the ROUGH live draft as the final result. While recording it reads
+                "Draft text in progress…" and states plainly that the transcript is finalized on Stop (the
+                finalized decode is markedly cleaner — "night and day" per the PO). The instant Stop is clicked
+                it flips IN PLACE to "Finalizing…" so the post-Stop decode wait is never silent. Mutually
+                exclusive; finalizing wins (it is the post-Stop state). */}
             {(finalizing || live) && (
                 <div
                     className="mb-3 flex items-center gap-2 rounded-lg bg-[#fdf3e2] px-3 py-2 text-[13px] font-semibold text-[#a8571f]"
                     role="status"
                     data-testid={finalizing ? 'transcript-finalizing-banner' : 'transcript-live-indicator'}
-                    aria-label={finalizing ? undefined : 'Live draft — the transcript updates and self-corrects as you speak'}
+                    aria-label={finalizing ? undefined : 'Draft text in progress — the transcript is finalized when you stop'}
                 >
                     <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#d98a1f]" aria-hidden="true" />
                     {finalizing
-                        ? (isPrivate ? 'Finalizing your transcript locally…' : 'Finalizing your transcript…')
-                        : 'Live draft — words update and self-correct as you speak'}
+                        ? `${isPrivate ? 'Finalizing your transcript locally…' : 'Finalizing your transcript…'}${finalizeRemaining ? ` ~${finalizeRemaining}s` : ''}`
+                        : 'Draft text in progress — finalized when you stop'}
                 </div>
             )}
 
@@ -147,8 +175,17 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                 >
                     {hasChosenPrompt ? (
                         <div className="w-full max-w-md text-center" data-testid="transcript-chosen-prompt">
-                            <p className="text-[11px] font-bold uppercase tracking-wide text-[#5b21b6]">Your prompt</p>
+                            {/* A read-aloud sample carries its own title (the label) + attribution (credit); a
+                                generated speaking prompt has neither, so it stays the generic "Your prompt". */}
+                            <p className="text-[11px] font-bold uppercase tracking-wide text-[#5b21b6]" data-testid="chosen-prompt-title">
+                                {chosenPromptTitle || 'Your prompt'}
+                            </p>
                             <p className="mt-2 text-[17px] font-semibold leading-relaxed text-[#1f2733]">{chosenPrompt}</p>
+                            {chosenPromptAttribution && (
+                                <p className="mt-2 text-[12px] italic text-[#5c6672]" data-testid="chosen-prompt-attribution">
+                                    — {chosenPromptAttribution}
+                                </p>
+                            )}
                             {onRerollPrompt && (
                                 <button
                                     type="button"

@@ -66,10 +66,43 @@ describe('TranscriptCard (#1222 S3)', () => {
         expect(onRerollPrompt).toHaveBeenCalledOnce();
     });
 
+    // #1116 — a read-aloud SAMPLE shows its title (as the label) + attribution (credit); a generated prompt
+    // has neither and stays the generic "Your prompt" with no attribution line.
+    it('a chosen SAMPLE shows its title as the label and its attribution as credit', () => {
+        render(
+            <TranscriptCard
+                {...base}
+                chosenPrompt="It is not the critic who counts…"
+                chosenPromptTitle="The Man in the Arena"
+                chosenPromptAttribution="Theodore Roosevelt, 1910 · public domain"
+            />,
+        );
+        expect(screen.getByTestId('chosen-prompt-title')).toHaveTextContent('The Man in the Arena');
+        expect(screen.getByTestId('chosen-prompt-attribution')).toHaveTextContent('Theodore Roosevelt, 1910');
+    });
+
+    it('a generated prompt (no title/attribution) stays "Your prompt" with no credit line', () => {
+        render(<TranscriptCard {...base} chosenPrompt="Describe a place you love." />);
+        expect(screen.getByTestId('chosen-prompt-title')).toHaveTextContent('Your prompt');
+        expect(screen.queryByTestId('chosen-prompt-attribution')).toBeNull();
+    });
+
     // #1231 R1 — live + finalizing feedback.
     it('shows a "● Live" indicator in the header while recording', () => {
         render(<TranscriptCard {...base} offerDismissed live><p>words</p></TranscriptCard>);
         expect(screen.getByTestId('transcript-live-indicator')).toBeInTheDocument();
+    });
+
+    // PO 2026-08-10: the live-draft banner states plainly it is a rough draft finalized on Stop.
+    it('the live banner reads "Draft text in progress"', () => {
+        render(<TranscriptCard {...base} offerDismissed live><p>words</p></TranscriptCard>);
+        expect(screen.getByTestId('transcript-live-indicator')).toHaveTextContent(/Draft text in progress/i);
+    });
+
+    // #891 — the finalizing banner shows the honest "~Ns" countdown when an estimate is supplied.
+    it('finalizing banner shows the "~Ns" estimate countdown', () => {
+        render(<TranscriptCard {...base} offerDismissed finalizing isPrivate finalizeEstimateSeconds={8}><p>words</p></TranscriptCard>);
+        expect(screen.getByTestId('transcript-finalizing-banner')).toHaveTextContent('~8s');
     });
 
     it('shows a distinct finalizing banner (private wording) during the post-stop decode', () => {
