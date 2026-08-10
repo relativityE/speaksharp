@@ -58,8 +58,9 @@ test.describe('Private mode trust-state + save/detail', () => {
     await page.getByTestId(TEST_IDS.NAV_ANALYTICS_LINK).click();
     await waitForFeature(page, 'analytics');
     const latest = page.getByTestId(/session-history-item-/).first();
-    // History row should identify the Private engine/mode.
-    await expect(latest).toContainText(/private/i);
+    // #G4 chunk 3: the per-row engine/PRIVATE badge was removed (the section footer carries the privacy
+    // promise; the detail view below still identifies the Private engine). So the row-level engine
+    // assertion is retired here — the trust signal is verified on the detail view instead.
     await latest.getByTestId(/session-detail-link-/).click();
     await page.waitForURL('**/analytics/session-*');
 
