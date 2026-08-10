@@ -1,4 +1,4 @@
-import { render, screen } from '../../../../tests/support/test-utils';
+import { render, screen, fireEvent } from '../../../../tests/support/test-utils';
 import { describe, it, expect, vi } from 'vitest';
 import { SessionDuringState } from '../SessionDuringState';
 import { SessionBeforeState } from '../SessionBeforeState';
@@ -50,5 +50,33 @@ describe('before → during (#1222 §1 — slots never move)', () => {
         rerender(<SessionDuringState {...duringProps} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
         expect(order()).toEqual(['A', 'B', 'C', 'D']);
+    });
+});
+
+// #1222 (PO 2026-08-10): a long taken sample must never hide the user's own live transcript. The reading
+// prompt is height-bounded (its own scroll) AND collapsible so the space can be reclaimed entirely.
+describe('SessionDuringState reading prompt (bounded + collapsible)', () => {
+    const withPrompt = {
+        ...duringProps,
+        transcript: { ...duringProps.transcript, chosenPrompt: 'Read this long sample aloud while you record.' },
+    };
+
+    it('shows the reading prompt above the live transcript with a Hide toggle', () => {
+        render(<SessionDuringState {...withPrompt} />);
+        const prompt = screen.getByTestId('during-reading-prompt');
+        expect(prompt).toHaveTextContent('Read this long sample aloud');
+        // The live transcript is still present in the same card (never covered).
+        expect(screen.getByTestId('live-transcript')).toBeInTheDocument();
+        expect(screen.getByTestId('during-reading-prompt-toggle')).toHaveTextContent('Hide');
+    });
+
+    it('Hide collapses the sample text (reclaims the space) and flips to Show', () => {
+        render(<SessionDuringState {...withPrompt} />);
+        const toggle = screen.getByTestId('during-reading-prompt-toggle');
+        fireEvent.click(toggle);
+        expect(screen.getByTestId('during-reading-prompt')).not.toHaveTextContent('Read this long sample aloud');
+        expect(toggle).toHaveTextContent('Show');
+        // The live transcript remains regardless of the prompt's collapsed state.
+        expect(screen.getByTestId('live-transcript')).toBeInTheDocument();
     });
 });

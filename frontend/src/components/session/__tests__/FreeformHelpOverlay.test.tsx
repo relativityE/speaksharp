@@ -77,4 +77,19 @@ describe('FreeformHelpOverlay (#1042 PR2 / #1116 redesign)', () => {
         const overlay = screen.getByTestId('freeform-help-overlay');
         expect(overlay.textContent ?? '').not.toMatch(/start recording now|opens the session|navigat/i);
     });
+
+    // #1046 — the objective variant reuses the same overlay for a Focus Points session.
+    it('objective variant reads "How Focus Points works" with the objective steps', () => {
+        const objTitle = `How ${PRODUCT_NAMES.objective} works`;
+        render(<FreeformHelpOverlay available variant="objective" />);
+        const btn = screen.getByTestId('freeform-help-button');
+        expect(btn).toHaveAccessibleName(objTitle);
+        fireEvent.click(btn);
+        const overlay = screen.getByTestId('freeform-help-overlay');
+        expect(within(overlay).getByRole('heading', { name: objTitle })).toBeInTheDocument();
+        expect(within(overlay).getByText('Name the points that must land')).toBeInTheDocument();
+        expect(within(overlay).getByText('See what you covered')).toBeInTheDocument();
+        // The Open Floor step copy must NOT leak into the objective guide.
+        expect(within(overlay).queryByText("Pick how you're transcribed")).toBeNull();
+    });
 });

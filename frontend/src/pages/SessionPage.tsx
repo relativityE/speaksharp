@@ -69,6 +69,11 @@ export const SessionPage: React.FC = () => {
     // #1046 slice 5a: per-point Focus Points coverage, published by the stop seam after an objective
     // session finalizes; null for Open Floor sessions (and cleared at the next recording start).
     const objectiveCoverageResult = useSessionStore(state => state.objectiveCoverageResult);
+    // #1046 Focus Points: a bound brief means this is a Focus Points session — slot D shows the declared
+    // points (before/during) then their resolved coverage (after), and the header help reads "How Focus
+    // Points works". null ⇒ an Open Floor session (unchanged).
+    const activeObjectiveBrief = useSessionStore(state => state.activeObjectiveBrief);
+    const isObjectiveSession = Boolean(activeObjectiveBrief);
 
     const {
         isListening,
@@ -325,7 +330,7 @@ export const SessionPage: React.FC = () => {
                             <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
                             <p className="text-sm text-foreground/70" data-testid="session-subtitle">{sessionSubtitle}</p>
                         </div>
-                        <FreeformHelpOverlay available={helpOverlayAvailable} className="shrink-0" />
+                        <FreeformHelpOverlay available={helpOverlayAvailable} className="shrink-0" variant={isObjectiveSession ? 'objective' : 'freeform'} />
                     </div>
                 </div>
             )}
@@ -435,6 +440,8 @@ export const SessionPage: React.FC = () => {
                     onSeeAllSessions={() => navigate('/analytics')}
                     interimTranscript={interimTranscript}
                     isFinalizing={isTranscriptFinalizing}
+                    objectivePoints={activeObjectiveBrief?.points ?? null}
+                    objectiveCoverage={objectiveCoverageResult}
                 />
                 {RENDER_LEGACY_BODY && (
                 <>

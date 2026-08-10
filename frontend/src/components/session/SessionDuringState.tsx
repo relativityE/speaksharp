@@ -33,6 +33,10 @@ export interface SessionDuringStateProps {
 }
 
 export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder, transcript, progress, progressMode, liveTip, slotDContent }) => {
+    // #1222 (PO 2026-08-10): a long taken sample used to fill the transcript card and hide the user's own
+    // live words. The reading prompt is now HEIGHT-BOUNDED (its own scroll) AND collapsible, so the live
+    // transcript is always visible below it and the reader can reclaim the space entirely once they've read.
+    const [promptCollapsed, setPromptCollapsed] = React.useState(false);
     return (
         <SessionShell
             sessionState="during"
@@ -58,10 +62,28 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                             data-testid="during-reading-prompt"
                             className="mb-3 rounded-lg border border-[#e6ddfb] bg-[#f5f0ff] px-4 py-3 text-[15px] leading-relaxed text-[#3b2f5c]"
                         >
-                            <div className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[#6d28d9]">
-                                Read this aloud
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-bold uppercase tracking-wide text-[#6d28d9]">
+                                    Read this aloud
+                                </span>
+                                {/* Reclaim the space entirely — the live transcript below must never be hidden. */}
+                                <button
+                                    type="button"
+                                    data-testid="during-reading-prompt-toggle"
+                                    aria-expanded={!promptCollapsed}
+                                    onClick={() => setPromptCollapsed((c) => !c)}
+                                    className="shrink-0 rounded px-2 py-0.5 text-[12px] font-bold text-[#6d28d9] hover:bg-[#ece3ff]"
+                                >
+                                    {promptCollapsed ? 'Show' : 'Hide'}
+                                </button>
                             </div>
-                            {transcript.chosenPrompt}
+                            {/* Height-bounded with its own scroll so a long sample can't push the live words
+                                out of the card; the reader scrolls the prompt, the transcript stays put. */}
+                            {!promptCollapsed && (
+                                <div className="max-h-[22vh] overflow-y-auto pr-1">
+                                    {transcript.chosenPrompt}
+                                </div>
+                            )}
                         </div>
                     )}
                     <LiveTranscript tokens={transcript.tokens} />

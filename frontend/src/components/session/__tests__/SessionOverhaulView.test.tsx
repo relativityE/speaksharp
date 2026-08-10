@@ -50,3 +50,58 @@ describe('SessionOverhaulView (#1222 S11)', () => {
         expect(screen.getByTestId('mic-error')).toHaveTextContent('Mic blocked');
     });
 });
+
+// #1046 Focus Points integration — a bound brief (objectivePoints) makes slot D carry the points
+// (plan before/during) then their resolved coverage (after), so a Focus Points session is its own thing
+// on the shared shell instead of rendering as an Open Floor session.
+describe('SessionOverhaulView Focus Points (#1046)', () => {
+    const POINTS = ['Name the price', 'State the guarantee'];
+
+    it('objective before → points plan in slot D (not the coaching card)', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={POINTS} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        expect(screen.getByTestId('focus-points-plan')).toBeInTheDocument();
+        expect(screen.getByTestId('focus-points-plan-summary')).toHaveTextContent('2 to cover');
+        expect(screen.getByTestId('focus-plan-point-0')).toHaveTextContent('Name the price');
+        // Not yet scored → no coverage rail before recording.
+        expect(screen.queryByTestId('coverage-rail')).toBeNull();
+    });
+
+    it('objective during → points plan stays in slot D', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent="hello" elapsedTime={10} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
+        expect(screen.getByTestId('focus-points-plan')).toBeInTheDocument();
+        expect(screen.queryByTestId('coverage-rail')).toBeNull();
+    });
+
+    it('objective after with resolved coverage → coverage rail replaces the plan/verdict', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={[
+                    { id: 'c0', label: 'Name the price', status: 'covered' },
+                    { id: 'c1', label: 'State the guarantee', status: 'missing' },
+                ]}
+                showAnalyticsPrompt
+                transcriptContent="so um hello"
+            />,
+        );
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+        expect(screen.getByTestId('coverage-rail')).toBeInTheDocument();
+        expect(screen.getByTestId('coverage-rail-summary')).toHaveTextContent('1/2 covered');
+    });
+
+    it('objective after with no coverage yet → falls back to the pending plan (never a stale verdict)', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={POINTS} objectiveCoverage={null} showAnalyticsPrompt transcriptContent="hello" />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+        expect(screen.getByTestId('focus-points-plan')).toBeInTheDocument();
+        expect(screen.queryByTestId('coverage-rail')).toBeNull();
+    });
+
+    it('no brief (Open Floor) → slot D is the coaching path, never a points plan', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={null} />);
+        expect(screen.queryByTestId('focus-points-plan')).toBeNull();
+        expect(screen.queryByTestId('coverage-rail')).toBeNull();
+    });
+});

@@ -54,8 +54,9 @@ export function ObjectiveSetupForm({
     onReady,
     className = '',
 }: {
-    /** Called with the persisted ids once the brief is saved — the caller routes into the session. */
-    onReady?: (result: { briefId: string; projectId: string }) => void;
+    /** Called with the persisted ids + the declared point labels once the brief is saved — the caller binds
+     *  them to the store and routes into the session (the labels drive the before/during Focus Points list). */
+    onReady?: (result: { briefId: string; projectId: string; points: string[] }) => void;
     className?: string;
 }) {
     const [goal, setGoal] = React.useState('');
@@ -99,7 +100,11 @@ export function ObjectiveSetupForm({
             result = { ok: false, reason: 'error' };
         }
         if (result.ok && result.briefId && result.projectId) {
-            onReady?.({ briefId: result.briefId, projectId: result.projectId });
+            onReady?.({
+                briefId: result.briefId,
+                projectId: result.projectId,
+                points: labelledPoints.map((p) => p.label.trim()),
+            });
             return; // leave the button in its submitting state while the caller navigates away
         }
         setError(FAILURE_COPY[result.reason ?? 'error']);
