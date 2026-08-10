@@ -100,9 +100,9 @@ test.describe('Exhaustive User Feature Matrix', () => {
     // Verify E2E signal for watermarked report
     await expect(page.locator('body')).toHaveAttribute('data-pdf-token', 'watermarked');
 
-    // 7. Identity: Pro Badge visibility on dashboard view
+    // 7. Identity: a Pro user sees no upgrade CTA on the dashboard (#G4 chunk 3 removed the "Pro active"
+    // pill — the entitlement signal is simply the absence of any upgrade prompt).
     await navigateToRoute(page, '/analytics');
-    await expect(page.getByText(/Pro active/i)).toBeVisible();
     await expect(page.getByTestId('nav-upgrade-button')).not.toBeVisible();
   });
 

@@ -1,12 +1,41 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
 import { Target, Trophy, Calendar } from 'lucide-react';
 
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { useGoals } from '@/hooks/useGoals';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EditGoalsDialog } from './EditGoalsDialog';
+
+/**
+ * #G4 chunk 3: goal bars rebuilt as **actual-fill + goal-tick**. The old bar filled to
+ * progress-toward-goal % (100% = goal), which hid how far past the goal you'd gone and made "on track"
+ * indistinguishable from "smashed it". This fills to the ACTUAL value on a fixed scale and marks the goal
+ * with a tick, so the bar reads as "here's where you are; here's the line". Fill turns green once the
+ * actual value reaches the goal.
+ */
+const ActualFillBar: React.FC<{ actual: number; goal: number; max: number }> = ({ actual, goal, max }) => {
+    const safeMax = Math.max(max, 1);
+    const fillPct = Math.min(100, Math.max(0, (actual / safeMax) * 100));
+    const goalPct = Math.min(100, Math.max(0, (goal / safeMax) * 100));
+    const met = actual >= goal;
+    return (
+        <div className="relative h-2.5 w-full rounded-full bg-muted/50" data-testid="goal-actual-fill-track">
+            <div
+                className={`h-full rounded-full transition-all ${met ? 'bg-success' : 'bg-primary'}`}
+                style={{ width: `${fillPct}%` }}
+                data-testid="goal-actual-fill"
+            />
+            {/* Goal tick — the line the fill is measured against. */}
+            <div
+                className="absolute top-1/2 h-3.5 w-[3px] -translate-y-1/2 rounded-full bg-foreground/70"
+                style={{ left: `calc(${goalPct}% - 1.5px)` }}
+                data-testid="goal-tick"
+                aria-hidden="true"
+            />
+        </div>
+    );
+};
 
 export const GoalsSection: React.FC = () => {
     const { weeklySessionsCount, overallStats, loading, error } = useAnalytics();
@@ -40,19 +69,16 @@ export const GoalsSection: React.FC = () => {
 
     // Use customizable goals from localStorage
     const { weeklyGoal, clarityGoal } = goals;
-    const weeklyProgress = Math.min((weeklySessions / weeklyGoal) * 100, 100);
 
     // Calculate average clarity score from recent sessions
     const avgClarityScore = typeof overallStats?.avgClarity === 'string'
         ? parseFloat(overallStats.avgClarity)
         : (overallStats?.avgClarity ?? 0);
 
-    const clarityProgress = Math.min((avgClarityScore / clarityGoal) * 100, 100);
-
     // Determine encouragement message
     const getEncouragementMessage = () => {
         if (weeklySessions >= weeklyGoal && avgClarityScore >= clarityGoal) {
-            return "Excellent work! You've crushed your goals this week! 🎉";
+            return "Excellent work — you've cleared both goals this week.";
         }
         if (weeklySessions >= weeklyGoal) {
             return "Great job on your session frequency! Keep working on clarity.";
@@ -90,7 +116,7 @@ export const GoalsSection: React.FC = () => {
                         </span>
                         <span className="font-bold text-foreground" data-testid="weekly-sessions-value">{weeklySessions} <span className="text-muted-foreground font-normal">/ {weeklyGoal}</span></span>
                     </div>
-                    <Progress value={weeklyProgress} className="h-2 bg-muted/50" />
+                    <ActualFillBar actual={weeklySessions} goal={weeklyGoal} max={Math.max(weeklyGoal * 1.5, weeklySessions, 1)} />
                 </div>
 
                 <div className="space-y-3">
@@ -101,7 +127,7 @@ export const GoalsSection: React.FC = () => {
                         </span>
                         <span className="font-bold text-foreground" data-testid="clarity-avg-value">{avgClarityScore.toFixed(0)}% <span className="text-muted-foreground font-normal">/ {clarityGoal}%</span></span>
                     </div>
-                    <Progress value={clarityProgress} className="h-2 bg-muted/50" />
+                    <ActualFillBar actual={avgClarityScore} goal={clarityGoal} max={100} />
                 </div>
 
                 <div className="pt-4 mt-2 border-t border-border/50">

@@ -89,11 +89,8 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
                     </button>
                 </div>
             )}
-            {!isSessionView && isPro && (
-                <div className="inline-flex items-center gap-2 rounded-full border border-primary bg-primary px-4 py-1.5 text-sm font-bold text-primary-foreground cta-shadow">
-                    <span>Pro active</span>
-                </div>
-            )}
+            {/* #G4 chunk 3: the "Pro active" status pill is removed — entitlement is not a headline the
+                analytics page needs to shout, and it competed with the page's actual job (progress). */}
         </div>
     );
 };

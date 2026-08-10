@@ -3,7 +3,7 @@ import { isValidMetric, formatDurationMinutes, NOT_ENOUGH_DATA } from '@/utils/m
 import { presentTranscript, transcriptDerivedMetricShowable, TRANSCRIPT_STATE } from '@/constants/transcriptState';
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor, Eye, ChevronDown, AudioLines } from 'lucide-react';
+import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Eye, ChevronDown, AudioLines } from 'lucide-react';
 import logger from '../lib/logger';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -214,39 +214,8 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
     },
 ];
 
-const getEngineBadge = (session: PracticeSession): { label: string; className: string; icon: React.ElementType } => {
-    const engine = (session.engine || '').toLowerCase();
-
-    if (engine.includes('cloud') || engine.includes('assembly')) {
-        return {
-            label: 'Cloud',
-            className: 'border-teal-200 bg-teal-50 text-teal-800',
-            icon: Cloud,
-        };
-    }
-
-    if (engine.includes('private') || engine.includes('whisper') || engine.includes('transformers')) {
-        return {
-            label: 'Private',
-            className: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-            icon: Lock,
-        };
-    }
-
-    if (engine.includes('native') || engine.includes('browser')) {
-        return {
-            label: 'Browser',
-            className: 'border-[hsl(var(--border-strong))] bg-muted/60 text-foreground',
-            icon: Monitor,
-        };
-    }
-
-    return {
-        label: 'Engine unknown',
-        className: 'border-[hsl(var(--border-strong))] bg-muted/60 text-foreground',
-        icon: Mic,
-    };
-};
+// #G4 chunk 3: getEngineBadge removed with the per-row engine/PRIVATE badge (the section footer carries
+// the privacy promise; recording mode still shows on the session detail view via formatSessionRecordingMode).
 
 // --- Analysis Slide Configuration ---
 // Available analysis visualization tools for the main carousel
@@ -451,8 +420,6 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
     const durationMins = Math.floor(session.duration / 60);
     const durationSecs = session.duration % 60;
     const durationStr = `${durationMins}:${durationSecs.toString().padStart(2, '0')}`;
-    const engineBadge = getEngineBadge(session);
-    const EngineIcon = engineBadge.icon;
 
     // #1047 PR-U1: transcript-derived metrics show only when transcript-state provenance allows it — a
     // not_captured row's sentinel 0/{} is never rendered as a measurement (shown as N/A).
@@ -485,15 +452,10 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                     </div>
                     <div className="min-w-0">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            {/* #G4 chunk 3: per-row engine/PRIVATE badge removed — the section footer already
+                                makes the privacy promise ("Private to you…"), so the per-row pill was
+                                redundant clutter. Recording mode remains available on the session detail view. */}
                             <p className="max-w-full truncate text-base font-semibold text-foreground md:max-w-[200px]">{session.title || 'Practice Session'}</p>
-                            <span
-                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.08em] ${engineBadge.className}`}
-                                data-testid={`session-engine-badge-${session.id}`}
-                                title={`Recorded with ${formatSessionRecordingMode(session)}`}
-                            >
-                                <EngineIcon className="h-3 w-3" aria-hidden="true" />
-                                {engineBadge.label}
-                            </span>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground/70">
                             <Clock className="w-3 h-3" />
@@ -521,57 +483,57 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                     <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Clear Delivery</p>
                 </div>
 
-                <div className="pl-4 border-l border-border hidden md:block" data-testid={`download-pdf-container-${session.id}`}>
+                {/* #G4 chunk 3: Open (outlined) + PDF (teal-filled) button pair — the PDF is the emphasised
+                    action while it's still downloadable within the 2-session retention window. */}
+                <div className="hidden items-center gap-2 border-l border-border pl-4 md:flex" data-testid={`download-pdf-container-${session.id}`}>
                     <NavLink
                         to={`/analytics/${session.id}`}
-                        className="mb-2 inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[hsl(var(--border-strong))] bg-white px-3 text-sm font-semibold text-foreground surface-shadow transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="inline-flex items-center justify-center gap-2 rounded-[9px] border border-[#b8d9d5] bg-white px-[14px] py-[9px] text-[13px] font-bold text-[#0d7d74] transition-colors hover:bg-[#f0f9f8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         aria-label="Open saved session details"
                         data-testid={`open-session-detail-${session.id}`}
                     >
                         <Eye className="h-4 w-4" aria-hidden="true" />
                         Open
                     </NavLink>
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        className="gap-2 hover:bg-primary hover:text-primary-foreground transition-colors surface-shadow"
-                            onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                void generateSessionPdf(session, profileName, _isPro, sessionHistory);
-                            }}
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            void generateSessionPdf(session, profileName, _isPro, sessionHistory);
+                        }}
                         title="Download Session PDF"
                         data-testid={`download-pdf-btn-${session.id}`}
+                        className="inline-flex items-center justify-center gap-2 rounded-[9px] bg-[#0d7d74] px-[14px] py-[9px] text-[13px] font-bold text-white transition-colors hover:bg-[#0b6a62] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
-                        <Download className="h-4 w-4" />
+                        <Download className="h-4 w-4" aria-hidden="true" />
                         PDF
-                    </Button>
+                    </button>
                 </div>
             </div>
             <div className="w-full flex justify-end md:hidden pt-4 border-t border-border mt-4" data-testid={`download-pdf-container-mobile-${session.id}`}>
                 <div className="flex w-full flex-col gap-2">
                     <NavLink
                         to={`/analytics/${session.id}`}
-                        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-[hsl(var(--border-strong))] bg-white px-3 text-sm font-semibold text-foreground surface-shadow transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-[9px] border border-[#b8d9d5] bg-white px-[14px] py-[9px] text-[13px] font-bold text-[#0d7d74] transition-colors hover:bg-[#f0f9f8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         aria-label="Open saved session details"
                         data-testid={`open-session-detail-mobile-${session.id}`}
                     >
                         <Eye className="h-4 w-4" aria-hidden="true" />
                         Open Saved Session
                     </NavLink>
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        className="w-full gap-2"
+                    <button
+                        type="button"
                         onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
                             void generateSessionPdf(session, profileName, _isPro, sessionHistory);
                         }}
                         data-testid={`download-pdf-btn-mobile-${session.id}`}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-[9px] bg-[#0d7d74] px-[14px] py-[9px] text-[13px] font-bold text-white transition-colors hover:bg-[#0b6a62] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
-                        <Download className="h-4 w-4" /> Download Session PDF
-                    </Button>
+                        <Download className="h-4 w-4" aria-hidden="true" /> Download Session PDF
+                    </button>
                 </div>
             </div>
         </div>
@@ -964,7 +926,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         <CardHeader className="space-y-4">
                             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                                 <div className="space-y-1">
-                                    <p className="text-xs font-bold uppercase tracking-wider text-primary">Analytics Focus</p>
+                                    <p className="text-xs font-bold uppercase tracking-wider text-primary">Working on</p>
                                     <CardTitle className="text-2xl font-extrabold text-foreground">{focusLabel}</CardTitle>
                                     <p className="max-w-3xl text-sm font-semibold leading-snug text-foreground/75">
                                         {focusPurpose}

@@ -27,7 +27,9 @@ test.describe('Analytics Suite & Data Matrix', () => {
 
     // #G4: the focus explanation boxes + "selected together" subtitle are gone; the signals section leads
     // with a position-based heading instead.
-    await expect(page.getByText('Analytics Focus')).toBeVisible();
+    // exact:true — "Working on" (the focus eyebrow) must not collide with the goals encouragement
+    // sentence ("…Keep working on clarity"), which contains the same substring.
+    await expect(page.getByText('Working on', { exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Sound Confident', exact: true })).toBeVisible();
     await expect(page.getByText(/that.s based on/i)).toBeVisible();
     await expect(page.getByTestId('stat-card-speaking_pace')).toBeVisible();
