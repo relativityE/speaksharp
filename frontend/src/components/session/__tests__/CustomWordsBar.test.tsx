@@ -16,4 +16,15 @@ describe('CustomWordsBar (#1222 G1)', () => {
         fireEvent.click(screen.getByTestId('add-custom-word-button'));
         expect(screen.getByPlaceholderText(/literally/i)).toBeInTheDocument();
     });
+
+    // PO 2026-08-10: the count must reveal WHICH words are tracked (hover/focus), without growing the bar.
+    it('exposes the tracked filler-word list (hover/focus) with the built-in words', () => {
+        render(<CustomWordsBar />);
+        const trigger = screen.getByTestId('tracked-filler-trigger');
+        expect(trigger).toHaveTextContent(/Tracking\s+\d+\s+filler words/i);
+        const list = screen.getByTestId('tracked-filler-list');
+        // The built-in vocabulary is enumerated in the panel (um / actually are static filler keys).
+        expect(list).toHaveTextContent('um');
+        expect(list).toHaveTextContent('actually');
+    });
 });

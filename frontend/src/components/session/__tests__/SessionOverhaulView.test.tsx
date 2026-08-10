@@ -44,6 +44,16 @@ describe('SessionOverhaulView (#1222 S11)', () => {
         expect(screen.getByTestId('scrubber-legend')).toBeInTheDocument();
     });
 
+    // PO 2026-08-10: the post-Stop FINALIZING window must resolve to `after`, never `before` — otherwise the
+    // "Not sure what to say?" prompt offer flashed back AND the captured mic envelope got wiped (flat waveform).
+    it('finalizing (stopped, decode running, analytics not yet shown) resolves to AFTER, not the offer', () => {
+        render(<SessionOverhaulView {...base} isFinalizing showAnalyticsPrompt={false} transcriptContent="so um hello" />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+        expect(screen.getByTestId('playback-scrubber')).toBeInTheDocument();
+        // The before-state prompt offer must NOT appear during finalizing.
+        expect(screen.queryByTestId('prompt-offer')).toBeNull();
+    });
+
     it('a mic-permission error keeps the before state and surfaces the error in the mic card', () => {
         render(<SessionOverhaulView {...base} sttStatus={{ type: 'error', message: 'Mic blocked' } as SttStatus} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');

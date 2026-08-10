@@ -102,7 +102,11 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const permissionError = sttStatus.type === 'error';
     const sessionState = resolveSessionState({
         firstAudioFrameReceived: isListening,
-        stopped: showAnalyticsPrompt && !isListening,
+        // PO 2026-08-10: the post-Stop FINALIZING window (decode still running, save/analytics not yet
+        // fired) must resolve to `after`, not `before`. Without `isFinalizing` here the transcript card
+        // briefly reverted to the "Not sure what to say?" prompt offer during finalizing, and the
+        // "Finalizing… ~Ns" banner never showed (it lives on the after-state).
+        stopped: (showAnalyticsPrompt || Boolean(isFinalizing)) && !isListening,
         permissionError,
     });
 
@@ -148,7 +152,11 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const tipCandidate = isListening ? liveTipFromMetrics({ fillerData, wpm, elapsedSeconds: elapsedTime }) : null;
     const heldTip = useHeldTip(tipCandidate);
 
-    // Sample the scalar mic level into a rolling buffer while recording (reset when idle).
+    // Sample the scalar mic level into a rolling buffer while recording; the captured envelope must SURVIVE
+    // into the after-state so the playback scrubber can draw the recorded waveform. Reset ONLY on a fresh
+    // `before` (a new session). This is load-bearingly coupled to the finalizing→`after` fix above: when
+    // finalizing wrongly resolved to `before`, this branch wiped the envelope mid-finalize and the
+    // after-state waveform rendered flat. Keep finalizing OUT of `before` or the bars go blank again.
     const levelsRef = React.useRef<number[]>([]);
     if (isListening) {
         levelsRef.current = [...levelsRef.current, micLevel].slice(-72);
