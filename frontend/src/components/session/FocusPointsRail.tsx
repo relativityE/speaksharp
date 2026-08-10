@@ -4,7 +4,7 @@ import type { FocusCoverageRow } from '@/utils/focusCoverage';
 /**
  * #1046 Focus Points — slot D, "Your points" carried through all three states (spec §3).
  *
- * The Focus Points analogue of Open Floor's coaching card: same rail slot, but it holds the declared
+ * The Focus Points analogue of Open Mic's coaching card: same rail slot, but it holds the declared
  * points and their coverage rather than delivery tips. Four marker states:
  *   - pending  — grey ring + numeral
  *   - covered  — green ✓, struck-through label, "Covered at m:ss" (+ the covering phrase in `after`)

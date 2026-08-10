@@ -4,7 +4,7 @@ import type { CoverageStatus } from '@/services/rehearsal/outcomeScorecard';
 /**
  * #1046 slice 4 — Focus Points coverage rail.
  *
- * Rail-slot content for a Focus Points session (the sibling of Open Floor's coaching card — same shell,
+ * Rail-slot content for a Focus Points session (the sibling of Open Mic's coaching card — same shell,
  * different content). One row per declared focus point; each row's dot + tint reflects whether the point
  * was covered. v1 computes coverage AT STOP (the whole rail resolves when the session finalizes); live
  * ticking is a fast-follow.

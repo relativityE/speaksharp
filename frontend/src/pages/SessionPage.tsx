@@ -68,11 +68,11 @@ export const SessionPage: React.FC = () => {
     const nativeFormatting = useSessionStore(state => state.nativeFormatting);
     const finalizedAnalysis = useSessionStore(state => state.finalizedAnalysis);
     // #1046 slice 5a: per-point Focus Points coverage, published by the stop seam after an objective
-    // session finalizes; null for Open Floor sessions (and cleared at the next recording start).
+    // session finalizes; null for Open Mic sessions (and cleared at the next recording start).
     const objectiveCoverageResult = useSessionStore(state => state.objectiveCoverageResult);
     // #1046 Focus Points: a bound brief means this is a Focus Points session — slot D shows the declared
     // points (before/during) then their resolved coverage (after), and the header help reads "How Focus
-    // Points works". null ⇒ an Open Floor session (unchanged).
+    // Points works". null ⇒ an Open Mic session (unchanged).
     const activeObjectiveBrief = useSessionStore(state => state.activeObjectiveBrief);
     const isObjectiveSession = Boolean(activeObjectiveBrief);
     // #891 — engine-specific finalize RTF (self-corrects from real decodes) for the "Finalizing… ~Ns"
@@ -551,7 +551,7 @@ export const SessionPage: React.FC = () => {
                     </div>
 
                     {/* #1046 slice 5a: Focus Points coverage rail. Renders ONLY once an objective session
-                        has finalized (objectiveCoverageResult is non-null) — it is null for Open Floor
+                        has finalized (objectiveCoverageResult is non-null) — it is null for Open Mic
                         sessions and cleared at the next recording start, so this never shows on a freeform
                         run. Presentational; the finalize seam is the sole source of truth. (When the session
                         overhaul lands, this becomes slot D of the shared shell; for now it sits below the

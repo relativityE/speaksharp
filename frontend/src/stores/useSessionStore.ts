@@ -100,9 +100,9 @@ export interface SessionState {
     completedSessionDurationSeconds: number | null;
     /**
      * #1046 slice 3b-ii: the Focus Points brief the CURRENT recording is being made against, or null for
-     * a freeform (Open Floor) recording. Set at objective-session entry (slice 5); read at the stop seam
+     * a freeform (Open Mic) recording. Set at objective-session entry (slice 5); read at the stop seam
      * to finalize per-point coverage; CONSUMED (set null) immediately after finalize fires, so a stale
-     * brief can never leak an Open Floor recording into Focus Points scoring (the isolation invariant).
+     * brief can never leak an Open Mic recording into Focus Points scoring (the isolation invariant).
      */
     activeObjectiveBrief: { projectId: string; briefId: string; points?: string[] } | null;
     /**
@@ -110,7 +110,7 @@ export interface SessionState {
      * completed recording was not a Focus Points session. Mirrors {@link finalizedAnalysis}'s lifecycle
      * exactly — null until an objective session finalizes, SET at the stop seam after coverage is
      * computed, and CLEARED at the start of every new recording so a prior brief's rail can never
-     * linger onto a later Open Floor session (the isolation invariant, at the UI layer).
+     * linger onto a later Open Mic session (the isolation invariant, at the UI layer).
      */
     objectiveCoverageResult: ObjectiveCoverageRow[] | null;
     pauseMetrics: PauseMetrics;

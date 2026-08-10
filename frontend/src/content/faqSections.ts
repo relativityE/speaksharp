@@ -98,9 +98,9 @@ export const FAQ_SECTIONS: readonly FaqSection[] = [
         items: [
             {
                 id: 'open-floor-vs-focus-points',
-                question: 'What is the difference between Open Floor and Focus Points?',
+                question: 'What is the difference between Open Mic and Focus Points?',
                 answer: [
-                    'Open Floor — speak freely on anything, for as long as you like. Best for warming up or thinking out loud.',
+                    'Open Mic — speak freely on anything, for as long as you like. Best for warming up or thinking out loud.',
                     'Focus Points — set a few things you want to cover, then see which ones you actually hit while speaking.',
                 ],
             },

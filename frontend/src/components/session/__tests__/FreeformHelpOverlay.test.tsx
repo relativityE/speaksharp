@@ -89,7 +89,7 @@ describe('FreeformHelpOverlay (#1042 PR2 / #1116 redesign)', () => {
         expect(within(overlay).getByRole('heading', { name: objTitle })).toBeInTheDocument();
         expect(within(overlay).getByText('Name the points that must land')).toBeInTheDocument();
         expect(within(overlay).getByText('See what you covered')).toBeInTheDocument();
-        // The Open Floor step copy must NOT leak into the objective guide.
+        // The Open Mic step copy must NOT leak into the objective guide.
         expect(within(overlay).queryByText("Pick how you're transcribed")).toBeNull();
     });
 });

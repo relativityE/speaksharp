@@ -29,6 +29,11 @@ export interface WaveformProps {
 
 const ORANGE = '#d98a1f';
 const TAIL = '#e0e6ee';
+const TRACK_HEIGHT = 40;
+// #4: height is a separate function of the level, in PX (not a % that floors into flat mush).
+// height = 4 + level*30, clamped. A filler bar in the after-state is a HEIGHT override — full height,
+// so "marks a filler" is visually unmissable against the short grey resting bars.
+const barHeightPx = (level: number): number => Math.max(4, Math.min(TRACK_HEIGHT, Math.round(4 + level * 30)));
 
 export const Waveform: React.FC<WaveformProps> = ({
     amplitudes,
@@ -54,10 +59,13 @@ export const Waveform: React.FC<WaveformProps> = ({
         <div
             className={className}
             data-testid={testId}
-            style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: 2, height: 40, width: '100%' }}
+            style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: 2, height: TRACK_HEIGHT, width: '100%' }}
         >
             {amplitudes.map((a, i) => {
-                const heightPct = Math.max(8, Math.min(100, Math.round(a * 100)));
+                // after-state fillers are full height (a deliberate override, not their amplitude); every
+                // other bar's height is 4 + level*30 px.
+                const isAfterFiller = typeof recordedCount !== 'number' && fillerSet.has(i);
+                const heightPx = isAfterFiller ? TRACK_HEIGHT : barHeightPx(a);
                 const bar = (
                     <span
                         key={i}
@@ -67,7 +75,7 @@ export const Waveform: React.FC<WaveformProps> = ({
                         style={{
                             flex: '1 1 0',
                             minWidth: 2,
-                            height: `${heightPct}%`,
+                            height: heightPx,
                             backgroundColor: colorFor(i),
                             borderRadius: 1,
                         }}

@@ -96,7 +96,7 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.getByTestId('focus-delivery-strip')).toBeInTheDocument();
     });
 
-    it('no brief (Open Floor) → no coverage card / points rail; the prompt offer is present', () => {
+    it('no brief (Open Mic) → no coverage card / points rail; the prompt offer is present', () => {
         render(<SessionOverhaulView {...base} objectivePoints={null} />);
         expect(screen.queryByTestId('coverage-this-run')).toBeNull();
         expect(screen.queryByTestId('focus-points-rail')).toBeNull();

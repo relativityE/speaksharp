@@ -33,6 +33,14 @@ describe('Waveform (#1222 §4)', () => {
         expect(playhead).toHaveStyle({ left: '50%' });
     });
 
+    it('after: a filler bar is a FULL-height override (unmissable), taller than the short grey bars', () => {
+        // amps[1] = 0.4 → a short grey bar (4 + 0.4*30 = 16px); filler index 1 overrides to full track height.
+        render(<Waveform amplitudes={amps} fillerBars={[1]} />);
+        const bars = screen.getAllByTestId('waveform-bar');
+        expect(bars[1]).toHaveStyle({ height: '40px' }); // full track height override
+        expect(bars[2]).toHaveStyle({ height: '16px' }); // non-filler: 4 + 0.4*30
+    });
+
     it('after: clicking a bar seeks to its fraction', () => {
         const onSeek = vi.fn();
         render(<Waveform amplitudes={amps} fillerBars={[2]} onSeek={onSeek} />);

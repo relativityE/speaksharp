@@ -8,7 +8,7 @@ import { TEST_IDS } from '../constants';
  *
  * Proves, with real clicks (no force, no direct-navigation substitute for a control):
  *  - /practice renders as the authenticated default landing (two-product chooser);
- *  - #1042 PR3: the Freeform ("Open Floor") card CTA ("Start your session") navigates DIRECTLY to the unchanged
+ *  - #1042 PR3: the Freeform ("Open Mic") card CTA ("Start your session") navigates DIRECTLY to the unchanged
  *    /session (no intermediate overview) and never auto-starts recording;
  *  - Focus Points → exactly one CONTEXTUAL notice "Product not available at this time" anchored to the
  *    Objective card (not a global toast); then the Objective card alone becomes disabled; no preview/correction loop;
@@ -93,9 +93,9 @@ test.describe('Practice landing — default entry, Objective unavailable, surfac
     await shot(page, `${DIR}/01-chooser-desktop.png`);
     expect(await page.getByRole('main').count()).toBe(1); // App owns the sole landmark
     // Both products render; Objective is clearly marked unavailable (text, not color alone).
-    await expect(page.getByRole('heading', { name: /^Open Floor$/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Open Mic$/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: /^Focus Points$/i })).toBeVisible();
-    // #1042 PR3: Freeform ("Open Floor") CTA is "Start your session"; the legacy overview CTAs are gone.
+    // #1042 PR3: Freeform ("Open Mic") CTA is "Start your session"; the legacy overview CTAs are gone.
     await expect(page.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start your session/i);
     await expect(page.getByRole('button', { name: /open practice session|start speaking/i })).toHaveCount(0);
     await assertReport(page, 'SpeakSharp Practice', AREAS.practice_home);

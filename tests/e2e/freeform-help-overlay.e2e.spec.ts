@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { programmaticLoginWithRoutes, navigateToRoute, startRecording, stopRecording } from './helpers';
 
 /**
- * #1042 PR2 / #1116 — "How Open Floor works" Session help overlay.
+ * #1042 PR2 / #1116 — "How Open Mic works" Session help overlay.
  *
  * Proves the overlay's behavior on the deployed-equivalent built app: it lives in the session title
  * block, opens as a fully-opaque floating panel with THREE steps and a start CTA, closes on
@@ -67,7 +67,7 @@ test.describe('#1042 PR2 Freeform help overlay', () => {
         await page.getByTestId('freeform-help-start').click();
         await expect(overlay).toHaveCount(0);
 
-        // #1222 mockup: the whole title row (which hosts "How Open Floor works") is a BEFORE-state
+        // #1222 mockup: the whole title row (which hosts "How Open Mic works") is a BEFORE-state
         // affordance only — during recording it is dropped so the transcript/slots get the room. So once
         // recording starts, the help button is ABSENT (not merely disabled) and the overlay cannot open.
         await startRecording(page);
