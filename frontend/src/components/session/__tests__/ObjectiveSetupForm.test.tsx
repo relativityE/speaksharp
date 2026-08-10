@@ -72,7 +72,7 @@ describe('#1046 ObjectiveSetupForm (capture UI)', () => {
         fireEvent.change(screen.getByTestId('objective-point-label-0'), { target: { value: 'Name the price' } });
         fireEvent.click(screen.getByTestId('objective-setup-submit'));
 
-        await waitFor(() => expect(onReady).toHaveBeenCalledWith({ briefId: 'b1', projectId: 'p1' }));
+        await waitFor(() => expect(onReady).toHaveBeenCalledWith({ briefId: 'b1', projectId: 'p1', points: ['Name the price'] }));
         expect(startObjectiveBrief).toHaveBeenCalledWith({
             goal: 'Sales or product pitch',
             points: [{ label: 'Name the price' }],

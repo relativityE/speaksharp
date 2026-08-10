@@ -10,6 +10,8 @@ import { FillerBreakdown } from './FillerBreakdown';
 import { computeAggregateProgress, signalsFromSession } from '@/utils/aggregateProgress';
 import { getNextPrompt, getNextSample } from '@/services/practice/practiceOnramp';
 import { CustomWordsBar } from './CustomWordsBar';
+import { CoverageRail, type CoverageRailPoint } from './CoverageRail';
+import { FocusPointsPlan } from './FocusPointsPlan';
 import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptTokens';
 import { liveTipFromMetrics, verdictFromSuggestions, type TwoTakeaways } from '@/utils/liveCoaching';
@@ -60,6 +62,16 @@ export interface SessionOverhaulViewProps {
     /** #1231 R1 — live-updating tail (rendered muted/settling) + post-Stop finalizing banner. */
     interimTranscript?: string;
     isFinalizing?: boolean;
+    /** #891 — finalize-time estimate (s) for the "Finalizing… ~Ns" countdown in the transcript banner. */
+    finalizeEstimateSeconds?: number | null;
+    /**
+     * #1046 Focus Points — when a Focus Points brief is active this is the declared point labels; slot D then
+     * becomes the points plan (before/during) instead of the coaching card, and the resolved coverage rail
+     * (after) instead of the verdict. null/empty ⇒ an Open Floor session (unchanged coaching path).
+     */
+    objectivePoints?: string[] | null;
+    /** #1046 Focus Points — per-point coverage resolved at stop (same shape as the rail); null until then. */
+    objectiveCoverage?: CoverageRailPoint[] | null;
 }
 
 export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
@@ -83,6 +95,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     onSeeAllSessions,
     interimTranscript,
     isFinalizing,
+    finalizeEstimateSeconds,
+    objectivePoints,
+    objectiveCoverage,
 }) => {
     const permissionError = sttStatus.type === 'error';
     const sessionState = resolveSessionState({
@@ -98,6 +113,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // text stays visible in the before-state transcript (TranscriptCard renders `chosenPrompt` in place) and
     // is re-rollable via ↻ (re-invokes the last kind).
     const [chosenPrompt, setChosenPrompt] = React.useState<string | null>(null);
+    // #1116 — a read-aloud SAMPLE also carries a title + attribution (author/source) so the reader gets
+    // full credit and can identify the passage; a generated speaking prompt has neither.
+    const [chosenPromptTitle, setChosenPromptTitle] = React.useState<string | null>(null);
+    const [chosenPromptAttribution, setChosenPromptAttribution] = React.useState<string | null>(null);
     const [promptIdx, setPromptIdx] = React.useState<number | null>(null);
     const [sampleIdx, setSampleIdx] = React.useState<number | null>(null);
     const [lastKind, setLastKind] = React.useState<'prompt' | 'sample' | null>(null);
@@ -106,6 +125,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         const { index, prompt } = getNextPrompt(promptIdx);
         setPromptIdx(index);
         setChosenPrompt(prompt.text);
+        setChosenPromptTitle(null);
+        setChosenPromptAttribution(null);
         setLastKind('prompt');
     }, [promptIdx]);
 
@@ -113,6 +134,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         const { index, sample } = getNextSample(sampleIdx);
         setSampleIdx(index);
         setChosenPrompt(sample.text);
+        setChosenPromptTitle(sample.title);
+        setChosenPromptAttribution(sample.attribution);
         setLastKind('sample');
     }, [sampleIdx]);
 
@@ -161,10 +184,27 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         };
     }, [history]);
 
+    // #1046 Focus Points: a brief is active when we were handed declared point labels. Slot D then carries
+    // the points (plan before/during, resolved coverage after) instead of the coaching card / verdict, so a
+    // Focus Points session is visibly its own thing on the shared shell — not an Open Floor session.
+    const isObjective = Array.isArray(objectivePoints) && objectivePoints.length > 0;
+    const planPoints = React.useMemo(
+        () => (objectivePoints ?? []).map((label, i) => ({ id: `fp-${i}`, label })),
+        [objectivePoints],
+    );
+    const objectivePlanSlotD = isObjective ? <FocusPointsPlan points={planPoints} /> : undefined;
+    // after: show the resolved coverage rail once it exists; until then keep the plan (nothing scored yet).
+    const objectiveAfterSlotD = isObjective
+        ? (objectiveCoverage && objectiveCoverage.length > 0
+            ? <CoverageRail points={objectiveCoverage} />
+            : <FocusPointsPlan points={planPoints} />)
+        : undefined;
+
     if (sessionState === 'before') {
         return (
             <>
                 <SessionBeforeState
+                    slotDContent={objectivePlanSlotD}
                     mic={{
                         onStart: onStartStop,
                         error: permissionError ? sttStatus.message : null,
@@ -180,6 +220,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                         onTakePrompt: takePrompt,
                         onReadSample: readSample,
                         chosenPrompt,
+                        chosenPromptTitle,
+                        chosenPromptAttribution,
                         onRerollPrompt: reRoll,
                     }}
                     progress={progress}
@@ -196,10 +238,11 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         return (
             <SessionDuringState
                 recorder={{ elapsedSeconds: elapsedTime, amplitudes, recordedCount, deviceLabel: 'Private', onStop: onStartStop }}
-                transcript={{ tokens: duringTokens, words: wordCount(transcriptContent), fillersPerMin: liveFillersPerMin(metricsFillerCount, elapsedTime), chosenPrompt }}
+                transcript={{ tokens: duringTokens, words: wordCount(transcriptContent), fillersPerMin: liveFillersPerMin(metricsFillerCount, elapsedTime), chosenPrompt, chosenPromptTitle, chosenPromptAttribution }}
                 progress={progress}
                 progressMode="aggregate"
                 liveTip={heldTip ? <LiveTip tip={heldTip} /> : undefined}
+                slotDContent={objectivePlanSlotD}
             />
         );
     }
@@ -226,8 +269,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             progress={progress}
             progressMode="aggregate"
             finalizing={isFinalizing}
+            finalizeEstimateSeconds={finalizeEstimateSeconds}
             fillerFooter={<FillerBreakdown fillerData={fillerData} stats={`${metricsFillerCount} fillers · ${wordCount(transcriptContent)} words`} />}
             verdict={{ ...verdictFromSuggestions(aiSuggestions, fillerData), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
+            slotDContent={objectiveAfterSlotD}
         />
     );
 };

@@ -32,11 +32,13 @@ export interface SessionAfterStateProps {
     slotDContent?: React.ReactNode;
     /** #1231 R1 — post-Stop decode still running → finalizing banner on the transcript card. */
     finalizing?: boolean;
+    /** #891 — finalize-time estimate (s) for the "Finalizing… ~Ns" countdown in the banner. */
+    finalizeEstimateSeconds?: number | null;
     /** #1231 R2 — per-word filler breakdown + custom-word manager; replaces the plain stats footer. */
     fillerFooter?: React.ReactNode;
 }
 
-export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, transcript, progress, progressMode, verdict, slotDContent, finalizing, fillerFooter }) => {
+export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, transcript, progress, progressMode, verdict, slotDContent, finalizing, finalizeEstimateSeconds, fillerFooter }) => {
     return (
         <SessionShell
             sessionState="after"
@@ -49,6 +51,7 @@ export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, 
                     onTakePrompt={() => {}}
                     onReadSample={() => {}}
                     finalizing={finalizing}
+                    finalizeEstimateSeconds={finalizeEstimateSeconds}
                     isPrivate
                     headerMeta={transcript.headerMeta}
                     footer={fillerFooter ?? (

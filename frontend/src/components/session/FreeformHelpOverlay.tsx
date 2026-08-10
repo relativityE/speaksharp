@@ -28,11 +28,11 @@ import {
 
 // The product name reads distinctly from the framing words — name BOLD only, "How"/"works" plain normal
 // weight, no italics (PO 2026-08-09). Rendered as spans so the ACCESSIBLE NAME stays "How <name> works".
-function HelpTitle() {
+function HelpTitle({ name }: { name: string }) {
     return (
         <>
             <span className="font-normal">How</span>{' '}
-            <span className="font-extrabold">{PRODUCT_NAMES.freeform}</span>{' '}
+            <span className="font-extrabold">{name}</span>{' '}
             <span className="font-normal">works</span>
         </>
     );
@@ -55,8 +55,25 @@ const HELP_STEPS: readonly { action: string; detail: string }[] = [
         detail: "You'll get your transcript, delivery feedback, and a single change to try next time.",
     },
 ];
+// #1046 Focus Points variant — same three-ideas shape, but the ideas are the objective loop: declare the
+// points, speak to them, see what landed. Slot D shows the live plan; this modal is the first-run guide.
+const OBJECTIVE_STEPS: readonly { action: string; detail: string }[] = [
+    {
+        action: 'Name the points that must land',
+        detail: 'List the few things you need to cover before you start.',
+    },
+    {
+        action: 'Speak to your points',
+        detail: 'Talk it through in your own words — no script, just hit each one.',
+    },
+    {
+        action: 'See what you covered',
+        detail: 'Each point is marked covered or missed, so you know exactly what to retry.',
+    },
+];
 // a11y description (Radix requires one); the visible content is the title + three items.
 const HELP_DESCRIPTION = 'A quick guide to a freeform practice session in three steps.';
+const OBJECTIVE_DESCRIPTION = 'A quick guide to a Focus Points practice session in three steps.';
 const HELP_DISABLED_REASON =
     'Finish the current recording, save, or recovery step to view this guide.';
 
@@ -64,15 +81,22 @@ export function FreeformHelpOverlay({
     available,
     className = '',
     onStart,
+    variant = 'freeform',
 }: {
     available: boolean;
     className?: string;
     /** Optional: called after the primary CTA closes the modal, so the page can focus the mic. */
     onStart?: () => void;
+    /** #1046 — 'objective' switches the title/steps to "How Focus Points works"; defaults to Open Floor. */
+    variant?: 'freeform' | 'objective';
 }) {
     const [open, setOpen] = React.useState(false);
     const triggerRef = React.useRef<HTMLButtonElement>(null);
     const disabled = !available;
+    const isObjective = variant === 'objective';
+    const helpName = isObjective ? PRODUCT_NAMES.objective : PRODUCT_NAMES.freeform;
+    const steps = isObjective ? OBJECTIVE_STEPS : HELP_STEPS;
+    const description = isObjective ? OBJECTIVE_DESCRIPTION : HELP_DESCRIPTION;
 
     React.useEffect(() => {
         if (disabled) setOpen(false);
@@ -93,7 +117,7 @@ export function FreeformHelpOverlay({
                 onClick={() => { if (!disabled) setOpen(true); }}
             >
                 <Play className="h-4 w-4 fill-current" aria-hidden="true" />
-                <HelpTitle />
+                <HelpTitle name={helpName} />
             </Button>
             {disabled && (
                 <span id="freeform-help-disabled-reason" className="sr-only">{HELP_DISABLED_REASON}</span>
@@ -110,12 +134,12 @@ export function FreeformHelpOverlay({
                     onCloseAutoFocus={(e) => { e.preventDefault(); triggerRef.current?.focus(); }}
                 >
                     <DialogTitle className="text-2xl font-extrabold tracking-[-0.025em] text-foreground">
-                        <HelpTitle />
+                        <HelpTitle name={helpName} />
                     </DialogTitle>
-                    <DialogDescription className="sr-only">{HELP_DESCRIPTION}</DialogDescription>
+                    <DialogDescription className="sr-only">{description}</DialogDescription>
 
                     <ol className="mt-5 space-y-[18px]" data-testid="freeform-help-steps">
-                        {HELP_STEPS.map((step, i) => (
+                        {steps.map((step, i) => (
                             <li key={step.action} className="flex items-start gap-3">
                                 {/* Branded amber numeral — same treatment as the coaching tips. */}
                                 <span
