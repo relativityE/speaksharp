@@ -708,9 +708,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     const focusPurpose = isCustomFocus
         ? 'Inspect specific metrics when you already know the signal you want to measure.'
         : selectedToolGroup.purpose;
-    const focusOutcome = isCustomFocus
-        ? 'Use it as an advanced measurement view after the main improvement goals answer your first question.'
-        : selectedToolGroup.outcome;
 
     const toggleCustomStatCard = (cardId: string) => {
         setCustomStatCards(prev => {
@@ -1026,32 +1023,16 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                             </div>
-                            <div className="rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm font-semibold leading-snug text-foreground/75">
-                                {focusOutcome}
-                            </div>
-                            <div className="grid gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-4 text-sm leading-snug text-foreground/80 md:grid-cols-[1fr_auto] md:items-center">
-                                <div className="space-y-1">
-                                    <p className="font-bold text-foreground">Why these tools are here</p>
-                                    <p className="font-medium">
-                                        Pace, fillers, clarity, activity, and transcript quality are the stored evidence you can inspect before your next session.
-                                    </p>
-                                </div>
-                                <div className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground/75 md:max-w-[260px]">
-                                    {isCustomFocus
-                                        ? 'Custom metrics answer their own question without changing the main coaching story.'
-                                        : `${focusLabel} shows which ingredient to improve before your next session.`}
-                                </div>
-                            </div>
                         </CardHeader>
                     </Card>
 
-                    {/* Stats Section Header */}
+                    {/* #G4 §2: the four cards explain their relationship by POSITION, not a sentence. Heading left,
+                        the evidence window right. The prior "selected together…" subtitle + focus explanation
+                        boxes are deleted (explanation lives behind the focus control / a ? , not as prose). */}
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div className="space-y-1">
-                            <h2 className="text-lg font-semibold text-foreground">Your {focusLabel} signals</h2>
-                            <p className="text-sm font-medium text-foreground/70">
-                                {isCustomFocus ? 'Selected tools are interpreted independently.' : 'These cards are selected together because they support the current focus.'}
-                            </p>
+                            <h2 className="text-lg font-semibold text-foreground">What that&rsquo;s based on</h2>
+                            <p className="text-sm font-medium text-foreground/70">Across your last 6 sessions</p>
                         </div>
                         {isCustomFocus && (
                             <DropdownMenu>
@@ -1252,27 +1233,16 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         {/* Session History Section - Moved below carousel */}
                         <div id="session-history-section">
                             <Card className="rounded-xl p-5">
-                                <div className="flex items-center justify-between mb-4">
-                                    <div>
-                                        <h2 className="text-xl font-bold text-foreground">Download PDF Reports</h2>
-                                        <p className="mt-1 text-sm font-medium text-foreground/70">Generate local PDF downloads from your saved session data.</p>
-                                        <div className="mt-3 flex items-center gap-2 text-[10px] md:text-xs font-semibold uppercase tracking-wider bg-secondary/10 text-secondary border border-secondary/20 px-3 py-1.5 rounded-full inline-flex">
-                                            <Activity className="h-3 w-3" />
-                                            <span>Rolling History: Last 50 Sessions Kept</span>
-                                        </div>
-                                    </div>
-                                    {selectedSessions.length === 2 && (
-                                        <Button
-                                            onClick={() => setShowComparison(true)}
-                                            className="bg-primary text-primary-foreground hover:bg-primary/90"
-                                        >
-                                            Compare Selected (2)
-                                        </Button>
-                                    )}
+                                <div className="mb-4">
+                                    {/* #G4 §5: "Recent sessions", capped at the 2 most recent. Neutral copy — the
+                                        transcript-purge (newest-2) is not live in prod yet, so we do NOT promise
+                                        "never stored longer than two sessions". This is true today and after it lands. */}
+                                    <h2 className="text-xl font-bold text-foreground">Recent sessions</h2>
+                                    <p className="mt-1 text-sm font-medium text-foreground/70">Your two most recent sessions. Download the PDF to keep a copy.</p>
                                 </div>
                                 <div className="space-y-3" data-testid={TEST_IDS.SESSION_HISTORY_LIST}>
                                     {sessionHistory && sessionHistory.length > 0 ? (
-                                        sessionHistory.map((session) => (
+                                        sessionHistory.slice(0, 2).map((session) => (
                                             <SessionHistoryItem
                                                 key={session.id}
                                                 session={session}
