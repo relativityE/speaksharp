@@ -41,12 +41,14 @@ export const CustomWordsBar: React.FC<{ className?: string }> = ({ className }) 
                 <span
                     tabIndex={0}
                     role="button"
-                    aria-label={`Tracking ${trackedCount} filler words. Hover or focus to see the list.`}
+                    aria-label={`Tracking common hesitation sounds. Hover or focus to see the ${trackedCount} tracked words.`}
                     data-testid="tracked-filler-trigger"
                     className="inline-flex cursor-help items-center gap-1.5 rounded text-[13px] font-semibold text-[#414b5c] outline-none hover:text-[#1f2733] focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                    Tracking {trackedCount} filler words
-                    {/* The (i) tells the user the count is hoverable — reveals WHICH words are tracked. */}
+                    {/* #1046 filler two-tier (reviewer): show the plain-English concept, not a bare count — a
+                        number ("Tracking 13") invites the user to game it and misrepresents the tiering.
+                        The exact list + count live behind the (i). */}
+                    Tracking common hesitation sounds
                     <Info className="h-[15px] w-[15px] text-[#8a97a8]" aria-hidden="true" />
                 </span>
                 <div
@@ -54,7 +56,7 @@ export const CustomWordsBar: React.FC<{ className?: string }> = ({ className }) 
                     data-testid="tracked-filler-list"
                     className="pointer-events-none absolute bottom-full left-0 z-20 mb-2 hidden w-max max-w-[320px] rounded-lg border border-[#dbe2ec] bg-white p-3 shadow-lg group-hover:block group-focus-within:block"
                 >
-                    <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-[#6d7a8c]">Tracked filler words</p>
+                    <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-[#6d7a8c]">Tracked words ({trackedCount})</p>
                     <div className="flex flex-wrap gap-1.5">
                         {allWords.map((w, i) => (
                             <span key={`${w}-${i}`} className="rounded-full bg-[#f1f5f9] px-2 py-0.5 text-[12px] text-[#334155]">{w}</span>

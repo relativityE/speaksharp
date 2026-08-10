@@ -8,8 +8,8 @@ describe('CustomWordsBar (#1222 G1)', () => {
     it('shows the tracked filler-word count — exactly the 13 built-in words when no custom words', () => {
         render(<CustomWordsBar />);
         const bar = screen.getByTestId('custom-words-bar');
-        // 13 = the static FILLER_WORD_KEYS set; custom additions add to this (reactive via the hook).
-        expect(bar).toHaveTextContent('Tracking 13 filler words');
+        // #1046 filler two-tier: the plain-English concept shows; the exact count lives behind the (i).
+        expect(bar).toHaveTextContent('Tracking common hesitation sounds');
     });
 
     it('reveals the custom-word manager when "Add your filler words" is clicked', () => {
@@ -22,7 +22,7 @@ describe('CustomWordsBar (#1222 G1)', () => {
     it('exposes the tracked filler-word list (hover/focus) with the built-in words', () => {
         render(<CustomWordsBar />);
         const trigger = screen.getByTestId('tracked-filler-trigger');
-        expect(trigger).toHaveTextContent(/Tracking\s+\d+\s+filler words/i);
+        expect(trigger).toHaveTextContent(/Tracking common hesitation sounds/i);
         const list = screen.getByTestId('tracked-filler-list');
         // The built-in vocabulary is enumerated in the panel (um / actually are static filler keys).
         expect(list).toHaveTextContent('um');

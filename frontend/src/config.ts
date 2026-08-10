@@ -17,6 +17,19 @@ export const FILLER_WORD_KEYS = {
   SORT_OF: 'Sort Of',
 } as const;
 
+// #1046 filler two-tier (reviewer-approved): only three of the tracked words are TRUE, non-lexical
+// fillers ("hesitation sounds") — um/uh/ah (uh also matches er). The other ten are DISCOURSE MARKERS
+// (like/so/actually/…) that are legitimate in most speech; flagging every occurrence produced false
+// coaching (e.g. reading "…who is actually in the arena…"). Coaching is gated to true fillers + the
+// user's own words unless a discourse marker is genuinely overused (see the coaching guard in
+// liveCoaching). 3 true + 10 discourse = the 13 tracked patterns.
+export const TRUE_FILLER_WORDS: readonly string[] = [FILLER_WORD_KEYS.UM, FILLER_WORD_KEYS.UH, FILLER_WORD_KEYS.AH];
+export const DISCOURSE_MARKER_WORDS: readonly string[] = [
+  FILLER_WORD_KEYS.LIKE, FILLER_WORD_KEYS.YOU_KNOW, FILLER_WORD_KEYS.SO, FILLER_WORD_KEYS.ACTUALLY,
+  FILLER_WORD_KEYS.OH, FILLER_WORD_KEYS.I_MEAN, FILLER_WORD_KEYS.BASICALLY, FILLER_WORD_KEYS.LITERALLY,
+  FILLER_WORD_KEYS.KIND_OF, FILLER_WORD_KEYS.SORT_OF,
+];
+
 // NOTE: session/usage limits are NOT defined here. The authoritative source is the DB
 // `tier_configs` reconciled with `constants/subscriptionTiers.ts` (Pro = 7200s/day, NOT
 // unlimited). A former `SESSION_LIMITS` constant here was dead code carrying a stale

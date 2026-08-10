@@ -38,10 +38,18 @@ describe('verdictFromSuggestions (#1222 S12b)', () => {
         expect(v.fix).toBe('Pause before key points');
     });
 
-    it('falls back honestly to the dominant filler when there are no suggestions', () => {
-        const v = verdictFromSuggestions(null, fillers({ um: 5, so: 2 }));
+    it('falls back honestly to the dominant filler when it is genuinely overused', () => {
+        // um ×5 over 60s = 5/min, well past the true-filler coaching threshold.
+        const v = verdictFromSuggestions(null, fillers({ um: 5, so: 2 }), 60);
         expect(v.verdictLine).toMatch(/saved/i);
         expect(v.fix).toMatch(/um/);
+    });
+
+    it('does NOT coach a legitimate discourse marker below its (higher) rate threshold (#1046 guard)', () => {
+        // "actually" ×2 over 60s = 2/min — a normal amount of a real word. It must not become the fix.
+        const v = verdictFromSuggestions(null, fillers({ actually: 2 }), 60);
+        expect(v.fix).not.toMatch(/actually/);
+        expect(v.fix).toMatch(/baseline/i);
     });
 
     it('has a safe generic fix when there is no signal at all', () => {
