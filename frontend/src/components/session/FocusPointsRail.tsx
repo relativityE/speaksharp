@@ -18,6 +18,9 @@ import type { FocusCoverageRow } from '@/utils/focusCoverage';
 export interface FocusPointsRailProps {
     rows: FocusCoverageRow[];
     sessionState: 'before' | 'during' | 'after';
+    /** #1046 G6/G7: the topic (the `goal`), shown above the points as an unnumbered header — never a point,
+     *  never checked for coverage. null/blank ⇒ no topic line (e.g. a set saved before topic was threaded). */
+    topic?: string | null;
     /** During: the first not-yet-covered point — highlighted "Still to cover". */
     nextIndex?: number | null;
     onEdit?: () => void;
@@ -47,13 +50,16 @@ const Marker: React.FC<{ kind: 'pending' | 'covered' | 'next' | 'missed'; index:
 export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
     rows,
     sessionState,
+    topic,
     nextIndex,
     onEdit,
     onRetry,
     onNewSet,
 }) => {
     const isAfter = sessionState === 'after';
-    const title = isAfter ? 'What you covered' : 'Your points';
+    // §3: the card names the TASK, not ownership. before/during = "Points to cover"; after = "What you covered".
+    const title = isAfter ? 'What you covered' : 'Points to cover';
+    const topicLabel = (topic ?? '').trim();
 
     return (
         <section
@@ -75,7 +81,16 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                 )}
             </div>
 
-            <ol className="mt-3 space-y-[13px]" data-testid="focus-points-rail-list">
+            {/* §3: the topic is a header, never a point — no marker, no numeral, never checked for coverage.
+                It sits above the list with a divider so it reads as context, not an item to cover. */}
+            {topicLabel !== '' && (
+                <div data-testid="focus-points-topic" className="border-b border-[#eef1f6] pb-[14px]">
+                    <div className="mb-1 mt-3 text-[17px] font-extrabold tracking-[-0.02em] text-[#1f2733]">{topicLabel}</div>
+                    <div className="text-[12px] font-bold uppercase tracking-[0.04em] text-[#8b95a5]">Your topic</div>
+                </div>
+            )}
+
+            <ol className="mt-[14px] space-y-[13px]" data-testid="focus-points-rail-list">
                 {rows.map((row, i) => {
                     const isNext = sessionState === 'during' && !row.covered && nextIndex === i;
                     const isMissed = isAfter && !row.covered;

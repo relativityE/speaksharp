@@ -72,7 +72,8 @@ describe('#1046 ObjectiveSetupForm (capture UI)', () => {
         fireEvent.change(screen.getByTestId('objective-point-label-0'), { target: { value: 'Name the price' } });
         fireEvent.click(screen.getByTestId('objective-setup-submit'));
 
-        await waitFor(() => expect(onReady).toHaveBeenCalledWith({ briefId: 'b1', projectId: 'p1', points: ['Name the price'] }));
+        // #1046 G6/G7: onReady now carries the topic (the goal) so slot D can render it above the points.
+        await waitFor(() => expect(onReady).toHaveBeenCalledWith({ briefId: 'b1', projectId: 'p1', points: ['Name the price'], topic: 'Sales or product pitch' }));
         expect(startObjectiveBrief).toHaveBeenCalledWith({
             goal: 'Sales or product pitch',
             points: [{ label: 'Name the price' }],

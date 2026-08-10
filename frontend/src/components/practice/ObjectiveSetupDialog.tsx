@@ -23,7 +23,7 @@ export function ObjectiveSetupDialog({
     onOpenChange: (open: boolean) => void;
     /** Called once the brief is persisted; the caller binds it (with the declared point labels) and
      *  navigates into the session. */
-    onReady: (result: { briefId: string; projectId: string; points: string[] }) => void;
+    onReady: (result: { briefId: string; projectId: string; points: string[]; topic: string }) => void;
 }) {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>

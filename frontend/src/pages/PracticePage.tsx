@@ -214,8 +214,8 @@ export default function PracticePage() {
 
   // A saved brief binds to the store and routes into the session; the stop seam then finalizes per-point
   // coverage (slice 5a). setActiveObjectiveBrief is CONSUMED at the stop seam, so binding here is safe.
-  const handleObjectiveReady = ({ briefId, projectId, points }: { briefId: string; projectId: string; points: string[] }) => {
-    useSessionStore.getState().setActiveObjectiveBrief({ projectId, briefId, points });
+  const handleObjectiveReady = ({ briefId, projectId, points, topic }: { briefId: string; projectId: string; points: string[]; topic: string }) => {
+    useSessionStore.getState().setActiveObjectiveBrief({ projectId, briefId, points, topic });
     setObjectiveSetupOpen(false);
     navigate('/session');
   };

@@ -73,6 +73,9 @@ export interface SessionOverhaulViewProps {
      * (after) instead of the verdict. null/empty ⇒ an Open Mic session (unchanged coaching path).
      */
     objectivePoints?: string[] | null;
+    /** #1046 G6/G7 — the Focus Points topic (the `goal`), shown above the points in slot D and NEVER scored
+     *  as one. null ⇒ Open Mic, or a set saved before the topic was threaded. */
+    objectiveTopic?: string | null;
     /** #1046 Focus Points — per-point coverage resolved at stop (same shape as the rail); null until then.
      *  Retained for the SessionPage contract; the view now derives its own live+final coverage from the
      *  transcript (see focusCoverage) so slot C, slot D, and the highlights share one source. */
@@ -107,6 +110,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     isFinalizing,
     finalizeEstimateSeconds,
     objectivePoints,
+    objectiveTopic,
     onEditPoints,
     onRetryPoints,
     onNewSet,
@@ -244,13 +248,13 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         ? <CoverageThisRun covered={coverage.coveredCount} total={coverage.total} sessionState={sessionState} elapsedSeconds={elapsedTime} />
         : undefined;
     const objectivePlanSlotD = coverage
-        ? <FocusPointsRail rows={coverage.rows} sessionState="before" onEdit={onEditPoints} />
+        ? <FocusPointsRail rows={coverage.rows} topic={objectiveTopic ?? null} sessionState="before" onEdit={onEditPoints} />
         : undefined;
     const objectiveDuringSlotD = coverage
-        ? <FocusPointsRail rows={coverage.rows} sessionState="during" nextIndex={coverage.nextIndex} />
+        ? <FocusPointsRail rows={coverage.rows} topic={objectiveTopic ?? null} sessionState="during" nextIndex={coverage.nextIndex} />
         : undefined;
     const objectiveAfterSlotD = coverage
-        ? <FocusPointsRail rows={coverage.rows} sessionState="after" onRetry={onRetryPoints ?? onStartStop} onNewSet={onNewSet} />
+        ? <FocusPointsRail rows={coverage.rows} topic={objectiveTopic ?? null} sessionState="after" onRetry={onRetryPoints ?? onStartStop} onNewSet={onNewSet} />
         : undefined;
 
     if (sessionState === 'before') {

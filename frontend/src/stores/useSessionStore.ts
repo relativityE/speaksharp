@@ -104,7 +104,7 @@ export interface SessionState {
      * to finalize per-point coverage; CONSUMED (set null) immediately after finalize fires, so a stale
      * brief can never leak an Open Mic recording into Focus Points scoring (the isolation invariant).
      */
-    activeObjectiveBrief: { projectId: string; briefId: string; points?: string[] } | null;
+    activeObjectiveBrief: { projectId: string; briefId: string; points?: string[]; topic?: string } | null;
     /**
      * #1046 slice 5a: per-point Focus Points coverage for the settled Session page, or null when the
      * completed recording was not a Focus Points session. Mirrors {@link finalizedAnalysis}'s lifecycle
@@ -149,7 +149,7 @@ interface SessionActions {
     setTranscriptFinalizing: (finalizing: boolean) => void;
     setCaptureLimitReached: (info: { bufferedSeconds: number; limitSeconds: number } | null) => void;
     setCompletedSessionDuration: (seconds: number | null) => void;
-    setActiveObjectiveBrief: (brief: { projectId: string; briefId: string; points?: string[] } | null) => void;
+    setActiveObjectiveBrief: (brief: { projectId: string; briefId: string; points?: string[]; topic?: string } | null) => void;
     setObjectiveCoverageResult: (rows: ObjectiveCoverageRow[] | null) => void;
     setPauseMetrics: (metrics: PauseMetrics) => void;
     setLockHeldByOther: (held: boolean) => void;

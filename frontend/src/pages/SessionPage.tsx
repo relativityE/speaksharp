@@ -437,6 +437,7 @@ export const SessionPage: React.FC = () => {
                     isFinalizing={isTranscriptFinalizing}
                     finalizeEstimateSeconds={finalizeEstimateSeconds}
                     objectivePoints={activeObjectiveBrief?.points ?? null}
+                    objectiveTopic={activeObjectiveBrief?.topic ?? null}
                     objectiveCoverage={objectiveCoverageResult}
                 />
             </div>
