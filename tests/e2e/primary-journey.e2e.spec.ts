@@ -94,7 +94,9 @@ test.describe('Primary User Journey Matrix', () => {
         // Free users do not see dead upgrade buttons.
         await expect(page.getByTestId('analytics-page-upgrade-button')).toHaveCount(0);
       } else {
-        await expect(page.getByText(/Pro active/i)).toBeVisible();
+        // #G4 chunk 3: the "Pro active" pill was removed; a Pro user's signal is simply the ABSENCE of
+        // any upgrade CTA (entitlement is not a headline the analytics page needs to shout).
+        await expect(page.getByTestId('analytics-page-upgrade-button')).toHaveCount(0);
       }
 
       // 10. Persistence Check (History count increment)
