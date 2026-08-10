@@ -82,11 +82,18 @@ interface StatCardProps {
     testId?: string;
 }
 
-// Tone → color for the decoded coaching label (good = on target, watch = drifting, off = needs work).
-const COACHING_TONE_TEXT: Record<CoachingMetric['tone'], string> = {
-    good: 'text-emerald-700',
-    watch: 'text-amber-700',
-    off: 'text-rose-700',
+// #G4 §2: one chip scale + number color for the four signal cards. `nodata` = no evidence yet (NEED 2 MORE),
+// `ontrack` = on target (good), `fix` = needs attention (watch/off). Colors from the four-role palette.
+type G4Status = 'fix' | 'ontrack' | 'nodata';
+const G4_CHIP: Record<G4Status, { text: string; cls: string }> = {
+    fix: { text: 'FIX THIS', cls: 'bg-[#fdf3e2] text-[#8a5510]' },
+    ontrack: { text: 'ON TRACK', cls: 'bg-[#e7f4ed] text-[#146b4a]' },
+    nodata: { text: 'NEED 2 MORE', cls: 'bg-[#eef1f6] text-[#5a6472]' },
+};
+const G4_NUM_COLOR: Record<G4Status, string> = {
+    fix: 'text-[#a8321f]',
+    ontrack: 'text-[#146b4a]',
+    nodata: 'text-[#8b95a5]',
 };
 
 interface SessionHistoryItemProps {
@@ -384,20 +391,27 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
 
     // Narrative-first: when the value is decoded into a coaching label, the LABEL is the anchor and
     // the raw number drops to small supporting detail (action first, reason second, metrics third).
-    if (interpretation && !evidenceMissing) {
+    if (interpretation) {
+        // #G4 §2: every signal card is the SAME four parts in the same order — name, status chip, coloured
+        // number+unit, one sentence. `nodata` states its unlock path instead of a dead "Not enough data".
+        const status: G4Status = evidenceMissing ? 'nodata' : (interpretation.tone === 'good' ? 'ontrack' : 'fix');
+        const chip = G4_CHIP[status];
+        const unitText = displayUnit ? (displayUnit === 'WPM' ? ' wpm' : displayUnit) : '';
+        const sentence = evidenceMissing
+            ? 'A couple more sessions and we can read this.'
+            : status === 'ontrack'
+                ? `${interpretation.label} — leave this alone.`
+                : `${interpretation.label}${microcopy ? ` — ${microcopy}` : ''}`;
         return (
             <Card className={`rounded-xl p-5 ${className}`} data-testid={resolvedTestId}>
-                <p
-                    className={`text-2xl font-bold tracking-tight ${COACHING_TONE_TEXT[interpretation.tone]}`}
-                    data-testid={`${resolvedTestId}-interpretation`}
-                >
-                    {interpretation.label}
+                <div className="flex items-start justify-between gap-2">
+                    <p className="text-[12px] font-extrabold uppercase tracking-wide text-[#414b5c]">{label}</p>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${chip.cls}`} data-testid={`${resolvedTestId}-chip`}>{chip.text}</span>
+                </div>
+                <p className={`mt-3 text-[34px] font-extrabold leading-none ${G4_NUM_COLOR[status]}`} data-testid={`${resolvedTestId}-interpretation`}>
+                    {evidenceMissing ? '—' : <>{displayValue}<span className="ml-1 text-[14px] font-bold text-foreground/55">{unitText}</span></>}
                 </p>
-                <p className="mt-1 text-sm font-semibold text-foreground/80">{label}</p>
-                <p className="mt-1 text-xs font-medium text-foreground/55" data-testid={`${resolvedTestId}-detail`}>
-                    {/* Cue first, number second: e.g. "Steady spacing helps ideas land · 8/min". */}
-                    {microcopy ? `${microcopy} · ` : ''}{displayValue}{displayUnit ? (displayUnit === 'WPM' ? ` ${displayUnit}` : displayUnit) : ''}
-                </p>
+                <p className="mt-2 text-[13px] leading-snug text-[#414b5c]" data-testid={`${resolvedTestId}-detail`}>{sentence}</p>
             </Card>
         );
     }
@@ -708,9 +722,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     const focusPurpose = isCustomFocus
         ? 'Inspect specific metrics when you already know the signal you want to measure.'
         : selectedToolGroup.purpose;
-    const focusOutcome = isCustomFocus
-        ? 'Use it as an advanced measurement view after the main improvement goals answer your first question.'
-        : selectedToolGroup.outcome;
 
     const toggleCustomStatCard = (cardId: string) => {
         setCustomStatCards(prev => {
@@ -1026,32 +1037,16 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                             </div>
-                            <div className="rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm font-semibold leading-snug text-foreground/75">
-                                {focusOutcome}
-                            </div>
-                            <div className="grid gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-4 text-sm leading-snug text-foreground/80 md:grid-cols-[1fr_auto] md:items-center">
-                                <div className="space-y-1">
-                                    <p className="font-bold text-foreground">Why these tools are here</p>
-                                    <p className="font-medium">
-                                        Pace, fillers, clarity, activity, and transcript quality are the stored evidence you can inspect before your next session.
-                                    </p>
-                                </div>
-                                <div className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground/75 md:max-w-[260px]">
-                                    {isCustomFocus
-                                        ? 'Custom metrics answer their own question without changing the main coaching story.'
-                                        : `${focusLabel} shows which ingredient to improve before your next session.`}
-                                </div>
-                            </div>
                         </CardHeader>
                     </Card>
 
-                    {/* Stats Section Header */}
+                    {/* #G4 §2: the four cards explain their relationship by POSITION, not a sentence. Heading left,
+                        the evidence window right. The prior "selected together…" subtitle + focus explanation
+                        boxes are deleted (explanation lives behind the focus control / a ? , not as prose). */}
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div className="space-y-1">
-                            <h2 className="text-lg font-semibold text-foreground">Your {focusLabel} signals</h2>
-                            <p className="text-sm font-medium text-foreground/70">
-                                {isCustomFocus ? 'Selected tools are interpreted independently.' : 'These cards are selected together because they support the current focus.'}
-                            </p>
+                            <h2 className="text-lg font-semibold text-foreground">{"What that’s based on"}</h2>
+                            <p className="text-sm font-medium text-foreground/70">Across your last 6 sessions</p>
                         </div>
                         {isCustomFocus && (
                             <DropdownMenu>
@@ -1085,8 +1080,9 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         )}
                     </div>
 
-                    {/* Narrative-first: action first, reason second. One recommendation, the driver, and
-                        a connecting sentence — the four cards below are the supporting evidence. */}
+                    {/* #G4 §1 HERO — "Do this next". The single instruction leads (imperative sentence), the
+                        quantified evidence sits directly beneath it (numbers bold, inline), and three concrete
+                        "what to try" steps sit in the purple insight column. Quantitative drives qualitative. */}
                     {Number(overallStats.totalSessions) > 0 && (() => {
                         const summary = getNarrativeSummary({
                             avgWpm: overallStats.averageWPM,
@@ -1094,14 +1090,58 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             avgFillerWordsPerMin: overallStats.avgFillerWordsPerMin,
                             avgClarity: overallStats.avgClarity,
                         });
+                        const wpm = Math.round(Number(overallStats.averageWPM) || 0);
+                        const fillers = Math.round((Number(overallStats.avgFillerWordsPerMin) || 0) * 10) / 10;
+                        const clarity = Math.round(Number(overallStats.avgClarity) || 0);
+                        const pauses = Math.round((Number(overallStats.avgPausesPerMin) || 0) * 10) / 10;
+                        // Per-driver evidence (numbers bold inline) + three physical steps. Falls back to a
+                        // maintenance instruction when every signal is on target (summary.driver === null).
+                        const detail: { evidence: React.ReactNode; steps: string[] } = (() => {
+                            switch (summary.driver) {
+                                case 'pace':
+                                    return { evidence: <>You&rsquo;re averaging <strong>{wpm} wpm</strong> against your <strong>130&ndash;150</strong> target. {summary.why}</>,
+                                        steps: ['Read your opening 20% faster than feels right.', 'Slow down only for the one line you most want remembered.', 'Stop at 60 seconds and check the pace band.'] };
+                                case 'filler words':
+                                    return { evidence: <>You&rsquo;re at <strong>{fillers}/min</strong> filler words. {summary.why}</>,
+                                        steps: ['Swap one filler for a half-second silent pause.', 'Slow the sentence you rush most — fillers cluster there.', 'Re-record the same 30 seconds and count them out loud.'] };
+                                case 'pause rhythm':
+                                    return { evidence: <>Your pauses run <strong>{pauses}/min</strong>. {summary.why}</>,
+                                        steps: ['Finish the whole phrase before you pause.', 'Take one deliberate breath before the key point.', 'Cut mid-word restarts — pause, then continue.'] };
+                                case 'clear delivery':
+                                    return { evidence: <>Your clarity is <strong>{clarity}%</strong>. {summary.why}</>,
+                                        steps: ['Say the main point first, the context second.', 'One idea per sentence — split the long ones.', 'End each thought on a falling tone, not a trailing one.'] };
+                                default:
+                                    return { evidence: <>{summary.why}</>,
+                                        steps: ['Keep the pace steady.', 'Land the takeaway cleanly.', 'Record another take to hold the trend.'] };
+                            }
+                        })();
                         return (
-                            <div className="rounded-xl border border-primary/20 bg-primary/5 p-5" data-testid="try-this-next">
-                                <p className="text-xs font-bold uppercase tracking-wide text-primary">Try this next</p>
-                                <p className="mt-1 text-base font-semibold text-foreground" data-testid="try-this-next-action">{summary.action}</p>
-                                {summary.driverDisplay && (
-                                    <p className="mt-2 text-sm font-semibold text-foreground/80" data-testid="try-this-next-driver">Main driver: {summary.driverDisplay}</p>
-                                )}
-                                <p className="mt-0.5 text-xs font-medium text-foreground/65" data-testid="try-this-next-why">{summary.why}</p>
+                            <div className="rounded-xl border border-[#dbe2ec] border-t-[3px] border-t-[#6d28d9] bg-white p-6 shadow-sm" data-testid="try-this-next">
+                                <div className="grid gap-6 md:grid-cols-[1fr_300px] md:items-start">
+                                    <div>
+                                        <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-[#6d28d9]">◎ Do this next</p>
+                                        <p className="mt-2 text-[30px] font-extrabold leading-[1.1] tracking-[-0.02em] text-[#1f2733]" data-testid="try-this-next-action">{summary.action}</p>
+                                        <p className="mt-3 text-[16px] leading-relaxed text-[#232c3a]" data-testid="try-this-next-why">{detail.evidence}</p>
+                                        <div className="mt-5 flex items-center gap-4">
+                                            <a href="/session" className="inline-flex items-center rounded-[10px] bg-[#0d7d74] px-4 py-2.5 text-[15px] font-bold text-white hover:bg-[#0a5f58]" data-testid="hero-practise-now">Practise this now</a>
+                                            <details className="text-[13px] font-bold text-[#0d7d74]">
+                                                <summary className="cursor-pointer list-none hover:underline" data-testid="hero-method">How we worked this out</summary>
+                                                <p className="mt-2 max-w-md text-[13px] font-normal leading-snug text-[#414b5c]">We compare each delivery signal (pace, fillers, clarity, pause rhythm) against its target across your last 6 sessions and surface the one with the largest, most persistent gap — never more than one at a time.</p>
+                                            </details>
+                                        </div>
+                                    </div>
+                                    <div className="rounded-lg bg-[#f5f0ff] p-4" data-testid="hero-what-to-try">
+                                        <p className="text-[11px] font-extrabold uppercase tracking-wide text-[#5b21b6]">What to try</p>
+                                        <ol className="mt-3 space-y-3">
+                                            {detail.steps.map((step, i) => (
+                                                <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-[#232c3a]">
+                                                    <span className="font-extrabold text-[#6d28d9]">{i + 1}</span>
+                                                    <span>{step}</span>
+                                                </li>
+                                            ))}
+                                        </ol>
+                                    </div>
+                                </div>
                             </div>
                         );
                     })()}
@@ -1252,19 +1292,18 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         {/* Session History Section - Moved below carousel */}
                         <div id="session-history-section">
                             <Card className="rounded-xl p-5">
-                                <div className="flex items-center justify-between mb-4">
+                                {/* #G4 §5: "Recent sessions" — exactly the 2 most recent (the retention window, not a
+                                    truncation). Transcripts + audio purge beyond 2 (R1/R2 live in prod), metrics rows
+                                    persist permanently — so the "we keep only 2" promise is now honest. */}
+                                <div className="mb-4 flex items-start justify-between gap-3">
                                     <div>
-                                        <h2 className="text-xl font-bold text-foreground">Download PDF Reports</h2>
-                                        <p className="mt-1 text-sm font-medium text-foreground/70">Generate local PDF downloads from your saved session data.</p>
-                                        <div className="mt-3 flex items-center gap-2 text-[10px] md:text-xs font-semibold uppercase tracking-wider bg-secondary/10 text-secondary border border-secondary/20 px-3 py-1.5 rounded-full inline-flex">
-                                            <Activity className="h-3 w-3" />
-                                            <span>Rolling History: Last 50 Sessions Kept</span>
-                                        </div>
+                                        <h2 className="text-xl font-bold text-foreground">Recent sessions</h2>
+                                        <p className="mt-1 text-sm font-medium text-foreground/70">We only keep the 2 most recent transcripts. Download the PDF while available.</p>
                                     </div>
                                     {selectedSessions.length === 2 && (
                                         <Button
                                             onClick={() => setShowComparison(true)}
-                                            className="bg-primary text-primary-foreground hover:bg-primary/90"
+                                            className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
                                         >
                                             Compare Selected (2)
                                         </Button>
@@ -1272,7 +1311,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 </div>
                                 <div className="space-y-3" data-testid={TEST_IDS.SESSION_HISTORY_LIST}>
                                     {sessionHistory && sessionHistory.length > 0 ? (
-                                        sessionHistory.map((session) => (
+                                        sessionHistory.slice(0, 2).map((session) => (
                                             <SessionHistoryItem
                                                 key={session.id}
                                                 session={session}
@@ -1289,6 +1328,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         </div>
                                     )}
                                 </div>
+                                {sessionHistory && sessionHistory.length > 0 && (
+                                    <p className="mt-4 border-t border-[#eef1f6] pt-3 text-xs font-medium text-foreground/60">
+                                        Private to you. Transcripts are never stored beyond your two most recent sessions.
+                                    </p>
+                                )}
                             </Card>
                         </div>
                     </div>
