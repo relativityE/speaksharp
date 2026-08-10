@@ -144,11 +144,13 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('analytics-dashboard')).toBeInTheDocument();
         expect(screen.getByText('Analytics Focus')).toBeInTheDocument();
         expect(screen.getByText('Sound Confident')).toBeInTheDocument();
-        expect(screen.getByText('Why these tools are here')).toBeInTheDocument();
-        expect(screen.getByText(/stored evidence you can inspect/i)).toBeInTheDocument();
         expect(screen.queryByText(/SpeakSharp Score/i)).not.toBeInTheDocument();
-        expect(screen.getByText(/Sound Confident shows which ingredient to improve/i)).toBeInTheDocument();
-        expect(screen.getByText(/These cards are selected together/i)).toBeInTheDocument();
+        // #G4: the explanation boxes + "selected together" subtitle are gone; the section leads with a
+        // position-based heading instead of a sentence.
+        expect(screen.queryByText('Why these tools are here')).not.toBeInTheDocument();
+        expect(screen.queryByText(/These cards are selected together/i)).not.toBeInTheDocument();
+        expect(screen.getByText(/that.s based on/i)).toBeInTheDocument();
+        expect(screen.getAllByText(/Across your last 6 sessions/i).length).toBeGreaterThan(0);
         expect(screen.getByTestId('stat-card-clarity_score')).toBeInTheDocument();
         expect(screen.queryByText('Delivery Control')).not.toBeInTheDocument();
         expect(screen.queryByText('Message Clarity')).not.toBeInTheDocument();
@@ -185,16 +187,14 @@ describe('AnalyticsDashboard', () => {
             statCards: ['stat-card-total_sessions', 'stat-card-total_practice_time', 'stat-card-avg_session_length', 'stat-card-clarity_score'],
             hasTranscriptQuality: false,
         },
-    ])('renders the $label analytics focus as a coherent user story', ({ id, label, outcome, statCards, hasTranscriptQuality }) => {
+    ])('renders the $label analytics focus as a coherent user story', ({ id, label, statCards, hasTranscriptQuality }) => {
         localStorage.setItem('speaksharp_analytics_tool_group_v1', id);
 
         renderComponent({ sessionHistory: mockSessionHistory });
 
         expect(screen.getByRole('heading', { name: label })).toBeInTheDocument();
-        expect(screen.getByText(outcome)).toBeInTheDocument();
-        expect(screen.getByText(`Your ${label} signals`)).toBeInTheDocument();
-        expect(screen.getByText(`${label} Tools`)).toBeInTheDocument();
-        expect(screen.getByText(new RegExp(`${label} shows which ingredient to improve`, 'i'))).toBeInTheDocument();
+        // #G4: focus explanation boxes deleted; signals section leads with a position-based heading.
+        expect(screen.getByText(/that.s based on/i)).toBeInTheDocument();
         for (const testId of statCards) {
             expect(screen.getByTestId(testId)).toBeInTheDocument();
         }
@@ -208,16 +208,17 @@ describe('AnalyticsDashboard', () => {
         localStorage.setItem('speaksharp_analytics_tool_group_v1', 'sound_confident');
         renderComponent({ sessionHistory: mockSessionHistory });
 
-        // Narrative-first: cards lead with the decoded coaching label.
-        expect(screen.getByTestId('stat-card-speaking_pace-interpretation')).toHaveTextContent('Slow');
-        expect(screen.getByTestId('stat-card-pause_rhythm-interpretation')).toHaveTextContent('Smooth');
-        expect(screen.getByTestId('stat-card-clarity_score-interpretation')).toHaveTextContent('Strong');
+        // #G4 §2: cards lead with the NUMBER; the coaching label + guidance sit in the one sentence below.
+        expect(screen.getByTestId('stat-card-speaking_pace-detail')).toHaveTextContent('Slow');
+        expect(screen.getByTestId('stat-card-pause_rhythm-detail')).toHaveTextContent('Smooth');
+        expect(screen.getByTestId('stat-card-clarity_score-detail')).toHaveTextContent('Strong');
+        // The status chip carries the one scale (fix / on track / need more).
+        expect(screen.getByTestId('stat-card-speaking_pace-chip')).toHaveTextContent('FIX THIS');
+        expect(screen.getByTestId('stat-card-pause_rhythm-chip')).toHaveTextContent('ON TRACK');
 
-        // Narrative-first: action first, then the named driver and a connecting "why".
+        // #G4 §1 hero: the imperative action leads; the evidence paragraph carries the connecting "why".
         expect(screen.getByTestId('try-this-next-action'))
             .toHaveTextContent('Pick up the pace on familiar points.');
-        expect(screen.getByTestId('try-this-next-driver'))
-            .toHaveTextContent('Main driver: Speaking Pace — Slow');
         expect(screen.getByTestId('try-this-next-why'))
             .toHaveTextContent('Your pause rhythm and clear delivery are steady; pace is the main adjustment.');
     });
@@ -251,8 +252,7 @@ describe('AnalyticsDashboard', () => {
 
         expect(screen.getByRole('heading', { name: 'Custom' })).toBeInTheDocument();
         expect(screen.getByText(/specific metrics/i)).toBeInTheDocument();
-        expect(screen.getByText(/Custom metrics answer their own question/i)).toBeInTheDocument();
-        expect(screen.getByText(/Selected tools are interpreted independently/i)).toBeInTheDocument();
+        // #G4: the focus explanation boxes + "interpreted independently" subtitle are deleted.
         expect(screen.getByRole('button', { name: /choose stat cards/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /choose analysis tools/i })).toBeInTheDocument();
         expect(screen.getByTestId('stat-card-total_sessions')).toBeInTheDocument();
@@ -609,17 +609,9 @@ describe('AnalyticsDashboard', () => {
                     engine: 'cloud',
                 },
                 {
-                    id: 'private-session',
-                    user_id: 'test-user',
-                    created_at: '2023-01-02T10:00:00Z',
-                    duration: 60,
-                    total_words: 120,
-                    engine: 'private',
-                },
-                {
                     id: 'native-session',
                     user_id: 'test-user',
-                    created_at: '2023-01-03T10:00:00Z',
+                    created_at: '2023-01-02T10:00:00Z',
                     duration: 60,
                     total_words: 120,
                     engine: 'native',
@@ -627,8 +619,8 @@ describe('AnalyticsDashboard', () => {
             ],
         });
 
+        // #G4 §5: Recent sessions renders the 2 most recent only, so assert the two shown rows.
         expect(screen.getByTestId('session-engine-badge-cloud-session')).toHaveTextContent('Cloud');
-        expect(screen.getByTestId('session-engine-badge-private-session')).toHaveTextContent('Private');
         expect(screen.getByTestId('session-engine-badge-native-session')).toHaveTextContent('Browser');
     });
 

@@ -400,7 +400,7 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
         const sentence = evidenceMissing
             ? 'A couple more sessions and we can read this.'
             : status === 'ontrack'
-                ? 'On track — leave this alone.'
+                ? `${interpretation.label} — leave this alone.`
                 : `${interpretation.label}${microcopy ? ` — ${microcopy}` : ''}`;
         return (
             <Card className={`rounded-xl p-5 ${className}`} data-testid={resolvedTestId}>
@@ -1045,7 +1045,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         boxes are deleted (explanation lives behind the focus control / a ? , not as prose). */}
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div className="space-y-1">
-                            <h2 className="text-lg font-semibold text-foreground">What that&rsquo;s based on</h2>
+                            <h2 className="text-lg font-semibold text-foreground">{"What that’s based on"}</h2>
                             <p className="text-sm font-medium text-foreground/70">Across your last 6 sessions</p>
                         </div>
                         {isCustomFocus && (
@@ -1292,12 +1292,22 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         {/* Session History Section - Moved below carousel */}
                         <div id="session-history-section">
                             <Card className="rounded-xl p-5">
-                                <div className="mb-4">
-                                    {/* #G4 §5: "Recent sessions", capped at the 2 most recent. Neutral copy — the
-                                        transcript-purge (newest-2) is not live in prod yet, so we do NOT promise
-                                        "never stored longer than two sessions". This is true today and after it lands. */}
-                                    <h2 className="text-xl font-bold text-foreground">Recent sessions</h2>
-                                    <p className="mt-1 text-sm font-medium text-foreground/70">Your two most recent sessions. Download the PDF to keep a copy.</p>
+                                {/* #G4 §5: "Recent sessions" — exactly the 2 most recent (the retention window, not a
+                                    truncation). Transcripts + audio purge beyond 2 (R1/R2 live in prod), metrics rows
+                                    persist permanently — so the "we keep only 2" promise is now honest. */}
+                                <div className="mb-4 flex items-start justify-between gap-3">
+                                    <div>
+                                        <h2 className="text-xl font-bold text-foreground">Recent sessions</h2>
+                                        <p className="mt-1 text-sm font-medium text-foreground/70">We only keep the 2 most recent transcripts. Download the PDF while available.</p>
+                                    </div>
+                                    {selectedSessions.length === 2 && (
+                                        <Button
+                                            onClick={() => setShowComparison(true)}
+                                            className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
+                                        >
+                                            Compare Selected (2)
+                                        </Button>
+                                    )}
                                 </div>
                                 <div className="space-y-3" data-testid={TEST_IDS.SESSION_HISTORY_LIST}>
                                     {sessionHistory && sessionHistory.length > 0 ? (
@@ -1318,6 +1328,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         </div>
                                     )}
                                 </div>
+                                {sessionHistory && sessionHistory.length > 0 && (
+                                    <p className="mt-4 border-t border-[#eef1f6] pt-3 text-xs font-medium text-foreground/60">
+                                        Private to you. Transcripts are never stored beyond your two most recent sessions.
+                                    </p>
+                                )}
                             </Card>
                         </div>
                     </div>
