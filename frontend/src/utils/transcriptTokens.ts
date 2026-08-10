@@ -29,12 +29,24 @@ export function tokensFromTranscript(text: string, userWords: string[] = []): Tr
  * populated.
  */
 export function waveformFromLevels(levels: number[], bars = 72): { amplitudes: number[]; recordedCount: number } {
-    const amplitudes = new Array(bars).fill(0).map((_, i) => {
-        // Map bar i back to the most-recent `bars` samples (oldest→newest, left→right).
-        const idx = levels.length - bars + i;
-        const v = idx >= 0 ? levels[idx] : 0;
-        return Math.max(0, Math.min(1, v));
-    });
-    const recordedCount = Math.min(bars, levels.length);
-    return { amplitudes, recordedCount };
+    const L = levels.length;
+    const amplitudes = new Array(bars).fill(0);
+    if (L === 0) return { amplitudes, recordedCount: 0 };
+    if (L <= bars) {
+        // Fewer samples than bars: leading-fill 1:1, so the recorded portion grows left→right and the
+        // rest stays the grey tail.
+        for (let i = 0; i < L; i++) amplitudes[i] = Math.max(0, Math.min(1, levels[i]));
+        return { amplitudes, recordedCount: L };
+    }
+    // More samples than bars: downsample the FULL buffer to `bars` buckets taking the PEAK per bucket —
+    // the mean flattens every transient into mush (the "flat waveform" bug). The whole recording is shown,
+    // not just the last 72 samples.
+    for (let i = 0; i < bars; i++) {
+        const start = Math.floor((i * L) / bars);
+        const end = Math.max(start + 1, Math.floor(((i + 1) * L) / bars));
+        let peak = 0;
+        for (let j = start; j < end && j < L; j++) if (levels[j] > peak) peak = levels[j];
+        amplitudes[i] = Math.max(0, Math.min(1, peak));
+    }
+    return { amplitudes, recordedCount: bars };
 }

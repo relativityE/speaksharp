@@ -3,10 +3,10 @@ import React from 'react';
 /**
  * #1046 Focus Points — slot C, "Coverage this run" (spec §2).
  *
- * The Focus Points analogue of Open Floor's progress-vs-baseline card: same headline slot, same
+ * The Focus Points analogue of Open Mic's progress-vs-baseline card: same headline slot, same
  * big-number shape, but it answers THIS product's question — how many of this run's points landed. It is
  * SINGLE-SESSION by construction: no baseline, no delta, no trend. Three points is not a dataset, and a
- * session-over-session delivery % (Open Floor's metric) on a fresh point set is noise rendered in red.
+ * session-over-session delivery % (Open Mic's metric) on a fresh point set is noise rendered in red.
  *
  * Pips: one per point. Grey = pending, green = covered, amber = missed (after only). The big number is
  * muted grey at zero and turns progress-green the moment anything is covered.

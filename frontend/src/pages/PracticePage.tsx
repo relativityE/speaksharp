@@ -10,7 +10,7 @@
  * (Freeform teal / Objective violet), the routing, and the telemetry for BOTH states, so the two surfaces
  * cannot drift apart on what the buttons actually do.
  *
- * Both products are live. Open Floor navigates to the unchanged /session (authed) or through account
+ * Both products are live. Open Mic navigates to the unchanged /session (authed) or through account
  * access preserving the /session intent (anonymous), never auto-starting recording. Focus Points (#1046
  * slice 5b) opens the capture form (ObjectiveSetupDialog) for authed users, binds the saved brief, and
  * routes into the session; anonymous users go through sign-up first (the brief RPCs require auth).

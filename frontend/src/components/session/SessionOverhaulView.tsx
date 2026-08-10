@@ -70,7 +70,7 @@ export interface SessionOverhaulViewProps {
     /**
      * #1046 Focus Points — when a Focus Points brief is active this is the declared point labels; slot D then
      * becomes the points plan (before/during) instead of the coaching card, and the resolved coverage rail
-     * (after) instead of the verdict. null/empty ⇒ an Open Floor session (unchanged coaching path).
+     * (after) instead of the verdict. null/empty ⇒ an Open Mic session (unchanged coaching path).
      */
     objectivePoints?: string[] | null;
     /** #1046 Focus Points — per-point coverage resolved at stop (same shape as the rail); null until then.
@@ -181,7 +181,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // after-state waveform rendered flat. Keep finalizing OUT of `before` or the bars go blank again.
     const levelsRef = React.useRef<number[]>([]);
     if (isListening) {
-        levelsRef.current = [...levelsRef.current, micLevel].slice(-72);
+        // Keep the FULL recording envelope (capped generously) so the after-state waveform can peak-
+        // downsample the WHOLE take to 72 bars — not just the last 72 samples (which showed only the tail).
+        levelsRef.current = [...levelsRef.current, micLevel].slice(-12000);
     } else if (sessionState === 'before') {
         levelsRef.current = [];
     }
@@ -293,7 +295,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     }
 
     if (sessionState === 'during') {
-        // Sample-overlay split lifespan (Open Floor only; Focus Points has no prompt/sample). A prompt
+        // Sample-overlay split lifespan (Open Mic only; Focus Points has no prompt/sample). A prompt
         // auto-hides the moment your own words begin (with a reopen chip); a sample persists until ✕/Stop.
         const words = wordCount(transcriptContent);
         const isSampleKind = lastKind === 'sample';

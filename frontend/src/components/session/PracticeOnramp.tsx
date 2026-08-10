@@ -75,7 +75,7 @@ export function PracticeOnramp({ className = '' }: { className?: string }) {
               Get a quick starter — or read a short sample aloud to try it out. Then press the mic; this stays up so you can read it.
             </p>
             <div className="flex flex-wrap gap-2">
-              {/* Homage to the homepage mode palette: Open Floor green + Focus Points violet. */}
+              {/* Homage to the homepage mode palette: Open Mic green + Focus Points violet. */}
               <Button type="button" size="sm" data-testid="onramp-give-prompt" onClick={showPrompt} className="bg-[#0d7d74] text-white hover:bg-[#0a5f58]">Give me a prompt</Button>
               <Button type="button" size="sm" data-testid="onramp-test-sample" onClick={showSample} className="bg-[#7b5ce0] text-white hover:bg-[#6a4fd0]">
                 Let me test with a sample

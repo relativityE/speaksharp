@@ -34,7 +34,7 @@ describe('Focus Points shared shell (#1222 S8)', () => {
             />,
         );
         expect(screen.getByTestId('session-slot-d')).toContainElement(screen.getByTestId('focus-capture'));
-        // Not the Open Floor coaching card.
+        // Not the Open Mic coaching card.
         expect(screen.queryByTestId('coaching-card')).toBeNull();
         expect(screen.getByTestId('session-slot-a')).toContainElement(screen.getByTestId('mic-card'));
     });
@@ -62,7 +62,7 @@ describe('Focus Points shared shell (#1222 S8)', () => {
         expect(screen.queryByTestId('session-verdict')).toBeNull();
     });
 
-    it('parity: Open Floor and Focus Points use the SAME slot structure (order A,B,C,D)', () => {
+    it('parity: Open Mic and Focus Points use the SAME slot structure (order A,B,C,D)', () => {
         const order = () => screen.getAllByTestId(/^session-slot-/).map((el) => el.getAttribute('data-slot'));
         const { rerender } = render(<SessionDuringState {...duringBase} liveTip={<span>tip</span>} />);
         expect(order()).toEqual(['A', 'B', 'C', 'D']);

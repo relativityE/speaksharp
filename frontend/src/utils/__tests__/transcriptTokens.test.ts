@@ -28,9 +28,17 @@ describe('waveformFromLevels (#1222 S11)', () => {
         expect(waveformFromLevels(new Array(100).fill(0.5), 72).recordedCount).toBe(72);
     });
 
-    it('maps the most-recent samples to the right-most bars', () => {
-        const { amplitudes } = waveformFromLevels([0.9], 4); // one sample → last bar populated, rest 0
-        expect(amplitudes[3]).toBeCloseTo(0.9, 5);
-        expect(amplitudes[0]).toBe(0);
+    it('leading-fills when there are fewer samples than bars (grows left→right)', () => {
+        const { amplitudes } = waveformFromLevels([0.9], 4); // one sample → FIRST bar populated, rest tail
+        expect(amplitudes[0]).toBeCloseTo(0.9, 5);
+        expect(amplitudes[3]).toBe(0);
+    });
+
+    it('peak-downsamples the full buffer (not mean) when samples exceed bars', () => {
+        // 8 samples → 4 buckets of 2; each bucket takes the PEAK, so a transient survives.
+        const { amplitudes, recordedCount } = waveformFromLevels([0.1, 0.9, 0.2, 0.2, 0.3, 0.1, 1.0, 0.0], 4);
+        expect(amplitudes[0]).toBeCloseTo(0.9, 5); // peak of [0.1, 0.9]
+        expect(amplitudes[3]).toBeCloseTo(1.0, 5); // peak of [1.0, 0.0] — a mean would have flattened it to 0.5
+        expect(recordedCount).toBe(4);
     });
 });

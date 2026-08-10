@@ -87,7 +87,7 @@ export function FreeformHelpOverlay({
     className?: string;
     /** Optional: called after the primary CTA closes the modal, so the page can focus the mic. */
     onStart?: () => void;
-    /** #1046 — 'objective' switches the title/steps to "How Focus Points works"; defaults to Open Floor. */
+    /** #1046 — 'objective' switches the title/steps to "How Focus Points works"; defaults to Open Mic. */
     variant?: 'freeform' | 'objective';
 }) {
     const [open, setOpen] = React.useState(false);
