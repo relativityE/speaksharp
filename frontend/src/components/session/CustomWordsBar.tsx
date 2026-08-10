@@ -28,7 +28,10 @@ export const CustomWordsBar: React.FC<{ className?: string }> = ({ className }) 
 
     return (
         <div
-            className={`rounded-xl border border-[#dbe2ec] bg-white p-4 flex items-center justify-between${className ? ` ${className}` : ''}`}
+            // flex-wrap + gap so the "Add your filler words" button drops below the label on very narrow
+            // screens (≤320px) instead of forcing horizontal document overflow (the (i) icon widened the
+            // label just enough to tip the 320px viewport over). Desktop stays a single row.
+            className={`rounded-xl border border-[#dbe2ec] bg-white p-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2${className ? ` ${className}` : ''}`}
             data-testid="custom-words-bar"
         >
             {/* PO 2026-08-10: the count alone hid WHICH words are tracked. Reveal the full list on hover/focus
