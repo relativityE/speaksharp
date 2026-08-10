@@ -231,13 +231,19 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                         chosenPromptTitle,
                         chosenPromptAttribution,
                         onRerollPrompt: reRoll,
+                        // #1046 PO 2026-08-10: Focus Points is its own product — the "Not sure what to say?"
+                        // prompt/sample offer is an Open-Floor concept and doesn't belong here; the speaker's
+                        // "what to say" IS their declared points (shown in slot D).
+                        hidePromptOffer: isObjective,
                     }}
                     progress={progress}
                     progressMode="aggregate"
                 />
                 {/* #1222 G1: the custom filler-word manager is a full-width bar BELOW the 2-col shell in the
-                    before-state — "Tracking N filler words" left, "Add your filler words" right. */}
-                <CustomWordsBar className="mt-[14px]" />
+                    before-state — "Tracking N filler words" left, "Add your filler words" right.
+                    #1046 PO 2026-08-10: filler-word tracking is an Open-Floor (delivery-polish) concept; a
+                    Focus Points session is judged on point coverage, so the filler card is omitted for it. */}
+                {!isObjective && <CustomWordsBar className="mt-[14px]" />}
             </>
         );
     }
