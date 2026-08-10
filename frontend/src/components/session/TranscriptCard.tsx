@@ -33,6 +33,12 @@ export interface TranscriptCardProps {
     chosenPromptAttribution?: string | null;
     /** Re-roll the taken prompt (↻). */
     onRerollPrompt?: () => void;
+    /**
+     * #1046 Focus Points: suppress the whole "Not sure what to say?" prompt/sample apparatus — the offer,
+     * the `Need a prompt?` recovery link, everything. A Focus Points speaker already knows what to say (their
+     * declared points), so the Open-Floor prompt concept doesn't belong on that product. Defaults to shown.
+     */
+    hidePromptOffer?: boolean;
     /** Live/after header meta beside the title (e.g. `184 words · 2.6 fillers/min`). */
     headerMeta?: React.ReactNode;
     /** Footer strip below the body (e.g. the live note, or the after stats strip). */
@@ -80,6 +86,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
     finalizing,
     isPrivate,
     finalizeEstimateSeconds,
+    hidePromptOffer,
     children,
 }) => {
     // #891 — live countdown for the "Finalizing…" wait. Seed from the estimate when finalizing begins, then
@@ -98,8 +105,10 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
 
     const hasContent = React.Children.count(children) > 0;
     const hasChosenPrompt = !hasContent && !!chosenPrompt;
-    const showingOffer = !hasContent && !hasChosenPrompt && !offerDismissed;
-    const showingEmpty = !hasContent && !hasChosenPrompt && offerDismissed;
+    // Focus Points suppresses the offer entirely: it never shows, and the empty frame falls straight to the
+    // plain "your words appear here" state with no `Need a prompt?` recovery affordance.
+    const showingOffer = !hasContent && !hasChosenPrompt && !offerDismissed && !hidePromptOffer;
+    const showingEmpty = !hasContent && !hasChosenPrompt && (offerDismissed || Boolean(hidePromptOffer));
 
     return (
         <div
@@ -119,7 +128,7 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                     )}
                 </div>
                 <div className="flex items-center gap-3">
-                    {showingEmpty && (
+                    {showingEmpty && !hidePromptOffer && (
                         <button
                             type="button"
                             onClick={onRestoreOffer}
@@ -200,6 +209,13 @@ export const TranscriptCard: React.FC<TranscriptCardProps> = ({
                         </div>
                     ) : showingOffer ? (
                         <PromptOffer onPrompt={onTakePrompt} onSample={onReadSample} />
+                    ) : hidePromptOffer ? (
+                        // #1046 Focus Points empty state: two quiet lines that point at the rail, no buttons.
+                        // The points list is NOT duplicated here — the rail already holds it (spec §4).
+                        <div className="max-w-md text-center" data-testid="transcript-plain-empty">
+                            <p className="text-[13px] text-[#414b5c]">Your words appear here as you speak.</p>
+                            <p className="mt-1 text-[13px] text-[#414b5c]">Each point on the right ticks green the moment you cover it.</p>
+                        </div>
                     ) : (
                         <p className="text-[13px] text-[#414b5c]" data-testid="transcript-plain-empty">
                             Your words appear here as you speak.

@@ -61,57 +61,45 @@ describe('SessionOverhaulView (#1222 S11)', () => {
     });
 });
 
-// #1046 Focus Points integration — a bound brief (objectivePoints) makes slot D carry the points
-// (plan before/during) then their resolved coverage (after), so a Focus Points session is its own thing
-// on the shared shell instead of rendering as an Open Floor session.
+// #1046 Focus Points — a distinct product on the shared shell (spec: "slots are shared; semantics are
+// not"). A bound brief (objectivePoints) turns slot C into live coverage, slot D into the points, strips
+// the prompt offer + filler chrome, and highlights coverage in the transcript. Coverage is derived from
+// the transcript by the local keyword matcher, so these tests drive it with real covering text.
 describe('SessionOverhaulView Focus Points (#1046)', () => {
     const POINTS = ['Name the price', 'State the guarantee'];
 
-    it('objective before → points plan in slot D (not the coaching card)', () => {
+    it('objective before → coverage card (0/N) + points rail; no prompt offer', () => {
         render(<SessionOverhaulView {...base} objectivePoints={POINTS} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
-        expect(screen.getByTestId('focus-points-plan')).toBeInTheDocument();
-        expect(screen.getByTestId('focus-points-plan-summary')).toHaveTextContent('2 to cover');
-        expect(screen.getByTestId('focus-plan-point-0')).toHaveTextContent('Name the price');
-        // Not yet scored → no coverage rail before recording.
-        expect(screen.queryByTestId('coverage-rail')).toBeNull();
+        expect(screen.getByTestId('coverage-this-run')).toBeInTheDocument();
+        expect(screen.getByTestId('coverage-this-run-count')).toHaveTextContent('0/2');
+        expect(screen.getByTestId('focus-points-rail')).toBeInTheDocument();
+        expect(screen.getByTestId('focus-point-0')).toHaveTextContent('Name the price');
+        // The Open-Floor prompt offer does not belong on Focus Points.
+        expect(screen.queryByTestId('prompt-offer')).toBeNull();
     });
 
-    it('objective during → points plan stays in slot D', () => {
-        render(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent="hello" elapsedTime={10} />);
+    it('objective during → a covered point ticks live in slot C and slot D', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent="I will name the price now." elapsedTime={20} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
-        expect(screen.getByTestId('focus-points-plan')).toBeInTheDocument();
-        expect(screen.queryByTestId('coverage-rail')).toBeNull();
+        expect(screen.getByTestId('coverage-this-run-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
     });
 
-    it('objective after with resolved coverage → coverage rail replaces the plan/verdict', () => {
-        render(
-            <SessionOverhaulView
-                {...base}
-                objectivePoints={POINTS}
-                objectiveCoverage={[
-                    { id: 'c0', label: 'Name the price', status: 'covered' },
-                    { id: 'c1', label: 'State the guarantee', status: 'missing' },
-                ]}
-                showAnalyticsPrompt
-                transcriptContent="so um hello"
-            />,
-        );
+    it('objective after → coverage count, missed-point reason, retry + delivery strip', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={POINTS} showAnalyticsPrompt transcriptContent="I will name the price now." elapsedTime={84} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
-        expect(screen.getByTestId('coverage-rail')).toBeInTheDocument();
-        expect(screen.getByTestId('coverage-rail-summary')).toHaveTextContent('1/2 covered');
+        expect(screen.getByTestId('coverage-this-run-count')).toHaveTextContent('1/2');
+        // The missed point is the most important line — it says where the time went.
+        expect(screen.getByTestId('focus-point-1-missed-reason')).toBeInTheDocument();
+        expect(screen.getByTestId('focus-points-retry')).toBeInTheDocument();
+        expect(screen.getByTestId('focus-delivery-strip')).toBeInTheDocument();
     });
 
-    it('objective after with no coverage yet → falls back to the pending plan (never a stale verdict)', () => {
-        render(<SessionOverhaulView {...base} objectivePoints={POINTS} objectiveCoverage={null} showAnalyticsPrompt transcriptContent="hello" />);
-        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
-        expect(screen.getByTestId('focus-points-plan')).toBeInTheDocument();
-        expect(screen.queryByTestId('coverage-rail')).toBeNull();
-    });
-
-    it('no brief (Open Floor) → slot D is the coaching path, never a points plan', () => {
+    it('no brief (Open Floor) → no coverage card / points rail; the prompt offer is present', () => {
         render(<SessionOverhaulView {...base} objectivePoints={null} />);
-        expect(screen.queryByTestId('focus-points-plan')).toBeNull();
-        expect(screen.queryByTestId('coverage-rail')).toBeNull();
+        expect(screen.queryByTestId('coverage-this-run')).toBeNull();
+        expect(screen.queryByTestId('focus-points-rail')).toBeNull();
+        expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
     });
 });

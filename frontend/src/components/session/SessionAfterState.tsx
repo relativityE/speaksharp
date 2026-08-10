@@ -23,6 +23,8 @@ export interface SessionAfterStateProps {
         /** thin stats strip, e.g. `5 fillers · 142 wpm · 2:04 spoken`. */
         stats: string;
         onFillerSeek: (token: TranscriptToken, index: number) => void;
+        /** #1046 Focus Points — highlight `covered` tokens as coverage (green) instead of fillers. */
+        coverageMode?: 'during' | 'after';
     };
     progress: ProgressVsBaselineResult;
     /** #1206 — 'aggregate' shows the composite session-progress card; defaults to the single-signal card. */
@@ -30,6 +32,8 @@ export interface SessionAfterStateProps {
     verdict: SessionVerdictProps;
     /** #1222 S8 — Focus Points swaps slot D (verdict → resolved coverage rail); defaults to the verdict. */
     slotDContent?: React.ReactNode;
+    /** #1046 — Focus Points swaps slot C (progress-vs-baseline → coverage-this-run). */
+    slotCContent?: React.ReactNode;
     /** #1231 R1 — post-Stop decode still running → finalizing banner on the transcript card. */
     finalizing?: boolean;
     /** #891 — finalize-time estimate (s) for the "Finalizing… ~Ns" countdown in the banner. */
@@ -38,7 +42,7 @@ export interface SessionAfterStateProps {
     fillerFooter?: React.ReactNode;
 }
 
-export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, transcript, progress, progressMode, verdict, slotDContent, finalizing, finalizeEstimateSeconds, fillerFooter }) => {
+export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, transcript, progress, progressMode, verdict, slotDContent, slotCContent, finalizing, finalizeEstimateSeconds, fillerFooter }) => {
     return (
         <SessionShell
             sessionState="after"
@@ -63,10 +67,10 @@ export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, 
                         </span>
                     )}
                 >
-                    <LiveTranscript tokens={transcript.tokens} onFillerSeek={transcript.onFillerSeek} />
+                    <LiveTranscript tokens={transcript.tokens} onFillerSeek={transcript.onFillerSeek} coverageMode={transcript.coverageMode} />
                 </TranscriptCard>
             }
-            slotC={<ProgressVsBaseline result={progress} sessionState="after" mode={progressMode} />}
+            slotC={slotCContent ?? <ProgressVsBaseline result={progress} sessionState="after" mode={progressMode} />}
             slotD={slotDContent ?? <CoachingCard sessionState="after" verdict={<SessionVerdict {...verdict} />} />}
         />
     );
