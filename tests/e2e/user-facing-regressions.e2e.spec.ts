@@ -68,10 +68,11 @@ test.describe('User-facing session and analytics regressions', () => {
     await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
 
-    // The after-state per-word breakdown carries the two fillers (um, like) — the session-page metric that
-    // must reach analytics unchanged. `after-stats` reads "<n> fillers · <n> words" (#1231 R2).
+    // #1231: the headline filler count is the TRUE-filler tier — "um" (1). "like" is a discourse marker:
+    // it still appears in the per-word breakdown, but is not counted in the headline. This true-filler count
+    // is the session-page metric that must reach analytics unchanged. `after-stats` reads "<n> fillers · <n> words".
     await expect(page.getByTestId('filler-breakdown')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('after-stats')).toContainText('2 fillers');
+    await expect(page.getByTestId('after-stats')).toContainText('1 fillers');
 
     const saveCandidate = await page.evaluate(() => (
       window as Window & {
@@ -86,18 +87,18 @@ test.describe('User-facing session and analytics regressions', () => {
     await page.getByTestId(TEST_IDS.NAV_ANALYTICS_LINK).click();
     await waitForFeature(page, 'analytics');
     const latestSession = page.getByTestId(/session-history-item-/).first();
-    await expect(latestSession).toContainText('2');
+    await expect(latestSession).toContainText('1'); // #1231: true-filler headline (um), matches the session page
     await latestSession.getByTestId(/session-detail-link-/).click();
     await page.waitForURL('**/analytics/session-*');
 
     // Analytics session-DETAIL page keeps its own filler-count metric surface (unchanged by the overhaul).
-    await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('2');
+    await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('1');
     await expect(page.getByTestId(`${TEST_IDS.FILLER_COUNT_VALUE}-explanation`)).toContainText('captured words');
     await expect(page.getByText(/tester-facing transcript/i)).toBeVisible();
 
     await page.reload();
     await waitForFeature(page, 'analytics');
-    await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('2');
+    await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('1');
     await expect(page.getByText(/tester-facing transcript/i)).toBeVisible();
   });
 

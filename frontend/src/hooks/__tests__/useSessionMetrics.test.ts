@@ -141,7 +141,7 @@ describe('useSessionMetrics', () => {
     });
 
     describe('fillerCount', () => {
-        it('sums all filler word counts', () => {
+        it('headline counts the TRUE-filler tier (um/uh/ah); discourse markers are excluded by default (#1231)', () => {
             const { result } = renderHook(() =>
                 useSessionMetrics({
                     transcript: 'test',
@@ -149,12 +149,13 @@ describe('useSessionMetrics', () => {
                     fillerData: {
                         um: { count: 3, color: '#FCA5A5' },
                         uh: { count: 2, color: '#BFDBFE' },
-                        like: { count: 5, color: '#FDE68A' }
+                        like: { count: 5, color: '#FDE68A' } // discourse marker — NOT in the default headline
                     },
                     elapsedTime: 60
                 })
             );
-            expect(result.current.fillerCount).toBe(10);
+            // um(3) + uh(2) = 5; "like" (5) is a discourse marker, excluded from the default headline.
+            expect(result.current.fillerCount).toBe(5);
         });
     });
 });

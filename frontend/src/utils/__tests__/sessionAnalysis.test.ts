@@ -14,17 +14,31 @@ import type { PracticeSession } from '@/types/session';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 
 describe('sessionAnalysis metric truth', () => {
-    it('counts captured filler words and explains their impact', () => {
+    it('counts the TRUE-filler tier as the headline; the per-word breakdown still shows every tracked word (#1231)', () => {
         const metrics = calculateCoreSessionMetrics({
             transcript: 'Um I think uh this is like a useful test',
             durationSeconds: 30,
         });
 
         expect(metrics.wordCount).toBe(10);
-        expect(metrics.fillerCount).toBe(3);
+        // Headline = true fillers only: um(1) + uh(1) = 2. "like" is a discourse marker, excluded by default.
+        expect(metrics.fillerCount).toBe(2);
+        // The per-word breakdown is UNCHANGED — total.count stays the comprehensive all-tier count (3), so the
+        // chips still show like/um/uh; only the headline number is the true-filler tier.
         expect(metrics.fillerData.total.count).toBe(3);
+        expect(metrics.fillerData.like.count).toBe(1);
         expect(metrics.fillerExplanation).toContain('This is likely noticeable; pause before restarting a thought');
         expect(metrics.clarityExplanation).toContain('Replace the next one with a brief pause');
+    });
+
+    it('opting in counts discourse markers toward the headline too (#1231)', () => {
+        const metrics = calculateCoreSessionMetrics({
+            transcript: 'Um I think uh this is like a useful test',
+            durationSeconds: 30,
+            includeDiscourseMarkers: true,
+        });
+        // um(1) + uh(1) + like(1) = 3 with discourse markers opted in.
+        expect(metrics.fillerCount).toBe(3);
     });
 
     // #894: every count-bearing filler explanation carries the transcript-derived disclosure, so the metric
@@ -170,18 +184,29 @@ describe('sessionAnalysis metric truth', () => {
         expect(metrics.fillerCount).toBe(2);
     });
 
-    it('turns Cloud-quality transcript evidence into plain-language coaching', () => {
+    it('turns Cloud-quality transcript evidence into plain-language coaching (#1231: discourse-only is not penalised by default)', () => {
+        // This sentence's only "fillers" are discourse markers ("like", "basically") — legitimate speech.
         const metrics = calculateCoreSessionMetrics({
             transcript: 'The stale smell of old beer, like, lingers, basically, a dash of pepper spoils beef stew. Well, the swan dive was far short of perfect.',
             durationSeconds: 26.194,
         });
 
         expect(metrics.wordCount).toBe(25);
-        expect(metrics.fillerCount).toBe(2);
+        // Default headline = 0 true fillers: discourse markers are not counted, so the user is NOT told they
+        // filled when they merely used "like"/"basically". Coaching pivots to the real issue — very slow pace.
+        expect(metrics.fillerCount).toBe(0);
         expect(metrics.wpm).toBe(57);
         expect(metrics.wpmExplanation).toContain('very slow for most listeners');
-        expect(metrics.fillerExplanation).toContain('Pick one repeat filler to replace with silence next time');
-        expect(metrics.clarityExplanation).toContain('Replace the next one with a brief pause');
+        expect(metrics.clarityExplanation).toContain('Slow pacing is lowering the score');
+
+        // With the opt-in, the same two discourse markers DO count toward the headline.
+        const optedIn = calculateCoreSessionMetrics({
+            transcript: 'The stale smell of old beer, like, lingers, basically, a dash of pepper spoils beef stew. Well, the swan dive was far short of perfect.',
+            durationSeconds: 26.194,
+            includeDiscourseMarkers: true,
+        });
+        expect(optedIn.fillerCount).toBe(2);
+        expect(optedIn.fillerExplanation).toContain('Pick one repeat filler to replace with silence next time');
     });
 
     it('explains clean transcripts as a next-step coaching opportunity instead of a bare score', () => {

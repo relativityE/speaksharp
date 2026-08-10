@@ -90,7 +90,9 @@ describe('generateSessionPdf', () => {
         ['Total Words', '5'],
         ['Speaking Pace (WPM)', '1 (Too Slow)'],
         ['Clear Delivery', '0% (Keep practicing)'],
-        ['Total Filler Words', '8'],
+        // #1231: the headline is the TRUE-filler tier — um(5); "like"(3) is a discourse marker, excluded by
+        // default. The per-word breakdown table below still lists every tracked word (um 5, like 3).
+        ['Total Filler Words', '5'],
         ['Tracked Custom Words', 'None'],
         ['Custom Words Detected', '0'],
         ['Transcription Mode', 'Not recorded'],

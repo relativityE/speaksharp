@@ -5,6 +5,7 @@ import { InMemoryTelemetryBus } from '../../TelemetryBus';
 import { MetricsEngine } from '../../MetricsEngine';
 import { calculateWpm } from '@/utils/sessionAnalysis';
 import { countFillerWords } from '@/utils/fillerWordUtils';
+import { countedFillerTotal } from '@/utils/fillerTiers';
 import type { TelemetryEvent } from '../../contracts';
 
 const fin = (text: string, t: number, seq: number): TelemetryEvent =>
@@ -28,14 +29,18 @@ describe('Phase 5.3 — PaceProcessor (shadow, parity with calculateWpm)', () =>
 });
 
 describe('Phase 5.3 — FillerProcessor (shadow, parity with countFillerWords)', () => {
-  it('fillerCount = countFillerWords(text).total.count; fillerRate = count/words × 100', () => {
+  it('fillerCount = TRUE-filler tier (countedFillerTotal); fillerRate = count/words × 100 (#1231)', () => {
     const text = 'um so like this is you know basically the point';
     const p = new FillerProcessor();
     p.onEvent(fin(text, 0, 0));
     const d = p.getSnapshot().delivery!;
-    expect(d.fillerCount).toBe(countFillerWords(text).total.count); // byte-identical
+    // #1231: the shadow snapshot re-tiers to true fillers (um) — 'so'/'like'/'you know'/'basically' are
+    // discourse markers, excluded by default — matching the legacy metrics path so #1052 parity holds.
+    const expected = countedFillerTotal(countFillerWords(text))!;
+    expect(d.fillerCount).toBe(expected);
+    expect(d.fillerCount).toBe(1); // um only
     const words = text.split(/\s+/).filter(Boolean).length;
-    expect(d.fillerRate).toBeCloseTo((countFillerWords(text).total.count / words) * 100, 6);
+    expect(d.fillerRate).toBeCloseTo((expected / words) * 100, 6);
   });
   it('empty transcript = 0 fillers, 0 rate', () => {
     expect(new FillerProcessor().getSnapshot().delivery!).toEqual({ fillerCount: 0, fillerRate: 0 });
