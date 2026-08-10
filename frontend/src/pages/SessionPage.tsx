@@ -1,32 +1,19 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Settings } from 'lucide-react';
 // ... existing imports ...
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { useUnresolvedRecovery } from '@/hooks/useUnresolvedRecovery';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
-import { UserFillerWordsManager } from '@/components/session/UserFillerWordsManager';
 import { SessionPageSkeleton } from '@/components/session/SessionPageSkeleton';
-import { FillerWordsCard } from '@/components/session/FillerWordsCard';
-import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
-import { LiveCoachingScoreCard } from '@/components/session/LiveCoachingScoreCard';
-import { LiveRecordingCard } from '@/components/session/LiveRecordingCard';
-import { CoverageRail } from '@/components/session/CoverageRail';
-import { PracticeOnramp } from '@/components/session/PracticeOnramp';
 import { UnresolvedRecoveryBanner } from '@/components/session/UnresolvedRecoveryBanner';
 import { MobileActionBar } from '@/components/session/MobileActionBar';
 import { StatusNotificationBar } from '@/components/session/StatusNotificationBar';
 import { FreeformHelpOverlay } from '@/components/session/FreeformHelpOverlay';
 import { SttStatus } from '@/types/transcription';
-import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 import { SunsetModals } from '@/components/session/SunsetModals';
 import { SessionOverhaulView } from '@/components/session/SessionOverhaulView';
 import { usePracticeHistory } from '@/hooks/usePracticeHistory';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
-import {
-    getSessionCoachingAssignment,
-} from '@/services/sessionCoachingExperiment';
 import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { estimateFinalizeSeconds } from '@/services/transcription/finalizeRateStore';
@@ -41,19 +28,17 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
  * have been extracted into useSessionLifecycle.
  */
 export const SessionPage: React.FC = () => {
-    // #1222: the session overhaul is now the ONLY session page (PO 2026-08-08) — rendered unconditionally.
-    // The legacy body below is retained (never rendered) pending the test-migration ticket; the `as boolean`
-    // keeps TS flow-narrowing intact in the dead branch. Legacy components remain in the repo, unused.
-    const RENDER_LEGACY_BODY = false as boolean;
+    // #1222: the session overhaul is the ONLY session page (PO 2026-08-08). The legacy two-column body was
+    // retained behind a never-true flag pending this test-migration ticket (#1231); it and its now-unused
+    // imports have been removed. The live trial-unavailable notice it used to host was relocated into the
+    // live chrome below (never silently dropped).
     const { session: authSession } = useAuthProvider();
     // #1033 A5/A6: the resolved authenticated owner. Recovery reads/rehydration are scoped to it and
     // fail closed while it is unresolved — never an unscoped read.
     const authUserId = authSession?.user?.id ?? null;
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const { runtimeState } = useTranscriptionContext();
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
     const previousTranscriptScrollHeightRef = useRef(0);
-    const [coachingAssignment] = useState(() => getSessionCoachingAssignment());
     const { data: usageLimit } = useUsageLimit();
     // #1222: real session history feeds the overhaul's Progress card (slot C, aggregate).
     const { data: practiceHistory } = usePracticeHistory();
@@ -65,7 +50,6 @@ export const SessionPage: React.FC = () => {
     // #1089: the duration of the session under review. Falls back to the live timer while recording
     // (the snapshot is only published at stop); after a stop the live timer is 0 but this is not.
     const completedSessionDurationSeconds = useSessionStore(state => state.completedSessionDurationSeconds);
-    const nativeFormatting = useSessionStore(state => state.nativeFormatting);
     const finalizedAnalysis = useSessionStore(state => state.finalizedAnalysis);
     // #1046 slice 5a: per-point Focus Points coverage, published by the stop seam after an objective
     // session finalizes; null for Open Mic sessions (and cleared at the next recording start).
@@ -81,31 +65,24 @@ export const SessionPage: React.FC = () => {
 
     const {
         isListening,
-        isReady,
         metrics,
         sttStatus,
         modelLoadingProgress,
         privateModelStatus,
         mode,
         setMode,
-        recordingIntent,
         elapsedTime,
         handleStartStop,
         showAnalyticsPrompt,
         sessionFeedbackMessage,
         sunsetModal,
         setSunsetModal,
-        pauseMetrics,
         micLevel,
-        hasSpeechActivity,
         transcriptContent,
         interimTranscript,
         isProUser,
         canUsePrivateStt,
-        canUseCloudStt,
-        activeEngine,
         isButtonDisabled,
-        history
     } = useSessionLifecycle();
 
     // #1033 Part-2b (A5/A6): all owner-scoped recovery orchestration lives in this hook —
@@ -294,15 +271,6 @@ export const SessionPage: React.FC = () => {
     // gates the nudge; freshness only chooses the truthful copy variant below. The card combines this
     // with its own runtime/idle/Browser/unlocked state before showing it.
     const sampleLimitSeconds = usageLimit?.private_sample_limit_seconds ?? 0;
-    const privateTrialAvailable = !!usageLimit && usageLimit.is_pro !== true
-        && usageLimit.private_sample_available === true
-        && privateSampleSecondsRemaining > 0;
-    // FRESH = full, unstarted allotment — the only state where "N-minute trial available" is truthful.
-    const privateTrialFresh = privateTrialAvailable
-        && (usageLimit?.private_sample_seconds_used ?? 0) === 0
-        && usageLimit?.private_sample_started_at == null
-        && sampleLimitSeconds > 0
-        && privateSampleSecondsRemaining === sampleLimitSeconds;
     const privateSampleStatusDetail = privateSampleSecondsRemaining > 0
         ? formatSampleCapLine(sampleLimitSeconds)
         : usageLimit && !usageLimit.is_pro && usageLimit.private_sample_completed_at
@@ -354,6 +322,19 @@ export const SessionPage: React.FC = () => {
                 (Native + eligible), and the Analytics action (rightmost). There is no separate post-save
                 surface — so a deployed state never contains two Analytics actions. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
+                {/* #1047 anonymous handoff: truthful notice when the Private-trial intent could NOT be
+                    honoured (account ineligible). We never silently fall back — we say so and leave the
+                    user on Browser transcription, which still works. (#1231: relocated here from the retired
+                    legacy body so the notice keeps rendering above the live workflow.) */}
+                {trialUnavailableNotice && (
+                    <div
+                        role="status"
+                        data-testid="private-trial-unavailable-notice"
+                        className="mb-4 rounded-lg border border-amber-300/40 bg-amber-50 px-4 py-2.5 text-[13px] font-medium text-amber-900"
+                    >
+                        {trialUnavailableNotice}
+                    </div>
+                )}
                 {/* #1042 PR2's help affordance moved UP into the title block (#1047) — see the header above. */}
                 {/* #1046 E (slice 0): the quiet "Mic ready" green bar said the same thing three times — it
                     duplicated the recorder pill AND the "Ready on this device" card label. Suppress it ONLY
@@ -458,192 +439,6 @@ export const SessionPage: React.FC = () => {
                     objectivePoints={activeObjectiveBrief?.points ?? null}
                     objectiveCoverage={objectiveCoverageResult}
                 />
-                {RENDER_LEGACY_BODY && (
-                <>
-                {/* #1047: columns size to their CONTENT. `items-stretch` forced both columns to the height
-                    of the taller one, which is what let the coaching card's `margin-top:auto` footer open
-                    ~116px of blank space in the middle of that card, and what kept the empty transcript
-                    inflated to a full-height void. */}
-                <div>
-                    {/* #1047 anonymous handoff: truthful notice when the Private-trial intent could NOT be
-                        honoured (account ineligible). We never silently fall back — we say so and leave the
-                        user on Browser transcription, which still works. */}
-                    {trialUnavailableNotice && (
-                        <div
-                            role="status"
-                            data-testid="private-trial-unavailable-notice"
-                            className="mb-4 rounded-lg border border-amber-300/40 bg-amber-50 px-4 py-2.5 text-[13px] font-medium text-amber-900"
-                        >
-                            {trialUnavailableNotice}
-                        </div>
-                    )}
-                    {/* #1116 on-ramp — sits TOP-RIGHT above the balanced mic+coaching row so it never
-                        pushes the mic card down or covers a card. Full width on mobile; right-aligned and
-                        rail-width on desktop. */}
-                    <div className="mb-6 flex lg:justify-end">
-                        <div className="w-full lg:w-[400px]">
-                            <PracticeOnramp />
-                        </div>
-                    </div>
-                    {/* Balanced main row: mic (left) + Live Coaching (right) at the SAME top level and the
-                        SAME height (items-stretch). The transcript spans full width below. */}
-                    <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
-                        <div className="flex flex-col gap-6">
-                            <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
-                                <LiveRecordingCard
-                                    mode={mode || 'native'}
-                                    isListening={isListening}
-                                    isReady={isReady}
-                                    isPaused={sttStatus.type === 'paused'}
-                                    fsmState={runtimeState}
-                                    sttStatusType={sttStatus.type}
-                                    privateModelStatus={privateModelStatus}
-                                    recordingIntent={recordingIntent}
-                                    isFinalizing={isTranscriptFinalizing}
-                                    canUsePrivate={canUsePrivateStt}
-                                    isPaidProUser={usageLimit?.is_pro === true}
-                                    privateTrialAvailable={privateTrialAvailable}
-                                    privateTrialFresh={privateTrialFresh}
-                                    privateTrialRemainingSeconds={privateSampleSecondsRemaining}
-                                    privateTrialLimitSeconds={sampleLimitSeconds}
-                                    canUseCloudStt={canUseCloudStt}
-                                    activeEngine={activeEngine}
-                                    // Post-save, StatusNotificationBar owns the "Session saved" message. Suppress the
-                                    // recording-card pill message as soon as showAnalyticsPrompt begins — NOT only once
-                                    // postSaveReady (finalizedAnalysis) arrives — so the lifecycle's intermediate
-                                    // "✓ Great practice! Session saved." never becomes a duplicate visual or aria-live
-                                    // announcement in the window before finalization completes.
-                                    statusMessage={showAnalyticsPrompt ? undefined : sttStatus.message}
-                                    formattedTime={metrics.formattedTime}
-                                    elapsedSeconds={elapsedTime}
-                                    isButtonDisabled={isButtonDisabled}
-                                    engineSelectionLocked={engineSelectionLocked}
-                                    pendingResolutionKind={pendingResolutionKind}
-                                    onModeChange={setMode}
-                                    onStartStop={() => { void handleStartStop(); }}
-                                    onDownloadModel={() => {
-                                        void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
-                                    }}
-                                />
-                            </LocalErrorBoundary>
-                        </div>
-
-                        <LocalErrorBoundary isolationKey="live-coaching-score" componentName="LiveCoachingScoreCard">
-                            <LiveCoachingScoreCard
-                                transcript={transcriptContent}
-                                wordCount={metrics.wordCount}
-                                wpm={metrics.wpm}
-                                clarityScore={metrics.clarityScore}
-                                fillerCount={metrics.fillerCount}
-                                // #1089: the score's usability gate (>= 30s) must judge the session under
-                                // review, not the live timer that resets to 0 for the next recording.
-                                elapsedSeconds={scoringDurationSeconds}
-                                pauseMetrics={pauseMetrics}
-                                engine={mode || 'native'}
-                                isListening={isListening}
-                                experimentAssignment={coachingAssignment}
-                                // #1046: stretch to the mic card's height so the two form a balanced,
-                                // equal-height top row (grid items-stretch). (Was self-start under #1047;
-                                // PO now wants Coaching level + same height as the recorder.)
-                                className="min-h-0 h-full"
-                            />
-                        </LocalErrorBoundary>
-                    </div>
-
-                    {/* #1046 slice 5a: Focus Points coverage rail. Renders ONLY once an objective session
-                        has finalized (objectiveCoverageResult is non-null) — it is null for Open Mic
-                        sessions and cleared at the next recording start, so this never shows on a freeform
-                        run. Presentational; the finalize seam is the sole source of truth. (When the session
-                        overhaul lands, this becomes slot D of the shared shell; for now it sits below the
-                        main row as its own full-width band.) */}
-                    {objectiveCoverageResult && objectiveCoverageResult.length > 0 && (
-                        <div className="mt-6" data-testid="session-coverage-rail">
-                            <CoverageRail points={objectiveCoverageResult} />
-                        </div>
-                    )}
-
-                    {/* #1046 E (slice 0): the live transcript moved OUT of the left column to FULL WIDTH
-                        below both columns. Inside the two-column grid it stretched the left column tall
-                        while the right (coaching) column ended ~500px early; full-width below balances the
-                        columns and gives the transcript room to grow as words arrive. */}
-                    <div className="relative mt-6">
-                        <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
-                            <LiveTranscriptPanel
-                                transcript={transcriptContent}
-                                interimTranscript={interimTranscript}
-                                history={history}
-                                isListening={isListening}
-                                sttMode={mode}
-                                micLevel={micLevel}
-                                hasSpeechActivity={hasSpeechActivity}
-                                containerRef={transcriptContainerRef}
-                                isFinalizing={isTranscriptFinalizing}
-                                recordingDurationSeconds={scoringDurationSeconds}
-                                nativeFormatting={nativeFormatting}
-                                // No forced 340px floor: the panel now sizes to its content and grows
-                                // as words arrive (#1047).
-                            />
-                        </LocalErrorBoundary>
-                    </div>
-
-                    <div className="mt-6">
-                        <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
-                            <FillerWordsCard
-                                fillerCount={metrics.fillerCount}
-                                fillerData={metrics.fillerData}
-                                fillerExplanation={metrics.fillerExplanation}
-                                // #1047: the card's six states are resolved from signals that ALREADY
-                                // exist — no new lifecycle state. `hasSpoken` separates "nothing has
-                                // happened yet" from a real result, and is derived from a captured
-                                // transcript or #1089/#1090's completed-take snapshot. `isFinalizing`
-                                // is the same #891 post-stop decode flag the transcript panel uses, so
-                                // the card cannot claim a count while one is still being computed.
-                                wordCount={metrics.wordCount}
-                                isListening={isListening}
-                                isFinalizing={isTranscriptFinalizing}
-                                hasSpoken={metrics.wordCount > 0 || completedSessionDurationSeconds !== null}
-                                className="min-h-0"
-                                headerAction={
-                                    <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                                        <PopoverTrigger asChild>
-                                            {/* #1047: teal secondary action, and the ONLY action on the
-                                                collapsed pre-session row. Named for the OUTCOME, not the
-                                                mechanism: "Customize" describes machinery and leaves the
-                                                user guessing, whereas this card's whole job is to say what
-                                                will be tracked — so the action says what you get. Same
-                                                popover, same custom-filler-word manager as before; label
-                                                only. The gear is decorative so the accessible name is
-                                                exactly the visible text. */}
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="text-accent underline-offset-4 hover:bg-accent/10 hover:text-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                                data-testid="add-custom-word-button"
-                                            >
-                                                <Settings className="h-4 w-4" aria-hidden="true" />
-                                                Add your filler words
-                                            </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-80 bg-white border-[hsl(var(--border-strong))] surface-shadow mr-6">
-                                            {/* #1047: the popover STAYS OPEN after a word is added. It used
-                                                to close immediately, which was survivable only because the
-                                                card below listed all 13 tracked words as chips — closing
-                                                revealed the new word there. With the pre-session grid
-                                                collapsed, closing would leave the user with no confirmation
-                                                at all that their word was accepted (the summary count going
-                                                13→14 never names the word). Staying open confirms the add in
-                                                the very list the user is looking at, and lets them add
-                                                several words without reopening. */}
-                                            <UserFillerWordsManager />
-                                        </PopoverContent>
-                                    </Popover>
-                                }
-                            />
-                        </LocalErrorBoundary>
-                    </div>
-                </div>
-                </>
-                )}
             </div>
 
             {/* Mobile Sticky Action Bar */}
