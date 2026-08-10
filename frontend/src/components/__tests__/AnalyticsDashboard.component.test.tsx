@@ -109,11 +109,15 @@ describe('AnalyticsDashboard', () => {
         expect(screen.queryByText('Clarity')).not.toBeInTheDocument();
     });
 
-    it('uses contained slide controls instead of outside carousel arrows', () => {
+    it('stacks every analysis tool instead of hiding them behind a carousel (#G4 §3)', () => {
         renderComponent({ sessionHistory: mockSessionHistory });
+        // The carousel is retired: no swipe arrows, no indicator dots.
         expect(screen.queryByRole('button', { name: 'Previous slide' })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Next slide' })).not.toBeInTheDocument();
-        expect(screen.getAllByRole('button', { name: /Go to slide/i }).length).toBeGreaterThan(1);
+        expect(screen.queryByRole('button', { name: /Go to slide/i })).not.toBeInTheDocument();
+        // The default focus renders three trend charts (pace, pause, clarity). All are in the DOM at
+        // once now — under the old carousel only the active slide mounted, so exactly one would appear.
+        expect(screen.getAllByTestId('trend-chart').length).toBeGreaterThan(1);
     });
 
     it('should render error display when error occurs', () => {
@@ -169,7 +173,10 @@ describe('AnalyticsDashboard', () => {
             label: 'Speak Clearly',
             outcome: /sharper point and less repetition/i,
             statCards: ['stat-card-clarity_score', 'stat-card-avg_session_length', 'stat-card-filler_words_per_min', 'stat-card-total_sessions'],
-            hasTranscriptQuality: false,
+            // #G4 §3: speak_clearly lists the STT-accuracy tool (stt_comparison) among its analysis tools.
+            // The carousel used to mount only the active slide, hiding it; the stacked layout renders every
+            // tool, so the accuracy comparison is now genuinely on the page.
+            hasTranscriptQuality: true,
         },
         {
             id: 'sound_confident',
