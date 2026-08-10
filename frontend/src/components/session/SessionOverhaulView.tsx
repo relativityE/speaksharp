@@ -136,6 +136,12 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const [promptIdx, setPromptIdx] = React.useState<number | null>(null);
     const [sampleIdx, setSampleIdx] = React.useState<number | null>(null);
     const [lastKind, setLastKind] = React.useState<'prompt' | 'sample' | null>(null);
+    // Sample-overlay split lifespan (PO Option 1): a generated PROMPT is a starter you glance at then
+    // speak — it auto-hides the instant your own words start, with a "Need a prompt?" chip to bring it
+    // back. A read-aloud SAMPLE is something you read the whole way through — it persists (shrunk) until
+    // you dismiss it with ✕ or Stop. These two flags carry the per-take manual overrides.
+    const [samplePinDismissed, setSamplePinDismissed] = React.useState(false);
+    const [promptReopened, setPromptReopened] = React.useState(false);
 
     const takePrompt = React.useCallback(() => {
         const { index, prompt } = getNextPrompt(promptIdx);
@@ -144,6 +150,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         setChosenPromptTitle(null);
         setChosenPromptAttribution(null);
         setLastKind('prompt');
+        setSamplePinDismissed(false);
+        setPromptReopened(false);
     }, [promptIdx]);
 
     const readSample = React.useCallback(() => {
@@ -152,6 +160,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         setChosenPrompt(sample.text);
         setChosenPromptTitle(sample.title);
         setChosenPromptAttribution(sample.attribution);
+        setSamplePinDismissed(false);
+        setPromptReopened(false);
         setLastKind('sample');
     }, [sampleIdx]);
 
@@ -283,16 +293,27 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     }
 
     if (sessionState === 'during') {
+        // Sample-overlay split lifespan (Open Floor only; Focus Points has no prompt/sample). A prompt
+        // auto-hides the moment your own words begin (with a reopen chip); a sample persists until ✕/Stop.
+        const words = wordCount(transcriptContent);
+        const isSampleKind = lastKind === 'sample';
+        const promptAutoHidden = lastKind === 'prompt' && words > 0 && !promptReopened;
+        const pinVisible = !isObjective && Boolean(chosenPrompt) && !(isSampleKind ? samplePinDismissed : promptAutoHidden);
+        const showReopenChip = !isObjective && promptAutoHidden;
         return (
             <SessionDuringState
                 recorder={{ elapsedSeconds: elapsedTime, amplitudes, recordedCount, deviceLabel: 'Private', onStop: onStartStop }}
                 transcript={{
                     tokens: isObjective ? fpDuringTokens : duringTokens,
-                    words: wordCount(transcriptContent),
+                    words,
                     fillersPerMin: liveFillersPerMin(metricsFillerCount, elapsedTime),
-                    chosenPrompt,
+                    chosenPrompt: pinVisible ? chosenPrompt : null,
                     chosenPromptTitle,
                     chosenPromptAttribution,
+                    promptKind: lastKind ?? undefined,
+                    onDismissPin: () => (isSampleKind ? setSamplePinDismissed(true) : setPromptReopened(false)),
+                    showReopenChip,
+                    onReopenPin: () => setPromptReopened(true),
                     // #1046 Focus Points: no filler chrome; the transcript footer speaks to coverage instead.
                     hideFillers: isObjective,
                     footer: isObjective ? 'Highlighted spans are where a point landed.' : undefined,

@@ -55,28 +55,46 @@ describe('before → during (#1222 §1 — slots never move)', () => {
 
 // #1222 (PO 2026-08-10): a long taken sample must never hide the user's own live transcript. The reading
 // prompt is height-bounded (its own scroll) AND collapsible so the space can be reclaimed entirely.
-describe('SessionDuringState reading prompt (bounded + collapsible)', () => {
-    const withPrompt = {
+// Sample-overlay split lifespan (PO Option 1): a pinned sample/prompt sits inside the transcript with a
+// ✕ dismiss; a prompt that auto-hid offers a "Need a prompt?" reopen chip. Visibility is parent-owned.
+describe('SessionDuringState reading prompt (split lifespan)', () => {
+    const withSample = {
         ...duringProps,
-        transcript: { ...duringProps.transcript, chosenPrompt: 'Read this long sample aloud while you record.' },
+        transcript: {
+            ...duringProps.transcript,
+            chosenPrompt: 'Read this long sample aloud while you record.',
+            promptKind: 'sample' as const,
+            onDismissPin: vi.fn(),
+        },
     };
 
-    it('shows the reading prompt above the live transcript with a Hide toggle', () => {
-        render(<SessionDuringState {...withPrompt} />);
+    it('shows the sample above the live transcript with a ✕ dismiss (never covers the transcript)', () => {
+        render(<SessionDuringState {...withSample} />);
         const prompt = screen.getByTestId('during-reading-prompt');
         expect(prompt).toHaveTextContent('Read this long sample aloud');
-        // The live transcript is still present in the same card (never covered).
+        expect(prompt).toHaveAttribute('data-prompt-kind', 'sample');
         expect(screen.getByTestId('live-transcript')).toBeInTheDocument();
-        expect(screen.getByTestId('during-reading-prompt-toggle')).toHaveTextContent('Hide');
+        expect(screen.getByTestId('during-reading-prompt-dismiss')).toBeInTheDocument();
     });
 
-    it('Hide collapses the sample text (reclaims the space) and flips to Show', () => {
-        render(<SessionDuringState {...withPrompt} />);
-        const toggle = screen.getByTestId('during-reading-prompt-toggle');
-        fireEvent.click(toggle);
-        expect(screen.getByTestId('during-reading-prompt')).not.toHaveTextContent('Read this long sample aloud');
-        expect(toggle).toHaveTextContent('Show');
-        // The live transcript remains regardless of the prompt's collapsed state.
-        expect(screen.getByTestId('live-transcript')).toBeInTheDocument();
+    it('✕ calls onDismissPin (parent removes the pin)', () => {
+        const onDismissPin = vi.fn();
+        render(<SessionDuringState {...withSample} transcript={{ ...withSample.transcript, onDismissPin }} />);
+        fireEvent.click(screen.getByTestId('during-reading-prompt-dismiss'));
+        expect(onDismissPin).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers a "Need a prompt?" reopen chip when a prompt auto-hid', () => {
+        const onReopenPin = vi.fn();
+        render(
+            <SessionDuringState
+                {...duringProps}
+                transcript={{ ...duringProps.transcript, chosenPrompt: null, showReopenChip: true, onReopenPin }}
+            />,
+        );
+        const chip = screen.getByTestId('during-reopen-prompt');
+        expect(chip).toHaveTextContent('Need a prompt?');
+        fireEvent.click(chip);
+        expect(onReopenPin).toHaveBeenCalledTimes(1);
     });
 });

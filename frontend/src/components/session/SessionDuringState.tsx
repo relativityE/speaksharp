@@ -32,6 +32,13 @@ export interface SessionDuringStateProps {
         footer?: React.ReactNode;
         /** #1046 Focus Points — highlight `covered` tokens as coverage (purple) instead of fillers. */
         coverageMode?: 'during' | 'after';
+        /** Sample-overlay split lifespan: 'prompt' (glance-then-speak) vs 'sample' (read the whole way). */
+        promptKind?: 'prompt' | 'sample';
+        /** Dismiss the pinned prompt/sample (✕). */
+        onDismissPin?: () => void;
+        /** A prompt auto-hid once words began — show the "Need a prompt?" chip to bring it back. */
+        showReopenChip?: boolean;
+        onReopenPin?: () => void;
     };
     progress: ProgressVsBaselineResult;
     /** #1206 — 'aggregate' shows the composite session-progress card; defaults to the single-signal card. */
@@ -44,10 +51,7 @@ export interface SessionDuringStateProps {
 }
 
 export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder, transcript, progress, progressMode, liveTip, slotDContent, slotCContent }) => {
-    // #1222 (PO 2026-08-10): a long taken sample used to fill the transcript card and hide the user's own
-    // live words. The reading prompt is now HEIGHT-BOUNDED (its own scroll) AND collapsible, so the live
-    // transcript is always visible below it and the reader can reclaim the space entirely once they've read.
-    const [promptCollapsed, setPromptCollapsed] = React.useState(false);
+    const isSample = transcript.promptKind === 'sample';
     return (
         <SessionShell
             sessionState="during"
@@ -65,40 +69,52 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                     headerMeta={transcript.hideFillers ? `${transcript.words} words` : formatLiveMeta(transcript.words, transcript.fillersPerMin)}
                     footer={transcript.footer ?? 'Fillers are highlighted as they happen. Nothing is scored until you stop.'}
                 >
-                    {/* #1222 (PO 2026-08-09): the taken prompt/sample must stay READABLE while recording —
-                        pinned at the top of the transcript so you read it aloud and watch your live words
-                        stream in below. It used to vanish on mic-start, which made samples unusable. */}
+                    {/* Sample-overlay split lifespan (PO Option 1). The pinned card sits INSIDE the transcript
+                        (never a modal — no focus trap, no role=dialog, Space still starts recording). A SAMPLE
+                        persists (shrunk, its own scroll) so you can read it the whole way; a reopened PROMPT
+                        shows larger. Either is dismissed with ✕. The parent owns visibility. */}
                     {transcript.chosenPrompt && transcript.chosenPrompt.trim() && (
                         <div
                             data-testid="during-reading-prompt"
+                            data-prompt-kind={transcript.promptKind ?? 'prompt'}
                             className="mb-3 rounded-lg border border-[#e6ddfb] bg-[#f5f0ff] px-4 py-3 text-[15px] leading-relaxed text-[#3b2f5c]"
                         >
                             <div className="mb-1 flex items-center justify-between gap-2">
                                 <span className="text-[11px] font-bold uppercase tracking-wide text-[#6d28d9]">
-                                    {transcript.chosenPromptTitle ? `Read aloud · ${transcript.chosenPromptTitle}` : 'Read this aloud'}
+                                    {isSample
+                                        ? (transcript.chosenPromptTitle ? `Read aloud · ${transcript.chosenPromptTitle}` : 'Read this aloud')
+                                        : 'Your prompt'}
                                 </span>
-                                {/* Reclaim the space entirely — the live transcript below must never be hidden. */}
                                 <button
                                     type="button"
-                                    data-testid="during-reading-prompt-toggle"
-                                    aria-expanded={!promptCollapsed}
-                                    onClick={() => setPromptCollapsed((c) => !c)}
-                                    className="shrink-0 rounded px-2 py-0.5 text-[12px] font-bold text-[#6d28d9] hover:bg-[#ece3ff]"
+                                    data-testid="during-reading-prompt-dismiss"
+                                    aria-label="Dismiss"
+                                    onClick={transcript.onDismissPin}
+                                    className="shrink-0 rounded px-2 py-0.5 text-[14px] leading-none font-bold text-[#6d28d9] hover:bg-[#ece3ff]"
                                 >
-                                    {promptCollapsed ? 'Show' : 'Hide'}
+                                    ✕
                                 </button>
                             </div>
-                            {/* Height-bounded with its own scroll so a long sample can't push the live words
-                                out of the card; the reader scrolls the prompt, the transcript stays put. */}
-                            {!promptCollapsed && (
-                                <div className="max-h-[22vh] overflow-y-auto pr-1">
-                                    {transcript.chosenPrompt}
-                                    {transcript.chosenPromptAttribution && (
-                                        <div className="mt-1.5 text-[12px] italic text-[#6b5b8a]">— {transcript.chosenPromptAttribution}</div>
-                                    )}
-                                </div>
-                            )}
+                            {/* A sample shrinks to ~40% of the card and scrolls internally so it can't push the
+                                live words out; a short prompt is left un-clamped. */}
+                            <div className={isSample ? 'max-h-[16vh] overflow-y-auto pr-1' : ''}>
+                                {transcript.chosenPrompt}
+                                {transcript.chosenPromptAttribution && (
+                                    <div className="mt-1.5 text-[12px] italic text-[#6b5b8a]">— {transcript.chosenPromptAttribution}</div>
+                                )}
+                            </div>
                         </div>
+                    )}
+                    {/* A prompt that auto-hid once words began can be brought back. */}
+                    {transcript.showReopenChip && (
+                        <button
+                            type="button"
+                            data-testid="during-reopen-prompt"
+                            onClick={transcript.onReopenPin}
+                            className="mb-3 inline-flex items-center gap-1 rounded-full border border-[#e6ddfb] bg-[#f5f0ff] px-3 py-1 text-[12px] font-bold text-[#6d28d9] hover:bg-[#ece3ff]"
+                        >
+                            Need a prompt?
+                        </button>
                     )}
                     <LiveTranscript tokens={transcript.tokens} coverageMode={transcript.coverageMode} />
                 </TranscriptCard>
