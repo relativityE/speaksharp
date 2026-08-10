@@ -146,7 +146,7 @@ describe('AnalyticsDashboard', () => {
         renderComponent({ sessionHistory: mockSessionHistory });
 
         expect(screen.getByTestId('analytics-dashboard')).toBeInTheDocument();
-        expect(screen.getByText('Analytics Focus')).toBeInTheDocument();
+        expect(screen.getByText('Working on')).toBeInTheDocument();
         expect(screen.getByText('Sound Confident')).toBeInTheDocument();
         expect(screen.queryByText(/SpeakSharp Score/i)).not.toBeInTheDocument();
         // #G4: the explanation boxes + "selected together" subtitle are gone; the section leads with a
@@ -604,7 +604,7 @@ describe('AnalyticsDashboard', () => {
         expect(screen.queryByText(/reference script/i)).not.toBeInTheDocument();
     });
 
-    it('shows visible STT engine badges on session history cards', () => {
+    it('does not clutter Recent-session rows with a per-row engine/PRIVATE badge (#G4 chunk 3)', () => {
         renderComponent({
             sessionHistory: [
                 {
@@ -626,9 +626,10 @@ describe('AnalyticsDashboard', () => {
             ],
         });
 
-        // #G4 §5: Recent sessions renders the 2 most recent only, so assert the two shown rows.
-        expect(screen.getByTestId('session-engine-badge-cloud-session')).toHaveTextContent('Cloud');
-        expect(screen.getByTestId('session-engine-badge-native-session')).toHaveTextContent('Browser');
+        // #G4 chunk 3: the per-row engine/PRIVATE badge is gone (the section footer carries the privacy
+        // promise). Recording mode still lives on the session detail view.
+        expect(screen.queryByTestId('session-engine-badge-cloud-session')).toBeNull();
+        expect(screen.queryByTestId('session-engine-badge-native-session')).toBeNull();
     });
 
     it('shows an explicit open-session link on each history item so testers can verify saved sessions', () => {
