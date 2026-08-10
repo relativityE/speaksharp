@@ -171,7 +171,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     }, [lastKind, readSample, takePrompt]);
 
     // #1222 S12b — one live coaching tip (during), held ≥8s (useHeldTip). Candidate is null when idle.
-    const tipCandidate = isListening ? liveTipFromMetrics({ fillerData, wpm, elapsedSeconds: elapsedTime }) : null;
+    const tipCandidate = isListening ? liveTipFromMetrics({ fillerData, wpm, elapsedSeconds: elapsedTime, isReadingSample: lastKind === 'sample' }) : null;
     const heldTip = useHeldTip(tipCandidate);
 
     // Sample the scalar mic level into a rolling buffer while recording; the captured envelope must SURVIVE
@@ -363,7 +363,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 fillerFooter={isObjective
                     ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
                     : <FillerBreakdown fillerData={fillerData} stats={`${metricsFillerCount} fillers · ${wordCount(transcriptContent)} words`} />}
-                verdict={{ ...verdictFromSuggestions(aiSuggestions, fillerData), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
+                verdict={{ ...verdictFromSuggestions(aiSuggestions, fillerData, elapsedTime), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
                 slotDContent={objectiveAfterSlotD}
             />
             {isObjective && (

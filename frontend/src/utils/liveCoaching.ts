@@ -1,5 +1,26 @@
 import type { LiveTipData } from '@/components/session/LiveTip';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
+import { DISCOURSE_MARKER_WORDS } from '@/config';
+
+// #1046 filler coaching guard (reviewer-approved). "Pause instead of X" must only fire when a word is
+// GENUINELY overused, never on one stray occurrence. Three conditions, all required: enough speech to
+// judge, a real count, and a real rate. Discourse markers (like/so/actually) demand a HIGHER rate than
+// true fillers, because they are legitimate in normal speech — this is what stops reading "…who is
+// actually in the arena…" from being coached as a filler.
+const COACH_MIN_DURATION_SEC = 20;
+const COACH_MIN_COUNT = 3;
+const TRUE_FILLER_RATE_PER_MIN = 3;
+const DISCOURSE_MARKER_RATE_PER_MIN = 6;
+
+function guardedTopFiller(fillerData: FillerCounts | null | undefined, elapsedSeconds: number): { word: string; count: number } | null {
+    if (elapsedSeconds < COACH_MIN_DURATION_SEC) return null;
+    const top = topFiller(fillerData);
+    if (!top || top.count < COACH_MIN_COUNT) return null;
+    const ratePerMin = top.count / (elapsedSeconds / 60);
+    // A user's own tracked word is neither list → coached at the true-filler (opted-in) rate.
+    const threshold = DISCOURSE_MARKER_WORDS.includes(top.word) ? DISCOURSE_MARKER_RATE_PER_MIN : TRUE_FILLER_RATE_PER_MIN;
+    return ratePerMin >= threshold ? top : null;
+}
 
 /**
  * #1222 S12b — deterministic coaching sources for slot D. No AI at runtime for the LIVE tip (it must be
@@ -26,6 +47,9 @@ export interface LiveTipInputs {
     fillerData?: FillerCounts | null;
     wpm?: number | null;
     elapsedSeconds: number;
+    /** #1046 sample-read suppression: fillers in scripted read-aloud prose are the author's, not the
+     *  speaker's, so no filler coaching fires while a sample is being read. */
+    isReadingSample?: boolean;
 }
 
 /**
@@ -33,13 +57,14 @@ export interface LiveTipInputs {
  * when the dominant filler changes); otherwise, when pace is off, a pace tip; otherwise a positive-only
  * "keep going" tip once there's enough speech. Null before there is anything honest to say.
  */
-export function liveTipFromMetrics({ fillerData, wpm, elapsedSeconds }: LiveTipInputs): LiveTipData | null {
+export function liveTipFromMetrics({ fillerData, wpm, elapsedSeconds, isReadingSample }: LiveTipInputs): LiveTipData | null {
     if (elapsedSeconds < 8) return null; // nothing trustworthy to say in the first few seconds
     const paceInRange = typeof wpm === 'number' && wpm >= PACE_IDEAL[0] && wpm <= PACE_IDEAL[1];
     const goingRight = paceInRange ? `Pace ${Math.round(wpm as number)} wpm — right in your range.` : undefined;
 
-    const top = topFiller(fillerData);
-    if (top && top.count >= 2) {
+    // Guarded: only coach a filler that is genuinely overused, and never while reading a scripted sample.
+    const top = isReadingSample ? null : guardedTopFiller(fillerData, elapsedSeconds);
+    if (top) {
         return {
             id: `filler:${top.word}`,
             headline: `Pause instead of “${top.word}”.`,
@@ -64,9 +89,11 @@ export interface TwoTakeaways {
     what_to_try_next?: string;
 }
 
-/** The after-state verdict: reuse the saved two-takeaways when present; honest deterministic fallback otherwise. */
-export function verdictFromSuggestions(ai: TwoTakeaways | null | undefined, fillerData?: FillerCounts | null): { verdictLine: string; fix: string } {
-    const top = topFiller(fillerData);
+/** The after-state verdict: reuse the saved two-takeaways when present; honest deterministic fallback
+ *  otherwise. The filler fallback uses the SAME coaching guard as the live tip, so a couple of legitimate
+ *  discourse markers never become the session's "fix". */
+export function verdictFromSuggestions(ai: TwoTakeaways | null | undefined, fillerData?: FillerCounts | null, elapsedSeconds = 0): { verdictLine: string; fix: string } {
+    const top = guardedTopFiller(fillerData, elapsedSeconds);
     const verdictLine = ai?.what_worked?.trim() || 'Session saved — nice work.';
     const fix = ai?.what_to_try_next?.trim()
         || (top ? `Pause instead of “${top.word}” — it was your most-used filler.` : 'Keep practicing to build your baseline.');
