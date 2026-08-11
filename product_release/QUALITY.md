@@ -158,6 +158,28 @@ Stress/endurance artifacts should include: concurrency tested; success/failure c
 
 **Request-failure classification.** `pass` = functional journey + memory + backend stress + required artifacts passed (known read-only teardown aborts may be recorded under `ignoredRequestFailures[]`). `fail` = a product/system target failed (auth, recording start, token issuance, quota, save/write path, unexpected 4xx/5xx, memory target, backend target, artifact parseability). `invalid` = environment/tooling prevented trustworthy measurement (EPERM bind, missing secrets, sandbox launch failure) — cannot close an RC gate. A read-only request abort may be ignored **only** when all hold: `errorText` is `net::ERR_ABORTED`; method is GET/HEAD; endpoint is allowlisted read/poll; phase is navigation/teardown or the functional journey already passed; no dependent assertion failed; and it is not auth/token/checkout/STT-critical/session-save/other write path.
 
+### Launch telemetry — Practice Loop funnel & Private signals (#1259)
+
+Launch decisions use clean, privacy-safe product signals, never stale test traffic or speech content. The funnel is measured with existing content-free events (mechanism counters/enums only) emitted through `AnalyticsBuffer`, never PostHog directly.
+
+**Practice Loop funnel:** `practice_entry_viewed` → `practice_mode_selected` (`quick`/`objective`) → `freeform_practice_started` / `session_started` → `session_saved` (the finalize/save success signal). There is no dedicated `session_save_failed` event today; save failure is the `session_started`-without-`session_saved` drop-off (surfaced to the user as an actionable retry). A content-free `session_save_failed` (bounded `error_code`) is a recommended follow-on if a direct save-failure SLO is required.
+
+**Private setup/start/finalize signals** (`privateSampleTelemetry.ts`, allowlisted): setup `private_sample_setup_started` → `_setup_succeeded` / `_setup_failed`; start `private_sample_recording_started` → `_first_transcript_seen` / `private_sample_error`; finalize `private_sample_recording_stopped` → `_saved`.
+
+**Launch SLOs & alert thresholds** (internal launch-health signals on the sanitized baseline; distinct from the reliability SLOs above and from STT WER/latency in `STT.md`; alerts page on two consecutive breached windows):
+
+| Signal | SLO target | Alert threshold |
+|---|---|---|
+| Practice-start → save conversion | ≥ 70% of `session_started` reach `session_saved` | < 55% |
+| Private setup success | ≥ 95% of `_setup_started` reach `_setup_succeeded` | < 90% |
+| Private start success | ≥ 98% of recording setups reach `_first_transcript_seen` | < 95% |
+| Private error rate | ≤ 2% of Private sessions emit `private_sample_error` | > 5% |
+| Funnel-entry health | `practice_entry_viewed` non-zero per active day | zero for a full active day |
+
+**Content-free contract (privacy).** Two layers: (1) emitter allowlists (`practiceTelemetry.ts`, `privateSampleTelemetry.ts`) project every payload down to enumerated non-PII primitives — transcript, audio, email, free-form title/agenda, and raw identifiers are dropped before send; (2) `AnalyticsBuffer` additionally redacts any `transcript`/`audio`/`wav`/`blob`/`base64`-shaped value at the send boundary. Identity is pseudonymous (`usr_v1_<HMAC(user_id)>`, `tst_v1_` for automated traffic) — never a raw auth id or email. Enforced by `tests/release/launch-telemetry-content-free.contract.test.ts` (the #1259 falsification evidence).
+
+**Authorization-gated (NOT part of the telemetry-definition change).** These need separate Product Owner authorization and PostHog operations: purge/segment synthetic-tester & legacy-Basic production data out of the measurement baseline (a production data mutation); record the fresh post-cleanup baseline timestamp/SHA; capture PostHog dashboard/alert screenshots on sanitized data. Until that authorized cleanup runs, the baseline is contaminated by test traffic and must not back launch-readiness claims.
+
 ---
 
 ## 6. Test inventory & gate map (engineering test protocol)
