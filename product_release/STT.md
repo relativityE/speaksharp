@@ -97,6 +97,33 @@ STT targets in this document are **internal SLOs / quality targets on controlled
 - **Metrics & validity.** Stored target **Private v4 88.89%** is **harness-limited and NOT a gate**. No approved v4 replacement threshold exists; the eventual GO gate is defined in #1044 (build #1037, repair producing-engine attribution across fallback, agree a base.en six-metric threshold, run a cohort PostHog A/B).
 - **Failure behavior / evidence required.** Not applicable while hard-off. Any future activation is a **separate, explicitly PO-approved gate** and is out of scope for this contract.
 
+### v2 vs v4 benchmark protocol + flag inventory (#1263)
+
+The Private engine version is **never a user choice** — the PO picks the single best dependable default from apples-to-apples evidence. To be comparable, v2 and v4 are measured on the **same corpus, the same devices, and the same conditions**, one row per engine:
+
+| Dimension | What is measured (identical for v2 and v4) |
+|---|---|
+| Setup — cold / warm | model download + init time, cold (empty cache) and warm (cached) |
+| Accuracy | WER / accuracy on the controlled fixtures (content-safe; cite the fixture set) |
+| Opening / tail | first-token latency and trailing-word capture at start/end of a take |
+| Finalization | post-Stop decode time and RTF on the same recording durations |
+| Memory | peak/steady JS-heap (and GPU memory for v4) where the API exposes it |
+| Failure | cold-start failure rate, cross-browser/GPU coverage, and fallback behavior |
+
+**Provenance (record with every result):** exact model file + quantization (e.g. `whisper-base.en` vs `base_q4`), runtime + version (transformers.js / WASM threads vs WebGPU), browser + version, device/GPU, cache state, and the SHA the build was cut from. Numbers without this provenance are not comparable evidence.
+
+**Flag inventory (code-verified; `privateV4Flags.ts`, `privateV4FlagInventory.test.ts`).** The only v4 controls are these four PostHog flags plus one build kill-switch. **Intended production state: all OFF → v2-base default.** No accidental cohort: v4 activates only on the explicit master flag, and distil requires the master flag too (a stray distil flag is inert).
+
+| Flag / switch | Purpose | Intended prod state | Rollback |
+|---|---|---|---|
+| `private_stt_v4_enabled` | master switch (may the resolver consider v4) | OFF / 0% | set to 0% |
+| `private_stt_v4_distil_enabled` | WebGPU distil-q4 accuracy tier (gated on master) | OFF — **unused; archive** | set to 0% / archive |
+| `private_stt_v4_internal_only` | restrict v4 to internal testers | OFF | set to 0% |
+| `private_stt_v4_allowlist` | named-user allowlist (deliberate targeting) | empty | clear allowlist |
+| `VITE_PRIVATE_STT_V4_DISABLED` (build) | hard global kill, overrides every flag | may be `true` (belt-and-suspenders) | build env |
+
+**Separate, PO/ops-authorized (not this source PR):** the actual benchmark RUNS on real devices (WASM/WebGPU qualification where supported) and their content-safe artifacts; the PostHog flag-state cleanup — **remove the ad-hoc single-`distinct_id` target on `private_stt_v4_enabled`** and **archive the unused `private_stt_v4_distil_enabled` flag** — proving no accidental cohort remains live; and the explicit PO **default/activation decision**. v2 stays the default until evidence and that decision approve v4.
+
 ---
 
 ## Consolidated SLO / quality-target table (internal — not SLAs)
