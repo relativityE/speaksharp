@@ -79,11 +79,11 @@ describe('#1222 S10 — session overhaul regression', () => {
     it('both waveforms fill their track (flex:1, min-width:2px) — recorder bar and scrubber', () => {
         const { rerender } = render(<SessionDuringState {...duringProps} />);
         for (const bar of screen.getAllByTestId('recorder-waveform-bar')) {
-            expect(bar).toHaveStyle({ flex: '1 1 0', minWidth: '2px' });
+            expect(bar).toHaveStyle({ flex: '1 1 0', minWidth: '1px' });
         }
         rerender(<SessionAfterState {...afterProps} />);
         for (const bar of screen.getAllByTestId('scrubber-waveform-bar')) {
-            expect(bar).toHaveStyle({ flex: '1 1 0', minWidth: '2px' });
+            expect(bar).toHaveStyle({ flex: '1 1 0', minWidth: '1px' });
         }
     });
 

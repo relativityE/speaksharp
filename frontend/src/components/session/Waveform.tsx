@@ -3,7 +3,7 @@ import React from 'react';
 /**
  * #1222 — the waveform, shared by the `during` recorder bar and the `after` scrubber (spec §4).
  *
- * Hard rule: bars are `flex: 1; min-width: 2px` with a 2px gap — **never a fixed width**, or the track
+ * Hard rule: bars are `flex: 1; min-width: 1px` with a 1px gap (thin enough that all ~72 bars fit a 320px track without clipping) — **never a fixed width**, or the track
  * won't fill and the playhead will disagree with the audio. ~72 bars. Recorded audio is orange
  * (`#d98a1f`); the un-recorded tail is `#e0e6ee`.
  *
@@ -59,7 +59,7 @@ export const Waveform: React.FC<WaveformProps> = ({
         <div
             className={className}
             data-testid={testId}
-            style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: 2, height: TRACK_HEIGHT, width: '100%', overflow: 'hidden' }}
+            style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: 1, height: TRACK_HEIGHT, width: '100%' }}
         >
             {amplitudes.map((a, i) => {
                 // after-state fillers are full height (a deliberate override, not their amplitude); every
@@ -74,7 +74,7 @@ export const Waveform: React.FC<WaveformProps> = ({
                         data-filler={fillerSet.has(i) || undefined}
                         style={{
                             flex: '1 1 0',
-                            minWidth: 2,
+                            minWidth: 1,
                             height: heightPx,
                             backgroundColor: colorFor(i),
                             borderRadius: 1,
@@ -88,7 +88,7 @@ export const Waveform: React.FC<WaveformProps> = ({
                         type="button"
                         aria-label={`Seek to ${Math.round((i / Math.max(1, n - 1)) * 100)}%`}
                         onClick={() => onSeek?.(n > 1 ? i / (n - 1) : 0)}
-                        style={{ flex: '1 1 0', minWidth: 2, height: '100%', display: 'flex', alignItems: 'flex-end', padding: 0, border: 0, background: 'transparent', cursor: 'pointer' }}
+                        style={{ flex: '1 1 0', minWidth: 1, height: '100%', display: 'flex', alignItems: 'flex-end', padding: 0, border: 0, background: 'transparent', cursor: 'pointer' }}
                     >
                         {bar}
                     </button>

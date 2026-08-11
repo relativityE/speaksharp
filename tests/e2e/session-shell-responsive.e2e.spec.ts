@@ -113,5 +113,21 @@ test.describe('#1255 — SessionShell is responsive across phone and desktop wid
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
     await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 15_000 });
     await sweepNoOverflow(page, 'after');
+
+    // #1255 RETURN — the waveform must not be CLIPPED at 320px (the earlier overflow:hidden fix hid the
+    // rightmost bars, which can carry a late filler marker). At the narrowest phone, assert the whole
+    // recording is represented: the FIRST and LAST bars sit inside the visible track (no clipping).
+    await page.setViewportSize({ width: 320, height: 844 });
+    const track = await page.getByTestId('scrubber-waveform').boundingBox();
+    const bars = page.getByTestId('scrubber-waveform-bar');
+    const count = await bars.count();
+    expect(track, 'scrubber waveform present').toBeTruthy();
+    expect(count, 'waveform renders bars').toBeGreaterThan(0);
+    const first = await bars.first().boundingBox();
+    const last = await bars.nth(count - 1).boundingBox();
+    // Left edge of the first bar is not clipped off the left of the track…
+    expect(first!.x, 'first bar within track (left)').toBeGreaterThanOrEqual(track!.x - 1);
+    // …and the right edge of the last bar (a late filler position) is inside the track's right edge.
+    expect(last!.x + last!.width, 'last bar within track (right)').toBeLessThanOrEqual(track!.x + track!.width + 1);
   });
 });
