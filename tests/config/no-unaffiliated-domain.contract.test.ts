@@ -55,9 +55,22 @@ describe('#1260 unaffiliated-domain zero-reference scanner', () => {
     expect(workflow).toContain('node scripts/no-unaffiliated-domain-scan.mjs');
   });
 
-  it('offers a manual fail-closed hosted config check without emitting the secret value', () => {
+  it('runs the credentialed hosted check ONLY in trusted contexts, never on a pull request (#1279)', () => {
+    // SECURITY REGRESSION LOCK (#1279): the hosted-config job holds SUPABASE_ACCESS_TOKEN (a management
+    // credential) and executes checked-out JavaScript. On a same-repo pull_request that code is
+    // PR-controlled and could exfiltrate the token, so the credentialed job must be gated to trusted
+    // contexts only — a maintainer workflow_dispatch or a post-merge push to the default branch.
     expect(workflow).toContain("github.event_name == 'workflow_dispatch'");
-    expect(workflow).toContain("github.event_name == 'pull_request'");
+    expect(workflow).toContain("github.event_name == 'push' && github.ref == 'refs/heads/main'");
+    // No job may gate execution on the pull_request event while holding the token: the only pull_request
+    // work is the secret-free `scan` job (which carries no `if`).
+    expect(workflow).not.toContain("github.event_name == 'pull_request'");
+    // The token must never sit in a job whose guard admits pull_request. Assert the token-bearing block's
+    // guard resolves to the trusted-context condition.
+    const hostedJob = workflow.slice(workflow.indexOf('hosted-config:'));
+    const guard = hostedJob.match(/if:\s*\$\{\{([^}]*)\}\}/)?.[1] ?? '';
+    expect(guard).not.toContain('pull_request');
+    expect(hostedJob).toContain('SUPABASE_ACCESS_TOKEN');
     expect(workflow).toContain('--fail-with-body --silent --show-error');
     expect(workflow).toContain('node scripts/check-hosted-allowed-origin.mjs');
     expect(hostedCheck).toContain("entry?.name === 'ALLOWED_ORIGIN'");

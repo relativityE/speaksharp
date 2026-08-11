@@ -29,9 +29,15 @@ jobs:
         run: node scripts/no-unaffiliated-domain-scan.mjs
 
   hosted-config:
-    # New workflows cannot be manually dispatched until they exist on the default branch. Run the
-    # read-only proof on this source PR too. Fork PRs receive empty secrets and fail closed at preflight.
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' }}
+    # SECURITY (#1279): this job holds SUPABASE_ACCESS_TOKEN — the Supabase MANAGEMENT credential — so it
+    # must NEVER run in a pull_request context. On a same-repo PR, `actions/checkout` fetches the PR head and
+    # the step below executes PR-controlled JavaScript (scripts/check-hosted-allowed-origin.mjs); a
+    # contributor could rewrite that script to exfiltrate the token. Run the credentialed read-only proof
+    # ONLY from trusted contexts where the executed code is trusted-base code: a maintainer
+    # `workflow_dispatch`, or a `push` to the default branch (post-merge). The zero-reference `scan` job
+    # above stays on pull_request precisely because it carries NO secrets. The first run necessarily happens
+    # post-merge via the default-branch push; `workflow_dispatch` covers on-demand reruns thereafter.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     name: hosted ALLOWED_ORIGIN read-only check
     runs-on: ubuntu-latest
     timeout-minutes: 5
