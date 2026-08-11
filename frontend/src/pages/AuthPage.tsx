@@ -198,7 +198,7 @@ export default function AuthPage() {
             </CardTitle>
             <CardDescription className="text-base">
               {view === 'sign_in' && 'Enter your credentials to access your account'}
-              {view === 'sign_up' && 'Start free with Browser transcription. Upgrade when you want deeper coaching.'}
+              {view === 'sign_up' && 'Practice privately, get focused feedback, and improve one take at a time.'}
               {view === 'forgot_password' && "Enter your email address and we'll send you a reset link"}
             </CardDescription>
           </CardHeader>
@@ -248,9 +248,9 @@ export default function AuthPage() {
 
                 {view === 'sign_up' && (
                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                    <p className="text-sm font-semibold text-foreground">Start free with instant Browser transcription</p>
+                    <p className="text-sm font-semibold text-foreground">Start free with Private transcription</p>
                     <p className="text-xs font-medium leading-relaxed text-foreground/70">
-                      Try the product immediately. Private is the recommended main experience — try one Private sample session and record up to 5 minutes, transcribed locally on your device. Cloud transcription is a paid Early Access feature.
+                      Every practice session uses on-device Private transcription. The controlled beta is free — no card or checkout.
                     </p>
                     {inlineError && (
                       <p
