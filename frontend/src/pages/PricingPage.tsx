@@ -37,7 +37,7 @@ const tiers: Tier[] = [
     priceDescription: 'no card required',
     features: [
       `Up to ${SUBSCRIPTION_LIMITS.FREE_MONTHLY_MINUTES} mins of practice per month`,
-      'Instant Browser transcription; accuracy depends on your browser and room',
+      'Private on-device transcription after one-time model setup',
       'Core practice feedback metrics',
       'Save last 5 sessions',
       'Watermarked PDF exports',
@@ -54,8 +54,8 @@ const tiers: Tier[] = [
       'Up to 2 hours/day and 50 hours/month',
       'Practice analytics, trends, and coaching reports',
       'Save all sessions',
-      'Private transcription after one-time local model setup',
-      'Cloud transcription when enabled for Pro workflows',
+      'Expanded practice minutes',
+      'Deeper history and coaching when a paid offer is approved',
       'Semantic AI coaching and expanded PDF export capacity',
     ],
     cta: 'Upgrade to Pro',
@@ -157,7 +157,7 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
           >
             <p className="text-sm font-semibold text-foreground">Pro enrollment isn&apos;t open during this beta.</p>
             <p className="mt-1 text-xs text-foreground/70">
-              Beta testers can use the free Browser plan and one included Private sample. No card is required.
+              Beta testers use Private on-device transcription. No card or checkout is required.
             </p>
           </div>
         )}
@@ -201,8 +201,7 @@ const BillingManagementPanel: React.FC = () => {
         <div className="space-y-2">
           <h2 className="text-base font-semibold">Paid early access</h2>
           <p className="text-sm leading-6 text-muted-foreground">
-            Pro is offered as paid early access while SpeakSharp is still improving. Transcription and coaching
-            quality can vary by browser, microphone, speaking conditions, and selected mode.
+            Paid enrollment is not currently offered. Private transcription and coaching quality can vary by device, microphone, and speaking conditions.
           </p>
           <p className="text-sm leading-6 text-muted-foreground">
             You can cancel from billing management when Stripe has linked your paid account. Refund or
@@ -239,7 +238,7 @@ export const PricingPage: React.FC = () => {
       <div className="mx-auto max-w-4xl text-center mb-10">
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Choose your SpeakSharp plan</h1>
         <p className="text-base text-muted-foreground mt-3 sm:text-lg">
-          Start free with instant Browser transcription and core feedback. Upgrade to Pro paid early access when you need Private transcription, deeper history, and expanded coaching capacity.
+          Start the controlled beta with Private on-device transcription and focused feedback. No card or checkout is required.
         </p>
       </div>
       <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-2">
@@ -248,7 +247,7 @@ export const PricingPage: React.FC = () => {
         ))}
       </div>
       <div className="mx-auto mt-8 flex max-w-4xl flex-wrap items-center justify-center gap-3 text-sm text-muted-foreground">
-        {['Private transcription keeps audio local', 'Transcript data supports SpeakSharp features', 'Pro unlocks after Stripe confirmation'].map((label) => (
+        {['Private transcription keeps audio local', 'Transcript data supports SpeakSharp features', 'No checkout during the controlled beta'].map((label) => (
           <span key={label} className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5">
             <ShieldCheck className="h-4 w-4 text-success" aria-hidden="true" />
             {label}
