@@ -9,6 +9,7 @@ import type { FinalizeEngineKey } from '@/services/transcription/finalizeRateSto
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import { ENV } from '@/config/TestFlags';
 import type { PracticeFocus } from '@/constants/practiceFocus';
+import { isPracticeFocus } from '@/constants/practiceFocus';
 import { syncForensicAnchors } from '@/lib/forensicAnchors';
 
 /**
@@ -171,6 +172,24 @@ interface SessionActions {
 
 export type SessionStore = SessionState & SessionActions;
 
+// #1264 — Practice Focus persists in sessionStorage so a "Practice this next" repeat (even one that
+// re-navigates or reloads within the tab) keeps the chosen intention. Session-scoped: it clears when the
+// tab closes, which is the right lifetime for a per-practice-session intention. Fails open (best-effort).
+const PRACTICE_FOCUS_KEY = 'speaksharp_practice_focus_v1';
+const readPracticeFocus = (): PracticeFocus | null => {
+  try {
+    const v = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(PRACTICE_FOCUS_KEY) : null;
+    return isPracticeFocus(v) ? v : null;
+  } catch { return null; }
+};
+const writePracticeFocus = (v: PracticeFocus | null): void => {
+  try {
+    if (typeof sessionStorage === 'undefined') return;
+    if (v) sessionStorage.setItem(PRACTICE_FOCUS_KEY, v);
+    else sessionStorage.removeItem(PRACTICE_FOCUS_KEY);
+  } catch { /* best-effort */ }
+};
+
 const initialState: SessionState = {
     runtimeState: 'IDLE',
     engineSelectionLocked: false,
@@ -198,7 +217,7 @@ const initialState: SessionState = {
     captureLimitReached: null,
     completedSessionDurationSeconds: null,
     activeObjectiveBrief: null,
-    practiceFocus: null,
+    practiceFocus: readPracticeFocus(),
     objectiveCoverageResult: null,
     pauseMetrics: {
         totalPauses: 0,
@@ -478,7 +497,7 @@ export const useSessionStore = create<SessionStore>((set) => {
 
     setCompletedSessionDuration: (completedSessionDurationSeconds) => set({ completedSessionDurationSeconds }),
     setActiveObjectiveBrief: (activeObjectiveBrief) => set({ activeObjectiveBrief }),
-    setPracticeFocus: (practiceFocus) => set({ practiceFocus }),
+    setPracticeFocus: (practiceFocus) => { writePracticeFocus(practiceFocus); set({ practiceFocus }); },
     setObjectiveCoverageResult: (objectiveCoverageResult) => set({ objectiveCoverageResult }),
 
     setTranscriptFinalizing: (isTranscriptFinalizing) =>
