@@ -95,7 +95,9 @@ describe('generateSessionPdf', () => {
         ['Session ID', '123'],
         ['Total Words', '5'],
         ['Speaking Pace (WPM)', '1 (Too Slow)'],
-        ['Clear-delivery evidence', 'Available for comparable Progress'],
+        // #1265 correction: the read model classifies this session `insufficient`, so the PDF must NOT
+        // claim "Available for comparable Progress" — it uses neutral wording derived from eligibility.
+        ['Clear-delivery evidence', 'Recorded — not yet comparable'],
         // #1231: the headline is the TRUE-filler tier — um(5); "like"(3) is a discourse marker, excluded by
         // default. The per-word breakdown table below still lists every tracked word (um 5, like 3).
         ['Total Filler Words', '5'],
@@ -126,8 +128,13 @@ describe('generateSessionPdf', () => {
       status: 'eligible',
       sessionId: '123',
       comparison: 'previous',
-      direction: { direction: 'improved', deltaPoints: 6, deltaPercent: 7.14, reason: null, text: 'Clear delivery improved 7% vs your previous comparable session.' },
-      baselineContext: 'Clear delivery improved 13% vs your first comparable session.',
+      direction: { direction: 'improved', deltaPoints: 6, deltaPercent: 7.14, reason: null, text: 'Clear delivery improved 7.1% vs your previous comparable session.' },
+      baselineContext: 'Clear delivery improved 12.5% vs your first comparable session.',
+      disclosure: {
+        referenceSessionId: 'prev-1', referenceRole: 'previous comparable session', alsoFirstComparable: false,
+        cohortKey: 'private|v2|base|clarity_v1', currentClarityPoints: 90, referenceClarityPoints: 84,
+        deltaPoints: 6, deltaPercent: 7.14, units: 'clear-delivery points',
+      },
       takeaways: {
         whatWorked: 'Very few filler words',
         practiceThisNext: 'Cut filler words toward 3%',
@@ -142,8 +149,8 @@ describe('generateSessionPdf', () => {
     expect(savedPdf.text).toContain('(Comparable Progress) Tj');
     expect(savedPdf.text).toContain('(Practice this next) Tj');
     expect(savedPdf.text).toContain('(Cut filler words toward 3%) Tj');
-    expect(savedPdf.text).toContain('(Clear delivery improved 7% vs your previous comparable session.) Tj');
-    expect(savedPdf.text).toContain('(Clear delivery improved 13% vs your first comparable session.) Tj');
+    expect(savedPdf.text).toContain('(Clear delivery improved 7.1% vs your previous comparable session.) Tj');
+    expect(savedPdf.text).toContain('(Clear delivery improved 12.5% vs your first comparable session.) Tj');
   });
 
   it('still exports the session when comparable Progress cannot be loaded', async () => {

@@ -147,6 +147,11 @@ export const generateSessionPdf = async (
     toast.info("Generating PDF...", { id: 'pdf-gen' });
     const doc = new jsPDF();
     const metrics = getSessionAnalysisMetrics(session);
+    // Reuse the exact persisted Progress read model used by the saved review (loaded ONCE). A PDF must
+    // never recompute its own comparison, and it must not label evidence "comparable" unless this
+    // authoritative read model actually classifies the session eligible.
+    const progress = await loadSessionProgress(session.id).catch(() => null);
+    const clarityComparable = progress?.status === 'eligible';
     // #1047 PR-U1: show a transcript-DERIVED metric only when transcript-state PROVENANCE allows it — never
     // from numeric presence (a not_captured row's `total_words: 0` / empty filler map are schema-default
     // SENTINELS, not measurements). An expired row still shows its genuinely persisted measurements.
@@ -155,9 +160,14 @@ export const generateSessionPdf = async (
       transcriptDerivedMetricShowable(transcriptState, persistedIsRealNumber) ? render() : 'N/A';
     const wordsCell = derivedCell(typeof session.total_words === 'number', () => `${metrics.wordCount}`);
     const wpmCell = derivedCell(typeof session.wpm === 'number', () => `${metrics.wpm} (${metrics.wpmLabel})`);
-    // `clarity_score` is an internal evidence input, not a user-facing universal score. The PDF exposes
-    // availability here and reuses the authoritative comparable movement below.
-    const clarityCell = derivedCell(typeof session.clarity_score === 'number', () => 'Available for comparable Progress');
+    // `clarity_score` is an internal evidence input, not a user-facing universal score. Only claim it is
+    // "Available for comparable Progress" when the authoritative read model classifies the session
+    // eligible; when it is insufficient/ineligible/unavailable, say so neutrally rather than implying a
+    // comparison the Progress model would not make.
+    const clarityCell = derivedCell(
+      typeof session.clarity_score === 'number',
+      () => clarityComparable ? 'Available for comparable Progress' : 'Recorded — not yet comparable',
+    );
     const fillerCell = derivedCell(isUsableFillerCounts(session.filler_words), () => `${metrics.fillerCount}`);
     const customWords = getCustomWordList(session.custom_words);
     const customWordsDetected = customWords.reduce((sum, word) => {
@@ -268,9 +278,8 @@ export const generateSessionPdf = async (
       writePaginatedText(doc, session.ai_suggestions.what_to_try_next, 18, y + 7, 180, 5);
     }
 
-    // Reuse the exact persisted Progress read model used by the saved review. A PDF must never recompute
-    // its own comparison or substitute AI coaching for the one durable next action.
-    const progress = await loadSessionProgress(session.id).catch(() => null);
+    // The Progress read model was loaded once above (reused here) — the PDF must never recompute its own
+    // comparison or substitute AI coaching for the one durable next action.
     if (progress?.status === 'eligible') {
       doc.addPage();
       doc.setFontSize(16);

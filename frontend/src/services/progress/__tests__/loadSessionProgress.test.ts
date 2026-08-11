@@ -86,10 +86,22 @@ describe('#1047 U2 loadSessionProgress', () => {
         if (view.status !== 'eligible') throw new Error('expected eligible');
         expect(view.direction.direction).toBe('improved');
         expect(view.direction.deltaPoints).toBe(6); // previous=84, not first baseline=80
-        expect(view.direction.text).toMatch(/7% vs your previous comparable session/i);
-        expect(view.baselineContext).toMatch(/13% vs your first comparable session/i);
+        expect(view.direction.text).toMatch(/7\.1% vs your previous comparable session/i); // one-decimal display
+        expect(view.baselineContext).toMatch(/12\.5% vs your first comparable session/i);
         expect(view.comparison).toBe('previous');
         expect(view.recommendationId).toBe('rec-2');
+        // Inspectable evidence disclosure: the validated reference session, cohort/mode, inputs, and units.
+        expect(view.disclosure).toMatchObject({
+            referenceSessionId: 's1',
+            referenceRole: 'previous comparable session',
+            alsoFirstComparable: false,
+            cohortKey: 'private|v2|base|clarity_v1',
+            currentClarityPoints: 90,
+            referenceClarityPoints: 84,
+            deltaPoints: 6,
+            units: 'clear-delivery points',
+        });
+        expect(view.disclosure?.deltaPercent).toBeCloseTo(7.142857142857142, 6);
     });
 
     it('uses the sole prior evaluation as both baseline and previous on the first comparison', async () => {

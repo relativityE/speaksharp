@@ -104,15 +104,19 @@ export function describeDirection(
         return { direction: 'below_policy', deltaPoints: delta, deltaPercent, reason: null, text: 'No meaningful change yet.' };
     }
     if (deltaPercent === null) {
+        // Zero-reference: a relative movement measured against a zero clear-delivery baseline has no
+        // defensible percentage, so it is NOT a claimable improvement/decline. Present a neutral,
+        // no-defensible-change state (never an up/down claim) — the raw points are retained for tests.
         return {
-            direction: delta > 0 ? 'improved' : 'declined',
+            direction: 'below_policy',
             deltaPoints: delta,
             deltaPercent: null,
             reason: null,
-            text: `Clear delivery changed vs your ${referenceLabel}; a percentage is unavailable from a zero reference.`,
+            text: `No defensible change — your ${referenceLabel} had no clear-delivery baseline (zero) to compare against.`,
         };
     }
-    const shown = Math.round(Math.abs(deltaPercent));
+    // Display precision: ONE decimal. A whole-percent round hid real sub-point movement (e.g. 7.3% → "7%").
+    const shown = (Math.round(Math.abs(deltaPercent) * 10) / 10).toFixed(1);
     return {
         direction: delta > 0 ? 'improved' : 'declined',
         deltaPoints: delta,

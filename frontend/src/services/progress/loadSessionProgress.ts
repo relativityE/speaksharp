@@ -9,6 +9,33 @@ export type ProgressAttemptView = {
     outcome: 'moved' | 'did_not_move' | 'not_comparable' | 'not_completed' | null;
 };
 
+/**
+ * Inspectable evidence behind a displayed movement: exactly which validated session it was measured
+ * against, in which recording cohort/mode, the raw inputs, and their units. A headline number the user
+ * cannot inspect is not defensible; this makes the comparison auditable without exposing any transcript.
+ * Present only when a real previous-vs-current comparison was made (null for baseline/restarted states).
+ */
+export interface ProgressDisclosure {
+    /** The server-validated comparable session the movement was measured against. */
+    referenceSessionId: string;
+    /** How that reference is named to the user (headline reference). */
+    referenceRole: 'previous comparable session';
+    /** True when the previous comparable session is also the first-session baseline. */
+    alsoFirstComparable: boolean;
+    /** The recording cohort/mode both sessions share (a comparison is only valid within one cohort). */
+    cohortKey: string;
+    /** Input: this session's clear-delivery points (unrounded). */
+    currentClarityPoints: number;
+    /** Input: the reference session's clear-delivery points (unrounded). */
+    referenceClarityPoints: number;
+    /** Signed movement in points (current − reference). */
+    deltaPoints: number;
+    /** Signed relative movement in percent; null when the reference points are zero. */
+    deltaPercent: number | null;
+    /** Units of the inputs/points. */
+    units: 'clear-delivery points';
+}
+
 export type SessionProgressResult =
     | { status: 'insufficient'; sessionId: string }
     | { status: 'ineligible'; sessionId: string; reasons: ExclusionReason[] }
@@ -21,6 +48,8 @@ export type SessionProgressResult =
         direction: DirectionResult;
         /** Quiet long-term context; the headline always uses the previous comparable session. */
         baselineContext: string;
+        /** Inspectable evidence behind the displayed movement; null unless a real comparison was made. */
+        disclosure: ProgressDisclosure | null;
         takeaways: Takeaways;
         recommendationId: string | null;
         latestAttempt: ProgressAttemptView | null;
@@ -237,10 +266,28 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         },
     };
 
+    // Inspectable evidence for a REAL comparison only. Baseline/restarted states have no defensible
+    // reference to disclose, so the disclosure is null and the UI shows none.
+    const disclosure: ProgressDisclosure | null =
+        comparison === 'previous' && previous && previous.clarityRaw !== null && current.clarityRaw !== null && current.cohortKey
+            ? {
+                referenceSessionId: previous.sessionId,
+                referenceRole: 'previous comparable session',
+                alsoFirstComparable: !!(baseline && baseline.sessionId === previous.sessionId),
+                cohortKey: current.cohortKey,
+                currentClarityPoints: current.clarityRaw,
+                referenceClarityPoints: previous.clarityRaw,
+                deltaPoints: current.clarityRaw - previous.clarityRaw,
+                deltaPercent: direction.deltaPercent,
+                units: 'clear-delivery points',
+            }
+            : null;
+
     return {
         status: 'eligible', sessionId, comparison,
         direction,
         baselineContext,
+        disclosure,
         takeaways,
         recommendationId,
         latestAttempt,

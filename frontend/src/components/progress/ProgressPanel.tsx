@@ -135,6 +135,19 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
         <div className="space-y-1" aria-label="Supporting comparison evidence">
             <p className="text-sm text-foreground/80" data-testid="progress-direction">{view.direction.text}</p>
             <p className="text-xs text-foreground/80" data-testid="progress-baseline-context">{view.baselineContext}</p>
+            {view.disclosure && (
+                <details className="text-xs text-foreground/70" data-testid="progress-disclosure">
+                    <summary className="cursor-pointer text-foreground/80">How this was measured</summary>
+                    <dl className="mt-1 space-y-0.5">
+                        <div><dt className="inline font-semibold">Compared with:</dt>{' '}
+                            <dd className="inline" data-testid="progress-disclosure-reference">{view.disclosure.referenceRole} (session {view.disclosure.referenceSessionId}){view.disclosure.alsoFirstComparable ? ', also your first-session baseline' : ''}</dd></div>
+                        <div><dt className="inline font-semibold">Recording cohort:</dt>{' '}
+                            <dd className="inline" data-testid="progress-disclosure-cohort">{view.disclosure.cohortKey}</dd></div>
+                        <div><dt className="inline font-semibold">Inputs:</dt>{' '}
+                            <dd className="inline" data-testid="progress-disclosure-inputs">this session {view.disclosure.currentClarityPoints} vs {view.disclosure.referenceClarityPoints} {view.disclosure.units} ({view.disclosure.deltaPoints >= 0 ? '+' : ''}{view.disclosure.deltaPoints} {view.disclosure.units}{view.disclosure.deltaPercent !== null ? `, ${view.disclosure.deltaPercent >= 0 ? '+' : ''}${(Math.round(view.disclosure.deltaPercent * 10) / 10).toFixed(1)}%` : ', no defensible percentage'})</dd></div>
+                    </dl>
+                </details>
+            )}
         </div>
         <dl>
             <div data-testid="progress-what-worked"><dt className="text-xs font-semibold uppercase tracking-wide text-foreground">Evidence-backed observation</dt><dd className="mt-0.5 text-sm text-foreground/80">{view.takeaways.whatWorked}</dd></div>

@@ -227,7 +227,7 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     await expect(page.getByTestId('progress-panel')).toBeVisible();
     await expect(page.getByTestId('progress-what-worked')).toHaveCount(1);
     await expect(page.getByTestId('progress-practice-next')).toHaveCount(1);
-    await expect(page.getByTestId('progress-direction')).toHaveText(/improved 7% vs your previous comparable session/i);
+    await expect(page.getByTestId('progress-direction')).toHaveText(/improved 7\.3% vs your previous comparable session/i);
     await expect(page.getByTestId('progress-baseline-context')).toHaveText(/previous comparable session is also your first-session baseline/i);
     await expect(page.getByTestId('progress-accept')).toHaveText(/Practice this next/i);
     await expect(page.getByText(/SpeakSharp Score/i)).toHaveCount(0);
@@ -249,7 +249,7 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     expect(pdfText).toContain('The saved-session evidence made the recommendation concrete.');
     expect(pdfText).toContain('Close the next attempt with the requested decision and owner.');
     expect(pdfText).toContain('Comparable Progress');
-    expect(pdfText).toContain('improved 7% vs your previous comparable session');
+    expect(pdfText).toContain('improved 7.3% vs your previous comparable session');
     expect(forbiddenCloudRequests).toEqual([]);
   });
 });

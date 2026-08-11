@@ -28,8 +28,13 @@ import { ProgressPanel } from '../ProgressPanel';
 
 const VIEW = {
     status: 'eligible', sessionId: 's1', comparison: 'previous', latestAttempt: null,
-    direction: { direction: 'improved', deltaPoints: 4, deltaPercent: 5, reason: null, text: 'Clear delivery improved 5% vs your previous comparable session.' },
-    baselineContext: 'Clear delivery improved 13% vs your first comparable session.',
+    direction: { direction: 'improved', deltaPoints: 4, deltaPercent: 5, reason: null, text: 'Clear delivery improved 5.0% vs your previous comparable session.' },
+    baselineContext: 'Clear delivery improved 12.5% vs your first comparable session.',
+    disclosure: {
+        referenceSessionId: 's0', referenceRole: 'previous comparable session', alsoFirstComparable: false,
+        cohortKey: 'private|v2|base|clarity_v1', currentClarityPoints: 84, referenceClarityPoints: 80,
+        deltaPoints: 4, deltaPercent: 5, units: 'clear-delivery points',
+    },
     takeaways: { whatWorked: 'Very few filler words', practiceThisNext: 'Cut filler words toward 3%', target: { metric: 'filler_rate', direction: 'decrease', targetValue: 3, units: 'percent of words' } },
     recommendationId: 'rec-1',
 };
@@ -119,13 +124,25 @@ describe('#1047 U2 ProgressPanel', () => {
     it('shows exactly two eligible takeaways and the canonical action', async () => {
         loadSessionProgress.mockResolvedValue(VIEW);
         renderPanel();
-        expect(await screen.findByTestId('progress-direction')).toHaveTextContent('improved 5% vs your previous comparable session');
-        expect(screen.getByTestId('progress-baseline-context')).toHaveTextContent('improved 13% vs your first comparable session');
+        expect(await screen.findByTestId('progress-direction')).toHaveTextContent('improved 5.0% vs your previous comparable session');
+        expect(screen.getByTestId('progress-baseline-context')).toHaveTextContent('improved 12.5% vs your first comparable session');
         expect(screen.getByTestId('progress-what-worked')).toHaveTextContent('Very few filler words');
         expect(screen.getByTestId('progress-practice-next')).toHaveTextContent('Cut filler words toward 3%');
         expect(screen.getByTestId('progress-accept')).toHaveTextContent('Practice this next');
         expect(screen.getAllByRole('button')).toHaveLength(1);
         expect(loadSessionProgress).toHaveBeenCalledWith('s1');
+    });
+
+    it('renders an inspectable evidence disclosure: reference session, cohort, inputs, and units', async () => {
+        loadSessionProgress.mockResolvedValue(VIEW);
+        renderPanel();
+        const disclosure = await screen.findByTestId('progress-disclosure');
+        expect(disclosure).toBeTruthy();
+        // The validated reference session, the cohort/mode, and the raw inputs with their units are all present.
+        expect(screen.getByTestId('progress-disclosure-reference')).toHaveTextContent('previous comparable session (session s0)');
+        expect(screen.getByTestId('progress-disclosure-cohort')).toHaveTextContent('private|v2|base|clarity_v1');
+        expect(screen.getByTestId('progress-disclosure-inputs')).toHaveTextContent('this session 84 vs 80 clear-delivery points');
+        expect(screen.getByTestId('progress-disclosure-inputs')).toHaveTextContent('+4 clear-delivery points');
     });
 
     it('navigates only after server attempt and durable local handoff succeed', async () => {

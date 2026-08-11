@@ -37,7 +37,7 @@ describe('#1045 describeDirection — neutral, non-evaluative movement (§6)', (
         const r = describeDirection(withClarity(mk(), 84), withClarity(mk({ sessionId: 's0' }), 80));
         expect(r.direction).toBe('improved');
         expect(r.deltaPercent).toBe(5);
-        expect(r.text).toBe('Clear delivery improved 5% vs your previous comparable session.');
+        expect(r.text).toBe('Clear delivery improved 5.0% vs your previous comparable session.');
         expect(r.text).not.toMatch(/great|excellent|good|well done|better than/i);
     });
 
@@ -45,7 +45,7 @@ describe('#1045 describeDirection — neutral, non-evaluative movement (§6)', (
         const r = describeDirection(withClarity(mk(), 76), withClarity(mk({ sessionId: 's0' }), 80));
         expect(r.direction).toBe('declined');
         expect(r.deltaPercent).toBe(-5);
-        expect(r.text).toBe('Clear delivery declined 5% vs your previous comparable session.');
+        expect(r.text).toBe('Clear delivery declined 5.0% vs your previous comparable session.');
         expect(r.text).not.toMatch(/worse|poor|bad|failed|declining/i);
     });
 
@@ -69,7 +69,7 @@ describe('#1045 describeDirection — neutral, non-evaluative movement (§6)', (
         const r = describeDirection(withClarity(mk(), 84.4), withClarity(mk({ sessionId: 's0' }), 80.1));
         expect(r.deltaPoints).toBeCloseTo(4.3, 10);  // full precision retained
         expect(r.deltaPercent).toBeCloseTo(5.36828963795257, 10);
-        expect(r.text).toBe('Clear delivery improved 5% vs your previous comparable session.'); // display rounded
+        expect(r.text).toBe('Clear delivery improved 5.4% vs your previous comparable session.'); // display rounded to ONE decimal
     });
 
     it('a cohort change restarts the comparison instead of showing a false jump', () => {
@@ -95,12 +95,25 @@ describe('#1045 describeDirection — neutral, non-evaluative movement (§6)', (
         expect(r.text).toBe('Not enough comparable data yet');
     });
 
-    it('singular wording at exactly one percent', () => {
+    it('displays relative movement to ONE decimal (never a whole-percent round)', () => {
         const r = describeDirection(withClarity(mk(), 81), withClarity(mk({ sessionId: 's0' }), 80));
-        // The internal 0.6-point movement is below the default policy; lower only the test threshold to pin display copy.
-        const forced = describeDirection(withClarity(mk(), 80.6), withClarity(mk({ sessionId: 's0' }), 80), { meaningfulPoints: 0.5 });
-        expect(forced.text).toBe('Clear delivery improved 1% vs your previous comparable session.');
+        // 8/80 = 10% → shown to one decimal as "10.0%" (the ".0" proves one-decimal formatting), and the
+        // fractional case (5.368% → "5.4%") is pinned by the unrounded-arithmetic test above.
+        const clean = describeDirection(withClarity(mk(), 88), withClarity(mk({ sessionId: 's0' }), 80));
+        expect(clean.text).toBe('Clear delivery improved 10.0% vs your previous comparable session.');
         expect(r.direction).toBe('below_policy');
+    });
+
+    it('a ZERO reference baseline yields a neutral, no-defensible-change state (never improved/declined)', () => {
+        // A large raw movement against a zero clear-delivery reference has no defensible percentage.
+        const r = describeDirection(withClarity(mk(), 40), withClarity(mk({ sessionId: 's0' }), 0));
+        expect(r.direction).not.toBe('improved');
+        expect(r.direction).not.toBe('declined');
+        expect(r.direction).toBe('below_policy');
+        expect(r.deltaPercent).toBeNull();
+        expect(r.deltaPoints).toBe(40); // raw points retained
+        expect(r.text).toMatch(/no defensible change/i);
+        expect(r.text).not.toMatch(/improved|declined|\d+%/i);
     });
 
     it('NEVER emits a grade, ranking, percentile or absolute score', () => {
