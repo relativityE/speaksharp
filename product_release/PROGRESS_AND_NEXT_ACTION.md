@@ -104,6 +104,24 @@ Every excluded session records a deterministic exclusion reason (`too_short`, `t
 
 ---
 
+## 5a. Metric definition matrix (#1265)
+
+Every displayed and persisted delivery metric has **one** definition, shared across session review, telemetry, stored data, Progress, and the PDF. The comparability floor and the quality-mapping tunables live in code as the single source of truth (`frontend/src/utils/aggregateProgress.ts`), and `frontend/src/utils/progressVsBaseline.ts` re-exports the floor rather than redefining it. `tests/config/progress-metric-consistency.test.ts` fails if this table drifts from those constants.
+
+| Metric | Unit | Quality mapping (0..1) | Direction | Code constant |
+|---|---|---|---|---|
+| Filler rate | fillers/min | linear to 0 at **10** fillers/min; lower is better | lower = better | `FILLER_RATE_ZERO_QUALITY = 10` |
+| Clarity | 0..100 | the value itself (÷100); higher is better | higher = better | `sessions.clarity_score` (evidence input, never a user score) |
+| Pace | words/min (WPM) | inside the band **[120, 160]** = 1; linear falloff over **60** WPM outside | banded (faster is not blindly better) | `PACE_IDEAL = [120,160]`, `PACE_TOLERANCE = 60` |
+| Pause rhythm | % of session that is silence | inside the band **[5, 20]%** = 1; linear falloff over **20** pp outside | banded | `SILENCE_IDEAL = [5,20]`, `SILENCE_TOLERANCE = 20` |
+
+**Comparability rules (both gates):**
+- **Duration gate:** a session counts toward comparison/trend only at **≥ 30 s** spoken (`MIN_COMPARABLE_SECONDS = 30`, defined once). This is distinct from the 3-word *computability* rule and the persistence floor (§4).
+- **Mode gate:** only compatible sessions are compared. **Open Mic delivery progress and Focus Points coverage are separate measures** and are never mixed into one number.
+- **Comparison targets:** the **previous comparable session** for near-term change, with the **first comparable session** preserved as baseline context. A signal is included only when it has valid evidence in **both** sessions.
+
+---
+
 ## 6. Direction language (neutral, non-evaluative)
 
 | State | Wording |

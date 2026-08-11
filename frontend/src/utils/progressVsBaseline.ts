@@ -14,8 +14,10 @@
  * component. It never fabricates a positive — a regression is reported honestly.
  */
 
-/** Minimum spoken duration for a session to count toward comparison/trend. */
-export const MIN_COMPARABLE_SECONDS = 30;
+// #1265 — single source of truth: the comparability floor is defined ONCE in aggregateProgress and
+// re-exported here so every Progress surface shares the identical value (no drift).
+export { MIN_COMPARABLE_SECONDS } from './aggregateProgress';
+import { MIN_COMPARABLE_SECONDS } from './aggregateProgress';
 
 /** One prior/eligible session's raw inputs (oldest-first ordering is the caller's responsibility). */
 export interface SessionRateInput {
