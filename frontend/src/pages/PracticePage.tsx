@@ -62,7 +62,7 @@ const FREEFORM_BULLETS: Bullet[] = [
 ];
 const OBJECTIVE_BULLETS: Bullet[] = [
   { text: 'Prepare the points you need to cover', Icon: ListChecks },
-  { text: 'Track covered and missed points', Icon: Target },
+  { text: 'See which points were detected — and what to retry', Icon: Target },
   { text: 'Rehearse corrections before the real moment', Icon: Repeat },
 ];
 
