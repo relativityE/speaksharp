@@ -59,7 +59,7 @@ export const Waveform: React.FC<WaveformProps> = ({
         <div
             className={className}
             data-testid={testId}
-            style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: 2, height: TRACK_HEIGHT, width: '100%' }}
+            style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: 2, height: TRACK_HEIGHT, width: '100%', overflow: 'hidden' }}
         >
             {amplitudes.map((a, i) => {
                 // after-state fillers are full height (a deliberate override, not their amplitude); every

@@ -20,13 +20,13 @@ export interface RecorderBarProps {
 
 export const RecorderBar: React.FC<RecorderBarProps> = ({ elapsedSeconds, amplitudes, recordedCount, deviceLabel, onStop }) => {
     return (
-        <div className="flex items-center gap-4 rounded-xl border border-[#dbe2ec] bg-white px-4 py-3" data-testid="recorder-bar">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[#dbe2ec] bg-white px-4 py-3 sm:gap-4" data-testid="recorder-bar">
             <span className="flex items-center gap-1.5 whitespace-nowrap text-[13px] font-extrabold text-[#a8321f]">
                 <span className="inline-block h-2 w-2 rounded-full bg-[#d13c25]" aria-hidden="true" />
                 RECORDING
             </span>
 
-            <span className="text-[30px] font-extrabold leading-none [font-variant-numeric:tabular-nums] text-[#1f2733]" data-testid="recorder-timer">
+            <span className="text-[22px] font-extrabold leading-none [font-variant-numeric:tabular-nums] text-[#1f2733] sm:text-[30px]" data-testid="recorder-timer">
                 {formatTimer(elapsedSeconds)}
             </span>
 
