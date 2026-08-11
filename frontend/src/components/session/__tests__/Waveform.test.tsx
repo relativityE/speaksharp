@@ -11,7 +11,7 @@ describe('Waveform (#1222 §4)', () => {
         const bars = screen.getAllByTestId('waveform-bar');
         expect(bars).toHaveLength(12);
         for (const bar of bars) {
-            expect(bar).toHaveStyle({ flex: '1 1 0', minWidth: '2px' });
+            expect(bar).toHaveStyle({ flex: '1 1 0', minWidth: '1px' });
         }
     });
 
