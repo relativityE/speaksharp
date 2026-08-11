@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { FORBIDDEN, scanText } from '../../scripts/no-unaffiliated-domain-scan.mjs';
@@ -7,6 +8,7 @@ const TLD = 'a' + 'i';
 const forbidden = (dot = '.') => `${BRAND}${dot}${TLD}`;
 const scanner = readFileSync('scripts/no-unaffiliated-domain-scan.mjs', 'utf8');
 const workflow = readFileSync('.github/workflows/no-unaffiliated-domain.yml', 'utf8');
+const hostedCheck = readFileSync('scripts/check-hosted-allowed-origin.mjs', 'utf8');
 
 describe('#1260 unaffiliated-domain zero-reference scanner', () => {
   it('denies bare, mixed-case, www, subdomain, and email forms', () => {
@@ -51,5 +53,32 @@ describe('#1260 unaffiliated-domain zero-reference scanner', () => {
     expect(workflow).toMatch(/on:\s*\n\s+pull_request:/);
     expect(workflow).toContain('branches: [main]');
     expect(workflow).toContain('node scripts/no-unaffiliated-domain-scan.mjs');
+  });
+
+  it('offers a manual fail-closed hosted config check without emitting the secret value', () => {
+    expect(workflow).toContain("github.event_name == 'workflow_dispatch'");
+    expect(workflow).toContain('--fail-with-body --silent --show-error');
+    expect(workflow).toContain('node scripts/check-hosted-allowed-origin.mjs');
+    expect(hostedCheck).toContain("entry?.name === 'ALLOWED_ORIGIN'");
+    expect(hostedCheck).toContain("typeof matches[0].value !== 'string'");
+    expect(hostedCheck).toContain('scanText(matches[0].value)');
+    expect(hostedCheck).not.toContain('console.log(matches[0].value)');
+    expect(hostedCheck).not.toContain('console.error(matches[0].value)');
+
+    const cleanValue = 'https://speaksharp-public.vercel.app,http://localhost:5174';
+    const clean = spawnSync('node', ['scripts/check-hosted-allowed-origin.mjs'], {
+      encoding: 'utf8',
+      input: JSON.stringify([{ name: 'ALLOWED_ORIGIN', value: cleanValue }]),
+    });
+    expect(clean.status).toBe(0);
+    expect(clean.stdout).not.toContain(cleanValue);
+
+    const forbiddenValue = `https://${forbidden()}`;
+    const rejected = spawnSync('node', ['scripts/check-hosted-allowed-origin.mjs'], {
+      encoding: 'utf8',
+      input: JSON.stringify([{ name: 'ALLOWED_ORIGIN', value: forbiddenValue }]),
+    });
+    expect(rejected.status).toBe(1);
+    expect(`${rejected.stdout}${rejected.stderr}`).not.toContain(forbiddenValue);
   });
 });
