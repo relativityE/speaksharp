@@ -7,7 +7,7 @@ import { usePromptOfferDismissed } from '@/hooks/usePromptOfferDismissed';
 import { useHeldTip } from '@/hooks/useHeldTip';
 import { LiveTip } from './LiveTip';
 import { FillerBreakdown } from './FillerBreakdown';
-import { computeAggregateProgress, signalsFromSession } from '@/utils/aggregateProgress';
+import { ComparableProgressNotice } from './ComparableProgressNotice';
 import { getNextPrompt, getNextSample } from '@/services/practice/practiceOnramp';
 import { CustomWordsBar } from './CustomWordsBar';
 import { type CoverageRailPoint } from './CoverageRail';
@@ -100,7 +100,6 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     showAnalyticsPrompt,
     metricsFillerCount,
     onStartStop,
-    history,
     privateModelStatus,
     modelLoadingProgress,
     onDownloadModel,
@@ -206,23 +205,18 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         .map((t, i) => (t.filler ? Math.round((i / Math.max(1, tokens.length - 1)) * 71) : -1))
         .filter((n) => n >= 0);
 
-    // #1206 — session progress is the AGGREGATE of the four signals (filler/clarity/pace/pause), computed
-    // from real completed sessions. It is a session-completion read, so all three states show the same
-    // standing aggregate (last completed vs baseline) rather than a fragile live tick; the number is
-    // background anyway (the coaching takeaways are the product).
-    const progress = React.useMemo<ProgressVsBaselineResult>(() => {
-        const oldestFirst = [...history].reverse().map(signalsFromSession);
-        const agg = computeAggregateProgress(oldestFirst);
-        return {
-            isBaseline: agg.isBaseline,
-            tooShort: agg.tooShort,
-            currentRate: agg.currentQuality,
-            baselineRate: agg.baselineQuality,
-            deltaPercent: agg.aggregatePercent,
-            direction: agg.direction,
-            trend: agg.trend,
-        };
-    }, [history]);
+    // The live shell has session rows, but not the server-owned evaluation/recommendation readback needed
+    // to prove eligibility, cohort compatibility, chronology, and the one durable next action. Keep a
+    // neutral handoff here; the saved review is the single Progress authority.
+    const progress: ProgressVsBaselineResult = {
+        isBaseline: false,
+        tooShort: false,
+        currentRate: null,
+        baselineRate: null,
+        deltaPercent: null,
+        direction: 'flat',
+        trend: [],
+    };
 
     // #1046 Focus Points: a brief is active when we were handed declared point labels. This is a distinct
     // product on the shared shell (spec: "slots are shared; semantics are not"). Slot C becomes coverage,
@@ -307,7 +301,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                         hidePromptOffer: isObjective,
                     }}
                     progress={progress}
-                    progressMode="aggregate"
+                    slotCContent={!isObjective ? <ComparableProgressNotice sessionState="before" /> : undefined}
                 />
                 {/* #1222 G1: the custom filler-word manager is a full-width bar BELOW the 2-col shell in the
                     before-state — "Tracking N filler words" left, "Add your filler words" right.
@@ -346,8 +340,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     coverageMode: isObjective ? 'during' : undefined,
                 }}
                 progress={progress}
-                progressMode="aggregate"
-                slotCContent={objectiveDuringSlotC}
+                slotCContent={objectiveDuringSlotC ?? <ComparableProgressNotice sessionState="during" />}
                 liveTip={isObjective ? undefined : (heldTip ? <LiveTip tip={heldTip} /> : undefined)}
                 slotDContent={objectiveDuringSlotD}
             />
@@ -380,8 +373,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     coverageMode: isObjective ? 'after' : undefined,
                 }}
                 progress={progress}
-                progressMode="aggregate"
-                slotCContent={objectiveAfterSlotC}
+                slotCContent={objectiveAfterSlotC ?? <ComparableProgressNotice sessionState="after" />}
                 finalizing={isFinalizing}
                 finalizeEstimateSeconds={finalizeEstimateSeconds}
                 // #1046 Focus Points: highlights mean coverage here, not fillers — the footer says so, and

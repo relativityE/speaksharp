@@ -8,6 +8,7 @@ import logger from './logger';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { countFillerWords } from '@/utils/fillerWordUtils';
 import { getSessionAnalysisMetrics, isUsableFillerCounts } from '@/utils/sessionAnalysis';
+import { loadSessionProgress } from '@/services/progress/loadSessionProgress';
 
 // A more specific type for the internal, undocumented API
 interface jsPDFInternal {
@@ -154,7 +155,9 @@ export const generateSessionPdf = async (
       transcriptDerivedMetricShowable(transcriptState, persistedIsRealNumber) ? render() : 'N/A';
     const wordsCell = derivedCell(typeof session.total_words === 'number', () => `${metrics.wordCount}`);
     const wpmCell = derivedCell(typeof session.wpm === 'number', () => `${metrics.wpm} (${metrics.wpmLabel})`);
-    const clarityCell = derivedCell(typeof session.clarity_score === 'number', () => `${Math.round(metrics.clarityScore)}% (${metrics.clarityLabel})`);
+    // `clarity_score` is an internal evidence input, not a user-facing universal score. The PDF exposes
+    // availability here and reuses the authoritative comparable movement below.
+    const clarityCell = derivedCell(typeof session.clarity_score === 'number', () => 'Available for comparable Progress');
     const fillerCell = derivedCell(isUsableFillerCounts(session.filler_words), () => `${metrics.fillerCount}`);
     const customWords = getCustomWordList(session.custom_words);
     const customWordsDetected = customWords.reduce((sum, word) => {
@@ -196,7 +199,7 @@ export const generateSessionPdf = async (
       ['Session ID', session.id],
       ['Total Words', wordsCell],
       ['Speaking Pace (WPM)', wpmCell],
-      ['Clear Delivery', clarityCell],
+      ['Clear-delivery evidence', clarityCell],
       ['Total Filler Words', fillerCell],
       ['Tracked Custom Words', customWords.length > 0 ? customWords.join(', ') : 'None'],
       // #1047: "detected" is transcript-derived — gate on provenance so a not_captured/expired-unpersisted
@@ -263,6 +266,24 @@ export const generateSessionPdf = async (
       doc.text('What to try next', 14, y);
       doc.setFontSize(10);
       writePaginatedText(doc, session.ai_suggestions.what_to_try_next, 18, y + 7, 180, 5);
+    }
+
+    // Reuse the exact persisted Progress read model used by the saved review. A PDF must never recompute
+    // its own comparison or substitute AI coaching for the one durable next action.
+    const progress = await loadSessionProgress(session.id).catch(() => null);
+    if (progress?.status === 'eligible') {
+      doc.addPage();
+      doc.setFontSize(16);
+      doc.text('Comparable Progress', 14, 22);
+      doc.setFontSize(11);
+      doc.text('Practice this next', 14, 34);
+      doc.setFontSize(10);
+      let progressY = writePaginatedText(doc, progress.takeaways.practiceThisNext, 18, 41, 180, 5) + 8;
+      doc.setFontSize(11);
+      doc.text('Supporting comparison', 14, progressY);
+      doc.setFontSize(10);
+      progressY = writePaginatedText(doc, progress.direction.text, 18, progressY + 7, 180, 5) + 5;
+      writePaginatedText(doc, progress.baselineContext, 18, progressY, 180, 5);
     }
 
     // --- Footer & Watermark ---

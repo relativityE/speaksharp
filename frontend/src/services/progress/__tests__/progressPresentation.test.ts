@@ -36,14 +36,16 @@ describe('#1045 describeDirection — neutral, non-evaluative movement (§6)', (
     it('improvement reads as movement, not praise', () => {
         const r = describeDirection(withClarity(mk(), 84), withClarity(mk({ sessionId: 's0' }), 80));
         expect(r.direction).toBe('improved');
-        expect(r.text).toBe('Clear delivery moved up 4 points.');
+        expect(r.deltaPercent).toBe(5);
+        expect(r.text).toBe('Clear delivery improved 5% vs your previous comparable session.');
         expect(r.text).not.toMatch(/great|excellent|good|well done|better than/i);
     });
 
     it('decline reads as movement, not blame', () => {
         const r = describeDirection(withClarity(mk(), 76), withClarity(mk({ sessionId: 's0' }), 80));
         expect(r.direction).toBe('declined');
-        expect(r.text).toBe('Clear delivery moved down 4 points.');
+        expect(r.deltaPercent).toBe(-5);
+        expect(r.text).toBe('Clear delivery declined 5% vs your previous comparable session.');
         expect(r.text).not.toMatch(/worse|poor|bad|failed|declining/i);
     });
 
@@ -66,7 +68,8 @@ describe('#1045 describeDirection — neutral, non-evaluative movement (§6)', (
     it('arithmetic uses unrounded values; only the display is rounded', () => {
         const r = describeDirection(withClarity(mk(), 84.4), withClarity(mk({ sessionId: 's0' }), 80.1));
         expect(r.deltaPoints).toBeCloseTo(4.3, 10);  // full precision retained
-        expect(r.text).toBe('Clear delivery moved up 4 points.'); // display rounded
+        expect(r.deltaPercent).toBeCloseTo(5.36828963795257, 10);
+        expect(r.text).toBe('Clear delivery improved 5% vs your previous comparable session.'); // display rounded
     });
 
     it('a cohort change restarts the comparison instead of showing a false jump', () => {
@@ -92,11 +95,11 @@ describe('#1045 describeDirection — neutral, non-evaluative movement (§6)', (
         expect(r.text).toBe('Not enough comparable data yet');
     });
 
-    it('singular wording at exactly one point', () => {
+    it('singular wording at exactly one percent', () => {
         const r = describeDirection(withClarity(mk(), 81), withClarity(mk({ sessionId: 's0' }), 80));
-        // 1 point is below policy, so assert the pluraliser directly at a meaningful 1-point display
+        // The internal 0.6-point movement is below the default policy; lower only the test threshold to pin display copy.
         const forced = describeDirection(withClarity(mk(), 80.6), withClarity(mk({ sessionId: 's0' }), 80), { meaningfulPoints: 0.5 });
-        expect(forced.text).toBe('Clear delivery moved up 1 point.');
+        expect(forced.text).toBe('Clear delivery improved 1% vs your previous comparable session.');
         expect(r.direction).toBe('below_policy');
     });
 

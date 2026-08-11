@@ -11,6 +11,16 @@ let priorSessions: Record<string, unknown>[] = [];
 let priorError: unknown = null;
 let chronologyRows: Record<string, unknown>[] = [];
 
+const rec = (id: string, over: Record<string, unknown> = {}) => ({
+    id,
+    target_metric: 'filler_rate',
+    target_direction: 'decrease',
+    target_value: 3,
+    target_units: 'percent of words',
+    shown_text: 'Cut filler words toward 3%',
+    ...over,
+});
+
 function query(table: string) {
     const state: { inMode: boolean } = { inMode: false };
     const chain: Record<string, unknown> = {};
@@ -44,7 +54,7 @@ const ev = (session_id: string, over: Record<string, unknown> = {}) => ({
 });
 
 beforeEach(() => {
-    current = null; references = []; recommendation = { id: 'rec-default' }; recommendationError = null; attempt = null; currentError = null;
+    current = null; references = []; recommendation = rec('rec-default'); recommendationError = null; attempt = null; currentError = null;
     currentSession = { created_at: '2026-08-03T12:00:00Z' }; priorSessions = []; priorError = null; from.mockClear();
     chronologyRows = [
         { id: 's0', created_at: '2026-08-03T10:00:00Z' },
@@ -53,7 +63,7 @@ beforeEach(() => {
     ];
     rpc.mockReset();
     rpc.mockImplementation(async (name: string) => {
-        if (name === 'record_progress_recommendation') recommendation = { id: 'rec-recovered' };
+        if (name === 'record_progress_recommendation') recommendation = rec('rec-recovered');
         return { data: 'rec-recovered', error: null };
     });
 });
@@ -70,11 +80,14 @@ describe('#1047 U2 loadSessionProgress', () => {
     it('uses persisted baseline/previous references without client history', async () => {
         current = ev('s2', { clarity_raw: 90, baseline_session_id: 's0', previous_comparable_session_id: 's1' });
         references = [ev('s1', { clarity_raw: 84 }), ev('s0', { clarity_raw: 80 })];
-        recommendation = { id: 'rec-2' };
+        recommendation = rec('rec-2');
         const view = await loadSessionProgress('s2');
         expect(view.status).toBe('eligible');
         if (view.status !== 'eligible') throw new Error('expected eligible');
         expect(view.direction.direction).toBe('improved');
+        expect(view.direction.deltaPoints).toBe(6); // previous=84, not first baseline=80
+        expect(view.direction.text).toMatch(/7% vs your previous comparable session/i);
+        expect(view.baselineContext).toMatch(/13% vs your first comparable session/i);
         expect(view.comparison).toBe('previous');
         expect(view.recommendationId).toBe('rec-2');
     });
@@ -191,7 +204,7 @@ describe('#1047 U2 loadSessionProgress', () => {
         recommendation = null;
         // The server committed but the RPC response was lost. Reconciliation must trust the row readback.
         rpc.mockImplementationOnce(async () => {
-            recommendation = { id: 'rec-after-lost-success' };
+            recommendation = rec('rec-after-lost-success');
             return { data: null, error: { message: 'connection reset after commit' } };
         });
         expect(await loadSessionProgress('s2')).toMatchObject({
@@ -203,9 +216,46 @@ describe('#1047 U2 loadSessionProgress', () => {
         expect(rpc.mock.calls.filter(([name]) => name === 'record_progress_recommendation')).toHaveLength(1);
     });
 
+    it('reuses the stored recommendation contract after a hard reload instead of recomputing copy', async () => {
+        current = ev('s2', { baseline_session_id: 's0', previous_comparable_session_id: 's1', filler_count: 80, wpm: 220 });
+        references = [ev('s0'), ev('s1')];
+        recommendation = rec('rec-stored', {
+            target_metric: 'pace',
+            target_direction: 'decrease',
+            target_value: 150,
+            target_units: 'words per minute',
+            shown_text: 'Pause before each decision',
+        });
+
+        const firstRead = await loadSessionProgress('s2');
+        const reloadRead = await loadSessionProgress('s2');
+        for (const view of [firstRead, reloadRead]) {
+            expect(view).toMatchObject({
+                status: 'eligible',
+                recommendationId: 'rec-stored',
+                takeaways: {
+                    practiceThisNext: 'Pause before each decision',
+                    target: { metric: 'pace', direction: 'decrease', targetValue: 150, units: 'words per minute' },
+                },
+            });
+        }
+        expect(rpc).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['missing copy', { shown_text: '' }],
+        ['non-finite target', { target_value: Number.NaN }],
+        ['unknown metric', { target_metric: 'confidence_score' }],
+        ['unknown direction', { target_direction: 'maximize' }],
+    ])('fails closed for a malformed stored recommendation: %s', async (_label, malformed) => {
+        current = ev('s2');
+        recommendation = rec('rec-malformed', malformed);
+        expect(await loadSessionProgress('s2')).toMatchObject({ status: 'unavailable' });
+    });
+
     it('exposes the latest stored attempt outcome', async () => {
         current = ev('s2');
-        recommendation = { id: 'rec-2' };
+        recommendation = rec('rec-2');
         attempt = { id: 'att-2', lifecycle: 'completed', outcome: 'moved' };
         const view = await loadSessionProgress('s2');
         expect(view).toMatchObject({ status: 'eligible', latestAttempt: { id: 'att-2', lifecycle: 'completed', outcome: 'moved' } });

@@ -28,7 +28,8 @@ import { ProgressPanel } from '../ProgressPanel';
 
 const VIEW = {
     status: 'eligible', sessionId: 's1', comparison: 'previous', latestAttempt: null,
-    direction: { direction: 'improved', deltaPoints: 4, reason: null, text: 'Clear delivery moved up 4 points.' },
+    direction: { direction: 'improved', deltaPoints: 4, deltaPercent: 5, reason: null, text: 'Clear delivery improved 5% vs your previous comparable session.' },
+    baselineContext: 'Clear delivery improved 13% vs your first comparable session.',
     takeaways: { whatWorked: 'Very few filler words', practiceThisNext: 'Cut filler words toward 3%', target: { metric: 'filler_rate', direction: 'decrease', targetValue: 3, units: 'percent of words' } },
     recommendationId: 'rec-1',
 };
@@ -118,10 +119,12 @@ describe('#1047 U2 ProgressPanel', () => {
     it('shows exactly two eligible takeaways and the canonical action', async () => {
         loadSessionProgress.mockResolvedValue(VIEW);
         renderPanel();
-        expect(await screen.findByTestId('progress-direction')).toHaveTextContent('moved up 4 points');
+        expect(await screen.findByTestId('progress-direction')).toHaveTextContent('improved 5% vs your previous comparable session');
+        expect(screen.getByTestId('progress-baseline-context')).toHaveTextContent('improved 13% vs your first comparable session');
         expect(screen.getByTestId('progress-what-worked')).toHaveTextContent('Very few filler words');
         expect(screen.getByTestId('progress-practice-next')).toHaveTextContent('Cut filler words toward 3%');
         expect(screen.getByTestId('progress-accept')).toHaveTextContent('Practice this next');
+        expect(screen.getAllByRole('button')).toHaveLength(1);
         expect(loadSessionProgress).toHaveBeenCalledWith('s1');
     });
 
