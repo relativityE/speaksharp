@@ -58,6 +58,9 @@ export const SessionPage: React.FC = () => {
     // points (before/during) then their resolved coverage (after), and the header help reads "How Focus
     // Points works". null ⇒ an Open Mic session (unchanged).
     const activeObjectiveBrief = useSessionStore(state => state.activeObjectiveBrief);
+    // #1046 G6/G7 — the finished-brief snapshot, so the after-state review keeps its Focus Points coverage
+    // after the live brief is cleared on save (see SpeechRuntimeController / SessionOverhaulView).
+    const completedObjectiveBrief = useSessionStore(state => state.completedObjectiveBrief);
     const isObjectiveSession = Boolean(activeObjectiveBrief);
     // #891 — engine-specific finalize RTF (self-corrects from real decodes) for the "Finalizing… ~Ns"
     // countdown; the estimate itself is computed below once the recording duration is in scope.
@@ -417,6 +420,7 @@ export const SessionPage: React.FC = () => {
                     isListening={isListening}
                     sttStatus={sttStatus}
                     elapsedTime={elapsedTime}
+                    scoringElapsedSeconds={scoringDurationSeconds}
                     micLevel={micLevel}
                     transcriptContent={transcriptContent}
                     showAnalyticsPrompt={showAnalyticsPrompt}
@@ -439,7 +443,19 @@ export const SessionPage: React.FC = () => {
                     objectivePoints={activeObjectiveBrief?.points ?? null}
                     objectiveTopic={activeObjectiveBrief?.topic ?? null}
                     objectivePaceGuideSecPerPoint={activeObjectiveBrief?.paceGuideSecPerPoint ?? null}
+                    completedObjectivePoints={completedObjectiveBrief?.points ?? null}
+                    completedObjectiveTopic={completedObjectiveBrief?.topic ?? null}
+                    completedObjectivePaceGuideSecPerPoint={completedObjectiveBrief?.paceGuideSecPerPoint ?? null}
                     objectiveCoverage={objectiveCoverageResult}
+                    // #1256 P1 — "Retry these points" must REBIND the finished brief before starting, or the
+                    // retry becomes an Open Mic take (the live brief was cleared on save) and can never
+                    // finalize the saved point set. Rebinding restores it as the active Focus Points brief.
+                    onRetryPoints={() => {
+                        if (completedObjectiveBrief) {
+                            useSessionStore.getState().setActiveObjectiveBrief(completedObjectiveBrief);
+                        }
+                        void handleStartStop();
+                    }}
                 />
             </div>
 

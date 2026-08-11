@@ -151,6 +151,14 @@ export const createMockSupabase = () => {
             },
         },
         rpc: (fn: string, params: Record<string, unknown>) => {
+            // #1046 Focus Points — the two capture RPCs, so the e2e can complete a real FP setup and land on
+            // the FP session page (project → versioned brief). Return opaque ids; the UI only needs them truthy.
+            if (fn === 'issue_objective_project_v1') {
+                return Promise.resolve({ data: `proj-e2e-${savedSessions.length + 1}`, error: null });
+            }
+            if (fn === 'issue_objective_brief_v1') {
+                return Promise.resolve({ data: `brief-e2e-${savedSessions.length + 1}`, error: null });
+            }
             if (fn === 'create_session_and_update_usage') {
                 const sessionData = (params.p_session_data || {}) as Record<string, unknown>;
                 const newSession = {

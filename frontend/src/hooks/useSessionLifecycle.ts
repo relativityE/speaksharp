@@ -341,6 +341,9 @@ export const useSessionLifecycle = () => {
             // recording begins. Cleared here (start), never on stop — the post-save review needs it.
             setCompletedSessionDuration(null);
             hasVADStoppedRef.current = false;
+            // #1046 G6/G7: drop the finished-brief snapshot the moment a NEW recording begins, so an Open Mic
+            // (or a fresh Focus Points) session's after-state can never inherit the prior brief's coverage.
+            useSessionStore.getState().setCompletedObjectiveBrief(null);
             lastActivityTimeRef.current = Date.now();
 
             if (usageLimit && !usageLimit.can_start) {
