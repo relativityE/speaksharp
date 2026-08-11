@@ -81,12 +81,21 @@ export function enforceThresholds({ summaryPath, thresholds = COVERAGE_THRESHOLD
     return { ok: false, errors: [`coverage summary is malformed: ${e instanceof Error ? e.message : String(e)}`], checked };
   }
 
+  // A pct is only trustworthy if it is a FINITE NUMBER. A missing pct, a NaN/Infinity, or a non-numeric
+  // string (e.g. "Unknown") must NEVER pass by defaulting to 0 or by `x < threshold` being false — that
+  // is the #1262 fail-open path. Validate before every comparison and fail closed otherwise.
+  const isFinitePct = (v) => typeof v === 'number' && Number.isFinite(v);
+
   // Global floors.
   const total = summary.total || {};
   checked.global = true;
   for (const key of COVERAGE_METRICS) {
-    const actual = total[key] ? total[key].pct : 0;
+    const actual = total[key] ? total[key].pct : undefined;
     const expected = thresholds.global[key];
+    if (!isFinitePct(actual)) {
+      errors.push(`global ${key} coverage pct is missing or not a finite number (got ${JSON.stringify(actual)}) — cannot verify (fail closed)`);
+      continue;
+    }
     if (actual < expected) {
       errors.push(`global ${key} ${actual}% is below the ${expected}% floor`);
     }
@@ -103,8 +112,12 @@ export function enforceThresholds({ summaryPath, thresholds = COVERAGE_THRESHOLD
     checked.files.push(filePart);
     const fileSummary = summary[matchingKey];
     for (const key of COVERAGE_METRICS) {
-      const actual = fileSummary[key] ? fileSummary[key].pct : 0;
+      const actual = fileSummary[key] ? fileSummary[key].pct : undefined;
       const expected = fileThresholds[key];
+      if (!isFinitePct(actual)) {
+        errors.push(`${filePart} ${key} coverage pct is missing or not a finite number (got ${JSON.stringify(actual)}) — cannot verify (fail closed)`);
+        continue;
+      }
       if (actual < expected) {
         errors.push(`${filePart} ${key} ${actual}% is below the ${expected}% floor`);
       }

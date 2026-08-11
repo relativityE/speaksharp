@@ -121,4 +121,44 @@ describe('#1262 — threshold enforcement fails closed', () => {
     expect(r.ok).toBe(false);
     expect(r.errors.join(' ')).toMatch(/global lines/i);
   });
+
+  // #1262 RETURN P2 — an unverifiable pct (missing, non-numeric string, NaN/Infinity) must NOT slip
+  // through because `x < threshold` is false. Every checked pct must be a finite number.
+  it('missing global pct is a hard failure (not a pass by defaulting to 0/undefined)', () => {
+    const summary = passingSummary() as Record<string, unknown> & { total: Record<string, unknown> };
+    summary.total.lines = {}; // present metric object, but no pct field
+    writeSummary(summary);
+    const r = enforceThresholds({ summaryPath: summaryPath() });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(' ')).toMatch(/global lines coverage pct is missing or not a finite number/i);
+  });
+
+  it('non-numeric string global pct is a hard failure', () => {
+    const summary = passingSummary() as Record<string, unknown> & { total: Record<string, unknown> };
+    summary.total.branches = { pct: 'Unknown' };
+    writeSummary(summary);
+    const r = enforceThresholds({ summaryPath: summaryPath() });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(' ')).toMatch(/global branches coverage pct is missing or not a finite number/i);
+  });
+
+  it('non-finite global pct (serialized NaN/Infinity → null) is a hard failure', () => {
+    // JSON has no NaN/Infinity; a producer that emitted them serializes to null. Null must fail closed.
+    const summary = passingSummary() as Record<string, unknown> & { total: Record<string, unknown> };
+    summary.total.functions = { pct: null };
+    writeSummary(summary);
+    const r = enforceThresholds({ summaryPath: summaryPath() });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(' ')).toMatch(/global functions coverage pct is missing or not a finite number/i);
+  });
+
+  it('non-numeric PER-FILE pct is a hard failure at the per-file boundary too', () => {
+    const summary = passingSummary();
+    const [firstFile] = Object.keys(COVERAGE_THRESHOLDS.files);
+    (summary[`/abs/repo/${firstFile}`] as Record<string, unknown>).statements = { pct: 'n/a' };
+    writeSummary(summary);
+    const r = enforceThresholds({ summaryPath: summaryPath() });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(' ')).toMatch(new RegExp(`${firstFile.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}.*coverage pct is missing or not a finite number`, 'i'));
+  });
 });
