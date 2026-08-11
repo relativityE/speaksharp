@@ -21,11 +21,11 @@ Only unfinished work is listed. Every issue appears once.
 | 2 | [#1255](https://github.com/relativityE/speaksharp/issues/1255) | Restore terminal exact-head evidence and obtain independent acceptance for the responsive session shell. |
 | 3 | [#1256](https://github.com/relativityE/speaksharp/issues/1256) | Obtain renewed independent acceptance for the corrected completed-brief isolation head. |
 | 4 | [#1261](https://github.com/relativityE/speaksharp/issues/1261) | Independently review the source-only privileged-function remediation; keep migration application separately authorized. |
-| 5 | [#1260](https://github.com/relativityE/speaksharp/issues/1260) | Finish terminal zero-reference evidence, hosted configuration disposition, duplicate-PR reconciliation, and independent review. |
+| 5 | [#1260](https://github.com/relativityE/speaksharp/issues/1260) | Complete independent review and duplicate-PR reconciliation; terminal source, zero-reference, and read-only hosted-configuration evidence is green. |
 | 6 | [#1262](https://github.com/relativityE/speaksharp/issues/1262) | Obtain renewed independent acceptance for the corrected fail-closed coverage head. |
 | 7 | [#1265](https://github.com/relativityE/speaksharp/issues/1265) | Independently review comparable Progress and reconcile the duplicate draft implementation. |
-| 8 | [#1266](https://github.com/relativityE/speaksharp/issues/1266) | Finish exact-head evidence and independent review for the free-beta entitlement/copy contract. |
-| 9 | [#1267](https://github.com/relativityE/speaksharp/issues/1267) | Finish exact-head evidence and independent review for launch support, rollback, and GO/HOLD. |
+| 8 | [#1266](https://github.com/relativityE/speaksharp/issues/1266) | Complete independent review for the terminal-green free-beta entitlement/copy contract. |
+| 9 | [#1267](https://github.com/relativityE/speaksharp/issues/1267) | Complete independent review for the terminal-green launch support, rollback, and GO/HOLD playbook. |
 | 10 | [#1257](https://github.com/relativityE/speaksharp/issues/1257) | Refresh and independently review the canonical documentation PR after product heads settle. |
 
 ## Next — Flawless Launch qualification
