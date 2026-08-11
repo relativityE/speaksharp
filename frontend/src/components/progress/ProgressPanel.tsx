@@ -124,7 +124,7 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
     const pendingAttemptId = view.latestAttempt?.lifecycle === 'pending' ? view.latestAttempt.id : null;
     return shell(<>
         <div className="rounded-lg border border-primary/25 bg-background p-4" data-testid="progress-practice-next">
-            <p className="text-xs font-bold uppercase tracking-wide text-primary">{PRACTICE_THIS_NEXT_LABEL}</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-foreground">{PRACTICE_THIS_NEXT_LABEL}</p>
             <p className="mt-1 text-lg font-semibold text-foreground">{view.takeaways.practiceThisNext}</p>
             {!pendingAttemptId && !actionError && (
                 <Button className="mt-3" type="button" onClick={() => { void onAccept(); }} disabled={accepting || !view.recommendationId} data-testid="progress-accept">
@@ -134,7 +134,7 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
         </div>
         <div className="space-y-1" aria-label="Supporting comparison evidence">
             <p className="text-sm text-foreground/80" data-testid="progress-direction">{view.direction.text}</p>
-            <p className="text-xs text-foreground/65" data-testid="progress-baseline-context">{view.baselineContext}</p>
+            <p className="text-xs text-foreground/80" data-testid="progress-baseline-context">{view.baselineContext}</p>
         </div>
         <dl>
             <div data-testid="progress-what-worked"><dt className="text-xs font-semibold uppercase tracking-wide text-foreground">Evidence-backed observation</dt><dd className="mt-0.5 text-sm text-foreground/80">{view.takeaways.whatWorked}</dd></div>

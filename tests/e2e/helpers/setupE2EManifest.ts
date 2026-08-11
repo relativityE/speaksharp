@@ -38,6 +38,8 @@ export interface ProgressFixtures {
   evaluations: Array<Record<string, unknown>>;
   recommendations: Array<Record<string, unknown>>;
   attempts: Array<Record<string, unknown>>;
+  /** Minimal session chronology rows used only by the Progress reference-validation query. */
+  chronology?: Array<Record<string, unknown>>;
 }
 
 /**
@@ -350,6 +352,14 @@ export async function setupE2EManifest(
       }
       if (table === 'sessions') {
         let rows = [...sessionState.sessions];
+        // Progress validates its persisted ids with one `id IN (...)` chronology read. Keep those
+        // minimal authority rows out of normal History/Analytics queries so a comparison fixture does
+        // not silently become a second customer-visible session.
+        const isProgressChronologyRead = filters.some((filter) => filter.column === 'id' && filter.operator === 'in');
+        if (isProgressChronologyRead && progress?.chronology) {
+          const existingIds = new Set(rows.map((row) => String(row.id)));
+          rows.push(...progress.chronology.filter((row) => !existingIds.has(String(row.id))) as typeof rows);
+        }
         for (const filter of filters) {
           rows = rows.filter((row) => matchesFilters(row as Record<string, unknown>, [filter]));
         }

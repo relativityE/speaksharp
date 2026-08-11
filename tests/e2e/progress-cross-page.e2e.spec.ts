@@ -133,8 +133,21 @@ function eligibleProgressTruth() {
     baseline_session_id: null, previous_comparable_session_id: null };
   return {
     evaluations: [current, reference],
-    recommendations: [{ id: 'recommendation-u3', source_session_id: SESSION_ID, formula_version: 'clarity_v1' }],
+    recommendations: [{
+      id: 'recommendation-u3',
+      source_session_id: SESSION_ID,
+      formula_version: 'clarity_v1',
+      target_metric: 'filler_rate',
+      target_direction: 'decrease',
+      target_value: 2,
+      target_units: 'percent of words',
+      shown_text: 'Close the next attempt with the requested decision and owner.',
+    }],
     attempts: [],
+    chronology: [
+      { id: REFERENCE_ID, created_at: '2025-01-17T13:00:00.000Z' },
+      { id: SESSION_ID, created_at: '2025-01-17T14:00:00.000Z' },
+    ],
   };
 }
 
@@ -214,11 +227,13 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     await expect(page.getByTestId('progress-panel')).toBeVisible();
     await expect(page.getByTestId('progress-what-worked')).toHaveCount(1);
     await expect(page.getByTestId('progress-practice-next')).toHaveCount(1);
+    await expect(page.getByTestId('progress-direction')).toHaveText(/improved 7% vs your previous comparable session/i);
+    await expect(page.getByTestId('progress-baseline-context')).toHaveText(/previous comparable session is also your first-session baseline/i);
     await expect(page.getByTestId('progress-accept')).toHaveText(/Practice this next/i);
     await expect(page.getByText(/SpeakSharp Score/i)).toHaveCount(0);
     await expect(page.getByText(/same saved session truth with clear evidence/i)).toBeVisible();
     await expect(page.getByText('The saved-session evidence made the recommendation concrete.')).toBeVisible();
-    await expect(page.getByText('Close the next attempt with the requested decision and owner.')).toBeVisible();
+    await expect(page.getByTestId('progress-practice-next').getByText('Close the next attempt with the requested decision and owner.')).toBeVisible();
     await assertAxe(page);
     await screenshotMatrix(page, 'review-progress');
 
@@ -233,6 +248,8 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     expect(pdfText).not.toContain('SpeakSharp Score');
     expect(pdfText).toContain('The saved-session evidence made the recommendation concrete.');
     expect(pdfText).toContain('Close the next attempt with the requested decision and owner.');
+    expect(pdfText).toContain('Comparable Progress');
+    expect(pdfText).toContain('improved 7% vs your previous comparable session');
     expect(forbiddenCloudRequests).toEqual([]);
   });
 });
