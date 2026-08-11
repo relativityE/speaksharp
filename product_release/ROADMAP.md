@@ -1,7 +1,7 @@
 **Status:** Authoritative
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-08-11
-**Last Verified:** 2026-08-11 against open issues #1254–#1268 and #1275, and PRs #1269–#1273
+**Last Verified:** 2026-08-11 against open issues #1254–#1268 and #1275, and current open PRs through #1284
 **Applies To:** Unfinished SpeakSharp product, release, security, and evidence work
 **Class:** Open gap / risk
 **Authority:** Canonical Now / Next / Parallel / Later sequencing
@@ -11,32 +11,26 @@
 
 # SpeakSharp Roadmap
 
-## Now — product truth and security
+## Now — settle current implementation heads
 
-1. Finish the Private-only customer, legal, pricing, analytics, Practice, signup, and tester contract ([#1254](https://github.com/relativityE/speaksharp/issues/1254)).
-2. Verify hosted privileged-database callers read-only, then harden only the exact exposed functions proven safe to change ([#1261](https://github.com/relativityE/speaksharp/issues/1261)).
-3. Remove the unaffiliated domain from a fresh current-main branch and enforce zero active references in CI ([#1260](https://github.com/relativityE/speaksharp/issues/1260)).
-4. Land one truthful canonical release record after the preceding product and security work reaches terminal dispositions ([#1257](https://github.com/relativityE/speaksharp/issues/1257)).
-
-The responsive session-shell and completed-brief isolation increments remain separate Product Owner decisions after their current review returns are corrected and independently re-reviewed ([#1255](https://github.com/relativityE/speaksharp/issues/1255), [#1256](https://github.com/relativityE/speaksharp/issues/1256)).
+1. Resolve review and exact-head evidence for product truth, the responsive session shell, and completed-brief isolation ([#1254](https://github.com/relativityE/speaksharp/issues/1254), [#1255](https://github.com/relativityE/speaksharp/issues/1255), [#1256](https://github.com/relativityE/speaksharp/issues/1256)).
+2. Independently review the source-only privileged-function remediation and finish the repository/domain purge including hosted configuration disposition ([#1261](https://github.com/relativityE/speaksharp/issues/1261), [#1260](https://github.com/relativityE/speaksharp/issues/1260)).
+3. Settle the corrected coverage gate, comparable Progress, free-beta contract, and Private-only launch playbook ([#1262](https://github.com/relativityE/speaksharp/issues/1262), [#1265](https://github.com/relativityE/speaksharp/issues/1265), [#1266](https://github.com/relativityE/speaksharp/issues/1266), [#1267](https://github.com/relativityE/speaksharp/issues/1267)).
+4. Reconcile duplicate draft implementations so each issue has one current writer and one review head.
+5. Land one truthful canonical release record only after the preceding product heads have terminal dispositions ([#1257](https://github.com/relativityE/speaksharp/issues/1257)).
 
 ## Next — qualify Flawless Launch
 
 1. Prove the deployed authenticated Private Practice Loop on supported real devices ([#1258](https://github.com/relativityE/speaksharp/issues/1258)).
-2. Establish sanitized baselines, alerts, and SLOs ([#1259](https://github.com/relativityE/speaksharp/issues/1259)).
-3. Rehearse support and rollback, then make an explicit GO/HOLD decision ([#1267](https://github.com/relativityE/speaksharp/issues/1267)).
+2. Correct and establish sanitized baselines, alerts, and SLOs ([#1259](https://github.com/relativityE/speaksharp/issues/1259)).
 
 ## Parallel
 
-- Keep merged unit coverage fast and fail closed; the current implementation is review-returned pending correction ([#1262](https://github.com/relativityE/speaksharp/issues/1262)).
 - Upgrade to Vitest 4.1.0 or newer and retire the temporary `GHSA-5xrq-8626-4rwp` audit suppression without regressing coverage or sharding ([#1275](https://github.com/relativityE/speaksharp/issues/1275)).
+- Complete evidence-gated Private implementation comparison and optional Practice Focus without creating alternate customer products ([#1263](https://github.com/relativityE/speaksharp/issues/1263), [#1264](https://github.com/relativityE/speaksharp/issues/1264)).
 
 ## Later — evidence gated
 
-- Select the maintained Private implementation through comparable evidence, never a customer selector ([#1263](https://github.com/relativityE/speaksharp/issues/1263)).
-- Add optional Open Mic Practice Focus ([#1264](https://github.com/relativityE/speaksharp/issues/1264)).
-- Show comparable personal progress and one next action ([#1265](https://github.com/relativityE/speaksharp/issues/1265)).
-- Define one evidence-based future paid offer while preserving the free beta ([#1266](https://github.com/relativityE/speaksharp/issues/1266)).
 - Add discourse-marker personalization only after metric definition and explicit opt-in ([#1268](https://github.com/relativityE/speaksharp/issues/1268)).
 
 ## Product spine
