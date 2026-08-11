@@ -22,7 +22,7 @@ export interface SessionBeforeStateProps {
     progressMode?: 'filler' | 'aggregate';
     /** #1222 S8 — Focus Points swaps slot D (coaching → capture step); defaults to the coaching card. */
     slotDContent?: React.ReactNode;
-    /** #1046 — Focus Points swaps slot C (progress-vs-baseline → coverage-this-run). */
+    /** #1046 — Focus Points renders NO slot C in `before` (hideSlotC); Coverage & pace arrives in during/after. */
     slotCContent?: React.ReactNode;
     /** #1046 G6/G7 §2 — Focus Points renders NO slot C in `before` (nothing has happened yet; a `0/N`
      *  scoreboard only says "you haven't started"). The rail begins with slot D. */
