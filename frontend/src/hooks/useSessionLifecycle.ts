@@ -196,6 +196,9 @@ export const useSessionLifecycle = () => {
         // review must keep dividing by its own spoken length. Null while recording (they are the same).
         scoringDurationSeconds: completedSessionDurationSeconds ?? undefined,
         userWords: userFillerWords, // accepted for compat; live filler count is canonical (no recount source-routing)
+        // #1231 filler slice 2 — the user's discourse-marker opt-in (persisted on the profile). Changes the
+        // tier DEFINITION of the headline, not the source. Absent column → false (headline unchanged).
+        includeDiscourseMarkers: profile?.include_discourse_markers ?? false,
     });
 
     const handleStartStop = useCallback(async (options?: { skipRedirect?: boolean; stopReason?: string }) => {

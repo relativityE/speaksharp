@@ -17,4 +17,9 @@ export interface UserProfile {
   created_at: string;
   updated_at?: string;
   preferred_mode?: 'native' | 'cloud' | 'private';
+  /**
+   * #1231 filler slice 2 — opt in to counting discourse markers (like, so, you know, …) in the
+   * displayed filler total. Default/absent = false (headline counts true fillers + user words only).
+   */
+  include_discourse_markers?: boolean;
 }

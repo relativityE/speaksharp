@@ -33,6 +33,9 @@ export const createMockSupabase = () => {
     const savedSessions: Array<Record<string, unknown>> = readSavedSessions();
     let currentGoals: Record<string, unknown> = { ...MOCK_GOALS };
     let currentFillerWords: Array<Record<string, unknown>> = [];
+    // #1231 filler slice 2 — a mutable profile so a persisted preference (e.g. the discourse-marker
+    // opt-in) survives update→read within a mock session, matching the real profile round-trip.
+    const currentProfile: Record<string, unknown> = getMockProfile();
 
     const persistSavedSessions = () => {
         if (typeof window === 'undefined') return;
@@ -206,7 +209,7 @@ export const createMockSupabase = () => {
                     return {
                         single: () => {
                             if (table === 'user_profiles' && column === 'id' && value === MOCK_USER.id) {
-                                return Promise.resolve({ data: getMockProfile(), error: null });
+                                return Promise.resolve({ data: currentProfile, error: null });
                             }
                             if (table === 'user_goals' && column === 'user_id' && value === MOCK_USER.id) {
                                 return Promise.resolve({ data: currentGoals, error: null });
@@ -278,6 +281,16 @@ export const createMockSupabase = () => {
                             Object.assign(session, data);
                             persistSavedSessions();
                         }
+                    }
+                    // #1231 — user_profiles updates round-trip through .select().single() (profileService.update).
+                    // Merge into the mutable profile and return it so the read reflects the write.
+                    if (table === 'user_profiles' && column === 'id') {
+                        Object.assign(currentProfile, data as Record<string, unknown>);
+                        return {
+                            select: () => ({
+                                single: () => Promise.resolve({ data: currentProfile, error: null }),
+                            }),
+                        };
                     }
                     return Promise.resolve({ data, error: null });
                 },

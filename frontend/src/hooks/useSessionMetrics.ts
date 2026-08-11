@@ -19,6 +19,12 @@ interface UseSessionMetricsProps {
     scoringDurationSeconds?: number;
     /** Accepted for call-site compatibility; NOT used to route the canonical filler source. */
     userWords?: string[];
+    /**
+     * #1231 filler slice 2 — the user's discourse-marker opt-in. This changes the filler TIER DEFINITION
+     * (which keys count toward the headline), NOT the source: the count is still derived from the live
+     * per-key `fillerData`, never a transcript recount. Default false = true fillers + user words only.
+     */
+    includeDiscourseMarkers?: boolean;
 }
 
 interface SessionMetrics {
@@ -47,6 +53,7 @@ export const useSessionMetrics = ({
     fillerData,
     elapsedTime,
     scoringDurationSeconds,
+    includeDiscourseMarkers = false,
 }: UseSessionMetricsProps): SessionMetrics => {
     return useMemo(() => {
         // The visible timer and the scoring denominator are deliberately separate (#1089).
@@ -65,6 +72,7 @@ export const useSessionMetrics = ({
             durationSeconds: scoringSeconds,
             fillerData,
             userWords: [],
+            includeDiscourseMarkers,
         });
 
         // Rolling WPM (last 15 seconds)
@@ -93,5 +101,5 @@ export const useSessionMetrics = ({
             fillerExplanation: coreMetrics.fillerExplanation,
             wordCount: coreMetrics.wordCount,
         };
-    }, [transcript, chunks, fillerData, elapsedTime, scoringDurationSeconds]);
+    }, [transcript, chunks, fillerData, elapsedTime, scoringDurationSeconds, includeDiscourseMarkers]);
 };

@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Plus, X } from 'lucide-react';
 import { useUserFillerWords } from '@/hooks/useUserFillerWords';
+import { useDiscourseMarkerPref } from '@/hooks/useDiscourseMarkerPref';
 import logger from '../../lib/logger';
 
 interface UserFillerWordsManagerProps {
@@ -21,6 +22,11 @@ export const UserFillerWordsManager: React.FC<UserFillerWordsManagerProps> = ({ 
         maxWords,
         error: addError // Hook returns error as 'error', mapping to addError
     } = useUserFillerWords();
+    const {
+        includeDiscourseMarkers,
+        setIncludeDiscourseMarkers,
+        isSaving: isSavingDiscoursePref,
+    } = useDiscourseMarkerPref();
 
     const currentCount = vocabulary.length;
     const isAtLimit = currentCount >= maxWords;
@@ -130,6 +136,25 @@ export const UserFillerWordsManager: React.FC<UserFillerWordsManagerProps> = ({ 
                         No user words yet.
                     </p>
                 )}
+            </div>
+
+            {/* #1231 filler slice 2 — opt in to counting discourse markers in the session filler total.
+                Default off: the headline counts true fillers (um/uh/ah) + the words above. */}
+            <div className="mt-4 pt-4 border-t border-border/60">
+                <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                        type="checkbox"
+                        checked={includeDiscourseMarkers}
+                        disabled={isSavingDiscoursePref}
+                        onChange={(e) => setIncludeDiscourseMarkers(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 shrink-0"
+                        data-testid="discourse-marker-toggle"
+                        aria-label="Count discourse markers in my filler total"
+                    />
+                    <span className="text-xs font-medium text-foreground/80">
+                        Count discourse markers (like, so, you know) in my filler total
+                    </span>
+                </label>
             </div>
         </div>
     );
