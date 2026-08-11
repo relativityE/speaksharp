@@ -34,5 +34,6 @@ describe('#1261 read-only DB grant workflow', () => {
     expect(workflow).toContain('AS exposed');
     expect(workflow).toContain('AS unsafe_search_paths');
     expect(workflow).toContain("!~ '(^|,)pg_temp$'");
+    expect(workflow).toContain("(has_function_privilege('public', p.oid, 'EXECUTE') OR has_function_privilege('anon', p.oid, 'EXECUTE'))");
   });
 });
