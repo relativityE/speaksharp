@@ -15,12 +15,15 @@ import {
 } from "./cors.ts";
 
 const PROD_ACTIVE = "https://speaksharp-public.vercel.app";
-const PROD_AI = "https://speaksharp.ai";
-const PROD_WWW = "https://www.speaksharp.ai";
+// #1260 — reserved example.com origins stand in for "an approved extra production origin configured via
+// the ALLOWED_ORIGIN env" (RFC 2606). The builtin allowlist itself only carries the canonical Vercel host.
+const APPROVED_EXTRA = "https://example.com";
+const APPROVED_EXTRA_WWW = "https://www.example.com";
 const PREVIEW = "https://speaksharp-public-git-main-team.vercel.app";
 
-// Allowlist including one explicitly-configured preview origin (as prod would configure it).
-const ALLOWED = [...BUILTIN_ALLOWED_ORIGINS, PREVIEW];
+// Allowlist including explicitly-configured origins (preview + two approved example.com origins) exactly as
+// prod would supply them through ALLOWED_ORIGIN — the builtin set never contains an unaffiliated domain.
+const ALLOWED = [...BUILTIN_ALLOWED_ORIGINS, PREVIEW, APPROVED_EXTRA, APPROVED_EXTRA_WWW];
 
 function reqWith(origin?: string, method = "GET"): Request {
   const headers = new Headers();
@@ -30,22 +33,22 @@ function reqWith(origin?: string, method = "GET"): Request {
 
 Deno.test("normalizeExactOrigin canonicalizes valid origins", () => {
   assertEquals(
-    normalizeExactOrigin("https://speaksharp.ai"),
-    "https://speaksharp.ai",
+    normalizeExactOrigin("https://example.com"),
+    "https://example.com",
   );
   assertEquals(
-    normalizeExactOrigin("  https://speaksharp.ai  "),
-    "https://speaksharp.ai",
+    normalizeExactOrigin("  https://example.com  "),
+    "https://example.com",
   );
   // Case-normalized host via URL parsing.
   assertEquals(
-    normalizeExactOrigin("https://SpeakSharp.AI"),
-    "https://speaksharp.ai",
+    normalizeExactOrigin("https://Example.COM"),
+    "https://example.com",
   );
   // Default-port canonicalization.
   assertEquals(
-    normalizeExactOrigin("https://speaksharp.ai:443"),
-    "https://speaksharp.ai",
+    normalizeExactOrigin("https://example.com:443"),
+    "https://example.com",
   );
   assertEquals(
     normalizeExactOrigin("http://localhost:5174"),
@@ -61,19 +64,19 @@ Deno.test("normalizeExactOrigin rejects non-origin / hostile shapes", () => {
       "   ",
       "http://a.com, http://b.com", // comma-separated
       "https://a.com https://b.com", // space-separated
-      "https://user@speaksharp.ai", // userinfo
-      "https://user:pass@speaksharp.ai",
-      "https://speaksharp.ai/path", // path
-      "https://speaksharp.ai/", // trailing path
-      "https://speaksharp.ai?x=1", // query
-      "https://speaksharp.ai#f", // fragment
-      "ftp://speaksharp.ai", // scheme
+      "https://user@example.com", // userinfo
+      "https://user:pass@example.com",
+      "https://example.com/path", // path
+      "https://example.com/", // trailing path
+      "https://example.com?x=1", // query
+      "https://example.com#f", // fragment
+      "ftp://example.com", // scheme
       "file:///etc/passwd",
       "javascript:alert(1)",
-      "speaksharp.ai", // no scheme
-      "https://speaksharp.ai\r\nSet-Cookie: x=1", // header injection
-      "https://speaksharp.ai\n", // newline
-      "https://speaksharp.ai\t", // tab
+      "example.com", // no scheme
+      "https://example.com\r\nSet-Cookie: x=1", // header injection
+      "https://example.com\n", // newline
+      "https://example.com\t", // tab
     ]
   ) {
     assertEquals(
@@ -110,14 +113,14 @@ Deno.test("ALLOWED cases: exact production, approved domains, configured preview
   for (
     const good of [
       PROD_ACTIVE,
-      PROD_AI,
-      PROD_WWW,
+      APPROVED_EXTRA,
+      APPROVED_EXTRA_WWW,
       PREVIEW, // explicitly configured preview
       "http://localhost:5173",
       "http://localhost:5174",
       "http://127.0.0.1:5173",
       "http://127.0.0.1:5174",
-      "https://speaksharp.ai:443", // canonical default port
+      "https://example.com:443", // canonical default port
     ]
   ) {
     assert(isAllowedOrigin(good, ALLOWED), `should allow: ${good}`);
@@ -134,9 +137,9 @@ Deno.test("ALLOWED cases: exact production, approved domains, configured preview
 
 Deno.test("REJECTED cases: hostile lookalikes, wrong protocol/port, malformed", async (t) => {
   const rejected = [
-    "https://evil-speaksharp.ai",
-    "https://speaksharp.ai.evil.com",
-    "https://www.speaksharp.ai.evil.com",
+    "https://evil-example.com",
+    "https://example.com.evil.com",
+    "https://www.example.com.evil.com",
     "https://speaksharp-public.vercel.app.evil.com",
     "https://speaksharp-public-evil.vercel.app", // not explicitly configured
     "http://speaksharp-public.vercel.app", // wrong protocol
@@ -145,16 +148,16 @@ Deno.test("REJECTED cases: hostile lookalikes, wrong protocol/port, malformed", 
     "http://localhost:3000", // unapproved port
     "http://localhost:80", // canonicalizes to http://localhost — not allowlisted
     "https://localhost:5174", // wrong protocol for localhost
-    "https://user@speaksharp.ai", // userinfo
-    "https://speaksharp.ai/path",
-    "https://speaksharp.ai?x=1",
-    "https://speaksharp.ai#frag",
+    "https://user@example.com", // userinfo
+    "https://example.com/path",
+    "https://example.com?x=1",
+    "https://example.com#frag",
     "http://a.com, http://b.com", // comma-separated
     "null",
     "",
     "   ",
     "not-a-url",
-    "https://xn--speaksharp-evil.ai", // punycode lookalike
+    "https://xn--example-evil.ai", // punycode lookalike
     // NOTE: CRLF/header-injection Origins cannot be set via the Headers API (the platform blocks
     // them), so they are exercised at the normalizeExactOrigin() level in the direct test above.
   ];
@@ -190,7 +193,7 @@ Deno.test("preflight (OPTIONS): approved → 204 exact ACAO + Vary; hostile → 
   assertEquals(ok!.headers.get("Vary"), "Origin");
 
   const hostile = handleCorsPreflight(
-    reqWith("https://speaksharp.ai.evil.com", "OPTIONS"),
+    reqWith("https://example.com.evil.com", "OPTIONS"),
     ALLOWED,
   );
   assert(hostile instanceof Response);

@@ -4,8 +4,8 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { handler } from "./index.ts";
 
-const APPROVED = "https://www.speaksharp.ai";
-const HOSTILE = "https://www.speaksharp.ai.evil.com";
+const APPROVED = "https://www.example.com";
+const HOSTILE = "https://www.example.com.evil.com";
 
 function req(method: string, origin?: string, authHeader?: string) {
   const headers = new Headers();

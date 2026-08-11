@@ -7,7 +7,7 @@
  *
  * POLICY (P0.3):
  * - The set of allowed browser origins is an EXACT allowlist. There is NO substring, suffix,
- *   prefix, or wildcard matching. `https://evil-speaksharp.ai`, `https://speaksharp.ai.evil.com`,
+ *   prefix, or wildcard matching. `https://evil-example.com`, `https://example.com.evil.com`,
  *   `http://localhost.example.com` and similar lookalikes are rejected.
  * - Every candidate origin (from the request `Origin` header AND from the `ALLOWED_ORIGIN` env)
  *   is parsed with the WHATWG `URL` parser and reduced to its canonical `URL.origin`. Only
@@ -38,10 +38,10 @@ const ALLOWED_HEADERS = "authorization, x-client-info, apikey, content-type, x-s
  * Additional production/preview origins come from the `ALLOWED_ORIGIN` env (exact values only).
  */
 export const BUILTIN_ALLOWED_ORIGINS: readonly string[] = Object.freeze([
-  // Active production host + previously-approved product domains (exact).
+  // Active production host (canonical Vercel origin, exact). #1260: two unaffiliated third-party `.ai`
+  // product origins were removed from this builtin allowlist — they are not our domain and must not be
+  // trusted by CORS. A genuinely-owned production origin is added at runtime via ALLOWED_ORIGIN (exact).
   "https://speaksharp-public.vercel.app",
-  "https://speaksharp.ai",
-  "https://www.speaksharp.ai",
   // Local development (Vite). Exact host:port only — no arbitrary localhost ports/subdomains.
   "http://localhost:5173",
   "http://localhost:5174",
