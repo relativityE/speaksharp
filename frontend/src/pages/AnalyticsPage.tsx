@@ -74,7 +74,7 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
                         <div className="text-left">
                             <span className="font-bold block text-base">Turn practice into progress</span>
                             <span className="text-sm font-medium text-foreground/70 sm:inline">
-                                The controlled beta includes Private transcription. Paid plans are not currently offered.
+                                Pro adds deeper history and expanded coaching capacity. Private transcription remains on-device for every plan.
                             </span>
                         </div>
                     </div>

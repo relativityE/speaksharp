@@ -38,6 +38,6 @@ export function formatTrialRemainingTitle(remainingSeconds: number): string | nu
 /** The recording-status operational cap line — server-derived from the SAME allotment as the nudge. */
 export function formatSampleCapLine(limitSeconds: number): string {
     const m = sampleWholeMinutes(limitSeconds);
-    if (!m) return 'Private sample. We’ll stop and save when the sample ends.';
-    return `Private sample: up to ${m} ${m === 1 ? 'minute' : 'minutes'}. We’ll stop and save when the sample ends.`;
+    if (!m) return 'Private practice window. We’ll stop and save when the window ends.';
+    return `Private practice window: up to ${m} ${m === 1 ? 'minute' : 'minutes'}. We’ll stop and save when the window ends.`;
 }

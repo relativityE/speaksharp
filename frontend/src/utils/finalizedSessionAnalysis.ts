@@ -171,12 +171,10 @@ export function reconcileFinalizedFillers(
  * module produces — there is deliberately NO card disclosure contract (no primary/secondary lines, no
  * secondary filler panel). The discrepancy acknowledgment lives in the single status bar only.
  *
- * MODE-AWARE: the Browser-omission clause describes Web Speech (Native) behaviour and is emitted ONLY
- * for mode === 'native'. Private (and any non-native mode) never receives Browser-specific copy, even
- * when an omission gap exists.
+ * MODE-AWARE: the omission clause is emitted only for mode === 'native'.
  *
  * Copy variants (approved):
- *   - native + notVisibleGap > 0  → "Session saved · {n} filler words detected. Browser transcription may omit some from the written transcript."
+ *   - native + notVisibleGap > 0  → "Session saved · {n} filler words detected. The written transcript may omit some."
  *   - count changed, no omission  → "Session saved · Filler words updated to {n}."
  *   - no discrepancy              → "Session saved · Your transcript is ready."
  *
@@ -190,7 +188,7 @@ export function reconciliationStatusCopy(
     const n = r.persistedTotal;
     const isNative = opts?.mode === 'native';
     if (isNative && r.notVisibleGapTotal > 0) {
-        return `Session saved · ${n} filler words detected. Browser transcription may omit some from the written transcript.`;
+        return `Session saved · ${n} filler words detected. The written transcript may omit some.`;
     }
     if (opts && typeof opts.priorDisplayedTotal === 'number' && opts.priorDisplayedTotal !== n) {
         return `Session saved · Filler words updated to ${n}.`;

@@ -79,7 +79,7 @@ export const PrivacyPage = () => (
       },
       {
         heading: 'How Data Is Used',
-        body: 'Session data is used to provide transcripts, coaching, progress, reports, reliability monitoring, and support. SpeakSharp keeps transcript text for the two newest transcript-bearing saved sessions. Older transcript text expires after the progress evidence needed to preserve your comparisons is complete; it may remain temporarily while that evidence is still pending. Non-content session metrics may remain for progress.',
+        body: 'Session data is used to provide transcripts, coaching, progress, reports, reliability monitoring, and support. Transcript text and coaching results may be stored with saved session records. Retention duration and deletion timing are still being finalized; use Report Issue for a data-retention request. Non-content session metrics may remain for progress.',
       },
       {
         heading: 'Service Providers',
@@ -87,7 +87,7 @@ export const PrivacyPage = () => (
       },
       {
         heading: 'Control',
-        body: 'You can choose whether to practice, delete your account, and use Report Issue for account or data questions. There is no customer-facing transcription-mode selector; every customer practice session uses Private transcription.',
+        body: 'You can choose whether to practice and use Report Issue for account, privacy, retention, or data questions. There is no customer-facing transcription-mode selector; every customer practice session uses Private transcription.',
       },
     ]}
   />

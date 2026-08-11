@@ -166,11 +166,11 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
   );
 };
 
-const BillingManagementPanel: React.FC = () => {
+const BillingManagementPanel: React.FC<{ paymentsEnabled: boolean }> = ({ paymentsEnabled }) => {
   const { data: profile } = useUserProfile();
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const isPaidPro = hasPaidProEntitlement(profile);
-  const canOpenPortal = arePaymentsEnabled() && isPaidPro;
+  const canOpenPortal = paymentsEnabled && isPaidPro;
 
   const handleManageBilling = async () => {
     if (!canOpenPortal || isOpeningPortal) return;
@@ -201,7 +201,9 @@ const BillingManagementPanel: React.FC = () => {
         <div className="space-y-2">
           <h2 className="text-base font-semibold">Paid early access</h2>
           <p className="text-sm leading-6 text-muted-foreground">
-            Paid enrollment is not currently offered. Private transcription and coaching quality can vary by device, microphone, and speaking conditions.
+            {paymentsEnabled
+              ? 'Paid Pro enrollment is available. Private transcription remains on-device for every plan; coaching quality can vary by device, microphone, and speaking conditions.'
+              : 'Paid enrollment is not currently offered. Private transcription and coaching quality can vary by device, microphone, and speaking conditions.'}
           </p>
           <p className="text-sm leading-6 text-muted-foreground">
             You can cancel from billing management when Stripe has linked your paid account. Refund or
@@ -233,12 +235,15 @@ const BillingManagementPanel: React.FC = () => {
 };
 
 export const PricingPage: React.FC = () => {
+  const paymentsEnabled = arePaymentsEnabled();
   return (
     <div className="min-h-screen bg-background px-4 pb-16 pt-28">
       <div className="mx-auto max-w-4xl text-center mb-10">
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Choose your SpeakSharp plan</h1>
         <p className="text-base text-muted-foreground mt-3 sm:text-lg">
-          Start the controlled beta with Private on-device transcription and focused feedback. No card or checkout is required.
+          {paymentsEnabled
+            ? 'Start free with Private on-device transcription and focused feedback, or choose Pro for expanded coaching and history.'
+            : 'Start the controlled beta with Private on-device transcription and focused feedback. No card or checkout is required.'}
         </p>
       </div>
       <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-2">
@@ -247,14 +252,18 @@ export const PricingPage: React.FC = () => {
         ))}
       </div>
       <div className="mx-auto mt-8 flex max-w-4xl flex-wrap items-center justify-center gap-3 text-sm text-muted-foreground">
-        {['Private transcription keeps audio local', 'Transcript data supports SpeakSharp features', 'No checkout during the controlled beta'].map((label) => (
+        {[
+          'Private transcription keeps audio local',
+          'Transcript data supports SpeakSharp features',
+          paymentsEnabled ? 'Pro unlocks only after Stripe confirmation' : 'No checkout during the controlled beta',
+        ].map((label) => (
           <span key={label} className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5">
             <ShieldCheck className="h-4 w-4 text-success" aria-hidden="true" />
             {label}
           </span>
         ))}
       </div>
-      <BillingManagementPanel />
+      <BillingManagementPanel paymentsEnabled={paymentsEnabled} />
     </div>
   );
 };

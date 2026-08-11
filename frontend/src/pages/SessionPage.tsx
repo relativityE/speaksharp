@@ -134,9 +134,9 @@ export const SessionPage: React.FC = () => {
             trialHandledRef.current = true;
             setMode('private'); // preselect only; no recording, no model download
         } else {
-            // Ineligible — tell the truth and stay on Browser (never a silent fallback).
+            // Ineligible — surface a supported recovery without advertising a retired mode.
             trialHandledRef.current = true;
-            setTrialUnavailableNotice('Private isn’t available on your account right now — you can still practice with Browser transcription.');
+            setTrialUnavailableNotice('Private transcription isn’t available on your account right now. Refresh, then use Report Issue if this continues.');
         }
         const next = new URLSearchParams(searchParams);
         next.delete('trial');
@@ -273,8 +273,6 @@ export const SessionPage: React.FC = () => {
     const sampleLimitSeconds = usageLimit?.private_sample_limit_seconds ?? 0;
     const privateSampleStatusDetail = privateSampleSecondsRemaining > 0
         ? formatSampleCapLine(sampleLimitSeconds)
-        : usageLimit && !usageLimit.is_pro && usageLimit.private_sample_completed_at
-            ? 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports. Browser transcription is still available.'
         : undefined;
     // #1047: the sample-cap sentence used to render on every idle/ready frame, so the demoted status
     // bar carried a permanent second line — ambient status growing back into two rows of chrome, which
@@ -322,10 +320,8 @@ export const SessionPage: React.FC = () => {
                 (Native + eligible), and the Analytics action (rightmost). There is no separate post-save
                 surface — so a deployed state never contains two Analytics actions. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
-                {/* #1047 anonymous handoff: truthful notice when the Private-trial intent could NOT be
-                    honoured (account ineligible). We never silently fall back — we say so and leave the
-                    user on Browser transcription, which still works. (#1231: relocated here from the retired
-                    legacy body so the notice keeps rendering above the live workflow.) */}
+                {/* #1047 anonymous handoff: truthful notice when Private practice could not start for
+                    an ineligible account. The notice remains above the live workflow. */}
                 {trialUnavailableNotice && (
                     <div
                         role="status"

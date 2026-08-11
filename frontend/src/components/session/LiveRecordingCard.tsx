@@ -274,22 +274,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     // #1184: mode labels, per-mode descriptions, and the model-size note are removed with the selector —
     // there is one engine (Private) and the header cue names it. The Private per-recording cap still
     // applies at the engine level; it simply is no longer surfaced through the removed selector copy.
-    // #1047: this label states DEVICE READINESS, not the engine name. It read "Browser" in native
-    // mode, which both duplicated the mode pill sitting a few pixels to its right and quietly replaced
-    // the demoted label the spec actually asked for. Cloud is the one case that must NOT say
-    // "on this device" — audio leaves the machine, and that distinction is the whole point of the
-    // label — so it keeps its own truthful wording.
-    // #1184 Private-primary: the header status line NAMES the engine (so it reads "● Private …"),
-    // truthfully — Private says "on this device"; Cloud must NOT (audio leaves the machine); Browser
-    // names itself. The engine name is what the removed dropdown used to carry, now a plain status.
-    let sttCue: string;
-    if (mode === 'cloud') {
-        sttCue = 'Cloud · external server';
-    } else if (mode === 'private') {
-        sttCue = isPrivateDownloadRequired ? 'Private · on-device (setup)' : 'Private · on this device';
-    } else {
-        sttCue = 'Browser · on this device';
-    }
+    // #1184 Private-only product truth: the removed selector has no retired-mode fallback copy. The cue
+    // names the one customer engine and its device boundary.
+    const sttCue = isPrivateDownloadRequired ? 'Private · on-device (setup)' : 'Private · on this device';
 
     // #1184: the "About transcription modes" help panel and the per-row flyout are removed with the
     // selector — there are no modes to describe/choose. The header cue ("Private · on this device") + the

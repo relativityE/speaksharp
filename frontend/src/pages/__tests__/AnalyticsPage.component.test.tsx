@@ -203,7 +203,7 @@ describe('AnalyticsPage', () => {
             renderAnalyticsPage('/analytics');
             expect(screen.getByTestId('analytics-page-upgrade-button')).toBeInTheDocument();
             expect(screen.getByText(/turn practice into progress/i)).toBeInTheDocument();
-            expect(screen.getByText(/controlled beta includes Private transcription\. Paid plans are not currently offered/i)).toBeInTheDocument();
+            expect(screen.getByText(/Pro adds deeper history and expanded coaching capacity\. Private transcription remains on-device for every plan/i)).toBeInTheDocument();
         });
 
         it('should NOT render upgrade banner for pro users', () => {

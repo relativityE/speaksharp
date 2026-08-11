@@ -44,7 +44,7 @@ export const UpgradePromptDialog: React.FC<UpgradePromptDialogProps> = ({ open, 
         <AlertDialogHeader>
           <AlertDialogTitle>Keep your full practice history</AlertDialogTitle>
           <AlertDialogDescription>
-            Upgrade to Pro for full session history, Private local transcription, deeper practice reports, and billing support during paid early access.
+            Upgrade to Pro for full session history, deeper practice reports, and billing support during paid early access. Private transcription remains on-device for every plan.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

@@ -49,7 +49,7 @@ const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string
     }
 
     if (mode === 'cloud') {
-        return 'Cloud transcription could not start. Try again, or switch to Private or Native.';
+        return 'Transcription could not start. Retry Private transcription or refresh the page.';
     }
 
     return rawMessage || 'Recording could not start. Try again.';
@@ -578,7 +578,7 @@ export const useSessionLifecycle = () => {
             if (remaining > 0 && remaining <= warningThresholdSeconds) {
                 const minutes = Math.ceil(remaining / 60);
                 const warningMsg = isPrivateSampleRecording
-                    ? '1 minute left in your Private sample. We’ll stop and save when time runs out.'
+                    ? '1 minute left in this Private practice window. We’ll stop and save when time runs out.'
                     : `⚠️ Great practice! ${minutes} minute${minutes > 1 ? 's' : ''} remaining for today's ${isProUser ? 'Pro ' : ''}practice limit.`;
                 if (sttStatus.message !== warningMsg) {
                     setSTTStatus({ type: 'info', message: warningMsg });
@@ -602,7 +602,7 @@ export const useSessionLifecycle = () => {
 
                 void handleStartStopRef.current?.({
                     stopReason: isPrivateSampleRecording
-                        ? 'Your Private sample ended. We stopped and saved your session. Browser transcription is still available.'
+                        ? 'Your Private practice window ended. We stopped and saved your session.'
                         : isProUser
                         ? "⛔ Pro daily practice limit reached."
                         : "⛔ Daily usage limit reached."

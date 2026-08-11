@@ -48,7 +48,7 @@ describe('PricingPage', () => {
             renderPricingPage();
 
             expect(screen.getByText('Choose your SpeakSharp plan')).toBeInTheDocument();
-            expect(screen.getByText(/Start the controlled beta with Private on-device transcription/)).toBeInTheDocument();
+            expect(screen.getByText(/Start free with Private on-device transcription/)).toBeInTheDocument();
             expect(screen.getByText('Private on-device transcription after one-time model setup')).toBeInTheDocument();
             expect(screen.getByRole('heading', { name: 'Paid early access' })).toBeInTheDocument();
         });
@@ -99,10 +99,10 @@ describe('PricingPage', () => {
         it('should render paid early-access cancellation and refund support copy', () => {
             renderPricingPage();
 
-            expect(screen.getByText(/Paid enrollment is not currently offered/i)).toBeInTheDocument();
+            expect(screen.getByText(/Paid Pro enrollment is available/i)).toBeInTheDocument();
             expect(screen.getByText(/cancel from billing management/i)).toBeInTheDocument();
             expect(screen.getByText(/Refund or cancellation questions/i)).toBeInTheDocument();
-            expect(screen.getByText(/Pro unlocks only after Stripe confirmation/i)).toBeInTheDocument();
+            expect(screen.getAllByText(/Pro unlocks only after Stripe confirmation/i)).not.toHaveLength(0);
         });
     });
 

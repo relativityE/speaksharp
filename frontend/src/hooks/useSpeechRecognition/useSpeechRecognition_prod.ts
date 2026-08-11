@@ -32,7 +32,7 @@ function getCloudTokenFailureMessage(err: unknown): string {
     const status = errorLike?.context?.status ?? errorLike?.status;
 
     if (status === 403 || /Cloud STT is (available (with Pro|as a Pro feature)|a Pro feature)|paid Early Access/i.test(message)) {
-        return 'Cloud STT is a paid Early Access feature. Browser transcription is still available.';
+        return 'This transcription path is unavailable. Private on-device transcription is the supported customer experience.';
     }
 
     if (status === 401 || /Invalid or expired token|Missing Authorization/i.test(message)) {
