@@ -65,7 +65,7 @@ After migration, these — and only these — are the active canonical Markdown 
 |---|---|---|---|---|
 | 1 | **README.md** *(this file)* | Portal, precedence model, taxonomies, metadata schema | Procedure | `content_list.md`, `PRECEDENCE.md` |
 | 2 | **PRODUCT_REQUIREMENTS.md** | User-visible guarantees, failure behavior, non-goals, feature contract | Product requirement | `PRD.operational.md`, `PRODUCT_FEATURES.operational.md`, historical `docs/PRD.md` |
-| 3 | **ROADMAP.md** ([repository root](../ROADMAP.md)) | Now / Next / Parallel / Later — all unfinished and deferred work | Open gap / risk | `BACKLOG.md`, `ACTIVE_COORDINATION.md`, `ROADMAP.operational.md`, `RELEASE_CLOSEOUT_LEDGER.md`, historical `docs/ROADMAP.md` |
+| 3 | **ROADMAP.md** | Now / Next / Parallel / Later — all unfinished and deferred work | Open gap / risk | `BACKLOG.md`, `ACTIVE_COORDINATION.md`, `ROADMAP.operational.md`, `RELEASE_CLOSEOUT_LEDGER.md`, historical `docs/ROADMAP.md` |
 | 4 | **ARCHITECTURE.md** | Structural invariants, authoritative sources of truth, durable design decisions (ADRs), code map | Architecture invariant / ADR | `ARCHITECTURE.operational.md`, `CODEBASE_MAP.md`, historical `docs/ARCHITECTURE.md` |
 | 5 | **STT.md** | STT baselines, contracts, accuracy/perf, STT-specific SLOs | Acceptance criterion / SLO | `STT_BASELINE_CONTRACTS.operational.md`, `PRIVATE_STT_ACCURACY_LEVERS.md`, `stt-perf-proof-protocol.md`, STT-specific SLOs from `SERVICE_LEVELS.operational.md` |
 | 6 | **PROGRESS_AND_NEXT_ACTION.md** | Personal progress and next-action contract (comparable-session direction + one measurable action; legacy score retired) | Product requirement / decision | `SPEAKSHARP_SESSION_PROGRESS.operational.md`, scoring material in historical `docs/PRD.md` |

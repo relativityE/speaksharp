@@ -1,10 +1,10 @@
 **Status:** Supporting current-work register
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-08-11
-**Last Verified:** 2026-08-11 against open issues #1254–#1268
+**Last Verified:** 2026-08-11 against open issues #1254–#1268 and #1275
 **Applies To:** Unfinished work for the Private Practice Loop and Flawless Launch qualification
 **Class:** Open gap / risk
-**Authority:** Detailed one-row-per-issue work register; phase authority remains [ROADMAP.md](../ROADMAP.md)
+**Authority:** Detailed one-row-per-issue work register; phase authority remains [ROADMAP.md](./ROADMAP.md)
 **Not Authoritative For:** Current SHAs, CI, deployment, or go/no-go state (→ [RELEASE_STATUS.md](./RELEASE_STATUS.md)); stable promises (→ [PRODUCT_REQUIREMENTS.md](./PRODUCT_REQUIREMENTS.md))
 **Supersedes:** Historical backlog rows and retired feature trains
 **Evidence Sources:** Open GitHub issues linked below
@@ -42,6 +42,7 @@ Only unfinished work is listed. Every issue appears once.
 | Issue | Outcome |
 |---|---|
 | [#1262](https://github.com/relativityE/speaksharp/issues/1262) | Make merged unit coverage fail closed without losing the sharding speedup. |
+| [#1275](https://github.com/relativityE/speaksharp/issues/1275) | Upgrade Vitest to 4.1.0 or newer, remove the `GHSA-5xrq-8626-4rwp` suppression, and preserve fail-closed coverage and sharding. |
 
 ## Explicit liens / after release
 

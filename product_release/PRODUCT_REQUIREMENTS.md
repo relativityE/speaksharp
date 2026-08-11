@@ -5,7 +5,7 @@
 **Applies To:** The SpeakSharp Private Practice Loop
 **Class:** Product requirement / decision
 **Authority:** User-visible product guarantees, failure behavior, non-goals, and the single owner for each open requirement
-**Not Authoritative For:** Current SHAs, CI, deployment, or go/no-go state (→ [RELEASE_STATUS.md](./RELEASE_STATUS.md)); sequencing (→ [ROADMAP.md](../ROADMAP.md))
+**Not Authoritative For:** Current SHAs, CI, deployment, or go/no-go state (→ [RELEASE_STATUS.md](./RELEASE_STATUS.md)); sequencing (→ [ROADMAP.md](./ROADMAP.md))
 **Supersedes:** Stale multi-product, alternate-transcription, and historical completion contracts
 **Evidence Sources:** Current frontend, database migrations, [issue #1257](https://github.com/relativityE/speaksharp/issues/1257), and issues linked in the ownership table
 
@@ -26,6 +26,7 @@ It is one product with two practice modes:
 
 - Every customer practice uses **Private on-device transcription**, independent of plan.
 - Customers are not offered an engine selector or an alternate transcription fallback.
+- Private never silently falls back to Cloud.
 - A failed Private setup, recording, or finalization fails closed with truthful recovery or retry guidance.
 - Initial setup may require a local model download with visible progress.
 - A recording uses one locked engine from start intent through finalization, save, retry, recovery, or confirmed discard.
@@ -83,5 +84,6 @@ Each surviving open requirement has exactly one current issue owner.
 | [#1266](https://github.com/relativityE/speaksharp/issues/1266) | Keep the beta free and define one evidence-based future paid offer. |
 | [#1267](https://github.com/relativityE/speaksharp/issues/1267) | Provide Private-only launch support, rollback, and Product Owner GO/HOLD procedures. |
 | [#1268](https://github.com/relativityE/speaksharp/issues/1268) | Define one discourse-marker metric and add personalization only through explicit opt-in after launch. |
+| [#1275](https://github.com/relativityE/speaksharp/issues/1275) | Upgrade Vitest to 4.1.0 or newer and retire the temporary `GHSA-5xrq-8626-4rwp` suppression without regressing coverage or sharding. |
 
 Anything not mapped above is completed history, rejected scope, or non-authoritative evidence—not an active product requirement.

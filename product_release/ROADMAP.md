@@ -1,13 +1,13 @@
 **Status:** Authoritative
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-08-11
-**Last Verified:** 2026-08-11 against open issues #1254–#1268 and PRs #1269–#1272
+**Last Verified:** 2026-08-11 against open issues #1254–#1268 and #1275, and PRs #1269–#1273
 **Applies To:** Unfinished SpeakSharp product, release, security, and evidence work
 **Class:** Open gap / risk
 **Authority:** Canonical Now / Next / Parallel / Later sequencing
-**Not Authoritative For:** Current SHAs, CI, deployment, or go/no-go state (→ [RELEASE_STATUS.md](./product_release/RELEASE_STATUS.md)); detailed issue register (→ [BACKLOG.md](./product_release/BACKLOG.md))
+**Not Authoritative For:** Current SHAs, CI, deployment, or go/no-go state (→ [RELEASE_STATUS.md](./RELEASE_STATUS.md)); detailed issue register (→ [BACKLOG.md](./BACKLOG.md))
 **Supersedes:** Historical roadmaps, completion numerators, and retired product sequencing
-**Evidence Sources:** [PRODUCT_REQUIREMENTS.md](./product_release/PRODUCT_REQUIREMENTS.md#open-requirement-ownership) and the linked GitHub issues
+**Evidence Sources:** [PRODUCT_REQUIREMENTS.md](./PRODUCT_REQUIREMENTS.md#open-requirement-ownership) and the linked GitHub issues
 
 # SpeakSharp Roadmap
 
@@ -16,9 +16,9 @@
 1. Finish the Private-only customer, legal, pricing, analytics, Practice, signup, and tester contract ([#1254](https://github.com/relativityE/speaksharp/issues/1254)).
 2. Verify hosted privileged-database callers read-only, then harden only the exact exposed functions proven safe to change ([#1261](https://github.com/relativityE/speaksharp/issues/1261)).
 3. Remove the unaffiliated domain from a fresh current-main branch and enforce zero active references in CI ([#1260](https://github.com/relativityE/speaksharp/issues/1260)).
-4. Land one truthful canonical release record after independent documentation review ([#1257](https://github.com/relativityE/speaksharp/issues/1257)).
+4. Land one truthful canonical release record after the preceding product and security work reaches terminal dispositions ([#1257](https://github.com/relativityE/speaksharp/issues/1257)).
 
-The responsive session-shell and completed-brief isolation increments remain separate Product Owner decisions ([#1255](https://github.com/relativityE/speaksharp/issues/1255), [#1256](https://github.com/relativityE/speaksharp/issues/1256)).
+The responsive session-shell and completed-brief isolation increments remain separate Product Owner decisions after their current review returns are corrected and independently re-reviewed ([#1255](https://github.com/relativityE/speaksharp/issues/1255), [#1256](https://github.com/relativityE/speaksharp/issues/1256)).
 
 ## Next — qualify Flawless Launch
 
@@ -28,7 +28,8 @@ The responsive session-shell and completed-brief isolation increments remain sep
 
 ## Parallel
 
-- Keep merged unit coverage fast and fail closed ([#1262](https://github.com/relativityE/speaksharp/issues/1262)).
+- Keep merged unit coverage fast and fail closed; the current implementation is review-returned pending correction ([#1262](https://github.com/relativityE/speaksharp/issues/1262)).
+- Upgrade to Vitest 4.1.0 or newer and retire the temporary `GHSA-5xrq-8626-4rwp` audit suppression without regressing coverage or sharding ([#1275](https://github.com/relativityE/speaksharp/issues/1275)).
 
 ## Later — evidence gated
 

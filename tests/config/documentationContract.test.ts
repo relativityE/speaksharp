@@ -26,7 +26,7 @@ const TESTER_GUIDE = read('TESTER_GUIDE.md'); // canonical #12 (#1050)
 const TESTER_OPERATIONS = read('TESTER_OPERATIONS.md'); // canonical #13 (#1050)
 const EVIDENCE_INDEX = read('EVIDENCE_INDEX.md'); // canonical #14 (#1050)
 const PROGRESS_AND_NEXT_ACTION = read('PROGRESS_AND_NEXT_ACTION.md'); // canonical #6 (#1045)
-const ROADMAP = fs.readFileSync(path.join(REPO, 'ROADMAP.md'), 'utf8'); // canonical #3 (#1257; repo root)
+const ROADMAP = fs.readFileSync(path.join(DOCS, 'ROADMAP.md'), 'utf8'); // canonical #3 (#1257)
 
 // #1045: the canonical destination formerly PLANNED as `COACHING_SCORE.md` was never created and is
 // replaced by `PROGRESS_AND_NEXT_ACTION.md`. The product measures personal session-over-session progress
@@ -184,12 +184,14 @@ describe('documentation contract — product_release/', () => {
     expect(names.length).toBe(14);
     expect(new Set(names)).toEqual(new Set(CANONICAL_14));
     expect(sec).toContain('EVIDENCE_INDEX.md');
-    expect(README).toContain('[repository root](../ROADMAP.md)');
+    expect(fs.existsSync(path.join(DOCS, 'ROADMAP.md'))).toBe(true);
+    expect(fs.existsSync(path.join(REPO, 'ROADMAP.md'))).toBe(false);
   });
 
   it('#1257 maps every surviving requirement to exactly one current issue', () => {
     const ownership = PRODUCT_REQUIREMENTS.slice(PRODUCT_REQUIREMENTS.indexOf('## Open requirement ownership'));
-    for (let issue = 1254; issue <= 1268; issue += 1) {
+    const currentIssues = [...Array.from({ length: 15 }, (_, index) => 1254 + index), 1275];
+    for (const issue of currentIssues) {
       const link = `[#${issue}](https://github.com/relativityE/speaksharp/issues/${issue})`;
       expect(ownership.split(link), `requirement owner #${issue}`).toHaveLength(2);
       expect(BACKLOG.split(link), `backlog row #${issue}`).toHaveLength(2);
@@ -198,7 +200,10 @@ describe('documentation contract — product_release/', () => {
 
   it('#1257 authoritative reset contains no retired product or historical numerator claims', () => {
     const governedReset = [STATUS, PRODUCT_REQUIREMENTS, BACKLOG, ROADMAP].join('\n');
-    expect(governedReset).not.toMatch(/16\/19|19\/19|\bGuided\b|\bBrowser\b|\bCloud\b|Private sample/i);
+    expect(governedReset).not.toMatch(
+      /16\/19|19\/19|\bGuided\b|\bBrowser\b|(?:choose|select|switch(?:es|ed|ing)? to|available (?:as|through)|offered (?:as|through))\s+(?:the\s+)?Cloud|Cloud\s+(?:choice|option|mode|offer|plan|availability)|Private sample/i,
+    );
+    expect(PRODUCT_REQUIREMENTS).toContain('Private never silently falls back to Cloud.');
   });
 
   it('#1257 retention wording matches the source-only, undeployed database contract', () => {
@@ -347,7 +352,7 @@ describe('documentation contract — product_release/', () => {
       }
     }
     for (const m of ROADMAP.matchAll(/\]\((\.\.?\/[^)#]+)/g)) {
-      expect(fs.existsSync(path.resolve(REPO, m[1])), `ROADMAP.md: broken link ${m[1]}`).toBe(true);
+      expect(fs.existsSync(path.resolve(DOCS, m[1])), `ROADMAP.md: broken link ${m[1]}`).toBe(true);
     }
   });
 

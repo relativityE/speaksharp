@@ -5,7 +5,7 @@
 **Applies To:** Current SpeakSharp main, production frontend, open release work, and launch posture
 **Class:** Runtime fact
 **Authority:** The only source for current release/deployment posture, blockers, SHAs, and workflow evidence
-**Not Authoritative For:** Stable product guarantees (→ [PRODUCT_REQUIREMENTS.md](./PRODUCT_REQUIREMENTS.md)); unfinished-work detail (→ [ROADMAP.md](../ROADMAP.md))
+**Not Authoritative For:** Stable product guarantees (→ [PRODUCT_REQUIREMENTS.md](./PRODUCT_REQUIREMENTS.md)); unfinished-work detail (→ [ROADMAP.md](./ROADMAP.md))
 **Supersedes:** Previous release-status snapshots and historical completion numerators
 **Evidence Sources:** [`origin/main`](https://github.com/relativityE/speaksharp/commit/a1c297ba3191568b80af5d0f6d1f97b79157d2ee), [production frontend](https://speaksharp-public.vercel.app/), and the PR/run links below
 **Update rule:** Put changing SHAs, run IDs, deployment identity, blockers, and go/no-go state only in this file.
@@ -30,13 +30,14 @@ SpeakSharp is **HOLD for Flawless Launch qualification**. The retired completion
 | Requirement | PR head | Exact-head evidence | Current disposition |
 |---|---|---|---|
 | [#1254](https://github.com/relativityE/speaksharp/issues/1254) product truth | [#1269](https://github.com/relativityE/speaksharp/pull/1269) `b36ce938` | [CI 31488849930](https://github.com/relativityE/speaksharp/actions/runs/31488849930) failed unit shard 3 and downstream aggregate gates; SCA and cross-page evidence passed | Review-return fixes are pushed; CI repair and renewed independent acceptance remain |
-| [#1255](https://github.com/relativityE/speaksharp/issues/1255) responsive session shell | [#1270](https://github.com/relativityE/speaksharp/pull/1270) `faf5b667` | Full exact-head [CI 31489629318](https://github.com/relativityE/speaksharp/actions/runs/31489629318) passed; SCA and cross-page evidence passed | Ready; independent review remains |
-| [#1256](https://github.com/relativityE/speaksharp/issues/1256) completed-brief isolation | [#1271](https://github.com/relativityE/speaksharp/pull/1271) `29df7617` | Full exact-head [CI 31487010782](https://github.com/relativityE/speaksharp/actions/runs/31487010782) passed | Independently reviewed with an ACCEPT disposition; merge remains a separate decision |
-| [#1257](https://github.com/relativityE/speaksharp/issues/1257) canonical documentation | [#1272](https://github.com/relativityE/speaksharp/pull/1272) | Exact-head evidence is required after this reconciliation is pushed | Documentation implementation in progress; independent review remains |
+| [#1255](https://github.com/relativityE/speaksharp/issues/1255) responsive session shell | [#1270](https://github.com/relativityE/speaksharp/pull/1270) `faf5b667` | Full exact-head [CI 31489629318](https://github.com/relativityE/speaksharp/actions/runs/31489629318) passed; SCA and cross-page evidence passed | **RETURN:** the fixed-width waveform clips late bars and filler markers at 320px; correction and renewed independent review remain |
+| [#1256](https://github.com/relativityE/speaksharp/issues/1256) completed-brief isolation | [#1271](https://github.com/relativityE/speaksharp/pull/1271) `29df7617` | Full exact-head [CI 31487010782](https://github.com/relativityE/speaksharp/actions/runs/31487010782) passed | **RETURN:** restored review duration resets to `0:00` and retry can start Open Mic instead of rebinding the completed brief; correction and renewed independent review remain |
+| [#1262](https://github.com/relativityE/speaksharp/issues/1262) fail-closed merged coverage | [#1273](https://github.com/relativityE/speaksharp/pull/1273) `a30b3619` | Full exact-head [CI 31490560833](https://github.com/relativityE/speaksharp/actions/runs/31490560833) passed | **RETURN:** missing or non-numeric coverage percentages can pass threshold enforcement; correction and renewed independent review remain |
+| [#1257](https://github.com/relativityE/speaksharp/issues/1257) canonical documentation | [#1272](https://github.com/relativityE/speaksharp/pull/1272) | Prior checkpoint `013126bf` received review findings; exact-head evidence is required after this WIP reconciliation | Draft/unfinished by design; final refresh waits for terminal product and security dispositions before renewed independent review |
 
 ## Remaining launch requirements
 
-The single-owner mapping for every surviving requirement is in [PRODUCT_REQUIREMENTS.md](./PRODUCT_REQUIREMENTS.md#open-requirement-ownership). Current execution detail is in [BACKLOG.md](./BACKLOG.md), and phase sequencing is in the canonical [ROADMAP.md](../ROADMAP.md).
+The single-owner mapping for every surviving requirement is in [PRODUCT_REQUIREMENTS.md](./PRODUCT_REQUIREMENTS.md#open-requirement-ownership). Current execution detail is in [BACKLOG.md](./BACKLOG.md), and phase sequencing is in the canonical [ROADMAP.md](./ROADMAP.md).
 
 ## Evidence freshness contract
 
