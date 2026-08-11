@@ -3636,6 +3636,11 @@ export class SpeechRuntimeController {
                             // (server-verified Private-only), so it can never fabricate a score.
                             const objectiveBrief = useSessionStore.getState().activeObjectiveBrief;
                             if (objectiveBrief && metricsOk) {
+                                // #1046 G6/G7: snapshot the finished brief BEFORE clearing the live one, so the
+                                // after-state review screen keeps its Focus Points coverage card, delivery strip,
+                                // and highlights. Clearing the live brief still enforces the isolation invariant
+                                // (it can never attach to the next recording); the snapshot is cleared on next start.
+                                useSessionStore.getState().setCompletedObjectiveBrief(objectiveBrief);
                                 useSessionStore.getState().setActiveObjectiveBrief(null);
                                 const segments = useSessionStore.getState().chunks
                                     .filter((c) => c.isFinal)
