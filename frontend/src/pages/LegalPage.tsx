@@ -38,7 +38,7 @@ const LegalPage = ({ title, updated, sections }: LegalPageProps) => {
 export const TermsPage = () => (
   <LegalPage
     title="Terms of Service"
-    updated="May 29, 2026"
+    updated="August 11, 2026"
     sections={[
       {
         heading: 'Use of SpeakSharp',
@@ -46,11 +46,11 @@ export const TermsPage = () => (
       },
       {
         heading: 'Accounts and Access',
-        body: 'Free accounts can use Browser transcription and the included practice limits. Private transcription includes one sample session before paid Early Access. Cloud transcription is a paid Early Access feature.',
+        body: 'SpeakSharp is currently a controlled free beta. No card or checkout is required. Every customer recording uses Private on-device transcription; account tiers may differ only in usage limits or future coaching features, not transcription privacy.',
       },
       {
         heading: 'Payments',
-        body: 'Pro checkout and billing management are handled by Stripe. Subscription status is applied only after Stripe confirms checkout or webhook events. You can cancel from billing management when available for your account, or contact support through Report Issue for cancellation, refund, or payment questions. Refund requests are reviewed case by case during paid early access.',
+        body: 'Paid enrollment and checkout are not currently offered during the controlled beta. If paid plans are introduced later, their price, limits, cancellation, and refund terms will be shown before any charge.',
       },
       {
         heading: 'Acceptable Use',
@@ -67,7 +67,7 @@ export const TermsPage = () => (
 export const PrivacyPage = () => (
   <LegalPage
     title="Privacy Policy"
-    updated="May 29, 2026"
+    updated="August 11, 2026"
     sections={[
       {
         heading: 'What We Process',
@@ -75,19 +75,19 @@ export const PrivacyPage = () => (
       },
       {
         heading: 'Transcription Modes',
-        body: 'Browser transcription runs through the browser speech recognition capability. Private transcription is designed to keep transcription local after setup. Cloud transcription sends audio to a cloud transcription provider only when the user selects a Cloud-capable Pro workflow.',
+        body: 'SpeakSharp uses Private on-device transcription for customer practice. After a one-time model setup, speech audio is processed on the user’s device and is not uploaded to a Browser or Cloud transcription provider.',
       },
       {
         heading: 'How Data Is Used',
-        body: 'Session data is used to provide transcripts, coaching, analytics, reports, reliability monitoring, and support.',
+        body: 'Session data is used to provide transcripts, coaching, progress, reports, reliability monitoring, and support. SpeakSharp retains transcript text for the two newest saved sessions; older transcript text and transcript-derived AI suggestions expire under the retention policy, while non-content session metrics may remain for progress.',
       },
       {
         heading: 'Service Providers',
-        body: 'SpeakSharp may use providers such as Supabase, Stripe, PostHog, Sentry, Gemini, and cloud transcription services to deliver authentication, billing, analytics, monitoring, coaching, and selected transcription features.',
+        body: 'SpeakSharp may use providers such as Supabase, Stripe, PostHog, Sentry, and Gemini for authentication, billing infrastructure, analytics, monitoring, and coaching. Private speech audio is not sent to those providers for transcription. When a server-backed coaching feature is used, the minimum text required for that feature may be processed under this policy.',
       },
       {
         heading: 'Control',
-        body: 'You can choose which transcription mode to use when available, avoid Cloud transcription by staying with Browser or Private transcription, and contact support for account or data questions.',
+        body: 'You can choose whether to practice, delete your account, and use Report Issue for account or data questions. There is no customer-facing transcription-mode selector; customer practice uses Private transcription.',
       },
     ]}
   />
