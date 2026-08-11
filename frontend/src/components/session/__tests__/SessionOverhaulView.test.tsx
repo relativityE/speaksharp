@@ -106,4 +106,35 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByTestId('focus-points-rail')).toBeNull();
         expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
     });
+
+    // #1046 G6/G7 — on save the LIVE brief is cleared (isolation invariant), so the after-state must fall
+    // back to the finished-brief SNAPSHOT or the whole FP review screen (coverage card, delivery strip,
+    // highlights) silently reverts to the generic Open-Mic screen. This is the bug the width-regression
+    // e2e caught in the real save→render flow.
+    it('objective after via the completed SNAPSHOT (live brief cleared on save) → FP review still renders', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={null}
+                completedObjectivePoints={POINTS}
+                showAnalyticsPrompt
+                transcriptContent="I will name the price now."
+                elapsedTime={84}
+            />,
+        );
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('focus-delivery-strip')).toBeInTheDocument();
+        expect(screen.getByTestId('focus-points-rail')).toBeInTheDocument();
+    });
+
+    // Isolation: the snapshot must NEVER make a fresh before/during session look like Focus Points — only
+    // the after-state consults it. A new Open Mic session with a lingering snapshot stays Open Mic.
+    it('completed snapshot is IGNORED in before/during (fresh Open Mic stays Open Mic)', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={null} completedObjectivePoints={POINTS} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        expect(screen.queryByTestId('coverage-pace')).toBeNull();
+        expect(screen.queryByTestId('focus-points-rail')).toBeNull();
+        expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
+    });
 });

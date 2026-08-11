@@ -6,21 +6,20 @@ import {
   programmaticLoginWithRoutes,
   simulateTranscription,
   startRecording,
+  stopRecording,
 } from './helpers';
 
 /**
- * #1046 G6/G7 §7.9 — the responsive regression pass for the INTERACTIVE states. The slots must hold position
- * across `before` and `during` at 1280 / 1440 / 1024, and no card may stretch past its content or overflow
- * the page horizontally.
+ * #1046 G6/G7 §7.9 — the regression pass. The four slots must hold position across before/during/after at
+ * 1280 / 1440 / 1024, and no card may stretch past its content or overflow the page horizontally.
  *
  * Focus Points has one intentional break from the shared slot map: Slot C (Coverage & pace) does NOT render
- * in `before` — the rail begins with Slot D — so `before` asserts A/B/D present and C absent, while `during`
- * asserts all four (incl. the live Coverage & pace card).
+ * in `before` — the rail begins with Slot D — so `before` asserts A/B/D present and C absent, while
+ * during/after assert all four.
  *
- * Scope note: the AFTER (post-save) state is deliberately NOT swept here. Its FP-specific slot semantics
- * (coverage-pace / delivery strip retention after a real save) are covered by the component test
- * `SessionOverhaulView.test` with known props; the post-save coverage-retention contract is a separate
- * question and threading it through a real record→save e2e is a follow-on, not this responsive check.
+ * The AFTER sweep also guards a real regression this test caught: on save the LIVE brief is cleared (the
+ * Open-Mic isolation invariant), which used to strip the whole FP review screen. The finished-brief SNAPSHOT
+ * now keeps coverage-pace / delivery strip / highlights alive in after — this asserts that end to end.
  */
 
 const WIDTHS = [1280, 1440, 1024] as const;
@@ -33,7 +32,7 @@ async function assertNoHorizontalOverflow(page: Page, label: string) {
   expect(overflow, `horizontal overflow at ${label}`).toBeLessThanOrEqual(1);
 }
 
-async function assertSlots(page: Page, state: 'before' | 'during') {
+async function assertSlots(page: Page, state: 'before' | 'during' | 'after') {
   await expect(page.getByTestId('session-slot-a')).toBeVisible();
   await expect(page.getByTestId('session-slot-b')).toBeVisible();
   await expect(page.getByTestId('session-slot-d')).toBeVisible();
@@ -46,7 +45,7 @@ async function assertSlots(page: Page, state: 'before' | 'during') {
   }
 }
 
-async function sweepWidths(page: Page, state: 'before' | 'during') {
+async function sweepWidths(page: Page, state: 'before' | 'during' | 'after') {
   for (const w of WIDTHS) {
     await page.setViewportSize({ width: w, height: HEIGHT });
     await assertSlots(page, state);
@@ -56,7 +55,7 @@ async function sweepWidths(page: Page, state: 'before' | 'during') {
 }
 
 test.describe('#1046 G6/G7 — Focus Points slots hold at 1280/1440/1024', () => {
-  test('before → during hold position with no overflow at all three widths', async ({ page }) => {
+  test('before → during → after hold position with no overflow at all three widths', async ({ page }) => {
     test.setTimeout(120_000);
     mkdirSync(DIR, { recursive: true });
 
@@ -85,5 +84,14 @@ test.describe('#1046 G6/G7 — Focus Points slots hold at 1280/1440/1024', () =>
     await simulateTranscription(page, 'So first I will name the price clearly, and then state the guarantee we offer to every customer.', true);
     await expect(page.getByTestId('coverage-pace')).toBeVisible({ timeout: 15_000 });
     await sweepWidths(page, 'during');
+
+    // ---- AFTER ---- (proves the finished-brief snapshot keeps the FP review screen after save)
+    await page.setViewportSize({ width: WIDTHS[0], height: HEIGHT });
+    await page.waitForTimeout(5_200); // clear the sub-5s no-persist guard (matches post-save-consolidation)
+    await stopRecording(page);
+    // Gate on the app's OWN deterministic saved + after-state signals, not a component testid race.
+    await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
+    await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 15_000 });
+    await sweepWidths(page, 'after');
   });
 });
