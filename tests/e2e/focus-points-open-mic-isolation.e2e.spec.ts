@@ -111,4 +111,37 @@ test.describe('#1256 — Focus Points review state never leaks into the next Ope
     ).toBeVisible({ timeout: 15_000 });
     await assertNoObjectiveChrome(page, 'Open Mic after');
   });
+
+  // #1256 P1 — "Retry these points" must REBIND the finished brief and start a Focus Points take, not an
+  // Open Mic one. The live brief was cleared on save, so without the rebind the retry silently degrades to
+  // Open Mic and can never re-score the saved point set.
+  test('Retry these points restarts as Focus Points, not Open Mic', async ({ page }) => {
+    test.setTimeout(120_000);
+
+    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await navigateToRoute(page, '/practice');
+
+    await page.getByTestId('practice-card-objective').click();
+    await expect(page.getByTestId('objective-setup-dialog')).toBeVisible();
+    await page.getByTestId('objective-goal-select').selectOption('Sales or product pitch');
+    await page.getByTestId('objective-point-label-0').fill(POINT_LABELS[0]);
+    await page.getByTestId('objective-point-label-1').fill(POINT_LABELS[1]);
+    await page.getByTestId('objective-point-label-2').fill(POINT_LABELS[2]);
+    await page.getByTestId('objective-setup-submit').click();
+    await page.waitForURL('**/session');
+    await expect(page.getByTestId('focus-points-rail')).toBeVisible();
+
+    await recordSaveAndSettle(page, 'First I will name the price clearly, and then state the guarantee we offer.');
+    // After-state Focus Points review is up (snapshot path); the retry control lives on the rail.
+    await expect(page.getByTestId('focus-points-rail')).toBeVisible();
+
+    // Retry → a fresh recording that is still Focus Points (rail present, Open Mic prompt offer absent).
+    await page.getByTestId('focus-points-retry').click();
+    await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId('focus-points-rail')).toBeVisible();
+    await expect(page.getByTestId('coverage-pace')).toBeVisible();
+    await expect(page.getByTestId('prompt-offer')).toHaveCount(0);
+  });
 });

@@ -45,6 +45,10 @@ export interface SessionOverhaulViewProps {
     isListening: boolean;
     sttStatus: SttStatus;
     elapsedTime: number;
+    /** #1256 P1 — the finished take's scoring duration, used for the after-state ONLY. The live
+     *  `elapsedTime` normalizes back to 0 once idle/ready, which would render the snapshot-only Focus
+     *  Points review (coverage pace + per-point timestamps) as 0:00. Defaults to `elapsedTime`. */
+    scoringElapsedSeconds?: number;
     micLevel: number;
     transcriptContent: string;
     showAnalyticsPrompt: boolean;
@@ -105,6 +109,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     isListening,
     sttStatus,
     elapsedTime,
+    scoringElapsedSeconds,
     micLevel,
     transcriptContent,
     showAnalyticsPrompt,
@@ -151,6 +156,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const effObjectivePoints = objectivePoints ?? (inAfter ? completedObjectivePoints ?? null : null);
     const effObjectiveTopic = objectiveTopic ?? (inAfter ? completedObjectiveTopic ?? null : null);
     const effObjectivePaceGuideSecPerPoint = objectivePaceGuideSecPerPoint ?? (inAfter ? completedObjectivePaceGuideSecPerPoint ?? null : null);
+    // #1256 P1 — the after-state scores the FINISHED take, whose duration lives in `scoringElapsedSeconds`
+    // (live `elapsedTime` has already normalized to 0). Before/during keep the live timer.
+    const effElapsed = inAfter ? (scoringElapsedSeconds ?? elapsedTime) : elapsedTime;
 
     const offer = usePromptOfferDismissed(authUserId);
 
@@ -257,7 +265,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     if (isObjective && sessionState === 'before') coveredLatch.current = new Set();
     let coverage: FocusCoverage | null = null;
     if (isObjective) {
-        coverage = deriveFocusCoverage(effObjectivePoints ?? [], transcriptContent, elapsedTime, coveredLatch.current);
+        coverage = deriveFocusCoverage(effObjectivePoints ?? [], transcriptContent, effElapsed, coveredLatch.current);
         coverage.rows.forEach((r, i) => { if (r.covered) coveredLatch.current.add(i); });
     }
 
@@ -275,7 +283,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const guideSecPerPoint = isObjective ? (effObjectivePaceGuideSecPerPoint ?? null) : null;
     const nudge = useFocusNudge({
         sessionState,
-        elapsedSec: elapsedTime,
+        elapsedSec: effElapsed,
         coveredCount: coverage?.coveredCount ?? 0,
         totalPoints: coverage?.total ?? 0,
         guideSecPerPoint,
@@ -287,7 +295,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={elapsedTime} guideSecPerPoint={guideSecPerPoint} sessionState="during" nudge={nudge} />
         : undefined;
     const objectiveAfterSlotC = coverage
-        ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={elapsedTime} guideSecPerPoint={guideSecPerPoint} sessionState="after" />
+        ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={effElapsed} guideSecPerPoint={guideSecPerPoint} sessionState="after" />
         : undefined;
     const objectivePlanSlotD = coverage
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="before" onEdit={onEditPoints} />

@@ -1,4 +1,5 @@
 import { render, screen } from '../../../../tests/support/test-utils';
+import { fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
 import type { SttStatus } from '@/types/transcription';
@@ -136,5 +137,65 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByTestId('coverage-pace')).toBeNull();
         expect(screen.queryByTestId('focus-points-rail')).toBeNull();
         expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
+    });
+
+    // #1256 P1 — the snapshot-only after-state scores the FINISHED take, whose duration lives in
+    // `scoringElapsedSeconds`. The live `elapsedTime` normalizes to 0 once idle, so without this the
+    // "<duration> actual" pace line (and per-point timing) rendered 0:00.
+    it('after-state shows the recorded duration from scoringElapsedSeconds (not the reset live timer)', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={null}
+                completedObjectivePoints={POINTS}
+                completedObjectivePaceGuideSecPerPoint={60}
+                showAnalyticsPrompt
+                transcriptContent="I will name the price now."
+                elapsedTime={0}
+                scoringElapsedSeconds={84}
+            />,
+        );
+        // The after-state pace card reports "<duration> actual" — must reflect the finished 1:24 take.
+        expect(screen.getByTestId('coverage-pace-projection')).toHaveTextContent('1:24 actual');
+    });
+
+    // Contrast/regression guard: with no scoring duration it falls back to the live timer, and a reset
+    // live timer (0) is exactly the 0:00 defect — proving `scoringElapsedSeconds` is the fix lever.
+    it('after-state duration falls back to the live timer without scoringElapsedSeconds (0:00 guard)', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={null}
+                completedObjectivePoints={POINTS}
+                completedObjectivePaceGuideSecPerPoint={60}
+                showAnalyticsPrompt
+                transcriptContent="I will name the price now."
+                elapsedTime={0}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-projection')).toHaveTextContent('0:00 actual');
+    });
+
+    // #1256 P1 — "Retry these points" must route to the rebinding onRetryPoints handler, never the generic
+    // onStartStop (which starts an Open Mic take because the live brief was cleared on save).
+    it('Retry these points invokes onRetryPoints (rebind), not onStartStop', () => {
+        const onRetryPoints = vi.fn();
+        const onStartStop = vi.fn();
+        render(
+            <SessionOverhaulView
+                {...base}
+                onStartStop={onStartStop}
+                onRetryPoints={onRetryPoints}
+                objectivePoints={null}
+                completedObjectivePoints={POINTS}
+                showAnalyticsPrompt
+                transcriptContent="I will name the price now."
+                elapsedTime={0}
+                scoringElapsedSeconds={84}
+            />,
+        );
+        fireEvent.click(screen.getByTestId('focus-points-retry'));
+        expect(onRetryPoints).toHaveBeenCalledTimes(1);
+        expect(onStartStop).not.toHaveBeenCalled();
     });
 });

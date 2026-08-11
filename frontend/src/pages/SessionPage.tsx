@@ -420,6 +420,7 @@ export const SessionPage: React.FC = () => {
                     isListening={isListening}
                     sttStatus={sttStatus}
                     elapsedTime={elapsedTime}
+                    scoringElapsedSeconds={scoringDurationSeconds}
                     micLevel={micLevel}
                     transcriptContent={transcriptContent}
                     showAnalyticsPrompt={showAnalyticsPrompt}
@@ -446,6 +447,15 @@ export const SessionPage: React.FC = () => {
                     completedObjectiveTopic={completedObjectiveBrief?.topic ?? null}
                     completedObjectivePaceGuideSecPerPoint={completedObjectiveBrief?.paceGuideSecPerPoint ?? null}
                     objectiveCoverage={objectiveCoverageResult}
+                    // #1256 P1 — "Retry these points" must REBIND the finished brief before starting, or the
+                    // retry becomes an Open Mic take (the live brief was cleared on save) and can never
+                    // finalize the saved point set. Rebinding restores it as the active Focus Points brief.
+                    onRetryPoints={() => {
+                        if (completedObjectiveBrief) {
+                            useSessionStore.getState().setActiveObjectiveBrief(completedObjectiveBrief);
+                        }
+                        void handleStartStop();
+                    }}
                 />
             </div>
 
