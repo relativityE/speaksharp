@@ -53,8 +53,9 @@ export const CoachingCard: React.FC<CoachingCardProps> = ({ sessionState, liveTi
                     {/* #1264 — optional intention chooser (Open Mic only; present when a handler is wired). */}
                     {onSelectFocus && (
                         <div className="mt-4 border-t border-[#eef1f6] pt-3">
-                            <p className="text-[11px] font-bold uppercase tracking-wide text-[#8b95a5]">
-                                Practice focus <span className="font-semibold normal-case text-[#a8b0bd]">· optional</span>
+                            {/* #1264 — AA contrast (≥4.5:1 on white): #4b5563 ≈ 7:1, #6b7280 ≈ 4.8:1. */}
+                            <p className="text-[11px] font-bold uppercase tracking-wide text-[#4b5563]">
+                                Practice focus <span className="font-semibold normal-case text-[#6b7280]">· optional</span>
                             </p>
                             <PracticeFocusChooser value={practiceFocus ?? null} onSelect={onSelectFocus} className="mt-2" />
                         </div>
