@@ -237,16 +237,34 @@ export function clearPrivateSampleContext(): void {
 export function emitPrivateSample(event: PrivateSampleEvent, props?: Record<string, unknown>): void {
     try {
         const merged = { ...activeContext, ...(props ?? {}) };
+        // Layer 1 — build-time allowlist projection of the merged context+props.
         const safe = sanitizePrivateSampleProps(merged);
         logger.info({ ...safe, event }, '[PRIVATE_SAMPLE]');
-        try {
-            posthog?.capture?.(event, safe);
-        } catch {
-            /* posthog optional — never let analytics break the sample path */
-        }
+        // Layer 2 — the Private send boundary re-projects immediately before the wire (see below).
+        capturePrivateSampleToPostHog(event, safe);
         mirrorToWindow(event, safe);
     } catch {
         /* sanitize/log must never throw into the transcription path */
+    }
+}
+
+/**
+ * The single Private → PostHog send boundary. This is the SECOND, independent redaction layer: it
+ * re-projects the payload through the Private allowlist ONE more time, immediately before the wire
+ * `posthog.capture`, so a Private event can never carry a non-allowlisted field even if an upstream
+ * caller assembled or mutated props outside `emitPrivateSample`'s build-time projection (layer 1).
+ *
+ * Deliberately local to this module — it does NOT route through `AnalyticsBuffer` (real Private
+ * lifecycle events capture directly here, so the second projection must live ON this path, not on a
+ * buffer path the emitter never uses) and imports nothing from the analytics layer, so there is no
+ * telemetry import cycle. Never throws — analytics must not break the sample/STT path.
+ */
+function capturePrivateSampleToPostHog(event: string, props: PrivateSampleProps): void {
+    const wireSafe = sanitizePrivateSampleProps(props as Record<string, unknown>);
+    try {
+        posthog?.capture?.(event, wireSafe);
+    } catch {
+        /* posthog optional — never let analytics break the sample path */
     }
 }
 

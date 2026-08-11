@@ -6,6 +6,9 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+// #1262 — single coverage-threshold authority, shared with scripts/merge-coverage.mjs so the local gate
+// and the CI (sharded) gate can never drift apart.
+import { toVitestThresholds } from '../scripts/coverage-thresholds.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -81,61 +84,9 @@ export default defineConfig({
       // functions, 80.2% branches) so regressions are caught. Branches held at 75 (not 80) for
       // headroom; a future sprint can target 80. CI fails with the exact shortfall message.
       // NOTE: We only apply thresholds if CI_SHARD_MODE is not true. In shard mode, each shard
-      // only tests a subset of files, so it would falsely fail coverage thresholds.
-      thresholds: process.env.CI_SHARD_MODE === 'true' ? undefined : {
-        statements: 75,
-        branches: 75,
-        functions: 75,
-        lines: 75,
-        'frontend/src/services/transcription/ModelManager.ts': {
-          statements: 75,
-          branches: 75,
-          functions: 70,
-          lines: 75,
-        },
-        'frontend/src/services/transcription/engines/transformers-js.worker.ts': {
-          statements: 80,
-          branches: 60,
-          functions: 75,
-          lines: 80,
-        },
-        'frontend/src/services/transcription/modes/NativeBrowser.ts': {
-          statements: 55,
-          branches: 45,
-          functions: 40,
-          lines: 55,
-        },
-        'frontend/src/services/transcription/modes/nativeBrowserStrategies.ts': {
-          statements: 90,
-          branches: 85,
-          functions: 90,
-          lines: 90,
-        },
-        'frontend/src/services/transcription/utils/AudioProcessor.ts': {
-          statements: 65,
-          branches: 85,
-          functions: 75,
-          lines: 65,
-        },
-        'frontend/src/services/transcription/utils/audio-processor.worker.ts': {
-          statements: 60,
-          branches: 80,
-          functions: 75,
-          lines: 60,
-        },
-        'frontend/src/utils/sessionAnalysis.ts': {
-          statements: 80,
-          branches: 65,
-          functions: 70,
-          lines: 80,
-        },
-        'frontend/src/utils/fillerWordUtils.ts': {
-          statements: 75,
-          branches: 90,
-          functions: 65,
-          lines: 75,
-        },
-      },
+      // only tests a subset of files, so it would falsely fail coverage thresholds — the merged gate in
+      // scripts/merge-coverage.mjs enforces them instead, from the SAME shared authority.
+      thresholds: process.env.CI_SHARD_MODE === 'true' ? undefined : toVitestThresholds(),
     },
 
     // Process isolation: each test file runs in its own fork so React/Zustand state is fresh.
