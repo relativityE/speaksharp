@@ -83,9 +83,12 @@ test.describe('#1046 G6/G7 — Focus Points slots hold at 1280/1440/1024', () =>
 
     // ---- AFTER ----
     await page.setViewportSize({ width: WIDTHS[0], height: HEIGHT });
-    await page.waitForTimeout(5_200); // product refuses sub-5s sessions
+    await page.waitForTimeout(5_200); // clear the sub-5s no-persist guard (matches post-save-consolidation)
     await stopRecording(page);
-    await expect(page.getByTestId('focus-delivery-strip')).toBeVisible({ timeout: 15_000 });
+    // Gate on the app's OWN deterministic saved + after-state signals, not a component testid race:
+    // data-session-persisted flips once the stop saves, then the shell resolves to the after state.
+    await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
+    await expect(page.locator('[data-testid="session-shell"][data-session-state="after"]')).toBeVisible({ timeout: 15_000 });
     await sweepWidths(page, 'after');
   });
 });
