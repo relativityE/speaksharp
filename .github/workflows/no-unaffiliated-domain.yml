@@ -30,8 +30,8 @@ jobs:
 
   hosted-config:
     # New workflows cannot be manually dispatched until they exist on the default branch. Run the
-    # read-only proof on same-repository PRs as well; fork PRs never receive the management credential.
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository }}
+    # read-only proof on this source PR too. Fork PRs receive empty secrets and fail closed at preflight.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' }}
     name: hosted ALLOWED_ORIGIN read-only check
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -57,7 +57,7 @@ describe('#1260 unaffiliated-domain zero-reference scanner', () => {
 
   it('offers a manual fail-closed hosted config check without emitting the secret value', () => {
     expect(workflow).toContain("github.event_name == 'workflow_dispatch'");
-    expect(workflow).toContain('github.event.pull_request.head.repo.full_name == github.repository');
+    expect(workflow).toContain("github.event_name == 'pull_request'");
     expect(workflow).toContain('--fail-with-body --silent --show-error');
     expect(workflow).toContain('node scripts/check-hosted-allowed-origin.mjs');
     expect(hostedCheck).toContain("entry?.name === 'ALLOWED_ORIGIN'");
