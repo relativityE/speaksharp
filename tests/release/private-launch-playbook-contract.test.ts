@@ -9,7 +9,15 @@ const workingInstructions = read('AGENTS.md');
 const edgeReleaseWorkflow = read('.github/workflows/deploy-supabase-edge-release.yml');
 
 describe('#1267 Private-only launch support contract', () => {
-  it('makes Private the only product path and forbids retired recovery paths', () => {
+  it('scopes the Private-only gate to accepted, deployed, and reconciled product authority', () => {
+    expect(processDoc).toMatch(/Conditional procedure — not the current release gate/i);
+    expect(processDoc).toMatch(/#1254 \/ PR #1269[\s\S]*independently accepted, merged, and deployed/i);
+    expect(processDoc).toMatch(/canonical product authorities and tester[\s>]+contract are reconciled/i);
+    expect(processDoc).toMatch(/must not be used to GO or HOLD the current product/i);
+    expect(processDoc).toMatch(/does not duplicate or[\s>]+authorize #1254 implementation/i);
+  });
+
+  it('makes Private the only path inside the conditional procedure and forbids retired recovery paths', () => {
     expect(processDoc).toMatch(/Private is the only customer transcription path/i);
     expect(processDoc).toMatch(/Browser, Native, Cloud, Guided, and a\s+Private sample are not recovery paths/i);
     expect(processDoc).toMatch(/never offer Browser\/Cloud/i);
@@ -69,5 +77,12 @@ describe('#1267 Private-only launch support contract', () => {
     expect(rehearsal).toMatch(/not current release status and not GO/i);
     expect(rehearsal).toMatch(/Exercise result:\*\* PASS at the source-procedure boundary/i);
     expect(rehearsal).toMatch(/No rollback\/deploy command is executed/i);
+    expect(rehearsal).toMatch(/does not satisfy the conditional #1254\/product-authority prerequisites/i);
+  });
+
+  it('preserves truthful human-review metadata while recording source verification separately', () => {
+    expect(processDoc).toContain('**Last Reviewed:** 2026-07-30');
+    expect(processDoc).toMatch(/\*\*Last Verified:\*\* 2026-08-11/);
+    expect(rehearsal).toMatch(/exact-head re-review required/i);
   });
 });

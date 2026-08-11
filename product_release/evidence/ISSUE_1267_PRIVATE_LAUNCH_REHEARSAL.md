@@ -11,11 +11,13 @@
 | Exercise role | Participant | Result |
 |---|---|---|
 | Engineering / playbook author | Codex implementation agent | Completed source walkthrough |
-| Independent reviewer | Unassigned pending PR review | Required before acceptance |
+| Independent PR reviewer | Assigned reviewer | RETURN at `c16229db`; bounded corrections incorporated, exact-head re-review required |
 | Product Owner / release authority | relativityE | No GO/HOLD or mutation requested in this exercise |
 
 The real release-window worksheet must still name primary and backup owners for every role in
 `RELEASE_PROCESS.md` §7.2. This exercise does not invent people, contact details, or authorization.
+It also does not satisfy the conditional #1254/product-authority prerequisites for applying §7 to a
+release candidate.
 
 ## Tabletop
 

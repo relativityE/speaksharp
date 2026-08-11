@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for release-gate definitions, release workflow, freshness rules, and recovery)
 **Owner:** Engineering / Quality (relativityE)
-**Last Reviewed:** 2026-08-11
-**Last Verified:** 2026-08-11 — the Private-only launch support, rollback, and GO/HOLD procedure was reconciled to current repository authority and exercised source-only in `evidence/ISSUE_1267_PRIVATE_LAUNCH_REHEARSAL.md`; gate/workflow definitions remain consolidated from the cited sources. No current run IDs, SHAs, deployment baselines, or queue state are carried here — those live only in `RELEASE_STATUS.md`.
+**Last Reviewed:** 2026-07-30
+**Last Verified:** 2026-08-11 — the conditional Private-only launch support, rollback, and GO/HOLD procedure was checked source-only against the cited code/workflows and exercised in `evidence/ISSUE_1267_PRIVATE_LAUNCH_REHEARSAL.md`. It is not the current release gate until the §7 prerequisites are satisfied. No current run IDs, SHAs, deployment baselines, or queue state are carried here — those live only in `RELEASE_STATUS.md`.
 **Applies To:** The SpeakSharp controlled-tester release process — the five RC gates, evidence freshness, the release workflow & commands, and emergency recovery/rollback.
 **Class:** Acceptance criterion / procedure.
 **Authority:** The source for the definition of each RC gate (what "green" means), the gate evidence rules, evidence freshness & same-SHA rules, the release workflow/commands and observability readback, and the forward-fix/rollback/recovery playbook.
@@ -155,9 +155,17 @@ Each release gate is green only when its definition of green is backed by a **na
 
 ## 7. Private-only launch support, GO/HOLD, and recovery
 
-> Stable operator procedure, not release status. Current posture, release-window names, run IDs,
-> intended SHA, deployed SHA, and the final GO/HOLD decision live only in `RELEASE_STATUS.md` and
-> the release-window record. Nothing in this section authorizes a merge, deploy, migration,
+> **Conditional procedure — not the current release gate.** This section applies only to a
+> Private-only release candidate after all of these prerequisites are recorded: #1254 / PR #1269
+> is independently accepted, merged, and deployed; the canonical product authorities and tester
+> contract are reconciled to that deployed behavior through their owning work; and
+> `RELEASE_STATUS.md` records the resulting deployed/main identities and product posture. Until
+> then, this section must not be used to GO or HOLD the current product. It does not duplicate or
+> authorize #1254 implementation or authority changes.
+>
+> Current posture, release-window names, run IDs, intended SHA, deployed SHA, prerequisite
+> dispositions, and the final GO/HOLD decision live only in `RELEASE_STATUS.md` and the
+> release-window record. Nothing in this section authorizes a merge, deploy, migration,
 > configuration change, data write, tester invitation, or production rollback.
 
 ### 7.1 Non-negotiable operating rules
@@ -293,6 +301,9 @@ The release-window record copies this checklist and records evidence links, not 
 
 **Before GO**
 
+- [ ] #1254 / PR #1269 is accepted, merged, deployed, and its Private-only behavior is reconciled
+      across the canonical product authorities and tester contract; `RELEASE_STATUS.md` records the
+      actual deployed/main identities and posture.
 - [ ] Canonical host, intended `main` SHA, live `window.__APP_RELEASE__`, and exact-head terminal gate
       SHA are present and equal.
 - [ ] Release commander, Product Owner, Engineering, Operations/Security, Support/Privacy, and
