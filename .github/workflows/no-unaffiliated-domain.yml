@@ -29,7 +29,9 @@ jobs:
         run: node scripts/no-unaffiliated-domain-scan.mjs
 
   hosted-config:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    # New workflows cannot be manually dispatched until they exist on the default branch. Run the
+    # read-only proof on same-repository PRs as well; fork PRs never receive the management credential.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository }}
     name: hosted ALLOWED_ORIGIN read-only check
     runs-on: ubuntu-latest
     timeout-minutes: 5
