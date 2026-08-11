@@ -1,0 +1,86 @@
+name: "SECURITY DEFINER grant matrix (disposable Postgres, #1261)"
+
+# Proves the #1261 remediation on disposable PostgreSQL 15/16/17: the migration revokes PUBLIC/anon from
+# the 16 SECURITY DEFINER functions, keeps only each proven caller, and pins pg_temp-safe search paths.
+# POSITIVE + NEGATIVE assertions run after the migration (must pass); a FALSIFICATION run proves the same
+# matrix FAILS without the migration (so a green result is never vacuous). No real database is touched.
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/20260811130000_secdef_revoke_public_and_pin_search_path.sql'
+      - 'tests/db/secdef-grant-bootstrap.sql'
+      - 'tests/db/secdef-grant-matrix.sql'
+      - '.github/workflows/secdef-grant-matrix.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    name: "secdef grant matrix (postgres:${{ matrix.pg }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '16', '17']
+
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: disposable_ci_only
+          POSTGRES_DB: matrix_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: disposable_ci_only
+      PGDATABASE: matrix_test
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Install psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          psql --version
+
+      - name: Record server version
+        run: |
+          set -euo pipefail
+          { echo "## postgres:${{ matrix.pg }}"; echo '```'; psql -Atc "select version()"; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: PROOF — bootstrap → migration → matrix (must pass)
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f tests/db/secdef-grant-bootstrap.sql
+          echo "\$ apply migration VERBATIM"
+          psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260811130000_secdef_revoke_public_and_pin_search_path.sql
+          psql -v ON_ERROR_STOP=1 -f tests/db/secdef-grant-matrix.sql 2>&1 | tee proof.txt
+          grep -q 'ALL #1261 SECDEF GRANT PROOFS PASSED' proof.txt
+          grep -q '#1261 SECDEF GRANT PROOF COMPLETE' proof.txt
+
+      - name: FALSIFICATION — the matrix must FAIL without the migration
+        run: |
+          set -euo pipefail
+          # Rebuild a clean schema, bootstrap the vulnerable state, and run the matrix WITHOUT the migration.
+          # anon still inherits the PUBLIC grant, so the proof must RAISE (non-zero). A pass here is vacuous.
+          psql -v ON_ERROR_STOP=1 -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;'
+          psql -v ON_ERROR_STOP=1 -f tests/db/secdef-grant-bootstrap.sql
+          if psql -v ON_ERROR_STOP=1 -f tests/db/secdef-grant-matrix.sql > falsify.txt 2>&1; then
+            echo "::error::VACUOUS — the matrix passed WITHOUT the remediation migration"; cat falsify.txt; exit 1
+          fi
+          echo "OK — matrix correctly failed without the migration:" ; tail -n 3 falsify.txt
