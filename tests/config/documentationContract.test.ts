@@ -9,12 +9,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DOCS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../product_release');
+const REPO = path.resolve(DOCS, '..');
 const read = (rel: string) => fs.readFileSync(path.join(DOCS, rel), 'utf8');
 
 const README = read('README.md');
 const LEDGER = read('DOC_MIGRATION_LEDGER.md');
 const STATUS = read('RELEASE_STATUS.md');
 const PRODUCT_REQUIREMENTS = read('PRODUCT_REQUIREMENTS.md'); // canonical #2 (#1038)
+const BACKLOG = read('BACKLOG.md'); // supporting current-work register (#1257)
 const ARCHITECTURE = read('ARCHITECTURE.md'); // canonical #4 (#1039)
 const ENTITLEMENTS = read('ENTITLEMENTS_AND_BILLING.md'); // canonical #7 (#1053)
 const QUALITY = read('QUALITY.md'); // canonical #8 (#1049)
@@ -24,6 +26,7 @@ const TESTER_GUIDE = read('TESTER_GUIDE.md'); // canonical #12 (#1050)
 const TESTER_OPERATIONS = read('TESTER_OPERATIONS.md'); // canonical #13 (#1050)
 const EVIDENCE_INDEX = read('EVIDENCE_INDEX.md'); // canonical #14 (#1050)
 const PROGRESS_AND_NEXT_ACTION = read('PROGRESS_AND_NEXT_ACTION.md'); // canonical #6 (#1045)
+const ROADMAP = fs.readFileSync(path.join(REPO, 'ROADMAP.md'), 'utf8'); // canonical #3 (#1257; repo root)
 
 // #1045: the canonical destination formerly PLANNED as `COACHING_SCORE.md` was never created and is
 // replaced by `PROGRESS_AND_NEXT_ACTION.md`. The product measures personal session-over-session progress
@@ -68,7 +71,9 @@ const SOURCES: Array<{ label: string; path: string; key: string }> = [
   { label: 'RC_TEST_INVENTORY', path: 'RC_TEST_INVENTORY.md', key: '`RC_TEST_INVENTORY.md`' },
   { label: 'RELEASE_RECOVERY', path: 'RELEASE_RECOVERY.md', key: '`RELEASE_RECOVERY.md`' },
   { label: 'RELEASE_CLOSEOUT', path: 'RELEASE_CLOSEOUT_LEDGER.md', key: '`RELEASE_CLOSEOUT_LEDGER.md`' },
-  { label: 'BACKLOG', path: 'BACKLOG.md', key: 'BACKLOG · ' },
+  // BACKLOG.md was extracted and rewritten by #1257. Its replacement contract is
+  // validated directly below; the temporary migration ledger continues to preserve
+  // the pre-extraction heading inventory rather than tracking the live register.
   { label: 'LAUNCH_ENV', path: 'LAUNCH_ENV_CHECKLIST.md', key: '`LAUNCH_ENV_CHECKLIST.md`' },
   { label: 'ENV_INVENTORY', path: 'ENV_INVENTORY.md', key: '`ENV_INVENTORY.md`' },
   { label: 'SECRET_ROTATION', path: 'SECRET_ROTATION_RUNBOOK.md', key: '`SECRET_ROTATION_RUNBOOK.md`' },
@@ -179,6 +184,27 @@ describe('documentation contract — product_release/', () => {
     expect(names.length).toBe(14);
     expect(new Set(names)).toEqual(new Set(CANONICAL_14));
     expect(sec).toContain('EVIDENCE_INDEX.md');
+    expect(README).toContain('[repository root](../ROADMAP.md)');
+  });
+
+  it('#1257 maps every surviving requirement to exactly one current issue', () => {
+    const ownership = PRODUCT_REQUIREMENTS.slice(PRODUCT_REQUIREMENTS.indexOf('## Open requirement ownership'));
+    for (let issue = 1254; issue <= 1268; issue += 1) {
+      const link = `[#${issue}](https://github.com/relativityE/speaksharp/issues/${issue})`;
+      expect(ownership.split(link), `requirement owner #${issue}`).toHaveLength(2);
+      expect(BACKLOG.split(link), `backlog row #${issue}`).toHaveLength(2);
+    }
+  });
+
+  it('#1257 authoritative reset contains no retired product or historical numerator claims', () => {
+    const governedReset = [STATUS, PRODUCT_REQUIREMENTS, BACKLOG, ROADMAP].join('\n');
+    expect(governedReset).not.toMatch(/16\/19|19\/19|\bGuided\b|\bBrowser\b|\bCloud\b|Private sample/i);
+  });
+
+  it('#1257 retention wording matches the source-only, undeployed database contract', () => {
+    expect(PRODUCT_REQUIREMENTS).toContain('source-only retention migrations');
+    expect(PRODUCT_REQUIREMENTS).toContain('not applied to production');
+    expect(PRODUCT_REQUIREMENTS).not.toMatch(/retained for the newest two|older transcript text .*expire/i);
   });
 
   it('every pre-foundation root Markdown source is mapped in the ledger', () => {
@@ -269,7 +295,7 @@ describe('documentation contract — product_release/', () => {
     // deliberately not scanned — history keeps its original wording.
     // Scan EVERY canonical document that currently exists (plus the ledger), not a hand-picked subset,
     // so a stale pointer cannot survive in a file nobody thought to list.
-    const scanned = [...CANONICAL_14, 'DOC_MIGRATION_LEDGER.md']
+    const scanned = [...CANONICAL_14.filter(n => n !== 'ROADMAP.md'), 'DOC_MIGRATION_LEDGER.md']
       .filter(n => n !== 'PROGRESS_AND_NEXT_ACTION.md')
       .filter(n => fs.existsSync(path.join(DOCS, n)));
     expect(scanned.length, 'expected several canonical docs to scan').toBeGreaterThan(5);
@@ -277,6 +303,8 @@ describe('documentation contract — product_release/', () => {
       expect(read(name), `${name} still references the retired ${RETIRED_CANONICAL_NAME}`)
         .not.toContain(RETIRED_CANONICAL_NAME);
     }
+    expect(ROADMAP, `ROADMAP.md still references the retired ${RETIRED_CANONICAL_NAME}`)
+      .not.toContain(RETIRED_CANONICAL_NAME);
 
     // The successor may name its predecessor EXACTLY ONCE, and only as `Supersedes:` provenance — that
     // is an honest record of what it replaced, not a live route. Anywhere else would be a stale pointer.
@@ -305,7 +333,7 @@ describe('documentation contract — product_release/', () => {
   });
 
   it('the 10 metadata fields appear within the document header (first 25 lines), not merely anywhere', () => {
-    for (const [label, md] of [['README', README], ['RELEASE_STATUS', STATUS], ['LEDGER', LEDGER], ['PRODUCT_REQUIREMENTS', PRODUCT_REQUIREMENTS], ['ARCHITECTURE', ARCHITECTURE], ['ENTITLEMENTS', ENTITLEMENTS], ['QUALITY', QUALITY], ['RELEASE_PROCESS', RELEASE_PROCESS], ['OPERATIONS_AND_SECURITY', OPERATIONS_AND_SECURITY], ['TESTER_GUIDE', TESTER_GUIDE], ['TESTER_OPERATIONS', TESTER_OPERATIONS], ['EVIDENCE_INDEX', EVIDENCE_INDEX], ['PROGRESS_AND_NEXT_ACTION', PROGRESS_AND_NEXT_ACTION]] as const) {
+    for (const [label, md] of [['README', README], ['RELEASE_STATUS', STATUS], ['LEDGER', LEDGER], ['PRODUCT_REQUIREMENTS', PRODUCT_REQUIREMENTS], ['ROADMAP', ROADMAP], ['ARCHITECTURE', ARCHITECTURE], ['ENTITLEMENTS', ENTITLEMENTS], ['QUALITY', QUALITY], ['RELEASE_PROCESS', RELEASE_PROCESS], ['OPERATIONS_AND_SECURITY', OPERATIONS_AND_SECURITY], ['TESTER_GUIDE', TESTER_GUIDE], ['TESTER_OPERATIONS', TESTER_OPERATIONS], ['EVIDENCE_INDEX', EVIDENCE_INDEX], ['PROGRESS_AND_NEXT_ACTION', PROGRESS_AND_NEXT_ACTION]] as const) {
       const header = md.split('\n').slice(0, 25).join('\n');
       const missing = METADATA_FIELDS.filter(f => !header.includes(f));
       expect(missing, `${label} header missing fields`).toEqual([]);
@@ -317,6 +345,9 @@ describe('documentation contract — product_release/', () => {
       for (const m of md.matchAll(/\]\((\.\.?\/[^)#]+)/g)) {
         expect(fs.existsSync(path.resolve(DOCS, m[1])), `${name}: broken link ${m[1]}`).toBe(true);
       }
+    }
+    for (const m of ROADMAP.matchAll(/\]\((\.\.?\/[^)#]+)/g)) {
+      expect(fs.existsSync(path.resolve(REPO, m[1])), `ROADMAP.md: broken link ${m[1]}`).toBe(true);
     }
   });
 

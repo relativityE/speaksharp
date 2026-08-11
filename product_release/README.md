@@ -1,7 +1,7 @@
 **Status:** Authoritative (canonical portal)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-07-24
-**Last Verified:** 2026-07-24 (canonical set, precedence model, and links verified against the repo tree)
+**Last Reviewed:** 2026-08-11
+**Last Verified:** 2026-08-11 (canonical roadmap location and links verified against the repo tree)
 **Applies To:** All SpeakSharp product/release documentation under `product_release/`
 **Class:** Procedure (documentation portal)
 **Authority:** Entry point, precedence model, and canonical-document map — the SSOT for *documentation structure and authority*.
@@ -29,7 +29,7 @@ Documentation describes a product bound by promises. Precedence is therefore **n
 
 | Level | Domain | Scope |
 |---|---|---|
-| **1** | **User Trust & Legal Promises** — the binding constraints | PRD + Billing + Privacy + Security promises (e.g. "Private STT audio never leaves the browser," "no silent switch to a paid/cloud engine," "billing fails closed") |
+| **1** | **User Trust & Legal Promises** — the binding constraints | PRD + Billing + Privacy + Security promises (e.g. "Private STT audio never leaves the device," "no silent switch to a paid or off-device engine," "billing fails closed") |
 | **2** | **Runtime Truth** — observed behavior | Deployed code + DB schema + edge functions + env config |
 | **3** | **Data Integrity Invariants** | ACID/atomicity/schema consistency |
 | **4** | **Security Invariants** | RLS + JWT validation + CSRF + rate limiting |
@@ -65,7 +65,7 @@ After migration, these — and only these — are the active canonical Markdown 
 |---|---|---|---|---|
 | 1 | **README.md** *(this file)* | Portal, precedence model, taxonomies, metadata schema | Procedure | `content_list.md`, `PRECEDENCE.md` |
 | 2 | **PRODUCT_REQUIREMENTS.md** | User-visible guarantees, failure behavior, non-goals, feature contract | Product requirement | `PRD.operational.md`, `PRODUCT_FEATURES.operational.md`, historical `docs/PRD.md` |
-| 3 | **ROADMAP.md** | Now / Next / Later / Declined — all unfinished & deferred work | Open gap / risk | `BACKLOG.md`, `ACTIVE_COORDINATION.md`, `ROADMAP.operational.md`, `RELEASE_CLOSEOUT_LEDGER.md`, historical `docs/ROADMAP.md` |
+| 3 | **ROADMAP.md** ([repository root](../ROADMAP.md)) | Now / Next / Parallel / Later — all unfinished and deferred work | Open gap / risk | `BACKLOG.md`, `ACTIVE_COORDINATION.md`, `ROADMAP.operational.md`, `RELEASE_CLOSEOUT_LEDGER.md`, historical `docs/ROADMAP.md` |
 | 4 | **ARCHITECTURE.md** | Structural invariants, authoritative sources of truth, durable design decisions (ADRs), code map | Architecture invariant / ADR | `ARCHITECTURE.operational.md`, `CODEBASE_MAP.md`, historical `docs/ARCHITECTURE.md` |
 | 5 | **STT.md** | STT baselines, contracts, accuracy/perf, STT-specific SLOs | Acceptance criterion / SLO | `STT_BASELINE_CONTRACTS.operational.md`, `PRIVATE_STT_ACCURACY_LEVERS.md`, `stt-perf-proof-protocol.md`, STT-specific SLOs from `SERVICE_LEVELS.operational.md` |
 | 6 | **PROGRESS_AND_NEXT_ACTION.md** | Personal progress and next-action contract (comparable-session direction + one measurable action; legacy score retired) | Product requirement / decision | `SPEAKSHARP_SESSION_PROGRESS.operational.md`, scoring material in historical `docs/PRD.md` |
@@ -177,7 +177,7 @@ Each canonical document carries this header:
 
 ## 7. Related records
 
-- [`DOC_MIGRATION_LEDGER.md`](./DOC_MIGRATION_LEDGER.md) — section-level source→target inventory, dispositions, owners, and the Browser STT naming decision (#1041 Option B). **Temporary**; archived at closeout.
+- [`DOC_MIGRATION_LEDGER.md`](./DOC_MIGRATION_LEDGER.md) — section-level source→target inventory, dispositions, owners, and the retired STT naming decision (#1041 Option B). **Temporary**; archived at closeout.
 - [`RELEASE_STATUS.md`](./RELEASE_STATUS.md) — current posture (SSOT).
 
 *This portal is navigational and structural. It records no changing release status; that lives only in `RELEASE_STATUS.md`.*
