@@ -26,7 +26,7 @@ export interface SessionBeforeStateProps {
     /** #1264 — optional Open Mic Practice Focus + its setter (Open Mic only; drives the before chooser). */
     practiceFocus?: PracticeFocus | null;
     onSelectFocus?: (focus: PracticeFocus) => void;
-    /** #1046 — Focus Points swaps slot C (progress-vs-baseline → coverage-this-run). */
+    /** #1046 — Focus Points renders NO slot C in `before` (hideSlotC); Coverage & pace arrives in during/after. */
     slotCContent?: React.ReactNode;
     /** #1046 G6/G7 §2 — Focus Points renders NO slot C in `before` (nothing has happened yet; a `0/N`
      *  scoreboard only says "you haven't started"). The rail begins with slot D. */

@@ -49,7 +49,7 @@ export interface SessionDuringStateProps {
     slotDContent?: React.ReactNode;
     /** #1264 — the chosen Open Mic Practice Focus, shown as a non-scoring reminder while recording. */
     practiceFocus?: PracticeFocus | null;
-    /** #1046 — Focus Points swaps slot C (progress-vs-baseline → coverage-this-run). */
+    /** #1046 — Focus Points swaps slot C (progress-vs-baseline → Coverage & pace). */
     slotCContent?: React.ReactNode;
 }
 

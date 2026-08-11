@@ -10,10 +10,11 @@ import type { CoverageRailPoint } from '../CoverageRail';
 /**
  * #1222 S10 — regression pass over the whole overhaul (spec build-order #7).
  *
- * jsdom does no real layout, so "holds at 1024 / 1280 / 1440" is asserted through the CSS CONTRACT that
- * produces the layout at every width: the shell's `1.55fr 1fr` grid + per-slot flex (A/C size to content,
- * B/D fill), and the waveform's flex-fill bars. Live pixel checks at the three widths are the integration
- * slice's Playwright job (the shell is not yet mounted on a route).
+ * jsdom does no real layout, so the responsive contract is asserted through the CSS CLASS contract that
+ * produces the layout: the shell stacks (`grid-cols-1`) on phones and becomes the `1.55fr 1fr` two-column
+ * grid from the `md` breakpoint (`md:grid-cols-[1.55fr_1fr]`), plus per-slot flex (A/C size to content,
+ * B/D fill). Live pixel checks at phone/desktop widths are the Playwright job
+ * (`tests/e2e/session-shell-responsive.e2e.spec.ts`).
  */
 const progress = computeProgressVsBaseline([
     { fillerCount: 34, durationSeconds: 600 },
@@ -39,10 +40,11 @@ const afterProps = {
 const points: CoverageRailPoint[] = [{ id: '1', label: 'a', status: 'covered' }];
 
 describe('#1222 S10 — session overhaul regression', () => {
-    it('the shell layout contract is width-independent (grid 1.55fr 1fr; A/C size, B/D fill)', () => {
+    it('the shell layout contract is responsive (stacked on phones, 1.55fr 1fr from md; A/C size, B/D fill)', () => {
         render(<SessionBeforeState {...beforeProps} />);
         const shell = screen.getByTestId('session-shell');
-        expect(shell).toHaveStyle({ display: 'grid', gridTemplateColumns: '1.55fr 1fr' });
+        // #1255: one stacked column on phones, the 1.55fr/1fr two-column grid from the md breakpoint up.
+        expect(shell).toHaveClass('grid', 'grid-cols-1', 'md:grid-cols-[1.55fr_1fr]');
         expect(screen.getByTestId('session-slot-a')).toHaveStyle({ flex: '0 0 auto' }); // sizes to content
         expect(screen.getByTestId('session-slot-b')).toHaveStyle({ flex: '1 1 auto' }); // fills
         expect(screen.getByTestId('session-slot-c')).toHaveStyle({ flex: '0 0 auto' });
@@ -77,11 +79,11 @@ describe('#1222 S10 — session overhaul regression', () => {
     it('both waveforms fill their track (flex:1, min-width:2px) — recorder bar and scrubber', () => {
         const { rerender } = render(<SessionDuringState {...duringProps} />);
         for (const bar of screen.getAllByTestId('recorder-waveform-bar')) {
-            expect(bar).toHaveStyle({ flex: '1 1 0', minWidth: '2px' });
+            expect(bar).toHaveStyle({ flex: '1 1 0', minWidth: '1px' });
         }
         rerender(<SessionAfterState {...afterProps} />);
         for (const bar of screen.getAllByTestId('scrubber-waveform-bar')) {
-            expect(bar).toHaveStyle({ flex: '1 1 0', minWidth: '2px' });
+            expect(bar).toHaveStyle({ flex: '1 1 0', minWidth: '1px' });
         }
     });
 

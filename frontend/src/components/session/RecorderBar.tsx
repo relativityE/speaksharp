@@ -20,17 +20,21 @@ export interface RecorderBarProps {
 
 export const RecorderBar: React.FC<RecorderBarProps> = ({ elapsedSeconds, amplitudes, recordedCount, deviceLabel, onStop }) => {
     return (
-        <div className="flex items-center gap-4 rounded-xl border border-[#dbe2ec] bg-white px-4 py-3" data-testid="recorder-bar">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[#dbe2ec] bg-white px-4 py-3 sm:gap-4" data-testid="recorder-bar">
             <span className="flex items-center gap-1.5 whitespace-nowrap text-[13px] font-extrabold text-[#a8321f]">
                 <span className="inline-block h-2 w-2 rounded-full bg-[#d13c25]" aria-hidden="true" />
                 RECORDING
             </span>
 
-            <span className="text-[30px] font-extrabold leading-none [font-variant-numeric:tabular-nums] text-[#1f2733]" data-testid="recorder-timer">
+            <span className="text-[22px] font-extrabold leading-none [font-variant-numeric:tabular-nums] text-[#1f2733] sm:text-[30px]" data-testid="recorder-timer">
                 {formatTimer(elapsedSeconds)}
             </span>
 
-            <div className="min-w-0 flex-1">
+            {/* On phones the recorder bar wraps, and the waveform must take its OWN full-width row: on a
+                shared row it is squeezed narrower than its ~72 bars' 1px-min content and overflows the
+                viewport (#1270). `w-full` forces the wrap to a full-width track (~all bars fit ≥143px);
+                from `sm` up there is room, so it returns to an inline growing column. */}
+            <div className="w-full min-w-0 sm:w-auto sm:flex-1">
                 <Waveform amplitudes={amplitudes} recordedCount={recordedCount} data-testid="recorder-waveform" />
             </div>
 

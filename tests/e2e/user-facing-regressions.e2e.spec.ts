@@ -120,10 +120,12 @@ test.describe('User-facing session and analytics regressions', () => {
     expect(startBox!.width).toBeGreaterThan(40);
     expect(startBox!.height).toBeGreaterThan(40);
     expect(startBox!.y + startBox!.height).toBeLessThanOrEqual(844);
-    // The transcript card is present and not collapsed. (The overhaul shell is a fixed two-column grid, so
-    // the mobile transcript column is narrower than the legacy full-width panel; assert it is not crushed
-    // rather than the legacy >300px width.)
-    expect(transcriptBox!.width).toBeGreaterThan(100);
+    // The responsive shell stacks on phones; the transcript must use the readable full-width column.
+    expect(transcriptBox!.width).toBeGreaterThan(300);
+    const progressBox = await page.getByTestId('session-slot-c').boundingBox();
+    if (progressBox) {
+      expect(progressBox.y).toBeGreaterThan(transcriptBox!.y);
+    }
 
     await startRecording(page);
     await simulateTranscription(page, 'free mobile transcript appears without hidden controls', true);

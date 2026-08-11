@@ -46,6 +46,10 @@ export interface SessionOverhaulViewProps {
     isListening: boolean;
     sttStatus: SttStatus;
     elapsedTime: number;
+    /** #1256 P1 — the finished take's scoring duration, used for the after-state ONLY. The live
+     *  `elapsedTime` normalizes back to 0 once idle/ready, which would render the snapshot-only Focus
+     *  Points review (coverage pace + per-point timestamps) as 0:00. Defaults to `elapsedTime`. */
+    scoringElapsedSeconds?: number;
     micLevel: number;
     transcriptContent: string;
     showAnalyticsPrompt: boolean;
@@ -80,6 +84,16 @@ export interface SessionOverhaulViewProps {
     objectiveTopic?: string | null;
     /** #1046 G6/G7 §2 — the pace guide (seconds/point); null when skipped → no pace UI, no pace nudge. */
     objectivePaceGuideSecPerPoint?: number | null;
+    /**
+     * #1046 G6/G7 — the SNAPSHOT of the just-finished brief, used ONLY by the after-state. On a successful
+     * save the live brief (objectivePoints) is intentionally cleared so it can never attach to the next
+     * (Open Mic) recording — but that also strips the FP after-state (coverage card, delivery strip,
+     * highlights). These carry the finished brief forward for the review screen only; they are ignored in
+     * before/during, and are cleared when the next recording starts, so isolation is preserved.
+     */
+    completedObjectivePoints?: string[] | null;
+    completedObjectiveTopic?: string | null;
+    completedObjectivePaceGuideSecPerPoint?: number | null;
     /** #1046 Focus Points — per-point coverage resolved at stop (same shape as the rail); null until then.
      *  Retained for the SessionPage contract; the view now derives its own live+final coverage from the
      *  transcript (see focusCoverage) so slot C, slot D, and the highlights share one source. */
@@ -99,6 +113,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     isListening,
     sttStatus,
     elapsedTime,
+    scoringElapsedSeconds,
     micLevel,
     transcriptContent,
     showAnalyticsPrompt,
@@ -119,6 +134,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     objectivePoints,
     objectiveTopic,
     objectivePaceGuideSecPerPoint,
+    completedObjectivePoints,
+    completedObjectiveTopic,
+    completedObjectivePaceGuideSecPerPoint,
     onEditPoints,
     onRetryPoints,
     onNewSet,
@@ -135,6 +153,18 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         stopped: (showAnalyticsPrompt || Boolean(isFinalizing)) && !isListening,
         permissionError,
     });
+
+    // #1046 G6/G7 — the after-state falls back to the finished-brief SNAPSHOT when the live brief has been
+    // cleared on save (so the review screen keeps its coverage card, delivery strip, and highlights). Before
+    // and during use ONLY the live brief, so a stale snapshot can never make a fresh Open Mic session look
+    // like Focus Points (the isolation invariant that motivated clearing the live brief in the first place).
+    const inAfter = sessionState === 'after';
+    const effObjectivePoints = objectivePoints ?? (inAfter ? completedObjectivePoints ?? null : null);
+    const effObjectiveTopic = objectiveTopic ?? (inAfter ? completedObjectiveTopic ?? null : null);
+    const effObjectivePaceGuideSecPerPoint = objectivePaceGuideSecPerPoint ?? (inAfter ? completedObjectivePaceGuideSecPerPoint ?? null : null);
+    // #1256 P1 — the after-state scores the FINISHED take, whose duration lives in `scoringElapsedSeconds`
+    // (live `elapsedTime` has already normalized to 0). Before/during keep the live timer.
+    const effElapsed = inAfter ? (scoringElapsedSeconds ?? elapsedTime) : elapsedTime;
 
     const offer = usePromptOfferDismissed(authUserId);
 
@@ -233,7 +263,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // #1046 Focus Points: a brief is active when we were handed declared point labels. This is a distinct
     // product on the shared shell (spec: "slots are shared; semantics are not"). Slot C becomes coverage,
     // slot D becomes the points, filler chrome is gone, and the transcript highlights mean coverage.
-    const isObjective = Array.isArray(objectivePoints) && objectivePoints.length > 0;
+    const isObjective = Array.isArray(effObjectivePoints) && effObjectivePoints.length > 0;
 
     // Live coverage, derived from the growing transcript via the local keyword matcher (nothing leaves the
     // device). `coveredLatch` guarantees a lit tick never regresses (spec §6); it resets on a fresh session.
@@ -241,7 +271,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     if (isObjective && sessionState === 'before') coveredLatch.current = new Set();
     let coverage: FocusCoverage | null = null;
     if (isObjective) {
-        coverage = deriveFocusCoverage(objectivePoints ?? [], transcriptContent, elapsedTime, coveredLatch.current);
+        coverage = deriveFocusCoverage(effObjectivePoints ?? [], transcriptContent, effElapsed, coveredLatch.current);
         coverage.rows.forEach((r, i) => { if (r.covered) coveredLatch.current.add(i); });
     }
 
@@ -256,10 +286,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
 
     // §2 nudge — the live coaching for Focus Points, computed here (hook called unconditionally) and rendered
     // INSIDE the Coverage & pace card. Silent unless the pace ratio breaks (or the no-guide coverage fallback).
-    const guideSecPerPoint = isObjective ? (objectivePaceGuideSecPerPoint ?? null) : null;
+    const guideSecPerPoint = isObjective ? (effObjectivePaceGuideSecPerPoint ?? null) : null;
     const nudge = useFocusNudge({
         sessionState,
-        elapsedSec: elapsedTime,
+        elapsedSec: effElapsed,
         coveredCount: coverage?.coveredCount ?? 0,
         totalPoints: coverage?.total ?? 0,
         guideSecPerPoint,
@@ -271,16 +301,16 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={elapsedTime} guideSecPerPoint={guideSecPerPoint} sessionState="during" nudge={nudge} />
         : undefined;
     const objectiveAfterSlotC = coverage
-        ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={elapsedTime} guideSecPerPoint={guideSecPerPoint} sessionState="after" />
+        ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={effElapsed} guideSecPerPoint={guideSecPerPoint} sessionState="after" />
         : undefined;
     const objectivePlanSlotD = coverage
-        ? <FocusPointsRail rows={coverage.rows} topic={objectiveTopic ?? null} sessionState="before" onEdit={onEditPoints} />
+        ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="before" onEdit={onEditPoints} />
         : undefined;
     const objectiveDuringSlotD = coverage
-        ? <FocusPointsRail rows={coverage.rows} topic={objectiveTopic ?? null} sessionState="during" nextIndex={coverage.nextIndex} />
+        ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="during" nextIndex={coverage.nextIndex} />
         : undefined;
     const objectiveAfterSlotD = coverage
-        ? <FocusPointsRail rows={coverage.rows} topic={objectiveTopic ?? null} sessionState="after" onRetry={onRetryPoints ?? onStartStop} onNewSet={onNewSet} />
+        ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="after" onRetry={onRetryPoints ?? onStartStop} onNewSet={onNewSet} />
         : undefined;
 
     if (sessionState === 'before') {
@@ -382,8 +412,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     tokens: isObjective && fpTokens ? fpTokens : tokens,
                     // Honest copy: the app retains no audio (transcript-only review), so highlights mark
                     // where each point landed rather than being audio-seek targets.
+                    // §Duplication: the coverage FRACTION appears exactly once, in Slot C — never repeated
+                    // here. The FP header speaks to the highlights, not a second `n of m` scoreboard.
                     headerMeta: isObjective
-                        ? `${wordCount(transcriptContent)} words · ${coverage?.coveredCount ?? 0} of ${coverage?.total ?? 0} points covered`
+                        ? `${wordCount(transcriptContent)} words · green marks where each point landed`
                         : `${wordCount(transcriptContent)} words · tap a highlight to jump to it`,
                     stats: `${metricsFillerCount} fillers · ${wordCount(transcriptContent)} words`,
                     onFillerSeek: () => {},

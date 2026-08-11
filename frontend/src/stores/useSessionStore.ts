@@ -115,6 +115,13 @@ export interface SessionState {
      */
     practiceFocus: PracticeFocus | null;
     /**
+     * #1046 G6/G7 — a SNAPSHOT of the brief captured at save, when `activeObjectiveBrief` is cleared to
+     * preserve the isolation invariant. The after-state (review screen) reads this so its Focus Points
+     * coverage card, delivery strip, and highlights survive the save. Cleared when the next recording
+     * starts, so it can never make a fresh Open Mic session render as Focus Points.
+     */
+    completedObjectiveBrief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null;
+    /**
      * #1046 slice 5a: per-point Focus Points coverage for the settled Session page, or null when the
      * completed recording was not a Focus Points session. Mirrors {@link finalizedAnalysis}'s lifecycle
      * exactly — null until an objective session finalizes, SET at the stop seam after coverage is
@@ -160,6 +167,7 @@ interface SessionActions {
     setCompletedSessionDuration: (seconds: number | null) => void;
     setActiveObjectiveBrief: (brief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null) => void;
     setPracticeFocus: (focus: PracticeFocus | null) => void;
+    setCompletedObjectiveBrief: (brief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null) => void;
     setObjectiveCoverageResult: (rows: ObjectiveCoverageRow[] | null) => void;
     setPauseMetrics: (metrics: PauseMetrics) => void;
     setLockHeldByOther: (held: boolean) => void;
@@ -218,6 +226,7 @@ const initialState: SessionState = {
     completedSessionDurationSeconds: null,
     activeObjectiveBrief: null,
     practiceFocus: readPracticeFocus(),
+    completedObjectiveBrief: null,
     objectiveCoverageResult: null,
     pauseMetrics: {
         totalPauses: 0,
@@ -498,6 +507,7 @@ export const useSessionStore = create<SessionStore>((set) => {
     setCompletedSessionDuration: (completedSessionDurationSeconds) => set({ completedSessionDurationSeconds }),
     setActiveObjectiveBrief: (activeObjectiveBrief) => set({ activeObjectiveBrief }),
     setPracticeFocus: (practiceFocus) => { writePracticeFocus(practiceFocus); set({ practiceFocus }); },
+    setCompletedObjectiveBrief: (completedObjectiveBrief) => set({ completedObjectiveBrief }),
     setObjectiveCoverageResult: (objectiveCoverageResult) => set({ objectiveCoverageResult }),
 
     setTranscriptFinalizing: (isTranscriptFinalizing) =>

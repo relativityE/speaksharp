@@ -138,7 +138,7 @@ export function ObjectiveSetupForm({
             </h2>
             <p className="mt-1 text-[15px] leading-snug text-foreground/70">
                 Name what you’re rehearsing, then list the points you want to cover. After you record,
-                each one is marked covered or missed.
+                each one is marked covered or not detected.
             </p>
 
             <div className="mt-6">
