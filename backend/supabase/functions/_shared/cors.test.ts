@@ -15,8 +15,7 @@ import {
 } from "./cors.ts";
 
 const PROD_ACTIVE = "https://speaksharp-public.vercel.app";
-const PROD_AI = "https://speaksharp.ai";
-const PROD_WWW = "https://www.speaksharp.ai";
+const FIXTURE_ORIGIN = "https://app.example.com";
 const PREVIEW = "https://speaksharp-public-git-main-team.vercel.app";
 
 // Allowlist including one explicitly-configured preview origin (as prod would configure it).
@@ -30,22 +29,22 @@ function reqWith(origin?: string, method = "GET"): Request {
 
 Deno.test("normalizeExactOrigin canonicalizes valid origins", () => {
   assertEquals(
-    normalizeExactOrigin("https://speaksharp.ai"),
-    "https://speaksharp.ai",
+    normalizeExactOrigin(FIXTURE_ORIGIN),
+    FIXTURE_ORIGIN,
   );
   assertEquals(
-    normalizeExactOrigin("  https://speaksharp.ai  "),
-    "https://speaksharp.ai",
+    normalizeExactOrigin(`  ${FIXTURE_ORIGIN}  `),
+    FIXTURE_ORIGIN,
   );
   // Case-normalized host via URL parsing.
   assertEquals(
-    normalizeExactOrigin("https://SpeakSharp.AI"),
-    "https://speaksharp.ai",
+    normalizeExactOrigin("https://App.Example.COM"),
+    FIXTURE_ORIGIN,
   );
   // Default-port canonicalization.
   assertEquals(
-    normalizeExactOrigin("https://speaksharp.ai:443"),
-    "https://speaksharp.ai",
+    normalizeExactOrigin("https://app.example.com:443"),
+    FIXTURE_ORIGIN,
   );
   assertEquals(
     normalizeExactOrigin("http://localhost:5174"),
@@ -61,19 +60,19 @@ Deno.test("normalizeExactOrigin rejects non-origin / hostile shapes", () => {
       "   ",
       "http://a.com, http://b.com", // comma-separated
       "https://a.com https://b.com", // space-separated
-      "https://user@speaksharp.ai", // userinfo
-      "https://user:pass@speaksharp.ai",
-      "https://speaksharp.ai/path", // path
-      "https://speaksharp.ai/", // trailing path
-      "https://speaksharp.ai?x=1", // query
-      "https://speaksharp.ai#f", // fragment
-      "ftp://speaksharp.ai", // scheme
+      "https://user@app.example.com", // userinfo
+      "https://user:pass@app.example.com",
+      "https://app.example.com/path", // path
+      "https://app.example.com/", // trailing path
+      "https://app.example.com?x=1", // query
+      "https://app.example.com#f", // fragment
+      "ftp://app.example.com", // scheme
       "file:///etc/passwd",
       "javascript:alert(1)",
-      "speaksharp.ai", // no scheme
-      "https://speaksharp.ai\r\nSet-Cookie: x=1", // header injection
-      "https://speaksharp.ai\n", // newline
-      "https://speaksharp.ai\t", // tab
+      "app.example.com", // no scheme
+      "https://app.example.com\r\nSet-Cookie: x=1", // header injection
+      "https://app.example.com\n", // newline
+      "https://app.example.com\t", // tab
     ]
   ) {
     assertEquals(
@@ -106,18 +105,15 @@ Deno.test("getAllowedOrigins merges builtins with configured, deduped", () => {
   assertEquals(list.filter((o) => o === PROD_ACTIVE).length, 1);
 });
 
-Deno.test("ALLOWED cases: exact production, approved domains, configured preview, localhost", () => {
+Deno.test("ALLOWED cases: exact production, configured preview, localhost", () => {
   for (
     const good of [
       PROD_ACTIVE,
-      PROD_AI,
-      PROD_WWW,
       PREVIEW, // explicitly configured preview
       "http://localhost:5173",
       "http://localhost:5174",
       "http://127.0.0.1:5173",
       "http://127.0.0.1:5174",
-      "https://speaksharp.ai:443", // canonical default port
     ]
   ) {
     assert(isAllowedOrigin(good, ALLOWED), `should allow: ${good}`);
@@ -134,9 +130,9 @@ Deno.test("ALLOWED cases: exact production, approved domains, configured preview
 
 Deno.test("REJECTED cases: hostile lookalikes, wrong protocol/port, malformed", async (t) => {
   const rejected = [
-    "https://evil-speaksharp.ai",
-    "https://speaksharp.ai.evil.com",
-    "https://www.speaksharp.ai.evil.com",
+    "https://evil-app.example.com",
+    "https://app.example.com.evil.test",
+    "https://www.app.example.com.evil.test",
     "https://speaksharp-public.vercel.app.evil.com",
     "https://speaksharp-public-evil.vercel.app", // not explicitly configured
     "http://speaksharp-public.vercel.app", // wrong protocol
@@ -145,16 +141,16 @@ Deno.test("REJECTED cases: hostile lookalikes, wrong protocol/port, malformed", 
     "http://localhost:3000", // unapproved port
     "http://localhost:80", // canonicalizes to http://localhost — not allowlisted
     "https://localhost:5174", // wrong protocol for localhost
-    "https://user@speaksharp.ai", // userinfo
-    "https://speaksharp.ai/path",
-    "https://speaksharp.ai?x=1",
-    "https://speaksharp.ai#frag",
+    "https://user@app.example.com", // userinfo
+    "https://app.example.com/path",
+    "https://app.example.com?x=1",
+    "https://app.example.com#frag",
     "http://a.com, http://b.com", // comma-separated
     "null",
     "",
     "   ",
     "not-a-url",
-    "https://xn--speaksharp-evil.ai", // punycode lookalike
+    "https://xn--app-evil.example", // punycode lookalike
     // NOTE: CRLF/header-injection Origins cannot be set via the Headers API (the platform blocks
     // them), so they are exercised at the normalizeExactOrigin() level in the direct test above.
   ];
@@ -190,7 +186,7 @@ Deno.test("preflight (OPTIONS): approved → 204 exact ACAO + Vary; hostile → 
   assertEquals(ok!.headers.get("Vary"), "Origin");
 
   const hostile = handleCorsPreflight(
-    reqWith("https://speaksharp.ai.evil.com", "OPTIONS"),
+    reqWith("https://app.example.com.evil.test", "OPTIONS"),
     ALLOWED,
   );
   assert(hostile instanceof Response);

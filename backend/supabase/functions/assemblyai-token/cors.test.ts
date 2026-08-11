@@ -2,7 +2,7 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { handler } from "./index.ts";
 
 const APPROVED = "https://speaksharp-public.vercel.app";
-const HOSTILE = "https://speaksharp.ai.evil.com";
+const HOSTILE = "https://app.example.com.evil.test";
 
 function req(method: string, origin?: string, authHeader?: string) {
   const headers = new Headers();
