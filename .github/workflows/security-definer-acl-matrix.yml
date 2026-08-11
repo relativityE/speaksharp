@@ -1,0 +1,165 @@
+name: "SECURITY DEFINER ACL matrix (disposable Postgres)"
+
+# #1261 — source-only verification. This workflow uses only disposable databases and no secrets.
+# It does not connect to or mutate the hosted Supabase project. Applying the migration remains a
+# separate Product Owner decision.
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/20260811143000_harden_exposed_security_definer_acl.sql'
+      - 'backend/supabase/rollbacks/20260811143000_harden_exposed_security_definer_acl.rollback.sql'
+      - 'tests/db/security-definer-acl-bootstrap.sql'
+      - 'tests/db/security-definer-acl-fresh-chain-matrix.sql'
+      - 'tests/db/security-definer-acl-fresh-chain-rollback-matrix.sql'
+      - 'tests/db/security-definer-acl-matrix.sql'
+      - 'tests/db/security-definer-acl-rollback-matrix.sql'
+      - 'tests/config/security-definer-acl-contract.test.ts'
+      - '.github/workflows/security-definer-acl-matrix.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-definer-acl-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matrix:
+    name: "ACL/path matrix (postgres:${{ matrix.pg }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '16', '17']
+
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: disposable_ci_only
+          POSTGRES_DB: matrix_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: disposable_ci_only
+      PGDATABASE: matrix_test
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Install psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          psql --version
+
+      - name: Record server version
+        run: psql -Atc 'select version()' | tee server-version.txt
+
+      - name: Apply hosted-state bootstrap
+        run: psql -v ON_ERROR_STOP=1 -v include_hosted_drift=true -f tests/db/security-definer-acl-bootstrap.sql
+
+      - name: FALSIFICATION — matrix must reject the exposed state
+        run: |
+          set -euo pipefail
+          if psql -v ON_ERROR_STOP=1 -f tests/db/security-definer-acl-matrix.sql > falsify-output.txt 2>&1; then
+            echo "::error::VACUOUS — the matrix accepted the exposed pre-remediation state"
+            cat falsify-output.txt
+            exit 1
+          fi
+          grep -Eq 'PUBLIC still executes|anon still executes|grant mismatch|search_path mismatch' falsify-output.txt
+
+      - name: Apply remediation migration VERBATIM
+        run: psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260811143000_harden_exposed_security_definer_acl.sql
+
+      - name: Run positive and negative ACL/path proofs
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f tests/db/security-definer-acl-matrix.sql 2>&1 | tee matrix-output.txt
+          grep -q 'SECURITY DEFINER ACL MATRIX COMPLETE' matrix-output.txt
+
+      - name: Apply rollback and prove restoration
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f backend/supabase/rollbacks/20260811143000_harden_exposed_security_definer_acl.rollback.sql
+          psql -v ON_ERROR_STOP=1 -f tests/db/security-definer-acl-rollback-matrix.sql 2>&1 | tee rollback-output.txt
+          grep -q 'ROLLBACK MATRIX PASSED' rollback-output.txt
+
+      - name: Reapply remediation and prove convergence
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260811143000_harden_exposed_security_definer_acl.sql
+          psql -v ON_ERROR_STOP=1 -f tests/db/security-definer-acl-matrix.sql 2>&1 | tee reapply-output.txt
+          grep -q 'SECURITY DEFINER ACL MATRIX COMPLETE' reapply-output.txt
+
+      - name: Prove fresh-chain replay without hosted-only functions
+        run: |
+          set -euo pipefail
+          createdb fresh_chain_test
+          PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -v include_hosted_drift=false -f tests/db/security-definer-acl-bootstrap.sql
+
+          if PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -f tests/db/security-definer-acl-fresh-chain-matrix.sql > fresh-chain-falsify-output.txt 2>&1; then
+            echo "::error::VACUOUS — the fresh-chain matrix accepted the exposed pre-remediation state"
+            cat fresh-chain-falsify-output.txt
+            exit 1
+          fi
+          grep -Eq 'PUBLIC still executes|anon still executes|grant mismatch|search_path mismatch' fresh-chain-falsify-output.txt
+
+          PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260811143000_harden_exposed_security_definer_acl.sql
+          PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -f tests/db/security-definer-acl-fresh-chain-matrix.sql 2>&1 | tee fresh-chain-output.txt
+          grep -q 'FRESH-CHAIN SECURITY DEFINER ACL MATRIX COMPLETE' fresh-chain-output.txt
+
+          PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -f backend/supabase/rollbacks/20260811143000_harden_exposed_security_definer_acl.rollback.sql
+          PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -f tests/db/security-definer-acl-fresh-chain-rollback-matrix.sql 2>&1 | tee fresh-chain-rollback-output.txt
+          grep -q 'FRESH-CHAIN ROLLBACK MATRIX PASSED' fresh-chain-rollback-output.txt
+
+          PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260811143000_harden_exposed_security_definer_acl.sql
+          PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -f tests/db/security-definer-acl-fresh-chain-matrix.sql 2>&1 | tee fresh-chain-reapply-output.txt
+          grep -q 'FRESH-CHAIN SECURITY DEFINER ACL MATRIX COMPLETE' fresh-chain-reapply-output.txt
+
+      - name: Publish evidence summary
+        if: always()
+        run: |
+          {
+            echo "### SECURITY DEFINER ACL matrix — postgres:${{ matrix.pg }}"
+            echo '```'
+            cat server-version.txt 2>/dev/null || true
+            cat matrix-output.txt 2>/dev/null || true
+            cat rollback-output.txt 2>/dev/null || true
+            cat reapply-output.txt 2>/dev/null || true
+            cat fresh-chain-output.txt 2>/dev/null || true
+            cat fresh-chain-rollback-output.txt 2>/dev/null || true
+            cat fresh-chain-reapply-output.txt 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: security-definer-acl-matrix-pg${{ matrix.pg }}
+          path: |
+            server-version.txt
+            falsify-output.txt
+            matrix-output.txt
+            rollback-output.txt
+            reapply-output.txt
+            fresh-chain-falsify-output.txt
+            fresh-chain-output.txt
+            fresh-chain-rollback-output.txt
+            fresh-chain-reapply-output.txt
+          retention-days: 30
+          if-no-files-found: warn
