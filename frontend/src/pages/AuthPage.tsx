@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 import logger from '../lib/logger';
 
 // --- Types ---
@@ -52,6 +53,7 @@ export default function AuthPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
+  const paymentsEnabled = arePaymentsEnabled();
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -249,7 +251,9 @@ export default function AuthPage() {
                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
                     <p className="text-sm font-semibold text-foreground">Start free with Private transcription</p>
                     <p className="text-xs font-medium leading-relaxed text-foreground/70">
-                      Every practice session uses on-device Private transcription. The controlled beta is free — no card or checkout.
+                      {paymentsEnabled
+                        ? 'Every practice session uses on-device Private transcription. The free path requires no card or checkout.'
+                        : 'Every practice session uses on-device Private transcription. The controlled beta is free — no card or checkout.'}
                     </p>
                     {inlineError && (
                       <p

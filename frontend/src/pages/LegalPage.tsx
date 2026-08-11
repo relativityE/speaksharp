@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 
 type LegalPageProps = {
   title: string;
@@ -35,8 +36,11 @@ const LegalPage = ({ title, updated, sections }: LegalPageProps) => {
   );
 };
 
-export const TermsPage = () => (
-  <LegalPage
+export const TermsPage = () => {
+  const paymentsEnabled = arePaymentsEnabled();
+
+  return (
+    <LegalPage
     title="Terms of Service"
     updated="August 11, 2026"
     sections={[
@@ -46,11 +50,15 @@ export const TermsPage = () => (
       },
       {
         heading: 'Accounts and Access',
-        body: 'SpeakSharp is currently a controlled free beta. No card or checkout is required. Every customer recording uses Private on-device transcription; account tiers may differ only in usage limits or future coaching features, not transcription privacy.',
+        body: paymentsEnabled
+          ? 'SpeakSharp includes a free practice path that requires no card or checkout. Every customer recording uses Private on-device transcription; account tiers may differ only in usage limits or coaching features, not transcription privacy.'
+          : 'SpeakSharp is currently a controlled free beta. No card or checkout is required. Every customer recording uses Private on-device transcription; account tiers may differ only in usage limits or future coaching features, not transcription privacy.',
       },
       {
         heading: 'Payments',
-        body: 'Paid enrollment and checkout are not currently offered during the controlled beta. If paid plans are introduced later, their price, limits, cancellation, and refund terms will be shown before any charge.',
+        body: paymentsEnabled
+          ? 'Paid Pro enrollment is available. Its price and limits are shown before checkout, and cancellation, billing-management, and refund support are available through the paths described in the product.'
+          : 'Paid enrollment and checkout are not currently offered during the controlled beta. If paid plans are introduced later, their price, limits, cancellation, and refund terms will be shown before any charge.',
       },
       {
         heading: 'Acceptable Use',
@@ -61,8 +69,9 @@ export const TermsPage = () => (
         body: 'These terms may be updated as SpeakSharp moves through launch testing. Continued use after an update means you accept the revised terms.',
       },
     ]}
-  />
-);
+    />
+  );
+};
 
 export const PrivacyPage = () => (
   <LegalPage

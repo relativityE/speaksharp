@@ -34,7 +34,7 @@ describe('UpgradePromptDialog', () => {
         it('renders the dialog when open is true', () => {
             render(<UpgradePromptDialog open={true} onOpenChange={() => { }} />);
             expect(screen.getByText('Keep your full practice history')).toBeInTheDocument();
-            expect(screen.getByText(/Private local transcription/i)).toBeInTheDocument();
+            expect(screen.getByText(/Private transcription remains on-device for every plan/i)).toBeInTheDocument();
             expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument();
             expect(screen.getByText('Maybe Later')).toBeInTheDocument();
         });
