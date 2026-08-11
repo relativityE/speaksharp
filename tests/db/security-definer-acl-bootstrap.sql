@@ -1,5 +1,10 @@
 \set ON_ERROR_STOP on
 
+\if :{?include_hosted_drift}
+\else
+\set include_hosted_drift true
+\endif
+
 DO $$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE ROLE service_role NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -50,21 +55,27 @@ CREATE OR REPLACE FUNCTION public.cleanup_expired_sessions() RETURNS jsonb
 LANGUAGE sql SECURITY DEFINER AS $$ SELECT '{"success":true}'::jsonb $$;
 CREATE OR REPLACE FUNCTION public.expire_stale_sessions() RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN NULL; END $$;
+\if :include_hosted_drift
 CREATE OR REPLACE FUNCTION public.redeem_promo(text, uuid) RETURNS jsonb
 LANGUAGE sql SECURITY DEFINER AS $$ SELECT '{"success":true}'::jsonb $$;
+\endif
 
 CREATE OR REPLACE FUNCTION public.purge_derived_content_on_expire() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN INSERT INTO public.secdef_trigger_audit(name) VALUES ('purge'); RETURN NEW; END $$;
+\if :include_hosted_drift
 CREATE OR REPLACE FUNCTION public.handle_new_user() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth AS $$
 BEGIN INSERT INTO public.secdef_trigger_audit(name) VALUES ('handle'); RETURN NEW; END $$;
+\endif
 CREATE OR REPLACE FUNCTION public.ensure_trial_profile_for_new_user() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN INSERT INTO public.secdef_trigger_audit(name) VALUES ('ensure'); RETURN NEW; END $$;
 
+\if :include_hosted_drift
 CREATE TRIGGER secdef_handle AFTER INSERT ON public.secdef_trigger_probe
 FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+\endif
 CREATE TRIGGER secdef_ensure AFTER INSERT ON public.secdef_trigger_probe
 FOR EACH ROW EXECUTE FUNCTION public.ensure_trial_profile_for_new_user();
 CREATE TRIGGER secdef_purge AFTER UPDATE OF touched ON public.secdef_trigger_probe

@@ -30,14 +30,40 @@ const signatures = [
   'ensure_trial_profile_for_new_user()',
 ];
 
+const hostedOnlySignatures = [
+  {
+    signature: 'redeem_promo(text, uuid)',
+    regprocedure: 'public.redeem_promo(text,uuid)',
+    safePath: 'public, pg_temp',
+    rollbackPath: 'RESET search_path',
+  },
+  {
+    signature: 'handle_new_user()',
+    regprocedure: 'public.handle_new_user()',
+    safePath: 'public, auth, pg_temp',
+    rollbackPath: 'SET search_path = public, auth',
+  },
+];
+
+const repositoryOwnedSignatures = signatures.filter(
+  (signature) => !hostedOnlySignatures.some((hosted) => hosted.signature === signature),
+);
+
 describe('#1261 source-only SECURITY DEFINER remediation', () => {
   it('revokes inherited and explicit API execution from all 16 exposed functions', () => {
-    for (const signature of signatures) {
-      expect(migration).toContain(
-        `REVOKE EXECUTE ON FUNCTION public.${signature} FROM PUBLIC, anon, authenticated, service_role;`,
-      );
+    for (const signature of repositoryOwnedSignatures) {
+      const statement = `REVOKE EXECUTE ON FUNCTION public.${signature} FROM PUBLIC, anon, authenticated, service_role`;
+      expect(migration).toContain(`${statement};`);
     }
-    expect(migration.match(/^REVOKE EXECUTE ON FUNCTION public\./gm)).toHaveLength(16);
+    for (const hosted of hostedOnlySignatures) {
+      const statement = `REVOKE EXECUTE ON FUNCTION public.${hosted.signature} FROM PUBLIC, anon, authenticated, service_role`;
+      expect(migration).toContain(`EXECUTE '${statement}';`);
+    }
+    expect(migration.match(/^REVOKE EXECUTE ON FUNCTION public\./gm)).toHaveLength(14);
+    expect(migration.match(/^ {4}EXECUTE 'REVOKE EXECUTE ON FUNCTION public\./gm)).toHaveLength(2);
+    for (const hosted of hostedOnlySignatures) {
+      expect(migration).toContain(`to_regprocedure('${hosted.regprocedure}') IS NOT NULL`);
+    }
   });
 
   it('regrants only the evidenced authenticated and service callers', () => {
@@ -54,19 +80,32 @@ describe('#1261 source-only SECURITY DEFINER remediation', () => {
 
   it('sets exactly the ten exposed unsafe paths with pg_temp last', () => {
     const alters = migration.match(/^ALTER FUNCTION public\..* SET search_path = .*;$/gm) ?? [];
-    expect(alters).toHaveLength(10);
+    expect(alters).toHaveLength(8);
     for (const alter of alters) expect(alter).toMatch(/pg_temp;$/);
-    expect(migration).toContain(
-      'ALTER FUNCTION public.handle_new_user() SET search_path = public, auth, pg_temp;',
-    );
+    for (const hosted of hostedOnlySignatures) {
+      expect(migration).toContain(
+        `EXECUTE 'ALTER FUNCTION public.${hosted.signature} SET search_path = ${hosted.safePath}';`,
+      );
+    }
   });
 
   it('ships an explicit incident rollback for every grant and path change', () => {
     expect(rollback).toContain('intentionally restores the insecure PUBLIC/anon exposure');
-    expect(rollback.match(/^GRANT EXECUTE ON FUNCTION public\./gm)).toHaveLength(16);
-    expect(rollback.match(/^ALTER FUNCTION public\./gm)).toHaveLength(10);
-    for (const signature of signatures) {
-      expect(rollback).toContain(`GRANT EXECUTE ON FUNCTION public.${signature} TO PUBLIC, anon, authenticated, service_role;`);
+    expect(rollback.match(/^GRANT EXECUTE ON FUNCTION public\./gm)).toHaveLength(14);
+    expect(rollback.match(/^ {4}EXECUTE 'GRANT EXECUTE ON FUNCTION public\./gm)).toHaveLength(2);
+    expect(rollback.match(/^ALTER FUNCTION public\./gm)).toHaveLength(8);
+    expect(rollback.match(/^ {4}EXECUTE 'ALTER FUNCTION public\./gm)).toHaveLength(2);
+    for (const signature of repositoryOwnedSignatures) {
+      const statement = `GRANT EXECUTE ON FUNCTION public.${signature} TO PUBLIC, anon, authenticated, service_role`;
+      expect(rollback).toContain(`${statement};`);
+    }
+    for (const hosted of hostedOnlySignatures) {
+      const statement = `GRANT EXECUTE ON FUNCTION public.${hosted.signature} TO PUBLIC, anon, authenticated, service_role`;
+      expect(rollback).toContain(`EXECUTE '${statement}';`);
+      expect(rollback).toContain(`to_regprocedure('${hosted.regprocedure}') IS NOT NULL`);
+      expect(rollback).toContain(
+        `EXECUTE 'ALTER FUNCTION public.${hosted.signature} ${hosted.rollbackPath}';`,
+      );
     }
   });
 
@@ -76,6 +115,11 @@ describe('#1261 source-only SECURITY DEFINER remediation', () => {
     expect(workflow).toContain('Run positive and negative ACL/path proofs');
     expect(workflow).toContain('Apply rollback and prove restoration');
     expect(workflow).toContain('Reapply remediation and prove convergence');
+    expect(workflow).toContain('Prove fresh-chain replay without hosted-only functions');
+    expect(workflow).toContain('include_hosted_drift=false');
+    expect(workflow).toContain('security-definer-acl-fresh-chain-matrix.sql');
+    expect(workflow).toContain('security-definer-acl-fresh-chain-rollback-matrix.sql');
+    expect(workflow).toContain('FRESH-CHAIN SECURITY DEFINER ACL MATRIX COMPLETE');
     expect(workflow).toContain('retention-days: 30');
     expect(workflow).not.toContain('${{ secrets.');
     expect(workflow).not.toContain('SUPABASE_URL:');

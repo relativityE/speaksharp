@@ -11,6 +11,8 @@ on:
       - 'backend/supabase/migrations/20260811143000_harden_exposed_security_definer_acl.sql'
       - 'backend/supabase/rollbacks/20260811143000_harden_exposed_security_definer_acl.rollback.sql'
       - 'tests/db/security-definer-acl-bootstrap.sql'
+      - 'tests/db/security-definer-acl-fresh-chain-matrix.sql'
+      - 'tests/db/security-definer-acl-fresh-chain-rollback-matrix.sql'
       - 'tests/db/security-definer-acl-matrix.sql'
       - 'tests/db/security-definer-acl-rollback-matrix.sql'
       - 'tests/config/security-definer-acl-contract.test.ts'
@@ -68,7 +70,7 @@ jobs:
         run: psql -Atc 'select version()' | tee server-version.txt
 
       - name: Apply hosted-state bootstrap
-        run: psql -v ON_ERROR_STOP=1 -f tests/db/security-definer-acl-bootstrap.sql
+        run: psql -v ON_ERROR_STOP=1 -v include_hosted_drift=true -f tests/db/security-definer-acl-bootstrap.sql
 
       - name: FALSIFICATION — matrix must reject the exposed state
         run: |
@@ -103,6 +105,31 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/db/security-definer-acl-matrix.sql 2>&1 | tee reapply-output.txt
           grep -q 'SECURITY DEFINER ACL MATRIX COMPLETE' reapply-output.txt
 
+      - name: Prove fresh-chain replay without hosted-only functions
+        run: |
+          set -euo pipefail
+          createdb fresh_chain_test
+          PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -v include_hosted_drift=false -f tests/db/security-definer-acl-bootstrap.sql
+
+          if PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -f tests/db/security-definer-acl-fresh-chain-matrix.sql > fresh-chain-falsify-output.txt 2>&1; then
+            echo "::error::VACUOUS — the fresh-chain matrix accepted the exposed pre-remediation state"
+            cat fresh-chain-falsify-output.txt
+            exit 1
+          fi
+          grep -Eq 'PUBLIC still executes|anon still executes|grant mismatch|search_path mismatch' fresh-chain-falsify-output.txt
+
+          PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260811143000_harden_exposed_security_definer_acl.sql
+          PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -f tests/db/security-definer-acl-fresh-chain-matrix.sql 2>&1 | tee fresh-chain-output.txt
+          grep -q 'FRESH-CHAIN SECURITY DEFINER ACL MATRIX COMPLETE' fresh-chain-output.txt
+
+          PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -f backend/supabase/rollbacks/20260811143000_harden_exposed_security_definer_acl.rollback.sql
+          PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -f tests/db/security-definer-acl-fresh-chain-rollback-matrix.sql 2>&1 | tee fresh-chain-rollback-output.txt
+          grep -q 'FRESH-CHAIN ROLLBACK MATRIX PASSED' fresh-chain-rollback-output.txt
+
+          PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260811143000_harden_exposed_security_definer_acl.sql
+          PGDATABASE=fresh_chain_test psql -v ON_ERROR_STOP=1 -f tests/db/security-definer-acl-fresh-chain-matrix.sql 2>&1 | tee fresh-chain-reapply-output.txt
+          grep -q 'FRESH-CHAIN SECURITY DEFINER ACL MATRIX COMPLETE' fresh-chain-reapply-output.txt
+
       - name: Publish evidence summary
         if: always()
         run: |
@@ -113,6 +140,9 @@ jobs:
             cat matrix-output.txt 2>/dev/null || true
             cat rollback-output.txt 2>/dev/null || true
             cat reapply-output.txt 2>/dev/null || true
+            cat fresh-chain-output.txt 2>/dev/null || true
+            cat fresh-chain-rollback-output.txt 2>/dev/null || true
+            cat fresh-chain-reapply-output.txt 2>/dev/null || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -127,5 +157,9 @@ jobs:
             matrix-output.txt
             rollback-output.txt
             reapply-output.txt
+            fresh-chain-falsify-output.txt
+            fresh-chain-output.txt
+            fresh-chain-rollback-output.txt
+            fresh-chain-reapply-output.txt
           retention-days: 30
           if-no-files-found: warn

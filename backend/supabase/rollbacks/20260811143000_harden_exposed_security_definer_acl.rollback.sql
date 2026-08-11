@@ -16,10 +16,20 @@ GRANT EXECUTE ON FUNCTION public.release_recording_lease(uuid) TO PUBLIC, anon, 
 GRANT EXECUTE ON FUNCTION public.update_user_usage(integer) TO PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.cleanup_expired_sessions() TO PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.expire_stale_sessions() TO PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.redeem_promo(text, uuid) TO PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.purge_derived_content_on_expire() TO PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.handle_new_user() TO PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.ensure_trial_profile_for_new_user() TO PUBLIC, anon, authenticated, service_role;
+
+DO $hosted_drift_acl$
+BEGIN
+  IF to_regprocedure('public.redeem_promo(text,uuid)') IS NOT NULL THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.redeem_promo(text, uuid) TO PUBLIC, anon, authenticated, service_role';
+  END IF;
+
+  IF to_regprocedure('public.handle_new_user()') IS NOT NULL THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.handle_new_user() TO PUBLIC, anon, authenticated, service_role';
+  END IF;
+END
+$hosted_drift_acl$;
 
 ALTER FUNCTION public.acquire_recording_lease(uuid, text, boolean) SET search_path = public;
 ALTER FUNCTION public.heartbeat_recording_lease(uuid) SET search_path = public;
@@ -27,9 +37,19 @@ ALTER FUNCTION public.release_recording_lease(uuid) SET search_path = public;
 ALTER FUNCTION public.update_user_usage(integer) SET search_path = public;
 ALTER FUNCTION public.cleanup_expired_sessions() RESET search_path;
 ALTER FUNCTION public.expire_stale_sessions() RESET search_path;
-ALTER FUNCTION public.redeem_promo(text, uuid) RESET search_path;
 ALTER FUNCTION public.purge_derived_content_on_expire() SET search_path = public;
-ALTER FUNCTION public.handle_new_user() SET search_path = public, auth;
 ALTER FUNCTION public.ensure_trial_profile_for_new_user() SET search_path = public;
+
+DO $hosted_drift_path$
+BEGIN
+  IF to_regprocedure('public.redeem_promo(text,uuid)') IS NOT NULL THEN
+    EXECUTE 'ALTER FUNCTION public.redeem_promo(text, uuid) RESET search_path';
+  END IF;
+
+  IF to_regprocedure('public.handle_new_user()') IS NOT NULL THEN
+    EXECUTE 'ALTER FUNCTION public.handle_new_user() SET search_path = public, auth';
+  END IF;
+END
+$hosted_drift_path$;
 
 COMMIT;

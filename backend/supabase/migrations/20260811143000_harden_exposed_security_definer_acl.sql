@@ -46,10 +46,23 @@ REVOKE EXECUTE ON FUNCTION public.release_recording_lease(uuid) FROM PUBLIC, ano
 REVOKE EXECUTE ON FUNCTION public.update_user_usage(integer) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE EXECUTE ON FUNCTION public.cleanup_expired_sessions() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE EXECUTE ON FUNCTION public.expire_stale_sessions() FROM PUBLIC, anon, authenticated, service_role;
-REVOKE EXECUTE ON FUNCTION public.redeem_promo(text, uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE EXECUTE ON FUNCTION public.purge_derived_content_on_expire() FROM PUBLIC, anon, authenticated, service_role;
-REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE EXECUTE ON FUNCTION public.ensure_trial_profile_for_new_user() FROM PUBLIC, anon, authenticated, service_role;
+
+-- These two definitions exist in the hosted project as historical drift but are not created by the
+-- checked-in migration chain. Guard them so a fresh reconstruction still reaches every repository-owned
+-- function while a hosted apply hardens the drift definitions when they are present.
+DO $hosted_drift_acl$
+BEGIN
+  IF to_regprocedure('public.redeem_promo(text,uuid)') IS NOT NULL THEN
+    EXECUTE 'REVOKE EXECUTE ON FUNCTION public.redeem_promo(text, uuid) FROM PUBLIC, anon, authenticated, service_role';
+  END IF;
+
+  IF to_regprocedure('public.handle_new_user()') IS NOT NULL THEN
+    EXECUTE 'REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated, service_role';
+  END IF;
+END
+$hosted_drift_acl$;
 
 -- Authenticated client RPCs with definition-level auth.uid()/ownership/capability guards.
 GRANT EXECUTE ON FUNCTION public.has_objective_capability() TO authenticated;
@@ -72,10 +85,20 @@ ALTER FUNCTION public.release_recording_lease(uuid) SET search_path = public, pg
 ALTER FUNCTION public.update_user_usage(integer) SET search_path = public, pg_temp;
 ALTER FUNCTION public.cleanup_expired_sessions() SET search_path = public, pg_temp;
 ALTER FUNCTION public.expire_stale_sessions() SET search_path = public, pg_temp;
-ALTER FUNCTION public.redeem_promo(text, uuid) SET search_path = public, pg_temp;
 ALTER FUNCTION public.purge_derived_content_on_expire() SET search_path = public, pg_temp;
-ALTER FUNCTION public.handle_new_user() SET search_path = public, auth, pg_temp;
 ALTER FUNCTION public.ensure_trial_profile_for_new_user() SET search_path = public, pg_temp;
+
+DO $hosted_drift_path$
+BEGIN
+  IF to_regprocedure('public.redeem_promo(text,uuid)') IS NOT NULL THEN
+    EXECUTE 'ALTER FUNCTION public.redeem_promo(text, uuid) SET search_path = public, pg_temp';
+  END IF;
+
+  IF to_regprocedure('public.handle_new_user()') IS NOT NULL THEN
+    EXECUTE 'ALTER FUNCTION public.handle_new_user() SET search_path = public, auth, pg_temp';
+  END IF;
+END
+$hosted_drift_path$;
 
 COMMIT;
 
