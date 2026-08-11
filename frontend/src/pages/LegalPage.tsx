@@ -75,11 +75,11 @@ export const PrivacyPage = () => (
       },
       {
         heading: 'Transcription Modes',
-        body: 'SpeakSharp uses Private on-device transcription for customer practice. After a one-time model setup, speech audio is processed on the user’s device and is not uploaded to a Browser or Cloud transcription provider.',
+        body: 'SpeakSharp uses Private on-device transcription for every customer practice session. After a one-time model setup, speech audio is processed on the user’s device and is not uploaded to a transcription provider.',
       },
       {
         heading: 'How Data Is Used',
-        body: 'Session data is used to provide transcripts, coaching, progress, reports, reliability monitoring, and support. SpeakSharp retains transcript text for the two newest saved sessions; older transcript text and transcript-derived AI suggestions expire under the retention policy, while non-content session metrics may remain for progress.',
+        body: 'Session data is used to provide transcripts, coaching, progress, reports, reliability monitoring, and support. SpeakSharp keeps transcript text for the two newest transcript-bearing saved sessions. Older transcript text expires after the progress evidence needed to preserve your comparisons is complete; it may remain temporarily while that evidence is still pending. Non-content session metrics may remain for progress.',
       },
       {
         heading: 'Service Providers',
@@ -87,7 +87,7 @@ export const PrivacyPage = () => (
       },
       {
         heading: 'Control',
-        body: 'You can choose whether to practice, delete your account, and use Report Issue for account or data questions. There is no customer-facing transcription-mode selector; customer practice uses Private transcription.',
+        body: 'You can choose whether to practice, delete your account, and use Report Issue for account or data questions. There is no customer-facing transcription-mode selector; every customer practice session uses Private transcription.',
       },
     ]}
   />

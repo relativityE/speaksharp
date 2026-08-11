@@ -48,8 +48,8 @@ describe('PricingPage', () => {
             renderPricingPage();
 
             expect(screen.getByText('Choose your SpeakSharp plan')).toBeInTheDocument();
-            expect(screen.getByText(/Start free with instant Browser transcription/)).toBeInTheDocument();
-            expect(screen.getByText(/accuracy depends on your browser and room/)).toBeInTheDocument();
+            expect(screen.getByText(/Start the controlled beta with Private on-device transcription/)).toBeInTheDocument();
+            expect(screen.getByText('Private on-device transcription after one-time model setup')).toBeInTheDocument();
             expect(screen.getByRole('heading', { name: 'Paid early access' })).toBeInTheDocument();
         });
 
@@ -84,8 +84,8 @@ describe('PricingPage', () => {
             expect(screen.getByText('Up to 2 hours/day and 50 hours/month')).toBeInTheDocument();
             expect(screen.getByText('Practice analytics, trends, and coaching reports')).toBeInTheDocument();
             expect(screen.getByText('Save all sessions')).toBeInTheDocument();
-            expect(screen.getByText('Private transcription after one-time local model setup')).toBeInTheDocument();
-            expect(screen.getByText('Cloud transcription when enabled for Pro workflows')).toBeInTheDocument();
+            expect(screen.getByText('Expanded practice minutes')).toBeInTheDocument();
+            expect(screen.getByText('Deeper history and coaching when a paid offer is approved')).toBeInTheDocument();
             expect(screen.getByText('Semantic AI coaching and expanded PDF export capacity')).toBeInTheDocument();
         });
 
@@ -99,7 +99,7 @@ describe('PricingPage', () => {
         it('should render paid early-access cancellation and refund support copy', () => {
             renderPricingPage();
 
-            expect(screen.getByText(/Pro is offered as paid early access/i)).toBeInTheDocument();
+            expect(screen.getByText(/Paid enrollment is not currently offered/i)).toBeInTheDocument();
             expect(screen.getByText(/cancel from billing management/i)).toBeInTheDocument();
             expect(screen.getByText(/Refund or cancellation questions/i)).toBeInTheDocument();
             expect(screen.getByText(/Pro unlocks only after Stripe confirmation/i)).toBeInTheDocument();
@@ -138,7 +138,7 @@ describe('PricingPage', () => {
             const notice = screen.getByTestId('pricing-pro-beta-unavailable');
             expect(notice).toBeInTheDocument();
             expect(screen.getByText(/Pro enrollment isn't open during this beta/i)).toBeInTheDocument();
-            expect(screen.getByText(/free Browser plan and one included Private sample\. No card is required/i)).toBeInTheDocument();
+            expect(screen.getByText(/Beta testers use Private on-device transcription\. No card or checkout is required/i)).toBeInTheDocument();
 
             // No clickable Pro checkout action; the Free CTA remains.
             expect(screen.queryByText('Upgrade to Pro')).not.toBeInTheDocument();

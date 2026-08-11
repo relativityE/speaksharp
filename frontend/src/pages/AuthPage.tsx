@@ -106,8 +106,7 @@ export default function AuthPage() {
           return;
         }
 
-        // Credentials succeeded. The backend provisions the free profile; Private
-        // access is offered later as one intentional sample session.
+        // Credentials succeeded. The backend provisions the free controlled-beta profile.
         setInlineError(null);
 
         // Post-signup sign-in to get the session (Supabase quirk)
