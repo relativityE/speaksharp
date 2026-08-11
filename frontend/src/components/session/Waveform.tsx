@@ -59,7 +59,9 @@ export const Waveform: React.FC<WaveformProps> = ({
         <div
             className={className}
             data-testid={testId}
-            style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: 1, height: TRACK_HEIGHT, width: '100%' }}
+            // minWidth: 0 so this flex track never forces its own min-content (all bars' 1px minimums)
+            // onto a constrained flex parent — the track shrinks with its column instead of overflowing.
+            style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: 1, height: TRACK_HEIGHT, width: '100%', minWidth: 0 }}
         >
             {amplitudes.map((a, i) => {
                 // after-state fillers are full height (a deliberate override, not their amplitude); every

@@ -30,7 +30,11 @@ export const RecorderBar: React.FC<RecorderBarProps> = ({ elapsedSeconds, amplit
                 {formatTimer(elapsedSeconds)}
             </span>
 
-            <div className="min-w-0 flex-1">
+            {/* On phones the recorder bar wraps, and the waveform must take its OWN full-width row: on a
+                shared row it is squeezed narrower than its ~72 bars' 1px-min content and overflows the
+                viewport (#1270). `w-full` forces the wrap to a full-width track (~all bars fit ≥143px);
+                from `sm` up there is room, so it returns to an inline growing column. */}
+            <div className="w-full min-w-0 sm:w-auto sm:flex-1">
                 <Waveform amplitudes={amplitudes} recordedCount={recordedCount} data-testid="recorder-waveform" />
             </div>
 

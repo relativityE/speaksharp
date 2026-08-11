@@ -35,10 +35,28 @@ const heightFor = (w: number) => (w < MD_BREAKPOINT ? 844 : 900);
 
 /** No horizontal overflow: the document never scrolls wider than the viewport (±1px rounding). */
 async function assertNoHorizontalOverflow(page: Page, label: string) {
-  const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth - window.innerWidth,
-  );
-  expect(overflow, `horizontal overflow at ${label}`).toBeLessThanOrEqual(1);
+  const { overflow, culprits } = await page.evaluate(() => {
+    const vw = window.innerWidth;
+    const over = document.documentElement.scrollWidth - vw;
+    // Diagnostic: when overflowing, list every element whose right edge exceeds the viewport, so the
+    // failure names the actual too-wide node (testid/tag/class + measured width) instead of a bare number.
+    const culprits: string[] = [];
+    if (over > 1) {
+      for (const el of Array.from(document.querySelectorAll<HTMLElement>('*'))) {
+        const r = el.getBoundingClientRect();
+        if (r.right > vw + 1 || r.width > vw + 1) {
+          const tid = el.getAttribute('data-testid');
+          const id = tid ? `#${tid}` : el.className ? `.${String(el.className).split(/\s+/).slice(0, 2).join('.')}` : '';
+          culprits.push(`${el.tagName.toLowerCase()}${id} w=${Math.round(r.width)} right=${Math.round(r.right)}`);
+        }
+      }
+    }
+    return { overflow: over, culprits: culprits.slice(0, 12) };
+  });
+  expect(
+    overflow,
+    `horizontal overflow at ${label} (${overflow}px). Widest offenders: ${culprits.join(' | ')}`,
+  ).toBeLessThanOrEqual(1);
 }
 
 /** Sweep every supported width in the current state and assert no width overflows. */
