@@ -6,6 +6,7 @@ import { LiveTranscript, type TranscriptToken } from './LiveTranscript';
 import { formatLiveMeta } from '@/utils/sessionFormat';
 import { ProgressVsBaseline } from './ProgressVsBaseline';
 import { CoachingCard } from './CoachingCard';
+import type { PracticeFocus } from '@/constants/practiceFocus';
 import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 
 /**
@@ -46,11 +47,13 @@ export interface SessionDuringStateProps {
     liveTip?: React.ReactNode;
     /** #1222 S8 — Focus Points swaps slot D (coaching → coverage rail); defaults to the coaching card. */
     slotDContent?: React.ReactNode;
+    /** #1264 — the chosen Open Mic Practice Focus, shown as a non-scoring reminder while recording. */
+    practiceFocus?: PracticeFocus | null;
     /** #1046 — Focus Points swaps slot C (progress-vs-baseline → coverage-this-run). */
     slotCContent?: React.ReactNode;
 }
 
-export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder, transcript, progress, progressMode, liveTip, slotDContent, slotCContent }) => {
+export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder, transcript, progress, progressMode, liveTip, slotDContent, slotCContent, practiceFocus }) => {
     const isSample = transcript.promptKind === 'sample';
     return (
         <SessionShell
@@ -120,7 +123,7 @@ export const SessionDuringState: React.FC<SessionDuringStateProps> = ({ recorder
                 </TranscriptCard>
             }
             slotC={slotCContent ?? <ProgressVsBaseline result={progress} sessionState="during" mode={progressMode} />}
-            slotD={slotDContent ?? <CoachingCard sessionState="during" liveTip={liveTip} />}
+            slotD={slotDContent ?? <CoachingCard sessionState="during" liveTip={liveTip} practiceFocus={practiceFocus} />}
         />
     );
 };

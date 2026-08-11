@@ -8,6 +8,7 @@ import { SttStatus, HistorySegment } from '@/types/transcription';
 import type { FinalizeEngineKey } from '@/services/transcription/finalizeRateStore';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import { ENV } from '@/config/TestFlags';
+import type { PracticeFocus } from '@/constants/practiceFocus';
 import { syncForensicAnchors } from '@/lib/forensicAnchors';
 
 /**
@@ -106,6 +107,13 @@ export interface SessionState {
      */
     activeObjectiveBrief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null;
     /**
+     * #1264 — the optional Open Mic "Practice Focus" intention (or null). Unlike the objective brief, this
+     * is NOT cleared on recording start: it persists so a "Practice this next" repeat keeps the same
+     * intention. It is display-only — never a score, never part of the persisted session analysis, and it
+     * never changes transcript truth or engine policy.
+     */
+    practiceFocus: PracticeFocus | null;
+    /**
      * #1046 slice 5a: per-point Focus Points coverage for the settled Session page, or null when the
      * completed recording was not a Focus Points session. Mirrors {@link finalizedAnalysis}'s lifecycle
      * exactly — null until an objective session finalizes, SET at the stop seam after coverage is
@@ -150,6 +158,7 @@ interface SessionActions {
     setCaptureLimitReached: (info: { bufferedSeconds: number; limitSeconds: number } | null) => void;
     setCompletedSessionDuration: (seconds: number | null) => void;
     setActiveObjectiveBrief: (brief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null) => void;
+    setPracticeFocus: (focus: PracticeFocus | null) => void;
     setObjectiveCoverageResult: (rows: ObjectiveCoverageRow[] | null) => void;
     setPauseMetrics: (metrics: PauseMetrics) => void;
     setLockHeldByOther: (held: boolean) => void;
@@ -189,6 +198,7 @@ const initialState: SessionState = {
     captureLimitReached: null,
     completedSessionDurationSeconds: null,
     activeObjectiveBrief: null,
+    practiceFocus: null,
     objectiveCoverageResult: null,
     pauseMetrics: {
         totalPauses: 0,
@@ -468,6 +478,7 @@ export const useSessionStore = create<SessionStore>((set) => {
 
     setCompletedSessionDuration: (completedSessionDurationSeconds) => set({ completedSessionDurationSeconds }),
     setActiveObjectiveBrief: (activeObjectiveBrief) => set({ activeObjectiveBrief }),
+    setPracticeFocus: (practiceFocus) => set({ practiceFocus }),
     setObjectiveCoverageResult: (objectiveCoverageResult) => set({ objectiveCoverageResult }),
 
     setTranscriptFinalizing: (isTranscriptFinalizing) =>

@@ -1,5 +1,7 @@
 import React from 'react';
 import type { SessionState } from './SessionShell';
+import { PracticeFocusChooser } from './PracticeFocusChooser';
+import { practiceFocusLabel, type PracticeFocus } from '@/constants/practiceFocus';
 
 /**
  * #1222 slot D — coaching. ONE component that fills slot D in all three states; its wrapper never moves
@@ -18,6 +20,10 @@ export interface CoachingCardProps {
     liveTip?: React.ReactNode;
     /** after: the verdict + fix + actions node (S6). */
     verdict?: React.ReactNode;
+    /** #1264 — the optional Open Mic Practice Focus. `onSelectFocus` present ⇒ render the before-state
+     *  chooser (Open Mic only); the selected focus rides along as a non-scoring reminder in `during`. */
+    practiceFocus?: PracticeFocus | null;
+    onSelectFocus?: (focus: PracticeFocus) => void;
 }
 
 const PURPLE = '#6d28d9';
@@ -29,7 +35,8 @@ const Label: React.FC<{ text: string }> = ({ text }) => (
     </p>
 );
 
-export const CoachingCard: React.FC<CoachingCardProps> = ({ sessionState, liveTip, verdict }) => {
+export const CoachingCard: React.FC<CoachingCardProps> = ({ sessionState, liveTip, verdict, practiceFocus, onSelectFocus }) => {
+    const focusLabel = practiceFocusLabel(practiceFocus);
     return (
         <div
             className="flex h-full flex-col rounded-xl border border-[#dbe2ec] bg-white p-4"
@@ -43,12 +50,27 @@ export const CoachingCard: React.FC<CoachingCardProps> = ({ sessionState, liveTi
                     <p className="mt-2 text-[14px] leading-relaxed text-[#414b5c]">
                         Your first tip appears here about 20 seconds in, based on what you actually say.
                     </p>
+                    {/* #1264 — optional intention chooser (Open Mic only; present when a handler is wired). */}
+                    {onSelectFocus && (
+                        <div className="mt-4 border-t border-[#eef1f6] pt-3">
+                            <p className="text-[11px] font-bold uppercase tracking-wide text-[#8b95a5]">
+                                Practice focus <span className="font-semibold normal-case text-[#a8b0bd]">· optional</span>
+                            </p>
+                            <PracticeFocusChooser value={practiceFocus ?? null} onSelect={onSelectFocus} className="mt-2" />
+                        </div>
+                    )}
                 </div>
             )}
 
             {sessionState === 'during' && (
                 <div className="min-h-0 flex-1" data-testid="coaching-live">
                     <Label text="Live coaching" />
+                    {/* #1264 — non-scoring reminder of the chosen intention (never affects the transcript). */}
+                    {focusLabel && (
+                        <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-[#f5f0ff] px-2.5 py-1 text-[12px] font-semibold text-[#6d28d9]" data-testid="practice-focus-reminder">
+                            <span aria-hidden="true">◎</span> Focus: {focusLabel}
+                        </p>
+                    )}
                     <div className="mt-2">{liveTip}</div>
                 </div>
             )}

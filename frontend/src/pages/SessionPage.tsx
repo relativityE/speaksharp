@@ -58,6 +58,8 @@ export const SessionPage: React.FC = () => {
     // points (before/during) then their resolved coverage (after), and the header help reads "How Focus
     // Points works". null ⇒ an Open Mic session (unchanged).
     const activeObjectiveBrief = useSessionStore(state => state.activeObjectiveBrief);
+    // #1264 — the optional Open Mic Practice Focus (persists through a "Practice this next" repeat).
+    const practiceFocus = useSessionStore(state => state.practiceFocus);
     const isObjectiveSession = Boolean(activeObjectiveBrief);
     // #891 — engine-specific finalize RTF (self-corrects from real decodes) for the "Finalizing… ~Ns"
     // countdown; the estimate itself is computed below once the recording duration is in scope.
@@ -440,6 +442,8 @@ export const SessionPage: React.FC = () => {
                     objectiveTopic={activeObjectiveBrief?.topic ?? null}
                     objectivePaceGuideSecPerPoint={activeObjectiveBrief?.paceGuideSecPerPoint ?? null}
                     objectiveCoverage={objectiveCoverageResult}
+                    practiceFocus={practiceFocus}
+                    onSelectFocus={(focus) => useSessionStore.getState().setPracticeFocus(focus)}
                 />
             </div>
 
