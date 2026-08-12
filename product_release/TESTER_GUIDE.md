@@ -41,7 +41,7 @@ Keep this file **free of technical detail** (flags, model variants, telemetry, e
 
 SpeakSharp is a private speaking-practice coach. Choose **Open Mic** for an unstructured take or **Focus Points** when specific ideas must land. Every customer practice session uses **Private transcription on your device**; speech audio is not uploaded to a transcription provider.
 
-When paid enrollment is disabled, the controlled beta is **free** and no checkout is shown. The free practice path never requires a card. If a build shows paid enrollment, testers may continue on the free path and must never treat Private transcription as a paid benefit.
+The commercial model is the complete product **free for 30 days**, then **$10/month** to continue — there is no permanent feature-limited Free tier and Private transcription is never a paid add-on. While paid enrollment is disabled, no checkout is shown and no card is ever required. If a build shows paid enrollment, testers may keep practicing without paying and must never treat Private transcription as a paid benefit.
 
 ---
 
@@ -60,7 +60,7 @@ SpeakSharp is a private speaking-practice coach. Choose Open Mic for an unstruct
 
 Could you take about 10 minutes to try SpeakSharp? Create an account, complete a practice take, save and review it, then repeat once using the suggested next action. Please use Report Issue whenever something feels confusing, inaccurate, slow, or broken.
 
-Use the free practice path; no card or checkout is required. If this build shows paid enrollment, ignore it for this test and continue free — Private transcription remains on-device for every plan.
+No card or checkout is required to test. If this build shows paid enrollment, ignore it for this test and keep practicing — Private transcription is on-device for everyone.
 
 Start testing SpeakSharp!
 https://speaksharp-public.vercel.app/

@@ -4,7 +4,6 @@ import { CheckCircle, ShieldCheck, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { SUBSCRIPTION_LIMITS } from '@/config';
 import {
   buildCheckoutBody,
   trackCheckoutStarted,
@@ -29,36 +28,39 @@ interface Tier {
   isPopular?: boolean;
 }
 
+// #1266 / #1254 — SpeakSharp is ONE product (the Private Practice Loop). The commercial model is a
+// 30-day free trial of the complete product, then $10/month to continue — NOT a permanent feature-limited
+// Free tier and NOT feature-tiered Private. Both cards describe the SAME product; they differ only by
+// lifecycle (trial vs paid continuation). No invented fair-use numbers appear here — any operational limit
+// is server-authoritative and owned by the entitlement lane (#1282).
 const tiers: Tier[] = [
   {
-    name: 'Free',
+    name: 'Free trial',
     plan: 'free',
     price: '$0',
-    priceDescription: 'no card required',
+    priceDescription: 'first 30 days · no card required',
     features: [
-      `Up to ${SUBSCRIPTION_LIMITS.FREE_MONTHLY_MINUTES} mins of practice per month`,
+      'The complete Private Practice product, free for 30 days',
+      'Open Mic and Focus Points, with saved review and comparable Progress',
       'Private on-device transcription after one-time model setup',
-      'Core practice feedback metrics',
-      'Save last 5 sessions',
-      'Watermarked PDF exports',
+      'History and PDF export',
+      'No card required to start',
     ],
-    cta: 'Start Free',
+    cta: 'Start free',
     action: 'signup',
   },
   {
     name: 'Pro',
     plan: 'pro',
-    price: '$9.99',
-    priceDescription: 'per month',
+    price: '$10',
+    priceDescription: 'per month, after your 30-day trial',
     features: [
-      'Up to 2 hours/day and 50 hours/month',
-      'Practice analytics, trends, and coaching reports',
-      'Save all sessions',
-      'Expanded practice minutes',
-      'Deeper history and coaching when a paid offer is approved',
-      'Semantic AI coaching and expanded PDF export capacity',
+      'Everything in the trial — the same complete product',
+      'Keep practicing after your first 30 days',
+      'Open Mic, Focus Points, saved review, Progress, History, and PDF',
+      'Private on-device transcription stays the foundation',
     ],
-    cta: 'Upgrade to Pro',
+    cta: 'Continue for $10/month',
     action: 'checkout',
     isPopular: true,
   },
@@ -155,9 +157,9 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
             data-testid="pricing-pro-beta-unavailable"
             className="w-full rounded-md border border-border bg-muted/40 px-4 py-3 text-center"
           >
-            <p className="text-sm font-semibold text-foreground">Pro enrollment isn&apos;t open during this beta.</p>
+            <p className="text-sm font-semibold text-foreground">Paid continuation isn&apos;t open yet.</p>
             <p className="mt-1 text-xs text-foreground/70">
-              Beta testers use Private on-device transcription. No card or checkout is required.
+              The complete product is free for your first 30 days — no card required. Paid continuation ($10/month) opens when Pro enrollment is enabled.
             </p>
           </div>
         )}
@@ -199,11 +201,11 @@ const BillingManagementPanel: React.FC<{ paymentsEnabled: boolean }> = ({ paymen
     <section className="mx-auto mt-10 max-w-4xl border-t border-border pt-6 text-left">
       <div className="grid gap-5 md:grid-cols-[1.4fr_1fr]">
         <div className="space-y-2">
-          <h2 className="text-base font-semibold">Paid early access</h2>
+          <h2 className="text-base font-semibold">After your 30-day trial</h2>
           <p className="text-sm leading-6 text-muted-foreground">
             {paymentsEnabled
-              ? 'Paid Pro enrollment is available. Private transcription remains on-device for every plan; coaching quality can vary by device, microphone, and speaking conditions.'
-              : 'Paid enrollment is not currently offered. Private transcription and coaching quality can vary by device, microphone, and speaking conditions.'}
+              ? 'Continue the same complete product for $10/month after your 30-day free trial. Private transcription is on-device for everyone; coaching quality can vary by device, microphone, and speaking conditions.'
+              : 'Paid continuation ($10/month) is not yet enabled. Private transcription is on-device for everyone; coaching quality can vary by device, microphone, and speaking conditions.'}
           </p>
           <p className="text-sm leading-6 text-muted-foreground">
             You can cancel from billing management when Stripe has linked your paid account. Refund or
@@ -239,11 +241,11 @@ export const PricingPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-background px-4 pb-16 pt-28">
       <div className="mx-auto max-w-4xl text-center mb-10">
-        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Choose your SpeakSharp plan</h1>
+        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">One product. Free for 30 days.</h1>
         <p className="text-base text-muted-foreground mt-3 sm:text-lg">
           {paymentsEnabled
-            ? 'Start free with Private on-device transcription and focused feedback, or choose Pro for expanded coaching and history.'
-            : 'Start the controlled beta with Private on-device transcription and focused feedback. No card or checkout is required.'}
+            ? 'The complete Private Practice product is free for your first 30 days — no card required. After that, continue for $10/month.'
+            : 'The complete Private Practice product is free for your first 30 days — no card required. Paid continuation ($10/month) opens when Pro enrollment is enabled.'}
         </p>
       </div>
       <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-2">
@@ -255,7 +257,7 @@ export const PricingPage: React.FC = () => {
         {[
           'Private transcription keeps audio local',
           'Transcript data supports SpeakSharp features',
-          paymentsEnabled ? 'Pro unlocks only after Stripe confirmation' : 'No checkout during the controlled beta',
+          paymentsEnabled ? 'Pro continues only after Stripe confirmation' : 'No card is collected until paid continuation opens',
         ].map((label) => (
           <span key={label} className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5">
             <ShieldCheck className="h-4 w-4 text-success" aria-hidden="true" />

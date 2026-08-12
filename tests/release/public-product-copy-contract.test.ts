@@ -46,21 +46,25 @@ const customerCopy = customerSourceFiles
 
 describe('Private-only public product copy contract (#1254)', () => {
   it('locks the exact product truth on every customer surface', () => {
-    expect(surfaces.signup).toContain('Start free with Private transcription');
-    expect(surfaces.signup).toContain('Every practice session uses on-device Private transcription. The controlled beta is free — no card or checkout.');
-    expect(surfaces.signup).toContain('Every practice session uses on-device Private transcription. The free path requires no card or checkout.');
+    // #1266 commercial model: ONE product, free for 30 days, then $10/month Pro. No permanent Free tier,
+    // no $9.99, no feature-tiered Private, no invented fair-use numbers.
+    expect(surfaces.signup).toContain('Free for 30 days — no card required');
+    expect(surfaces.signup).toContain('continue for $10/month');
+    expect(surfaces.signup).toContain('paid continuation ($10/month) opens when Pro enrollment is enabled');
     expect(surfaces.practice).toContain('See which points were detected — and what to retry');
-    expect(surfaces.pricing).toContain('Start the controlled beta with Private on-device transcription and focused feedback. No card or checkout is required.');
-    expect(surfaces.analytics).toContain('Pro adds deeper history and expanded coaching capacity. Private transcription remains on-device for every plan.');
-    expect(surfaces.upgradePrompt).toContain('Private transcription remains on-device for every plan.');
+    expect(surfaces.pricing).toContain('One product. Free for 30 days.');
+    expect(surfaces.pricing).toContain('The complete Private Practice product is free for your first 30 days');
+    expect(surfaces.pricing).toContain('$10');
+    expect(surfaces.analytics).toContain('is free for 30 days, then $10/month to continue');
+    expect(surfaces.upgradePrompt).toContain('Continue for $10/month to keep going after it ends');
     expect(surfaces.legal).toContain('Every customer recording uses Private on-device transcription');
     expect(surfaces.legal).toContain('Retention duration and deletion timing are still being finalized; use Report Issue for a data-retention request.');
     expect(surfaces.legal).toContain('use Report Issue for account, privacy, retention, or data questions');
-    expect(surfaces.legal).toContain('Paid Pro enrollment is available.');
-    expect(surfaces.legal).toContain('Paid enrollment and checkout are not currently offered during the controlled beta.');
+    expect(surfaces.legal).toContain('continued access is $10/month');
+    expect(surfaces.legal).toContain('Paid continuation is $10/month, but checkout is not yet enabled');
     expect(surfaces.testerGuide).toContain('Every customer practice session uses Private transcription on your device');
-    expect(surfaces.testerGuide).toContain('When paid enrollment is disabled, the controlled beta is **free** and no checkout is shown.');
-    expect(surfaces.testerGuide).toContain('The free practice path never requires a card.');
+    expect(surfaces.testerGuide).toContain('free for 30 days');
+    expect(surfaces.testerGuide).toContain('$10/month');
   });
 
   it('forbids the retired customer propositions', () => {
@@ -68,6 +72,11 @@ describe('Private-only public product copy contract (#1254)', () => {
     expect(customerCopy).not.toMatch(/(?:choose|select|switch(?:es|ed|ing)? to|available (?:as|through)|offered (?:as|through))\s+(?:the\s+)?Cloud|Cloud\s+(?:choice|option|mode|offer|plan|availability)/i);
     expect(customerCopy).not.toMatch(/Pro adds private|upgrade (?:to Pro )?(?:for|when you want|to get) Private|Private (?:is|as) (?:a )?(?:Pro|paid)|Private transcription (?:is )?(?:a )?paid/i);
     expect(surfaces.legal).not.toMatch(/delete your account|account deletion (?:is|can|will)|newest[- ]two/i);
+    // #1266 — the retired commercial framing must not reappear on any customer surface:
+    expect(customerCopy).not.toMatch(/\$9\.99/); // the offer is $10/month, not $9.99
+    expect(customerCopy).not.toMatch(/permanently free|free forever|permanent(?:ly)? free tier/i); // no permanent Free tier
+    expect(customerCopy).not.toMatch(/Pro adds|adds deeper history|for every plan/i); // Pro is continuation, not extra features
+    expect(customerCopy).not.toMatch(/2 hours\/day|50 hours\/month|1-hour Free|2-hour Pro|50-hour Pro|25-hour Free/i); // no invented fair-use numbers
   });
 
   it('keeps free-beta and paid-enrollment claims under the same runtime condition as checkout', () => {

@@ -57,8 +57,8 @@ export const TermsPage = () => {
       {
         heading: 'Payments',
         body: paymentsEnabled
-          ? 'Paid Pro enrollment is available. Its price and limits are shown before checkout, and cancellation, billing-management, and refund support are available through the paths described in the product.'
-          : 'Paid enrollment and checkout are not currently offered during the controlled beta. If paid plans are introduced later, their price, limits, cancellation, and refund terms will be shown before any charge.',
+          ? 'The complete product is free for the first 30 days with no card required; after that, continued access is $10/month. The price and terms are shown before checkout, and cancellation, billing-management, and refund support are available through the paths described in the product. No card is collected until you explicitly upgrade.'
+          : 'The complete product is free for the first 30 days with no card required. Paid continuation is $10/month, but checkout is not yet enabled; when it opens, the price, cancellation, and refund terms will be shown before any charge. No card is collected until you explicitly upgrade.',
       },
       {
         heading: 'Acceptable Use',

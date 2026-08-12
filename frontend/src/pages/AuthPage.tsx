@@ -249,11 +249,11 @@ export default function AuthPage() {
 
                 {view === 'sign_up' && (
                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                    <p className="text-sm font-semibold text-foreground">Start free with Private transcription</p>
+                    <p className="text-sm font-semibold text-foreground">Free for 30 days — no card required</p>
                     <p className="text-xs font-medium leading-relaxed text-foreground/70">
                       {paymentsEnabled
-                        ? 'Every practice session uses on-device Private transcription. The free path requires no card or checkout.'
-                        : 'Every practice session uses on-device Private transcription. The controlled beta is free — no card or checkout.'}
+                        ? 'The complete product is free for your first 30 days; continue for $10/month after that. Every session uses on-device Private transcription — no card required to start.'
+                        : 'The complete product is free for your first 30 days — no card required. Every session uses on-device Private transcription; paid continuation ($10/month) opens when Pro enrollment is enabled.'}
                     </p>
                     {inlineError && (
                       <p

@@ -42,9 +42,9 @@ export const UpgradePromptDialog: React.FC<UpgradePromptDialogProps> = ({ open, 
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Keep your full practice history</AlertDialogTitle>
+          <AlertDialogTitle>Keep practicing after your trial</AlertDialogTitle>
           <AlertDialogDescription>
-            Upgrade to Pro for full session history, deeper practice reports, and billing support during paid early access. Private transcription remains on-device for every plan.
+            Your 30-day free trial includes the complete product — the same Open Mic, Focus Points, saved review, Progress, History, and PDF. Continue for $10/month to keep going after it ends. Private transcription stays on-device.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

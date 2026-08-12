@@ -30,9 +30,10 @@ describe('canonical tester guide (tester-facing)', () => {
         expect(guide).not.toMatch(/1 hour of trial access|24 hours of trial access|24-hour Pro trial|60-minute Pro trial/i);
     });
 
-    it('states the free controlled-beta contract', () => {
-        expect(guide).toMatch(/controlled beta is free/i);
-        expect(guide).toMatch(/No card or checkout is required/i);
+    it('states the 30-day-free then $10/month commercial contract', () => {
+        expect(guide).toMatch(/free for 30 days/i);
+        expect(guide).toMatch(/\$10\/month/i);
+        expect(guide).toMatch(/no card is ever required|No card or checkout is required/i);
     });
 
     it('sets the on-device Private expectation in plain language', () => {

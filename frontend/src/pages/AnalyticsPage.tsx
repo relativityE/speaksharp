@@ -74,7 +74,7 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
                         <div className="text-left">
                             <span className="font-bold block text-base">Turn practice into progress</span>
                             <span className="text-sm font-medium text-foreground/70 sm:inline">
-                                Pro adds deeper history and expanded coaching capacity. Private transcription remains on-device for every plan.
+                                The complete product — full history and coaching included — is free for 30 days, then $10/month to continue. Private transcription is on-device for everyone.
                             </span>
                         </div>
                     </div>

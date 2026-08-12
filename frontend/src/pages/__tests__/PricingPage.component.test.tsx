@@ -47,62 +47,60 @@ describe('PricingPage', () => {
         it('should render the pricing page header', () => {
             renderPricingPage();
 
-            expect(screen.getByText('Choose your SpeakSharp plan')).toBeInTheDocument();
-            expect(screen.getByText(/Start free with Private on-device transcription/)).toBeInTheDocument();
+            expect(screen.getByText('One product. Free for 30 days.')).toBeInTheDocument();
+            expect(screen.getByText(/The complete Private Practice product is free for your first 30 days/)).toBeInTheDocument();
             expect(screen.getByText('Private on-device transcription after one-time model setup')).toBeInTheDocument();
-            expect(screen.getByRole('heading', { name: 'Paid early access' })).toBeInTheDocument();
+            expect(screen.getByRole('heading', { name: 'After your 30-day trial' })).toBeInTheDocument();
         });
 
-        it('should render Free tier', () => {
+        it('should render Free trial tier', () => {
             renderPricingPage();
 
-            expect(screen.getByText('Free')).toBeInTheDocument();
+            expect(screen.getByText('Free trial')).toBeInTheDocument();
             expect(screen.getByText('$0')).toBeInTheDocument();
-            expect(screen.getByText('no card required')).toBeInTheDocument();
+            expect(screen.getByText(/first 30 days · no card required/)).toBeInTheDocument();
         });
 
         it('should render Pro tier', () => {
             renderPricingPage();
 
             expect(screen.getByText('Pro')).toBeInTheDocument();
-            expect(screen.getByText('$9.99')).toBeInTheDocument();
-            expect(screen.getByText('per month')).toBeInTheDocument();
+            expect(screen.getByText('$10')).toBeInTheDocument();
+            expect(screen.getByText(/per month, after your 30-day trial/)).toBeInTheDocument();
         });
 
-        it('should render Free tier features', () => {
+        it('should render Free-trial features (the complete product, 30 days)', () => {
             renderPricingPage();
 
-            expect(screen.getByText(/mins of practice per month/)).toBeInTheDocument();
-            expect(screen.getByText('Core practice feedback metrics')).toBeInTheDocument();
-            expect(screen.getByText('Save last 5 sessions')).toBeInTheDocument();
-            expect(screen.getByText('Watermarked PDF exports')).toBeInTheDocument();
+            expect(screen.getByText('The complete Private Practice product, free for 30 days')).toBeInTheDocument();
+            expect(screen.getByText('Open Mic and Focus Points, with saved review and comparable Progress')).toBeInTheDocument();
+            expect(screen.getByText('History and PDF export')).toBeInTheDocument();
+            expect(screen.getByText('No card required to start')).toBeInTheDocument();
         });
 
-        it('should render Pro tier features', () => {
+        it('should render Pro features as the same product, continued for $10/month', () => {
             renderPricingPage();
 
-            expect(screen.getByText('Up to 2 hours/day and 50 hours/month')).toBeInTheDocument();
-            expect(screen.getByText('Practice analytics, trends, and coaching reports')).toBeInTheDocument();
-            expect(screen.getByText('Save all sessions')).toBeInTheDocument();
-            expect(screen.getByText('Expanded practice minutes')).toBeInTheDocument();
-            expect(screen.getByText('Deeper history and coaching when a paid offer is approved')).toBeInTheDocument();
-            expect(screen.getByText('Semantic AI coaching and expanded PDF export capacity')).toBeInTheDocument();
+            expect(screen.getByText('Everything in the trial — the same complete product')).toBeInTheDocument();
+            expect(screen.getByText('Keep practicing after your first 30 days')).toBeInTheDocument();
+            expect(screen.getByText('Open Mic, Focus Points, saved review, Progress, History, and PDF')).toBeInTheDocument();
+            expect(screen.getByText('Private on-device transcription stays the foundation')).toBeInTheDocument();
         });
 
         it('should render CTA buttons', () => {
             renderPricingPage();
 
-            expect(screen.getByText('Start Free')).toBeInTheDocument();
-            expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument();
+            expect(screen.getByText('Start free')).toBeInTheDocument();
+            expect(screen.getByText('Continue for $10/month')).toBeInTheDocument();
         });
 
         it('should render paid early-access cancellation and refund support copy', () => {
             renderPricingPage();
 
-            expect(screen.getByText(/Paid Pro enrollment is available/i)).toBeInTheDocument();
+            expect(screen.getByText(/Continue the same complete product for \$10\/month/i)).toBeInTheDocument();
             expect(screen.getByText(/cancel from billing management/i)).toBeInTheDocument();
             expect(screen.getByText(/Refund or cancellation questions/i)).toBeInTheDocument();
-            expect(screen.getAllByText(/Pro unlocks only after Stripe confirmation/i)).not.toHaveLength(0);
+            expect(screen.getAllByText(/Pro continues only after Stripe confirmation/i)).not.toHaveLength(0);
         });
     });
 
@@ -110,14 +108,14 @@ describe('PricingPage', () => {
         it('should enable Free tier button', () => {
             renderPricingPage();
 
-            const freeButton = screen.getByText('Start Free');
+            const freeButton = screen.getByText('Start free');
             expect(freeButton).not.toBeDisabled();
         });
 
         it('should enable Pro tier button', () => {
             renderPricingPage();
 
-            const proButton = screen.getByText('Upgrade to Pro');
+            const proButton = screen.getByText('Continue for $10/month');
             expect(proButton).not.toBeDisabled();
         });
     });
@@ -132,18 +130,18 @@ describe('PricingPage', () => {
 
             // Pro plan still visible for transparency.
             expect(screen.getByText('Pro')).toBeInTheDocument();
-            expect(screen.getByText('$9.99')).toBeInTheDocument();
+            expect(screen.getByText('$10')).toBeInTheDocument();
 
             // Informational, non-clickable state replaces the missing checkout CTA.
             const notice = screen.getByTestId('pricing-pro-beta-unavailable');
             expect(notice).toBeInTheDocument();
-            expect(screen.getByText(/Pro enrollment isn't open during this beta/i)).toBeInTheDocument();
-            expect(screen.getByText(/Beta testers use Private on-device transcription\. No card or checkout is required/i)).toBeInTheDocument();
+            expect(screen.getByText(/Paid continuation isn't open yet/i)).toBeInTheDocument();
+            expect(screen.getByText(/The complete product is free for your first 30 days — no card required/i)).toBeInTheDocument();
 
             // No clickable Pro checkout action; the Free CTA remains.
-            expect(screen.queryByText('Upgrade to Pro')).not.toBeInTheDocument();
+            expect(screen.queryByText('Continue for $10/month')).not.toBeInTheDocument();
             expect(screen.queryByText('Starting checkout...')).not.toBeInTheDocument();
-            expect(screen.getByText('Start Free')).toBeInTheDocument();
+            expect(screen.getByText('Start free')).toBeInTheDocument();
         });
 
         it('does not invoke stripe-checkout from the beta-unavailable state', async () => {
@@ -174,7 +172,7 @@ describe('PricingPage', () => {
 
             renderPricingPage();
 
-            const proButton = screen.getByText('Upgrade to Pro');
+            const proButton = screen.getByText('Continue for $10/month');
             await user.click(proButton);
 
             await waitFor(() => {
@@ -198,7 +196,7 @@ describe('PricingPage', () => {
 
             renderPricingPage();
 
-            await user.click(screen.getByText('Start Free'));
+            await user.click(screen.getByText('Start free'));
 
             await waitFor(() => {
                 expect(mockInvoke).not.toHaveBeenCalled();
@@ -212,7 +210,7 @@ describe('PricingPage', () => {
 
             renderPricingPage();
 
-            const proButton = screen.getByText('Upgrade to Pro');
+            const proButton = screen.getByText('Continue for $10/month');
             await user.click(proButton);
 
             // Should not throw, error is logged
@@ -233,7 +231,7 @@ describe('PricingPage', () => {
 
             renderPricingPage();
 
-            const proButton = screen.getByText('Upgrade to Pro');
+            const proButton = screen.getByText('Continue for $10/month');
             await user.click(proButton);
 
             // Should not throw, error is logged
@@ -286,7 +284,7 @@ describe('PricingPage', () => {
             renderPricingPage();
 
             // Find the grid container
-            const gridContainer = screen.getByText('Free').closest('.grid');
+            const gridContainer = screen.getByText('Free trial').closest('.grid');
             expect(gridContainer).toHaveClass('grid-cols-1');
             expect(gridContainer).toHaveClass('md:grid-cols-2');
         });
