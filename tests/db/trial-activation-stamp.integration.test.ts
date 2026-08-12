@@ -47,7 +47,7 @@ describe('#1282 commercial-activation stamp (executed in PGlite)', () => {
                    VALUES ('00000000-0000-0000-0000-0000000000a3'::uuid, 'pro', 'sub_paid')`);
 
     await db.exec(STAMP);
-    let r = await rows(db);
+    const r = await rows(db);
     const A1 = '00000000-0000-0000-0000-0000000000a1', A2 = '00000000-0000-0000-0000-0000000000a2', A3 = '00000000-0000-0000-0000-0000000000a3';
     expect(r[A1].live).toBe(true); expect(r[A1].marked).toBe(true);   // never-activated -> granted
     expect(r[A2].live).toBe(true); expect(r[A2].marked).toBe(true);   // legacy expired -> STILL granted
