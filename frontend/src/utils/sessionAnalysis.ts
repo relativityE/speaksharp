@@ -365,8 +365,9 @@ export const getSessionAnalysisMetrics = (
     // (transcript nulled) can no longer be recomputed, so its stored clarity must survive. Only recompute
     // when there is no stored score. Note (#1231): the filler HEADLINE is re-tiered to true fillers, which
     // feeds the recompute branch for new/unscored sessions; clarity is NOT the session-over-session Progress
-    // metric (that is the filler RATE, re-tiered uniformly in progressInputsFromSessions), so a stored-vs-
-    // recomputed clarity mix does not manufacture a progress trend. clarity_v1 remains provisional.
+    // metric (that is the filler RATE, re-tiered uniformly by the server-authoritative Progress read model
+    // in loadSessionProgress), so a stored-vs-recomputed clarity mix does not manufacture a progress trend.
+    // clarity_v1 remains provisional.
     const clarityScore = session.clarity_score ?? calculateClarityScore({
         wordCount,
         fillerCount: metrics.fillerCount,
