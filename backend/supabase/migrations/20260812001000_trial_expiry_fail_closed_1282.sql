@@ -30,7 +30,7 @@ CREATE OR REPLACE FUNCTION public.update_user_usage(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_effective_tier TEXT;
@@ -187,7 +187,7 @@ CREATE OR REPLACE FUNCTION public.check_usage_limit()
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_stored_status TEXT;
@@ -326,10 +326,24 @@ END;
 $$;
 
 -- Re-apply ACLs (CREATE OR REPLACE preserves grants, but restate for explicit provenance).
-REVOKE EXECUTE ON FUNCTION public.update_user_usage(INT, TEXT, UUID) FROM PUBLIC;
+-- #1282 blocker 4: preserve the #1276/#1261 SECURITY DEFINER hardening — least-privilege revoke
+-- (PUBLIC + anon) before the required grants, matching search_path = public, pg_temp above.
+REVOKE EXECUTE ON FUNCTION public.update_user_usage(INT, TEXT, UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.update_user_usage(INT, TEXT, UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.update_user_usage(INT, TEXT, UUID) TO service_role;
 
-REVOKE EXECUTE ON FUNCTION public.check_usage_limit() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.check_usage_limit() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.check_usage_limit() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.check_usage_limit() TO service_role;
+
+-- ─────────────────────────────────────────────────────────────────────────────────────────────────
+-- #1282 blocker 6: Private-only entitlement gate. A live trial and a paid account both resolve to the
+-- effective 'pro' tier, which must NOT inherit the old Pro engine allowances (Browser/Cloud/Native). The
+-- customer path negotiates the 'private' engine token; update_user_usage gates recording on
+-- tier_configs.allowed_engines for the effective tier, so the paid/trial allow-list is restricted to the
+-- Private engine and its on-device variants ONLY. Cloud and Browser are not customer entitlements (per the
+-- #1254/#1269 Private-only truth); 'native' remains solely an internal deterministic E2E hook and is NOT a
+-- customer entitlement here.
+UPDATE public.tier_configs
+SET allowed_engines = ARRAY['private', 'transformers-js', 'whisper-turbo', 'transformers-js-v4']::text[]
+WHERE tier_name = 'pro';

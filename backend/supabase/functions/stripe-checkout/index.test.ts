@@ -38,9 +38,9 @@ type MockPrice = {
   active?: boolean;
   unit_amount?: number | null;
   currency?: string;
-  recurring?: { interval?: string | null } | null;
+  recurring?: { interval?: string | null; interval_count?: number | null } | null;
 };
-const validProPrice: MockPrice = { active: true, unit_amount: 1000, currency: "usd", recurring: { interval: "month" } };
+const validProPrice: MockPrice = { active: true, unit_amount: 1000, currency: "usd", recurring: { interval: "month", interval_count: 1 } };
 
 type CheckoutMock = { sessions: { create: (params: Record<string, unknown>) => Promise<{ id: string; url: string | null }> } };
 /** Compose a StripeLike mock: real checkout behavior + a prices.retrieve returning the given price. */
@@ -188,7 +188,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
       createSupabase: createSupabase(),
       stripeClient: stripeWith(
         { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
-        { active: true, unit_amount: 999, currency: "usd", recurring: { interval: "month" } },
+        { active: true, unit_amount: 999, currency: "usd", recurring: { interval: "month", interval_count: 1 } },
       ),
     });
     const json = await res.json();
@@ -207,7 +207,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
       createSupabase: createSupabase(),
       stripeClient: stripeWith(
         { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
-        { active: true, unit_amount: 1000, currency: "usd", recurring: { interval: "year" } },
+        { active: true, unit_amount: 1000, currency: "usd", recurring: { interval: "year", interval_count: 1 } },
       ),
     });
     const json = await res.json();
@@ -226,7 +226,7 @@ Deno.test("stripe-checkout edge function", async (t) => {
       createSupabase: createSupabase(),
       stripeClient: stripeWith(
         { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
-        { active: true, unit_amount: 1000, currency: "eur", recurring: { interval: "month" } },
+        { active: true, unit_amount: 1000, currency: "eur", recurring: { interval: "month", interval_count: 1 } },
       ),
     });
     const json = await res.json();
@@ -245,11 +245,61 @@ Deno.test("stripe-checkout edge function", async (t) => {
       createSupabase: createSupabase(),
       stripeClient: stripeWith(
         { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
-        { active: false, unit_amount: 1000, currency: "usd", recurring: { interval: "month" } },
+        { active: false, unit_amount: 1000, currency: "usd", recurring: { interval: "month", interval_count: 1 } },
       ),
     });
     const json = await res.json();
 
+    assertEquals(res.status, 500);
+    assertEquals(json.error.code, "CONFIG_INVALID_PRICE");
+    assertEquals(stripeCalled, false);
+  });
+
+  await t.step("rejects checkout when the Pro price has NO active field (missing is not active)", async () => {
+    let stripeCalled = false;
+    const res = await handler(request("pro"), {
+      getEnv: env,
+      createSupabase: createSupabase(),
+      stripeClient: stripeWith(
+        { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
+        { unit_amount: 1000, currency: "usd", recurring: { interval: "month", interval_count: 1 } }, // active omitted
+      ),
+    });
+    const json = await res.json();
+    assertEquals(res.status, 500);
+    assertEquals(json.error.code, "CONFIG_INVALID_PRICE");
+    assertEquals(stripeCalled, false);
+    assertEquals((json.error.details.problems as string[]).includes("active:missing"), true);
+  });
+
+  await t.step("rejects checkout when the Pro price recurs every N months (interval_count != 1)", async () => {
+    let stripeCalled = false;
+    const res = await handler(request("pro"), {
+      getEnv: env,
+      createSupabase: createSupabase(),
+      stripeClient: stripeWith(
+        { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
+        { active: true, unit_amount: 1000, currency: "usd", recurring: { interval: "month", interval_count: 2 } },
+      ),
+    });
+    const json = await res.json();
+    assertEquals(res.status, 500);
+    assertEquals(json.error.code, "CONFIG_INVALID_PRICE");
+    assertEquals(stripeCalled, false);
+    assertEquals((json.error.details.problems as string[]).includes("interval_count:2"), true);
+  });
+
+  await t.step("fails closed when the Pro price cannot be retrieved (no checkout created)", async () => {
+    let stripeCalled = false;
+    const res = await handler(request("pro"), {
+      getEnv: env,
+      createSupabase: createSupabase(),
+      stripeClient: {
+        checkout: { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
+        prices: { retrieve: async () => { throw new Error("stripe price retrieve failed"); } },
+      },
+    });
+    const json = await res.json();
     assertEquals(res.status, 500);
     assertEquals(json.error.code, "CONFIG_INVALID_PRICE");
     assertEquals(stripeCalled, false);

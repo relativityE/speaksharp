@@ -6,15 +6,6 @@ import { corsGuard, corsHeaders } from "../_shared/cors.ts"
 
 type SupabaseClient = any;
 type StripeClient = any;
-type BillingPlan = 'basic' | 'pro';
-
-function normalizeBillingPlan(value: unknown): BillingPlan {
-  return typeof value === 'string' && value.toLowerCase() === 'basic' ? 'basic' : 'pro';
-}
-
-function actionForPlan(plan: BillingPlan) {
-  return plan === 'basic' ? 'activate_basic' : 'upgrade_to_pro';
-}
 
 function normalizeStripeObjectId(value: unknown): string | null {
   if (typeof value === "string") {
@@ -28,11 +19,44 @@ function normalizeStripeObjectId(value: unknown): string | null {
   return null;
 }
 
+const PRO_PRICE_EXPECTED_UNIT_AMOUNT = 1000;
+
+// #1282 blocker 5/6: a GRANTING subscription must contain SpeakSharp's configured, validated $10 monthly
+// price. Returns { ok } when an item matches STRIPE_PRO_PRICE_ID and that price is active + recurring every
+// 1 month + exactly 1000 cents + configured currency. `retryable` means price identity is UNCERTAIN
+// (retrieval failed) — the caller returns non-2xx so Stripe retries; a definitive mismatch is not retryable.
+async function validateSubscriptionPrice(
+  stripe: StripeClient,
+  subscription: any,
+  getEnv: (k: string) => string | undefined,
+): Promise<{ ok: boolean; retryable: boolean; reason?: string }> {
+  const expectedId = getEnv("STRIPE_PRO_PRICE_ID")?.trim();
+  if (!expectedId) return { ok: false, retryable: false, reason: "missing STRIPE_PRO_PRICE_ID" };
+  const items: any[] = subscription?.items?.data ?? [];
+  const item = items.find((i) => normalizeStripeObjectId(i?.price) === expectedId);
+  if (!item) return { ok: false, retryable: false, reason: "subscription has no item for the configured price" };
+
+  let price: any = item.price && typeof item.price === "object" ? item.price : null;
+  if (!price || price.unit_amount === undefined) {
+    try { price = await stripe.prices.retrieve(expectedId); }
+    catch { return { ok: false, retryable: true, reason: "price retrieval failed" }; }
+  }
+  const expectedCurrency = (getEnv("STRIPE_PRICE_CURRENCY") ?? "usd").trim().toLowerCase();
+  const problems: string[] = [];
+  if (price?.active !== true) problems.push(`active:${price?.active ?? "missing"}`);
+  if (price?.recurring?.interval !== "month") problems.push(`interval:${price?.recurring?.interval ?? "none"}`);
+  if (price?.recurring?.interval_count !== 1) problems.push(`interval_count:${price?.recurring?.interval_count ?? "none"}`);
+  if (price?.unit_amount !== PRO_PRICE_EXPECTED_UNIT_AMOUNT) problems.push(`unit_amount:${price?.unit_amount ?? "none"}`);
+  if ((price?.currency ?? "").toLowerCase() !== expectedCurrency) problems.push(`currency:${price?.currency ?? "none"}`);
+  return problems.length ? { ok: false, retryable: false, reason: problems.join(",") } : { ok: true, retryable: false };
+}
+
 export async function handler(
   req: Request,
   stripe: StripeClient,
   supabase: SupabaseClient,
-  webhookSecret: string
+  webhookSecret: string,
+  getEnv: (k: string) => string | undefined = (k) => Deno.env.get(k),
 ) {
   // Stripe → server webhooks send NO Origin, so corsGuard lets them through untouched (server-to-
   // server behavior preserved). It only rejects a browser request carrying a hostile/unapproved
@@ -50,141 +74,103 @@ export async function handler(
 
     console.log(`[Stripe Webhook] Received event: ${event.type} (${event.id})`)
 
-    let action = 'none';
-    let userId: string | null = null;
+    // #1282 blocker 5 (design lock): entitlement is decided by the CURRENT Stripe subscription state, never
+    // by event action or arrival order (Stripe does not guarantee delivery order and recommends retrieving
+    // current objects). We resolve the subscription id from the event, HYDRATE the current subscription,
+    // VALIDATE the configured $10/mo price for granting states, then apply a canonical snapshot.
     let subscriptionId: string | null = null;
-    let stripeCustomerId: string | null = null;
-    let plan: BillingPlan = 'pro';
+    let bindUserId: string | null = null; // first-activation binding uses server-created checkout metadata
 
     switch (event.type) {
       case "checkout.session.completed": {
-        const session = event.data.object
-        userId = session.metadata?.userId
-        subscriptionId = normalizeStripeObjectId(session.subscription)
-        stripeCustomerId = normalizeStripeObjectId(session.customer)
-        plan = normalizeBillingPlan(session.metadata?.plan)
-
-        if (!userId) {
-          console.error("[Stripe] Missing userId in checkout session metadata")
-          return createErrorResponse(
-            ErrorCodes.VALIDATION_MISSING_METADATA,
-            "Missing userId metadata",
-            responseHeaders
-          )
+        // checkout.session.completed ALONE does NOT grant access — we hydrate + validate the subscription
+        // below. First account binding uses the server-created metadata.userId; later events use the
+        // stored subscription/customer identity (no metadata needed).
+        const session = event.data.object;
+        bindUserId = session?.metadata?.userId ?? null;
+        subscriptionId = normalizeStripeObjectId(session?.subscription);
+        if (!bindUserId) {
+          console.error("[Stripe] Missing userId in checkout session metadata");
+          return createErrorResponse(ErrorCodes.VALIDATION_MISSING_METADATA, "Missing userId metadata", responseHeaders);
         }
-        action = actionForPlan(plan);
         break;
       }
-
+      case "customer.subscription.updated":
       case "customer.subscription.deleted": {
-        const subscription = event.data.object
-        subscriptionId = subscription.id
-        stripeCustomerId = normalizeStripeObjectId(subscription.customer)
-        action = 'downgrade_to_free';
+        subscriptionId = normalizeStripeObjectId(event.data.object);
         break;
       }
-
-      case "customer.subscription.updated": {
-        const subscription = event.data.object
-        subscriptionId = subscription.id
-        stripeCustomerId = normalizeStripeObjectId(subscription.customer)
-        const status = subscription.status
-        userId = subscription.metadata?.userId ?? null
-        plan = normalizeBillingPlan(subscription.metadata?.plan)
-
-        if (status === "canceled") {
-          // Terminal cancellation — clears the subscription id (not recoverable via renewal).
-          action = 'downgrade_to_free';
-        } else if (status === "unpaid" || status === "past_due") {
-          // Recoverable lapse — suspends access but PRESERVES the subscription id so a later
-          // invoice.payment_succeeded (renew_pro) can restore Pro after the customer recovers.
-          action = 'lapse_pro';
-        } else if (status === "active" && userId) {
-          // Active keeps Pro. #1282 cancel-through-period-end: an active subscription flagged
-          // cancel_at_period_end stays Pro here (access continues); the customer.subscription.deleted
-          // that fires at period end runs the downgrade. Re-affirming Pro also advances the
-          // out-of-order watermark so a stale earlier event cannot regress it.
-          action = actionForPlan(plan);
-        }
-        break;
-      }
-
-      case "invoice.payment_succeeded": {
-        // #1282 RENEWAL. A successful renewal invoice re-affirms Pro for the subscription and clears a
-        // prior past-due lapse. Keyed on the subscription id (renewal invoices carry no userId
-        // metadata). The initial subscription invoice is already handled by checkout.session.completed;
-        // renew_pro is idempotent, so processing it here is harmless if they race.
-        const invoice = event.data.object
-        subscriptionId = normalizeStripeObjectId(invoice.subscription)
-        stripeCustomerId = normalizeStripeObjectId(invoice.customer)
-        const billingReason = invoice.billing_reason
-        if (subscriptionId && (billingReason === 'subscription_cycle' || billingReason === 'subscription_update')) {
-          action = 'renew_pro';
-        }
-        break;
-      }
-
+      case "invoice.payment_succeeded":
       case "invoice.payment_failed": {
-        const invoice = event.data.object
-        subscriptionId = normalizeStripeObjectId(invoice.subscription)
-        stripeCustomerId = normalizeStripeObjectId(invoice.customer)
-        const attemptCount = invoice.attempt_count || 0
-
-        if (attemptCount >= 3 && subscriptionId) {
-          // Recoverable lapse, not terminal cancellation: suspend access but keep the subscription id
-          // so a subsequent successful payment (renew_pro) restores Pro. Stripe emits
-          // customer.subscription.deleted at true end-of-life, which clears the id via downgrade_to_free.
-          action = 'lapse_pro';
-        }
+        subscriptionId = normalizeStripeObjectId(event.data.object?.subscription);
         break;
+      }
+      default:
+        // Not a subscription-state event — acknowledge and ignore (nothing to reconcile).
+        return createSuccessResponse({ received: true, ignored: event.type }, responseHeaders);
+    }
+
+    if (!subscriptionId) {
+      // A subscription-related event carrying no subscription id (e.g. a one-off invoice): nothing to apply.
+      return createSuccessResponse({ received: true, no_subscription: true }, responseHeaders);
+    }
+
+    // HYDRATE the current subscription. Retrieval uncertainty is retryable -> non-2xx (Stripe retries).
+    let subscription: any;
+    try {
+      subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    } catch (retrieveErr) {
+      console.error(`[Stripe Webhook] subscription retrieve failed for ${subscriptionId}:`, retrieveErr);
+      return createErrorResponse(ErrorCodes.STRIPE_API_ERROR, "Unable to retrieve subscription", responseHeaders);
+    }
+
+    const status = String(subscription?.status ?? "");
+    const customerId = normalizeStripeObjectId(subscription?.customer);
+    const cancelAtPeriodEnd = subscription?.cancel_at_period_end === true;
+    const currentPeriodEnd = typeof subscription?.current_period_end === "number" ? subscription.current_period_end : null;
+    // Only active/trialing grant paid access; past_due/unpaid/incomplete/incomplete_expired/paused/canceled
+    // do not. cancel_at_period_end with an 'active' status keeps access until the period-end 'canceled' snapshot.
+    const grantingStatus = status === "active" || status === "trialing";
+
+    // A GRANTING subscription MUST contain the configured, validated $10 monthly price. Price uncertainty is
+    // retryable (non-2xx); a definitive price mismatch cannot grant paid access (non-2xx, surfaced).
+    if (grantingStatus) {
+      const priceCheck = await validateSubscriptionPrice(stripe, subscription, getEnv);
+      if (priceCheck.retryable) {
+        console.error(`[Stripe Webhook] price uncertain for ${subscriptionId}: ${priceCheck.reason}`);
+        return createErrorResponse(ErrorCodes.STRIPE_API_ERROR, "Unable to verify subscription price", responseHeaders);
+      }
+      if (!priceCheck.ok) {
+        console.error(`[Stripe Webhook] active subscription lacks the configured price (${priceCheck.reason})`);
+        return createErrorResponse(ErrorCodes.CONFIG_INVALID_PRICE, "Subscription does not match the configured Pro price", responseHeaders);
       }
     }
 
-    // Call RPC to execute idempotency and action atomically. p_event_created carries the Stripe event
-    // ordering authority (unix seconds) for the server-side out-of-order guard. This calls the NEW 7-arg
-    // process_stripe_webhook_event contract directly — its database capability (PR #1287, under #1266) is a
-    // MERGE/APPLY PREREQUISITE for deploying this Edge Function (database-first split). No runtime fallback:
-    // the DB migration is applied and verified before this Edge is deployed, and the old Edge stays
-    // compatible with the new DB via the migration's 6-arg shim, so there is no incompatible window.
-    const { data, error } = await supabase.rpc('process_stripe_webhook_event', {
+    // Apply the CANONICAL snapshot (the DB maps the current status to entitlement). DB uncertainty is
+    // retryable -> non-2xx; the snapshot RPC is idempotent per event id.
+    const { data, error } = await supabase.rpc('apply_stripe_subscription_snapshot', {
       p_event_id: event.id,
-      p_event_type: event.type,
-      p_action: action,
-      p_user_id: userId,
       p_subscription_id: subscriptionId,
-      p_stripe_customer_id: stripeCustomerId,
+      p_customer_id: customerId,
+      p_status: status,
+      p_cancel_at_period_end: cancelAtPeriodEnd,
+      p_current_period_end: currentPeriodEnd,
+      p_user_id: bindUserId,
       p_event_created: typeof event.created === 'number' ? event.created : null,
     });
 
-    if (error) {
-      console.error(`[Stripe Webhook] RPC execution failed for ${event.id}:`, error)
-      return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Processing failed", responseHeaders)
+    if (error || (data && data.success === false)) {
+      console.error(`[Stripe Webhook] snapshot application failed for ${event.id}:`, error ?? data?.error);
+      return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Snapshot application failed", responseHeaders);
     }
 
     if (data?.skipped) {
-      console.log(`[Stripe Webhook] ⏭️ Event ${event.id} already processed, skipping`)
-      return createSuccessResponse({ received: true, skipped: true }, responseHeaders)
+      console.log(`[Stripe Webhook] ⏭️ Event ${event.id} already processed, skipping`);
+      return createSuccessResponse({ received: true, skipped: true }, responseHeaders);
     }
 
-    if (data?.success === false) {
-       console.error(`[Stripe Webhook] RPC action failed for ${event.id}:`, data.error)
-       return createErrorResponse(ErrorCodes.DATABASE_ERROR, data.error || "Action failed", responseHeaders)
-    }
-
-    if (data?.warning) {
-      console.warn(`[Stripe Webhook] ⚠️ Event ${event.id} processed with warning:`, data.warning)
-    }
-
-    if (action === 'upgrade_to_pro') {
-      console.log(`[Stripe] ✅ User ${userId} upgraded to Pro successfully`)
-    } else if (action === 'activate_basic') {
-      console.log(`[Stripe] ✅ User ${userId} activated paid Basic successfully`)
-    } else if (action === 'downgrade_to_free') {
-      console.log(`[Stripe] ✅ Subscription ${subscriptionId} downgraded to Free successfully`)
-    }
-
-    console.log(`[Stripe Webhook] ✅ Event ${event.id} processed successfully`);
-    return createSuccessResponse({ received: true }, responseHeaders)
+    console.log(`[Stripe Webhook] ✅ Event ${event.id} applied snapshot (status=${status}, entitlement=${data?.entitlement})`);
+    return createSuccessResponse({ received: true, entitlement: data?.entitlement }, responseHeaders);
 
   } catch (err) {
     const error = err as Error

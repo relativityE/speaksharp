@@ -109,19 +109,14 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.ensure_trial_profile_for_new_user() FROM PUBLIC, anon, authenticated, service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────
--- 3. One-time ACTIVATION stamp for existing unpaid beta accounts (non-retroactive; decision: PO).
---    Every current unpaid account with no LIVE window starts a fresh 30-day full-product trial now.
---    Idempotent: skips paid accounts and skips accounts that already have a live (future) window.
+-- 3. The one-time ACTIVATION stamp for existing unpaid beta accounts is intentionally NOT here.
+--    #1282 blocker 3: stamping every existing unpaid account starts their 30-day clock at APPLY time, so
+--    it must run at the recorded COMMERCIAL-ACTIVATION time — not during an early compatibility/security
+--    apply of this foundation migration. It is a SEPARATE, launch-authorized migration
+--    (20260812000500_trial_activation_stamp_1282.sql). Applying THIS migration early is safe: existing
+--    unpaid accounts keep trial_expires_at NULL and resolve to 'free' (fail closed) until the stamp runs;
+--    new accounts start their own 30-day clock at signup via ensure_trial_profile_for_new_user above.
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────
-UPDATE public.user_profiles
-SET trial_started_at = now(),
-    trial_expires_at = now() + interval '30 days',
-    updated_at = now()
-WHERE (trial_expires_at IS NULL OR trial_expires_at <= now())
-  AND NOT (
-    lower(COALESCE(subscription_status, 'free')) = 'pro'
-    AND NULLIF(trim(COALESCE(stripe_subscription_id, '')), '') IS NOT NULL
-  );
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────
 -- 4. Defence-in-depth: restore a 30-day DEFAULT on the trial window columns (dropped by 20260610).

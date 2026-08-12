@@ -35,13 +35,11 @@ describe('#1282 30-day trial lifecycle — entitlement foundation', () => {
         expect(migration).toMatch(/REVOKE EXECUTE ON FUNCTION public\.ensure_trial_profile_for_new_user\(\) FROM PUBLIC, anon, authenticated, service_role/);
     });
 
-    it('one-time activation stamp is non-retroactive, paid-safe, and idempotent', () => {
-        // Only accounts with NO live window are (re)stamped.
-        expect(migration).toMatch(/WHERE \(trial_expires_at IS NULL OR trial_expires_at <= now\(\)\)/);
-        // Paid accounts are never touched by the stamp.
-        expect(migration).toMatch(/AND NOT \(\s*\n\s*lower\(COALESCE\(subscription_status, 'free'\)\) = 'pro'\s*\n\s*AND NULLIF\(trim\(COALESCE\(stripe_subscription_id, ''\)\), ''\) IS NOT NULL\s*\n\s*\)/);
-        // The stamp starts NOW (non-retroactive) for a fresh 30 days.
-        expect(migration).toMatch(/SET trial_started_at = now\(\),\s*\n\s*trial_expires_at = now\(\) \+ interval '30 days'/);
+    it('the activation stamp is a SEPARATE launch-authorized migration, not in the foundation', () => {
+        // #1282 blocker 3: the foundation migration must NOT stamp existing users (that would start the
+        // 30-day clock at an early apply). It only documents that the stamp lives elsewhere.
+        expect(migration).not.toMatch(/UPDATE public\.user_profiles\s*\n\s*SET trial_started_at = now\(\)/);
+        expect(migration).toMatch(/20260812000500_trial_activation_stamp_1282\.sql/);
     });
 
     it('restores a 30-day default on both trial-window columns', () => {
@@ -50,9 +48,32 @@ describe('#1282 30-day trial lifecycle — entitlement foundation', () => {
     });
 
     it('does not create a Stripe price/checkout or flip payment enablement on apply', () => {
-        // Reading the stripe_subscription_id COLUMN (the paid invariant) is expected; what must NOT appear
-        // is any price/checkout creation or a payments-enablement flip inside an entitlement migration.
         expect(migration).not.toMatch(/PAYMENTS_ENABLED|STRIPE_PRO_PRICE_ID|checkout\.sessions|prices\.(create|retrieve)|unit_amount/i);
+    });
+});
+
+describe('#1282 trial activation stamp — separate, one-time, non-extending (blocker 3)', () => {
+    const stamp = readMigration('20260812000500_trial_activation_stamp_1282.sql');
+
+    it('gates on a DEDICATED immutable grant marker (not the extend-prone trial_started_at)', () => {
+        // Legacy accounts may already carry an expired non-null trial_started_at; the guard must be the
+        // dedicated marker so they still get exactly one fresh window and a rerun cannot re-grant.
+        expect(stamp).toMatch(/ADD COLUMN IF NOT EXISTS commercial_trial_granted_at TIMESTAMPTZ/);
+        expect(stamp).toMatch(/WHERE commercial_trial_granted_at IS NULL/);
+        expect(stamp).toMatch(/commercial_trial_granted_at = now\(\)/); // the marker is set on grant
+        expect(stamp).not.toMatch(/WHERE trial_started_at IS NULL/);
+        expect(stamp).not.toMatch(/trial_expires_at IS NULL OR trial_expires_at <= now\(\)/);
+    });
+
+    it('never touches a paid account (status pro AND a real stripe_subscription_id)', () => {
+        expect(stamp).toMatch(/AND NOT \(\s*\n\s*lower\(COALESCE\(subscription_status, 'free'\)\) = 'pro'\s*\n\s*AND NULLIF\(trim\(COALESCE\(stripe_subscription_id, ''\)\), ''\) IS NOT NULL\s*\n\s*\)/);
+    });
+
+    it('provides a read-only preflight count AND a post-apply count (NOTICE is not the sole authority)', () => {
+        expect(stamp).toMatch(/#1282 preflight: % unpaid account\(s\) will be granted/);
+        expect(stamp).toMatch(/% paid account\(s\) protected/);
+        expect(stamp).toMatch(/SET trial_started_at = now\(\),\s*\n\s*trial_expires_at = now\(\) \+ interval '30 days',\s*\n\s*commercial_trial_granted_at = now\(\)/);
+        expect(stamp).toMatch(/post-apply count/);
     });
 });
 

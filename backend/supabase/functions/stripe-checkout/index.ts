@@ -24,7 +24,7 @@ type StripePrice = {
   active?: boolean;
   unit_amount?: number | null;
   currency?: string;
-  recurring?: { interval?: string | null } | null;
+  recurring?: { interval?: string | null; interval_count?: number | null } | null;
 };
 type StripeLike = {
   checkout: {
@@ -298,10 +298,14 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
 
       const actualCurrency = (price?.currency ?? "").toLowerCase();
       const interval = price?.recurring?.interval ?? null;
-      const isActive = price?.active !== false; // treat undefined as active (test/mocks); only false rejects
+      const intervalCount = price?.recurring?.interval_count ?? null;
+      // #1282 blocker 2: FAIL CLOSED. active MUST be exactly true (a missing/undefined active field is NOT
+      // treated as active); the price MUST recur every 1 month (interval 'month' AND interval_count === 1,
+      // so a 3-month or annual price cannot masquerade as "monthly"); exactly 1000 cents; configured currency.
       const problems: string[] = [];
-      if (!isActive) problems.push("inactive");
+      if (price?.active !== true) problems.push(`active:${price?.active ?? "missing"}`);
       if (interval !== "month") problems.push(`interval:${interval ?? "none"}`);
+      if (intervalCount !== 1) problems.push(`interval_count:${intervalCount ?? "none"}`);
       if (price?.unit_amount !== PRO_PRICE_EXPECTED_UNIT_AMOUNT) problems.push(`unit_amount:${price?.unit_amount ?? "none"}`);
       if (actualCurrency !== expectedCurrency) problems.push(`currency:${actualCurrency || "none"}`);
 
