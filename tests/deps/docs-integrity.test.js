@@ -28,7 +28,13 @@ const cloudExceptionOk = (line) => {
   const freeLimited = /\bfree (testers?|users?|accounts?)\b/i.test(line);
   const retainClause = /\b(existing|already)\b[^.]*\b(retain|keep)s?\b/i.test(line)
     || (/\b(retain|keep)s? access\b/i.test(line) && /\b(existing|paid[- ]?pro)\b/i.test(line));
-  return freeLimited || retainClause;
+  // #1254/#1269/#1266: the ACCEPTED product truth is Private-ONLY — Cloud is not a customer entitlement
+  // at all (not merely "unavailable to Free"), so there are no paid-Cloud accounts to protect. A claim
+  // grounded in that model (Private-only / "not a customer entitlement") is acceptable unconditionally.
+  // The old misleading "paid-Pro only" form carries neither marker and still fails.
+  const privateOnlyModel = /\bprivate[- ]only\b/i.test(line)
+    || /\bnot\b[^.]{0,40}\bcustomer entitlement\b/i.test(line);
+  return freeLimited || retainClause || privateOnlyModel;
 };
 
 // A line explicitly negating the "closure via key absence/class" model — either the negation precedes
@@ -221,6 +227,9 @@ describe('product_release documentation integrity', () => {
     // Must PASS the guard (Free-limited and/or existing paid-Pro retains access):
     expect(flags('Cloud is unavailable to Free testers; existing paid-Pro retains access')).toBe(false);
     expect(flags('Cloud is not available to Free users during the no-billing beta')).toBe(false);
+    // #1254/#1269 Private-only model: an unconditional claim grounded in "Private-only" / "not a
+    // customer entitlement" is accepted; the old "paid-Pro only" form is not (asserted above).
+    expect(flags('Cloud is unavailable — Private-only product; not a customer entitlement')).toBe(false);
   });
 
   it('no active doc references the deleted "BACKLOG re-assessment addendum"', () => {
