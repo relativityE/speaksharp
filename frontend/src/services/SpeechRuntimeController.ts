@@ -3615,11 +3615,14 @@ export class SpeechRuntimeController {
                             metricsOk = updateResult.success;
                             maybePublishFinalized();
 
-                            // #1045: record the immutable Progress evaluation for this completed session, now
-                            // that its metrics are persisted AND attribution has reached a terminal state. The
-                            // seam is guarded (no-op unless completed + metrics persisted + terminal attribution),
-                            // idempotent, and strictly non-fatal — Progress must never break the save journey.
-                            void wireProgressEvaluationOnSave({
+                            // #1045/#1265: record the immutable Progress evaluation for this completed session,
+                            // now that its metrics are persisted AND attribution has reached a terminal state.
+                            // The seam is guarded (no-op unless completed + metrics persisted + terminal
+                            // attribution), idempotent, and strictly non-fatal — Progress must never break the
+                            // save journey. #1265: a Focus Points session must be evaluated ONLY AFTER its
+                            // objective registration lands (below), so its Progress is cohorted as 'objective',
+                            // not 'freeform'. Open Mic has no registration and evaluates immediately.
+                            const runProgressEval = () => void wireProgressEvaluationOnSave({
                                 sessionId,
                                 status: 'completed',
                                 attributionStatus: attributionTerminalStatus,
@@ -3665,8 +3668,20 @@ export class SpeechRuntimeController {
                                                 objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
                                             );
                                         }
+                                        // #1265: AWAIT registration before evaluating this Focus Points session's
+                                        // Progress, so it is cohorted as 'objective'. The register step runs FIRST
+                                        // in the orchestrator; it succeeded iff the result is ok OR failed at a
+                                        // LATER stage. A 'register'-stage failure (or an ambiguous throw with no
+                                        // stage) means registration did NOT land → write NO evaluation, rather than
+                                        // mis-cohorting it as freeform. A later reconcile sweep re-attempts once the
+                                        // registration eventually exists.
+                                        const registered = objResult.ok || (objResult.stage != null && objResult.stage !== 'register');
+                                        if (registered) runProgressEval();
                                     }),
                                 ).catch((objErr) => logger.warn({ objErr, sessionId }, '[controller] objective finalization failed (non-fatal)'));
+                            } else {
+                                // Open Mic (or no brief / no metrics): evaluate immediately.
+                                runProgressEval();
                             }
 
                             clearSessionRecoveryDraft(sessionId);
