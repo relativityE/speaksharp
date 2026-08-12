@@ -51,8 +51,8 @@ export const TermsPage = () => {
       {
         heading: 'Accounts and Access',
         body: paymentsEnabled
-          ? 'SpeakSharp includes a free practice path that requires no card or checkout. Every customer recording uses Private on-device transcription; account tiers may differ only in usage limits or coaching features, not transcription privacy.'
-          : 'SpeakSharp is currently a controlled free beta. No card or checkout is required. Every customer recording uses Private on-device transcription; account tiers may differ only in usage limits or future coaching features, not transcription privacy.',
+          ? 'SpeakSharp is one product: the complete Private Practice experience is free for your first 30 days, then $10/month to continue. Every customer recording uses Private on-device transcription; Private is never a paid add-on and there is no feature-limited tier.'
+          : 'SpeakSharp is one product: the complete Private Practice experience is free for your first 30 days — no card required. Paid continuation is $10/month and opens when Pro enrollment is enabled. Every customer recording uses Private on-device transcription; Private is never a paid add-on and there is no feature-limited tier.',
       },
       {
         heading: 'Payments',
