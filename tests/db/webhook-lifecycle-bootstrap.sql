@@ -56,3 +56,42 @@ AS $$
     ELSE 'free'
   END;
 $$;
+
+-- Production-shaped old-Edge contract. #1287 must leave this six-argument RPC untouched so the currently
+-- deployed Edge can continue to run after the database prerequisite is applied and before #1282 deploys.
+CREATE OR REPLACE FUNCTION public.process_stripe_webhook_event(
+    p_event_id text,
+    p_event_type text,
+    p_action text,
+    p_user_id uuid DEFAULT NULL,
+    p_subscription_id text DEFAULT NULL,
+    p_stripe_customer_id text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    INSERT INTO public.processed_webhook_events (event_id, event_type, processed_at)
+    VALUES (p_event_id, p_event_type, now());
+
+    IF p_action = 'upgrade_to_pro' THEN
+        UPDATE public.user_profiles
+           SET subscription_status = 'pro',
+               stripe_subscription_id = p_subscription_id,
+               stripe_customer_id = COALESCE(NULLIF(BTRIM(COALESCE(p_stripe_customer_id, '')), ''), stripe_customer_id),
+               updated_at = now()
+         WHERE id = p_user_id;
+    END IF;
+
+    RETURN jsonb_build_object('success', true);
+EXCEPTION WHEN unique_violation THEN
+    RETURN jsonb_build_object('success', true, 'skipped', true);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.process_stripe_webhook_event(text, text, text, uuid, text, text)
+  FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.process_stripe_webhook_event(text, text, text, uuid, text, text)
+  TO service_role;

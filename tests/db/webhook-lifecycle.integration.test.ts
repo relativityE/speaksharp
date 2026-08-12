@@ -40,14 +40,39 @@ const tier = async (db: PGlite): Promise<string> =>
      FROM public.user_profiles WHERE id = '${USER}'`,
   )).rows[0].t;
 
-type Rpc = { success: string | null; skipped: string | null; entitlement: string | null; error: string | null };
+type Rpc = {
+  success: string | null;
+  skipped: string | null;
+  entitlement: string | null;
+  error: string | null;
+  nonGrantReason: string | null;
+};
+type SnapshotOptions = {
+  userId?: string;
+  subscriptionId?: string;
+  customerId?: string;
+  hasApprovedPrice?: boolean;
+  cancelAtPeriodEnd?: boolean;
+};
 /** Apply a canonical snapshot: the CURRENT Stripe subscription status the Edge hydrated. */
-const snapshot = async (db: PGlite, eventId: string, status: string, created: number, userId?: string): Promise<Rpc> =>
-  (await db.query<Rpc>(
-    `SELECT r->>'success' AS success, r->>'skipped' AS skipped, r->>'entitlement' AS entitlement, r->>'error' AS error
+const snapshot = async (
+  db: PGlite,
+  eventId: string,
+  status: string,
+  created: number,
+  options: SnapshotOptions = {},
+): Promise<Rpc> => {
+  const subscriptionId = options.subscriptionId ?? SUB;
+  const customerId = options.customerId ?? CUS;
+  const hasApprovedPrice = options.hasApprovedPrice ?? true;
+  return (await db.query<Rpc>(
+    `SELECT r->>'success' AS success, r->>'skipped' AS skipped, r->>'entitlement' AS entitlement,
+            r->>'error' AS error, r->>'non_grant_reason' AS "nonGrantReason"
      FROM (SELECT public.apply_stripe_subscription_snapshot(
-        '${eventId}', '${SUB}', '${CUS}', '${status}', false, NULL, ${userId ? `'${userId}'` : 'NULL'}, ${created}) AS r) x`,
+        '${eventId}', '${subscriptionId}', '${customerId}', '${status}', ${hasApprovedPrice},
+        ${options.cancelAtPeriodEnd ?? false}, NULL, ${options.userId ? `'${options.userId}'` : 'NULL'}, ${created}) AS r) x`,
   )).rows[0];
+};
 
 describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
   it('active -> Pro; past_due -> Free but KEEPS the sub id (recoverable); active again -> Pro restored', async () => {
@@ -118,7 +143,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
     await db.exec(`INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${USER}', 'free')`);
-    const r = await snapshot(db, 'e_first', 'active', 1000, USER); // p_user_id present
+    const r = await snapshot(db, 'e_first', 'active', 1000, { userId: USER });
     expect(r.entitlement).toBe('pro');
     const p = await profile(db);
     expect(p.subscription_status).toBe('pro');
@@ -131,7 +156,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     const db = await freshDbWithPaidPro();
     const acl = (await db.query<{ has: boolean }>(
       `SELECT has_function_privilege('anon',
-        'public.apply_stripe_subscription_snapshot(text,text,text,text,boolean,bigint,uuid,bigint)', 'EXECUTE') AS has`,
+        'public.apply_stripe_subscription_snapshot(text,text,text,text,boolean,boolean,bigint,uuid,bigint)', 'EXECUTE') AS has`,
     )).rows[0];
     expect(acl.has).toBe(false); // anon cannot execute
     await db.close();
@@ -166,7 +191,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
        VALUES ('${OTHER}', 'pro', '${SUB}', 'cus_other')`,
     );
     await db.exec(`INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${USER}', 'free')`);
-    const r = await snapshot(db, 'e_collide', 'active', 1000, USER);
+    const r = await snapshot(db, 'e_collide', 'active', 1000, { userId: USER });
     expect(r.success).toBe('false');
     expect(r.error).not.toBeNull();
     expect((await profile(db)).subscription_status).toBe('free'); // USER stays free
@@ -185,7 +210,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
       `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
        VALUES ('${USER}', 'pro', 'sub_existing', '${CUS}')`,
     );
-    const r = await snapshot(db, 'e_conflict', 'active', 1000, USER); // tries to bind SUB while sub_existing lives
+    const r = await snapshot(db, 'e_conflict', 'active', 1000, { userId: USER });
     expect(r.success).toBe('false');
     expect(r.error).not.toBeNull();
     expect((await profile(db)).stripe_subscription_id).toBe('sub_existing'); // unchanged
@@ -203,6 +228,167 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     expect(p.subscription_status).toBe('free');
     expect(p.stripe_subscription_id).toBeNull();
     expect(await tier(db)).toBe('free');
+    await db.close();
+  });
+
+  it('an UNKNOWN terminal snapshot fails closed and cannot manufacture its own tombstone', async () => {
+    const db = new PGlite();
+    await db.exec(BOOTSTRAP);
+    await db.exec(MIGRATION);
+    const r = await snapshot(db, 'unknown_terminal', 'canceled', 1000);
+    expect(r.success).toBe('false');
+    expect(r.error).not.toBeNull();
+    const tombstones = (await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM public.stripe_subscription_tombstones WHERE subscription_id = '${SUB}'`,
+    )).rows[0].n;
+    expect(tombstones).toBe(0);
+    const processed = (await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM public.processed_webhook_events WHERE event_id = 'unknown_terminal'`,
+    )).rows[0].n;
+    expect(processed).toBe(0); // failed snapshots remain retryable
+    await db.close();
+  });
+
+  it('a later snapshot with a mismatched customer fails closed without rebinding the profile', async () => {
+    const db = await freshDbWithPaidPro();
+    const r = await snapshot(db, 'customer_mismatch', 'active', 1000, { customerId: 'cus_attacker' });
+    expect(r.success).toBe('false');
+    expect(r.error).not.toBeNull();
+    const p = await profile(db);
+    expect(p.subscription_status).toBe('pro');
+    expect(p.stripe_customer_id).toBe(CUS);
+    await db.close();
+  });
+
+  it('blank customer identity fails closed and leaves the event retryable', async () => {
+    const db = await freshDbWithPaidPro();
+    await expect(snapshot(db, 'blank_customer', 'active', 1000, { customerId: '   ' }))
+      .rejects.toThrow(/customer_id is required/);
+    const processed = (await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM public.processed_webhook_events WHERE event_id = 'blank_customer'`,
+    )).rows[0].n;
+    expect(processed).toBe(0);
+    expect((await profile(db)).stripe_customer_id).toBe(CUS);
+    await db.close();
+  });
+
+  it('a tombstoned subscription accepts only the originally bound customer identity', async () => {
+    const db = await freshDbWithPaidPro();
+    expect((await snapshot(db, 'terminal', 'canceled', 1000)).success).toBe('true');
+    const r = await snapshot(db, 'terminal_wrong_customer', 'active', 2000, { customerId: 'cus_attacker' });
+    expect(r.success).toBe('false');
+    expect(r.error).not.toBeNull();
+    expect((await profile(db)).subscription_status).toBe('free');
+    await db.close();
+  });
+
+  it('first binding rejects customer collision and a conflicting customer already stored on the profile', async () => {
+    const db = new PGlite();
+    await db.exec(BOOTSTRAP);
+    await db.exec(MIGRATION);
+    const OTHER = '00000000-0000-0000-0000-0000000000b9';
+    await db.exec(
+      `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
+       VALUES ('${OTHER}', 'pro', 'sub_other', '${CUS}'),
+              ('${USER}', 'free', NULL, 'cus_existing')`,
+    );
+    const collision = await snapshot(db, 'customer_collision', 'active', 1000, { userId: USER });
+    expect(collision.success).toBe('false');
+    expect(collision.error).not.toBeNull();
+
+    await db.exec(`UPDATE public.user_profiles SET stripe_customer_id = NULL WHERE id = '${OTHER}'`);
+    const profileConflict = await snapshot(db, 'profile_customer_conflict', 'active', 1001, { userId: USER });
+    expect(profileConflict.success).toBe('false');
+    expect(profileConflict.error).not.toBeNull();
+    expect((await profile(db)).stripe_customer_id).toBe('cus_existing');
+    await db.close();
+  });
+
+  it('an unapproved-price first binding fails without binding any billing identity', async () => {
+    const db = new PGlite();
+    await db.exec(BOOTSTRAP);
+    await db.exec(MIGRATION);
+    await db.exec(`INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${USER}', 'free')`);
+    const r = await snapshot(db, 'wrong_price', 'active', 1000, { userId: USER, hasApprovedPrice: false });
+    expect(r.success).toBe('false');
+    expect(r.error).not.toBeNull();
+    expect(await tier(db)).toBe('free');
+    expect((await profile(db)).stripe_subscription_id).toBeNull();
+    await db.close();
+  });
+
+  it('an active wrong-price snapshot revokes Pro but preserves the exact bound identity for correction', async () => {
+    const db = await freshDbWithPaidPro();
+    const r = await snapshot(db, 'wrong_price_bound', 'active', 1000, { hasApprovedPrice: false });
+    expect(r.success).toBe('true');
+    expect(r.entitlement).toBe('free');
+    expect(r.nonGrantReason).toBe('unapproved_price');
+    const p = await profile(db);
+    expect(p.subscription_status).toBe('free');
+    expect(p.stripe_subscription_id).toBe(SUB);
+    expect(p.stripe_customer_id).toBe(CUS);
+    await db.close();
+  });
+
+  it('terminal downgrade succeeds with an unapproved price and cannot retain paid access', async () => {
+    const db = await freshDbWithPaidPro();
+    const r = await snapshot(db, 'terminal_wrong_price', 'canceled', 1000, { hasApprovedPrice: false });
+    expect(r.success).toBe('true');
+    expect(r.entitlement).toBe('free');
+    expect((await profile(db)).stripe_subscription_id).toBeNull();
+    await db.close();
+  });
+
+  it('cancel-at-period-end remains Pro while the hydrated Stripe status is active', async () => {
+    const db = await freshDbWithPaidPro();
+    const r = await snapshot(db, 'cancel_scheduled', 'active', 1000, { cancelAtPeriodEnd: true });
+    expect(r.entitlement).toBe('pro');
+    expect(await tier(db)).toBe('pro');
+    await db.close();
+  });
+
+  it('migration replay is idempotent and preserves old six-argument Edge compatibility', async () => {
+    const db = new PGlite();
+    await db.exec(BOOTSTRAP);
+    const before = (await db.query<{ definition: string }>(
+      `SELECT pg_get_functiondef('public.process_stripe_webhook_event(text,text,text,uuid,text,text)'::regprocedure) AS definition`,
+    )).rows[0].definition;
+    await db.exec(MIGRATION);
+    await db.exec(MIGRATION);
+    const after = (await db.query<{ definition: string }>(
+      `SELECT pg_get_functiondef('public.process_stripe_webhook_event(text,text,text,uuid,text,text)'::regprocedure) AS definition`,
+    )).rows[0].definition;
+    expect(after).toBe(before);
+
+    await db.exec(`INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${USER}', 'free')`);
+    const legacy = (await db.query<{ success: string }>(
+      `SELECT public.process_stripe_webhook_event(
+        'legacy_event', 'checkout.session.completed', 'upgrade_to_pro', '${USER}', '${SUB}', '${CUS}'
+      )->>'success' AS success`,
+    )).rows[0];
+    expect(legacy.success).toBe('true');
+    expect((await profile(db)).stripe_subscription_id).toBe(SUB);
+    await db.close();
+  });
+
+  it('duplicate or blank stored billing identities abort the migration preflight without repair', async () => {
+    const db = new PGlite();
+    await db.exec(BOOTSTRAP);
+    await db.exec(
+      `INSERT INTO public.user_profiles (id, stripe_subscription_id, stripe_customer_id) VALUES
+       ('00000000-0000-0000-0000-0000000000d1', 'sub_duplicate', 'cus_duplicate'),
+       ('00000000-0000-0000-0000-0000000000d2', 'sub_duplicate', 'cus_duplicate'),
+       ('00000000-0000-0000-0000-0000000000d3', '   ', '   ')`,
+    );
+    await expect(db.exec(MIGRATION)).rejects.toThrow(/billing identity preflight failed/);
+    const rows = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM public.user_profiles')).rows[0].n;
+    expect(rows).toBe(3); // no silent repair/delete/merge
+    const rpc = (await db.query<{ exists: boolean }>(
+      `SELECT to_regprocedure(
+        'public.apply_stripe_subscription_snapshot(text,text,text,text,boolean,boolean,bigint,uuid,bigint)'
+      ) IS NOT NULL AS exists`,
+    )).rows[0].exists;
+    expect(rpc).toBe(false);
     await db.close();
   });
 });
