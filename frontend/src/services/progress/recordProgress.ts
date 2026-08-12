@@ -337,7 +337,6 @@ export async function reconcileProgressEvaluations(
     sessions: ReconcilableSession[],
 ): Promise<{ queueDrained: number; swept: number }> {
     let queueDrained = 0;
-    let swept = 0;
 
     // Reload reconciliation retries the exact durable attempt/repeat pair before considering later saves.
     const pendingResolution = getOpenAttemptForUser(userId)?.resolutionSessionId;
