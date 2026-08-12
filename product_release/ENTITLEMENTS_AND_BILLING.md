@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for tier model, entitlement authority, quota provenance, and the billing fail-closed contract)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-07-28
-**Last Verified:** 2026-07-28 — reconciled from `PRD.operational.md` §1, `PAID_OPS_HARDENING_RUNBOOK.md`, and `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` (Finding 1), checked against the cited code/DB paths. Observed values are labeled by provenance category; they are not asserted as approved policy. No volatile run IDs or SHAs are carried here — release posture lives in `RELEASE_STATUS.md`.
+**Last Reviewed:** 2026-08-12
+**Last Verified:** 2026-08-12 — reconciled to the accepted #1254/#1269 Private-only product truth and the #1266/#1282 30-day-trial → $10/month lifecycle (§2, §2a), checked against the cited code/DB paths and the #1282 migrations. Observed values are labeled by provenance category; they are not asserted as approved policy. No volatile run IDs or SHAs are carried here — release posture lives in `RELEASE_STATUS.md`.
 **Applies To:** SpeakSharp — the ONE Private Practice product under the #1266 30-day-trial → $10/month model (Private-only for customers; Cloud unavailable; Browser is not a current customer entitlement; Native is an internal E2E hook only). Enterprise packaging is future direction (→ `#1048`), not current scope.
 **Class:** Entitlement & billing policy (product decision).
 **Authority:** The source for the tier/lifecycle model, the entitlement authoritative-source (mechanics), Cloud/Browser disposition (not current customer entitlements), quota provenance, the billing fail-closed contract, comped-entitlement QA, and the live-activation contract.
