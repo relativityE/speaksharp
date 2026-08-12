@@ -2,9 +2,9 @@
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-07-28
 **Last Verified:** 2026-07-28 — reconciled from `PRD.operational.md` §1, `PAID_OPS_HARDENING_RUNBOOK.md`, and `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` (Finding 1), checked against the cited code/DB paths. Observed values are labeled by provenance category; they are not asserted as approved policy. No volatile run IDs or SHAs are carried here — release posture lives in `RELEASE_STATUS.md`.
-**Applies To:** SpeakSharp — the ONE Private Practice product under the #1266 30-day-trial → $10/month model (Private-first; Browser is a free convenience; Cloud globally off). Enterprise packaging is future direction (→ `#1048`), not current scope.
+**Applies To:** SpeakSharp — the ONE Private Practice product under the #1266 30-day-trial → $10/month model (Private-only for customers; Cloud unavailable; Browser is not a current customer entitlement; Native is an internal E2E hook only). Enterprise packaging is future direction (→ `#1048`), not current scope.
 **Class:** Entitlement & billing policy (product decision).
-**Authority:** The source for the tier/lifecycle model, the entitlement authoritative-source (mechanics), Cloud disposition (currently globally off), quota provenance, the billing fail-closed contract, comped-entitlement QA, and the live-activation contract.
+**Authority:** The source for the tier/lifecycle model, the entitlement authoritative-source (mechanics), Cloud/Browser disposition (not current customer entitlements), quota provenance, the billing fail-closed contract, comped-entitlement QA, and the live-activation contract.
 **Not Authoritative For:** the structural entitlement *authority ADR* (→ `ARCHITECTURE.md` ADR-1); the entitlement selector *implementation* refactor (→ `#1036`); STT runtime/Cloud data contracts (→ `STT.md`); deferred pricing/packaging sequencing & unresolved quota decisions (→ `ROADMAP.md`); current deployment posture (→ `RELEASE_STATUS.md`); dated live billing evidence (→ `EVIDENCE_INDEX.md`).
 **Supersedes:** the billing/entitlement material interim-held in `PRD.operational.md` §1, `PAID_OPS_HARDENING_RUNBOOK.md`, and `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` (archived/retained at closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §2/§3.I mapping; the `frontend/` + `backend/` code and `tier_configs` DB paths cited inline; `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` Finding 1.
@@ -35,7 +35,7 @@ SpeakSharp is **ONE product** — the Private Practice product (Open Mic + Focus
 - **Paid (Pro)** — after the trial, **$10/month** continues the **same complete product** (requires `subscription_status='pro'` AND a real `stripe_subscription_id`).
 - **Expired (unpaid)** — the 30-day trial has ended and the account is unpaid: new recording/persistence/analysis **fail closed**; reading existing sessions, PDF export, account management, billing portal, and upgrade remain available. Metered by the server-side quota (see §4) only while entitled.
 
-**Cloud STT is globally off** in the current model and is **not** a paid differentiator — the product is **Private-first** (per the #1142/#1269 product truth), and the only paid distinction is trial-vs-paid continuation of the same complete product. **Browser** transcription is a **free convenience path available everywhere** — never an equivalent to Private, never gated, and never the paid line. "Private-first" describes the primary/paid experience; it does not remove the free Browser convenience (see §6).
+**Every customer recording uses Private.** Per the accepted #1254/#1269 product truth, the customer product is **Private-only**: the complete Private Practice product is free for 30 days, then **$10/month to continue the same Private-only product**. **Cloud remains unavailable**, and **Browser is not a current customer entitlement** — Browser and Cloud are absent from customer-facing product claims. **Native** exists only as an internal deterministic E2E test hook, never a customer surface (see §6). The paid distinction is trial-vs-paid continuation of the same Private-only product — never a feature gate.
 
 **No-billing beta posture:** both payment switches stay OFF (§5); paid continuation is reachable only via an existing subscription or an explicitly approved comped DB entitlement (§6); existing/comped Pro accounts retain access. Server-authoritative mechanics are in §2a.
 
@@ -55,7 +55,7 @@ The locked commercial model is **ONE product**: the complete Private Practice pr
 Per `ARCHITECTURE.md` ADR-1 — **payment status and product capability are distinct**:
 
 - **Full-product access** resolves to `pro` when EITHER (a) **paid**: `subscription_status = 'pro'` **AND** a real `stripe_subscription_id` is present, OR (b) a **live 30-day trial**: `trial_expires_at > now()` (`effective_subscription_tier()`, #1282 migration `20260812000000`, building on `20260621120000`). `subscription_status = 'pro'` alone (and any frontend-derived boolean) is **advisory, never sufficient** for the paid path; the legacy `subscription_id` argument is **deprecated and ignored**; **legacy (expired) trial timestamps never grant Pro** — only a live window does. Billing-portal access is gated separately on `stripe_subscription_id`, so a trial user gets the full product but no billing management (nothing to manage yet).
-- **`canUsePrivate`** is a **server-derived capability entitlement** and MAY include explicitly approved **comped or legacy grants** — capability ≠ payment. (`canUseCloud` is moot in the current model: Cloud is globally off — see §6.)
+- **`canUsePrivate`** is the **server-derived capability entitlement** for the customer product and MAY include explicitly approved **comped or legacy grants** — capability ≠ payment. (`canUseCloud` is moot: Cloud is unavailable and Browser is not a customer entitlement — see §6.)
 - **`check-usage-limit`** enforces server-side **quota** policy; it is **not** proof of payment.
 - The client selector (`getEffectiveSubscriptionStatus` / `hasPaidProEntitlement`) is advisory for UI; centralizing it is **#1036** (which must not change these boundaries).
 
@@ -82,9 +82,12 @@ Per `ARCHITECTURE.md` ADR-1 — **payment status and product capability are dist
 - **Freeze proof in CI** — `scripts/billing-freeze-check.mjs` asserts billing is CLOSED; enabling billing is the separate, explicitly-authorized paid-launch sequence.
 - **No live charge** is authorized by this document.
 
-## 6. Cloud disposition & comped entitlement
+## 6. Cloud & Browser disposition (not customer entitlements)
 
-- **Cloud STT is globally OFF in the current model.** It is **not part of the current product and is not a paid differentiator** — the #1266 product is Private-first with Browser as a free convenience; the paid distinction is trial-vs-paid continuation of the same complete product, never Private-vs-Cloud. *(Historical note: Cloud was previously positioned as a Pro feature; that framing is superseded by the #1142/#1269 Private-first, Cloud-globally-off product truth.)* The **privacy invariant still holds** should Cloud ever return: Private STT MUST NOT auto-switch to Cloud (privacy + variable-cost change); Cloud would be entered only by explicit user selection with the capability entitlement (`ARCHITECTURE.md` §7).
+- **Cloud STT is unavailable** in the current product — **not** a customer entitlement and **not** a paid differentiator. The paid distinction is trial-vs-paid continuation of the same **Private-only** product, never Private-vs-Cloud.
+- **Browser is not a current customer entitlement.** Browser and Cloud are **absent from customer-facing product claims**; every customer recording uses Private.
+- **Native** exists **only as an internal deterministic E2E test hook**, never a customer surface.
+- *(Historical note: Cloud was previously positioned as a Pro feature; that framing is superseded by the accepted #1254/#1269 Private-only product truth.)* The **privacy invariant still holds** should Cloud ever return: Private STT MUST NOT auto-switch to Cloud (privacy + variable-cost change); it would be entered only by explicit user selection with the capability entitlement (`ARCHITECTURE.md` §7).
 - **Comped / legacy grants — actual mechanism (no separate comped id).** There is **no separate "comped entitlement" table or id.** Per `effective_subscription_tier()` (§3), Pro requires `subscription_status = 'pro'` **AND** a `stripe_subscription_id`; the legacy `subscription_id` is deprecated/ignored. Comped or QA Pro is therefore granted by setting those DB profile fields directly (an **evidence/QA convention** using a synthetic test subscription id, **never a live Stripe charge**); live Stripe stays read-only. Whether a synthetic id qualifies as "real" is an implementation detail owned by the RPC / #1036.
 
 ## 7. Live-activation contract (future; separate PO authorization)
