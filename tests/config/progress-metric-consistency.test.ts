@@ -74,12 +74,18 @@ describe('#1265 — Progress metric definitions are a single, consistent source'
     expect(155).toBeGreaterThan(hi);
   });
 
-  // #1265 defect 1 — Focus Points / Open Mic isolation must live in the actual comparison path, not docs.
-  // PracticeSession has no durable mode field, so the mode-BLIND client comparison mapper
-  // (progressInputsFromSessions/progressFromSessionHistory) — which turned a raw session list into
-  // comparison inputs WITHOUT any mode filter — has been removed from the launch authority. The sole live
-  // comparison is the server-authoritative read model (loadSessionProgress), which compares only against
-  // server-selected same-cohort references. This guard keeps the dead mode-blind mapper from returning.
+  // #1265 defect 1 — the mode-BLIND client comparison mapper (progressInputsFromSessions /
+  // progressFromSessionHistory) turned a raw session list into comparison inputs with NO mode filter, so it
+  // COULD fold a Focus Points session into Open Mic progress. Call-path evidence: at its removal it had ZERO
+  // live callers — the only non-test reference anywhere in frontend/src was a comment in sessionAnalysis.ts
+  // (verified with `git grep` at the pre-removal commit). Per the guidance it is REMOVED from the launch
+  // authority (deleted, not expanded), and this guard keeps it from returning.
+  //
+  // SCOPE (no overclaim): whether the SERVER excludes Focus Points from Open Mic progress —
+  // `record_progress_evaluation()` marking a coverage-scored FP session ineligible for clarity progress, and
+  // never selecting it as an Open-Mic comparable reference — is a SERVER-side responsibility
+  // (loadSessionProgress only READS server-persisted references). #1280 does NOT assert server-side mode
+  // isolation; it removes the client mode-blind path only.
   it('the launch authority exposes NO mode-blind session→comparison mapper', () => {
     expect((progressUtils as Record<string, unknown>).progressInputsFromSessions).toBeUndefined();
     expect((progressUtils as Record<string, unknown>).progressFromSessionHistory).toBeUndefined();
