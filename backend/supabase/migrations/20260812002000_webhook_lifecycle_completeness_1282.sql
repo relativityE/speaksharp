@@ -22,6 +22,32 @@ COMMENT ON COLUMN public.user_profiles.last_stripe_event_at IS
   'is the sole authority, so event ordering (incl. same-second) cannot change the outcome.';
 
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────
+-- Durable terminal TOMBSTONE. When a subscription reaches a terminal state (canceled / incomplete_expired)
+-- the paid subscription id is cleared from the profile, which would make a later stale snapshot for that
+-- same id match ZERO rows. Without a durable record we could not tell "already terminal" (a legitimate
+-- no-op — a dead subscription can never reactivate) apart from "never bound / unknown identity" (which MUST
+-- fail closed so Stripe retries). This tombstone provides that unambiguous terminal identity. It stores only
+-- the minimal allowlisted keys — no customer prose, card data, email, or Stripe payload body.
+-- ─────────────────────────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.stripe_subscription_tombstones (
+    subscription_id text PRIMARY KEY,
+    customer_id     text,
+    terminal_status text NOT NULL,
+    tombstoned_at   timestamptz NOT NULL DEFAULT now(),
+    event_id        text
+);
+
+COMMENT ON TABLE public.stripe_subscription_tombstones IS
+  '#1287: durable terminal markers for Stripe subscription ids. Lets apply_stripe_subscription_snapshot '
+  'distinguish an already-terminal subscription (no-op success; cannot reactivate) from an unknown/unbound '
+  'subscription id (fail closed for retry). Written only by the SECDEF snapshot RPC.';
+
+-- Locked down: only the SECURITY DEFINER snapshot RPC (running as owner) touches this table. RLS with no
+-- policy denies all direct client access; explicit REVOKE removes any inherited privilege.
+ALTER TABLE public.stripe_subscription_tombstones ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.stripe_subscription_tombstones FROM PUBLIC, anon, authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────────────────────────
 -- Canonical subscription snapshot RPC. Applies the CURRENT Stripe subscription state idempotently and
 -- atomically. Service-role only (the Edge calls it after signature verification + Stripe hydration).
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -71,8 +97,34 @@ BEGIN
         v_pro      := v_status IN ('active', 'trialing');
         v_terminal := v_status IN ('canceled', 'incomplete_expired');
 
+        -- A terminal status is recorded as a durable tombstone FIRST, so that later stale snapshots for the
+        -- same (now cleared) subscription id are recognised as already-terminal no-ops rather than unknown
+        -- identities. Idempotent: the first terminal marker stands.
+        IF v_terminal THEN
+            INSERT INTO public.stripe_subscription_tombstones (subscription_id, customer_id, terminal_status, event_id)
+            VALUES (p_subscription_id, v_customer, v_status, p_event_id)
+            ON CONFLICT (subscription_id) DO NOTHING;
+        END IF;
+
         IF p_user_id IS NOT NULL THEN
-            -- First activation / explicit binding: apply by user id and (re)bind the subscription id.
+            -- First activation / explicit binding. Fail CLOSED on any identity collision so a subscription
+            -- can never be rebound across profiles and a profile with a conflicting live billing identity is
+            -- never silently overwritten (the Edge returns non-2xx; Stripe retries once the state is coherent).
+            IF EXISTS (SELECT 1 FROM public.user_profiles
+                       WHERE stripe_subscription_id = p_subscription_id AND id <> p_user_id) THEN
+                RAISE EXCEPTION 'snapshot: subscription_id % already bound to a different profile', p_subscription_id;
+            END IF;
+            IF v_customer IS NOT NULL AND EXISTS (SELECT 1 FROM public.user_profiles
+                       WHERE stripe_customer_id = v_customer AND id <> p_user_id) THEN
+                RAISE EXCEPTION 'snapshot: customer_id % already bound to a different profile', v_customer;
+            END IF;
+            IF EXISTS (SELECT 1 FROM public.user_profiles
+                       WHERE id = p_user_id
+                         AND stripe_subscription_id IS NOT NULL
+                         AND stripe_subscription_id <> p_subscription_id) THEN
+                RAISE EXCEPTION 'snapshot: profile % already holds a different subscription id (conflicting billing identity)', p_user_id;
+            END IF;
+
             UPDATE public.user_profiles
             SET subscription_status   = CASE WHEN v_pro THEN 'pro' ELSE 'free' END,
                 stripe_subscription_id = CASE WHEN v_terminal THEN NULL ELSE p_subscription_id END,
@@ -86,8 +138,7 @@ BEGIN
                 RAISE EXCEPTION 'snapshot affected % profiles for user_id %', v_rows, p_user_id;
             END IF;
         ELSE
-            -- Subsequent state events: apply by the subscription id. A terminal snapshot that already
-            -- cleared the id matches nothing (no reactivation possible) — the current state is authoritative.
+            -- Subsequent state events: apply by the subscription id.
             UPDATE public.user_profiles
             SET subscription_status   = CASE WHEN v_pro THEN 'pro' ELSE 'free' END,
                 stripe_subscription_id = CASE WHEN v_terminal THEN NULL ELSE stripe_subscription_id END,
@@ -100,8 +151,18 @@ BEGIN
             IF v_rows > 1 THEN
                 RAISE EXCEPTION 'snapshot affected % profiles for subscription_id %', v_rows, p_subscription_id;
             END IF;
-            -- v_rows = 0 is acceptable: a terminal/lapsed subscription whose id was already cleared, or a
-            -- snapshot that arrives before the first activation bound the id. The Edge treats 0 as applied.
+
+            -- ZERO rows must NOT be a blanket success (that would swallow an unknown/mismatched identity and
+            -- deny Stripe its retry). Distinguish the two legitimate-vs-not cases via the durable tombstone:
+            --   • the id is TERMINAL (tombstoned) -> a stale snapshot for a dead subscription is a harmless
+            --     no-op; it can never reactivate, so accept it.
+            --   • otherwise -> the live subscription id maps to NO profile (unknown identity, or a state event
+            --     that arrived before first binding). Fail CLOSED so Stripe retries until the id is bound.
+            IF v_rows = 0 AND NOT EXISTS (
+                SELECT 1 FROM public.stripe_subscription_tombstones WHERE subscription_id = p_subscription_id
+            ) THEN
+                RAISE EXCEPTION 'snapshot: subscription_id % is not bound to any profile and is not terminal (status=%) — failing closed', p_subscription_id, v_status;
+            END IF;
         END IF;
 
         RETURN jsonb_build_object('success', true, 'rows', v_rows,

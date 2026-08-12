@@ -136,4 +136,73 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     expect(acl.has).toBe(false); // anon cannot execute
     await db.close();
   });
+
+  it('an active snapshot for an UNKNOWN subscription id FAILS CLOSED (no silent zero-row success)', async () => {
+    const db = new PGlite();
+    await db.exec(BOOTSTRAP);
+    await db.exec(MIGRATION);
+    // A profile exists, but bound to a DIFFERENT subscription id — SUB maps to nobody and is not terminal.
+    await db.exec(
+      `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
+       VALUES ('${USER}', 'pro', 'sub_other', 'cus_other')`,
+    );
+    const r = await snapshot(db, 'e_unknown', 'active', 1000); // later-event path, no user id, SUB unbound
+    expect(r.success).toBe('false');            // fail closed -> Edge returns non-2xx -> Stripe retries
+    expect(r.error).not.toBeNull();
+    const p = await profile(db);                // the unrelated profile is untouched
+    expect(p.subscription_status).toBe('pro');
+    expect(p.stripe_subscription_id).toBe('sub_other');
+    await db.close();
+  });
+
+  it('first binding REJECTS a subscription id already bound to another profile (no cross-profile rebind)', async () => {
+    const db = new PGlite();
+    await db.exec(BOOTSTRAP);
+    await db.exec(MIGRATION);
+    const OTHER = '00000000-0000-0000-0000-0000000000b9';
+    // SUB already belongs to OTHER (with its own customer); a checkout binding for USER must not steal it.
+    await db.exec(
+      `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
+       VALUES ('${OTHER}', 'pro', '${SUB}', 'cus_other')`,
+    );
+    await db.exec(`INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${USER}', 'free')`);
+    const r = await snapshot(db, 'e_collide', 'active', 1000, USER);
+    expect(r.success).toBe('false');
+    expect(r.error).not.toBeNull();
+    expect((await profile(db)).subscription_status).toBe('free'); // USER stays free
+    const other = (await db.query<{ s: string }>(
+      `SELECT stripe_subscription_id AS s FROM public.user_profiles WHERE id='${OTHER}'`)).rows[0];
+    expect(other.s).toBe(SUB); // OTHER keeps its subscription
+    await db.close();
+  });
+
+  it('first binding REJECTS a profile that already holds a different live subscription id (conflicting billing identity)', async () => {
+    const db = new PGlite();
+    await db.exec(BOOTSTRAP);
+    await db.exec(MIGRATION);
+    // USER already has a live subscription; a new checkout for a different sub must fail closed, not overwrite.
+    await db.exec(
+      `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
+       VALUES ('${USER}', 'pro', 'sub_existing', '${CUS}')`,
+    );
+    const r = await snapshot(db, 'e_conflict', 'active', 1000, USER); // tries to bind SUB while sub_existing lives
+    expect(r.success).toBe('false');
+    expect(r.error).not.toBeNull();
+    expect((await profile(db)).stripe_subscription_id).toBe('sub_existing'); // unchanged
+    await db.close();
+  });
+
+  it('terminal-late-event convergence: after cancel, LATE active AND past_due snapshots are no-op success', async () => {
+    const db = await freshDbWithPaidPro();
+    expect((await snapshot(db, 't_cancel', 'canceled', 5000)).error).toBeNull();
+    expect((await profile(db)).stripe_subscription_id).toBeNull(); // cleared + tombstoned
+    // Out-of-order stale events for the dead subscription converge to Free (cannot reactivate, not unknown).
+    expect((await snapshot(db, 't_active', 'active', 1000)).error).toBeNull();
+    expect((await snapshot(db, 't_pastdue', 'past_due', 2000)).error).toBeNull();
+    const p = await profile(db);
+    expect(p.subscription_status).toBe('free');
+    expect(p.stripe_subscription_id).toBeNull();
+    expect(await tier(db)).toBe('free');
+    await db.close();
+  });
 });
