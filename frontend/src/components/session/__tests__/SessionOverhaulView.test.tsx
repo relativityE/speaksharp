@@ -1,4 +1,5 @@
 import { render, screen } from '../../../../tests/support/test-utils';
+import { fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
 import type { SttStatus } from '@/types/transcription';
@@ -23,6 +24,7 @@ describe('SessionOverhaulView (#1222 S11)', () => {
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
         expect(screen.getByTestId('mic-card')).toBeInTheDocument();
         expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
+        expect(screen.getByTestId('comparable-progress-notice')).toHaveTextContent('No universal score');
     });
 
     it('listening runtime → during state (recorder bar + live transcript)', () => {
@@ -85,16 +87,21 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
         expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
         expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
+        expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
     });
 
     it('objective after → coverage count, missed-point reason, retry + delivery strip', () => {
         render(<SessionOverhaulView {...base} objectivePoints={POINTS} showAnalyticsPrompt transcriptContent="I will name the price now." elapsedTime={84} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        // §Duplication acceptance check: the coverage fraction appears EXACTLY ONCE (Slot C). The transcript
+        // header must NOT repeat it as a second "n of m points covered" scoreboard.
+        expect(screen.queryByText(/of 2 points covered/i)).toBeNull();
         // The missed point is the most important line — it names the honest cause + the forward move.
         expect(screen.getByTestId('focus-point-1-not-detected')).toBeInTheDocument();
         expect(screen.getByTestId('focus-points-retry')).toBeInTheDocument();
         expect(screen.getByTestId('focus-delivery-strip')).toBeInTheDocument();
+        expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
     });
 
     it('no brief (Open Mic) → no coverage/pace card / points rail; the prompt offer is present', () => {
@@ -102,5 +109,123 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByTestId('coverage-pace')).toBeNull();
         expect(screen.queryByTestId('focus-points-rail')).toBeNull();
         expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
+    });
+
+    // #1046 G6/G7 — on save the LIVE brief is cleared (isolation invariant), so the after-state must fall
+    // back to the finished-brief SNAPSHOT or the whole FP review screen (coverage card, delivery strip,
+    // highlights) silently reverts to the generic Open-Mic screen. This is the bug the width-regression
+    // e2e caught in the real save→render flow.
+    it('objective after via the completed SNAPSHOT (live brief cleared on save) → FP review still renders', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={null}
+                completedObjectivePoints={POINTS}
+                showAnalyticsPrompt
+                transcriptContent="I will name the price now."
+                elapsedTime={84}
+            />,
+        );
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('focus-delivery-strip')).toBeInTheDocument();
+        expect(screen.getByTestId('focus-points-rail')).toBeInTheDocument();
+    });
+
+    // Isolation: the snapshot must NEVER make a fresh before/during session look like Focus Points — only
+    // the after-state consults it. A new Open Mic session with a lingering snapshot stays Open Mic.
+    it('completed snapshot is IGNORED in before/during (fresh Open Mic stays Open Mic)', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={null} completedObjectivePoints={POINTS} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        expect(screen.queryByTestId('coverage-pace')).toBeNull();
+        expect(screen.queryByTestId('focus-points-rail')).toBeNull();
+        expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
+    });
+
+    // #1256 P1 — the snapshot-only after-state scores the FINISHED take, whose duration lives in
+    // `scoringElapsedSeconds`. The live `elapsedTime` normalizes to 0 once idle, so without this the
+    // "<duration> actual" pace line (and per-point timing) rendered 0:00.
+    it('after-state shows the recorded duration from scoringElapsedSeconds (not the reset live timer)', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={null}
+                completedObjectivePoints={POINTS}
+                completedObjectivePaceGuideSecPerPoint={60}
+                showAnalyticsPrompt
+                transcriptContent="I will name the price now."
+                elapsedTime={0}
+                scoringElapsedSeconds={84}
+            />,
+        );
+        // The after-state pace card reports "<duration> actual" — must reflect the finished 1:24 take.
+        expect(screen.getByTestId('coverage-pace-projection')).toHaveTextContent('1:24 actual');
+    });
+
+    // Contrast/regression guard: with no scoring duration it falls back to the live timer, and a reset
+    // live timer (0) is exactly the 0:00 defect — proving `scoringElapsedSeconds` is the fix lever.
+    it('after-state duration falls back to the live timer without scoringElapsedSeconds (0:00 guard)', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={null}
+                completedObjectivePoints={POINTS}
+                completedObjectivePaceGuideSecPerPoint={60}
+                showAnalyticsPrompt
+                transcriptContent="I will name the price now."
+                elapsedTime={0}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-projection')).toHaveTextContent('0:00 actual');
+    });
+
+    // #1256 P1 — "Retry these points" must route to the rebinding onRetryPoints handler, never the generic
+    // onStartStop (which starts an Open Mic take because the live brief was cleared on save).
+    it('Retry these points invokes onRetryPoints (rebind), not onStartStop', () => {
+        const onRetryPoints = vi.fn();
+        const onStartStop = vi.fn();
+        render(
+            <SessionOverhaulView
+                {...base}
+                onStartStop={onStartStop}
+                onRetryPoints={onRetryPoints}
+                objectivePoints={null}
+                completedObjectivePoints={POINTS}
+                showAnalyticsPrompt
+                transcriptContent="I will name the price now."
+                elapsedTime={0}
+                scoringElapsedSeconds={84}
+            />,
+        );
+        fireEvent.click(screen.getByTestId('focus-points-retry'));
+        expect(onRetryPoints).toHaveBeenCalledTimes(1);
+        expect(onStartStop).not.toHaveBeenCalled();
+    });
+});
+
+// #1264 — optional Open Mic Practice Focus. The chooser lives in the before-state coaching slot (Open Mic
+// only), the chosen intention shows as a non-scoring reminder while recording, and it never appears on a
+// Focus Points session (which owns slot D with its rail).
+describe('SessionOverhaulView Practice Focus (#1264)', () => {
+    it('Open Mic before → the focus chooser is present and selecting calls onSelectFocus', () => {
+        const onSelectFocus = vi.fn();
+        render(<SessionOverhaulView {...base} onSelectFocus={onSelectFocus} practiceFocus={null} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        expect(screen.getByTestId('practice-focus-chooser')).toBeInTheDocument();
+        fireEvent.click(screen.getByTestId('practice-focus-reduce_fillers'));
+        expect(onSelectFocus).toHaveBeenCalledWith('reduce_fillers');
+    });
+
+    it('Open Mic during → the chosen focus shows as a non-scoring reminder', () => {
+        render(<SessionOverhaulView {...base} isListening transcriptContent="so hello there" elapsedTime={30} practiceFocus="steady_pace" />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
+        expect(screen.getByTestId('practice-focus-reminder')).toHaveTextContent(/Steady pace/i);
+    });
+
+    it('Focus Points before → NO focus chooser (slot D is the points rail, not coaching)', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={['Name the price']} onSelectFocus={vi.fn()} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        expect(screen.queryByTestId('practice-focus-chooser')).toBeNull();
+        expect(screen.getByTestId('focus-points-rail')).toBeInTheDocument();
     });
 });

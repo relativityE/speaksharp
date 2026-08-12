@@ -68,7 +68,7 @@ const OBJECTIVE_STEPS: readonly { action: string; detail: string }[] = [
     },
     {
         action: 'See what you covered',
-        detail: 'Each point is marked covered or missed, so you know exactly what to retry.',
+        detail: 'Each point is marked covered or not detected, so you know exactly what to retry.',
     },
 ];
 // a11y description (Radix requires one); the visible content is the title + three items.
