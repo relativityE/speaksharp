@@ -199,3 +199,30 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(onStartStop).not.toHaveBeenCalled();
     });
 });
+
+// #1264 — optional Open Mic Practice Focus. The chooser lives in the before-state coaching slot (Open Mic
+// only), the chosen intention shows as a non-scoring reminder while recording, and it never appears on a
+// Focus Points session (which owns slot D with its rail).
+describe('SessionOverhaulView Practice Focus (#1264)', () => {
+    it('Open Mic before → the focus chooser is present and selecting calls onSelectFocus', () => {
+        const onSelectFocus = vi.fn();
+        render(<SessionOverhaulView {...base} onSelectFocus={onSelectFocus} practiceFocus={null} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        expect(screen.getByTestId('practice-focus-chooser')).toBeInTheDocument();
+        fireEvent.click(screen.getByTestId('practice-focus-reduce_fillers'));
+        expect(onSelectFocus).toHaveBeenCalledWith('reduce_fillers');
+    });
+
+    it('Open Mic during → the chosen focus shows as a non-scoring reminder', () => {
+        render(<SessionOverhaulView {...base} isListening transcriptContent="so hello there" elapsedTime={30} practiceFocus="steady_pace" />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
+        expect(screen.getByTestId('practice-focus-reminder')).toHaveTextContent(/Steady pace/i);
+    });
+
+    it('Focus Points before → NO focus chooser (slot D is the points rail, not coaching)', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={['Name the price']} onSelectFocus={vi.fn()} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        expect(screen.queryByTestId('practice-focus-chooser')).toBeNull();
+        expect(screen.getByTestId('focus-points-rail')).toBeInTheDocument();
+    });
+});

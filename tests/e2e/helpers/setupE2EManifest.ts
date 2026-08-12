@@ -639,6 +639,11 @@ export async function setupE2EManifest(
         if (fn === 'heartbeat_session') {
           return { data: { success: true }, error: null };
         }
+        // #1264 — accepting "Practice this next": the RPC returns the new pending attempt id (a string),
+        // which the client stores as its repeat handoff before routing back into Open Mic.
+        if (fn === 'record_recommendation_attempt') {
+          return { data: `attempt-${String(args?.p_recommendation_id ?? 'x')}`, error: null };
+        }
         // #1093 server-authoritative streak. The setter is initialize-once; echo the requested zone.
         if (fn === 'set_user_timezone') {
           return { data: (args?.p_timezone as string) ?? 'UTC', error: null };

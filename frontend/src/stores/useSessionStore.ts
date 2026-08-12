@@ -8,6 +8,8 @@ import { SttStatus, HistorySegment } from '@/types/transcription';
 import type { FinalizeEngineKey } from '@/services/transcription/finalizeRateStore';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import { ENV } from '@/config/TestFlags';
+import type { PracticeFocus } from '@/constants/practiceFocus';
+import { isPracticeFocus } from '@/constants/practiceFocus';
 import { syncForensicAnchors } from '@/lib/forensicAnchors';
 
 /**
@@ -106,6 +108,13 @@ export interface SessionState {
      */
     activeObjectiveBrief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null;
     /**
+     * #1264 — the optional Open Mic "Practice Focus" intention (or null). Unlike the objective brief, this
+     * is NOT cleared on recording start: it persists so a "Practice this next" repeat keeps the same
+     * intention. It is display-only — never a score, never part of the persisted session analysis, and it
+     * never changes transcript truth or engine policy.
+     */
+    practiceFocus: PracticeFocus | null;
+    /**
      * #1046 G6/G7 — a SNAPSHOT of the brief captured at save, when `activeObjectiveBrief` is cleared to
      * preserve the isolation invariant. The after-state (review screen) reads this so its Focus Points
      * coverage card, delivery strip, and highlights survive the save. Cleared when the next recording
@@ -157,6 +166,7 @@ interface SessionActions {
     setCaptureLimitReached: (info: { bufferedSeconds: number; limitSeconds: number } | null) => void;
     setCompletedSessionDuration: (seconds: number | null) => void;
     setActiveObjectiveBrief: (brief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null) => void;
+    setPracticeFocus: (focus: PracticeFocus | null) => void;
     setCompletedObjectiveBrief: (brief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null) => void;
     setObjectiveCoverageResult: (rows: ObjectiveCoverageRow[] | null) => void;
     setPauseMetrics: (metrics: PauseMetrics) => void;
@@ -169,6 +179,24 @@ interface SessionActions {
 }
 
 export type SessionStore = SessionState & SessionActions;
+
+// #1264 — Practice Focus persists in sessionStorage so a "Practice this next" repeat (even one that
+// re-navigates or reloads within the tab) keeps the chosen intention. Session-scoped: it clears when the
+// tab closes, which is the right lifetime for a per-practice-session intention. Fails open (best-effort).
+const PRACTICE_FOCUS_KEY = 'speaksharp_practice_focus_v1';
+const readPracticeFocus = (): PracticeFocus | null => {
+  try {
+    const v = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(PRACTICE_FOCUS_KEY) : null;
+    return isPracticeFocus(v) ? v : null;
+  } catch { return null; }
+};
+const writePracticeFocus = (v: PracticeFocus | null): void => {
+  try {
+    if (typeof sessionStorage === 'undefined') return;
+    if (v) sessionStorage.setItem(PRACTICE_FOCUS_KEY, v);
+    else sessionStorage.removeItem(PRACTICE_FOCUS_KEY);
+  } catch { /* best-effort */ }
+};
 
 const initialState: SessionState = {
     runtimeState: 'IDLE',
@@ -197,6 +225,7 @@ const initialState: SessionState = {
     captureLimitReached: null,
     completedSessionDurationSeconds: null,
     activeObjectiveBrief: null,
+    practiceFocus: readPracticeFocus(),
     completedObjectiveBrief: null,
     objectiveCoverageResult: null,
     pauseMetrics: {
@@ -477,6 +506,7 @@ export const useSessionStore = create<SessionStore>((set) => {
 
     setCompletedSessionDuration: (completedSessionDurationSeconds) => set({ completedSessionDurationSeconds }),
     setActiveObjectiveBrief: (activeObjectiveBrief) => set({ activeObjectiveBrief }),
+    setPracticeFocus: (practiceFocus) => { writePracticeFocus(practiceFocus); set({ practiceFocus }); },
     setCompletedObjectiveBrief: (completedObjectiveBrief) => set({ completedObjectiveBrief }),
     setObjectiveCoverageResult: (objectiveCoverageResult) => set({ objectiveCoverageResult }),
 

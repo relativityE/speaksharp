@@ -58,6 +58,8 @@ export const SessionPage: React.FC = () => {
     // points (before/during) then their resolved coverage (after), and the header help reads "How Focus
     // Points works". null ⇒ an Open Mic session (unchanged).
     const activeObjectiveBrief = useSessionStore(state => state.activeObjectiveBrief);
+    // #1264 — the optional Open Mic Practice Focus (persists through a "Practice this next" repeat).
+    const practiceFocus = useSessionStore(state => state.practiceFocus);
     // #1046 G6/G7 — the finished-brief snapshot, so the after-state review keeps its Focus Points coverage
     // after the live brief is cleared on save (see SpeechRuntimeController / SessionOverhaulView).
     const completedObjectiveBrief = useSessionStore(state => state.completedObjectiveBrief);
@@ -447,6 +449,8 @@ export const SessionPage: React.FC = () => {
                     completedObjectiveTopic={completedObjectiveBrief?.topic ?? null}
                     completedObjectivePaceGuideSecPerPoint={completedObjectiveBrief?.paceGuideSecPerPoint ?? null}
                     objectiveCoverage={objectiveCoverageResult}
+                    practiceFocus={practiceFocus}
+                    onSelectFocus={(focus) => useSessionStore.getState().setPracticeFocus(focus)}
                     // #1256 P1 — "Retry these points" must REBIND the finished brief before starting, or the
                     // retry becomes an Open Mic take (the live brief was cleared on save) and can never
                     // finalize the saved point set. Rebinding restores it as the active Focus Points brief.

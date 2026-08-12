@@ -16,6 +16,7 @@ import { FocusPointsRail } from './FocusPointsRail';
 import { useFocusNudge } from '@/hooks/useFocusNudge';
 import { FocusDeliveryStrip } from './FocusDeliveryStrip';
 import { deriveFocusCoverage, markCoveredTokens, type FocusCoverage } from '@/utils/focusCoverage';
+import type { PracticeFocus } from '@/constants/practiceFocus';
 import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptTokens';
 import { liveTipFromMetrics, verdictFromSuggestions, type TwoTakeaways } from '@/utils/liveCoaching';
@@ -102,6 +103,9 @@ export interface SessionOverhaulViewProps {
     onEditPoints?: () => void;
     onRetryPoints?: () => void;
     onNewSet?: () => void;
+    /** #1264 — the optional Open Mic Practice Focus + setter. Open Mic only; display-only intention. */
+    practiceFocus?: PracticeFocus | null;
+    onSelectFocus?: (focus: PracticeFocus) => void;
 }
 
 export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
@@ -136,6 +140,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     onEditPoints,
     onRetryPoints,
     onNewSet,
+    practiceFocus,
+    onSelectFocus,
 }) => {
     const permissionError = sttStatus.type === 'error';
     const sessionState = resolveSessionState({
@@ -313,6 +319,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 <SessionBeforeState
                     hideSlotC={isObjective}
                     slotDContent={objectivePlanSlotD}
+                    // #1264 — the Practice Focus chooser is Open Mic only; Focus Points owns slot D (the rail).
+                    practiceFocus={isObjective ? null : practiceFocus}
+                    onSelectFocus={isObjective ? undefined : onSelectFocus}
                     mic={{
                         onStart: onStartStop,
                         error: permissionError ? sttStatus.message : null,
@@ -358,6 +367,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         const showReopenChip = !isObjective && promptAutoHidden;
         return (
             <SessionDuringState
+                practiceFocus={isObjective ? null : practiceFocus}
                 recorder={{ elapsedSeconds: elapsedTime, amplitudes, recordedCount, deviceLabel: 'Private', onStop: onStartStop }}
                 transcript={{
                     tokens: isObjective ? fpDuringTokens : duringTokens,
