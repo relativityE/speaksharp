@@ -150,6 +150,36 @@ describe('private sample telemetry — session context + safety', () => {
         expect(() => emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ERROR, { error_code: 'X' })).not.toThrow();
     });
 
+    // #1259 P2 — the SECOND redaction boundary must sit on the REAL emit path. emitPrivateSample captures
+    // directly to PostHog (it does NOT route through AnalyticsBuffer), so this asserts the actual wire
+    // payload handed to posthog.capture — not a mirror or an alternate buffer path — is content-free even
+    // when a caller passes prohibited fields (transcript/audio/email/nested/array/raw ids).
+    it('the wire payload to posthog.capture is content-free on the real emit path', () => {
+        setPrivateSampleContext({ engine_variant: 'private_v4', assignment_source: 'allowlist', session_id: 's9' });
+        emitPrivateSample(PRIVATE_SAMPLE_EVENTS.RECORDING_STARTED, {
+            time_to_first_text_ms: 700, // allowlisted → survives
+            transcript: 'raw spoken words that must never leave the device',
+            audio: 'BASE64AUDIO',
+            email: 'user@example.com',
+            user_id: 'auth-uuid-should-not-ride-along',
+            segments: [{ text: 'x' }],
+            nested: { blob: 'y' },
+        });
+        expect(captureMock).toHaveBeenCalledTimes(1);
+        const [eventName, payload] = captureMock.mock.calls[0] as [string, Record<string, unknown>];
+        expect(eventName).toBe('private_sample_recording_started');
+        // Allowlisted primitives (context + explicit) survive to the wire…
+        expect(payload).toMatchObject({ engine_variant: 'private_v4', session_id: 's9', time_to_first_text_ms: 700 });
+        // …and NOTHING outside the allowlist reaches posthog.capture.
+        for (const forbidden of ['transcript', 'audio', 'email', 'user_id', 'segments', 'nested', 'text', 'raw', 'tokens']) {
+            expect(payload).not.toHaveProperty(forbidden);
+        }
+        // Every surviving key is on the Private allowlist (no field slipped past the send boundary).
+        for (const key of Object.keys(payload)) {
+            expect(PRIVATE_SAMPLE_ALLOWED_PROPS as readonly string[]).toContain(key);
+        }
+    });
+
     it('mirrors only sanitized (non-PII) events to window for the live e2e to read', () => {
         const w = window as unknown as { __SS_PRIVATE_SAMPLE_EVENTS__?: Array<Record<string, unknown>> };
         w.__SS_PRIVATE_SAMPLE_EVENTS__ = [];

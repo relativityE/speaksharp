@@ -123,10 +123,34 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
     const outcome = view.latestAttempt?.outcome;
     const pendingAttemptId = view.latestAttempt?.lifecycle === 'pending' ? view.latestAttempt.id : null;
     return shell(<>
-        <p className="text-sm text-foreground/80" data-testid="progress-direction">{view.direction.text}</p>
-        <dl className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-lg border border-primary/25 bg-background p-4" data-testid="progress-practice-next">
+            <p className="text-xs font-bold uppercase tracking-wide text-foreground">{PRACTICE_THIS_NEXT_LABEL}</p>
+            <p className="mt-1 text-lg font-semibold text-foreground">{view.takeaways.practiceThisNext}</p>
+            {!pendingAttemptId && !actionError && (
+                <Button className="mt-3" type="button" onClick={() => { void onAccept(); }} disabled={accepting || !view.recommendationId} data-testid="progress-accept">
+                    {accepting ? 'Linking repeat…' : PRACTICE_THIS_NEXT_LABEL}
+                </Button>
+            )}
+        </div>
+        <div className="space-y-1" aria-label="Supporting comparison evidence">
+            <p className="text-sm text-foreground/80" data-testid="progress-direction">{view.direction.text}</p>
+            <p className="text-xs text-foreground/80" data-testid="progress-baseline-context">{view.baselineContext}</p>
+            {view.disclosure && (
+                <details className="text-xs text-foreground/70" data-testid="progress-disclosure">
+                    <summary className="cursor-pointer text-foreground/80">How this was measured</summary>
+                    <dl className="mt-1 space-y-0.5">
+                        <div><dt className="inline font-semibold">Compared with:</dt>{' '}
+                            <dd className="inline" data-testid="progress-disclosure-reference">{view.disclosure.referenceRole} (session {view.disclosure.referenceSessionId}){view.disclosure.alsoFirstComparable ? ', also your first-session baseline' : ''}</dd></div>
+                        <div><dt className="inline font-semibold">Recording cohort:</dt>{' '}
+                            <dd className="inline" data-testid="progress-disclosure-cohort">{view.disclosure.cohortKey}</dd></div>
+                        <div><dt className="inline font-semibold">Inputs:</dt>{' '}
+                            <dd className="inline" data-testid="progress-disclosure-inputs">this session {view.disclosure.currentClarityPoints} vs {view.disclosure.referenceClarityPoints} {view.disclosure.units} ({view.disclosure.deltaPoints >= 0 ? '+' : ''}{view.disclosure.deltaPoints} {view.disclosure.units}{view.disclosure.deltaPercent !== null ? `, ${view.disclosure.deltaPercent >= 0 ? '+' : ''}${(Math.round(view.disclosure.deltaPercent * 10) / 10).toFixed(1)}%` : ', no defensible percentage'})</dd></div>
+                    </dl>
+                </details>
+            )}
+        </div>
+        <dl>
             <div data-testid="progress-what-worked"><dt className="text-xs font-semibold uppercase tracking-wide text-foreground">Evidence-backed observation</dt><dd className="mt-0.5 text-sm text-foreground/80">{view.takeaways.whatWorked}</dd></div>
-            <div data-testid="progress-practice-next"><dt className="text-xs font-semibold uppercase tracking-wide text-foreground">{PRACTICE_THIS_NEXT_LABEL}</dt><dd className="mt-0.5 text-sm text-foreground/80">{view.takeaways.practiceThisNext}</dd></div>
         </dl>
         {view.latestAttempt && <p data-testid="progress-attempt-outcome" className="text-sm text-foreground/80">{
             view.latestAttempt.lifecycle === 'pending' ? 'Your linked repeat is pending.'
@@ -142,7 +166,6 @@ export const ProgressPanel: React.FC<{ session: Pick<PracticeSession, 'id'> }> =
                 {reconcilingPending ? 'Closing pending repeat…' : 'Close pending repeat'}
             </Button>
         </div>}
-        {!pendingAttemptId && !actionError && <Button type="button" onClick={() => { void onAccept(); }} disabled={accepting || !view.recommendationId} data-testid="progress-accept">{accepting ? 'Linking repeat…' : PRACTICE_THIS_NEXT_LABEL}</Button>}
     </>);
 };
 

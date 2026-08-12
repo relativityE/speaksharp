@@ -9,7 +9,7 @@ import React from 'react';
  * re-find anything. The slots' CONTENT is passed in and swaps per state; the WRAPPERS never remount or
  * reorder.
  *
- * Layout (spec §1): `grid-template-columns: 1.55fr 1fr`. Left column and rail are each a flex column;
+ * Layout: one stacked column on phones; `grid-template-columns: 1.55fr 1fr` from the md breakpoint. Left column and rail are each a flex column;
  * slot A/C size to content, slot B/D take the remaining height (`flex:1`) so no card stretches past its
  * content with nothing to fill it.
  */
@@ -33,8 +33,7 @@ export const SessionShell: React.FC<SessionShellProps> = ({ sessionState, slotA,
         <div
             data-testid="session-shell"
             data-session-state={sessionState}
-            className={className}
-            style={{ display: 'grid', gridTemplateColumns: '1.55fr 1fr', gap: 22, alignItems: 'stretch' }}
+            className={`grid grid-cols-1 items-stretch gap-[22px] md:grid-cols-[1.55fr_1fr] ${className ?? ''}`}
         >
             {/* Left column: A sizes to content, B fills. */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
