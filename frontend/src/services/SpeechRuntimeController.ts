@@ -3649,35 +3649,10 @@ export class SpeechRuntimeController {
                                     .filter((c) => c.isFinal)
                                     .map((c) => ({ text: c.transcript, startSec: c.timestamp }));
                                 const durationSeconds = useSessionStore.getState().completedSessionDurationSeconds ?? 0;
-                                void import('@/services/objective/finalizeObjectiveSessionOnSave').then(({ finalizeObjectiveSessionOnSave }) =>
-                                    finalizeObjectiveSessionOnSave({
-                                        projectId: objectiveBrief.projectId,
-                                        briefId: objectiveBrief.briefId,
-                                        sourceSessionId: sessionId,
-                                        idempotencyKey: sessionId,
-                                        segments,
-                                        durationSeconds,
-                                    }).then((objResult) => {
-                                        // #1046 slice 5a: publish per-point coverage for the settled Session
-                                        // page's Focus Points rail. FAILS CLOSED — only a fully-successful
-                                        // finalize carrying coverage publishes a rail; any failed stage leaves
-                                        // objectiveCoverageResult null, so a broken session shows no rail rather
-                                        // than a fabricated one.
-                                        if (objResult.ok && objResult.coverage) {
-                                            useSessionStore.getState().setObjectiveCoverageResult(
-                                                objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
-                                            );
-                                        }
-                                        // #1265: evaluate this Focus Points session's Progress ONLY if its
-                                        // objective registration DURABLY succeeded — so it is cohorted 'objective',
-                                        // never 'freeform'. `registered` is the explicit, throw-surviving signal from
-                                        // finalize; a later objective stage failing does NOT prevent evaluation
-                                        // (the recording IS a confirmed Focus Points source), but a registration
-                                        // failure/ambiguous outcome writes NO evaluation. There is no registration
-                                        // retry — a failed registration means Progress is unavailable for this take.
-                                        if (objResult.registered) runProgressEval();
-                                    }),
-                                ).catch((objErr) => logger.warn({ objErr, sessionId }, '[controller] objective finalization failed (non-fatal)'));
+                                void this.finalizeObjectiveAndGateProgress(
+                                    { projectId: objectiveBrief.projectId, briefId: objectiveBrief.briefId },
+                                    sessionId, segments, durationSeconds, runProgressEval,
+                                );
                             } else {
                                 // Open Mic (or no brief / no metrics): evaluate immediately.
                                 runProgressEval();
@@ -3775,6 +3750,48 @@ export class SpeechRuntimeController {
                 throw err;
             }
         });
+    }
+
+    /**
+     * #1265: finalize a Focus Points recording's objective evidence, publish its per-point coverage rail,
+     * and gate the session's Progress evaluation on DURABLE objective registration. Extracted so the
+     * cohort-safety invariant is DIRECTLY testable:
+     *   • register failure (registered=false)  -> NO Progress evaluation (never cohorted 'freeform');
+     *   • later objective-stage failure but registered=true -> evaluation STILL runs (the recording is a
+     *     confirmed Focus Points source, so its Progress belongs to the 'objective' cohort);
+     *   • ambiguous throw (finalize rejects)    -> NO evaluation (registration state is unknown → fail closed).
+     * There is no registration retry — a failed registration means Progress is unavailable for this take.
+     * Open Mic (no brief) never reaches here; it evaluates immediately at the call site.
+     * The seam is strictly non-fatal: any objective failure is logged and swallowed, never breaking save.
+     */
+    private async finalizeObjectiveAndGateProgress(
+        brief: { projectId: string; briefId: string },
+        sessionId: string,
+        segments: { text: string; startSec: number }[],
+        durationSeconds: number,
+        runProgressEval: () => void,
+    ): Promise<void> {
+        try {
+            const { finalizeObjectiveSessionOnSave } = await import('@/services/objective/finalizeObjectiveSessionOnSave');
+            const objResult = await finalizeObjectiveSessionOnSave({
+                projectId: brief.projectId,
+                briefId: brief.briefId,
+                sourceSessionId: sessionId,
+                idempotencyKey: sessionId,
+                segments,
+                durationSeconds,
+            });
+            // Publish per-point coverage ONLY on a fully-successful finalize carrying coverage; any failed
+            // stage leaves objectiveCoverageResult null, so a broken session shows no rail (never fabricated).
+            if (objResult.ok && objResult.coverage) {
+                useSessionStore.getState().setObjectiveCoverageResult(
+                    objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
+                );
+            }
+            if (objResult.registered) runProgressEval();
+        } catch (objErr) {
+            logger.warn({ objErr, sessionId }, '[controller] objective finalization failed (non-fatal)');
+        }
     }
 
     public async ensureReady(options: { skipIfDownloadPending?: boolean } = {}): Promise<void> {
