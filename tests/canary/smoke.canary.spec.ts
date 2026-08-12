@@ -75,16 +75,21 @@ async function assertDeployedReleaseIsLive(page: Page) {
  * becomes a ready Start control. If the model is already cached, the mic is already a ready Start control.
  */
 async function ensurePrivateReady(page: Page) {
-    const modeSelect = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
-    await expect(modeSelect).toHaveAttribute('data-state', 'private', { timeout: 15000 });
-
-    const mic = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-    const label = await mic.getAttribute('aria-label');
-    if (label && /Set up Private/i.test(label)) {
-        await mic.click(); // triggers the on-device model download; no network transcription is performed
-        await expect(mic).toHaveAttribute('aria-label', 'Start Recording', { timeout: 120000 });
+    // #1184 Private-only: there is no engine selector anymore. The shipped session page (MicCard, via
+    // SessionOverhaulView) renders the recorder control as `mic-download` while the on-device Private model
+    // still needs its one-time download, then `mic-start` once ready (disabled while the download runs,
+    // enabled when the model is loaded). On a cold canary browser the model is not cached.
+    const downloadBtn = page.getByTestId('mic-download');
+    const startBtn = page.getByTestId('mic-start');
+    // The recorder control is present in one of its two states before we ready it.
+    await expect(downloadBtn.or(startBtn).first()).toBeVisible({ timeout: 15000 });
+    if (await downloadBtn.count() > 0) {
+        // Trigger the on-device model download; no network transcription is performed.
+        await downloadBtn.first().click();
     }
-    await expect(mic).toBeEnabled({ timeout: 15000 });
+    // Once the model is loaded, the control is `mic-start` and enabled. The download can take a while on a
+    // cold machine, so allow a generous budget.
+    await expect(startBtn).toBeEnabled({ timeout: 120000 });
 }
 
 
@@ -151,8 +156,10 @@ test.describe('Production Smoke Canary @canary', () => {
 
         // 🔹 SCHEMA CHECK: User Profile
         // Verify that the profile loaded correctly and reflects the subscription status
-        // This implicitly validates the 'user_profiles' table schema
-        await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 15000 });
+        // This implicitly validates the 'user_profiles' table schema. The shipped recorder control is
+        // `mic-download` (one-time model gate) or `mic-start` (ready) — never the retired
+        // `session-start-stop-button` from the removed LiveRecordingCard.
+        await expect(page.getByTestId('mic-download').or(page.getByTestId('mic-start')).first()).toBeVisible({ timeout: 15000 });
 
         // 🔹 ENTITLEMENT + AFFORDANCE CHECK (post-#1047, replaces the stale tier-affordance selectors).
         // The old check asserted PRIVATE_SAMPLE_SETUP_BUTTON / "Private sample: up to 5 minutes" — both
@@ -183,28 +190,38 @@ test.describe('Production Smoke Canary @canary', () => {
             await expect(page.getByTestId(TEST_IDS.PRO_BADGE)).toBeVisible({ timeout: 15000 });
         }
         await expect(page.getByTestId('private-trial-nudge')).toHaveCount(0);
-        await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible();
+        await expect(page.getByTestId('mic-download').or(page.getByTestId('mic-start')).first()).toBeVisible();
 
         // 3. Confirm the Private engine surface and make the recorder ready (on-device model; $0).
         debugLog('[CANARY] Confirming Private STT and readying the recorder...');
         await ensurePrivateReady(page);
 
-        // 4. Start Session
+        // 4. Start Session — the readied recorder control is `mic-start`.
         debugLog('[CANARY] Starting session...');
-        const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+        const startButton = page.getByTestId('mic-start');
         await expect(startButton).toBeEnabled();
         await startButton.click();
 
         // Wait for session to become active
         await page.waitForSelector('[data-testid="session-status-indicator"]', { timeout: 10000 });
 
+        // #1267 P1 — PROVE the ACTIVE recording engine is Private, not merely that a recorder control was
+        // visible. The live session header (StatusNotificationBar) exposes the resolved engine on
+        // `data-engine` (the store's `activeEngine`, which is literally `private` for on-device Private STT).
+        // Asserting it here means the canary can NEVER pass while a non-Private engine (Browser/Cloud) is
+        // the one actually transcribing — the core privacy guarantee of the Practice Loop.
+        await expect(
+            page.locator('[data-testid="live-session-header"][data-engine="private"]'),
+        ).toBeVisible({ timeout: 10000 });
+        debugLog('[CANARY] Confirmed active recording engine is Private (data-engine="private").');
+
         // 5. Record for 5 seconds
         debugLog('[CANARY] Recording for 5 seconds...');
         await page.waitForTimeout(5000);
 
-        // 6. Stop Session
+        // 6. Stop Session — the during-state RecorderBar exposes `recorder-stop`.
         debugLog('[CANARY] Stopping session...');
-        await page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
+        await page.getByTestId('recorder-stop').click();
 
         // 7. Handle session end (dialog, empty state, or redirect)
         const dialogLocator = page.locator('div[role="alertdialog"]');
