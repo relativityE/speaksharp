@@ -112,7 +112,7 @@ Every displayed and persisted delivery metric has **one** definition, shared acr
 |---|---|---|---|---|
 | Filler rate | fillers/min | linear to 0 at **10** fillers/min; lower is better | lower = better | `FILLER_RATE_ZERO_QUALITY = 10` |
 | Clarity | 0..100 | the value itself (÷100); higher is better | higher = better | `sessions.clarity_score` (evidence input, never a user score) |
-| Pace | words/min (WPM) | inside the band **[120, 160]** = 1; linear falloff over **60** WPM outside | banded (faster is not blindly better) | `PACE_IDEAL = [120,160]`, `PACE_TOLERANCE = 60` |
+| Pace | words/min (WPM) | inside the band **[130, 150]** = 1; linear falloff over **60** WPM outside | banded (faster is not blindly better) | `PACE_IDEAL = [130,150]` (the shared 130–150 authority — `ANALYTICS_THRESHOLDS.TARGET_WPM_MIN/MAX`), `PACE_TOLERANCE = 60` |
 | Pause rhythm | % of session that is silence | inside the band **[5, 20]%** = 1; linear falloff over **20** pp outside | banded | `SILENCE_IDEAL = [5,20]`, `SILENCE_TOLERANCE = 20` |
 
 **Comparability rules (both gates):**

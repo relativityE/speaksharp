@@ -1,5 +1,5 @@
 import type { PracticeSession } from '@/types/session';
-import { validatedFillerTotal, getSessionAnalysisMetrics } from './sessionAnalysis';
+import { validatedFillerTotal, getSessionAnalysisMetrics, ANALYTICS_THRESHOLDS } from './sessionAnalysis';
 import { hasValidPauseEvidence } from './metricValidity';
 
 /**
@@ -24,7 +24,10 @@ export const MIN_COMPARABLE_SECONDS = 30;
 
 // ── MVP tunables (adjust from feedback; #1206) ──────────────────────────────────────────────────────
 export const FILLER_RATE_ZERO_QUALITY = 10; // fillers/min at/above which the filler signal scores 0
-export const PACE_IDEAL: [number, number] = [120, 160]; // wpm ideal band
+// #1265 — the WPM "ideal" band is the SINGLE user-facing pace authority (130–150), shared with Session
+// Review, Progress coaching, SpeakingTips, and the trend chart via ANALYTICS_THRESHOLDS. Aggregate Progress
+// consumes that authority rather than maintaining its own [120,160], so no surface disagrees on the band.
+export const PACE_IDEAL: [number, number] = [ANALYTICS_THRESHOLDS.TARGET_WPM_MIN, ANALYTICS_THRESHOLDS.TARGET_WPM_MAX];
 export const PACE_TOLERANCE = 60; // wpm outside the band to reach quality 0
 export const SILENCE_IDEAL: [number, number] = [5, 20]; // % of session that is silence — healthy band
 export const SILENCE_TOLERANCE = 20; // percentage points outside the band to reach quality 0
