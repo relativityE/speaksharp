@@ -72,8 +72,13 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    // #1266 — never record a PAID-OFFER view when enrollment is unavailable. When payments are disabled the
+    // Pro (checkout) card renders an informational "not open yet" notice, NOT a live offer, so emitting
+    // `pricing_pro_card` viewed would be misleading paid-conversion evidence. The free-trial CTA is always a
+    // real offer, so it is unaffected. Mirrors the checkout-click guard below.
+    if (tier.action === 'checkout' && !arePaymentsEnabled()) return;
     trackConversionCtaViewed({ source, plan: tier.plan });
-  }, [source, tier.plan]);
+  }, [source, tier.plan, tier.action]);
 
   const handleUpgrade = async () => {
     if (isSubmitting) return;

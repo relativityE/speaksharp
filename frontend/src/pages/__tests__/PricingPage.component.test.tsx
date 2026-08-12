@@ -5,6 +5,7 @@ import { PricingPage } from '../PricingPage';
 import * as supabaseClient from '@/lib/supabaseClient';
 import * as UserProfileHook from '@/hooks/useUserProfile';
 import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
+import { trackConversionCtaViewed } from '@/services/conversionFunnel';
 
 // Mock modules
 vi.mock('@/lib/supabaseClient');
@@ -13,10 +14,18 @@ vi.mock('@/config/appRuntimeConfig', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/config/appRuntimeConfig')>()),
     arePaymentsEnabled: vi.fn(() => true),
 }));
+// Spy on the conversion-funnel emitters; keep buildCheckoutBody real so checkout still works.
+vi.mock('@/services/conversionFunnel', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/services/conversionFunnel')>()),
+    trackConversionCtaViewed: vi.fn(),
+    trackConversionCtaClicked: vi.fn(),
+    trackCheckoutStarted: vi.fn(),
+}));
 
 const mockGetSupabaseClient = vi.mocked(supabaseClient.getSupabaseClient);
 const mockUseUserProfile = vi.mocked(UserProfileHook.useUserProfile);
 const mockArePaymentsEnabled = vi.mocked(arePaymentsEnabled);
+const mockCtaViewed = vi.mocked(trackConversionCtaViewed);
 
 describe('PricingPage', () => {
     const mockInvoke = vi.fn();
@@ -42,6 +51,25 @@ describe('PricingPage', () => {
     const renderPricingPage = () => {
         return render(<PricingPage />);
     };
+
+    // #1266 — a PAID-OFFER view must not be recorded when enrollment is unavailable.
+    describe('paid-offer view telemetry gating', () => {
+        it('records the Pro (paid) offer view when enrollment is ENABLED', () => {
+            mockArePaymentsEnabled.mockReturnValue(true);
+            renderPricingPage();
+            expect(mockCtaViewed).toHaveBeenCalledWith({ source: 'pricing_pro_card', plan: 'pro' });
+            // The free-trial CTA is always a real offer, so its view fires too.
+            expect(mockCtaViewed).toHaveBeenCalledWith({ source: 'pricing_free_card', plan: 'free' });
+        });
+
+        it('does NOT record a Pro (paid) offer view when enrollment is DISABLED', () => {
+            mockArePaymentsEnabled.mockReturnValue(false);
+            renderPricingPage();
+            expect(mockCtaViewed).not.toHaveBeenCalledWith({ source: 'pricing_pro_card', plan: 'pro' });
+            // The free-trial offer is real regardless of checkout state, so its view still fires.
+            expect(mockCtaViewed).toHaveBeenCalledWith({ source: 'pricing_free_card', plan: 'free' });
+        });
+    });
 
     describe('Rendering', () => {
         it('should render the pricing page header', () => {
