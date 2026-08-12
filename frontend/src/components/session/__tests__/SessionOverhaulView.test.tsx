@@ -24,6 +24,7 @@ describe('SessionOverhaulView (#1222 S11)', () => {
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
         expect(screen.getByTestId('mic-card')).toBeInTheDocument();
         expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
+        expect(screen.getByTestId('comparable-progress-notice')).toHaveTextContent('No universal score');
     });
 
     it('listening runtime → during state (recorder bar + live transcript)', () => {
@@ -86,6 +87,7 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
         expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
         expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
+        expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
     });
 
     it('objective after → coverage count, missed-point reason, retry + delivery strip', () => {
@@ -99,6 +101,7 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.getByTestId('focus-point-1-not-detected')).toBeInTheDocument();
         expect(screen.getByTestId('focus-points-retry')).toBeInTheDocument();
         expect(screen.getByTestId('focus-delivery-strip')).toBeInTheDocument();
+        expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
     });
 
     it('no brief (Open Mic) → no coverage/pace card / points rail; the prompt offer is present', () => {

@@ -4,6 +4,11 @@ import { saveAs } from 'file-saver';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PracticeSession as Session } from '../../types/session';
 
+const loadSessionProgress = vi.fn();
+vi.mock('@/services/progress/loadSessionProgress', () => ({
+  loadSessionProgress: (...args: unknown[]) => loadSessionProgress(...args),
+}));
+
 vi.mock('jspdf', async (importOriginal) => {
   return await importOriginal<typeof import('jspdf')>();
 });
@@ -42,6 +47,7 @@ const mockRemoveChild = vi.fn();
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  loadSessionProgress.mockResolvedValue({ status: 'insufficient', sessionId: '123' });
   // Mock document methods
   vi.spyOn(document, 'createElement').mockImplementation(mockCreateElement as unknown as typeof document.createElement);
   vi.spyOn(document.body, 'appendChild').mockImplementation(mockAppendChild);
@@ -89,7 +95,9 @@ describe('generateSessionPdf', () => {
         ['Session ID', '123'],
         ['Total Words', '5'],
         ['Speaking Pace (WPM)', '1 (Too Slow)'],
-        ['Clear Delivery', '0% (Keep practicing)'],
+        // #1265 correction: the read model classifies this session `insufficient`, so the PDF must NOT
+        // claim "Available for comparable Progress" — it uses neutral wording derived from eligibility.
+        ['Clear-delivery evidence', 'Recorded — not yet comparable'],
         // #1231: the headline is the TRUE-filler tier — um(5); "like"(3) is a discourse marker, excluded by
         // default. The per-word breakdown table below still lists every tracked word (um 5, like 3).
         ['Total Filler Words', '5'],
@@ -113,6 +121,44 @@ describe('generateSessionPdf', () => {
     expect(savedPdf.text).toContain('(Transcript) Tj');
     expect(savedPdf.text).toContain('(This is a test transcript.) Tj');
     expect(savedPdf.filename).toBe('TestUser_session_0_20250923.pdf');
+  });
+
+  it('exports the same persisted comparable Progress action and contexts as saved review', async () => {
+    loadSessionProgress.mockResolvedValue({
+      status: 'eligible',
+      sessionId: '123',
+      comparison: 'previous',
+      direction: { direction: 'improved', deltaPoints: 6, deltaPercent: 7.14, reason: null, text: 'Clear delivery improved 7.1% vs your previous comparable session.' },
+      baselineContext: 'Clear delivery improved 12.5% vs your first comparable session.',
+      disclosure: {
+        referenceSessionId: 'prev-1', referenceRole: 'previous comparable session', alsoFirstComparable: false,
+        cohortKey: 'private|v2|base|clarity_v1', currentClarityPoints: 90, referenceClarityPoints: 84,
+        deltaPoints: 6, deltaPercent: 7.14, units: 'clear-delivery points',
+      },
+      takeaways: {
+        whatWorked: 'Very few filler words',
+        practiceThisNext: 'Cut filler words toward 3%',
+        target: { metric: 'filler_rate', direction: 'decrease', targetValue: 3, units: 'percent of words' },
+      },
+      recommendationId: 'rec-123',
+      latestAttempt: null,
+    });
+
+    await generateSessionPdf(mockSession, 'TestUser');
+    const savedPdf = await getSavedPdf();
+    expect(savedPdf.text).toContain('(Comparable Progress) Tj');
+    expect(savedPdf.text).toContain('(Practice this next) Tj');
+    expect(savedPdf.text).toContain('(Cut filler words toward 3%) Tj');
+    expect(savedPdf.text).toContain('(Clear delivery improved 7.1% vs your previous comparable session.) Tj');
+    expect(savedPdf.text).toContain('(Clear delivery improved 12.5% vs your first comparable session.) Tj');
+  });
+
+  it('still exports the session when comparable Progress cannot be loaded', async () => {
+    loadSessionProgress.mockRejectedValue(new Error('offline'));
+    await expect(generateSessionPdf(mockSession, 'TestUser')).resolves.toBeUndefined();
+    const savedPdf = await getSavedPdf();
+    expect(savedPdf.text).toContain('(SpeakSharp Session Report) Tj');
+    expect(savedPdf.text).not.toContain('(Comparable Progress) Tj');
   });
 
   it('names same-day sessions by user, session number, and date', () => {

@@ -44,8 +44,10 @@ export type UnavailableReason = 'not_eligible' | 'no_comparable_session' | 'new_
 
 export interface DirectionResult {
     direction: ProgressDirection;
-    /** Signed points vs baseline, unrounded. Null when no comparison exists. */
+    /** Signed internal clear-delivery points, retained for policy/tests but never presented as a score. */
     deltaPoints: number | null;
+    /** Signed relative movement vs the named comparable session. Null when no valid denominator exists. */
+    deltaPercent: number | null;
     /** The sentence shown to the user. Never implies a grade or a ranking. */
     text: string;
     reason: UnavailableReason | null;
@@ -54,15 +56,17 @@ export interface DirectionResult {
 /** §6 direction, computed from unrounded values and rounded only for display. */
 export function describeDirection(
     current: ProgressEvaluation,
-    baseline: ProgressEvaluation | null,
-    opts: { meaningfulPoints?: number } = {},
+    reference: ProgressEvaluation | null,
+    opts: { meaningfulPoints?: number; referenceLabel?: string } = {},
 ): DirectionResult {
     const threshold = opts.meaningfulPoints ?? MEANINGFUL_MOVEMENT_POINTS;
+    const referenceLabel = opts.referenceLabel ?? 'previous comparable session';
 
     if (!current.eligible || current.clarityRaw === null) {
         return {
             direction: 'unavailable',
             deltaPoints: null,
+            deltaPercent: null,
             reason: 'not_eligible',
             text: 'Not enough comparable data yet',
         };
@@ -70,37 +74,55 @@ export function describeDirection(
     // FAIL CLOSED: a baseline that is null, ineligible, or carries no clarity is not a comparison —
     // never compare against it. (`baseline.eligible` was previously unchecked, so an ineligible baseline
     // could slip through.)
-    if (!baseline || !baseline.eligible || baseline.clarityRaw === null) {
+    if (!reference || !reference.eligible || reference.clarityRaw === null) {
         return {
             direction: 'baseline',
             deltaPoints: null,
+            deltaPercent: null,
             reason: null,
             text: "Baseline established — we'll compare future eligible sessions with this one.",
         };
     }
-    if (baseline.cohortKey !== current.cohortKey) {
+    if (reference.cohortKey !== current.cohortKey) {
         // §4: a cohort change restarts the comparison. Saying so plainly beats a false jump.
         return {
             direction: 'unavailable',
             deltaPoints: null,
+            deltaPercent: null,
             reason: 'new_cohort',
             text: 'Not enough comparable data yet — your setup changed, so the comparison restarted.',
         };
     }
 
     // Arithmetic on stored unrounded values; rounding happens only for display.
-    const delta = current.clarityRaw - baseline.clarityRaw;
-    const shown = Math.round(Math.abs(delta));
+    const delta = current.clarityRaw - reference.clarityRaw;
+    const deltaPercent = reference.clarityRaw === 0
+        ? null
+        : ((current.clarityRaw - reference.clarityRaw) / reference.clarityRaw) * 100;
 
     if (Math.abs(delta) < threshold) {
-        return { direction: 'below_policy', deltaPoints: delta, reason: null, text: 'No meaningful change yet.' };
+        return { direction: 'below_policy', deltaPoints: delta, deltaPercent, reason: null, text: 'No meaningful change yet.' };
     }
-    const word = shown === 1 ? 'point' : 'points';
+    if (deltaPercent === null) {
+        // Zero-reference: a relative movement measured against a zero clear-delivery baseline has no
+        // defensible percentage, so it is NOT a claimable improvement/decline. Present a neutral,
+        // no-defensible-change state (never an up/down claim) — the raw points are retained for tests.
+        return {
+            direction: 'below_policy',
+            deltaPoints: delta,
+            deltaPercent: null,
+            reason: null,
+            text: `No defensible change — your ${referenceLabel} had no clear-delivery baseline (zero) to compare against.`,
+        };
+    }
+    // Display precision: ONE decimal. A whole-percent round hid real sub-point movement (e.g. 7.3% → "7%").
+    const shown = (Math.round(Math.abs(deltaPercent) * 10) / 10).toFixed(1);
     return {
         direction: delta > 0 ? 'improved' : 'declined',
         deltaPoints: delta,
+        deltaPercent,
         reason: null,
-        text: `Clear delivery moved ${delta > 0 ? 'up' : 'down'} ${shown} ${word}.`,
+        text: `Clear delivery ${delta > 0 ? 'improved' : 'declined'} ${shown}% vs your ${referenceLabel}.`,
     };
 }
 

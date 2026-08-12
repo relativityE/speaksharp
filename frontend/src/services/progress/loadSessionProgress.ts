@@ -9,6 +9,33 @@ export type ProgressAttemptView = {
     outcome: 'moved' | 'did_not_move' | 'not_comparable' | 'not_completed' | null;
 };
 
+/**
+ * Inspectable evidence behind a displayed movement: exactly which validated session it was measured
+ * against, in which recording cohort/mode, the raw inputs, and their units. A headline number the user
+ * cannot inspect is not defensible; this makes the comparison auditable without exposing any transcript.
+ * Present only when a real previous-vs-current comparison was made (null for baseline/restarted states).
+ */
+export interface ProgressDisclosure {
+    /** The server-validated comparable session the movement was measured against. */
+    referenceSessionId: string;
+    /** How that reference is named to the user (headline reference). */
+    referenceRole: 'previous comparable session';
+    /** True when the previous comparable session is also the first-session baseline. */
+    alsoFirstComparable: boolean;
+    /** The recording cohort/mode both sessions share (a comparison is only valid within one cohort). */
+    cohortKey: string;
+    /** Input: this session's clear-delivery points (unrounded). */
+    currentClarityPoints: number;
+    /** Input: the reference session's clear-delivery points (unrounded). */
+    referenceClarityPoints: number;
+    /** Signed movement in points (current − reference). */
+    deltaPoints: number;
+    /** Signed relative movement in percent; null when the reference points are zero. */
+    deltaPercent: number | null;
+    /** Units of the inputs/points. */
+    units: 'clear-delivery points';
+}
+
 export type SessionProgressResult =
     | { status: 'insufficient'; sessionId: string }
     | { status: 'ineligible'; sessionId: string; reasons: ExclusionReason[] }
@@ -19,6 +46,10 @@ export type SessionProgressResult =
         sessionId: string;
         comparison: 'baseline' | 'previous' | 'restarted';
         direction: DirectionResult;
+        /** Quiet long-term context; the headline always uses the previous comparable session. */
+        baselineContext: string;
+        /** Inspectable evidence behind the displayed movement; null unless a real comparison was made. */
+        disclosure: ProgressDisclosure | null;
         takeaways: Takeaways;
         recommendationId: string | null;
         latestAttempt: ProgressAttemptView | null;
@@ -35,6 +66,15 @@ interface EvalRow {
     cohort_key: string | null;
     baseline_session_id: string | null;
     previous_comparable_session_id: string | null;
+}
+
+interface RecommendationRow {
+    id: string;
+    target_metric: Takeaways['target']['metric'];
+    target_direction: Takeaways['target']['direction'];
+    target_value: number;
+    target_units: string;
+    shown_text: string;
 }
 
 function toEvaluation(row: EvalRow): ProgressEvaluation {
@@ -155,17 +195,38 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
 
     const { data: rec, error: recError } = await supabase
         .from('progress_recommendations')
-        .select('id')
+        .select('id, target_metric, target_direction, target_value, target_units, shown_text')
         .eq('source_session_id', sessionId)
         .eq('formula_version', PROGRESS_FORMULA_VERSION)
         .maybeSingle();
     if (recError) return { status: 'error', sessionId, message: 'Your next action could not be loaded.' };
-    let recommendationId = (rec as { id?: string } | null)?.id ?? null;
+    let recommendationRow = rec as RecommendationRow | null;
+    let recommendationId = recommendationRow?.id ?? null;
     if (!recommendationId) {
         recommendationId = await reconcileProgressRecommendation(sessionId);
         if (!recommendationId) {
             return { status: 'unavailable', sessionId, message: 'Your next action is not available yet. Retry to check again.' };
         }
+        const { data: recovered, error: recoveredError } = await supabase
+            .from('progress_recommendations')
+            .select('id, target_metric, target_direction, target_value, target_units, shown_text')
+            .eq('source_session_id', sessionId)
+            .eq('formula_version', PROGRESS_FORMULA_VERSION)
+            .maybeSingle();
+        if (recoveredError || !recovered) {
+            return { status: 'unavailable', sessionId, message: 'Your next action is not available yet. Retry to check again.' };
+        }
+        recommendationRow = recovered as RecommendationRow;
+    }
+
+    if (!recommendationRow
+        || recommendationRow.id !== recommendationId
+        || !['filler_rate', 'pace', 'clear_delivery'].includes(recommendationRow.target_metric)
+        || !['decrease', 'increase', 'maintain'].includes(recommendationRow.target_direction)
+        || !Number.isFinite(recommendationRow.target_value)
+        || recommendationRow.target_units.trim().length === 0
+        || recommendationRow.shown_text.trim().length === 0) {
+        return { status: 'unavailable', sessionId, message: 'Your next action is not available yet. Retry to check again.' };
     }
 
     let latestAttempt: ProgressAttemptView | null = null;
@@ -181,11 +242,54 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         latestAttempt = (attempt as ProgressAttemptView | null) ?? null;
     }
 
+    const direction = comparison === 'restarted'
+        ? { direction: 'baseline', deltaPoints: null, deltaPercent: null, reason: null, text: 'Comparison restarted for this recording setup.' } as const
+        : describeDirection(current, comparison === 'previous' ? previous : null);
+    const baselineContext = comparison === 'restarted'
+        ? 'A new first comparable session will set the baseline context.'
+        : comparison === 'baseline'
+            ? 'This is your first comparable session.'
+            : baseline && previous && baseline.sessionId === previous.sessionId
+                ? 'Your previous comparable session is also your first-session baseline.'
+                : baseline
+                    ? describeDirection(current, baseline, { referenceLabel: 'first comparable session' }).text
+                    : 'Baseline context is unavailable.';
+    const computedTakeaways = buildTakeaways(current, comparison === 'restarted' ? null : previous);
+    const takeaways: Takeaways = {
+        ...computedTakeaways,
+        practiceThisNext: recommendationRow.shown_text,
+        target: {
+            metric: recommendationRow.target_metric,
+            direction: recommendationRow.target_direction,
+            targetValue: recommendationRow.target_value,
+            units: recommendationRow.target_units,
+        },
+    };
+
+    // Inspectable evidence for a REAL comparison only. Baseline/restarted states have no defensible
+    // reference to disclose, so the disclosure is null and the UI shows none.
+    const disclosure: ProgressDisclosure | null =
+        comparison === 'previous' && previous && previous.clarityRaw !== null && current.clarityRaw !== null && current.cohortKey
+            ? {
+                referenceSessionId: previous.sessionId,
+                referenceRole: 'previous comparable session',
+                alsoFirstComparable: !!(baseline && baseline.sessionId === previous.sessionId),
+                cohortKey: current.cohortKey,
+                currentClarityPoints: current.clarityRaw,
+                referenceClarityPoints: previous.clarityRaw,
+                deltaPoints: current.clarityRaw - previous.clarityRaw,
+                deltaPercent: direction.deltaPercent,
+                units: 'clear-delivery points',
+            }
+            : null;
+
     return {
         status: 'eligible', sessionId, comparison,
-        direction: comparison === 'restarted'
-            ? { direction: 'baseline', deltaPoints: null, reason: null, text: 'Comparison restarted for this recording setup.' }
-            : describeDirection(current, baseline),
-        takeaways: buildTakeaways(current, comparison === 'restarted' ? null : previous), recommendationId, latestAttempt,
+        direction,
+        baselineContext,
+        disclosure,
+        takeaways,
+        recommendationId,
+        latestAttempt,
     };
 }
