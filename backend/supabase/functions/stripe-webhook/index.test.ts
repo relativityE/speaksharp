@@ -340,3 +340,74 @@ Deno.test("stripe-webhook renewal + event ordering (#1282)", async (t) => {
     assertEquals(capturedArgs.p_event_created, null);
   });
 });
+
+Deno.test("stripe-webhook backward-compat fallback (#1282 pre-migration safety)", async (t) => {
+  const req = (event: any) => new Request("http://localhost", {
+    method: "POST",
+    headers: { "Stripe-Signature": "mock" },
+    body: JSON.stringify(event),
+  });
+
+  // A stateful supabase mock: returns queued responses in order and records every rpc call's args.
+  const compatMock = (responses: Array<{ data?: any; error?: any }>) => {
+    const calls: any[] = [];
+    let i = 0;
+    return {
+      calls: () => calls,
+      supabase: {
+        rpc: (_fn: string, args: any) => {
+          calls.push(args);
+          const r = responses[Math.min(i, responses.length - 1)];
+          i += 1;
+          return Promise.resolve({ data: r.data ?? null, error: r.error ?? null });
+        },
+      },
+    };
+  };
+
+  await t.step("new DB: primary (7-arg) call succeeds — no fallback, forwards p_event_created", async () => {
+    const m = compatMock([{ data: { success: true, skipped: false } }]);
+    const res = await handler(req({ id: "e1", type: "invoice.payment_failed", created: 1000,
+      data: { object: { subscription: "sub_1", attempt_count: 3 } } }), mockStripe, m.supabase, "secret");
+    assertEquals(res.status, 200);
+    assertEquals(m.calls().length, 1);
+    assertEquals(m.calls()[0].p_action, "lapse_pro");
+    assertEquals(m.calls()[0].p_event_created, 1000);
+  });
+
+  await t.step("pre-#1282 DB (PGRST202): falls back to 6-arg with legacy action (lapse_pro -> downgrade_to_free)", async () => {
+    const m = compatMock([
+      { error: { code: "PGRST202", message: "Could not find the function public.process_stripe_webhook_event(..., p_event_created)" } },
+      { data: { success: true, skipped: false } },
+    ]);
+    const res = await handler(req({ id: "e2", type: "invoice.payment_failed", created: 2000,
+      data: { object: { subscription: "sub_1", attempt_count: 3 } } }), mockStripe, m.supabase, "secret");
+    assertEquals(res.status, 200);
+    assertEquals(m.calls().length, 2);
+    // Primary tried the FULL new contract...
+    assertEquals(m.calls()[0].p_action, "lapse_pro");
+    assertEquals(m.calls()[0].p_event_created, 2000);
+    // ...fallback used the pre-#1282 contract: mapped action + NO p_event_created key.
+    assertEquals(m.calls()[1].p_action, "downgrade_to_free");
+    assertEquals("p_event_created" in m.calls()[1], false);
+  });
+
+  await t.step("pre-#1282 DB ('Unknown action'): renew_pro maps to a safe no-op", async () => {
+    const m = compatMock([
+      { error: { message: "Unknown action: renew_pro" } },
+      { data: { success: true } },
+    ]);
+    await handler(req({ id: "e3", type: "invoice.payment_succeeded", created: 3000,
+      data: { object: { subscription: "sub_1", billing_reason: "subscription_cycle" } } }), mockStripe, m.supabase, "secret");
+    assertEquals(m.calls()[0].p_action, "renew_pro");
+    assertEquals(m.calls()[1].p_action, "none");
+  });
+
+  await t.step("a GENUINE db error is NOT masked by the fallback (500, single call)", async () => {
+    const m = compatMock([{ error: { code: "P0001", message: "some real failure" } }]);
+    const res = await handler(req({ id: "e4", type: "customer.subscription.deleted", created: 4000,
+      data: { object: { id: "sub_1" } } }), mockStripe, m.supabase, "secret");
+    assertEquals(res.status, 500);
+    assertEquals(m.calls().length, 1);
+  });
+});
