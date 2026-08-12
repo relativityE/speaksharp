@@ -55,3 +55,36 @@ describe('#1282 30-day trial lifecycle — entitlement foundation', () => {
         expect(migration).not.toMatch(/PAYMENTS_ENABLED|STRIPE_PRO_PRICE_ID|checkout\.sessions|prices\.(create|retrieve)|unit_amount/i);
     });
 });
+
+describe('#1282 30-day trial lifecycle — expired state fails closed (slice 2)', () => {
+    const enforcement = readMigration('20260812001000_trial_expiry_fail_closed_1282.sql');
+
+    it('refuses new recording for non-pro (expired/unpaid) in the write path', () => {
+        expect(enforcement).toMatch(/CREATE OR REPLACE FUNCTION public\.update_user_usage/);
+        expect(enforcement).toMatch(/IF COALESCE\(v_effective_tier, 'free'\) <> 'pro' THEN\s*\n\s*RETURN jsonb_build_object\(\s*\n\s*'success', false,\s*\n\s*'error', 'trial_expired'/);
+    });
+
+    it('refuses can_start for non-pro in the pre-flight and reports trial_expired', () => {
+        expect(enforcement).toMatch(/CREATE OR REPLACE FUNCTION public\.check_usage_limit/);
+        expect(enforcement).toMatch(/'can_start', false,[\s\S]*'error', 'trial_expired'/);
+    });
+
+    it('retires the 300s private-sample fallback (no sample grant remains in the gates)', () => {
+        // The gates must not grant or track a private-sample allowance any more.
+        expect(enforcement).not.toMatch(/private_sample_limit_reached|private_sample_used|private_sample_session_required/);
+        expect(enforcement).not.toMatch(/v_sample_remaining|v_new_sample_used/);
+        // private_sample_available is always false now.
+        expect(enforcement).not.toMatch(/'private_sample_available', \(/);
+        expect(enforcement).toMatch(/'private_sample_available', false/);
+    });
+
+    it('surfaces a real live-trial countdown (not hardcoded false) for the UI', () => {
+        expect(enforcement).toMatch(/v_trial_active := \(v_effective_tier = 'pro' AND NOT v_is_paid/);
+        expect(enforcement).toMatch(/'trial_active', v_trial_active/);
+        expect(enforcement).toMatch(/'trial_seconds_remaining', CASE\s*\n\s*WHEN v_trial_active THEN GREATEST\(0, EXTRACT\(EPOCH FROM \(v_trial_expires_at - now\(\)\)\)::INT\)/);
+    });
+
+    it('keeps the paid invariant when computing paid-vs-trial (real Stripe sub required for paid)', () => {
+        expect(enforcement).toMatch(/lower\(COALESCE\(subscription_status, 'free'\)\) = 'pro'\s*\n\s*AND NULLIF\(trim\(COALESCE\(stripe_subscription_id, ''\)\), ''\) IS NOT NULL\)/);
+    });
+});
