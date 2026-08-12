@@ -15,29 +15,30 @@ const readReleaseDoc = (name: string) =>
 // Tester-facing invariants are asserted on the guide; operator/technical
 // invariants are asserted on the protocol.
 
-describe('soft release tester guide (tester-facing)', () => {
-    const guide = readReleaseDoc('SOFT_RELEASE_TESTER_INSTRUCTIONS.md');
+describe('canonical tester guide (tester-facing)', () => {
+    const guide = readReleaseDoc('TESTER_GUIDE.md');
 
     it('does not send testers looking for removed promo-code flows', () => {
         expect(guide).not.toMatch(/promo\s*code|promo-code|redeem/i);
     });
 
-    it('does not promise paid Cloud STT in the free tester path', () => {
-        expect(guide).not.toMatch(/cloud stt|free cloud|optionally try cloud/i);
+    it('does not offer retired Browser, Cloud, or Private-sample paths', () => {
+        expect(guide).not.toMatch(/Browser transcription|Cloud transcription|Private sample/i);
     });
 
     it('does not use the removed multi-hour trial language', () => {
         expect(guide).not.toMatch(/1 hour of trial access|24 hours of trial access|24-hour Pro trial|60-minute Pro trial/i);
     });
 
-    it('states the one 5-minute Private sample and that it does not count down from signup', () => {
-        expect(guide).toMatch(/one Private sample of up to 5\s*minutes/i);
-        expect(guide).toMatch(/does\s+not\s+start\s+counting\s+down/i);
+    it('states the 30-day-free then $10/month commercial contract', () => {
+        expect(guide).toMatch(/free for 30 days/i);
+        expect(guide).toMatch(/\$10\/month/i);
+        expect(guide).toMatch(/no card is ever required|No card or checkout is required/i);
     });
 
     it('sets the on-device Private expectation in plain language', () => {
-        expect(guide).toMatch(/runs (entirely )?on your own device/i);
-        expect(guide).toMatch(/few seconds to get ready/i);
+        expect(guide).toMatch(/Private transcription on your device/i);
+        expect(guide).toMatch(/one-time Private model setup/i);
     });
 
     it('points testers to Report Issue for anything confusing, broken, slow, or surprising', () => {

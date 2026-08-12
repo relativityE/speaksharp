@@ -36,19 +36,11 @@ export const SunsetModals: React.FC<SunsetModalsProps> = ({ open, onOpenChange, 
                         </div>
                         <AlertDialogTitle className="text-2xl text-center">Daily Target Crushed! 👏</AlertDialogTitle>
                         <AlertDialogDescription className="text-center text-lg pt-2">
-                            {isPro
-                                ? "You've maximized your 2-hour Pro training window today. Your brain needs time to absorb all that progress!"
-                                : "You've maximized your 1-hour Free training window today. Great focus!"
-                            }
+                            You've reached today's practice limit. Your brain needs time to absorb all that progress!
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <div className="py-6 text-center font-medium text-foreground/70">
-                        {canUpgrade && (
-                            <p className="font-semibold text-primary">Want double the daily bandwidth? Upgrade to Pro for 2 full hours of practice.</p>
-                        )}
-                        {isPro && (
-                            <p>We'll see you tomorrow for your next high-performance session!</p>
-                        )}
+                        <p>We'll see you tomorrow for your next session!</p>
                     </div>
                 </>
             );
@@ -64,17 +56,10 @@ export const SunsetModals: React.FC<SunsetModalsProps> = ({ open, onOpenChange, 
                     </div>
                     <AlertDialogTitle className="text-2xl text-center">Top 1% Achievement Unlocked! 🏆</AlertDialogTitle>
                     <AlertDialogDescription className="text-center text-lg pt-2">
-                        {isPro
-                            ? "You've utilized your full 50-hour Pro allowance this month. You are a practice machine!"
-                            : "You've maximized your 25-hour Free allowance. You're out-practicing almost everyone!"
-                        }
+                        You've reached this month's practice limit. You are a practice machine!
                     </AlertDialogDescription>
                 </AlertDialogHeader>
-                <div className="py-6 text-center font-medium text-foreground/70">
-                    {canUpgrade && (
-                        <p className="font-semibold text-primary">Upgrade to Pro to lock in 50 hours/month and advanced speech analytics.</p>
-                    )}
-                </div>
+                <div className="py-6 text-center font-medium text-foreground/70" />
             </>
         );
     };

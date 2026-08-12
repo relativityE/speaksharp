@@ -160,7 +160,7 @@ describe('reconciliationStatusCopy — status-bar-only, mode-aware, three approv
     it('NATIVE omission → Browser-omission copy with the persisted count', () => {
         const r = reconcileFinalizedFillers('the opening and the ending', canonical({ um: 4, uh: 4 }));
         expect(reconciliationStatusCopy(r, { mode: 'native' })).toBe(
-            'Session saved · 8 filler words detected. Browser transcription may omit some from the written transcript.',
+            'Session saved · 8 filler words detected. The written transcript may omit some.',
         );
     });
 

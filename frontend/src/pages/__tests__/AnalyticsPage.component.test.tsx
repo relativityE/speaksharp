@@ -203,7 +203,7 @@ describe('AnalyticsPage', () => {
             renderAnalyticsPage('/analytics');
             expect(screen.getByTestId('analytics-page-upgrade-button')).toBeInTheDocument();
             expect(screen.getByText(/turn practice into progress/i)).toBeInTheDocument();
-            expect(screen.getByText(/pro adds private local transcription/i)).toBeInTheDocument();
+            expect(screen.getByText(/is free for 30 days, then \$10\/month to continue\. Private transcription is on-device for everyone/i)).toBeInTheDocument();
         });
 
         it('should NOT render upgrade banner for pro users', () => {

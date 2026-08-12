@@ -16,7 +16,7 @@ vi.mock('@/lib/supabaseClient', () => ({
 describe('UpgradePromptDialog', () => {
     it('does not render the dialog when open is false', () => {
         render(<UpgradePromptDialog open={false} onOpenChange={() => { }} />);
-        expect(screen.queryByText('Keep your full practice history')).not.toBeInTheDocument();
+        expect(screen.queryByText('Keep practicing after your trial')).not.toBeInTheDocument();
     });
 
     // Fail-closed beta DEFAULT (no local opt-in): the post-session upgrade prompt must surface NO
@@ -25,7 +25,7 @@ describe('UpgradePromptDialog', () => {
         render(<UpgradePromptDialog open={true} onOpenChange={() => { }} />);
         expect(screen.queryByTestId('upgrade-prompt-dialog-upgrade-button')).not.toBeInTheDocument();
         expect(screen.queryByText('Upgrade to Pro')).not.toBeInTheDocument();
-        expect(screen.queryByText('Keep your full practice history')).not.toBeInTheDocument();
+        expect(screen.queryByText('Keep practicing after your trial')).not.toBeInTheDocument();
     });
 
     describe('payments enabled (local opt-in via enablePaymentsForTest)', () => {
@@ -33,8 +33,8 @@ describe('UpgradePromptDialog', () => {
 
         it('renders the dialog when open is true', () => {
             render(<UpgradePromptDialog open={true} onOpenChange={() => { }} />);
-            expect(screen.getByText('Keep your full practice history')).toBeInTheDocument();
-            expect(screen.getByText(/Private local transcription/i)).toBeInTheDocument();
+            expect(screen.getByText('Keep practicing after your trial')).toBeInTheDocument();
+            expect(screen.getByText(/Continue for \$10\/month to keep going after it ends\. Private transcription stays on-device/i)).toBeInTheDocument();
             expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument();
             expect(screen.getByText('Maybe Later')).toBeInTheDocument();
         });

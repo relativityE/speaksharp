@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for the external, tester-facing beta copy)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-07-30
-**Last Verified:** 2026-07-30 — extracted from the approved interim source (`SOFT_RELEASE_TESTER_INSTRUCTIONS.md`), reconciled against current product behavior (`PRODUCT_REQUIREMENTS.md`, `QUALITY.md`) and the shipped mode wording (`DOC_MIGRATION_LEDGER.md` §5, #1041/#1064). No volatile run IDs, SHAs, or current pass/fail posture are carried here.
+**Last Reviewed:** 2026-08-11
+**Last Verified:** 2026-08-11 — reconciled to the Private-only Practice Loop and the customer-copy contract in #1254. No volatile run IDs, SHAs, or current pass/fail posture are carried here.
 **Applies To:** The controlled invite-only SpeakSharp beta — the copy sent to human testers (intro, invitation, walkthrough, feedback prompts).
 **Class:** Product copy (external).
 **Authority:** The source for what testers are told and asked. This is the only place external tester copy is maintained; operators send from here verbatim.
@@ -39,9 +39,9 @@ Keep this file **free of technical detail** (flags, model variants, telemetry, e
 
 ## 2. What is SpeakSharp?
 
-SpeakSharp is a speaking-practice coach. You record a short practice session, see a transcript of what you said, and get feedback on things like filler words ("um", "like"), pacing, and pauses — so you can improve one thing at a time.
+SpeakSharp is a private speaking-practice coach. Choose **Open Mic** for an unstructured take or **Focus Points** when specific ideas must land. Every customer practice session uses **Private transcription on your device**; speech audio is not uploaded to a transcription provider.
 
-This is a small private beta. It is **free** for you, there is nothing to pay, and you do not need a card.
+The commercial model is the complete product **free for 30 days**, then **$10/month** to continue — there is no permanent feature-limited Free tier and Private transcription is never a paid add-on. While paid enrollment is disabled, no checkout is shown and no card is ever required. If a build shows paid enrollment, testers may keep practicing without paying and must never treat Private transcription as a paid benefit.
 
 ---
 
@@ -54,27 +54,13 @@ Subject: A quick favor — test SpeakSharp (about 10 minutes)
 
 Hi there,
 
-Thanks in advance for your help.
+Thanks in advance for your help. I'm inviting a small group to test SpeakSharp, and I'd value your honest feedback.
 
-I'm inviting a small group to test SpeakSharp, and I'd value your honest feedback, when you get a moment.
+SpeakSharp is a private speaking-practice coach. Choose Open Mic for an unstructured take or Focus Points when specific ideas must land. Every customer practice session uses Private transcription on your device.
 
-SpeakSharp is a speaking-practice coach that helps you become a clearer, more confident communicator. Record yourself practicing an interview answer, presentation, meeting update, or everyday conversation, then review your transcript, filler words, pace, and personalized feedback.
+Could you take about 10 minutes to try SpeakSharp? Create an account, complete a practice take, save and review it, then repeat once using the suggested next action. Please use Report Issue whenever something feels confusing, inaccurate, slow, or broken.
 
-Could you take about 10 minutes to try SpeakSharp? As you go, please note anything in the interface that feels unclear, out of place, or interrupts the flow—the ease of finding and understanding everything is part of the test.
-
-1. Create an account and start a practice session.
-2. Use Browser transcription as a brief Quick preview of SpeakSharp's coaching flow.
-3. Save the session and review your initial feedback.
-4. Use the included Private sample for your main practice, then review its transcript and feedback.
-5. Find your saved sessions and feedback in Analytics.
-6. Download a PDF report.
-7. Use Report Issue to share your feedback. A few questions to guide you: Did you complete the experience without help? Did Private feel meaningfully more useful than Browser? What felt most useful? What felt unclear, out of place, or interrupted the flow? What one change would you make first?
-
-Please be candid—all observations are welcome and useful, and your feedback will directly shape what we improve next.
-
-Note: Browser is a brief Quick preview and may miss some punctuation; Private is the main experience we're evaluating. Please tell us whether it feels like a meaningful improvement.
-
-This beta is free—no payment information is needed. Please skip any Upgrade option during this test. Cloud transcription is not part of the test. Please use Report Issue whenever something feels confusing, inaccurate, slow, or broken.
+No card or checkout is required to test. If this build shows paid enrollment, ignore it for this test and keep practicing — Private transcription is on-device for everyone.
 
 Start testing SpeakSharp!
 https://speaksharp-public.vercel.app/
@@ -86,11 +72,9 @@ Akin
 **Short text message:**
 
 ```text
-I'm opening a small private beta for SpeakSharp, a speaking-practice coach. You record a short practice session, see your transcript, and get feedback on filler words, pacing, and pauses.
+I'm opening a small controlled beta for SpeakSharp, a private speaking-practice coach. Choose Open Mic or Focus Points, record a take using Private transcription on your device, then review the evidence and one suggested next action.
 
-We'd love for you to try it and tell us what you liked or what we can improve — use the "Report Issue" button for any feedback or problems. Natural speech is best.
-
-Browser is a brief Quick preview; Private is the main experience we're evaluating. Cloud transcription is not part of this test, no payment info is needed, and you can skip any Upgrade option.
+We'd love for you to try it and tell us what you liked or what we can improve. The beta is free; no card or checkout is required. Use Report Issue for anything confusing, inaccurate, slow, or broken.
 
 Beta link: https://speaksharp-public.vercel.app/
 ```
@@ -99,18 +83,16 @@ Beta link: https://speaksharp-public.vercel.app/
 
 ## 4. A simple walkthrough
 
-We'd love for you to try SpeakSharp and tell us what you liked or what we can improve. Please use the **Report Issue** button for any feedback or problems. (Chrome works best.)
+We'd love for you to try SpeakSharp and tell us what you liked or what we can improve. Please use the **Report Issue** button for any feedback or problems.
 
-1. Create an account and start a practice session.
-2. Try **Browser** transcription first as a brief **Quick preview**. Say a short answer, interview response, or presentation intro. (Drop in a few "um"s and "like"s on purpose so you can see how they're caught.)
-3. Notice the live feedback: filler words, pace, and your SpeakSharp score.
-4. Try **Private** transcription next — this is the main experience we're evaluating. Private runs on your own device, so your practice audio stays local. It may take a few seconds to get ready the first time. Free users get one Private sample of up to 5 minutes; it does not start counting down when you sign up — you choose when to use it. **No Pro purchase is needed for this beta** — the Private sample is included, and Pro purchasing isn't open during the test.
-5. For a longer Private recording, give it time to finalize after you stop — it processes your whole take on your device, so a longer recording takes a little longer to finish. You'll see honest "Finalizing…" progress the whole time.
-6. Review your saved session in **Analytics**.
-7. Look at your transcript, filler words, and your session feedback.
-8. Try the Analytics focus/theme options to see which view helps you most.
-9. **Download a PDF report** from a saved session.
-10. Use **Report Issue** anytime you have feedback or run into a problem.
+1. Create an account and choose **Open Mic** or **Focus Points**.
+2. On first use, allow the one-time Private model setup, then wait for **Ready — speak now**.
+3. Record a natural practice take and stop.
+4. Keep the page open while the transcript finalizes on your device.
+5. Save and review the exact session: transcript, delivery evidence, and one suggested next action.
+6. Repeat once using that next action.
+7. Open History/Progress, hard reload the exact session, and check any available PDF report.
+8. Use **Report Issue** whenever something feels confusing, inaccurate, slow, or broken.
 
 You don't need to be polished. Natural speech is more useful for testing.
 
@@ -122,10 +104,12 @@ You don't need to be polished. Natural speech is more useful for testing.
 
 After trying SpeakSharp, please tell us:
 
-1. Did you **complete the experience without help**?
-2. Did **Private** feel **meaningfully more useful** than Browser?
-3. What felt **most useful**?
-4. What felt **unclear, out of place, or interrupted the flow**?
-5. What **one change** would you make first?
+1. Did you **complete the loop without help**?
+2. Was the one-time Private setup clear?
+3. Did the transcript preserve the beginning and end of your take?
+4. Was the next action specific enough to use in another take?
+5. In Focus Points, did “detected / not detected” feel truthful?
+6. What frustrated you or made you consider leaving?
+7. What **one change** would make you return tomorrow?
 
 Even 3–4 sentences is a huge help. Thank you for testing it.
