@@ -113,8 +113,10 @@ jobs:
             exit 1
           fi
           grep -q 'billing identity preflight failed' migration-dirty.txt
-          test "$(PGDATABASE=dirty_preflight psql -XAtc \"select count(*) from public.user_profiles\")" = '3'
-          test "$(PGDATABASE=dirty_preflight psql -XAtc \"select to_regprocedure('public.apply_stripe_subscription_snapshot(text,text,text,text,boolean,boolean,bigint,uuid,bigint)') is null\")" = 't'
+          dirty_rows=$(PGDATABASE=dirty_preflight psql -XAtc 'select count(*) from public.user_profiles')
+          test "$dirty_rows" = '3'
+          dirty_rpc_absent=$(PGDATABASE=dirty_preflight psql -XAtc "select to_regprocedure('public.apply_stripe_subscription_snapshot(text,text,text,text,boolean,boolean,bigint,uuid,bigint)') is null")
+          test "$dirty_rpc_absent" = 't'
           echo 'DIRTY PREFLIGHT/MIGRATION ABORT PASSED' | tee preflight-dirty-summary.txt
 
       - name: Concurrent first binding — unique indexes arbitrate one winner
@@ -180,5 +182,5 @@ jobs:
             migration-dirty.txt
             preflight-dirty-summary.txt
             concurrency-summary.txt
-          retention-days: 30
+          retention-days: 1
           if-no-files-found: warn
