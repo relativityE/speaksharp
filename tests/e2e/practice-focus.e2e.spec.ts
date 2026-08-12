@@ -43,8 +43,24 @@ function eligibleRepeatProgress() {
   };
   return {
     evaluations: [current, reference],
-    recommendations: [{ id: 'pf-repeat-recommendation', source_session_id: REPEAT_SESSION_ID, formula_version: 'clarity_v1' }],
+    // #1265 hardened loadSessionProgress to validate the FULL persisted recommendation contract before the
+    // review renders the action, so the fixture must carry the complete row (metric/direction/value/units/
+    // shown_text), not just an id — otherwise the read model resolves `unavailable` and no repeat button shows.
+    recommendations: [{
+      id: 'pf-repeat-recommendation',
+      source_session_id: REPEAT_SESSION_ID,
+      formula_version: 'clarity_v1',
+      target_metric: 'filler_rate',
+      target_direction: 'decrease',
+      target_value: 3,
+      target_units: 'percent of words',
+      shown_text: 'Cut filler words toward 3%',
+    }],
     attempts: [],
+    chronology: [
+      { id: REPEAT_REFERENCE_ID, created_at: '2025-01-31T13:00:00.000Z' },
+      { id: REPEAT_SESSION_ID, created_at: '2025-02-01T14:00:00.000Z' },
+    ],
   };
 }
 
