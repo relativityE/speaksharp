@@ -274,3 +274,67 @@ Deno.test("stripe-webhook invoice.payment_failed handlers", async (t) => {
   });
 
 });
+
+Deno.test("stripe-webhook renewal + event ordering (#1282)", async (t) => {
+  const createRequest = (event: any) => new Request("http://localhost", {
+    method: "POST",
+    headers: { "Stripe-Signature": "mock" },
+    body: JSON.stringify(event)
+  });
+
+  const capture = async (event: any) => {
+    let capturedArgs: any;
+    const mockSupabase = {
+      rpc: (_fn: string, args: any) => {
+        capturedArgs = args;
+        return Promise.resolve({ data: { success: true, skipped: false }, error: null });
+      }
+    };
+    const res = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
+    return { capturedArgs, status: res.status };
+  };
+
+  await t.step("invoice.payment_succeeded (subscription_cycle) renews Pro, keyed on subscription", async () => {
+    const { capturedArgs, status } = await capture({
+      id: "evt_renew_1",
+      type: "invoice.payment_succeeded",
+      created: 1_700_000_500,
+      data: { object: { subscription: "sub_1", customer: "cus_1", billing_reason: "subscription_cycle" } }
+    });
+    assertEquals(status, 200);
+    assertEquals(capturedArgs.p_action, "renew_pro");
+    assertEquals(capturedArgs.p_subscription_id, "sub_1");
+    assertEquals(capturedArgs.p_stripe_customer_id, "cus_1");
+    assertEquals(capturedArgs.p_event_created, 1_700_000_500);
+  });
+
+  await t.step("invoice.payment_succeeded for the initial subscription invoice is a no-op (checkout handles it)", async () => {
+    const { capturedArgs } = await capture({
+      id: "evt_first_invoice",
+      type: "invoice.payment_succeeded",
+      created: 1_700_000_000,
+      data: { object: { subscription: "sub_1", customer: "cus_1", billing_reason: "subscription_create" } }
+    });
+    assertEquals(capturedArgs.p_action, "none");
+  });
+
+  await t.step("every event forwards its Stripe created time for the out-of-order guard", async () => {
+    const { capturedArgs } = await capture({
+      id: "evt_del_late",
+      type: "customer.subscription.deleted",
+      created: 1_700_000_900,
+      data: { object: { id: "sub_1" } }
+    });
+    assertEquals(capturedArgs.p_action, "downgrade_to_free");
+    assertEquals(capturedArgs.p_event_created, 1_700_000_900);
+  });
+
+  await t.step("a missing created time forwards null (guard falls back to append-only)", async () => {
+    const { capturedArgs } = await capture({
+      id: "evt_no_created",
+      type: "customer.subscription.deleted",
+      data: { object: { id: "sub_1" } }
+    });
+    assertEquals(capturedArgs.p_event_created, null);
+  });
+});

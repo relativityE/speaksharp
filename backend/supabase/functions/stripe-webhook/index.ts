@@ -95,7 +95,26 @@ export async function handler(
         if (status === "canceled" || status === "unpaid" || status === "past_due") {
           action = 'downgrade_to_free';
         } else if (status === "active" && userId) {
+          // Active keeps Pro. #1282 cancel-through-period-end: an active subscription flagged
+          // cancel_at_period_end stays Pro here (access continues); the customer.subscription.deleted
+          // that fires at period end runs the downgrade. Re-affirming Pro also advances the
+          // out-of-order watermark so a stale earlier event cannot regress it.
           action = actionForPlan(plan);
+        }
+        break;
+      }
+
+      case "invoice.payment_succeeded": {
+        // #1282 RENEWAL. A successful renewal invoice re-affirms Pro for the subscription and clears a
+        // prior past-due lapse. Keyed on the subscription id (renewal invoices carry no userId
+        // metadata). The initial subscription invoice is already handled by checkout.session.completed;
+        // renew_pro is idempotent, so processing it here is harmless if they race.
+        const invoice = event.data.object
+        subscriptionId = normalizeStripeObjectId(invoice.subscription)
+        stripeCustomerId = normalizeStripeObjectId(invoice.customer)
+        const billingReason = invoice.billing_reason
+        if (subscriptionId && (billingReason === 'subscription_cycle' || billingReason === 'subscription_update')) {
+          action = 'renew_pro';
         }
         break;
       }
@@ -113,14 +132,16 @@ export async function handler(
       }
     }
 
-    // Call RPC to execute idempotency and action atomically
+    // Call RPC to execute idempotency and action atomically. p_event_created carries the Stripe event
+    // ordering authority (unix seconds) for the server-side out-of-order guard.
     const { data, error } = await supabase.rpc('process_stripe_webhook_event', {
       p_event_id: event.id,
       p_event_type: event.type,
       p_action: action,
       p_user_id: userId,
       p_subscription_id: subscriptionId,
-      p_stripe_customer_id: stripeCustomerId
+      p_stripe_customer_id: stripeCustomerId,
+      p_event_created: typeof event.created === 'number' ? event.created : null
     });
 
     if (error) {
