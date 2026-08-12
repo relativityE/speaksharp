@@ -205,6 +205,16 @@ test.describe('Production Smoke Canary @canary', () => {
         // Wait for session to become active
         await page.waitForSelector('[data-testid="session-status-indicator"]', { timeout: 10000 });
 
+        // #1267 P1 — PROVE the ACTIVE recording engine is Private, not merely that a recorder control was
+        // visible. The live session header (StatusNotificationBar) exposes the resolved engine on
+        // `data-engine` (the store's `activeEngine`, which is literally `private` for on-device Private STT).
+        // Asserting it here means the canary can NEVER pass while a non-Private engine (Browser/Cloud) is
+        // the one actually transcribing — the core privacy guarantee of the Practice Loop.
+        await expect(
+            page.locator('[data-testid="live-session-header"][data-engine="private"]'),
+        ).toBeVisible({ timeout: 10000 });
+        debugLog('[CANARY] Confirmed active recording engine is Private (data-engine="private").');
+
         // 5. Record for 5 seconds
         debugLog('[CANARY] Recording for 5 seconds...');
         await page.waitForTimeout(5000);
