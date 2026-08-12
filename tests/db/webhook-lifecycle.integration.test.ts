@@ -70,7 +70,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
 
   it('canceled -> Free and CLEARS the sub id; a later active snapshot cannot reactivate', async () => {
     const db = await freshDbWithPaidPro();
-    expect((await snapshot(db, 'e_cancel', 'canceled', 5000)).terminal ?? true);
+    expect((await snapshot(db, 'e_cancel', 'canceled', 5000)).error).toBeNull();
     let p = await profile(db);
     expect(p.subscription_status).toBe('free');
     expect(p.stripe_subscription_id).toBeNull();     // terminal clears the id
