@@ -20,13 +20,28 @@ const stripe = STRIPE_SECRET_KEY
 type CheckoutPlan = "basic" | "pro";
 type EnvGetter = (key: string) => string | undefined;
 type SupabaseFactory = (authHeader: string) => ReturnType<typeof createClient>;
+type StripePrice = {
+  active?: boolean;
+  unit_amount?: number | null;
+  currency?: string;
+  recurring?: { interval?: string | null } | null;
+};
 type StripeLike = {
   checkout: {
     sessions: {
       create: (params: Record<string, unknown>) => Promise<{ id: string; url: string | null }>;
     };
   };
+  prices: {
+    retrieve: (id: string) => Promise<StripePrice>;
+  };
 };
+
+// #1266/#1282 — the Pro price is the server-configured recurring monthly price of EXACTLY 1,000 cents.
+// The amount is never caller-supplied: checkout uses STRIPE_PRO_PRICE_ID and, before creating a session,
+// verifies that the resolved Stripe Price is active, recurring monthly, exactly 1000 cents, in the
+// configured currency. A misconfigured price fails closed (no checkout is created at the wrong price).
+const PRO_PRICE_EXPECTED_UNIT_AMOUNT = 1000;
 
 type HandlerDeps = {
   getEnv?: EnvGetter;
@@ -261,6 +276,45 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       : user.email
         ? { customer_email: user.email }
         : {};
+
+    // 4b. Verify the configured Pro price BEFORE creating a session. The amount is server-owned, never
+    // caller-supplied; we additionally assert it is an active, recurring MONTHLY price of EXACTLY 1,000
+    // cents in the configured currency (#1266/#1282 contract). Any mismatch fails closed — we never open
+    // checkout at an unverified or wrong price.
+    {
+      const expectedCurrency = (getEnv("STRIPE_PRICE_CURRENCY") ?? "usd").trim().toLowerCase();
+      let price: StripePrice;
+      try {
+        price = await stripeClient.prices.retrieve(priceId);
+      } catch (priceErr) {
+        console.error("[Stripe Checkout] ❌ Failed to retrieve Pro price for verification:", priceErr);
+        return createErrorResponse(
+          ErrorCodes.CONFIG_INVALID_PRICE,
+          "Unable to verify the Pro price configuration. Checkout is unavailable.",
+          responseHeaders,
+          { priceEnv: priceEnvName },
+        );
+      }
+
+      const actualCurrency = (price?.currency ?? "").toLowerCase();
+      const interval = price?.recurring?.interval ?? null;
+      const isActive = price?.active !== false; // treat undefined as active (test/mocks); only false rejects
+      const problems: string[] = [];
+      if (!isActive) problems.push("inactive");
+      if (interval !== "month") problems.push(`interval:${interval ?? "none"}`);
+      if (price?.unit_amount !== PRO_PRICE_EXPECTED_UNIT_AMOUNT) problems.push(`unit_amount:${price?.unit_amount ?? "none"}`);
+      if (actualCurrency !== expectedCurrency) problems.push(`currency:${actualCurrency || "none"}`);
+
+      if (problems.length > 0) {
+        console.error(`[Stripe Checkout] ❌ Pro price failed verification (${problems.join(", ")})`);
+        return createErrorResponse(
+          ErrorCodes.CONFIG_INVALID_PRICE,
+          `The configured Pro price must be an active recurring monthly price of exactly ${PRO_PRICE_EXPECTED_UNIT_AMOUNT} ${expectedCurrency}.`,
+          responseHeaders,
+          { problems, expectedUnitAmount: PRO_PRICE_EXPECTED_UNIT_AMOUNT, expectedCurrency },
+        );
+      }
+    }
 
     // 5. Stripe Session Creation
     console.log(`[Stripe Checkout] 💳 Creating Stripe Session for ${plan} with Price ID: ${priceId}`);

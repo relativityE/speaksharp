@@ -32,13 +32,30 @@ const envWith = (overrides: Record<string, string | undefined>) => (key: string)
   return env(key);
 };
 
+// #1282 — the server-configured Pro price MUST be an active recurring monthly price of exactly 1000
+// cents in the configured currency. This is the valid baseline; verification tests override it.
+type MockPrice = {
+  active?: boolean;
+  unit_amount?: number | null;
+  currency?: string;
+  recurring?: { interval?: string | null } | null;
+};
+const validProPrice: MockPrice = { active: true, unit_amount: 1000, currency: "usd", recurring: { interval: "month" } };
+
+type CheckoutMock = { sessions: { create: (params: Record<string, unknown>) => Promise<{ id: string; url: string | null }> } };
+/** Compose a StripeLike mock: real checkout behavior + a prices.retrieve returning the given price. */
+const stripeWith = (checkout: CheckoutMock, price: MockPrice = validProPrice) => ({
+  checkout,
+  prices: { retrieve: async (_id: string) => price },
+});
+
 const neverCallStripe = () => {
   let called = false;
   return {
     called: () => called,
-    client: {
-      checkout: { sessions: { create: async () => { called = true; return { id: "cs_unexpected", url: "x" }; } } },
-    },
+    client: stripeWith({
+      sessions: { create: async () => { called = true; return { id: "cs_unexpected", url: "x" }; } },
+    }),
   };
 };
 
@@ -70,16 +87,14 @@ Deno.test("stripe-checkout edge function", async (t) => {
     const res = await handler(request("basic"), {
       getEnv: env,
       createSupabase: createSupabase(),
-      stripeClient: {
-        checkout: {
-          sessions: {
-            create: async () => {
-              stripeCalled = true;
-              return { id: "cs_unexpected", url: "https://checkout.stripe.com/unexpected" };
-            },
+      stripeClient: stripeWith({
+        sessions: {
+          create: async () => {
+            stripeCalled = true;
+            return { id: "cs_unexpected", url: "https://checkout.stripe.com/unexpected" };
           },
         },
-      },
+      }),
     });
     const json = await res.json();
 
@@ -96,19 +111,17 @@ Deno.test("stripe-checkout edge function", async (t) => {
     const res = await handler(request("pro"), {
       getEnv: env,
       createSupabase: createSupabase(),
-      stripeClient: {
-        checkout: {
-          sessions: {
-            create: async (params) => {
-              const lineItems = params.line_items as Array<{ price?: string }>;
-              receivedPrice = lineItems[0]?.price;
-              receivedCustomerEmail = params.customer_email;
-              receivedClientReferenceId = params.client_reference_id;
-              return { id: "cs_test", url: "https://checkout.stripe.com/test" };
-            },
+      stripeClient: stripeWith({
+        sessions: {
+          create: async (params) => {
+            const lineItems = params.line_items as Array<{ price?: string }>;
+            receivedPrice = lineItems[0]?.price;
+            receivedCustomerEmail = params.customer_email;
+            receivedClientReferenceId = params.client_reference_id;
+            return { id: "cs_test", url: "https://checkout.stripe.com/test" };
           },
         },
-      },
+      }),
     });
     const json = await res.json();
 
@@ -125,17 +138,15 @@ Deno.test("stripe-checkout edge function", async (t) => {
     const res = await handler(request("pro"), {
       getEnv: env,
       createSupabase: createSupabase("cus_existing"),
-      stripeClient: {
-        checkout: {
-          sessions: {
-            create: async (params) => {
-              receivedCustomer = params.customer;
-              receivedCustomerEmail = params.customer_email;
-              return { id: "cs_test", url: "https://checkout.stripe.com/test" };
-            },
+      stripeClient: stripeWith({
+        sessions: {
+          create: async (params) => {
+            receivedCustomer = params.customer;
+            receivedCustomerEmail = params.customer_email;
+            return { id: "cs_test", url: "https://checkout.stripe.com/test" };
           },
         },
-      },
+      }),
     });
     const json = await res.json();
 
@@ -150,16 +161,14 @@ Deno.test("stripe-checkout edge function", async (t) => {
     const res = await handler(request("pro"), {
       getEnv: (key) => key === "STRIPE_PRO_PRICE_ID" ? undefined : env(key),
       createSupabase: createSupabase(),
-      stripeClient: {
-        checkout: {
-          sessions: {
-            create: async () => {
-              stripeCalled = true;
-              return { id: "cs_unexpected", url: "https://checkout.stripe.com/unexpected" };
-            },
+      stripeClient: stripeWith({
+        sessions: {
+          create: async () => {
+            stripeCalled = true;
+            return { id: "cs_unexpected", url: "https://checkout.stripe.com/unexpected" };
           },
         },
-      },
+      }),
     });
     const json = await res.json();
 
@@ -170,21 +179,95 @@ Deno.test("stripe-checkout edge function", async (t) => {
     assertEquals(stripeCalled, false);
   });
 
+  // #1282 — the price amount is server-owned and verified. A price that is not exactly 1000 cents,
+  // not recurring monthly, or in the wrong currency fails closed: no checkout session is created.
+  await t.step("rejects checkout when the Pro price is not exactly 1000 cents", async () => {
+    let stripeCalled = false;
+    const res = await handler(request("pro"), {
+      getEnv: env,
+      createSupabase: createSupabase(),
+      stripeClient: stripeWith(
+        { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
+        { active: true, unit_amount: 999, currency: "usd", recurring: { interval: "month" } },
+      ),
+    });
+    const json = await res.json();
+
+    assertEquals(res.status, 500);
+    assertEquals(json.error.code, "CONFIG_INVALID_PRICE");
+    assertEquals(stripeCalled, false);
+    const problems = json.error.details.problems as string[];
+    assertEquals(problems.includes("unit_amount:999"), true);
+  });
+
+  await t.step("rejects checkout when the Pro price is not recurring monthly", async () => {
+    let stripeCalled = false;
+    const res = await handler(request("pro"), {
+      getEnv: env,
+      createSupabase: createSupabase(),
+      stripeClient: stripeWith(
+        { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
+        { active: true, unit_amount: 1000, currency: "usd", recurring: { interval: "year" } },
+      ),
+    });
+    const json = await res.json();
+
+    assertEquals(res.status, 500);
+    assertEquals(json.error.code, "CONFIG_INVALID_PRICE");
+    assertEquals(stripeCalled, false);
+    const problems = json.error.details.problems as string[];
+    assertEquals(problems.includes("interval:year"), true);
+  });
+
+  await t.step("rejects checkout when the Pro price currency does not match the configured currency", async () => {
+    let stripeCalled = false;
+    const res = await handler(request("pro"), {
+      getEnv: env,
+      createSupabase: createSupabase(),
+      stripeClient: stripeWith(
+        { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
+        { active: true, unit_amount: 1000, currency: "eur", recurring: { interval: "month" } },
+      ),
+    });
+    const json = await res.json();
+
+    assertEquals(res.status, 500);
+    assertEquals(json.error.code, "CONFIG_INVALID_PRICE");
+    assertEquals(stripeCalled, false);
+    const problems = json.error.details.problems as string[];
+    assertEquals(problems.includes("currency:eur"), true);
+  });
+
+  await t.step("rejects checkout when the Pro price is inactive", async () => {
+    let stripeCalled = false;
+    const res = await handler(request("pro"), {
+      getEnv: env,
+      createSupabase: createSupabase(),
+      stripeClient: stripeWith(
+        { sessions: { create: async () => { stripeCalled = true; return { id: "cs_unexpected", url: "x" }; } } },
+        { active: false, unit_amount: 1000, currency: "usd", recurring: { interval: "month" } },
+      ),
+    });
+    const json = await res.json();
+
+    assertEquals(res.status, 500);
+    assertEquals(json.error.code, "CONFIG_INVALID_PRICE");
+    assertEquals(stripeCalled, false);
+  });
+
   await t.step("fails safely instead of creating checkout when billing profile lookup fails", async () => {
     let stripeCalled = false;
     const res = await handler(request("pro"), {
       getEnv: env,
       createSupabase: createSupabase(null, { message: "profile unavailable" }),
-      stripeClient: {
-        checkout: {
-          sessions: {
-            create: async () => {
-              stripeCalled = true;
-              return { id: "cs_unexpected", url: "https://checkout.stripe.com/unexpected" };
-            },
+      stripeClient: stripeWith({
+        sessions: {
+          create: async () => {
+            stripeCalled = true;
+            return { id: "cs_unexpected", url: "https://checkout.stripe.com/unexpected" };
           },
         },
-      },
+      }),
     });
     const json = await res.json();
 

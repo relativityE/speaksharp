@@ -32,6 +32,7 @@ export const ErrorCodes = {
 
     // Configuration (500)
     CONFIG_MISSING_ENV: 'CONFIG_MISSING_ENV',
+    CONFIG_INVALID_PRICE: 'CONFIG_INVALID_PRICE',
 
     // Internal (500)
     INTERNAL_ERROR: 'INTERNAL_ERROR',
@@ -65,6 +66,7 @@ const errorCodeToStatus: Record<ErrorCode, number> = {
     [ErrorCodes.PAID_BASIC_FUTURE]: 400,
     [ErrorCodes.PAYMENTS_DISABLED]: 403,
     [ErrorCodes.CONFIG_MISSING_ENV]: 500,
+    [ErrorCodes.CONFIG_INVALID_PRICE]: 500,
     [ErrorCodes.INTERNAL_ERROR]: 500,
     [ErrorCodes.DATABASE_ERROR]: 500,
 };
