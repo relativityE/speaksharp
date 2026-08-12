@@ -126,24 +126,44 @@ describe('#1265 Focus Points vs Open Mic Progress separation (executed in PGlite
         await db.close();
     });
 
-    it('deterministic backfill: legacy un-moded rows get the mode suffix and cross-mode pointers are dropped', async () => {
-        // Build WITHOUT the #1265 migration, seed legacy rows (4-part cohort + a cross-mode baseline), then apply.
+    it('deterministic backfill REBUILDS same-mode pointers over an interleaved history (A obj, B free, C obj)', async () => {
+        // Legacy (pre-#1265) history in ONE 4-part cohort, chronologically A < B < C:
+        //   A objective, B freeform, C objective. Pre-#1265, C.previous = B (cross-mode). After #1265,
+        //   C must compare to the most-recent-prior SAME-MODE session: C.previous = C.baseline = A.
         const db = await makeDb(false);
-        const fp = await eligibleSession(db); await attestAuthority(db, fp); await registerObjective(db, fp); await evaluate(db, fp);
-        const om = await eligibleSession(db); await attestAuthority(db, om); await evaluate(db, om);
-        // Pre-#1265 both share the 4-part cohort; force a cross-mode baseline pointer om -> fp.
-        await db.query(`UPDATE public.session_progress_evaluations SET baseline_session_id=$1 WHERE session_id=$2`, [fp, om]);
-        const legacy = await evalRow(db, om);
-        expect(legacy.cohort_key?.split('|').length).toBe(4);
-        expect(legacy.baseline_session_id).toBe(fp);
+        const setCreatedAt = (id: string, iso: string) =>
+            db.query(`UPDATE public.sessions SET created_at=$2 WHERE id=$1`, [id, iso]);
 
-        await db.exec(modeMigration); // runs the deterministic reconcile
+        const a = await eligibleSession(db); await attestAuthority(db, a); await setCreatedAt(a, '2026-07-20T00:00:00Z'); await registerObjective(db, a); await evaluate(db, a);
+        const b = await eligibleSession(db); await attestAuthority(db, b); await setCreatedAt(b, '2026-07-21T00:00:00Z'); await evaluate(db, b); // freeform
+        const c = await eligibleSession(db); await attestAuthority(db, c); await setCreatedAt(c, '2026-07-22T00:00:00Z'); await registerObjective(db, c); await evaluate(db, c);
 
-        const fpRow = await evalRow(db, fp);
-        const omRow = await evalRow(db, om);
-        expect(fpRow.cohort_key?.endsWith('|objective')).toBe(true);
-        expect(omRow.cohort_key?.endsWith('|freeform')).toBe(true);
-        expect(omRow.baseline_session_id).toBeNull(); // cross-mode pointer dropped
+        // Pre-#1265: single 4-part cohort; C's most-recent-prior is B (cross-mode).
+        const legacyC = await evalRow(db, c);
+        expect(legacyC.cohort_key?.split('|').length).toBe(4);
+        expect(legacyC.previous_comparable_session_id).toBe(b);
+
+        await db.exec(modeMigration); // suffix + REBUILD
+
+        const rowA = await evalRow(db, a);
+        const rowB = await evalRow(db, b);
+        const rowC = await evalRow(db, c);
+        expect(rowA.cohort_key?.endsWith('|objective')).toBe(true);
+        expect(rowB.cohort_key?.endsWith('|freeform')).toBe(true);
+        expect(rowC.cohort_key?.endsWith('|objective')).toBe(true);
+        // C rebuilt to the same-mode prior (A); B (only freeform) has no prior.
+        expect(rowC.baseline_session_id).toBe(a);
+        expect(rowC.previous_comparable_session_id).toBe(a);
+        expect(rowB.baseline_session_id).toBeNull();
+        expect(rowB.previous_comparable_session_id).toBeNull();
+        // A (first objective) has no prior either.
+        expect(rowA.previous_comparable_session_id).toBeNull();
+
+        // Idempotent: a re-apply changes nothing.
+        await db.exec(modeMigration);
+        const rowC2 = await evalRow(db, c);
+        expect(rowC2.cohort_key).toBe(rowC.cohort_key);
+        expect(rowC2.previous_comparable_session_id).toBe(a);
         await db.close();
     });
 });

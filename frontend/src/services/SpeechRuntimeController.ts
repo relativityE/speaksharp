@@ -51,7 +51,6 @@ import { shouldPublishFinalized } from '@/services/transcription/finalizeGate';
 // getSessionRecoveryDraft() must never be reachable from a recovery path.
 import { clearSessionRecoveryDraft, getRecoverableDraftForUser, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { wireProgressEvaluationOnSave } from '@/services/progress/recordProgress';
-import { markObjectivePending } from '@/services/progress/objectivePendingLedger';
 import { installSttEvidenceCollector } from '@/services/transcription/sttEvidenceCollector';
 import { installSttIdentityAccessor } from '@/services/transcription/sttIdentity';
 
@@ -3640,13 +3639,6 @@ export class SpeechRuntimeController {
                             // (server-verified Private-only), so it can never fabricate a score.
                             const objectiveBrief = useSessionStore.getState().activeObjectiveBrief;
                             if (objectiveBrief && metricsOk) {
-                                // #1265: DURABLY mark this Focus Points session objective-pending BEFORE the async
-                                // finalize. This guarantees that even if the tab closes mid-finalize, a later
-                                // reload/reconcile NEVER freeform-stamps it via the generic sweep (which skips
-                                // objective-pending ids); the mode-aware retry evaluates it once registration lands.
-                                if (this.capturedUserId) {
-                                    markObjectivePending(sessionId, this.capturedUserId, new Date().toISOString());
-                                }
                                 // #1046 G6/G7: snapshot the finished brief BEFORE clearing the live one, so the
                                 // after-state review screen keeps its Focus Points coverage card, delivery strip,
                                 // and highlights. Clearing the live brief still enforces the isolation invariant
@@ -3676,15 +3668,14 @@ export class SpeechRuntimeController {
                                                 objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
                                             );
                                         }
-                                        // #1265: AWAIT registration before evaluating this Focus Points session's
-                                        // Progress, so it is cohorted as 'objective'. The register step runs FIRST
-                                        // in the orchestrator; it succeeded iff the result is ok OR failed at a
-                                        // LATER stage. A 'register'-stage failure (or an ambiguous throw with no
-                                        // stage) means registration did NOT land → write NO evaluation, rather than
-                                        // mis-cohorting it as freeform. A later reconcile sweep re-attempts once the
-                                        // registration eventually exists.
-                                        const registered = objResult.ok || (objResult.stage != null && objResult.stage !== 'register');
-                                        if (registered) runProgressEval();
+                                        // #1265: evaluate this Focus Points session's Progress ONLY if its
+                                        // objective registration DURABLY succeeded — so it is cohorted 'objective',
+                                        // never 'freeform'. `registered` is the explicit, throw-surviving signal from
+                                        // finalize; a later objective stage failing does NOT prevent evaluation
+                                        // (the recording IS a confirmed Focus Points source), but a registration
+                                        // failure/ambiguous outcome writes NO evaluation. There is no registration
+                                        // retry — a failed registration means Progress is unavailable for this take.
+                                        if (objResult.registered) runProgressEval();
                                     }),
                                 ).catch((objErr) => logger.warn({ objErr, sessionId }, '[controller] objective finalization failed (non-fatal)'));
                             } else {

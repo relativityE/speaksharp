@@ -229,16 +229,31 @@ SET cohort_key = e.cohort_key || '|' ||
 WHERE e.cohort_key IS NOT NULL
   AND array_length(string_to_array(e.cohort_key, '|'), 1) = 4;
 
--- (b) Drop any baseline/previous pointer that crosses practice modes, so historical comparisons are
---     within-mode only. Future evaluations rebuild correct within-mode pointers via the moded cohort_key.
+-- (b) REBUILD each eligible row's baseline/previous pointer from the earliest/latest eligible session in
+--     the SAME (user, moded cohort_key) created strictly BEFORE it. This preserves legitimate within-mode
+--     comparisons across interleaved histories (objective A, freeform B, objective C -> C.baseline =
+--     C.previous = A) and eliminates every cross-mode pointer (a different-mode session has a different
+--     cohort_key and is never selected). Mirrors the evaluator's own selection (earliest = baseline,
+--     most-recent-prior = previous), computed over the full history. Deterministic + idempotent.
 UPDATE public.session_progress_evaluations e
-SET baseline_session_id = NULL
-WHERE e.baseline_session_id IS NOT NULL
-  AND (EXISTS (SELECT 1 FROM public.objective_source_recording o WHERE o.session_id = e.session_id))
-      <> (EXISTS (SELECT 1 FROM public.objective_source_recording o WHERE o.session_id = e.baseline_session_id));
-
-UPDATE public.session_progress_evaluations e
-SET previous_comparable_session_id = NULL
-WHERE e.previous_comparable_session_id IS NOT NULL
-  AND (EXISTS (SELECT 1 FROM public.objective_source_recording o WHERE o.session_id = e.session_id))
-      <> (EXISTS (SELECT 1 FROM public.objective_source_recording o WHERE o.session_id = e.previous_comparable_session_id));
+SET baseline_session_id = (
+        SELECT o.session_id
+        FROM public.session_progress_evaluations o
+        JOIN public.sessions os ON os.id = o.session_id
+        JOIN public.sessions es ON es.id = e.session_id
+        WHERE o.user_id = e.user_id AND o.eligible AND o.cohort_key = e.cohort_key
+          AND o.session_id <> e.session_id AND os.created_at < es.created_at
+        ORDER BY os.created_at ASC
+        LIMIT 1
+    ),
+    previous_comparable_session_id = (
+        SELECT o.session_id
+        FROM public.session_progress_evaluations o
+        JOIN public.sessions os ON os.id = o.session_id
+        JOIN public.sessions es ON es.id = e.session_id
+        WHERE o.user_id = e.user_id AND o.eligible AND o.cohort_key = e.cohort_key
+          AND o.session_id <> e.session_id AND os.created_at < es.created_at
+        ORDER BY os.created_at DESC
+        LIMIT 1
+    )
+WHERE e.eligible;

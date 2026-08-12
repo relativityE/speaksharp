@@ -19,10 +19,6 @@ import {
     getQueuedSessionIdsForUser,
     clearProgressReconcileEntry,
 } from './progressReconcileQueue';
-import {
-    getObjectivePendingForUser,
-    clearObjectivePending,
-} from './objectivePendingLedger';
 import { getOpenAttemptForUser, clearOpenAttempt, setOpenAttempt } from './openAttempt';
 
 /** A minimal view of a persisted session — the fields the on-load reconciler needs. */
@@ -32,9 +28,6 @@ export interface ReconcilableSession {
     attribution_status?: string | null;
     created_at?: string | null;
 }
-
-/** How many missing evaluations a single on-load sweep will record (the rest carry to the next load). */
-const RECONCILE_SWEEP_CAP = 25;
 
 /** Record (or return the existing) Progress evaluation for a completed, metrics-persisted session. */
 export async function recordProgressEvaluation(sessionId: string): Promise<string | null> {
@@ -360,71 +353,15 @@ export async function reconcileProgressEvaluations(
         }
     }
 
-    // ── Layer 1b (#1265): MODE-AWARE objective retry. Focus Points sessions were durably marked
-    // objective-pending at save (registration not yet confirmed). Evaluate such a session ONLY once its
-    // objective_source_recording registration is durably present (the sole classifier) — then the server
-    // cohorts it 'objective' and the RPC is idempotent, so exactly one objective evaluation is written.
-    // A session whose registration is still absent is LEFT pending (no evaluation), so a failed/unconfirmed
-    // Focus Points registration never becomes a freeform record. This ledger is a retry intent, not a
-    // second classification authority — the mode is decided by objective_source_recording, queried here.
-    const objectivePending = getObjectivePendingForUser(userId);
-    const pendingSet = new Set(objectivePending);
-    if (objectivePending.length > 0) {
-        const db = getSupabaseClient();
-        const { data: reg, error: regErr } = await db
-            .from('objective_source_recording')
-            .select('session_id')
-            .in('session_id', objectivePending);
-        if (!regErr) {
-            const registered = new Set((reg ?? []).map((r) => (r as { session_id: string }).session_id));
-            for (const sessionId of objectivePending) {
-                if (!registered.has(sessionId)) continue; // registration not yet durable → stay no-evaluation
-                const id = await recordProgressEvaluation(sessionId);
-                if (id) {
-                    clearObjectivePending(sessionId, userId);
-                    await recordRecommendationForEvaluation(sessionId);
-                }
-            }
-        }
-    }
-
-    // ── Layer 2: bounded active-era sweep against DB truth. ──
-    const supabase = getSupabaseClient();
-    const { data, error } = await supabase
-        .from('session_progress_evaluations')
-        .select('session_id')
-        .eq('formula_version', PROGRESS_FORMULA_VERSION);
-    if (error) return { queueDrained, swept };
-
-    const coveredIds = new Set((data ?? []).map((r) => (r as { session_id: string }).session_id));
-    // The active era begins at the earliest session that already has an evaluation. If none exist yet,
-    // there is nothing to recover by sweep (the queue handled the first-session case) — skip it entirely.
-    const coveredCreatedAt = sessions
-        .filter((s) => coveredIds.has(s.id) && typeof s.created_at === 'string')
-        .map((s) => Date.parse(s.created_at as string))
-        .filter((n) => Number.isFinite(n));
-    if (coveredCreatedAt.length === 0) return { queueDrained, swept };
-    const eraStart = Math.min(...coveredCreatedAt);
-
-    for (const s of sessions) {
-        if (swept >= RECONCILE_SWEEP_CAP) {
-            logger.warn({ userId, cap: RECONCILE_SWEEP_CAP }, '[progress] reconcile sweep hit its cap; remainder carries to the next load');
-            break;
-        }
-        if (coveredIds.has(s.id)) continue;
-        // #1265: CONSTRAIN the mode-ambiguous generic sweep — never evaluate an objective-pending Focus
-        // Points session here. Its mode is not client-determinable without registration, and stamping it
-        // now would immutably record it as 'freeform'. Layer 1b is its only, mode-aware, evaluation path.
-        if (pendingSet.has(s.id)) continue;
-        if (s.status !== 'completed') continue;
-        // #1161 (finding 5): do NOT pre-filter on the advisory sessions.attribution_status — attest no longer
-        // promotes it, so an attested session can read 'pending' here. record_progress_evaluation is the
-        // authoritative gate (it reads the server-owned attribution authority); let it decide eligibility.
-        const created = typeof s.created_at === 'string' ? Date.parse(s.created_at) : NaN;
-        if (!Number.isFinite(created) || created < eraStart) continue; // pre-activation — never backfilled
-        const id = await recordProgressEvaluation(s.id);
-        if (id) { swept++; await recordRecommendationForEvaluation(s.id); }
-    }
-
-    return { queueDrained, swept };
+    // #1265: the generic active-era sweep was REMOVED. It evaluated any completed session missing an
+    // evaluation, but it CANNOT positively identify the practice mode before writing the IMMUTABLE
+    // evaluation — so a Focus Points recording whose objective registration failed or was unconfirmed could
+    // be permanently stamped 'freeform'. "No evaluation" is safer than false provenance. Recovery is limited
+    // to the owner-scoped durable queue above, which is authoritative about mode by construction: a Focus
+    // Points session is enqueued ONLY after its objective registration succeeds (so a later re-evaluation is
+    // correctly cohorted 'objective' — record_progress_evaluation reads objective_source_recording), while a
+    // registration failure writes and enqueues nothing. There is no objective-registration retry in this MVP,
+    // so a failed registration means Progress is simply unavailable for that take — never mislabeled.
+    void sessions; // retained for API compatibility; no longer swept (see above)
+    return { queueDrained, swept: 0 };
 }
