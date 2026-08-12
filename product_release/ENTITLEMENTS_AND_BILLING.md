@@ -33,6 +33,17 @@ Every quantitative claim below is tagged with exactly one provenance category. *
 - **Paid-Pro** — adds **Cloud** STT eligibility. During the no-billing beta, new Free testers cannot purchase Pro (checkout is closed, §5); **existing/comped Pro accounts retain access**.
 - **No-billing beta** — the current release posture: both payment switches OFF; Pro is reachable only via an existing subscription or an explicitly approved comped DB entitlement (§6).
 
+### 2a. #1266/#1282 commercial contract (30-day full-product trial → $10/month)
+
+The locked commercial model is **ONE product**: the complete Private Practice product (Open Mic + Focus Points, saved review, Progress, History, PDF) is **free for a new account's first 30 days**, then **$10/month** to continue. It is NOT a permanent feature-limited Free tier. Server-authoritative mechanics (migrations `20260812000000`/`…001000`/`…002000`):
+
+- **Trial grant** — `effective_subscription_tier()` resolves to `pro` for a **live** trial window (`trial_expires_at > now()`) OR paid (`subscription_status='pro'` AND real `stripe_subscription_id`). New accounts are stamped a 30-day window; existing unpaid beta accounts received a one-time, non-retroactive fresh-30-day activation stamp. Legacy (long-expired) timestamps never grant Pro.
+- **Expiry fails closed** — once the trial expires and the account is unpaid, `check_usage_limit`/`update_user_usage` refuse new recording/persistence/analysis (`trial_expired`). Reading existing sessions, PDF export, account management, billing portal and upgrade remain available. The prior 300s private-sample fallback is retired for this model.
+- **Checkout price** — `stripe-checkout` verifies `STRIPE_PRO_PRICE_ID` is an active recurring **monthly** price of **exactly 1000 cents** in the configured currency (`STRIPE_PRICE_CURRENCY`, default `usd`) before creating a session; the amount is server-owned, never caller-supplied. Any mismatch fails closed (`CONFIG_INVALID_PRICE`).
+- **Webhook lifecycle** — activation, renewal (`invoice.payment_succeeded` → `renew_pro`), cancel-through-period-end, payment-failure → lapse, duplicate/replay (event id), and **out-of-order** (a `last_stripe_event_at` watermark ignores events older than the newest applied one). Existing paid customers stay manageable with new enrollment closed.
+
+Enabling the paid model is still gated by the payment switches (§5) — **source landing activates nothing**; migration application and Edge deployment are separately authorized.
+
 ## 3. Entitlement authority (mechanics; ADR in `ARCHITECTURE.md`)
 
 Per `ARCHITECTURE.md` ADR-1 — **payment status and product capability are distinct**:
