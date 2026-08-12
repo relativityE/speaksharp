@@ -28,53 +28,6 @@ function normalizeStripeObjectId(value: unknown): string | null {
   return null;
 }
 
-// #1282 DEPLOYMENT SAFETY. Merging this PR redeploys these Edge Functions but does NOT apply the
-// migration, so production may still run the PRE-#1282 process_stripe_webhook_event: a 6-arg function
-// with neither p_event_created nor the lapse_pro/renew_pro actions. Calling the new contract against it
-// would fail — PGRST202 (no 7-arg overload) or 'Unknown action' — and break live Stripe webhooks. To make
-// the Edge deploy safe REGARDLESS of migration timing, we try the full new contract first and, ONLY on
-// those exact backward-incompatibility errors, fall back to the pre-#1282 6-arg contract with a legacy
-// action mapping. That reproduces CURRENT PRODUCTION behavior until the migration lands (no regression),
-// after which the primary call succeeds and full #1282 behavior applies. Idempotency is preserved: a
-// PGRST202 primary never ran the function (no processed_webhook_events row), so the fallback is clean.
-const LEGACY_ACTION: Record<string, string> = {
-  // Pre-#1282 behavior: repeated payment failure / past-due downgraded to Free (clearing the sub id);
-  // renewal had no handler (an already-Pro sub stayed Pro), so it maps to a safe no-op.
-  lapse_pro: 'downgrade_to_free',
-  renew_pro: 'none',
-};
-
-type WebhookRpcBase = {
-  p_event_id: string;
-  p_event_type: string;
-  p_action: string;
-  p_user_id: string | null;
-  p_subscription_id: string | null;
-  p_stripe_customer_id: string | null;
-};
-
-// deno-lint-ignore no-explicit-any
-async function processWebhookEventCompat(
-  supabase: SupabaseClient,
-  base: WebhookRpcBase,
-  eventCreated: number | null,
-): Promise<{ data: any; error: any }> {
-  const primary = await supabase.rpc('process_stripe_webhook_event', { ...base, p_event_created: eventCreated });
-  if (!primary.error) return primary;
-
-  const err = primary.error as { message?: unknown; code?: unknown };
-  const msg = String(err?.message ?? '');
-  const code = String(err?.code ?? '');
-  const missingNewFn = code === 'PGRST202'
-    || /Could not find the function|No function matches|does not exist/i.test(msg);
-  const unknownAction = /Unknown action/i.test(msg);
-  if (!missingNewFn && !unknownAction) return primary; // a genuine failure — surface it, do not mask
-
-  const legacyAction = LEGACY_ACTION[base.p_action] ?? base.p_action;
-  console.warn(`[Stripe Webhook] ⚠️ pre-#1282 DB detected — compat fallback: action '${base.p_action}' -> '${legacyAction}' (6-arg)`);
-  return await supabase.rpc('process_stripe_webhook_event', { ...base, p_action: legacyAction });
-}
-
 export async function handler(
   req: Request,
   stripe: StripeClient,
@@ -188,17 +141,20 @@ export async function handler(
     }
 
     // Call RPC to execute idempotency and action atomically. p_event_created carries the Stripe event
-    // ordering authority (unix seconds) for the server-side out-of-order guard. The call is routed through
-    // processWebhookEventCompat so a pre-migration Edge deploy (the merge deploys Edge but NOT migrations)
-    // can never break live webhooks — see that helper.
-    const { data, error } = await processWebhookEventCompat(supabase, {
+    // ordering authority (unix seconds) for the server-side out-of-order guard. This calls the NEW 7-arg
+    // process_stripe_webhook_event contract directly — its database capability (PR #1287, under #1266) is a
+    // MERGE/APPLY PREREQUISITE for deploying this Edge Function (database-first split). No runtime fallback:
+    // the DB migration is applied and verified before this Edge is deployed, and the old Edge stays
+    // compatible with the new DB via the migration's 6-arg shim, so there is no incompatible window.
+    const { data, error } = await supabase.rpc('process_stripe_webhook_event', {
       p_event_id: event.id,
       p_event_type: event.type,
       p_action: action,
       p_user_id: userId,
       p_subscription_id: subscriptionId,
       p_stripe_customer_id: stripeCustomerId,
-    }, typeof event.created === 'number' ? event.created : null);
+      p_event_created: typeof event.created === 'number' ? event.created : null,
+    });
 
     if (error) {
       console.error(`[Stripe Webhook] RPC execution failed for ${event.id}:`, error)
