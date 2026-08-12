@@ -65,6 +65,6 @@ test.describe('Paid invite trust smoke', () => {
     await expect(page.getByText(/The complete Private Practice product, free for 30 days/i)).toBeVisible();
     await expect(page.getByText(/Everything in the trial — the same complete product/i)).toBeVisible();
     await expect(page.getByText(/AI-assisted feedback/i)).toHaveCount(0);
-    await expect(page.getByText(/Pro continues.*Stripe confirmation/i).first()).toBeVisible();
+    await expect(page.getByText(/Pro unlocks only after Stripe confirmation/i).first()).toBeVisible();
   });
 });
