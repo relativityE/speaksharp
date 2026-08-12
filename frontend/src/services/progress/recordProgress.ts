@@ -19,6 +19,10 @@ import {
     getQueuedSessionIdsForUser,
     clearProgressReconcileEntry,
 } from './progressReconcileQueue';
+import {
+    getObjectivePendingForUser,
+    clearObjectivePending,
+} from './objectivePendingLedger';
 import { getOpenAttemptForUser, clearOpenAttempt, setOpenAttempt } from './openAttempt';
 
 /** A minimal view of a persisted session — the fields the on-load reconciler needs. */
@@ -346,13 +350,41 @@ export async function reconcileProgressEvaluations(
     const pendingResolution = getOpenAttemptForUser(userId)?.resolutionSessionId;
     if (pendingResolution) await resolveOpenAttemptWith(userId, pendingResolution);
 
-    // ── Layer 1: drain the durable queue for this user. ──
+    // ── Layer 1: drain the durable Open Mic queue (transient eval failures) for this user. ──
     for (const sessionId of getQueuedSessionIdsForUser(userId)) {
         const id = await recordProgressEvaluation(sessionId);
         if (id) {
             clearProgressReconcileEntry(sessionId, userId);
             queueDrained++;
             await recordRecommendationForEvaluation(sessionId);
+        }
+    }
+
+    // ── Layer 1b (#1265): MODE-AWARE objective retry. Focus Points sessions were durably marked
+    // objective-pending at save (registration not yet confirmed). Evaluate such a session ONLY once its
+    // objective_source_recording registration is durably present (the sole classifier) — then the server
+    // cohorts it 'objective' and the RPC is idempotent, so exactly one objective evaluation is written.
+    // A session whose registration is still absent is LEFT pending (no evaluation), so a failed/unconfirmed
+    // Focus Points registration never becomes a freeform record. This ledger is a retry intent, not a
+    // second classification authority — the mode is decided by objective_source_recording, queried here.
+    const objectivePending = getObjectivePendingForUser(userId);
+    const pendingSet = new Set(objectivePending);
+    if (objectivePending.length > 0) {
+        const db = getSupabaseClient();
+        const { data: reg, error: regErr } = await db
+            .from('objective_source_recording')
+            .select('session_id')
+            .in('session_id', objectivePending);
+        if (!regErr) {
+            const registered = new Set((reg ?? []).map((r) => (r as { session_id: string }).session_id));
+            for (const sessionId of objectivePending) {
+                if (!registered.has(sessionId)) continue; // registration not yet durable → stay no-evaluation
+                const id = await recordProgressEvaluation(sessionId);
+                if (id) {
+                    clearObjectivePending(sessionId, userId);
+                    await recordRecommendationForEvaluation(sessionId);
+                }
+            }
         }
     }
 
@@ -380,6 +412,10 @@ export async function reconcileProgressEvaluations(
             break;
         }
         if (coveredIds.has(s.id)) continue;
+        // #1265: CONSTRAIN the mode-ambiguous generic sweep — never evaluate an objective-pending Focus
+        // Points session here. Its mode is not client-determinable without registration, and stamping it
+        // now would immutably record it as 'freeform'. Layer 1b is its only, mode-aware, evaluation path.
+        if (pendingSet.has(s.id)) continue;
         if (s.status !== 'completed') continue;
         // #1161 (finding 5): do NOT pre-filter on the advisory sessions.attribution_status — attest no longer
         // promotes it, so an attested session can read 'pending' here. record_progress_evaluation is the

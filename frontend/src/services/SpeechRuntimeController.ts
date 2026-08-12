@@ -51,6 +51,7 @@ import { shouldPublishFinalized } from '@/services/transcription/finalizeGate';
 // getSessionRecoveryDraft() must never be reachable from a recovery path.
 import { clearSessionRecoveryDraft, getRecoverableDraftForUser, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { wireProgressEvaluationOnSave } from '@/services/progress/recordProgress';
+import { markObjectivePending } from '@/services/progress/objectivePendingLedger';
 import { installSttEvidenceCollector } from '@/services/transcription/sttEvidenceCollector';
 import { installSttIdentityAccessor } from '@/services/transcription/sttIdentity';
 
@@ -3639,6 +3640,13 @@ export class SpeechRuntimeController {
                             // (server-verified Private-only), so it can never fabricate a score.
                             const objectiveBrief = useSessionStore.getState().activeObjectiveBrief;
                             if (objectiveBrief && metricsOk) {
+                                // #1265: DURABLY mark this Focus Points session objective-pending BEFORE the async
+                                // finalize. This guarantees that even if the tab closes mid-finalize, a later
+                                // reload/reconcile NEVER freeform-stamps it via the generic sweep (which skips
+                                // objective-pending ids); the mode-aware retry evaluates it once registration lands.
+                                if (this.capturedUserId) {
+                                    markObjectivePending(sessionId, this.capturedUserId, new Date().toISOString());
+                                }
                                 // #1046 G6/G7: snapshot the finished brief BEFORE clearing the live one, so the
                                 // after-state review screen keeps its Focus Points coverage card, delivery strip,
                                 // and highlights. Clearing the live brief still enforces the isolation invariant

@@ -8,6 +8,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const rpc = vi.fn();
 // The evaluations SELECT used by the sweep (awaited) and by recommendation derivation (.maybeSingle()).
 let coveredRows: Array<{ session_id: string }> = [];
+// #1265: rows the objective_source_recording membership query resolves to (the registration classifier).
+let registeredRows: Array<{ session_id: string }> = [];
 let attemptReadback: Record<string, unknown> | null = null;
 let attemptReadError: unknown = null;
 const maybeSingle = vi.fn(async (table?: string) => table === 'progress_recommendation_attempts'
@@ -17,9 +19,11 @@ function makeChain(table: string) {
     const chain: Record<string, unknown> = {};
     chain.select = () => chain;
     chain.eq = () => chain;
+    chain.in = () => chain;
     chain.maybeSingle = () => maybeSingle(table);
-    // Awaiting the chain (the sweep's list query) resolves to the covered rows.
-    (chain as { then: unknown }).then = (resolve: (v: unknown) => void) => resolve({ data: coveredRows, error: null });
+    // Awaiting the chain resolves per table: objective_source_recording membership, else the covered rows.
+    const rows = table === 'objective_source_recording' ? registeredRows : coveredRows;
+    (chain as { then: unknown }).then = (resolve: (v: unknown) => void) => resolve({ data: rows, error: null });
     return chain;
 }
 const from = vi.fn((table: string) => makeChain(table));
@@ -28,10 +32,12 @@ vi.mock('@/lib/logger', () => ({ default: { warn: vi.fn(), error: vi.fn(), info:
 
 import { reconcileProgressEvaluations, wireProgressEvaluationOnSave } from '../recordProgress';
 import { enqueueProgressReconcile, getQueuedSessionIdsForUser } from '../progressReconcileQueue';
+import { markObjectivePending, getObjectivePendingForUser } from '../objectivePendingLedger';
 import { clearOpenAttemptIfMatches, setOpenAttempt, getOpenAttemptForUser } from '../openAttempt';
 
 const USER = 'user-1';
 const rpcNames = () => rpc.mock.calls.map((c) => c[0]);
+const recordedIds = () => rpc.mock.calls.filter((c) => c[0] === 'record_progress_evaluation').map((c) => c[1].p_session_id);
 
 beforeEach(() => {
     localStorage.clear();
@@ -39,6 +45,7 @@ beforeEach(() => {
     rpc.mockResolvedValue({ data: 'ok-id', error: null });
     from.mockClear(); maybeSingle.mockClear();
     coveredRows = [];
+    registeredRows = [];
     attemptReadback = null; attemptReadError = null;
 });
 
@@ -90,6 +97,55 @@ describe('#1045 durable recovery — reconcileProgressEvaluations', () => {
         ];
         const res = await reconcileProgressEvaluations(USER, sessions);
         expect(res.swept).toBe(1);   // s-active skipped (non-completed); s-pending evaluated by the authority RPC
+    });
+});
+
+describe('#1265 Focus Points objective-pending recovery (no Open Mic contamination)', () => {
+    const sess = (id: string, over: Record<string, unknown> = {}) => ({
+        id, status: 'completed', attribution_status: 'verified', created_at: '2026-07-31T00:00:00Z', ...over,
+    });
+
+    it('register-stage failure → reload/reconcile writes ZERO evaluation (never freeform-stamped)', async () => {
+        // A Focus Points session marked objective-pending whose registration is still ABSENT. It is also an
+        // in-era sweep candidate — the generic sweep MUST skip it, and Layer 1b must NOT evaluate it.
+        markObjectivePending('s-fp', USER, '2026-07-31T00:00:00Z');
+        registeredRows = [];                           // objective_source_recording has no row yet
+        coveredRows = [{ session_id: 's-anchor' }];    // era anchor
+        const sessions = [
+            sess('s-anchor', { created_at: '2026-07-20T00:00:00Z' }),
+            sess('s-fp', { created_at: '2026-07-25T00:00:00Z' }),
+        ];
+        await reconcileProgressEvaluations(USER, sessions);
+        expect(recordedIds()).not.toContain('s-fp');           // ZERO evaluation for the FP session
+        expect(getObjectivePendingForUser(USER)).toContain('s-fp'); // stays pending across reloads
+    });
+
+    it('registration later present → reconcile writes EXACTLY ONE objective evaluation, ledger cleared', async () => {
+        markObjectivePending('s-fp', USER, '2026-07-31T00:00:00Z');
+        registeredRows = [{ session_id: 's-fp' }];     // objective_source_recording registration now durable
+        await reconcileProgressEvaluations(USER, []);
+        expect(recordedIds()).toEqual(['s-fp']);       // exactly one, server cohorts it 'objective'
+        expect(getObjectivePendingForUser(USER)).not.toContain('s-fp'); // cleared after recording
+    });
+
+    it('Open Mic transient failure → durable retry writes EXACTLY ONE freeform evaluation', async () => {
+        enqueueProgressReconcile('s-om', USER, '2026-07-31T00:00:00Z');
+        await reconcileProgressEvaluations(USER, []);
+        expect(recordedIds()).toEqual(['s-om']);       // recovered immediately via the durable Open Mic queue
+        expect(getQueuedSessionIdsForUser(USER)).toEqual([]);
+    });
+
+    it('a pending FP session that IS registered is not double-recorded by the generic sweep', async () => {
+        // Registered + in-era + missing eval: Layer 1b records it once; the sweep must not record it again.
+        markObjectivePending('s-fp', USER, '2026-07-31T00:00:00Z');
+        registeredRows = [{ session_id: 's-fp' }];
+        coveredRows = [{ session_id: 's-anchor' }];
+        const sessions = [
+            sess('s-anchor', { created_at: '2026-07-20T00:00:00Z' }),
+            sess('s-fp', { created_at: '2026-07-25T00:00:00Z' }),
+        ];
+        await reconcileProgressEvaluations(USER, sessions);
+        expect(recordedIds()).toEqual(['s-fp']);       // exactly once (Layer 1b), sweep skipped it
     });
 });
 
