@@ -109,6 +109,15 @@ describe('#1282 30-day trial lifecycle — webhook lifecycle completeness (slice
         expect(webhook).toMatch(/SET subscription_status = 'pro',[\s\S]*WHERE stripe_subscription_id = p_subscription_id/);
     });
 
+    it('recoverable lapse suspends access but PRESERVES the subscription id (finding-1 fix)', () => {
+        // lapse_pro sets status free WITHOUT clearing stripe_subscription_id, so renew_pro can restore
+        // Pro after a successful recovery. Only terminal cancellation clears the id.
+        expect(webhook).toMatch(/ELSIF p_action = 'lapse_pro' THEN/);
+        const lapseBlock = webhook.slice(webhook.indexOf("ELSIF p_action = 'lapse_pro'"), webhook.indexOf("ELSIF p_action IN ('downgrade_to_free'"));
+        expect(lapseBlock).toMatch(/SET subscription_status = 'free',/);
+        expect(lapseBlock).not.toMatch(/stripe_subscription_id = NULL/);
+    });
+
     it('preserves the paid->free downgrade semantics (burn sample, clear both paid ids, keep customer id)', () => {
         expect(webhook).toMatch(/subscription_status = 'free',\s*\n\s*stripe_subscription_id = NULL,\s*\n\s*subscription_id = NULL,\s*\n\s*private_sample_seconds_used = COALESCE\(private_sample_limit_seconds, 300\)/);
     });

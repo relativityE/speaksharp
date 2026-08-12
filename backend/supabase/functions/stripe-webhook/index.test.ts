@@ -189,18 +189,20 @@ Deno.test("stripe-webhook subscription.updated handlers", async (t) => {
     return capturedArgs;
   };
 
-  await t.step("handleSubscriptionUpdated - downgrades on canceled status", async () => {
+  await t.step("handleSubscriptionUpdated - terminal cancel clears entitlement (downgrade_to_free)", async () => {
     const args = await getArgs("canceled");
     assertEquals(args.p_action, "downgrade_to_free");
     assertEquals(args.p_stripe_customer_id, "cus_1");
   });
 
-  await t.step("handleSubscriptionUpdated - downgrades on unpaid status", async () => {
-    assertEquals((await getArgs("unpaid")).p_action, "downgrade_to_free");
+  await t.step("handleSubscriptionUpdated - unpaid is a recoverable lapse (keeps sub id)", async () => {
+    // #1282 finding-1 fix: a recoverable lapse must NOT clear the subscription id, so renew_pro can
+    // restore Pro after recovery. unpaid/past_due route to lapse_pro, not downgrade_to_free.
+    assertEquals((await getArgs("unpaid")).p_action, "lapse_pro");
   });
 
-  await t.step("handleSubscriptionUpdated - downgrades on past_due status", async () => {
-    assertEquals((await getArgs("past_due")).p_action, "downgrade_to_free");
+  await t.step("handleSubscriptionUpdated - past_due is a recoverable lapse (keeps sub id)", async () => {
+    assertEquals((await getArgs("past_due")).p_action, "lapse_pro");
   });
 
   await t.step("handleSubscriptionUpdated - no action on active status", async () => {
@@ -269,8 +271,8 @@ Deno.test("stripe-webhook invoice.payment_failed handlers", async (t) => {
     assertEquals(await getArgs(2), "none");
   });
 
-  await t.step("handlePaymentFailed - downgrades at 3+ attempts", async () => {
-    assertEquals(await getArgs(3), "downgrade_to_free");
+  await t.step("handlePaymentFailed - recoverable lapse at 3+ attempts (keeps sub id for recovery)", async () => {
+    assertEquals(await getArgs(3), "lapse_pro");
   });
 
 });

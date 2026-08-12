@@ -92,8 +92,13 @@ export async function handler(
         userId = subscription.metadata?.userId ?? null
         plan = normalizeBillingPlan(subscription.metadata?.plan)
 
-        if (status === "canceled" || status === "unpaid" || status === "past_due") {
+        if (status === "canceled") {
+          // Terminal cancellation — clears the subscription id (not recoverable via renewal).
           action = 'downgrade_to_free';
+        } else if (status === "unpaid" || status === "past_due") {
+          // Recoverable lapse — suspends access but PRESERVES the subscription id so a later
+          // invoice.payment_succeeded (renew_pro) can restore Pro after the customer recovers.
+          action = 'lapse_pro';
         } else if (status === "active" && userId) {
           // Active keeps Pro. #1282 cancel-through-period-end: an active subscription flagged
           // cancel_at_period_end stays Pro here (access continues); the customer.subscription.deleted
@@ -126,7 +131,10 @@ export async function handler(
         const attemptCount = invoice.attempt_count || 0
 
         if (attemptCount >= 3 && subscriptionId) {
-          action = 'downgrade_to_free';
+          // Recoverable lapse, not terminal cancellation: suspend access but keep the subscription id
+          // so a subsequent successful payment (renew_pro) restores Pro. Stripe emits
+          // customer.subscription.deleted at true end-of-life, which clears the id via downgrade_to_free.
+          action = 'lapse_pro';
         }
         break;
       }
