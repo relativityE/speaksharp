@@ -243,7 +243,7 @@ SET baseline_session_id = (
         JOIN public.sessions es ON es.id = e.session_id
         WHERE o.user_id = e.user_id AND o.eligible AND o.cohort_key = e.cohort_key
           AND o.session_id <> e.session_id AND os.created_at < es.created_at
-        ORDER BY os.created_at ASC
+        ORDER BY os.created_at ASC, o.session_id ASC   -- deterministic ID tie-break
         LIMIT 1
     ),
     previous_comparable_session_id = (
@@ -253,7 +253,7 @@ SET baseline_session_id = (
         JOIN public.sessions es ON es.id = e.session_id
         WHERE o.user_id = e.user_id AND o.eligible AND o.cohort_key = e.cohort_key
           AND o.session_id <> e.session_id AND os.created_at < es.created_at
-        ORDER BY os.created_at DESC
+        ORDER BY os.created_at DESC, o.session_id DESC  -- deterministic ID tie-break
         LIMIT 1
     )
 WHERE e.eligible;
