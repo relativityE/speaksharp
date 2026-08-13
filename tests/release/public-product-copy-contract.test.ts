@@ -13,7 +13,6 @@ const surfaces = {
   testerGuide: read('product_release/TESTER_GUIDE.md'),
   browserWarning: read('frontend/src/components/BrowserWarning.tsx'),
   session: read('frontend/src/pages/SessionPage.tsx'),
-  recorder: read('frontend/src/components/session/LiveRecordingCard.tsx'),
   browserSupport: read('frontend/src/hooks/useBrowserSupport.ts'),
   sessionLifecycle: read('frontend/src/hooks/useSessionLifecycle.ts'),
   speechRecognition: read('frontend/src/hooks/useSpeechRecognition/useSpeechRecognition_prod.ts'),

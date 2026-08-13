@@ -161,10 +161,10 @@ Each release gate is green only when its definition of green is backed by a **na
 
 ### 7.1 Non-negotiable operating rules
 
-1. **Private is the only customer transcription path.** Browser, Native, Cloud, Guided, and a
-   Private sample are not recovery paths. Do not expose, enable, recommend, or silently select a
-   retired engine or product mode to contain an incident. If Private cannot support a trustworthy
-   take, stop the affected journey and HOLD the launch.
+1. **Private is the only customer transcription path.** Retired engines, rehearsal variants, and
+   time-limited preview entitlements are not recovery paths. Do not expose, enable, recommend, or
+   silently select a retired engine or product mode to contain an incident. If Private cannot
+   support a trustworthy take, stop the affected journey and HOLD the launch.
 2. **Establish identity before diagnosis.** Read the canonical production host from
    `RELEASE_STATUS.md`; read the deployed commit from the live page's `window.__APP_RELEASE__`;
    read the intended commit from GitHub `main`. Unknown or unequal identities mean HOLD. A merge,
@@ -214,7 +214,7 @@ HOLD immediately when any of these is true:
 - intended `main` SHA, deployed `window.__APP_RELEASE__`, or the SHA covered by terminal gate evidence
   is missing or unequal;
 - any S1 exists, or any S2 affects the launch cohort;
-- Browser, Native, Cloud, Guided, or a Private-sample promise is customer-visible or reachable; or
+- any retired transcription path, rehearsal variant, or time-limited preview promise is customer-visible or reachable; or
   checkout/paid entitlement is reachable before activation or violates the approved commercial contract;
 - Private setup/record/finalize/save cannot complete without losing recoverable work;
 - auth isolation, History ownership, Progress comparability, PDF truth, or retention behavior is
@@ -306,8 +306,8 @@ The release-window record copies this checklist and records evidence links, not 
 - [ ] Release commander, Product Owner, Engineering, Operations/Security, Support/Privacy, and
       Quality/device primary + backup + acknowledgement channel are filled.
 - [ ] Signup, Practice, Pricing, Analytics, Terms/Privacy, and tester copy agree on one complete
-      Private-only product: 30 days free, then $10/month for the same product; Browser, Native,
-      Cloud, Guided, Private-sample, and quota-based product claims are absent.
+      Private-only product: 30 days free, then $10/month for the same product; retired engine,
+      preview-entitlement, and usage-quota product claims are absent.
 - [ ] Auth and one Private setup → record → finalize → save → History/Progress/PDF journey pass on
       the deployed release without inspecting real speech content.
 - [ ] Required mobile before/during/after checks pass at 320, 375, and 390px; desktop checks pass at

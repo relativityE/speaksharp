@@ -10,7 +10,6 @@ import { MobileActionBar } from '@/components/session/MobileActionBar';
 import { StatusNotificationBar } from '@/components/session/StatusNotificationBar';
 import { FreeformHelpOverlay } from '@/components/session/FreeformHelpOverlay';
 import { SttStatus } from '@/types/transcription';
-import { SunsetModals } from '@/components/session/SunsetModals';
 import { SessionOverhaulView } from '@/components/session/SessionOverhaulView';
 import { usePracticeHistory } from '@/hooks/usePracticeHistory';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
@@ -76,12 +75,9 @@ export const SessionPage: React.FC = () => {
         handleStartStop,
         showAnalyticsPrompt,
         sessionFeedbackMessage,
-        sunsetModal,
-        setSunsetModal,
         micLevel,
         transcriptContent,
         interimTranscript,
-        isProUser,
         canUsePrivateStt,
         isButtonDisabled,
     } = useSessionLifecycle();
@@ -392,14 +388,6 @@ export const SessionPage: React.FC = () => {
                 mode={mode}
                 privateModelStatus={privateModelStatus}
                 onDownloadModel={() => { void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private')); }}
-            />
-
-            {/* Sunset Modals */}
-            <SunsetModals
-                open={sunsetModal.open}
-                onOpenChange={(open) => setSunsetModal({ ...sunsetModal, open })}
-                type={sunsetModal.type}
-                isPro={isProUser}
             />
 
         </main>

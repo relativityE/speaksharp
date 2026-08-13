@@ -11,8 +11,8 @@ import { formatTimer } from '@/utils/sessionFormat';
  * and seeking come from the container.
  *
  * `audioAvailable={false}` (PO 2026-08-08, transcript-only review): the app retains no audio, so the play
- * button, time readout and travelling playhead are omitted; the waveform stays as a static filler MAP and
- * the legend still reads "▮ marks a filler". Clicking a bar then seeks the TRANSCRIPT, not audio.
+ * button, time readout, travelling playhead, and seek controls are omitted. The waveform is a static
+ * amplitude envelope. Open Mic may annotate filler positions; Focus Points stays amplitude-only.
  */
 export interface PlaybackScrubberProps {
     playing: boolean;
@@ -21,9 +21,9 @@ export interface PlaybackScrubberProps {
     durationSeconds: number;
     amplitudes: number[];
     /** Waveform bar indices that sit on a filler (stay orange in the grey resting track). */
-    fillerBars: number[];
+    fillerBars?: number[];
     /** Seek to a 0..1 fraction of the track. */
-    onSeek: (fraction: number) => void;
+    onSeek?: (fraction: number) => void;
     /** When false, hide audio-playback affordances (no retained audio). Default true. */
     audioAvailable?: boolean;
 }
@@ -66,15 +66,17 @@ export const PlaybackScrubber: React.FC<PlaybackScrubberProps> = ({
                         amplitudes={amplitudes}
                         fillerBars={fillerBars}
                         playedFraction={audioAvailable ? played : undefined}
-                        onSeek={onSeek}
+                        onSeek={audioAvailable ? onSeek : undefined}
                         data-testid="scrubber-waveform"
                     />
                 </div>
             </div>
 
-            <p className="mt-2 flex items-center gap-1.5 text-[12px] text-[#414b5c]" data-testid="scrubber-legend">
-                <span aria-hidden="true" style={{ color: '#d98a1f' }}>▮</span> marks a filler
-            </p>
+            {(fillerBars?.length ?? 0) > 0 && (
+                <p className="mt-2 flex items-center gap-1.5 text-[12px] text-[#414b5c]" data-testid="scrubber-legend">
+                    <span aria-hidden="true" style={{ color: '#d98a1f' }}>▮</span> marks a filler
+                </p>
+            )}
         </div>
     );
 };

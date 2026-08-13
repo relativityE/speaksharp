@@ -1,3 +1,7 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+> **Current authority:** [`EVIDENCE_INDEX.md`](./EVIDENCE_INDEX.md) for provenance and [`RELEASE_STATUS.md`](./RELEASE_STATUS.md) for current status.
+
 # Public Launch Ledger
 
 > Broad public-launch ledger, not controlled tester release status.

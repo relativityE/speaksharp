@@ -537,6 +537,23 @@ describe('Navigation', () => {
             expect(screen.queryByText('PRO')).not.toBeInTheDocument();
         });
 
+        it('does not present an active trial as paid Pro', () => {
+            mockUseUserProfile.mockReturnValue({
+                data: { subscription_status: 'free', stripe_subscription_id: null, trial_expires_at: '2999-01-01T00:00:00Z' },
+                isLoading: false,
+                error: null,
+            });
+            mockUseUsageLimit.mockReturnValue({
+                data: { subscription_status: 'pro', is_pro: true, can_start: true, trial_active: true },
+            });
+
+            renderNavigation('/');
+
+            expect(screen.queryByTestId('nav-upgrade-button')).not.toBeInTheDocument();
+            expect(screen.queryByTestId('pro-badge')).not.toBeInTheDocument();
+            expect(screen.queryByText('PRO')).not.toBeInTheDocument();
+        });
+
         it.each(['/session', '/session/', '/Session', '/session/abc123', '/analytics', '/ANALYTICS', '/analytics/42', '/pricing'])(
             'hides the upgrade CTA on %s (route checks go through the shared resolver)',
             (route) => {

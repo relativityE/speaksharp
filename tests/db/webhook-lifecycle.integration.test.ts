@@ -15,6 +15,10 @@ const CONVERGENCE = readFileSync(
   resolve(process.cwd(), 'backend', 'supabase', 'migrations', '20260812039500_webhook_duplicate_snapshot_convergence_1282.sql'),
   'utf8',
 );
+const AUDIT_FIELDS = readFileSync(
+  resolve(process.cwd(), 'backend', 'supabase', 'migrations', '20260812041500_flawless_launch_runtime_convergence_1290.sql'),
+  'utf8',
+);
 const BOOTSTRAP = readFileSync(resolve(process.cwd(), 'tests', 'db', 'webhook-lifecycle-bootstrap.sql'), 'utf8');
 
 const USER = '00000000-0000-0000-0000-0000000000a1';
@@ -26,6 +30,7 @@ async function freshDbWithPaidPro() {
   await db.exec(BOOTSTRAP);
   await db.exec(MIGRATION); // adds the audit column + the snapshot RPC (proves the ADD COLUMN too)
   await db.exec(CONVERGENCE); // duplicate receipts no longer suppress a newly hydrated snapshot
+  await db.exec(AUDIT_FIELDS); // cancellation/period inputs become validated audit-only state
   await db.exec(
     `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
      VALUES ('${USER}', 'pro', '${SUB}', '${CUS}')`,
@@ -33,10 +38,18 @@ async function freshDbWithPaidPro() {
   return db;
 }
 
-type Profile = { subscription_status: string; stripe_subscription_id: string | null; stripe_customer_id: string | null };
+type Profile = {
+  subscription_status: string;
+  stripe_subscription_id: string | null;
+  stripe_customer_id: string | null;
+  stripe_cancel_at_period_end: boolean | null;
+  stripe_current_period_end: string | null;
+};
 const profile = async (db: PGlite): Promise<Profile> =>
   (await db.query<Profile>(
-    `SELECT subscription_status, stripe_subscription_id, stripe_customer_id FROM public.user_profiles WHERE id = '${USER}'`,
+    `SELECT subscription_status, stripe_subscription_id, stripe_customer_id,
+            stripe_cancel_at_period_end, stripe_current_period_end
+       FROM public.user_profiles WHERE id = '${USER}'`,
   )).rows[0];
 
 const tier = async (db: PGlite): Promise<string> =>
@@ -57,7 +70,8 @@ type SnapshotOptions = {
   subscriptionId?: string;
   customerId?: string;
   hasApprovedPrice?: boolean;
-  cancelAtPeriodEnd?: boolean;
+  cancelAtPeriodEnd?: boolean | null;
+  currentPeriodEnd?: number | null;
 };
 /** Apply a canonical snapshot: the CURRENT Stripe subscription status the Edge hydrated. */
 const snapshot = async (
@@ -75,11 +89,45 @@ const snapshot = async (
             r->>'error' AS error, r->>'non_grant_reason' AS "nonGrantReason"
      FROM (SELECT public.apply_stripe_subscription_snapshot(
         '${eventId}', '${subscriptionId}', '${customerId}', '${status}', ${hasApprovedPrice},
-        ${options.cancelAtPeriodEnd ?? false}, NULL, ${options.userId ? `'${options.userId}'` : 'NULL'}, ${created}) AS r) x`,
+        ${Object.hasOwn(options, 'cancelAtPeriodEnd') ? options.cancelAtPeriodEnd : false},
+        ${options.currentPeriodEnd ?? 'NULL'},
+        ${options.userId ? `'${options.userId}'` : 'NULL'}, ${created}) AS r) x`,
   )).rows[0];
 };
 
 describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
+  it('validates and retains cancellation-period fields as audit-only state, and replays safely', async () => {
+    const db = await freshDbWithPaidPro();
+    const scheduled = await snapshot(db, 'e_audit_scheduled', 'active', 1000, {
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: 4_000,
+    });
+    expect(scheduled).toMatchObject({ success: 'true', entitlement: 'pro' });
+    let p = await profile(db);
+    expect(p.stripe_cancel_at_period_end).toBe(true);
+    expect(p.stripe_current_period_end).not.toBeNull();
+    expect(await tier(db)).toBe('pro');
+
+    await expect(snapshot(db, 'e_audit_missing_period', 'active', 1001, {
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: null,
+    })).rejects.toThrow('scheduled cancellation requires current_period_end');
+    p = await profile(db);
+    expect(p.stripe_cancel_at_period_end).toBe(true);
+    expect(await tier(db)).toBe('pro');
+
+    await expect(snapshot(db, 'e_audit_invalid_period', 'active', 1002, {
+      currentPeriodEnd: -1,
+    })).rejects.toThrow('current_period_end must be a positive Unix timestamp');
+
+    await db.exec(AUDIT_FIELDS);
+    expect((await snapshot(db, 'e_audit_replay', 'active', 1003, {
+      cancelAtPeriodEnd: false,
+      currentPeriodEnd: 5_000,
+    })).entitlement).toBe('pro');
+    await db.close();
+  });
+
   it('active -> Pro; past_due -> Free but KEEPS the sub id (recoverable); active again -> Pro restored', async () => {
     const db = await freshDbWithPaidPro();
     expect(await tier(db)).toBe('pro');
@@ -191,6 +239,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
     await db.exec(CONVERGENCE);
+    await db.exec(AUDIT_FIELDS);
     await db.exec(`INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${USER}', 'free')`);
     const r = await snapshot(db, 'e_first', 'active', 1000, { userId: USER });
     expect(r.entitlement).toBe('pro');
@@ -216,6 +265,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
     await db.exec(CONVERGENCE);
+    await db.exec(AUDIT_FIELDS);
     // A profile exists, but bound to a DIFFERENT subscription id — SUB maps to nobody and is not terminal.
     await db.exec(
       `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
@@ -235,6 +285,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
     await db.exec(CONVERGENCE);
+    await db.exec(AUDIT_FIELDS);
     const OTHER = '00000000-0000-0000-0000-0000000000b9';
     // SUB already belongs to OTHER (with its own customer); a checkout binding for USER must not steal it.
     await db.exec(
@@ -257,6 +308,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
     await db.exec(CONVERGENCE);
+    await db.exec(AUDIT_FIELDS);
     // USER already has a live subscription; a new checkout for a different sub must fail closed, not overwrite.
     await db.exec(
       `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
@@ -288,6 +340,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
     await db.exec(CONVERGENCE);
+    await db.exec(AUDIT_FIELDS);
     const r = await snapshot(db, 'unknown_terminal', 'canceled', 1000);
     expect(r.success).toBe('false');
     expect(r.error).not.toBeNull();
@@ -340,6 +393,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
     await db.exec(CONVERGENCE);
+    await db.exec(AUDIT_FIELDS);
     const OTHER = '00000000-0000-0000-0000-0000000000b9';
     await db.exec(
       `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
@@ -363,6 +417,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
     await db.exec(CONVERGENCE);
+    await db.exec(AUDIT_FIELDS);
     await db.exec(`INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${USER}', 'free')`);
     const r = await snapshot(db, 'wrong_price', 'active', 1000, { userId: USER, hasApprovedPrice: false });
     expect(r.success).toBe('false');
@@ -377,6 +432,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
     await db.exec(CONVERGENCE);
+    await db.exec(AUDIT_FIELDS);
     await db.exec(`INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${USER}', 'free')`);
 
     const r = await snapshot(db, 'wrong_price_past_due', 'past_due', 1000, {
@@ -390,6 +446,8 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
       subscription_status: 'free',
       stripe_subscription_id: null,
       stripe_customer_id: null,
+      stripe_cancel_at_period_end: null,
+      stripe_current_period_end: null,
     });
     expect((await db.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM public.stripe_subscription_tombstones WHERE subscription_id = '${SUB}'`,
@@ -405,6 +463,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
     await db.exec(CONVERGENCE);
+    await db.exec(AUDIT_FIELDS);
     await db.exec(
       `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
        VALUES ('${USER}', 'free', '${SUB}', NULL)`,
@@ -421,6 +480,8 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
       subscription_status: 'free',
       stripe_subscription_id: SUB,
       stripe_customer_id: null,
+      stripe_cancel_at_period_end: null,
+      stripe_current_period_end: null,
     });
     expect((await db.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM public.stripe_subscription_tombstones WHERE subscription_id = '${SUB}'`,
@@ -455,7 +516,10 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
 
   it('cancel-at-period-end remains Pro while the hydrated Stripe status is active', async () => {
     const db = await freshDbWithPaidPro();
-    const r = await snapshot(db, 'cancel_scheduled', 'active', 1000, { cancelAtPeriodEnd: true });
+    const r = await snapshot(db, 'cancel_scheduled', 'active', 1000, {
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: 4_000,
+    });
     expect(r.entitlement).toBe('pro');
     expect(await tier(db)).toBe('pro');
     await db.close();
@@ -482,8 +546,10 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     )).rows[0].definition;
     await db.exec(MIGRATION);
     await db.exec(CONVERGENCE);
+    await db.exec(AUDIT_FIELDS);
     await db.exec(MIGRATION);
     await db.exec(CONVERGENCE);
+    await db.exec(AUDIT_FIELDS);
     const after = (await db.query<{ definition: string }>(
       `SELECT pg_get_functiondef('public.process_stripe_webhook_event(text,text,text,uuid,text,text)'::regprocedure) AS definition`,
     )).rows[0].definition;

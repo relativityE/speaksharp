@@ -97,20 +97,31 @@ const nonBlank = (value) => typeof value === 'string' && value.trim().length > 0
  * does not claim the referenced Stripe objects exist or are current. CI must never reset/extend a
  * customer-style trial, forge a profile entitlement, or manufacture Stripe identity.
  */
-export async function verifyCanaryProfileBinding(anon, userId) {
+export async function verifyCanaryProfileBinding(anon, userId, lane = 'paid-continuation') {
   const { data, error } = await anon
     .from('user_profiles')
-    .select('subscription_status,stripe_customer_id,stripe_subscription_id')
+    .select('subscription_status,stripe_customer_id,stripe_subscription_id,commercial_trial_granted_at,trial_expires_at')
     .eq('id', userId)
     .maybeSingle();
   if (error) return { ok: false, tier: null, reason: `profile query error [${classifyError(error).category}]` };
   const tier = data?.subscription_status ?? null;
   if (tier === null) return { ok: false, tier: null, reason: 'profile missing or subscription_status null' };
+  if (lane === 'active-trial') {
+    const expiresAt = typeof data?.trial_expires_at === 'string' ? Date.parse(data.trial_expires_at) : Number.NaN;
+    if (!nonBlank(data?.commercial_trial_granted_at) || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      return { ok: false, tier, reason: 'trial canary lacks a live immutable commercial-trial window' };
+    }
+    if (nonBlank(data?.stripe_customer_id) || nonBlank(data?.stripe_subscription_id)) {
+      return { ok: false, tier, reason: 'trial canary unexpectedly has paid billing identity' };
+    }
+    return { ok: true, tier, localProfileBound: true, lane };
+  }
+  if (lane !== 'paid-continuation') return { ok: false, tier, reason: 'unknown canary access lane' };
   if (tier !== 'pro') return { ok: false, tier, reason: `unexpected tier '${tier}' (expected paid pro)` };
   if (!nonBlank(data?.stripe_customer_id) || !nonBlank(data?.stripe_subscription_id)) {
     return { ok: false, tier, reason: 'paid canary local profile is missing customer/subscription identifiers' };
   }
-  return { ok: true, tier, localProfileBound: true };
+  return { ok: true, tier, localProfileBound: true, lane };
 }
 
 /** Existence-FIRST admin lookup of the EXACT canary account by email (bounded retry). Admin path only. */
@@ -163,7 +174,7 @@ export async function enforceCeiling(admin, { max = 1, enforce = false, emailRe 
  * Statuses: 'healthy' | 'recovered' | 'config_error' | 'entitlement_error' | 'failed'.
  */
 export async function provisionCanary({ anon, admin, config }) {
-  const { email, password } = config;
+  const { email, password, lane = 'paid-continuation' } = config;
 
   let signIn = await signInWithBoundedRetry(anon, { email, password });
   let recovered = false;
@@ -178,6 +189,11 @@ export async function provisionCanary({ anon, admin, config }) {
     // authorize recovery. Any unknown 4xx, malformed/empty error, or unclassified non-retryable failure
     // ('other') stops here with NO createUser/updateUserById.
     if (sc.category !== 'recoverable_credentials') return { status: 'failed', scope: 'unclassified', status_code: sc.status, message: 'Anon sign-in failed with an unrecognized non-retryable error; NOT eligible for recovery (fail-closed). No account mutation attempted.' };
+    // A trial must be created/activated only in its separately authorized window; routine CI cannot
+    // manufacture or refresh it merely to become green.
+    if (lane === 'active-trial') {
+      return { status: 'failed', scope: 'trial_account_unavailable', message: 'Trial canary sign-in failed; CI does not create, grant, or extend trial state.' };
+    }
     // Recognized invalid-credentials / account-unavailable → existence-first, canary-only recovery (admin).
     if (!admin) return { status: 'config_error', scope: 'no_admin_for_recovery', message: 'Sign-in failed (recognized invalid credentials) and no service-role client available for recovery.' };
     const rec = await recoverCanaryAccount(admin, { email, password });
@@ -187,8 +203,8 @@ export async function provisionCanary({ anon, admin, config }) {
     recovered = true;
   }
 
-  const tier = await verifyCanaryProfileBinding(anon, signIn.userId);
+  const tier = await verifyCanaryProfileBinding(anon, signIn.userId, lane);
   if (!tier.ok) return { status: 'entitlement_error', tier: tier.tier, message: tier.reason };
 
-  return { status: recovered ? 'recovered' : 'healthy', userId: signIn.userId, tier: tier.tier, localProfileBound: true };
+  return { status: recovered ? 'recovered' : 'healthy', userId: signIn.userId, tier: tier.tier, lane, localProfileBound: true };
 }

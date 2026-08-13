@@ -34,8 +34,9 @@ import type { SttStatus } from '@/types/transcription';
  *    percentage ticks live.
  *  - The live waveform is sampled from the app's scalar `micLevel` (the engine exposes no spectrum).
  *  - Transcript highlights reuse the app's own filler tokenizer.
- *  - **after** is TRANSCRIPT-ONLY (the app retains no audio): the scrubber shows the filler map + seek, no
- *    audio playback. Clicking a filler scrolls the transcript to it.
+ *  - **after** is TRANSCRIPT-ONLY (the app retains no audio): the review shows a static captured amplitude
+ *    envelope. Open Mic may mark filler positions; Focus Points stays amplitude-only. No seek/playback
+ *    affordance is rendered because there is no retained audio or implemented transcript navigation.
  *  - The live coaching tip source and the verdict/next-fix generator are not yet wired — slot D shows the
  *    honest coaching placeholder until those land (tracked as follow-ups).
  *
@@ -397,8 +398,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     positionSeconds: 0,
                     durationSeconds: elapsedTime,
                     amplitudes,
-                    fillerBars,
-                    onSeek: () => {},
+                    // Focus Points review is an amplitude-only envelope. Open Mic may retain static
+                    // filler annotations, but neither mode exposes inert seek controls without audio.
+                    fillerBars: isObjective ? [] : fillerBars,
                     audioAvailable: false,
                 }}
                 transcript={{
@@ -409,9 +411,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     // here. The FP header speaks to the highlights, not a second `n of m` scoreboard.
                     headerMeta: isObjective
                         ? `${wordCount(transcriptContent)} words · green marks where each point landed`
-                        : `${wordCount(transcriptContent)} words · tap a highlight to jump to it`,
+                        : `${wordCount(transcriptContent)} words · orange marks fillers`,
                     stats: `${metricsFillerCount} fillers · ${wordCount(transcriptContent)} words`,
-                    onFillerSeek: () => {},
                     coverageMode: isObjective ? 'after' : undefined,
                 }}
                 progress={progress}

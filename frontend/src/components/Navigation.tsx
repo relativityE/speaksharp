@@ -39,7 +39,8 @@ const Navigation = () => {
   // (load race, or a usage-limit quirk). getEffectiveSubscriptionStatus prefers usageLimit over the
   // profile, so gating the upgrade button on it alone flashed "Upgrade to Pro" at real Pro users.
   // hasPaidProEntitlement is the canonical paid signal and is unaffected by that override.
-  const isEffectiveProUser = isPro(effectiveSubscriptionStatus) || hasPaidProEntitlement(profile);
+  const hasActiveProductAccess = isPro(effectiveSubscriptionStatus) || hasPaidProEntitlement(profile);
+  const isConfirmedPaidUser = hasPaidProEntitlement(profile);
 
   const handleSignOut = async () => {
     await signOut();
@@ -112,7 +113,7 @@ const Navigation = () => {
   );
 
 
-  const isFreeUser = Boolean(session && !isEffectiveProUser);
+  const isFreeUser = Boolean(session && !hasActiveProductAccess);
   // These route checks used raw pathname comparisons, which disagreed with the router:
   // react-router matches `/session/` and `/Session` to the `/session` route, so the CTA
   // rendered (and the bottom bar covered the recording UI) on URLs that ARE the session
@@ -211,7 +212,7 @@ const Navigation = () => {
                       )}
                     </Button>
                   )}
-                  {session && isEffectiveProUser && (
+                  {session && isConfirmedPaidUser && (
                     <Badge
                       variant="secondary"
                       className="bg-amber-100 text-amber-900 border border-amber-200 shadow-none animate-in fade-in zoom-in duration-300 px-3 py-1"

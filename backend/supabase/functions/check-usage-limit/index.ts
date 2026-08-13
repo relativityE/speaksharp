@@ -5,9 +5,6 @@ import { corsGuard, corsHeaders } from '../_shared/cors.ts';
 
 interface UsageLimitResponse {
     can_start: boolean;
-    remaining_seconds: number; // -1 for unlimited (Pro)
-    limit_seconds: number;
-    used_seconds: number;
     subscription_status: string;
     is_pro: boolean;
     streak_count: number;
@@ -88,7 +85,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
             console.error('RPC check_usage_limit error:', rpcError);
             return createErrorResponse(
                 ErrorCodes.DATABASE_ERROR,
-                'Unable to verify usage limit',
+                'Unable to verify recording access',
                 headers,
                 {
                     can_start: false,
@@ -103,7 +100,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
         console.error('Error checking usage limit:', error);
         return createErrorResponse(
             ErrorCodes.INTERNAL_ERROR,
-            'Unable to verify usage limit',
+            'Unable to verify recording access',
             headers,
             {
                 can_start: false,

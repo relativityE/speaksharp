@@ -27,8 +27,6 @@ export interface SSE2EManifest {
     bypassMutex?: boolean;
     fastTimers?: boolean;
     DEBUG_ENABLED?: boolean;
-    /** #1120 S1: bounded E2E-only STT Private-primary hierarchy override (true=ON, false=OFF). */
-    sttPrivatePrimary?: boolean;
     /** #1222 S12c: bounded E2E-only session-overhaul override (true=ON, false=OFF). */
     sessionOverhaul?: boolean;
   };
@@ -79,17 +77,6 @@ export const ENV = {
   },
   get debug(): boolean {
     return this.isE2E && !!getWindow().__SS_E2E__?.debug;
-  },
-  /**
-   * #1120 S1: bounded, prod-inert E2E-only override for the STT Private-primary hierarchy so Playwright can
-   * deterministically exercise launch (Private-primary) vs rollback (Browser-default) at T=0. `true` =
-   * hierarchy ON, `false` = OFF, `undefined` = normal resolver (PostHog flag). Hierarchy only — never Cloud.
-   * Returns a value ONLY when the manifest is active AND `ENV.isE2E`; `undefined` everywhere else (incl. prod).
-   */
-  get e2eSttHierarchyOverride(): boolean | undefined {
-    if (!this.isE2E) return undefined;
-    const v = getWindow().__SS_E2E__?.flags?.sttPrivatePrimary;
-    return typeof v === 'boolean' ? v : undefined;
   },
   /**
    * #1222 S12c: bounded, prod-inert E2E-only override for the session overhaul so Playwright can drive the

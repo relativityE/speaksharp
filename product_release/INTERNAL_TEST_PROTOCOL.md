@@ -1,3 +1,7 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+> **Current authority:** [`TESTER_OPERATIONS.md`](./TESTER_OPERATIONS.md), [`TESTER_GUIDE.md`](./TESTER_GUIDE.md), and [`RELEASE_PROCESS.md`](./RELEASE_PROCESS.md).
+
 # Internal Test Protocol — Soft Release (operators / dev / test agents)
 
 **Last updated:** 2026-07-20

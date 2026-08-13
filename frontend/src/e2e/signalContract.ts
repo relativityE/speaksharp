@@ -330,7 +330,7 @@ export const SIGNAL_CONTRACT = [
     status: 'active',
     audience: ['e2e', 'manual-proof'],
     owner: 'session UI components',
-    writers: ['frontend/src/components/session/LiveRecordingCard.tsx', 'frontend/src/components/session/StatusNotificationBar.tsx'],
+    writers: ['frontend/src/components/session/StatusNotificationBar.tsx'],
     readers: ['E2E journey specs', 'manual/live proof scripts'],
     intent: 'Per-control recording state for user-facing start/stop assertions.',
     waitGuidance: 'Prefer this on the start/stop button for UI behavior assertions.',

@@ -1,3 +1,7 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+> **Current authority:** [`QUALITY.md`](./QUALITY.md).
+
 # RC Test Inventory And Gate Map
 
 **Last reviewed:** 2026-07-20 (counts regenerated from the repository on the private-first `main` line)

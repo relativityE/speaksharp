@@ -597,7 +597,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             )
         });
 
-        expect(mockStore.getState().sunsetModal.open).toBe(false);
         await new Promise((resolve) => setTimeout(resolve, 50));
         expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
     });

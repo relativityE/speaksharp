@@ -39,6 +39,7 @@ export const SOAK_TEST_USER = {
 export const CANARY_USER = {
   email: process.env.CANARY_EMAIL!, // Required env var (injected by CI or .env)
   password: process.env.CANARY_PASSWORD || '',
+  lane: (process.env.CANARY_EXPECTED_ACCESS || 'active-trial') as 'active-trial' | 'paid-continuation',
 };
 
 // The two specific credentials we use for frontend isolated sandboxes.

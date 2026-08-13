@@ -78,13 +78,8 @@ export const useSessionLifecycle = () => {
     const setSTTStatus = useSessionStore(state => state.setSTTStatus);
     const sttMode = useSessionStore(state => state.sttMode);
     const setSTTMode = useSessionStore(state => state.setSTTMode);
-    const sunsetModal = useSessionStore(state => state.sunsetModal);
-    const setSunsetModal = useSessionStore(state => state.setSunsetModal);
-    // #1184: Private is the ONLY engine, so the default is unconditionally 'private' for every session.
-    // (The #1120 `stt_private_primary` flag is repurposed: under Private-only it no longer toggles
-    // engine selection — it will select which Private VARIANT (v2 vs v4) is the default primary, decided by
-    // an apples-to-apples benchmark. That variant selection is a separate polish issue, not a launch gate;
-    // today v4 is hard-off so 'private' resolves to v2.)
+    // Private is the only customer engine, so every customer session resolves to it unconditionally.
+    // Private implementation variants remain internal policy, never customer entitlements.
     const defaultMode: TranscriptionMode = 'private';
     const effectiveMode: TranscriptionMode = sttMode ?? defaultMode;
     const [privateModelStatus, setPrivateModelStatus] = useState<string>(() => {
@@ -668,8 +663,6 @@ export const useSessionLifecycle = () => {
         showAnalyticsPrompt,
         setShowAnalyticsPrompt,
         sessionFeedbackMessage: sttStatus.message,
-        sunsetModal,
-        setSunsetModal,
         pauseMetrics,
         micLevel,
         hasSpeechActivity,

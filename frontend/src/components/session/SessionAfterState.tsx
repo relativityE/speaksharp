@@ -22,7 +22,7 @@ export interface SessionAfterStateProps {
         headerMeta: string;
         /** thin stats strip, e.g. `5 fillers · 142 wpm · 2:04 spoken`. */
         stats: string;
-        onFillerSeek: (token: TranscriptToken, index: number) => void;
+        onFillerSeek?: (token: TranscriptToken, index: number) => void;
         /** #1046 Focus Points — highlight `covered` tokens as coverage (green) instead of fillers. */
         coverageMode?: 'during' | 'after';
     };

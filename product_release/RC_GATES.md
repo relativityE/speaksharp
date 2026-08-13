@@ -1,3 +1,7 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+> **Current authority:** [`RELEASE_PROCESS.md`](./RELEASE_PROCESS.md) and [`QUALITY.md`](./QUALITY.md).
+
 # Release Candidate Gates
 
 > Gate definitions, not release status.

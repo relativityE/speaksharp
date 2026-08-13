@@ -12,12 +12,12 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
 
 ## 1. Product Positioning Contract
 
-1. **Private is the recommended and primary beta experience.**
-2. **Browser is a quick preview** of the coaching flow — not positioned as equivalent to Private or Cloud.
-3. **Cloud is the paid, Pro-quality path.**
-4. **The current beta is no-billing.** Free testers must not be able to initiate checkout or gain Cloud access.
-5. Do **not** spend cycles improving Browser punctuation or making Browser match Private (Browser punctuation is P3 at most).
-6. **Executive Presentation Rehearsal** is the next major product expansion after this hardening cycle.
+1. **SpeakSharp is one Private Practice product.** Open Mic is primary and Focus Points is optional guidance.
+2. **The complete product is free for 30 days, then $10/month for the same product.** Trial and paid users receive identical Private capabilities.
+3. **Browser and Cloud are retired customer entitlements.** Native remains an internal deterministic E2E hook only.
+4. **Payments remain fail-closed until separately activated.** Commercial activation, payment configuration, and production mutation require distinct Product Owner authorization.
+5. **No accumulated-minute quota may deny an entitled user.** The equal 600-second per-recording technical bound remains.
+6. **Expired users retain read/export/history/Progress/account/billing-management/upgrade access** but cannot create, save, or analyze a new recording.
 7. **Zoom/Meet/Teams live-meeting integration** (Live Meeting Companion) is **removed from active
    sequencing** — future direction only, re-scoped separately after the rehearsal product proves value.
 8. **Transparent personal progress replaces the opaque universal score.** The user-facing 0–10
@@ -45,7 +45,7 @@ regression coverage — completion lives in commits, tests, and PR descriptions,
 ### P1.2 — Private-first funnel measurement
 - **Gap:** no content-free funnel telemetry to answer where testers stop and whether Private delay is setup vs finalization.
 - **Outcome:** operational visibility into Private adoption/completion and drop-off.
-- **Acceptance:** events {mode selector viewed, mode selected, browser preview started/saved, private setup started/ready, private recording started/saved, browser→private continuation, time-to-first-text, stop-to-final-ready, sample exhausted, setup/finalization failure category}, each with `release_sha`, excluding transcript/audio/prose/PII; queries answering: % reaching Private, % completing Private, where users stop, setup-vs-finalization delay, % stopping after Browser.
+- **Acceptance:** content-free events {Practice viewed, Private setup started/ready, recording started/saved, History/Progress viewed, time-to-first-text, stop-to-final-ready, entitlement state, setup/finalization failure category}, each with `release_sha`, excluding transcript/audio/prose/PII; queries answer Private completion/drop-off and setup-vs-finalization delay without reviving retired engine or preview-entitlement concepts.
 - **Priority:** P1.
 
 ### P1.3 — Centralize transcription entitlement policy

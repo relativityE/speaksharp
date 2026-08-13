@@ -1,3 +1,7 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+> **Current authority:** [`OPERATIONS_AND_SECURITY.md`](./OPERATIONS_AND_SECURITY.md) and [`RELEASE_PROCESS.md`](./RELEASE_PROCESS.md).
+
 **Owner:** relativityE
 **Last Reviewed:** 2026-07-20
 **Version:** v0.9.0-rc-series (sanitized lineage; see `RELEASE_STATUS.md` crosswalk)

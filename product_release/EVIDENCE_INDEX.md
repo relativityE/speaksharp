@@ -104,7 +104,7 @@ Browser, corpus, and production-worker evidence are separate comparability class
 |---|---|---|
 | `product_release/evidence/BETA_50_RELEASE_EVIDENCE_2026-07-09.md` | 2026-07-09 | Beta-50 release-evidence packet (v0.9.0-rc0 line). |
 | `product_release/evidence/beta50_2026-07-09/README.md` | 2026-07-09 | Beta-50 QA artifact drop-zone spec (expected run screenshots / console / network exports). |
-| `product_release/evidence/beta50_private_2026-07-10/OPTION_D_QA_SELLOFF.md` | 2026-07-10 | Option-D functional-QA sell-off (Browser · Private · Cloud paths on the deployed build; QA-gate verdict only). |
+| `product_release/evidence/beta50_private_2026-07-10/OPTION_D_QA_SELLOFF.md` | 2026-07-10 | Historical Option-D functional-QA sell-off (then-current engine paths; provenance only, never current policy or GO evidence). |
 | `product_release/evidence/beta50_private_2026-07-10/PRIVATE_PATH_VALIDATION.md` | 2026-07-10 | Private-path deployed validation (owner-accepted PASS; download-progress branch noted as non-reproducible on the default served model). |
 | `product_release/evidence/beta50_private_2026-07-10/desktop-private-cached-return.jpg` / `mobile-private-recording.jpg` | 2026-07-10 | Private-path desktop/mobile screenshots. |
 | `product_release/evidence/PRIVATE_SELECTION_PRODUCT_AUDIT_2026-06-17.md` | 2026-06-17 | Private-selection product audit. |

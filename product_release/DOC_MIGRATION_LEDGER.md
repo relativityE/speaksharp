@@ -1,11 +1,12 @@
-**Status:** Draft (temporary migration record)
+**Status:** Historical — superseded
 **Owner:** Prod Owner (final approver); per-row accountable role in each subsection header
 **Last Reviewed:** 2026-07-24
 **Last Verified:** 2026-07-24 (headings enumerated from the live sources / pinned commits; current-state facts verified via `RELEASE_STATUS.md`)
 **Applies To:** The documentation-canonicalization migration (33 active root sources + subtrees + pinned history → 14 canonical docs).
 **Class:** Procedure (migration record — **temporary**)
 **Authority:** Section-level source→target inventory for the documentation-canonicalization effort.
-**Not Authoritative For:** current release status (→ [`RELEASE_STATUS.md`](./RELEASE_STATUS.md)); this ledger contains no changing SHAs/run IDs.
+**Not authoritative for:** current product policy or GO/HOLD gates.
+**Current authority:** [`README.md`](./README.md), its canonical document map, and [`RELEASE_STATUS.md`](./RELEASE_STATUS.md).
 **Supersedes:** —
 **Evidence Sources:** the enumerated source files + their commits, cited per row.
 

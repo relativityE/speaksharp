@@ -22,13 +22,18 @@ const GUARD_INFRASTRUCTURE = new Set([
   'tests/release/flawless-launch-product-contract-guard.test.ts',
 ]);
 
-const CUSTOMER_AUTHORITY = /^(?:README\.md|USER_GUIDE\.md|frontend\/(?:index\.html|public\/|src\/(?:components|content|pages)\/)|product_release\/(?:ARCHITECTURE|ENTITLEMENTS_AND_BILLING|OPERATIONS_AND_SECURITY|PRODUCT_REQUIREMENTS|QUALITY|RELEASE_PROCESS|STT|TESTER_GUIDE|TESTER_OPERATIONS)\.md$)/;
+// Every root-level product_release Markdown file is active unless it is explicitly archived or carries
+// the strict two-line historical/non-authoritative banner verified below. Scanning only the canonical
+// subset allowed contradictory operational checklists and inventories to survive.
+const CUSTOMER_AUTHORITY = /^(?:README\.md|USER_GUIDE\.md|frontend\/(?:index\.html|public\/|src\/(?:components|content|pages)\/)|product_release\/[^/]+\.md$)/;
 const RUNTIME_OR_GATE = /^(?:frontend\/src\/|backend\/supabase\/functions\/|scripts\/|tests\/(?:canary|e2e|live|release)\/|\.github\/workflows\/)/;
 const isTestImplementation = (path) => /(?:\/__tests__\/|\.(?:test|spec)\.[cm]?[jt]sx?$)/.test(path);
 const isCustomerAuthority = (path) => CUSTOMER_AUTHORITY.test(path) && !isTestImplementation(path);
 const isActiveRuntimeOrGate = (path) => RUNTIME_OR_GATE.test(path)
   && !((path.startsWith('frontend/src/') || path.startsWith('backend/supabase/functions/')) && isTestImplementation(path));
 const NEGATED_OR_HISTORICAL = /\b(?:no|not|never|without|remove(?:d|s|ing)?|retire(?:d|s|ment)?|reject(?:ed|s|ing)?|forbid(?:den|s)?|prohibit(?:ed|s)?|obsolete|abandoned|deprecated|historical|former|earlier|old|stale|superseded|mustn['’]t|must not|may not|doesn['’]t|does not|isn['’]t|is not|aren['’]t|are not)\b/i;
+const HISTORICAL_STATUS = /^>?\s*\*\*Status:\*\* Historical — superseded\s*$/mi;
+const HISTORICAL_AUTHORITY_BOUNDARY = /^>?\s*\*\*Not authoritative for:\*\* current product policy or GO\/HOLD gates\.\s*$/mi;
 
 const rules = [
   {
@@ -83,8 +88,14 @@ export function isExcluded(path) {
     || HISTORICAL_EXCLUSIONS.some((prefix) => path.startsWith(prefix));
 }
 
+export function isProminentlyHistoricalDocument(path, source) {
+  if (!/^product_release\/[^/]+\.md$/.test(path)) return false;
+  const header = source.slice(0, 1200);
+  return HISTORICAL_STATUS.test(header) && HISTORICAL_AUTHORITY_BOUNDARY.test(header);
+}
+
 export function scanText(path, source) {
-  if (isExcluded(path)) return [];
+  if (isExcluded(path) || isProminentlyHistoricalDocument(path, source)) return [];
   const violations = [];
 
   for (const unit of unitsFor(path, source)) {

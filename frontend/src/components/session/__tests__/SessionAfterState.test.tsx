@@ -39,12 +39,25 @@ describe('SessionAfterState (#1222 after)', () => {
         expect(screen.getByTestId('session-slot-d')).toContainElement(screen.getByTestId('session-verdict'));
     });
 
-    it('clicking a highlighted filler seeks playback', () => {
+    it('only makes highlighted fillers interactive when a real navigation callback exists', () => {
         const onFillerSeek = vi.fn();
         render(<SessionAfterState {...afterProps} transcript={{ ...afterProps.transcript, onFillerSeek }} />);
         fireEvent.click(screen.getByTestId('live-filler'));
         expect(onFillerSeek).toHaveBeenCalledOnce();
         expect(onFillerSeek.mock.calls[0][0]).toMatchObject({ text: 'um' });
+    });
+
+    it('keeps transcript and waveform non-interactive when review retains no audio', () => {
+        render(
+            <SessionAfterState
+                {...afterProps}
+                scrubber={{ ...afterProps.scrubber, audioAvailable: false, onSeek: undefined }}
+                transcript={{ ...afterProps.transcript, onFillerSeek: undefined }}
+            />,
+        );
+        expect(screen.queryByRole('button', { name: /seek/i })).toBeNull();
+        expect(screen.queryByRole('button', { name: /play|pause/i })).toBeNull();
+        expect(screen.getByTestId('live-filler').tagName).toBe('MARK');
     });
 
     it('shows the stats strip and the final progress delta', () => {

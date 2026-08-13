@@ -18,7 +18,7 @@ export interface UsageLimitCheck {
 }
 
 /**
- * Hook to check user's usage limit before starting a session.
+ * Hook to check server-authoritative recording access before starting a session.
  * This enables pre-session validation to prevent frustrating UX
  * where users record for minutes only to find they can't save.
  * 
@@ -42,7 +42,7 @@ const defaultFetchUsageLimit = async (session?: { access_token: string }): Promi
 };
 
 /**
- * Hook to check user's usage limit.
+ * Hook to check recording access through the legacy-named endpoint.
  * Follows exact Phase 3 - Step 1 prescription.
  */
 export function useUsageLimit(deps?: { fetchUsageLimit?: () => Promise<UsageLimitCheck> }) {

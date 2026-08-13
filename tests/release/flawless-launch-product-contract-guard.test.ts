@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   HISTORICAL_EXCLUSIONS,
   isExcluded,
+  isProminentlyHistoricalDocument,
   scanText,
 } from '../../scripts/lib/product-contract-guard.mjs';
 
@@ -60,5 +61,21 @@ describe('flawless-launch product-contract guard (#1290)', () => {
     expect(isExcluded('product_release/RELEASE_STATUS.md')).toBe(false);
     expect(isExcluded('frontend/src/pages/PricingPage.tsx')).toBe(false);
     expect(isExcluded('tests/live/stt-switching-contract.live.spec.ts')).toBe(false);
+  });
+
+  it('requires a prominent two-part boundary before treating a root document as historical', () => {
+    const contradiction = 'Cloud is the paid Pro customer option.';
+    const banner = [
+      '> **Status:** Historical — superseded',
+      '> **Not authoritative for:** current product policy or GO/HOLD gates.',
+      '> **Current authority:** `PRODUCT_REQUIREMENTS.md` and `RELEASE_PROCESS.md`.',
+      '',
+      contradiction,
+    ].join('\n');
+
+    expect(isProminentlyHistoricalDocument('product_release/OLD.md', banner)).toBe(true);
+    expect(scanText('product_release/OLD.md', banner)).toEqual([]);
+    expect(scanText('product_release/OLD.md', `> **Status:** Historical — superseded\n${contradiction}`)).not.toEqual([]);
+    expect(scanText('README.md', banner)).not.toEqual([]);
   });
 });

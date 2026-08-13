@@ -46,16 +46,6 @@ const defaultLifecycle = {
 // Redundant mocks removed, using useSessionLifecycle instead
 
 // Mock child components to isolate logic
-vi.mock('@/components/session/LiveRecordingCard', () => ({
-    LiveRecordingCard: ({ mode, onModeChange, onStartStop }: { mode: string, onModeChange: (m: string) => void, onStartStop: () => void }) => (
-        <div data-testid="recording-card">
-            <span data-testid="mode-display">{mode}</span>
-            <button onClick={() => onModeChange('cloud')} data-testid="switch-mode-btn">Switch to Cloud</button>
-            <button onClick={onStartStop} data-testid="start-stop-btn">Start/Stop</button>
-        </div>
-    ),
-}));
-
 vi.mock('@/components/session/StatusNotificationBar', () => ({
     StatusNotificationBar: () => <div data-testid="status-bar" />,
 }));

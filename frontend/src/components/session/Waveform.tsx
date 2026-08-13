@@ -9,8 +9,8 @@ import React from 'react';
  *
  * Two modes:
  *   • during  → `recordedCount` bars are orange (growing left→right), the rest are the grey tail.
- *   • after   → all bars grey EXCEPT `fillerBars` (orange filler positions); an optional `playedFraction`
- *              draws a travelling playhead. Clicking a bar seeks (`onSeek` with the bar's fraction).
+ *   • after   → all bars grey EXCEPT optional `fillerBars` (orange Open Mic positions). Optional playback
+ *              consumers may supply `playedFraction`/`onSeek`; the transcript-only product review does not.
  */
 export interface WaveformProps {
     /** Per-bar heights, 0..1. Length defines the bar count (~72). */
