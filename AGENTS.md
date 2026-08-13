@@ -81,14 +81,17 @@ Treat merge, migration, deployment, activation, live proof, and tester invitatio
 separate decisions. Read-only inspection and dry-run evidence do not authorize the
 corresponding write.
 
-Repository automation can couple otherwise separate decisions. Every push to `main`
-currently starts `deploy-edge-functions`. Before requesting or executing any merge,
-inspect the PR's Edge-function diff and disclose this automatic production action:
+Repository automation can couple otherwise separate decisions. A push to `main` that
+changes `backend/supabase/functions/**`, `backend/supabase/config.toml`, or
+`backend/supabase/import_map.json` starts the path-filtered
+`deploy-supabase-edge-release.yml` caller. Before requesting or executing any merge,
+inspect the PR's Edge-function/config diff and disclose the resulting production action:
 
-- if Edge-function source changes, merge and production Edge deployment are inseparable;
-  obtain explicit Product Owner authorization for both before merging;
-- if Edge-function source is unchanged, disclose that the merge will still redeploy the
-  unchanged functions and obtain acceptance of that no-op production action;
+- if an Edge trigger path changes, merge and production deployment of the workflow's full
+  reviewed Edge Function list are inseparable; obtain explicit Product Owner authorization
+  for both before merging;
+- if no Edge trigger path changes, the path-filtered Edge caller does not run; still disclose
+  the inspected scope and do not infer frontend or migration deployment from the merge;
 - do not interpret migration or frontend deployment as authorized by that decision.
 
 ## Work And Review Model
@@ -423,11 +426,12 @@ Before closing an **unmerged** superseded PR or deleting an unmerged branch, rec
 its requirements to shipped work, an open successor, an explicit rejection, or an
 archive. Preserve substantial unique code with immutable provenance when required.
 
-A push to `main` currently triggers the normal `Deploy Supabase` Edge-function job.
-Database migration application remains a separately confirmed manual workflow action.
-The frontend may remain undeployed because Vercel can ignore a build. Never infer that
-the migration or frontend deployed merely because a PR merged; inspect the job breakdown
-and live release identity.
+A push to `main` that changes an Edge trigger path starts `Deploy Supabase Edge release`
+and deploys the workflow's complete reviewed function list. Database migration application
+remains a separately confirmed manual workflow action. A push without an Edge trigger path
+does not start that caller. The frontend may remain undeployed because Vercel can ignore a
+build. Never infer that Edge, migration, or frontend deployed merely because a PR merged;
+inspect the changed paths, job breakdown, and live release identity.
 
 ## Speech-To-Text Integrity
 

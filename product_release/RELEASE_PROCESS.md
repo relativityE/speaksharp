@@ -1,13 +1,13 @@
 **Status:** Authoritative (SSOT for release-gate definitions, release workflow, freshness rules, and recovery)
 **Owner:** Engineering / Quality (relativityE)
 **Last Reviewed:** 2026-07-30
-**Last Verified:** 2026-07-30 — consolidated from approved interim sources (`RC_GATES.md`, `RELEASE_RECOVERY.md`, and the release-workflow material in `RC_TEST_INVENTORY.md`) and cross-checked against the cited `.github/workflows` and `backend/` paths. No current run IDs, SHAs, deployment baselines, or queue state are carried here — those live only in `RELEASE_STATUS.md`.
+**Last Verified:** 2026-08-11 — the conditional Private-only launch support, rollback, and GO/HOLD procedure was checked source-only against the cited code/workflows and exercised in `evidence/ISSUE_1267_PRIVATE_LAUNCH_REHEARSAL.md`. It is not the current release gate until the §7 prerequisites are satisfied. No current run IDs, SHAs, deployment baselines, or queue state are carried here — those live only in `RELEASE_STATUS.md`.
 **Applies To:** The SpeakSharp controlled-tester release process — the five RC gates, evidence freshness, the release workflow & commands, and emergency recovery/rollback.
 **Class:** Acceptance criterion / procedure.
 **Authority:** The source for the definition of each RC gate (what "green" means), the gate evidence rules, evidence freshness & same-SHA rules, the release workflow/commands and observability readback, and the forward-fix/rollback/recovery playbook.
 **Not Authoritative For:** current ship posture, blockers, run IDs & SHAs (→ `RELEASE_STATUS.md`); the test inventory that maps files into these gates, the quality targets & SLOs (→ `QUALITY.md`); STT accuracy/latency baselines & named STT proof detail (→ `STT.md`); env/secrets/security controls & SCA exceptions (→ `OPERATIONS_AND_SECURITY.md`); tier/entitlement mechanics (→ `ENTITLEMENTS_AND_BILLING.md`).
 **Supersedes:** `RC_GATES.md`, `RELEASE_RECOVERY.md`, and the release-workflow material of `RC_TEST_INVENTORY.md` (interim sources; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
-**Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §3.F extraction mapping; the `.github/workflows/*` and `backend/supabase/*` paths cited inline; the release-identity mechanism (#1027).
+**Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §3.F extraction mapping; the `.github/workflows/*` and `backend/supabase/*` paths cited inline; the release-identity mechanism (#1027); `tests/release/private-launch-playbook-contract.test.ts`; `evidence/ISSUE_1267_PRIVATE_LAUNCH_REHEARSAL.md`.
 
 # SpeakSharp Release Process (v1)
 
@@ -131,7 +131,8 @@ Current run IDs and pass/fail live only in `RELEASE_STATUS.md`.
 | Workflow | Trigger | RC role | Keep? |
 |---|---|---|---|
 | `ci.yml` / CI - Test Audit | Push, PR, manual | Everyday correctness: prepare, unit shards, unit coverage, Edge tests, build, health, E2E shards, Lighthouse advisory, report. | Required baseline. |
-| `deploy-supabase-migrations.yml` | **Every push to `main` (no path filter)**, manual | Deploy Edge Functions and DB migrations (forward-only). **A frontend- or docs-only merge still redeploys all listed Edge Functions** — a functional no-op when their code is unchanged, but the deploy job runs unconditionally. | Yes. |
+| `deploy-supabase-edge-release.yml` → reusable `deploy-supabase-migrations.yml` | Push to `main` **only when Edge source/config paths change** | Deploys the complete reviewed Edge Function list after validating the push diff. A frontend- or docs-only merge does not trigger this caller. | Yes. |
+| `deploy-supabase-migrations.yml` | Manual or reusable call | Separately confirmed migrations/secrets operations; migration apply remains forward-only and requires the confirmation input. | Yes. |
 | `canary.yml` | Push, manual, schedule | Production smoke against the deployed URL. | Yes. |
 | `rc-gates.yml` | Manual | Runs the five explicit RC gates. | Yes. |
 | `live-release-matrix.yml` | Manual | Live product-truth matrix (custom words, Native preflight, Cloud gates/artifacts, Private cache, first-time tester, Stripe readiness). | Release-time. |
@@ -142,7 +143,7 @@ Current run IDs and pass/fail live only in `RELEASE_STATUS.md`.
 | `stress-endurance.yml` | Schedule/manual | Backend stress / browser endurance. | Advisory unless investigating stability. |
 | `setup-test-users.yml` | Manual | Test-user provisioning. | Utility, not a gate. |
 
-The test files that each gate/workflow enforces (RC-counted ledgers) and the script inventory live in `QUALITY.md`. Deployment mechanics: backend migrations are **forward-only** via `deploy-supabase-migrations.yml` (runs `supabase migration repair … --status applied`, then `supabase db push --dry-run`, then apply; pinned Supabase CLI v2.101.0). **No down-migrations exist** — consistent with the Forward-Fix doctrine. Canary provisions a single reused canary user and runs `pnpm test:deploy:prod` against the public site (fail-closed, `CANARY_MAX=1`). The deployed release identity is `window.__APP_RELEASE__` (injected from `VERCEL_GIT_COMMIT_SHA`; the `__BUILD_ID__` JS define was removed in #1027 so the volatile SHA never rotates chunk hashes) — verification detail is in `OPERATIONS_AND_SECURITY.md`.
+The test files that each gate/workflow enforces (RC-counted ledgers) and the script inventory live in `QUALITY.md`. Deployment mechanics: a qualifying Edge-path push to `main` invokes `deploy-supabase-edge-release.yml`, which calls the reusable workflow and deploys every function in its reviewed list; disclose that full Edge deployment when the PR changes any trigger path. Backend migrations are **forward-only** through the separately dispatched `deploy-supabase-migrations.yml` operation (runs the documented history reconciliation, `supabase db push --dry-run`, then apply; pinned Supabase CLI v2.101.0). **No down-migrations exist** — consistent with the Forward-Fix doctrine. Canary provisions a single reused canary user and runs `pnpm test:deploy:prod` against the public site (fail-closed, `CANARY_MAX=1`). The deployed release identity is `window.__APP_RELEASE__` (injected from `VERCEL_GIT_COMMIT_SHA`; the `__BUILD_ID__` JS define was removed in #1027 so the volatile SHA never rotates chunk hashes) — verification detail is in `OPERATIONS_AND_SECURITY.md`.
 
 ---
 
@@ -152,38 +153,208 @@ Each release gate is green only when its definition of green is backed by a **na
 
 ---
 
-## 7. Recovery, rollback & forward-fix
+## 7. Private-only launch support, GO/HOLD, and recovery
 
-> Recovery playbook, not release status. Current ship posture, blockers, and latest run IDs live only in `RELEASE_STATUS.md`.
+> **Conditional procedure — not the current release gate.** This section applies only to a
+> Private-only release candidate after all of these prerequisites are recorded: #1254 / PR #1269
+> is independently accepted, merged, and deployed; the canonical product authorities and tester
+> contract are reconciled to that deployed behavior through their owning work; and
+> `RELEASE_STATUS.md` records the resulting deployed/main identities and product posture. Until
+> then, this section must not be used to GO or HOLD the current product. It does not duplicate or
+> authorize #1254 implementation or authority changes.
+>
+> Current posture, release-window names, run IDs, intended SHA, deployed SHA, prerequisite
+> dispositions, and the final GO/HOLD decision live only in `RELEASE_STATUS.md` and the
+> release-window record. Nothing in this section authorizes a merge, deploy, migration,
+> configuration change, data write, tester invitation, or production rollback.
 
-**Recovery doctrine — Forward-Fix First.** Because the system relies on stateful Supabase migrations and Stripe webhooks, a full rollback often causes more data corruption than it solves. **Prefer** fix-in-place and redeploy; **avoid** reverting database migrations once real users have signed up.
+### 7.1 Non-negotiable operating rules
 
-### Emergency triage levels
+1. **Private is the only customer transcription path.** Browser, Native, Cloud, Guided, and a
+   Private sample are not recovery paths. Do not expose, enable, recommend, or silently select a
+   retired engine or product mode to contain an incident. If Private cannot support a trustworthy
+   take, stop the affected journey and HOLD the launch.
+2. **Establish identity before diagnosis.** Read the canonical production host from
+   `RELEASE_STATUS.md`; read the deployed commit from the live page's `window.__APP_RELEASE__`;
+   read the intended commit from GitHub `main`. Unknown or unequal identities mean HOLD. A merge,
+   successful Vercel job, or green historical run is not deployed-SHA proof.
+3. **Preserve user work and privacy.** Never ask for, copy, log, or attach speech audio or transcript
+   text during ordinary triage. Never discard a recovery draft or saved session to make an error
+   disappear. A suspected wrong-account read, speech-content leak, or save loss is S1 until disproved.
+4. **Forward-fix migrations.** Production migrations are forward-only. Never treat `migration
+   repair`, a down migration, a restored old function body, or an ad-hoc data edit as routine
+   rollback. A corrective migration and any production application each require separate Product
+   Owner authorization and their own dry-run, rollback/containment note, and exact-scope evidence.
+5. **Every production mutation is separately authorized.** This includes frontend or Edge rollback,
+   config/flag changes, secret changes, scaling, connection termination, data repair, refund, and
+   retention cleanup. Diagnosis and read-only verification do not authorize the write.
+6. **Billing response is phase-aware.** Before separately authorized commercial activation,
+   checkout and paid entitlement remain fail-closed; unexpected reachability is S1/HOLD. After
+   activation, the validated $10/month checkout and paid continuation are expected. HOLD for an
+   unauthorized activation, wrong or uncertain price, identity mismatch, entitlement drift, trial
+   extension, failed expiry enforcement, or a customer entitlement outside Private—not merely
+   because the authorized paid path is reachable.
 
-| Symptom | Severity | Action |
+### 7.2 Release authority and ownership
+
+The release-window record must name a primary, backup, acknowledgement channel, and handoff time for
+every row before GO. One person may fill multiple roles, but no role may be implicit.
+
+| Role | Owns | May decide without additional authorization |
 |---|---|---|
-| Stripe webhook 500s | P0 | Pause new checkouts in Stripe; investigate Edge Function logs. |
-| Quota fail-open (revenue leak) | P0 | Deploy "Emergency Closed" limit function (hardcode `can_start: false`). |
-| Database connection exhaustion | P0 | Scale Supabase instance or terminate idle connections via Dashboard. |
-| Private STT model 404s | P1 | Disable or retry the CPU/Transformers.js Private setup, explain the outage, present Cloud/Native as explicit user-selectable alternatives. **Do not silently switch a Private session to Cloud.** |
-| Transcript data loss | P1 | The in-session safeguard is the localStorage recovery draft (`frontend/src/services/sessionRecoveryDraft.ts`, key `speaksharp_unsaved_session_draft`): a throttled heartbeat (`App.tsx` `flushRecoveryDraft`, ~every 2 s) plus a `beforeunload` flush, consumed on resume in `SessionPage.tsx`. If it regresses, verify the heartbeat interval and `beforeunload` handler are wired; there is no separate "aggressive persistence" mode. |
+| Product Owner | final GO/HOLD; each production mutation; customer promise changes | HOLD, or authorize one precisely scoped action |
+| Release commander | cadence, decision log, exact-SHA ledger, handoffs | HOLD and convene owners; never infer GO |
+| Engineering owner | code diagnosis; forward-fix or rollback proposal; verification plan | read-only diagnosis and source changes |
+| Operations/Security owner | Vercel/Supabase/config/runtime readback; security containment advice | read-only inspection and recommendation |
+| Support/Privacy owner | sanitized Report Issue queue; affected-user communications; privacy escalation | redact/restrict an incident record; escalate to S1 |
+| Quality/device owner | exact-head gates; real-device before/during/after checks; regression reproduction | return evidence or recommend HOLD |
 
-### Emergency rollback criteria
+### 7.3 Severity and stop-launch thresholds
 
-Only roll back the frontend if: (1) the new deployment prevents users from signing in entirely; (2) the UI is completely broken (blank screen) on more than two major browsers; or (3) a critical security vulnerability is discovered that cannot be patched within 30 minutes.
+| Severity | Definition | Initial acknowledgement | Required launch action |
+|---|---|---:|---|
+| **S1** | Trust, privacy, authorization, or data-integrity risk; cross-account data; speech-content exposure; confirmed save loss; unauthorized or contract-invalid billing/entitlement | 5 minutes | Immediate HOLD; contain read-only while the Product Owner selects any mutation |
+| **S2** | Core Private Practice Loop broadly unavailable or materially wrong: auth, setup, record, finalize, save, History/Progress/PDF, or supported mobile layout | 15 minutes | HOLD the affected cohort; no workaround through a retired product path |
+| **S3** | Narrow degradation with a safe, Private-only workaround and no trust/data risk | 1 business hour | Record owner and deadline; GO only if the Product Owner explicitly accepts the residual risk |
+| **S4** | Cosmetic or low-impact defect outside the core journey | Triage in release window | Queue a forward fix; does not independently force HOLD |
 
-```bash
-# Frontend rollback (Vercel; manual — no automated frontend-rollback workflow)
-vercel rollback [PREVIOUS_DEPLOYMENT_ID]
+HOLD immediately when any of these is true:
 
-# Supabase emergency patch — deploy one Edge Function without a full CI run
-supabase functions deploy [FUNCTION_NAME] --project-ref [PROJECT_ID]
-```
+- intended `main` SHA, deployed `window.__APP_RELEASE__`, or the SHA covered by terminal gate evidence
+  is missing or unequal;
+- any S1 exists, or any S2 affects the launch cohort;
+- Browser, Native, Cloud, Guided, or a Private-sample promise is customer-visible or reachable; or
+  checkout/paid entitlement is reachable before activation or violates the approved commercial contract;
+- Private setup/record/finalize/save cannot complete without losing recoverable work;
+- auth isolation, History ownership, Progress comparability, PDF truth, or retention behavior is
+  unverified or contradicts the shipped contract;
+- the session shell has horizontal overflow, hidden controls, or the wrong mic → transcript → progress
+  → coaching order on a required 320/375/390px device;
+- a required exact-head gate is red, skipped, absent, stale, or still running;
+- a release role, backup, communication path, rollback target, or authorization owner is blank.
 
-### Data-integrity recovery (respects Level 3)
+### 7.4 Sanitized Report Issue triage
 
-If a bug causes incorrect billing status: (1) identify affected users via the real profile table **`user_profiles`** (singular; `20250811062708_initial_schema.sql` — there is no `users_profiles`); (2) reconcile billing state from Stripe via the real mechanism — the **`stripe-webhook`** edge function (`backend/supabase/functions/stripe-webhook/index.ts`) calling the idempotent RPC **`process_stripe_webhook_event`** (`20260310000000_stripe_webhook_rpc.sql`), de-duplicated by the `processed_webhook_events` table. **Note the idempotency boundary:** re-delivering an event whose ID is already in `processed_webhook_events` is **skipped** (the RPC returns success without re-applying), so redelivery of an already-processed event **cannot** repair a wrong billing state. Repair therefore requires a **NEW, unprocessed** Stripe event (e.g. trigger a fresh `customer.subscription.updated` from the dashboard, which carries a new event ID) or a scoped manual correction of the profile row — **not** redelivery of the same event. (There is no standalone "Sync from Stripe" script; `scripts/stripe-price-audit.mjs` audits prices only.) (3) notify users via Sentry/PostHog + in-app toasts — there is **no** `system_notifications` table (the schema has no notifications table of any name). Real schema tables (from migrations): `user_profiles`, `sessions`, `user_goals`, `custom_vocabulary`, `processed_webhook_events`, `tier_configs`, `trial_entitlements`, `usage_checkpoints`, `ai_suggestion_usage_daily`, `formatter_usage_daily`, `active_recording_lease`, `user_issue_reports`.
+The report row deliberately contains user-written title/description and optional transcript/audio
+fields. Treat those columns as restricted content, even when the submitter opted in. Start with the
+structured, content-free envelope only:
 
-### Communication protocol
+- report row id; category; severity; created timestamp;
+- canonical route/page key/practice surface/issue-area slug;
+- release id, runtime state, Private engine token, viewport, and Sentry event id;
+- session id only inside the access-controlled source system when ownership-safe linkage is necessary.
 
-Minute 0 — detect failure via Sentry/PostHog. Minute 5 — update internal status (`/admin/ops-status`; workflow `ops-health.yml`). Minute 15 — if unpatched, post "Investigating" to the public status page. Minute 60 — if still broken, declare Launch Postponed. Respect the Beta-50 billing freeze: no live Stripe charges/refunds in testing; any refund action requires written owner approval.
+Do not include `title`, `description`, `transcript_excerpt`, `audio_attachment_note`, raw `user_id`, raw
+email, raw URL/query/fragment, or user-agent strings in tickets, chat, dashboards, screenshots, or
+shared artifacts. Do not claim a report or telemetry identity is pseudonymous unless the deployed
+implementation has separately proven that property. If free text must be inspected to resolve the
+speaker's request, the Support/Privacy owner does so in the restricted source, records only a redacted
+error category externally, and never copies speech content.
+
+Triage sequence:
+
+1. Pin the report to the deployed release and sanitized route. SHA mismatch → HOLD and classify as
+   release identity/configuration, not a user-content problem.
+2. Correlate by Sentry event id, release, route, error code/fingerprint, and bounded timestamp. Query
+   Edge logs by request id/status only. Do not search providers by email, transcript, or audio.
+3. If a database read is necessary, select the minimum non-content columns and keep raw identifiers
+   inside the authorized query surface. Never select transcript text for ordinary support triage.
+4. Choose the matching decision tree below, assign severity, and record the evidence source, owner,
+   containment state, and next decision time.
+5. Respond with status and a Private-only safe next step. Never ask the speaker to submit speech
+   content to make diagnosis easier.
+
+### 7.5 Private Practice Loop decision trees
+
+Each tree is **symptom → content-free checks → safe containment → decision**.
+
+| Surface | Content-free checks | Safe containment | GO/HOLD rule |
+|---|---|---|---|
+| Frontend/release identity | canonical host; live `window.__APP_RELEASE__`; intended `main`; Sentry release; asset/preload error | ask affected user to stop the take; preserve any recovery draft; propose an authorized known-good frontend rollback or forward fix | unknown/mismatched SHA, blank screen, or stale incompatible assets → HOLD |
+| Authentication | provider health; response/error class; route/release; ownership-safe synthetic account proof | pause new invitations; preserve existing sessions; do not bypass auth or alter entitlement | broad sign-in failure, account enumeration, or cross-account access → HOLD (S1 for isolation risk) |
+| Private setup | model asset HTTP status; setup state; device/browser class; release; no audio | show an honest unavailable/retry state; stop new takes on affected devices | no trustworthy Private path → HOLD; never offer Browser/Cloud |
+| Record | permission state; recorder/runtime state; duration/heartbeat; viewport; error code | keep the recovery draft; allow a clean Private retry only after the recorder is idle | widespread start/stop failure or concurrent-capture risk → HOLD |
+| Finalize | state transition timestamps; bounded processing state; error code; release | keep the local recovery draft and honest Finalizing state; do not fabricate completion | stuck or false-complete finalization for cohort → HOLD |
+| Save | session id/status, save response, recovery-draft presence; never transcript text | preserve retryable work; retry the same save path without creating duplicate truth | confirmed loss, wrong-owner row, or duplicate terminal record → HOLD/S1 |
+| History / Progress / PDF | owned session ids; attribution/comparability status; stored recommendation id; PDF generation status | withhold the derived claim that cannot be proven; retain the saved source session | wrong-account data → S1; invented comparison/action or materially false PDF → HOLD |
+| Retention | deployed migration history; function/trigger definitions; row counts/states without content | stop cleanup and new retention mutations; preserve evidence; use only the actually deployed contract | unexpected deletion/exposure or an unverified retention promise → HOLD/S1 |
+| Mobile | 320/375/390px before/during/after; horizontal overflow; focus order; mic → transcript → progress → coaching | pause affected device cohort and give status only | core control hidden, clipped, reordered, or horizontally unreachable → HOLD |
+
+### 7.6 Containment and rollback matrix
+
+Prefer the smallest forward fix that preserves data and product truth. Before requesting a mutation,
+record: exact current identity, exact proposed target, file/config/data scope, expected automatic side
+effects, verification, abort condition, and owner authorization.
+
+| Lever | Preparation (read-only/source-only) | Authorized execution | Required readback |
+|---|---|---|---|
+| Frontend | resolve an immutable prior Vercel deployment already proven compatible; compare its commit and config contract | Product Owner authorizes Vercel rollback/redeployment | canonical host serves expected `window.__APP_RELEASE__`; auth and one Private setup→record→finalize→save smoke pass |
+| Edge | diff every affected function and shared dependency against the proposed target; disclose that a qualifying Edge-path merge triggers the path-filtered caller and redeploys all listed functions | Product Owner authorizes the exact deploy/merge; never bypass auth/JWT/CORS to restore service | function versions/logs, denied unauthenticated requests, exact-origin CORS, and affected Private/save contract pass |
+| Migration/database | produce an additive corrective migration; run dry-run and PostgreSQL-version proofs; document data scope and rollback/containment SQL | Product Owner separately authorizes application; never use migration-history repair as data rollback | production migration history, definition/ACL/search-path checks, positive/negative behavior, scoped row-integrity proof |
+| Config/secret/flag | identify the authoritative storage home and exact old/new value class without printing a secret | Product Owner authorizes one named mutation; frontend build-time flags require a separately authorized deploy | runtime reports intended safe state; Private-only, billing-closed, v4-off, exact-origin behavior rechecked |
+| Billing | identify the authorized commercial phase; inspect sanitized checkout, price, identity, trial, subscription, and entitlement status/counts | before activation, keep checkout closed; after activation, repair only through an authorized Stripe-authoritative path; no charge, refund, entitlement edit, or activation without written Product Owner authorization | before activation the endpoint remains fail-closed; after activation exact $10/month identity, paid continuation, cancellation/lapse, trial expiry, and Private-only entitlement agree |
+| User data/retention | define the smallest ownership-safe query and reversible containment; exclude speech content | Product Owner authorizes any write or deletion | exact marked scope changed, unaffected rows unchanged, and no orphan/over-delete remains |
+| Communications | prepare status, affected surface, safe next step, and next update time | Release/Support owner sends approved content-free notice | decision log links the sent notice and timestamp |
+
+There is no routine emergency command that skips evidence or authorization. In particular, do not
+deploy an improvised hard-coded Edge function, revert a migration body, terminate database sessions,
+or change a production flag merely because the incident is severe. Severity shortens the decision
+clock; it does not remove the safety boundary.
+
+### 7.7 GO/HOLD checklist
+
+The release-window record copies this checklist and records evidence links, not just checkmarks.
+
+**Before GO**
+
+- [ ] #1254 / PR #1269 is accepted, merged, deployed, and its Private-only behavior is reconciled
+      across the canonical product authorities and tester contract; `RELEASE_STATUS.md` records the
+      actual deployed/main identities and posture.
+- [ ] Canonical host, intended `main` SHA, live `window.__APP_RELEASE__`, and exact-head terminal gate
+      SHA are present and equal.
+- [ ] Release commander, Product Owner, Engineering, Operations/Security, Support/Privacy, and
+      Quality/device primary + backup + acknowledgement channel are filled.
+- [ ] Signup, Practice, Pricing, Analytics, Terms/Privacy, and tester copy agree on one complete
+      Private-only product: 30 days free, then $10/month for the same product; Browser, Native,
+      Cloud, Guided, Private-sample, and quota-based product claims are absent.
+- [ ] Auth and one Private setup → record → finalize → save → History/Progress/PDF journey pass on
+      the deployed release without inspecting real speech content.
+- [ ] Required mobile before/during/after checks pass at 320, 375, and 390px; desktop checks pass at
+      the release-required widths.
+- [ ] The commercial phase is explicit: before activation billing remains fail-closed; after
+      activation the exact $10/month checkout and paid continuation pass. Private v4 remains off;
+      CORS and database privileges match their separately reviewed security contracts.
+- [ ] Actual deployed retention behavior and user-facing retention wording agree; source-only,
+      unapplied migrations are not presented as production policy.
+- [ ] One tabletop and one non-destructive rollback drill are recorded; proposed rollback targets,
+      owners, abort conditions, and verification are explicit.
+- [ ] Required telemetry/ops-health evidence is sanitized and green; no claim of pseudonymous identity
+      is made without proof.
+
+**During the window**
+
+- [ ] Report Issue, Sentry, ops-health, Edge, auth, and save signals are checked on the release SHA at
+      the agreed cadence using content-free fields.
+- [ ] Each incident has severity, owner, acknowledgement, next decision time, and GO/HOLD effect.
+- [ ] No production mutation or tester expansion occurs without its separately recorded authorization.
+
+**After the observation window**
+
+- [ ] One deployed Private Practice Loop and its owned History/Progress/PDF readback remain truthful.
+- [ ] No S1/S2 is open; no release-identity, auth, retention, security, billing, or privacy anomaly is
+      unexplained.
+- [ ] Product Owner records GO, HOLD, or rollback as an explicit decision. Unchecked means HOLD.
+
+### 7.8 Rehearsal and evidence
+
+Rehearse at least: deployed-SHA mismatch, Private setup outage, save/recovery failure, wrong-account
+History read, retention anomaly, mobile clipping, and an unexpected paid/retired-product surface. The
+non-destructive rollback drill must resolve and inspect an immutable target, enumerate changed
+frontend/Edge/migration/config surfaces, state the exact authorized command or dashboard action, and
+stop before mutation. Record the drill and tabletop under `product_release/evidence/`; a source-only
+exercise proves operator readiness, not that production was changed or that the release is GO.
+
+Communication cadence for S1/S2: acknowledge internally at the severity target; publish an approved
+content-free investigating notice by 15 minutes if customer impact continues; record the next update
+time; at 60 minutes without safe mitigation, remain HOLD and explicitly postpone expansion. Never
+promise a recovery time that the Engineering and Operations owners have not accepted.
