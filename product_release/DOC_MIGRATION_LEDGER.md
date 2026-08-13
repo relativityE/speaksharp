@@ -5,7 +5,7 @@
 **Applies To:** The documentation-canonicalization migration (33 active root sources + subtrees + pinned history → 14 canonical docs).
 **Class:** Procedure (migration record — **temporary**)
 **Authority:** Section-level source→target inventory for the documentation-canonicalization effort.
-**Not authoritative for:** current product policy or GO/HOLD gates.
+**Not Authoritative For:** current product policy or GO/HOLD gates.
 **Current authority:** [`README.md`](./README.md), its canonical document map, and [`RELEASE_STATUS.md`](./RELEASE_STATUS.md).
 **Supersedes:** —
 **Evidence Sources:** the enumerated source files + their commits, cited per row.

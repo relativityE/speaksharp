@@ -1,3 +1,6 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+
 # Codebase Map — product intent → code path → protecting test → doc
 
 A breadcrumb for new developers. It answers: where a product promise lives in code, which test protects it, and which doc to update when you change it. Paths are repo-relative and verified against `main`. Keep this current; do **not** add PR narratives here.
@@ -9,13 +12,13 @@ A breadcrumb for new developers. It answers: where a product promise lives in co
 - Product roadmap direction: **Rehearsal Sandbox → HUD → Live Companion** (see `product_release/BACKLOG.md` P2.1–P3.1; not built yet).
 
 ## 2. Session / UI (mode hierarchy + post-save)
-- Mode selector, opaque dropdown, one desktop description flyout, one touch About panel, mic/timer/pill:
-  - [frontend/src/components/session/LiveRecordingCard.tsx](../frontend/src/components/session/LiveRecordingCard.tsx) — controls the dropdown (opaque), the single `activeMode` → [ModeDescriptionFlyout.tsx](../frontend/src/components/session/ModeDescriptionFlyout.tsx), and the About panel ([HelpPopover.tsx](../frontend/src/components/session/HelpPopover.tsx)); About and dropdown are mutually exclusive.
+- Historical mode-selector layout (removed by the Private-only reconciliation) was replaced by the current session shell:
+  - [frontend/src/components/session/SessionOverhaulView.tsx](../frontend/src/components/session/SessionOverhaulView.tsx) — composes the current before/during/after Private session surface.
   - [frontend/src/components/ui/dropdown-menu.tsx](../frontend/src/components/ui/dropdown-menu.tsx) — the opt-in `opaque` variant (no whole-surface fade) used by the STT menu.
 - One authoritative post-save surface + persistent Analytics action (no toast):
   - [frontend/src/components/session/StatusNotificationBar.tsx](../frontend/src/components/session/StatusNotificationBar.tsx) — the single saved-state surface; persistent accessible (emerald, WCAG-AA) Analytics action with a bounded→persistent cue.
   - [frontend/src/pages/SessionPage.tsx](../frontend/src/pages/SessionPage.tsx) — the truthful post-save gate; suppresses the recording-card pill so it does not duplicate "Session saved". **`PostSaveToast` / "Next: Analytics" are deleted.**
-- Protecting tests: [tests/e2e/post-save-consolidation.e2e.spec.ts](../tests/e2e/post-save-consolidation.e2e.spec.ts) (one surface, no toast, pill reset, persistent Analytics, WCAG contrast). (#1184 removed the STT selector; the Private-only recorder surface is covered by [frontend/src/components/session/__tests__/LiveRecordingCard.test.tsx](../frontend/src/components/session/__tests__/LiveRecordingCard.test.tsx). The broader selector-narrative reconciliation in the release/product docs is a separate #1184 docs increment.)
+- Protecting tests: [tests/e2e/post-save-consolidation.e2e.spec.ts](../tests/e2e/post-save-consolidation.e2e.spec.ts) (one surface, no toast, pill reset, persistent Analytics, WCAG contrast). The current Private-only shell is covered by [frontend/src/components/session/__tests__/SessionOverhaulView.test.tsx](../frontend/src/components/session/__tests__/SessionOverhaulView.test.tsx).
 
 ## 3. STT policy / entitlements
 - [frontend/src/services/transcription/TranscriptionPolicy.ts](../frontend/src/services/transcription/TranscriptionPolicy.ts) — mode/entitlement policy.

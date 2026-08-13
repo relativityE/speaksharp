@@ -161,8 +161,7 @@ Each release gate is green only when its definition of green is backed by a **na
 
 ### 7.1 Non-negotiable operating rules
 
-1. **Private is the only customer transcription path.** Retired engines, rehearsal variants, and
-   time-limited preview entitlements are not recovery paths. Do not expose, enable, recommend, or
+1. **Private is the only customer transcription path.** Browser, Native, Cloud, Guided, and a Private sample are not recovery paths. Do not expose, enable, recommend, or
    silently select a retired engine or product mode to contain an incident. If Private cannot
    support a trustworthy take, stop the affected journey and HOLD the launch.
 2. **Establish identity before diagnosis.** Read the canonical production host from
