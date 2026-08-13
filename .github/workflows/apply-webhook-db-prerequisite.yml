@@ -60,7 +60,7 @@ jobs:
 
           for status in in_progress queued waiting pending requested; do
             runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=$status&per_page=100")"
-            others="$(jq --argjson current "$GITHUB_RUN_ID" '[.workflow_runs[] | select(.id != $current) | select(.name == "Deploy Supabase" or .name == "Apply webhook DB prerequisite (exact migration)" or .name == "Apply Progress mode separation (exact migration)" or .name == "Migrations Preflight (read-only)")] | length' <<<"$runs")"
+            others="$(jq --argjson current "$GITHUB_RUN_ID" '[.workflow_runs[] | select(.id != $current) | select(.name == "Deploy Supabase" or .name == "Apply webhook DB prerequisite (exact migration)" or .name == "Apply one allowlisted migration (exact)" or .name == "Migrations Preflight (read-only)")] | length' <<<"$runs")"
             [ "$others" = '0' ] || { echo '::error::another migration-capable or migration-preflight workflow is active or pending'; exit 1; }
           done
 

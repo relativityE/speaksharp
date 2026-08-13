@@ -10,6 +10,47 @@ const DEFAULT_CONFIG = Object.freeze({
     heldFile: '20260811143000_harden_exposed_security_definer_acl.sql',
 });
 
+const APPLIED_WEBHOOK_PREREQUISITE = '20260812002000';
+
+export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
+    Object.freeze({
+        version: '20260811143000',
+        file: '20260811143000_harden_exposed_security_definer_acl.sql',
+        sha256: 'fd5eaa15dc27f66aa488da76a48bd00e3f1156a2759a3355609f1fa6eef79d2f',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        version: '20260812030000',
+        file: '20260812030000_progress_cohort_mode_separation_1265.sql',
+        sha256: 'deeb6845ff26a1bafbfdb3751727eea723625a00ff29d4829618e4b58106f5fa',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        version: '20260812039500',
+        file: '20260812039500_webhook_duplicate_snapshot_convergence_1282.sql',
+        sha256: '149bc20af04573c4ee48d1f9bf272a824e47b7d6b6c4d3582c10bfb2bedd7045',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        version: '20260812040000',
+        file: '20260812040000_thirty_day_trial_lifecycle_1282.sql',
+        sha256: '4377bcb2f899e106e977ed49baffc9eae77cec0bdec1e2167e003bad260c70ef',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        version: '20260812041000',
+        file: '20260812041000_trial_expiry_fail_closed_1282.sql',
+        sha256: '695a9384b33f564c4318360daceb5b7d06a6eb6da96d1e7feedb3256fc647753',
+        classification: 'staged',
+    }),
+    Object.freeze({
+        version: '20260812042000',
+        file: '20260812042000_trial_activation_stamp_1282.sql',
+        sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
+        classification: 'commercial-activation',
+    }),
+]);
+
 function parseExcludedMigrations(env) {
     const versions = (env.EXCLUDED_VERSIONS || env.HELD_VERSION || DEFAULT_CONFIG.heldVersion)
         .trim().split(/\s+/).filter(Boolean);
@@ -27,11 +68,32 @@ function parseExcludedMigrations(env) {
 
 /** Resolve the workflow-pinned exact-migration contract, retaining the webhook gate as the default. */
 export function resolveExactMigrationConfig(env = process.env) {
+    if (env.SELECTED_TARGET_VERSION) {
+        const targetIndex = EXACT_MIGRATION_ALLOWLIST.findIndex(({ version }) => version === env.SELECTED_TARGET_VERSION);
+        if (targetIndex < 0) throw new Error('selected migration is not in the checked-in allowlist');
+        const target = EXACT_MIGRATION_ALLOWLIST[targetIndex];
+        return {
+            targetVersion: target.version,
+            targetFile: target.file,
+            targetSha256: target.sha256,
+            classification: target.classification,
+            requiredAppliedVersions: [
+                APPLIED_WEBHOOK_PREREQUISITE,
+                ...EXACT_MIGRATION_ALLOWLIST.slice(0, targetIndex).map(({ version }) => version),
+            ],
+            excludedMigrations: EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1)
+                .map(({ version, file }) => ({ version, file })),
+            allowlisted: true,
+        };
+    }
     const config = {
         targetVersion: env.TARGET_VERSION || DEFAULT_CONFIG.targetVersion,
         targetFile: env.TARGET_FILE || DEFAULT_CONFIG.targetFile,
         targetSha256: env.TARGET_SHA256 || DEFAULT_CONFIG.targetSha256,
+        classification: 'legacy-webhook-prerequisite',
+        requiredAppliedVersions: [],
         excludedMigrations: parseExcludedMigrations(env),
+        allowlisted: false,
     };
     if (config.excludedMigrations.some(({ version, file }) => version === config.targetVersion || file === config.targetFile)) {
         throw new Error('target migration cannot also be excluded');
@@ -45,8 +107,8 @@ export const TARGET_FILE = CONFIG.targetFile;
 export const TARGET_SHA256 = CONFIG.targetSha256;
 export const EXCLUDED_MIGRATIONS = CONFIG.excludedMigrations;
 // Backward-compatible names for the original webhook gate and its focused tests.
-export const HELD_VERSION = EXCLUDED_MIGRATIONS[0].version;
-export const HELD_FILE = EXCLUDED_MIGRATIONS[0].file;
+export const HELD_VERSION = EXCLUDED_MIGRATIONS[0]?.version ?? '';
+export const HELD_FILE = EXCLUDED_MIGRATIONS[0]?.file ?? '';
 
 const LIST_ROW = /^\s*(\d{8,14})?\s*\|\s*(\d{8,14})?\s*\|/;
 const MIGRATION_FILE = /\b(\d{8,14}_[A-Za-z0-9_.-]+\.sql)\b/g;
@@ -65,6 +127,34 @@ function assertDirectory(path, label) {
 
 function fileHash(path) {
     return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+export function verifyMigrationSourceIdentity(sourceSupabaseDir, config = CONFIG) {
+    const migrations = join(resolve(sourceSupabaseDir), 'migrations');
+    const entries = config.allowlisted
+        ? EXACT_MIGRATION_ALLOWLIST
+        : [{ version: config.targetVersion, file: config.targetFile, sha256: config.targetSha256 }];
+    for (const { version, file, sha256 } of entries) {
+        if (!file.startsWith(`${version}_`)) throw new Error(`migration filename/version mismatch: ${file}`);
+        const path = join(migrations, file);
+        assertRegularFile(path, `allowlisted migration ${file}`);
+        if (fileHash(path) !== sha256) throw new Error(`migration hash differs from allowlist: ${file}`);
+    }
+    return {
+        targetVersion: config.targetVersion,
+        targetFile: config.targetFile,
+        targetSha256: config.targetSha256,
+        classification: config.classification,
+        excludedVersions: config.excludedMigrations.map(({ version }) => version),
+    };
+}
+
+export function expectedAuthorizationPhrase(expectedHeadSha, config = CONFIG) {
+    if (!/^[0-9a-f]{40}$/.test(expectedHeadSha)) throw new Error('expected head SHA must be full lowercase hex');
+    const prefix = config.classification === 'commercial-activation'
+        ? 'ACTIVATE COMMERCIAL TRIAL WITH'
+        : 'APPLY';
+    return `${prefix} ${config.targetVersion} ${config.targetFile} SHA256 ${config.targetSha256} AT ${expectedHeadSha}`;
 }
 
 /** Return a stable relative-path and SHA-256 inventory, rejecting non-file tree entries. */
@@ -207,6 +297,13 @@ export function assertBeforeApply(output, config = CONFIG) {
     }
     const remoteOnly = rows.filter((row) => !row.local && row.remote);
     if (remoteOnly.length > 0) throw new Error('remote migration history is missing from the checked-out source');
+    const history = historyMap(rows);
+    for (const version of config.requiredAppliedVersions) {
+        const prerequisite = history.get(version);
+        if (!prerequisite || prerequisite.local !== version || prerequisite.remote !== version) {
+            throw new Error(`required prerequisite migration ${version} is not applied`);
+        }
+    }
     return { pending };
 }
 

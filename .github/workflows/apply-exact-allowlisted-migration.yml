@@ -1,16 +1,27 @@
-name: Apply Progress mode separation (exact migration)
+name: Apply one allowlisted migration (exact)
 
-# One-purpose production gate for #1286. It can apply only the reviewed Progress migration while
-# #1276 and every unselected #1282 migration remain excluded. Dispatch still requires separate PO authorization.
+# One target per dispatch. Checked-in ordering, hashes, and classification keep every unselected pending
+# migration apply-invisible. Source merge never authorizes a dispatch or production mutation.
 on:
   workflow_dispatch:
     inputs:
+      target_version:
+        description: 'One checked-in migration target'
+        required: true
+        type: choice
+        options:
+          - '20260811143000'
+          - '20260812030000'
+          - '20260812039500'
+          - '20260812040000'
+          - '20260812041000'
+          - '20260812042000'
       expected_head_sha:
         description: 'Exact 40-character main SHA authorized by the Product Owner'
         required: true
         type: string
       confirm:
-        description: 'Type APPLY 20260812030000 AT <exact SHA>'
+        description: 'Exact allowlist-derived phrase, including filename, SHA-256, and main SHA'
         required: true
         type: string
 
@@ -23,7 +34,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  apply-exact-progress-mode-separation:
+  apply-one-allowlisted-migration:
     environment: production-db
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -31,11 +42,7 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
       GH_TOKEN: ${{ github.token }}
-      TARGET_VERSION: '20260812030000'
-      TARGET_FILE: '20260812030000_progress_cohort_mode_separation_1265.sql'
-      TARGET_SHA256: 'deeb6845ff26a1bafbfdb3751727eea723625a00ff29d4829618e4b58106f5fa'
-      EXCLUDED_VERSIONS: '20260811143000 20260812039500 20260812040000 20260812041000 20260812042000'
-      EXCLUDED_FILES: '20260811143000_harden_exposed_security_definer_acl.sql 20260812039500_webhook_duplicate_snapshot_convergence_1282.sql 20260812040000_thirty_day_trial_lifecycle_1282.sql 20260812041000_trial_expiry_fail_closed_1282.sql 20260812042000_trial_activation_stamp_1282.sql'
+      SELECTED_TARGET_VERSION: ${{ inputs.target_version }}
     steps:
       - name: Checkout the dispatched commit
         uses: actions/checkout@v6
@@ -55,13 +62,14 @@ jobs:
           [[ "$EXPECTED_HEAD_SHA" =~ $sha_re ]] || { echo '::error::expected_head_sha must be a full lowercase SHA'; exit 1; }
           [ "$RESOLVED_REF" = "$DEFAULT_BRANCH" ] || { echo '::error::workflow must be dispatched from the default branch'; exit 1; }
           [ "$RESOLVED_SHA" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::dispatch resolved a different SHA'; exit 1; }
-          [ "$CONFIRM" = "APPLY $TARGET_VERSION AT $EXPECTED_HEAD_SHA" ] || { echo '::error::exact authorization phrase missing'; exit 1; }
+          expected_phrase="$(node scripts/exact-migration-gate.mjs phrase "$EXPECTED_HEAD_SHA" | jq -r '.phrase')"
+          [ "$CONFIRM" = "$expected_phrase" ] || { echo '::error::exact allowlist-derived authorization phrase missing'; exit 1; }
           current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
           [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced before execution'; exit 1; }
 
           for status in in_progress queued waiting pending requested; do
             runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=$status&per_page=100")"
-            others="$(jq --argjson current "$GITHUB_RUN_ID" '[.workflow_runs[] | select(.id != $current) | select(.name == "Deploy Supabase" or .name == "Apply webhook DB prerequisite (exact migration)" or .name == "Apply Progress mode separation (exact migration)" or .name == "Migrations Preflight (read-only)")] | length' <<<"$runs")"
+            others="$(jq --argjson current "$GITHUB_RUN_ID" '[.workflow_runs[] | select(.id != $current) | select(.name == "Deploy Supabase" or .name == "Apply webhook DB prerequisite (exact migration)" or .name == "Apply one allowlisted migration (exact)" or .name == "Migrations Preflight (read-only)")] | length' <<<"$runs")"
             [ "$others" = '0' ] || { echo '::error::another migration-capable or migration-preflight workflow is active or pending'; exit 1; }
           done
 
@@ -71,16 +79,18 @@ jobs:
         with:
           version: 2.101.0
 
-      - name: Verify migration source identity
+      - name: Verify checked-in allowlist and source identities
+        id: contract
         working-directory: backend/supabase
         run: |
           set -euo pipefail
-          actual="$(sha256sum "migrations/$TARGET_FILE" | awk '{print $1}')"
-          [ "$actual" = "$TARGET_SHA256" ] || { echo '::error::target migration hash differs from the reviewed source'; exit 1; }
-          read -r -a excluded_files <<<"$EXCLUDED_FILES"
-          for file in "${excluded_files[@]}"; do
-            test -f "migrations/$file" || { echo "::error::excluded migration is missing: $file"; exit 1; }
-          done
+          contract="$(node ../../scripts/exact-migration-gate.mjs source .)"
+          echo "$contract"
+          echo "target_version=$(jq -r '.targetVersion' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "target_file=$(jq -r '.targetFile' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "target_sha256=$(jq -r '.targetSha256' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "classification=$(jq -r '.classification' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "excluded_versions=$(jq -r '.excludedVersions | join(" ")' <<<"$contract")" >> "$GITHUB_OUTPUT"
 
       - name: Establish exact pre-apply state
         working-directory: backend/supabase
@@ -124,7 +134,7 @@ jobs:
         working-directory: ${{ runner.temp }}/exact-backend
         run: supabase db push --yes
 
-      - name: Verify target applied and every excluded migration remained pending
+      - name: Verify target applied and every unselected pending migration remained pending
         id: verify
         if: ${{ always() && steps.apply.outcome != 'skipped' }}
         working-directory: backend/supabase
@@ -150,12 +160,15 @@ jobs:
       - name: Publish sanitized result
         if: always()
         run: |
-          echo '## Exact Progress migration gate' >> "$GITHUB_STEP_SUMMARY"
+          echo '## Exact allowlisted migration gate' >> "$GITHUB_STEP_SUMMARY"
           echo "- Checked-out SHA: \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Authorized target: \`$TARGET_VERSION\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Excluded migrations: \`$EXCLUDED_VERSIONS\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Authorized target: \`${{ steps.contract.outputs.target_version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Filename: \`${{ steps.contract.outputs.target_file }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SHA-256: \`${{ steps.contract.outputs.target_sha256 }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Classification: \`${{ steps.contract.outputs.classification }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Excluded pending migrations: \`${{ steps.contract.outputs.excluded_versions }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Apply step outcome: \`${{ steps.apply.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Post-apply verification outcome: \`${{ steps.verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Baseline-relative lint outcome: \`${{ steps.lint_verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Terminal exact-operation gate: \`${{ steps.terminal.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo '- No migration repair, `--include-all`, Edge deployment, secrets/config change, or trial/billing activation is performed.' >> "$GITHUB_STEP_SUMMARY"
+          echo '- The selected migration is the only authorized mutation. No repair, `--include-all`, Edge deployment, payment configuration, or secrets/config change is performed.' >> "$GITHUB_STEP_SUMMARY"
