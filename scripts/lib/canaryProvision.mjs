@@ -14,8 +14,9 @@
  *    deterministic invalid-credentials/account-unavailable result → recovery.
  *  - Recovery is existence-FIRST (admin lookup), then update-only (existing) or create-only (missing) —
  *    never uses a createUser conflict as the existence test, never touches a non-canary account.
- *  - Entitlement verification FAILS CLOSED: the reusable synthetic canary must be a Stripe-bound paid
- *    account. A query error, missing profile, non-Pro status, or blank billing identity is NOT healthy.
+ *  - Local profile-binding verification FAILS CLOSED: a query error, missing profile, non-Pro status,
+ *    or blank billing identity is NOT healthy. This row is not authoritative Stripe proof; coordinated
+ *    cutover requires separate read-only Stripe verification before the first green production run.
  *    Provisioning never writes profile, trial, subscription, or Stripe state; those remain separately
  *    authorized production operations.
  * No credentials, tokens, JWT claims, or user records are returned/logged.
@@ -92,10 +93,11 @@ export async function signInWithBoundedRetry(anon, creds, { attempts = 3, sleep 
 const nonBlank = (value) => typeof value === 'string' && value.trim().length > 0;
 
 /**
- * Verify the signed-in canary's own durable paid entitlement. This is intentionally read-only: CI must
- * never reset/extend a customer-style trial, forge a profile entitlement, or manufacture Stripe identity.
+ * Verify the signed-in canary's local profile binding. This is intentionally read-only and deliberately
+ * does not claim the referenced Stripe objects exist or are current. CI must never reset/extend a
+ * customer-style trial, forge a profile entitlement, or manufacture Stripe identity.
  */
-export async function verifyPaidCanaryEntitlement(anon, userId) {
+export async function verifyCanaryProfileBinding(anon, userId) {
   const { data, error } = await anon
     .from('user_profiles')
     .select('subscription_status,stripe_customer_id,stripe_subscription_id')
@@ -106,9 +108,9 @@ export async function verifyPaidCanaryEntitlement(anon, userId) {
   if (tier === null) return { ok: false, tier: null, reason: 'profile missing or subscription_status null' };
   if (tier !== 'pro') return { ok: false, tier, reason: `unexpected tier '${tier}' (expected paid pro)` };
   if (!nonBlank(data?.stripe_customer_id) || !nonBlank(data?.stripe_subscription_id)) {
-    return { ok: false, tier, reason: 'paid canary is missing exact Stripe customer/subscription binding' };
+    return { ok: false, tier, reason: 'paid canary local profile is missing customer/subscription identifiers' };
   }
-  return { ok: true, tier, stripeBound: true };
+  return { ok: true, tier, localProfileBound: true };
 }
 
 /** Existence-FIRST admin lookup of the EXACT canary account by email (bounded retry). Admin path only. */
@@ -185,8 +187,8 @@ export async function provisionCanary({ anon, admin, config }) {
     recovered = true;
   }
 
-  const tier = await verifyPaidCanaryEntitlement(anon, signIn.userId);
+  const tier = await verifyCanaryProfileBinding(anon, signIn.userId);
   if (!tier.ok) return { status: 'entitlement_error', tier: tier.tier, message: tier.reason };
 
-  return { status: recovered ? 'recovered' : 'healthy', userId: signIn.userId, tier: tier.tier, stripeBound: true };
+  return { status: recovered ? 'recovered' : 'healthy', userId: signIn.userId, tier: tier.tier, localProfileBound: true };
 }

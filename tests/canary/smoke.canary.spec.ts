@@ -1,7 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import { navigateToRoute, debugLog, canaryLogin } from '../e2e/helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
-import { classifyCanaryStartResponse, type CanaryStartRpcPayload } from './canaryRuntimeContract';
+import {
+    classifyCanaryStartResponse,
+    classifyCanaryUsageEntitlement,
+    type CanaryStartRpcPayload,
+} from './canaryRuntimeContract';
 
 /**
  * #1106 — deploy-race gate. The canary is triggered on push to main, but Vercel's deploy is async, so a
@@ -183,11 +187,13 @@ test.describe('Production Smoke Canary @canary', () => {
             }, null, 2),
         });
 
-        // The reusable production canary is an isolated, Stripe-bound paid synthetic account. CI must
-        // never reset a one-shot sample or extend a customer-style trial to keep this journey green.
-        expect(u.subscription_status, 'CANARY_ENTITLEMENT_NOT_PAID:subscription_status').toBe('pro');
-        expect(u.is_pro, 'CANARY_ENTITLEMENT_NOT_PAID:is_pro').toBe(true);
-        expect(u.can_start, `CANARY_ENTITLEMENT_DENIED:${u.error ?? 'can_start_false'}`).toBe(true);
+        // After the coordinated cutover, this reusable account is an isolated paid synthetic canary.
+        // Stripe authority is proven outside this browser response; CI never resets a one-shot sample
+        // or extends a customer-style trial to keep this journey green.
+        const usageOutcome = classifyCanaryUsageEntitlement(u);
+        if ('category' in usageOutcome) {
+            throw new Error(`CANARY_ENTITLEMENT_DENIED:${usageOutcome.category}`);
+        }
 
         // #1184: Private is the only engine surfaced to this paid canary. There is no Browser/Cloud choice
         // or trial nudge; `can_start` must be confirmed by the server before recording begins.

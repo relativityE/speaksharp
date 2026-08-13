@@ -9,8 +9,9 @@
  *
  * Orchestration/classification live in scripts/lib/canaryProvision.mjs (unit-tested). Health only here:
  * anon sign-in (bounded retry on transient) + fail-closed paid-entitlement check + admin recovery (existence-
- * first). The healthy account must already have a genuine Stripe-bound paid entitlement; this script
- * verifies that binding read-only and never grants/resets entitlement or trial state. No account ceiling
+ * first). This script verifies only the account's local Pro/customer/subscription profile binding; the
+ * coordinated cutover separately requires authoritative read-only Stripe verification. It never grants,
+ * resets, or extends entitlement or trial state. No account ceiling
  * here — see scripts/canary-ceiling.mjs. No secrets/tokens/user records logged.
  */
 
@@ -40,12 +41,12 @@ console.log('━━━━━━━━━━━━━━━━━━━━━━�
 const result = await provisionCanary({ anon, admin, config: { email: CANARY_EMAIL, password: CANARY_PASSWORD } });
 
 if (result.status === 'healthy' || result.status === 'recovered') {
-  console.log(`  [OK] ${result.status === 'recovered' ? 'Recovered and re-verified' : 'Signed in'}; tier=${result.tier}; stripe_bound=true.`);
-  console.log('✅ Canary account healthy.');
+  console.log(`  [OK] ${result.status === 'recovered' ? 'Recovered and re-verified' : 'Signed in'}; tier=${result.tier}; local_profile_binding=true.`);
+  console.log('✅ Canary account locally healthy; authoritative Stripe verification is a cutover prerequisite.');
   process.exit(0);
 }
 if (result.status === 'entitlement_error') {
-  console.error(`  ❌ Paid synthetic-canary entitlement verification failed: ${result.message}.`);
+  console.error(`  ❌ Synthetic-canary local profile-binding verification failed: ${result.message}.`);
   console.error('     CI does not grant, reset, or extend entitlement/trial state. Correct the isolated canary through a separately authorized Stripe operation.');
   process.exit(1);
 }

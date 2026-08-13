@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest';
-import { classifyError, withRetry, signInWithBoundedRetry, verifyPaidCanaryEntitlement, enforceCeiling, provisionCanary } from '../../scripts/lib/canaryProvision.mjs';
+import { classifyError, withRetry, signInWithBoundedRetry, verifyCanaryProfileBinding, enforceCeiling, provisionCanary } from '../../scripts/lib/canaryProvision.mjs';
 
 const CANARY = 'canary@speaksharp.app';
 const config = { email: CANARY, password: 'pw' };
@@ -70,18 +70,18 @@ describe('withRetry / signInWithBoundedRetry', () => {
   });
 });
 
-describe('verifyPaidCanaryEntitlement — FAIL-CLOSED and exact-account scoped', () => {
+describe('verifyCanaryProfileBinding — FAIL-CLOSED and exact-account scoped', () => {
   it('accepts only Pro with nonblank Stripe customer/subscription binding', async () => {
-    expect((await verifyPaidCanaryEntitlement(makeAnon(), 'u1')).ok).toBe(true);
-    expect((await verifyPaidCanaryEntitlement(makeAnon({ profileResult: { data: { ...PAID_PROFILE, subscription_status: 'free' } } }), 'u1')).ok).toBe(false);
-    expect((await verifyPaidCanaryEntitlement(makeAnon({ profileResult: { data: { ...PAID_PROFILE, stripe_customer_id: ' ' } } }), 'u1')).ok).toBe(false);
-    expect((await verifyPaidCanaryEntitlement(makeAnon({ profileResult: { data: { ...PAID_PROFILE, stripe_subscription_id: null } } }), 'u1')).ok).toBe(false);
-    expect((await verifyPaidCanaryEntitlement(makeAnon({ profileResult: { data: null } }), 'u1')).ok).toBe(false);
-    expect((await verifyPaidCanaryEntitlement(makeAnon({ profileResult: { data: null, error: { message: 'boom' } } }), 'u1')).ok).toBe(false);
+    expect((await verifyCanaryProfileBinding(makeAnon(), 'u1')).ok).toBe(true);
+    expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: { ...PAID_PROFILE, subscription_status: 'free' } } }), 'u1')).ok).toBe(false);
+    expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: { ...PAID_PROFILE, stripe_customer_id: ' ' } } }), 'u1')).ok).toBe(false);
+    expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: { ...PAID_PROFILE, stripe_subscription_id: null } } }), 'u1')).ok).toBe(false);
+    expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: null } }), 'u1')).ok).toBe(false);
+    expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: null, error: { message: 'boom' } } }), 'u1')).ok).toBe(false);
   });
   it('reads only the signed-in account and never mutates profile/trial state', async () => {
     const anon = makeAnon();
-    await verifyPaidCanaryEntitlement(anon, 'exact-canary-user');
+    await verifyCanaryProfileBinding(anon, 'exact-canary-user');
     expect(anon.from).toHaveBeenCalledWith('user_profiles');
     expect(anon._profile.select).toHaveBeenCalledWith('subscription_status,stripe_customer_id,stripe_subscription_id');
     expect(anon._profile.eq).toHaveBeenCalledWith('id', 'exact-canary-user');
@@ -105,7 +105,7 @@ describe('provisionCanary — health only, fail-closed', () => {
     const anon = makeAnon();
     const res = await provisionCanary({ anon, admin, config });
     expect(res.status).toBe('healthy');
-    expect(res).toMatchObject({ tier: 'pro', stripeBound: true });
+    expect(res).toMatchObject({ tier: 'pro', localProfileBound: true });
     expect(admin.auth.admin.createUser).not.toHaveBeenCalled();
     expect(admin.auth.admin.updateUserById).not.toHaveBeenCalled();
     expect(anon._profile.update).not.toHaveBeenCalled();

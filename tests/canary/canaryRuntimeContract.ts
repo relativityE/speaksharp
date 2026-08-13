@@ -8,6 +8,17 @@ export type CanaryStartOutcome =
     | { ok: true; sessionId: string }
     | { ok: false; category: string };
 
+export type CanaryUsagePayload = {
+    subscription_status?: unknown;
+    is_pro?: unknown;
+    can_start?: unknown;
+    error?: unknown;
+};
+
+export type CanaryUsageOutcome =
+    | { ok: true }
+    | { ok: false; category: string };
+
 const SAFE_CATEGORY = /^[a-z0-9_]{1,80}$/;
 
 /** Content-free category for CI output; never echo arbitrary database/API text. */
@@ -15,6 +26,16 @@ export function sanitizeCanaryDenialCategory(value: unknown): string {
     if (typeof value !== 'string') return 'unknown';
     const normalized = value.trim().toLowerCase();
     return SAFE_CATEGORY.test(normalized) ? normalized : 'unknown';
+}
+
+/** Classify the advisory usage response without reflecting provider/database text into CI. */
+export function classifyCanaryUsageEntitlement(payload: CanaryUsagePayload): CanaryUsageOutcome {
+    if (payload.subscription_status !== 'pro') return { ok: false, category: 'subscription_status' };
+    if (payload.is_pro !== true) return { ok: false, category: 'is_pro' };
+    if (payload.can_start !== true) {
+        return { ok: false, category: sanitizeCanaryDenialCategory(payload.error) };
+    }
+    return { ok: true };
 }
 
 /** Classify the authoritative create-session response before any secondary UI assertion. */
