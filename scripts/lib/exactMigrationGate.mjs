@@ -51,6 +51,37 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
     }),
 ]);
 
+export function validateExactMigrationAllowlist(entries = EXACT_MIGRATION_ALLOWLIST) {
+    if (!Array.isArray(entries) || entries.length === 0) throw new Error('exact migration allowlist is empty');
+    const versions = new Set();
+    const files = new Set();
+    let priorVersion = '';
+    let activationCount = 0;
+    entries.forEach((entry, index) => {
+        if (!/^\d{14}$/.test(entry.version)) throw new Error('allowlisted migration version must be 14 digits');
+        if (!entry.file.startsWith(`${entry.version}_`) || !entry.file.endsWith('.sql')) {
+            throw new Error(`allowlisted migration filename/version mismatch: ${entry.file}`);
+        }
+        if (!/^[0-9a-f]{64}$/.test(entry.sha256)) throw new Error(`allowlisted migration hash is invalid: ${entry.file}`);
+        if (!['staged', 'commercial-activation'].includes(entry.classification)) {
+            throw new Error(`allowlisted migration classification is invalid: ${entry.file}`);
+        }
+        if (priorVersion && entry.version <= priorVersion) throw new Error('exact migration allowlist is not strictly ordered');
+        if (versions.has(entry.version) || files.has(entry.file)) throw new Error('exact migration allowlist contains a duplicate');
+        if (entry.classification === 'commercial-activation') {
+            activationCount += 1;
+            if (index !== entries.length - 1) throw new Error('commercial activation must be the final allowlisted migration');
+        }
+        versions.add(entry.version);
+        files.add(entry.file);
+        priorVersion = entry.version;
+    });
+    if (activationCount !== 1) throw new Error('exact migration allowlist must contain one commercial activation target');
+    return entries;
+}
+
+validateExactMigrationAllowlist();
+
 function parseExcludedMigrations(env) {
     const versions = (env.EXCLUDED_VERSIONS || env.HELD_VERSION || DEFAULT_CONFIG.heldVersion)
         .trim().split(/\s+/).filter(Boolean);

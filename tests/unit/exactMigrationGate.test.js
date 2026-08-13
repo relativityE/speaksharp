@@ -16,6 +16,7 @@ import {
     TARGET_SHA256,
     prepareExactMigrationWorkspace,
     resolveExactMigrationConfig,
+    validateExactMigrationAllowlist,
     verifyMigrationSourceIdentity,
     verifyExactMigrationWorkspace,
 } from '../../scripts/lib/exactMigrationGate.mjs';
@@ -295,6 +296,16 @@ describe('exact migration gate', () => {
         expect(() => expectedAuthorizationPhrase('short', resolveExactMigrationConfig({
             SELECTED_TARGET_VERSION: '20260812030000',
         }))).toThrow(/full lowercase hex/);
+        expect(validateExactMigrationAllowlist()).toBe(EXACT_MIGRATION_ALLOWLIST);
+        expect(() => validateExactMigrationAllowlist([
+            EXACT_MIGRATION_ALLOWLIST[1],
+            EXACT_MIGRATION_ALLOWLIST[0],
+            ...EXACT_MIGRATION_ALLOWLIST.slice(2),
+        ])).toThrow(/not strictly ordered/);
+        expect(() => validateExactMigrationAllowlist([
+            { ...EXACT_MIGRATION_ALLOWLIST[0], classification: 'commercial-activation' },
+            ...EXACT_MIGRATION_ALLOWLIST.slice(1),
+        ])).toThrow(/must be the final/);
     });
 
     it('enforces staged dependency order, one-row history delta, and target-only visibility for all six targets', () => {
