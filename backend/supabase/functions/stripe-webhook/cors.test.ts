@@ -5,7 +5,7 @@ import {
 import { handler } from "./index.ts";
 
 const APPROVED = "https://speaksharp-public.vercel.app";
-const HOSTILE = "https://evil-speaksharp.ai";
+const HOSTILE = "https://evil-app.example.com";
 
 // Stripe → server webhooks carry NO Origin. A browser hitting the webhook with a hostile Origin
 // must be rejected BEFORE signature verification / DB writes.

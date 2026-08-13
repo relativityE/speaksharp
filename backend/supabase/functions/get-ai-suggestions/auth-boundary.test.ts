@@ -4,7 +4,7 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { handler } from "./index.ts";
 
-const APPROVED = "https://www.speaksharp.ai";
+const APPROVED = "https://speaksharp-public.vercel.app";
 
 function forgedBearer() {
   const b64 = (o: unknown) =>

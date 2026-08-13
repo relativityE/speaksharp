@@ -31,8 +31,8 @@ const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const APPROVED_ORIGIN = 'https://speaksharp-public.vercel.app';
 
 const HOSTILE_ORIGINS = [
-  'https://evil-speaksharp.ai',
-  'https://speaksharp.ai.evil.com',
+  'https://evil-app.example.com',
+  'https://app.example.com.evil.test',
   'http://localhost.example.com:5174',
   'http://speaksharp-public.vercel.app', // wrong protocol
   'http://localhost:3000', // unapproved port
@@ -80,7 +80,7 @@ test.describe.serial('Live exact-origin CORS @live', () => {
       expect(ok.status, `${name} approved preflight status`).toBe(204);
       expect(ok.acao, `${name} approved preflight ACAO`).toBe(APPROVED_ORIGIN);
 
-      const hostile = await probe(ctx, name, 'https://speaksharp.ai.evil.com', 'OPTIONS');
+      const hostile = await probe(ctx, name, 'https://app.example.com.evil.test', 'OPTIONS');
       expect(hostile.status, `${name} hostile preflight status`).toBe(403);
       expect(hostile.acao, `${name} hostile preflight must have no ACAO`).toBeNull();
     }
