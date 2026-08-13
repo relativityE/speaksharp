@@ -3,7 +3,9 @@ import posthog from 'posthog-js';
 import {
     PRIVATE_TELEMETRY_EVENTS,
     buildEngineVersion,
+    clearPrivateRecordingIdentity,
     emitPrivateTelemetry,
+    getLastPrivateIdentity,
     resolvePrivateAssignment,
     sanitizePrivateTelemetryProps,
     setPrivateTelemetryContext,
@@ -65,5 +67,18 @@ describe('content-free Private telemetry', () => {
         expect(v4.assignment_source).toBe('posthog_flag');
         expect(buildEngineVersion(v4.engine_variant, 'base_q4')).toBe('private_v4:base_q4');
         expect(buildEngineVersion('private_v2', 'whisper-base.en')).toBe('private_v2:whisper-base.en');
+    });
+
+    it('clears stale session correlation at each take and binds only the newly persisted row', () => {
+        setPrivateTelemetryContext({ session_id: 'session-old', engine_variant: 'private_v2' });
+        clearPrivateRecordingIdentity();
+        expect(getLastPrivateIdentity()).toMatchObject({ session_id: null, engine_variant: 'private_v2' });
+
+        setPrivateTelemetryContext({ session_id: 'session-first' });
+        expect(getLastPrivateIdentity().session_id).toBe('session-first');
+        clearPrivateRecordingIdentity();
+        expect(getLastPrivateIdentity().session_id).toBeNull();
+        setPrivateTelemetryContext({ session_id: 'session-second' });
+        expect(getLastPrivateIdentity().session_id).toBe('session-second');
     });
 });

@@ -239,7 +239,7 @@ GRANT EXECUTE ON FUNCTION public.apply_stripe_subscription_snapshot(text, text, 
 -- paid account, and no retired sample/quota fields are returned to callers.
 CREATE OR REPLACE FUNCTION public.update_user_usage(
   p_session_duration_seconds INT,
-  p_engine_type TEXT DEFAULT 'native',
+  p_engine_type TEXT DEFAULT 'private',
   p_session_id UUID DEFAULT NULL
 )
 RETURNS JSONB
@@ -455,7 +455,7 @@ GRANT EXECUTE ON FUNCTION public.check_usage_limit() TO authenticated, service_r
 -- response keys are removed; concurrency and retention behavior are unchanged.
 CREATE OR REPLACE FUNCTION public.create_session_and_update_usage(
     p_session_data JSONB,
-    p_engine_type TEXT DEFAULT 'native',
+    p_engine_type TEXT DEFAULT 'private',
     p_idempotency_key UUID DEFAULT NULL,
     p_engine_version TEXT DEFAULT NULL,
     p_model_name TEXT DEFAULT NULL,
@@ -474,6 +474,7 @@ DECLARE
     v_max_concurrent INT;
     v_active_sessions INT;
     v_retention JSONB;
+    v_initial_at_cap BOOLEAN;
 BEGIN
     SET LOCAL statement_timeout = '3000ms';
 
@@ -542,6 +543,15 @@ BEGIN
     END IF;
 
     v_duration := COALESCE((p_session_data->>'duration')::INT, 0);
+    IF v_duration < 0 OR v_duration > 600 THEN
+        RETURN jsonb_build_object(
+            'new_session', null,
+            'usage_exceeded', false,
+            'error', 'technical_duration_cap_exceeded',
+            'max_duration_seconds', 600
+        );
+    END IF;
+    v_initial_at_cap := (v_duration = 600);
 
     INSERT INTO public.sessions (
         id, user_id, title, duration, total_words, filler_words, accuracy, ground_truth,
@@ -564,9 +574,15 @@ BEGIN
         p_engine_version,
         p_model_name,
         p_device_type,
-        'active',
-        now() + interval '1 hour'
+        CASE WHEN v_initial_at_cap THEN 'completed' ELSE 'active' END,
+        CASE WHEN v_initial_at_cap THEN NULL ELSE now() + interval '1 hour' END
     );
+
+    IF v_initial_at_cap THEN
+        UPDATE public.sessions
+        SET status_reason = 'technical_duration_cap', updated_at = now()
+        WHERE id = v_new_session_id AND user_id = auth.uid();
+    END IF;
 
     v_usage_check := public.update_user_usage(v_duration, p_engine_type, v_new_session_id);
     IF NOT (v_usage_check->>'success')::BOOLEAN THEN
@@ -596,6 +612,8 @@ BEGIN
     RETURN jsonb_build_object(
         'new_session', (SELECT row_to_json(s) FROM public.sessions s WHERE s.id = v_new_session_id),
         'usage_exceeded', false,
+        'at_cap', v_initial_at_cap,
+        'max_duration_seconds', 600,
         'retention', v_retention
     );
 END;
@@ -612,19 +630,55 @@ AS $$
 DECLARE
     v_usage_check JSONB;
     v_engine_type TEXT;
+    v_status TEXT;
+    v_duration INT;
+    v_remaining INT;
+    v_accepted_seconds INT;
+    v_at_cap BOOLEAN;
 BEGIN
     IF p_incremental_seconds IS NULL OR p_incremental_seconds < 0 THEN
         RETURN jsonb_build_object('success', false, 'error', 'invalid_duration');
     END IF;
 
-    SELECT engine INTO v_engine_type
+    SELECT engine, status, COALESCE(duration, 0)
+    INTO v_engine_type, v_status, v_duration
     FROM public.sessions
-    WHERE id = p_session_id AND user_id = auth.uid();
-    IF v_engine_type IS NULL THEN
+    WHERE id = p_session_id AND user_id = auth.uid()
+    FOR UPDATE;
+    IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', 'session_not_found');
     END IF;
+    IF v_status IS DISTINCT FROM 'active' THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'session_not_active',
+            'final_status', v_status,
+            'at_cap', v_duration >= 600
+        );
+    END IF;
 
-    v_usage_check := public.update_user_usage(p_incremental_seconds, v_engine_type, p_session_id);
+    v_remaining := GREATEST(0, 600 - v_duration);
+    v_accepted_seconds := LEAST(p_incremental_seconds, v_remaining);
+    v_at_cap := (v_duration + v_accepted_seconds >= 600);
+
+    IF v_remaining = 0 THEN
+        UPDATE public.sessions
+        SET status = 'completed',
+            status_reason = 'technical_duration_cap',
+            expires_at = NULL,
+            updated_at = now()
+        WHERE id = p_session_id AND user_id = auth.uid();
+        RETURN jsonb_build_object(
+            'success', true,
+            'at_cap', true,
+            'accepted_seconds', 0,
+            'duration', 600,
+            'remaining_seconds', 0,
+            'final_status', 'completed'
+        );
+    END IF;
+
+    v_usage_check := public.update_user_usage(v_accepted_seconds, v_engine_type, p_session_id);
     IF NOT (v_usage_check->>'success')::BOOLEAN THEN
         RETURN jsonb_build_object(
             'success', false,
@@ -634,17 +688,26 @@ BEGIN
     END IF;
 
     UPDATE public.sessions
-    SET duration = duration + p_incremental_seconds,
-        expires_at = now() + interval '5 minutes',
+    SET duration = v_duration + v_accepted_seconds,
+        status = CASE WHEN v_at_cap THEN 'completed' ELSE status END,
+        status_reason = CASE WHEN v_at_cap THEN 'technical_duration_cap' ELSE status_reason END,
+        expires_at = CASE WHEN v_at_cap THEN NULL ELSE now() + interval '5 minutes' END,
         updated_at = now()
     WHERE id = p_session_id AND user_id = auth.uid();
 
-    INSERT INTO public.usage_checkpoints (session_id, user_id, incremental_seconds, engine_type)
-    VALUES (p_session_id, auth.uid(), p_incremental_seconds, v_engine_type);
+    IF v_accepted_seconds > 0 THEN
+        INSERT INTO public.usage_checkpoints (session_id, user_id, incremental_seconds, engine_type)
+        VALUES (p_session_id, auth.uid(), v_accepted_seconds, v_engine_type);
+    END IF;
 
     RETURN jsonb_build_object(
         'success', true,
-        'subscription_status', v_usage_check->>'subscription_status'
+        'subscription_status', v_usage_check->>'subscription_status',
+        'at_cap', v_at_cap,
+        'accepted_seconds', v_accepted_seconds,
+        'duration', v_duration + v_accepted_seconds,
+        'remaining_seconds', GREATEST(0, 600 - v_duration - v_accepted_seconds),
+        'final_status', CASE WHEN v_at_cap THEN 'completed' ELSE 'active' END
     );
 END;
 $$;

@@ -82,7 +82,7 @@ const createSupabase = (stripeCustomerId: string | null = null, profileError: un
   }) as any;
 
 Deno.test("stripe-checkout edge function", async (t) => {
-  await t.step("rejects paid Basic checkout as future-only", async () => {
+  await t.step("rejects every non-product checkout plan", async () => {
     let stripeCalled = false;
     const res = await handler(request("basic"), {
       getEnv: env,
@@ -99,8 +99,8 @@ Deno.test("stripe-checkout edge function", async (t) => {
     const json = await res.json();
 
     assertEquals(res.status, 400);
-    assertEquals(json.error.code, "paid_basic_future");
-    assertEquals(json.error.message, "Paid Basic is not available yet. Start Free or upgrade to Pro.");
+    assertEquals(json.error.code, "VALIDATION_INVALID_FORMAT");
+    assertEquals(json.error.message, "Invalid checkout plan");
     assertEquals(stripeCalled, false);
   });
 

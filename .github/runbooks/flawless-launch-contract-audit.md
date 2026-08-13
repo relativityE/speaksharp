@@ -107,3 +107,25 @@ The exact review head must provide a closure matrix covering all of the followin
 - Do not merge this PR before #1282's accepted entitlement seam is on main.
 - Merge, deployment, migration, billing activation, production dispatch, issue closure and tagging remain separately authorized operations.
 - Stop editing at a coherent terminal-green head and request independent PM review with a binary ACCEPT/RETURN closure matrix.
+
+### Executable canary cutover order
+
+1. Separately apply and verify the earlier non-activation dependencies.
+2. Merge an accepted #1290 source head under its disclosed deployment authorization.
+3. While migration `20260812041500` is absent, the read-only canary prerequisite emits
+   `HOLD — migration pending; canary not executed`; neither product lane counts as evidence.
+4. Separately authorize, apply, and verify only `20260812041500` through the exact allowlisted gate.
+5. Through separately authorized operations, verify one immutable unextended active-trial fixture and
+   one genuine Stripe-bound paid fixture at the approved $10 monthly Price. Both emails come from
+   protected secrets for addresses controlled by the operator; no email domain is hard-coded.
+6. Manually dispatch the full canary. Both lanes must pass at the deployed merge SHA. Every later
+   push/scheduled run executes both lanes normally and fails closed on product defects.
+7. Keep commercial activation migration `20260812042000` held until its own authorization.
+
+### Qualification handoff
+
+The deleted historical `progress-journey.live.spec.ts` and `session-attribution-proof.live.spec.ts`
+do not silently waive live proof. Issue #1258 must execute the integrated real-device Practice Loop,
+including saved-session attribution and comparable Progress continuity, after both deployed canaries
+are green. Source-level controller, retry, PGlite, and E2E coverage in this PR protects the seams but
+does not substitute for that qualification.

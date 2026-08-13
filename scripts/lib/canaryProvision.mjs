@@ -22,8 +22,6 @@
  * No credentials, tokens, JWT claims, or user records are returned/logged.
  */
 
-const CANARY_EMAIL_RE = /^canary(-.+)?@speaksharp\.app$/i;
-
 /**
  * Classify a Supabase error into an actionable, content-free category.
  * Categories: 'auth_config' (stop, config problem), 'retryable' (transient), 'recoverable_credentials'
@@ -156,13 +154,16 @@ export async function recoverCanaryAccount(admin, { email, password }) {
 }
 
 /** BEST-EFFORT ceiling (used by a SEPARATE hygiene step): 'ok' | 'warn' | 'exceeded' | 'skipped'. */
-export async function enforceCeiling(admin, { max = 1, enforce = false, emailRe = CANARY_EMAIL_RE } = {}) {
+export async function enforceCeiling(admin, { max = 1, enforce = false, allowedEmails = [] } = {}) {
+  const identities = new Set(allowedEmails.map((email) => email?.trim().toLowerCase()).filter(Boolean));
+  if (identities.size === 0) return { status: 'skipped', reason: 'configured_canary_identities_missing' };
+  if (identities.size > max) return { status: enforce ? 'exceeded' : 'warn', count: identities.size, max };
   const emails = [];
   for (let page = 1; page <= 25; page++) {
     const { data, error } = await withRetry(() => admin.auth.admin.listUsers({ page, perPage: 200 }));
     if (error) return { status: 'skipped', reason: classifyError(error).category };
     const users = data?.users || [];
-    for (const u of users) if (u.email && emailRe.test(u.email)) emails.push(u.email.toLowerCase());
+    for (const u of users) if (u.email && identities.has(u.email.toLowerCase())) emails.push(u.email.toLowerCase());
     if (users.length < 200) break;
   }
   if (emails.length > max) return { status: enforce ? 'exceeded' : 'warn', count: emails.length, max };

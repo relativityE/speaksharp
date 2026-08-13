@@ -17,6 +17,7 @@ import {
     emitPrivateTelemetry,
     resolvePrivateAssignment,
     setPrivateTelemetryContext,
+    clearPrivateRecordingIdentity,
     buildPrivateEnvProps,
     buildEngineVersion,
 } from '@/services/transcription/privateTelemetry';
@@ -760,6 +761,7 @@ export class SpeechRuntimeController {
                         this.pendingFullSaveRetry = { ...fullSave, sessionId: createdId };
                     }
                     if (!this.sessionId) this.sessionId = createdId;
+                    this.applyPrivateTelemetryContext();
                 }
                 const completion = await completeSession(targetSessionId, fullSave.completeArgs);
                 if (!completion?.success) return false;
@@ -2531,6 +2533,9 @@ export class SpeechRuntimeController {
         // #1033: lock engine selection SYNCHRONOUSLY at Start intent — before any async enqueue reaches
         // INITIATING — so a rapid engine change right after Start cannot win the race. Released in transition().
         this.engineSelectionIntentLocked = true;
+        // This take has no persisted row yet. Clear the previous take synchronously so a report opened
+        // during setup/start cannot inherit stale session correlation.
+        clearPrivateRecordingIdentity();
         this.policy = policy || null;
         this.userWords = userWords;
         // A new recording supersedes any prior stop's pending finalization: bump the finalize token so a
@@ -2836,6 +2841,7 @@ export class SpeechRuntimeController {
 
                     if (dbSession) {
                         this.sessionId = dbSession.id;
+                        this.applyPrivateTelemetryContext();
                         // #1161 (Option 2): ATOMICALLY bind the pre-session intent (registered before start) to the
                         // session this recording just produced. AWAITED; a bind failure/miss ⇒ the session resolves
                         // definitively unattributed later (no authority); recording unaffected. Only local trusted
@@ -3187,6 +3193,7 @@ export class SpeechRuntimeController {
                             if (saveResult?.session?.id) {
                                 sessionId = saveResult.session.id;
                                 this.sessionId = sessionId;
+                                this.applyPrivateTelemetryContext();
                                 service.setSessionId?.(sessionId);
                                 logger.warn({ sessionId, mode }, '[DEBUG-STOP] Recovered missing sessionId with late session create');
                             }

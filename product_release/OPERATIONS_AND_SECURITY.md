@@ -72,7 +72,7 @@ Rotate per §3. Never commit real values.
 |---|---|---|
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | C (auto) | all edge fns / create-user & admin paths |
 | `PAYMENTS_ENABLED` | C | `stripe-checkout` — backend payments kill-switch (P0.1), default OFF; returns `403 payments_disabled` before any Stripe call unless === `"true"` AND `STRIPE_SECRET_KEY` is live. Checkout is closed by the switch being OFF, NOT by the key being absent. |
-| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRO_PRICE_ID` / `STRIPE_BASIC_PRICE_ID` | C — Ops-managed in Supabase; NOT synced from GitHub | stripe-checkout / stripe-webhook / checkout (basic = future placeholder) |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRO_PRICE_ID` | C — Ops-managed in Supabase; NOT synced from GitHub | stripe-checkout / stripe-webhook / the single $10/month product checkout |
 | `SITE_URL` | C — Ops-managed in Supabase; NOT synced from GitHub | stripe-checkout / stripe-billing-portal redirect base (prod-required; local-dev fallback only) |
 | `ASSEMBLYAI_API_KEY` | Retired customer path; keep server-side only until separately authorized secret removal | legacy `assemblyai-token` denial endpoint must not read or use it |
 | `GEMINI_API_KEY` | C (+D sync) | get-ai-suggestions |
@@ -81,7 +81,7 @@ Rotate per §3. Never commit real values.
 | `OBSERVABILITY_SMOKE_SECRET` | C | observability-smoke (must match the GitHub secret of the same name) |
 | `SENTRY_DSN` (backend) / `LOG_LEVEL` (backend) | C | edge-fn error ingest / log level |
 
-**GitHub→Supabase secret sync** (`deploy-supabase-migrations.yml`, `operation=secrets`) sets **ONLY** `AGENT_SECRET`, `ALLOWED_ORIGIN`, and `GEMINI_API_KEY`. All other Home-C runtime secrets (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`, `STRIPE_BASIC_PRICE_ID`, `ASSEMBLYAI_API_KEY`, `SITE_URL`) are **Ops-managed directly in Supabase and NOT synced from GitHub** — the sync intentionally excludes them so a CI/test value can never overwrite the live production runtime. If a guarded production price sync is ever reintroduced it must be behind an explicit `confirm_live_stripe_secret_sync` input, names-only, never a default `operation=secrets`/`all` step.
+**GitHub→Supabase secret sync** (`deploy-supabase-migrations.yml`, `operation=secrets`) sets **ONLY** `AGENT_SECRET`, `ALLOWED_ORIGIN`, and `GEMINI_API_KEY`. All other Home-C runtime secrets (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`, `ASSEMBLYAI_API_KEY`, `SITE_URL`) are **Ops-managed directly in Supabase and NOT synced from GitHub** — the sync intentionally excludes them so a CI/test value can never overwrite the live production runtime. If a guarded production price sync is ever reintroduced it must be behind an explicit `confirm_live_stripe_secret_sync` input, names-only, never a default `operation=secrets`/`all` step.
 
 ### 2.3 GitHub Actions env (Home D) — secrets vs variables
 

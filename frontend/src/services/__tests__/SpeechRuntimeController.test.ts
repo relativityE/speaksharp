@@ -6,6 +6,7 @@ import { useSessionStore } from '@/stores/useSessionStore';
 import { ITranscriptionService } from '../../hooks/useSpeechRecognition/useTranscriptionService';
 import { sessionManager } from '@/services/transcription/SessionManager';
 import { getSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
+import { clearPrivateRecordingIdentity, getLastPrivateIdentity, setPrivateTelemetryContext } from '@/services/transcription/privateTelemetry';
 
 // Mock Dependencies
 vi.mock('../../lib/logger', () => ({
@@ -54,6 +55,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         localStorage.clear();
+        clearPrivateRecordingIdentity();
         controller = SpeechRuntimeController.getInstance();
         // Reset singleton private state
         (controller as unknown as { state: string }).state = 'IDLE';
@@ -1095,6 +1097,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             attributionEvidence: null,   // #1161: recovered pre-session work has no trusted identity
         };
         setUnresolved(true);
+        setPrivateTelemetryContext({ session_id: 'prior-recording' });
         expect(controller.pendingResolutionKind()).toBe('initial_save');
         await expect((controller as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave()).resolves.toBe(true);
         // created ONCE, with the recording id as the idempotency key → no duplicate session
@@ -1106,6 +1109,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(attestInvoke).toHaveBeenCalledTimes(1);
         expect((attestInvoke.mock.calls[0][1] as { body?: { op?: string; sessionId?: string; runtimeEvidence?: unknown } })?.body)
             .toMatchObject({ op: 'resolve_unattributed', sessionId: 'new-row-1' });
+        expect(getLastPrivateIdentity().session_id).toBe('new-row-1');
         expect(controller.isEngineSelectionLocked()).toBe(false);
     });
 

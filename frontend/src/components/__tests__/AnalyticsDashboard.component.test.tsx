@@ -486,9 +486,7 @@ describe('AnalyticsDashboard', () => {
             ],
         });
 
-        expect(screen.getByTestId('session-engine-metadata')).toHaveTextContent(
-            'Browser'
-        );
+        expect(screen.getByTestId('session-engine-metadata')).toHaveTextContent('Legacy recording');
     });
 
     it('renders the saved Native transcript in the session detail view and exposes it for proofs', () => {

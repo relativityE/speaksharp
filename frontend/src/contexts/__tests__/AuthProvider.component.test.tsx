@@ -330,14 +330,14 @@ describe('AuthProvider', () => {
         );
 
         await waitFor(() => expect(screen.getByText('Unauthenticated')).toBeInTheDocument());
-        expect(screen.queryByText('dev@speaksharp.app')).not.toBeInTheDocument();
+        expect(screen.queryByText('dev@example.test')).not.toBeInTheDocument();
     });
 
     it('ignores malformed stored sessions before they can pollute backend requests', async () => {
         const projectRef = new URL(import.meta.env.VITE_SUPABASE_URL).hostname.split('.')[0];
         window.localStorage.setItem(`sb-${projectRef}-auth-token`, JSON.stringify({
             access_token: 'dev-token',
-            user: { id: '00000000-0000-0000-0000-000000000000', email: 'dev@speaksharp.app' },
+            user: { id: '00000000-0000-0000-0000-000000000000', email: 'dev@example.test' },
         }));
         mockSupabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
 
@@ -350,7 +350,7 @@ describe('AuthProvider', () => {
         );
 
         await waitFor(() => expect(screen.getByText('Unauthenticated')).toBeInTheDocument());
-        expect(screen.queryByText('dev@speaksharp.app')).not.toBeInTheDocument();
+        expect(screen.queryByText('dev@example.test')).not.toBeInTheDocument();
     });
 
     it('handles session expiry via onAuthStateChange', async () => {

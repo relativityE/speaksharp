@@ -3,6 +3,7 @@ import { buildIssueReportMetadata, issueReportService } from '@/services/issueRe
 import { resolvePageContext } from '@/services/pageContext';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import type { AppRuntimeConfig } from '@/config/appRuntimeConfig';
+import { clearPrivateRecordingIdentity, setPrivateTelemetryContext } from '@/services/transcription/privateTelemetry';
 
 const UUID_META = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
 
@@ -148,6 +149,8 @@ describe('issueReportService', () => {
     vi.mocked(getSupabaseClient).mockReturnValue({
       from: vi.fn(() => ({ insert })),
     } as unknown as ReturnType<typeof getSupabaseClient>);
+    (window as unknown as { __SS_PRIVATE_EVENTS__?: unknown[] }).__SS_PRIVATE_EVENTS__ = [];
+    clearPrivateRecordingIdentity();
   });
 
   it('stores metadata while excluding transcript and audio unless opted in', async () => {
@@ -234,6 +237,51 @@ describe('issueReportService', () => {
     });
 
     expect(insert).toHaveBeenCalledWith(expect.objectContaining({ session_id: SESSION }));
+  });
+
+  it('never correlates a cleared first/new recording report to the previous take', async () => {
+    setPrivateTelemetryContext({ session_id: 'previous-session', engine_variant: 'private_v2' });
+    clearPrivateRecordingIdentity();
+    await issueReportService.submit({
+      userId: 'user-1',
+      sessionId: null,
+      category: 'recording_transcription',
+      severity: 'medium',
+      title: 'Setup problem',
+      description: 'The new recording has not persisted yet.',
+      pageUrl: 'http://localhost:5174/session',
+      metadata: { route: '/session' },
+      includeTranscript: false,
+      includeAudio: false,
+    });
+
+    const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
+    const latestEvent = events[events.length - 1];
+    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', session_id: null });
+    expect(JSON.stringify(latestEvent)).not.toContain('previous-session');
+  });
+
+  it('uses the newly persisted recording identity instead of an older fallback', async () => {
+    setPrivateTelemetryContext({ session_id: 'previous-session' });
+    clearPrivateRecordingIdentity();
+    setPrivateTelemetryContext({ session_id: 'current-session' });
+    await issueReportService.submit({
+      userId: 'user-1',
+      sessionId: null,
+      category: 'recording_transcription',
+      severity: 'medium',
+      title: 'Recording problem',
+      description: 'The current recording needs correlation.',
+      pageUrl: 'http://localhost:5174/session',
+      metadata: { route: '/session' },
+      includeTranscript: false,
+      includeAudio: false,
+    });
+
+    const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
+    const latestEvent = events[events.length - 1];
+    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', session_id: 'current-session' });
+    expect(JSON.stringify(latestEvent)).not.toContain('previous-session');
   });
 
   it('surfaces a persistence failure rather than masking it (persistence is authoritative)', async () => {

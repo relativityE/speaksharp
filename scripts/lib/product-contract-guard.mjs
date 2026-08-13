@@ -66,12 +66,17 @@ const rules = [
       || /\b(?:seconds?|quota|limit|usage)\b[^\n]{0,50}\b(?:7200|180000)\b/i.test(unit),
   },
   {
+    id: 'unaffiliated-speaksharp-app-domain',
+    applies: (path) => isActiveRuntimeOrGate(path) || isCustomerAuthority(path),
+    matches: (unit) => /(?:https?:\/\/|@)(?:[a-z0-9-]+\.)*speaksharp\.app\b/i.test(unit),
+  },
+  {
     id: 'wrong-launch-price',
     applies: (path) => isActiveRuntimeOrGate(path) || isCustomerAuthority(path),
     matches: (unit) => /\$\s*9\.99\b/.test(unit)
       || /\b999\s*(?:cents?|¢)\b/i.test(unit)
-      || /\b(?:amount|price|unit_amount)[^\n]{0,40}\b999\b/i.test(unit)
-      || /\b999\b[^\n]{0,40}\b(?:amount|price|unit_amount)\b/i.test(unit),
+      || /(?:amount|price|unit[_-]?amount)[^\n]{0,40}\b999\b/i.test(unit)
+      || /\b999\b[^\n]{0,40}(?:amount|price|unit[_-]?amount)/i.test(unit),
   },
 ];
 

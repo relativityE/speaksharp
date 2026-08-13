@@ -46,7 +46,7 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
     Object.freeze({
         version: '20260812041500',
         file: '20260812041500_flawless_launch_runtime_convergence_1290.sql',
-        sha256: '3fa34eeba07cc2c8bf227032158dfcf8a3be711949546f02f9e2b08432ce4f78',
+        sha256: '0e717335be6cb59265754e513fc6b6934cfc1eabba6ff6d2127ec9564771122b',
         classification: 'staged',
     }),
     Object.freeze({

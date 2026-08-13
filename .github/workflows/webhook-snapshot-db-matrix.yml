@@ -12,6 +12,8 @@ on:
       - 'tests/db/webhook-lifecycle.integration.test.ts'
       - 'tests/db/webhook-snapshot-preflight.sql'
       - 'tests/db/webhook-snapshot-matrix.sql'
+      - 'tests/db/runtime-cap-matrix.sql'
+      - 'tests/db/runtime-cap.integration.test.ts'
       - '.github/workflows/webhook-snapshot-db-matrix.yml'
 
 permissions:
@@ -97,6 +99,12 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f tests/db/webhook-snapshot-matrix.sql 2>&1 | tee matrix-output.txt
           grep -q 'WEBHOOK SNAPSHOT MATRIX PASSED' matrix-output.txt
 
+      - name: Run 600-second session boundary matrix
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f tests/db/runtime-cap-matrix.sql 2>&1 | tee runtime-cap-output.txt
+          grep -q 'RUNTIME 600-SECOND CAP MATRIX PASSED' runtime-cap-output.txt
+
       - name: Dirty-state preflight and migration both abort without repair
         run: |
           set -euo pipefail
@@ -173,6 +181,7 @@ jobs:
             cat preflight-clean.txt 2>/dev/null || true
             cat migration-replay.txt 2>/dev/null || true
             cat matrix-output.txt 2>/dev/null || true
+            cat runtime-cap-output.txt 2>/dev/null || true
             cat preflight-dirty-summary.txt 2>/dev/null || true
             cat concurrency-summary.txt 2>/dev/null || true
             echo '```'
@@ -189,6 +198,7 @@ jobs:
             matrix-falsification.txt
             migration-replay.txt
             matrix-output.txt
+            runtime-cap-output.txt
             preflight-dirty.txt
             migration-dirty.txt
             preflight-dirty-summary.txt

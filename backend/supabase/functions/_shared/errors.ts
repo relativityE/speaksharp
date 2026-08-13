@@ -27,7 +27,6 @@ export const ErrorCodes = {
     // External Service (502)
     STRIPE_API_ERROR: 'STRIPE_API_ERROR',
     STRIPE_WEBHOOK_INVALID: 'STRIPE_WEBHOOK_INVALID',
-    PAID_BASIC_FUTURE: 'paid_basic_future',
     PAYMENTS_DISABLED: 'payments_disabled',
 
     // Configuration (500)
@@ -63,7 +62,6 @@ const errorCodeToStatus: Record<ErrorCode, number> = {
     [ErrorCodes.PROFILE_NOT_FOUND]: 404,
     [ErrorCodes.STRIPE_API_ERROR]: 502,
     [ErrorCodes.STRIPE_WEBHOOK_INVALID]: 400,
-    [ErrorCodes.PAID_BASIC_FUTURE]: 400,
     [ErrorCodes.PAYMENTS_DISABLED]: 403,
     [ErrorCodes.CONFIG_MISSING_ENV]: 500,
     [ErrorCodes.CONFIG_INVALID_PRICE]: 500,

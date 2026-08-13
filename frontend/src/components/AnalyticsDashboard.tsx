@@ -215,7 +215,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
 ];
 
 // #G4 chunk 3: getEngineBadge removed with the per-row engine/PRIVATE badge (the section footer carries
-// the privacy promise; recording mode still shows on the session detail view via formatSessionRecordingMode).
+// the privacy promise; current Private versus neutral historical recording provenance remains visible).
 
 // --- Analysis Slide Configuration ---
 // Available analysis visualization tools for the main carousel
@@ -849,7 +849,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-foreground/70">
-                                    <span className="uppercase tracking-wider">Recorded with</span>
+                                    <span className="uppercase tracking-wider">Recording provenance</span>
                                     <span
                                         className="rounded-md border border-[hsl(var(--border))] bg-muted px-2 py-1 text-foreground"
                                         data-testid="session-engine-metadata"

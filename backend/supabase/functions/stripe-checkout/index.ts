@@ -17,7 +17,7 @@ const stripe = STRIPE_SECRET_KEY
   ? new Stripe(STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient() })
   : null;
 
-type CheckoutPlan = "basic" | "pro";
+type CheckoutPlan = "pro";
 type EnvGetter = (key: string) => string | undefined;
 type SupabaseFactory = (authHeader: string) => ReturnType<typeof createClient>;
 type StripePrice = {
@@ -52,7 +52,7 @@ type HandlerDeps = {
 const normalizePlan = (value: unknown): CheckoutPlan | null => {
   if (typeof value !== "string") return "pro";
   const normalized = value.trim().toLowerCase();
-  if (normalized === "basic" || normalized === "pro") return normalized;
+  if (normalized === "pro") return normalized;
   return null;
 };
 
@@ -130,7 +130,6 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       hasUrl: !!getEnv("SUPABASE_URL"),
       hasAnon: !!getEnv("SUPABASE_ANON_KEY"),
       hasStripeKey: !!getEnv("STRIPE_SECRET_KEY"),
-      hasBasicPriceId: !!getEnv("STRIPE_BASIC_PRICE_ID"),
       hasProPriceId: !!getEnv("STRIPE_PRO_PRICE_ID"),
       hasSiteUrl: !!getEnv("SITE_URL"),
     };
@@ -216,14 +215,6 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
         "Invalid checkout plan",
         responseHeaders,
         { allowed: ["pro"] }
-      );
-    }
-    if (plan === "basic") {
-      return createErrorResponse(
-        ErrorCodes.PAID_BASIC_FUTURE,
-        "Paid Basic is not available yet. Start Free or upgrade to Pro.",
-        responseHeaders,
-        { allowed: ["pro"], unavailable: "basic" }
       );
     }
     const conversionSource = sanitizeMetadataValue(requestBody.conversionSource, 'unknown');

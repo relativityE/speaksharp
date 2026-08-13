@@ -154,7 +154,7 @@ function makeTesterAccount() {
   // STABLE reusable account — never mints a per-run user (which accumulated as private-longform-*
   // residue). Pro/trial state is mocked client-side, so no DB provisioning.
   return {
-    email: `private-longform-reuse@speaksharp.app`,
+    email: `private-longform-reuse@example.test`,
     password: process.env.PRIVATE_LONGFORM_REUSE_PASSWORD ?? 'SpeakSharpLongform-Reuse!Aa9',
   };
 }

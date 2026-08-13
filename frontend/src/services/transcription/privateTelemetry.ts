@@ -122,7 +122,12 @@ export function setPrivateTelemetryContext(ctx: PrivateTelemetryContext): void {
     if (ctx.engine_variant != null) lastPrivateIdentity.engine_variant = ctx.engine_variant;
     if (ctx.model != null) lastPrivateIdentity.model = ctx.model;
     if (ctx.release_sha != null) lastPrivateIdentity.release_sha = ctx.release_sha;
-    if (ctx.session_id != null) lastPrivateIdentity.session_id = ctx.session_id;
+    if (Object.prototype.hasOwnProperty.call(ctx, 'session_id')) lastPrivateIdentity.session_id = ctx.session_id ?? null;
+}
+
+/** Recording boundary: a report must never inherit the previous take's persisted session identity. */
+export function clearPrivateRecordingIdentity(): void {
+    setPrivateTelemetryContext({ session_id: null });
 }
 
 export function getLastPrivateIdentity(): LastPrivateIdentity {

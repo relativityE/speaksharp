@@ -209,7 +209,7 @@ jobs:
           # SOURCE-OF-TRUTH POLICY (2026-06-18, release-owner): live Stripe RUNTIME secrets are
           # Ops-managed DIRECTLY in Supabase and are intentionally NOT synced from GitHub here.
           # That covers STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRO_PRICE_ID,
-          # STRIPE_BASIC_PRICE_ID, and SITE_URL. Rationale: with one Supabase project and mixed
+          # and SITE_URL. Rationale: with one Supabase project and mixed
           # test/live history, a GitHub→Supabase secrets sync is a foot-gun — a CI/test price or
           # key could silently overwrite the live production runtime value. GitHub's Stripe secrets
           # feed test-mode CI jobs only; they must never become the implicit production authority.

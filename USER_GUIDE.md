@@ -50,4 +50,4 @@ Saved transcripts and derived practice metrics follow the retention terms descri
 After each saved session, SpeakSharp shows speaking pace, filler-word counts, transcript, and one next action.
 Progress compares like with like: Open Mic history remains separate from Focus Points history.
 
-For support, use **Report issue** inside SpeakSharp or contact support@speaksharp.app.
+For support, use **Report issue** inside SpeakSharp.

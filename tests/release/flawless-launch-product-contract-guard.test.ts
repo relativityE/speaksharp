@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   HISTORICAL_EXCLUSIONS,
   isExcluded,
@@ -7,6 +8,20 @@ import {
 } from '../../scripts/lib/product-contract-guard.mjs';
 
 describe('flawless-launch product-contract guard (#1290)', () => {
+  it('keeps both canary identities protected and fail-closed behind migration readiness', () => {
+    const workflow = readFileSync('.github/workflows/canary.yml', 'utf8');
+
+    expect(workflow).toContain('secrets.CANARY_TRIAL_EMAIL');
+    expect(workflow).toContain('secrets.CANARY_PAID_EMAIL');
+    expect(workflow).toContain('secrets.CANARY_TRIAL_PASSWORD');
+    expect(workflow).toContain('node scripts/canary-identity-config.mjs');
+    expect(workflow).toContain('needs.migration-readiness.outputs.ready');
+    expect(workflow).toContain('HOLD — migration pending; canary not executed');
+    expect(workflow).toContain('lane: active-trial');
+    expect(workflow).toContain('lane: paid-continuation');
+    expect(workflow).not.toMatch(/@speaksharp\.app\b/i);
+  });
+
   it('rejects every retired launch proposition', () => {
     const fixtures = [
       ['frontend/src/pages/Home.tsx', 'Start your five-minute Private sample today'],
@@ -15,6 +30,10 @@ describe('flawless-launch product-contract guard (#1290)', () => {
       ['frontend/src/components/Usage.tsx', 'Upgrade when your 2 hours/day recording limit is reached'],
       ['frontend/src/hooks/useSessionLifecycle.ts', 'Daily usage limit reached.'],
       ['product_release/ENTITLEMENTS_AND_BILLING.md', 'Configure the monthly price at $9.99 (999 cents)'],
+      ['.github/workflows/release.yml', "EXPECTED_STRIPE_PRO_AMOUNT: '999'"],
+      ['scripts/price-config.mjs', "const unit_amount = 999;"],
+      ['.github/workflows/canary.yml', 'CANARY_EMAIL: canary@speaksharp.app'],
+      ['USER_GUIDE.md', 'Contact support@speaksharp.app'],
     ] as const;
 
     for (const [path, source] of fixtures) {
@@ -29,6 +48,8 @@ describe('flawless-launch product-contract guard (#1290)', () => {
       ['product_release/PRODUCT_REQUIREMENTS.md', 'There is no five-minute Private sample.'],
       ['product_release/PRODUCT_REQUIREMENTS.md', 'Daily and monthly accumulated-minute quotas are retired.'],
       ['product_release/PRODUCT_REQUIREMENTS.md', 'The former $9.99 price is rejected; launch pricing is exactly $10.'],
+      ['.github/workflows/release.yml', "EXPECTED_STRIPE_PRO_AMOUNT: '1000'"],
+      ['.github/workflows/canary.yml', 'CANARY_EMAIL: ${{ secrets.CANARY_PAID_EMAIL }}'],
     ] as const;
 
     for (const [path, source] of fixtures) {

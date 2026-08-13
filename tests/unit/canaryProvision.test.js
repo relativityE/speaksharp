@@ -2,7 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { classifyError, withRetry, signInWithBoundedRetry, verifyCanaryProfileBinding, enforceCeiling, provisionCanary } from '../../scripts/lib/canaryProvision.mjs';
 
-const CANARY = 'canary@speaksharp.app';
+const CANARY = 'paid-canary@example.test';
 const config = { email: CANARY, password: 'pw' };
 const invalidJwt = { message: 'invalid JWT ... unrecognized JWT kid <nil> for algorithm ES256' };
 const badCreds = { status: 400, message: 'Invalid login credentials' };          // recognized → recoverable
@@ -107,11 +107,13 @@ describe('verifyCanaryProfileBinding — active trial lane', () => {
 
 describe('enforceCeiling', () => {
   it('ok / warn / exceeded / skipped', async () => {
-    expect((await enforceCeiling(makeAdmin({ listUsers: [{ users: [{ email: CANARY }] }] }), { max: 1, enforce: true })).status).toBe('ok');
-    const two = [{ users: [{ email: CANARY }, { email: 'canary-x@speaksharp.app' }] }];
-    expect((await enforceCeiling(makeAdmin({ listUsers: two }), { max: 1, enforce: false })).status).toBe('warn');
-    expect((await enforceCeiling(makeAdmin({ listUsers: two }), { max: 1, enforce: true })).status).toBe('exceeded');
-    expect((await enforceCeiling(makeAdmin({ listUsers: [{ error: invalidJwt }] }), { max: 1, enforce: true })).status).toBe('skipped');
+    expect((await enforceCeiling(makeAdmin({ listUsers: [{ users: [{ email: CANARY }] }] }), { max: 1, enforce: true, allowedEmails: [CANARY] })).status).toBe('ok');
+    const second = 'trial-canary@example.test';
+    const two = [{ users: [{ email: CANARY }, { email: second }] }];
+    expect((await enforceCeiling(makeAdmin({ listUsers: two }), { max: 1, enforce: false, allowedEmails: [CANARY, second] })).status).toBe('warn');
+    expect((await enforceCeiling(makeAdmin({ listUsers: two }), { max: 1, enforce: true, allowedEmails: [CANARY, second] })).status).toBe('exceeded');
+    expect((await enforceCeiling(makeAdmin({ listUsers: [{ error: invalidJwt }] }), { max: 1, enforce: true, allowedEmails: [CANARY] })).status).toBe('skipped');
+    expect((await enforceCeiling(makeAdmin(), { max: 1, enforce: true })).status).toBe('skipped');
   });
 });
 

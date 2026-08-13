@@ -1,3 +1,7 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+> **Current authority:** [`RELEASE_STATUS.md`](./RELEASE_STATUS.md), [`RELEASE_PROCESS.md`](./RELEASE_PROCESS.md), and PR #1272 for final reconciliation.
+
 # Release Closeout Ledger
 
 Dev-owned closeout per release-owner directive (2026-06-14). Every pending item has a single

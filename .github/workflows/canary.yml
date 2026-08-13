@@ -12,16 +12,57 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  migration-readiness:
+    name: read-only runtime migration readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      ready: ${{ steps.readiness.outputs.ready }}
+      state: ${{ steps.readiness.outputs.state }}
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: 2.101.0
+
+      - name: Read exact production migration history
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$SUPABASE_PROJECT_ID"
+          supabase migration list 2>&1 | tee "$RUNNER_TEMP/canary-migrations.txt"
+
+      - name: Evaluate canary runtime prerequisite
+        id: readiness
+        run: |
+          set -euo pipefail
+          result="$(node scripts/canary-migration-readiness.mjs "$RUNNER_TEMP/canary-migrations.txt")"
+          echo "ready=$(jq -r '.ready' <<<"$result")" >> "$GITHUB_OUTPUT"
+          echo "state=$(jq -r '.state' <<<"$result")" >> "$GITHUB_OUTPUT"
+          echo "### Canary migration readiness" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Required migration: \`20260812041500\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Read-only state: \`$(jq -r '.state' <<<"$result")\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$(jq -r '.ready' <<<"$result")" != 'true' ]; then
+            echo '- **HOLD — migration pending; canary product lanes were not executed.**' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   canary-check:
     name: canary-check (${{ matrix.lane }})
+    needs: migration-readiness
+    if: ${{ needs.migration-readiness.outputs.ready == 'true' }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - lane: active-trial
-            email: canary-trial@speaksharp.app
           - lane: paid-continuation
-            email: canary@speaksharp.app
     runs-on: ubuntu-latest
     # 15 (was 10) so the #1106 deploy-race gate can spend its full budget and still emit its diagnostic:
     # the smoke test may now wait up to 4 min for the expected SHA to go live, plus 2 min for the product
@@ -37,6 +78,12 @@ jobs:
         with:
           install-playwright: 'true'
 
+      - name: Validate protected canary identities
+        env:
+          CANARY_TRIAL_EMAIL: ${{ secrets.CANARY_TRIAL_EMAIL }}
+          CANARY_PAID_EMAIL: ${{ secrets.CANARY_PAID_EMAIL }}
+        run: node scripts/canary-identity-config.mjs
+
       - name: Provision Canary User
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
@@ -50,9 +97,8 @@ jobs:
           # failure that affects recovery only; the healthy path never depends on it. No key is rotated.
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CANARY_PASSWORD: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_PASSWORD || secrets.CANARY_PASSWORD }}
-          # Stable lane-specific identities prevent each run from minting new auth users. The job
-          # concurrency guard prevents overlapping runs, and the ceiling below proves no residue grows.
-          CANARY_EMAIL: ${{ matrix.email }}
+          # Protected, operator-controlled identities only. Never hard-code or infer an email domain.
+          CANARY_EMAIL: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_EMAIL || secrets.CANARY_PAID_EMAIL }}
           CANARY_EXPECTED_ACCESS: ${{ matrix.lane }}
           # Ceiling guard: at most CANARY_MAX canary-like accounts may exist (reuse, never accumulate).
           # Two identities are allowed: primary active trial and secondary paid continuation.
@@ -65,7 +111,7 @@ jobs:
           VITE_TEST_MODE: "true"
           VITE_USE_LIVE_DB: "true"
           CANARY_PASSWORD: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_PASSWORD || secrets.CANARY_PASSWORD }}
-          CANARY_EMAIL: ${{ matrix.email }}
+          CANARY_EMAIL: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_EMAIL || secrets.CANARY_PAID_EMAIL }}
           CANARY_EXPECTED_ACCESS: ${{ matrix.lane }}
           BASE_URL: https://speaksharp-public.vercel.app/
           # #1106 deploy-race gate: the commit this run was triggered from. The canary must confirm the
@@ -84,6 +130,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CANARY_TRIAL_EMAIL: ${{ secrets.CANARY_TRIAL_EMAIL }}
+          CANARY_PAID_EMAIL: ${{ secrets.CANARY_PAID_EMAIL }}
           CANARY_MAX: '2'
           CANARY_ENFORCE: fail
         run: node scripts/canary-ceiling.mjs
@@ -101,3 +149,32 @@ jobs:
       - name: Cleanup Secrets
         if: always()
         run: rm -f .env.development
+
+  canary-result:
+    name: canary-result
+    if: always()
+    needs: [migration-readiness, canary-check]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require truthful terminal state
+        env:
+          READINESS_RESULT: ${{ needs.migration-readiness.result }}
+          MIGRATION_READY: ${{ needs.migration-readiness.outputs.ready }}
+          PRODUCT_LANES_RESULT: ${{ needs.canary-check.result }}
+        run: |
+          set -euo pipefail
+          if [ "$READINESS_RESULT" != 'success' ]; then
+            echo '::error::Canary migration readiness could not be established.'
+            exit 1
+          fi
+          if [ "$MIGRATION_READY" != 'true' ]; then
+            echo '## HOLD — migration pending; canary not executed' >> "$GITHUB_STEP_SUMMARY"
+            echo 'The active-trial and paid-continuation lanes produced no product evidence.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$PRODUCT_LANES_RESULT" != 'success' ]; then
+            echo '::error::One or both required canary product lanes failed.'
+            exit 1
+          fi
+          echo '## Canary product lanes passed' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Both active-trial and paid-continuation journeys completed.' >> "$GITHUB_STEP_SUMMARY"
