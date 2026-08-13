@@ -8,8 +8,10 @@
  * unnecessary admin dependency from the healthy path; no credential is rotated or replaced.
  *
  * Orchestration/classification live in scripts/lib/canaryProvision.mjs (unit-tested). Health only here:
- * anon sign-in (bounded retry on transient) + fail-closed Free-tier check + admin recovery (existence-
- * first). No account ceiling here — see scripts/canary-ceiling.mjs. No secrets/tokens/user records logged.
+ * anon sign-in (bounded retry on transient) + fail-closed paid-entitlement check + admin recovery (existence-
+ * first). The healthy account must already have a genuine Stripe-bound paid entitlement; this script
+ * verifies that binding read-only and never grants/resets entitlement or trial state. No account ceiling
+ * here — see scripts/canary-ceiling.mjs. No secrets/tokens/user records logged.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -38,12 +40,13 @@ console.log('━━━━━━━━━━━━━━━━━━━━━━�
 const result = await provisionCanary({ anon, admin, config: { email: CANARY_EMAIL, password: CANARY_PASSWORD } });
 
 if (result.status === 'healthy' || result.status === 'recovered') {
-  console.log(`  [OK] ${result.status === 'recovered' ? 'Recovered and re-verified' : 'Signed in'}; tier=${result.tier}.`);
+  console.log(`  [OK] ${result.status === 'recovered' ? 'Recovered and re-verified' : 'Signed in'}; tier=${result.tier}; stripe_bound=true.`);
   console.log('✅ Canary account healthy.');
   process.exit(0);
 }
-if (result.status === 'tier_error') {
-  console.error(`  ❌ Free-tier verification failed: ${result.message}. The canary must resolve to exactly the Free state.`);
+if (result.status === 'entitlement_error') {
+  console.error(`  ❌ Paid synthetic-canary entitlement verification failed: ${result.message}.`);
+  console.error('     CI does not grant, reset, or extend entitlement/trial state. Correct the isolated canary through a separately authorized Stripe operation.');
   process.exit(1);
 }
 if (result.status === 'config_error' && result.scope === 'service_role_key') {
