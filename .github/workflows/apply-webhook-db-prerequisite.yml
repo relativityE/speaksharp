@@ -57,11 +57,10 @@ jobs:
           current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
           [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced before execution'; exit 1; }
 
-          active_runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=in_progress&per_page=100")"
-          queued_runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=queued&per_page=100")"
-          for runs in "$active_runs" "$queued_runs"; do
+          for status in in_progress queued waiting pending requested; do
+            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=$status&per_page=100")"
             others="$(jq --argjson current "$GITHUB_RUN_ID" '[.workflow_runs[] | select(.id != $current) | select(.name == "Deploy Supabase" or .name == "Apply webhook DB prerequisite (exact migration)" or .name == "Migrations Preflight (read-only)")] | length' <<<"$runs")"
-            [ "$others" = '0' ] || { echo '::error::another migration-capable or migration-preflight workflow is active/queued'; exit 1; }
+            [ "$others" = '0' ] || { echo '::error::another migration-capable or migration-preflight workflow is active or pending'; exit 1; }
           done
 
       - uses: supabase/setup-cli@v2

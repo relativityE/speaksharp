@@ -84,7 +84,8 @@ describe('exact migration gate', () => {
         expect(workflow).toContain('environment: production-db');
         expect(workflow).toContain('group: production-database-migrations');
         expect(workflow).toContain('default branch advanced after dry-run');
-        expect(workflow).toContain('another migration-capable or migration-preflight workflow is active/queued');
+        expect(workflow).toContain('another migration-capable or migration-preflight workflow is active or pending');
+        expect(workflow).toContain('for status in in_progress queued waiting pending requested');
         expect(workflow).toContain('node ../../scripts/exact-migration-gate.mjs before');
         expect(workflow).toContain('node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" dry-run');
         expect(workflow).toContain('node ../../scripts/exact-migration-gate.mjs after "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"');
