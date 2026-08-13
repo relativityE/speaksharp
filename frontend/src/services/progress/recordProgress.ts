@@ -29,9 +29,6 @@ export interface ReconcilableSession {
     created_at?: string | null;
 }
 
-/** How many missing evaluations a single on-load sweep will record (the rest carry to the next load). */
-const RECONCILE_SWEEP_CAP = 25;
-
 /** Record (or return the existing) Progress evaluation for a completed, metrics-persisted session. */
 export async function recordProgressEvaluation(sessionId: string): Promise<string | null> {
     const supabase = getSupabaseClient();
@@ -328,25 +325,21 @@ async function resolveOpenAttemptWith(userId: string, newSessionId: string): Pro
 /**
  * DURABLE on-load recovery. Called once per authenticated user after their session list is available.
  *
- * Two layers, both idempotent (the RPC no-ops on an already-recorded session):
- *  1. Drains the owner-scoped localStorage queue — sessions a save KNEW it failed to record (incl. the
- *     first-ever session, before any evaluation exists).
- *  2. A bounded sweep of the loaded sessions: records any completed + terminal-attribution session that has
- *     no evaluation yet, but ONLY within the ACTIVE ERA (created at/after the earliest existing evaluation)
- *     so pre-activation history is never retro-fitted (§5 future-only). Capped; the remainder carries over.
+ * One authoritative, idempotent recovery path: drain the owner-scoped localStorage queue for sessions whose
+ * save path established mode + rich-metrics persistence and then observed a transient evaluation failure.
+ * There is deliberately no generic session sweep: absence alone cannot prove a recording's practice mode.
  */
 export async function reconcileProgressEvaluations(
     userId: string,
     sessions: ReconcilableSession[],
 ): Promise<{ queueDrained: number; swept: number }> {
     let queueDrained = 0;
-    let swept = 0;
 
     // Reload reconciliation retries the exact durable attempt/repeat pair before considering later saves.
     const pendingResolution = getOpenAttemptForUser(userId)?.resolutionSessionId;
     if (pendingResolution) await resolveOpenAttemptWith(userId, pendingResolution);
 
-    // ── Layer 1: drain the durable queue for this user. ──
+    // ── Layer 1: drain the durable Open Mic queue (transient eval failures) for this user. ──
     for (const sessionId of getQueuedSessionIdsForUser(userId)) {
         const id = await recordProgressEvaluation(sessionId);
         if (id) {
@@ -356,39 +349,15 @@ export async function reconcileProgressEvaluations(
         }
     }
 
-    // ── Layer 2: bounded active-era sweep against DB truth. ──
-    const supabase = getSupabaseClient();
-    const { data, error } = await supabase
-        .from('session_progress_evaluations')
-        .select('session_id')
-        .eq('formula_version', PROGRESS_FORMULA_VERSION);
-    if (error) return { queueDrained, swept };
-
-    const coveredIds = new Set((data ?? []).map((r) => (r as { session_id: string }).session_id));
-    // The active era begins at the earliest session that already has an evaluation. If none exist yet,
-    // there is nothing to recover by sweep (the queue handled the first-session case) — skip it entirely.
-    const coveredCreatedAt = sessions
-        .filter((s) => coveredIds.has(s.id) && typeof s.created_at === 'string')
-        .map((s) => Date.parse(s.created_at as string))
-        .filter((n) => Number.isFinite(n));
-    if (coveredCreatedAt.length === 0) return { queueDrained, swept };
-    const eraStart = Math.min(...coveredCreatedAt);
-
-    for (const s of sessions) {
-        if (swept >= RECONCILE_SWEEP_CAP) {
-            logger.warn({ userId, cap: RECONCILE_SWEEP_CAP }, '[progress] reconcile sweep hit its cap; remainder carries to the next load');
-            break;
-        }
-        if (coveredIds.has(s.id)) continue;
-        if (s.status !== 'completed') continue;
-        // #1161 (finding 5): do NOT pre-filter on the advisory sessions.attribution_status — attest no longer
-        // promotes it, so an attested session can read 'pending' here. record_progress_evaluation is the
-        // authoritative gate (it reads the server-owned attribution authority); let it decide eligibility.
-        const created = typeof s.created_at === 'string' ? Date.parse(s.created_at) : NaN;
-        if (!Number.isFinite(created) || created < eraStart) continue; // pre-activation — never backfilled
-        const id = await recordProgressEvaluation(s.id);
-        if (id) { swept++; await recordRecommendationForEvaluation(s.id); }
-    }
-
-    return { queueDrained, swept };
+    // #1265: the generic active-era sweep was REMOVED. It evaluated any completed session missing an
+    // evaluation, but it CANNOT positively identify the practice mode before writing the IMMUTABLE
+    // evaluation — so a Focus Points recording whose objective registration failed or was unconfirmed could
+    // be permanently stamped 'freeform'. "No evaluation" is safer than false provenance. Recovery is limited
+    // to the owner-scoped durable queue above, which is authoritative about mode by construction: a Focus
+    // Points session is enqueued ONLY after its objective registration succeeds (so a later re-evaluation is
+    // correctly cohorted 'objective' — record_progress_evaluation reads objective_source_recording), while a
+    // registration failure writes and enqueues nothing. There is no objective-registration retry in this MVP,
+    // so a failed registration means Progress is simply unavailable for that take — never mislabeled.
+    void sessions; // retained for API compatibility; no longer swept (see above)
+    return { queueDrained, swept: 0 };
 }

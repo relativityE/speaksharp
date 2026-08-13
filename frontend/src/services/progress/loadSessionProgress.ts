@@ -90,6 +90,15 @@ function toEvaluation(row: EvalRow): ProgressEvaluation {
 
 const EVAL_FIELDS = 'session_id, eligible, exclusion_reasons, clarity_raw, filler_count, wpm, word_count, cohort_key, baseline_session_id, previous_comparable_session_id';
 
+/** Mirrors PostgreSQL tuple ordering: (created_at, session_id) < (current.created_at, current.session_id). */
+function isEarlierSession(
+    candidate: { id: string; createdAt: number },
+    current: { id: string; createdAt: number },
+): boolean {
+    return candidate.createdAt < current.createdAt
+        || (candidate.createdAt === current.createdAt && candidate.id < current.id);
+}
+
 /** Read only persisted server-selected references. Client history/order is never comparison authority. */
 export async function loadSessionProgress(sessionId: string): Promise<SessionProgressResult> {
     const supabase = getSupabaseClient();
@@ -147,7 +156,10 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         !!expectedId && row.session_id === expectedId && row.session_id !== sessionId
         && row.eligible && row.cohort_key === currentRow.cohort_key
         && chronology.has(sessionId) && chronology.has(row.session_id)
-        && (chronology.get(row.session_id) as number) < (chronology.get(sessionId) as number);
+        && isEarlierSession(
+            { id: row.session_id, createdAt: chronology.get(row.session_id) as number },
+            { id: sessionId, createdAt: chronology.get(sessionId) as number },
+        );
     const referenceFor = (expectedId: string | null): EvalRow | null => {
         const matches = references.filter((row) => validReference(row, expectedId));
         return matches.length === 1 ? matches[0] : null;
@@ -174,7 +186,7 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
     } else {
         const { data: sessionRow, error: sessionError } = await supabase
             .from('sessions')
-            .select('created_at')
+            .select('id, created_at')
             .eq('id', sessionId)
             .maybeSingle();
         if (sessionError || !(sessionRow as { created_at?: string } | null)?.created_at) {
@@ -184,7 +196,9 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
         const { data: priorRows, error: priorError } = await supabase
             .from('sessions')
             .select('id, session_progress_evaluations!inner(cohort_key)')
-            .lt('created_at', createdAt)
+            // PostgREST equivalent of the server's deterministic tuple comparator. A same-timestamp,
+            // lower UUID is a real predecessor; self and higher UUIDs are not.
+            .or(`created_at.lt.${createdAt},and(created_at.eq.${createdAt},id.lt.${sessionId})`)
             .eq('session_progress_evaluations.formula_version', PROGRESS_FORMULA_VERSION)
             .eq('session_progress_evaluations.eligible', true)
             .neq('session_progress_evaluations.cohort_key', currentRow.cohort_key)

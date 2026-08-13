@@ -30,6 +30,7 @@ const ELIGIBLE: SessionEvidence = {
     engineVersion: 'whisper-base.en@v2',
     modelName: 'whisper-base.en',
     attributionStatus: 'verified',
+    practiceMode: 'freeform',
 };
 const ev = (over: Partial<SessionEvidence> = {}): SessionEvidence => ({ ...ELIGIBLE, ...over });
 
@@ -106,8 +107,8 @@ describe('#1045 buildProgressEvaluation — eligibility gates and the audit trai
     });
 
     it('the cohort key includes model_name — version alone must not merge two models', () => {
-        const a = progressCohortKey({ engine: 'private', engineVersion: 'v2', modelName: 'whisper-base.en' });
-        const b = progressCohortKey({ engine: 'private', engineVersion: 'v2', modelName: 'whisper-small.en' });
+        const a = progressCohortKey({ engine: 'private', engineVersion: 'v2', modelName: 'whisper-base.en', practiceMode: 'freeform' });
+        const b = progressCohortKey({ engine: 'private', engineVersion: 'v2', modelName: 'whisper-small.en', practiceMode: 'freeform' });
         expect(a).not.toBe(b);
         expect(a).toContain(PROGRESS_FORMULA_VERSION);
     });

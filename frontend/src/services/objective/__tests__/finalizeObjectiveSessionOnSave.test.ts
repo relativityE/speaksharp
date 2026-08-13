@@ -50,7 +50,7 @@ describe('#1046 finalizeObjectiveSessionOnSave', () => {
     it('stops at register on an ineligible recording (no start/finalize)', async () => {
         registerObjectiveSource.mockResolvedValue({ ok: false, reason: 'ineligible' });
         const res = await finalizeObjectiveSessionOnSave(INPUT);
-        expect(res).toEqual({ ok: false, stage: 'register', reason: 'ineligible' });
+        expect(res).toEqual({ ok: false, stage: 'register', reason: 'ineligible', registered: false });
         expect(startObjectiveSession).not.toHaveBeenCalled();
         expect(finalizeObjectiveEvidence).not.toHaveBeenCalled();
     });
@@ -59,7 +59,7 @@ describe('#1046 finalizeObjectiveSessionOnSave', () => {
         registerObjectiveSource.mockResolvedValue({ ok: true });
         startObjectiveSession.mockResolvedValue({ ok: false, reason: 'capability' });
         const res = await finalizeObjectiveSessionOnSave(INPUT);
-        expect(res).toEqual({ ok: false, stage: 'start', reason: 'capability' });
+        expect(res).toEqual({ ok: false, stage: 'start', reason: 'capability', registered: true });
         expect(finalizeObjectiveEvidence).not.toHaveBeenCalled();
     });
 

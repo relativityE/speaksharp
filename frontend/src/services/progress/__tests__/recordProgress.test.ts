@@ -21,7 +21,13 @@ const from = vi.fn((table: string) => {
 vi.mock('@/lib/supabaseClient', () => ({ getSupabaseClient: () => ({ rpc, from }) }));
 vi.mock('@/lib/logger', () => ({ default: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn(), trace: vi.fn() } }));
 
-import { wireProgressEvaluationOnSave, recordProgressEvaluation, readPendingRecommendationAttempt } from '../recordProgress';
+import {
+    wireProgressEvaluationOnSave,
+    recordProgressEvaluation,
+    readPendingRecommendationAttempt,
+    reconcileProgressEvaluations,
+} from '../recordProgress';
+import { getQueuedSessionIdsForUser } from '../progressReconcileQueue';
 
 const ELIGIBLE_ROW = {
     eligible: true, word_count: 200, filler_count: 4, wpm: 140, clarity_raw: 96.5,
@@ -31,6 +37,7 @@ const ELIGIBLE_ROW = {
 
 describe('#1045 recordProgress consumer — the wiring guard', () => {
     beforeEach(() => {
+        localStorage.clear();
         rpc.mockReset();
         rpc.mockResolvedValue({ data: 'eval-id', error: null });
         from.mockClear(); maybeSingle.mockClear();
@@ -105,6 +112,26 @@ describe('#1045 recordProgress consumer — the wiring guard', () => {
         await vi.runAllTimersAsync();
         await p;
         expect(rpcNames().filter((n) => n === 'record_progress_evaluation').length).toBeGreaterThanOrEqual(2);
+        vi.useRealTimers();
+    });
+
+    it('Open Mic outage durably queues, then reload reconciliation records exactly once', async () => {
+        vi.useFakeTimers();
+        rpc.mockResolvedValue({ data: null, error: { message: 'offline' } });
+        const saveAttempt = wireProgressEvaluationOnSave(ctx({ userId: 'user-open-mic' }));
+        await vi.runAllTimersAsync();
+        await saveAttempt;
+        expect(getQueuedSessionIdsForUser('user-open-mic')).toEqual(['s1']);
+
+        rpc.mockReset();
+        rpc.mockResolvedValue({ data: 'eval-id', error: null });
+        evalRow = { ...ELIGIBLE_ROW, cohort_key: 'private|v2|base|clarity_v1|freeform' };
+        const recovered = await reconcileProgressEvaluations('user-open-mic', []);
+        expect(recovered.queueDrained).toBe(1);
+        expect(rpcNames().filter((name) => name === 'record_progress_evaluation')).toEqual([
+            'record_progress_evaluation',
+        ]);
+        expect(getQueuedSessionIdsForUser('user-open-mic')).toEqual([]);
         vi.useRealTimers();
     });
 

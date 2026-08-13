@@ -52,6 +52,14 @@ export interface FinalizeObjectiveResult {
     objectiveSessionId?: string;
     evidenceCount?: number;
     coverage?: ObjectivePointCoverage[];
+    /**
+     * #1265: whether objective_source_recording registration DURABLY SUCCEEDED. This is the ONLY signal the
+     * caller may use to decide Progress cohorting — it is preserved even when a LATER stage (start / load /
+     * finalize) fails or throws. Do not infer registration from `ok` or `stage` (a throw loses the stage).
+     * registered=true means the recording is a confirmed Focus Points source; registered=false means
+     * failed/unconfirmed → Progress must NOT be evaluated for this take.
+     */
+    registered: boolean;
 }
 
 /**
@@ -79,9 +87,12 @@ export async function loadObjectiveBriefPoints(briefId: string): Promise<Objecti
 export async function finalizeObjectiveSessionOnSave(
     input: FinalizeObjectiveInput,
 ): Promise<FinalizeObjectiveResult> {
+    // #1265: registration success is tracked EXPLICITLY so it survives a later-stage failure or throw.
+    let registered = false;
     try {
         const register = await registerObjectiveSource(input.sourceSessionId);
-        if (!register.ok) return { ok: false, stage: 'register', reason: register.reason };
+        if (!register.ok) return { ok: false, stage: 'register', reason: register.reason, registered: false };
+        registered = true; // objective_source_recording is now durably present
 
         const started = await startObjectiveSession({
             projectId: input.projectId,
@@ -89,19 +100,21 @@ export async function finalizeObjectiveSessionOnSave(
             sourceSessionId: input.sourceSessionId,
             idempotencyKey: input.idempotencyKey,
         });
-        if (!started.ok || !started.sessionId) return { ok: false, stage: 'start', reason: started.reason };
+        if (!started.ok || !started.sessionId) return { ok: false, stage: 'start', reason: started.reason, registered };
 
         const points = await loadObjectiveBriefPoints(input.briefId);
-        if (!points || points.length === 0) return { ok: false, stage: 'load-points', reason: 'error' };
+        if (!points || points.length === 0) return { ok: false, stage: 'load-points', reason: 'error', registered };
 
         const { coverage, signals } = computeObjectiveCoverage(points, input.segments, input.durationSeconds);
 
         const evidenceCount = await finalizeObjectiveEvidence(started.sessionId, signals);
-        if (evidenceCount === null) return { ok: false, stage: 'finalize', reason: 'error' };
+        if (evidenceCount === null) return { ok: false, stage: 'finalize', reason: 'error', registered };
 
-        return { ok: true, objectiveSessionId: started.sessionId, evidenceCount, coverage };
+        return { ok: true, objectiveSessionId: started.sessionId, evidenceCount, coverage, registered };
     } catch (err) {
         logger.warn({ err }, '[finalizeObjective] orchestrator threw (non-fatal)');
-        return { ok: false, reason: 'error' };
+        // registration state is preserved across the throw — a throw AFTER a successful register still
+        // reports registered=true so the caller evaluates Progress; a throw BEFORE reports registered=false.
+        return { ok: false, reason: 'error', registered };
     }
 }
