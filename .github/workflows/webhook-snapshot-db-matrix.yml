@@ -6,6 +6,7 @@ on:
   pull_request:
     paths:
       - 'backend/supabase/migrations/20260812002000_webhook_lifecycle_completeness_1282.sql'
+      - 'backend/supabase/migrations/20260812039500_webhook_duplicate_snapshot_convergence_1282.sql'
       - 'tests/db/webhook-lifecycle-bootstrap.sql'
       - 'tests/db/webhook-lifecycle.integration.test.ts'
       - 'tests/db/webhook-snapshot-preflight.sql'
@@ -82,7 +83,9 @@ jobs:
         run: |
           set -euo pipefail
           psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812002000_webhook_lifecycle_completeness_1282.sql
+          psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812039500_webhook_duplicate_snapshot_convergence_1282.sql
           psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812002000_webhook_lifecycle_completeness_1282.sql
+          psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812039500_webhook_duplicate_snapshot_convergence_1282.sql
           echo 'MIGRATION REPLAY PASSED' | tee migration-replay.txt
 
       - name: Run ACL, identity, customer, price, terminal, and compatibility matrix

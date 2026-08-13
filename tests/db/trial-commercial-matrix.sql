@@ -135,4 +135,109 @@ BEGIN
 END;
 $matrix$;
 
+-- Real-role / RLS matrix. These invoker wrappers perform direct table DML, matching PostgREST's role
+-- boundary rather than the owner-bypassing migration connection used by the setup block above.
+INSERT INTO auth.users(id) VALUES ('00000000-0000-4000-8000-000000001285');
+
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000001285', false);
+SET ROLE authenticated;
+SELECT public.matrix_try_session_insert(
+  '00000000-0000-4000-8000-0000000012a1',
+  '00000000-0000-4000-8000-000000001285'
+) AS active_trial_insert_allowed \gset
+SELECT public.matrix_try_session_insert(
+  '00000000-0000-4000-8000-0000000012a2',
+  '00000000-0000-4000-8000-000000001284'
+) AS cross_user_insert_allowed \gset
+RESET ROLE;
+\if :active_trial_insert_allowed
+\else
+  \echo 'active trial direct insert was rejected'
+  \quit 1
+\endif
+\if :cross_user_insert_allowed
+  \echo 'cross-user direct insert was accepted'
+  \quit 1
+\endif
+
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000001284', false);
+SET ROLE authenticated;
+SELECT public.matrix_try_session_insert(
+  '00000000-0000-4000-8000-0000000012b1',
+  '00000000-0000-4000-8000-000000001284'
+) AS paid_insert_allowed \gset
+SELECT public.matrix_try_session_update(
+  '00000000-0000-4000-8000-0000000012b1',
+  'paid direct update'
+) AS paid_update_allowed \gset
+RESET ROLE;
+\if :paid_insert_allowed
+\else
+  \echo 'paid direct insert was rejected'
+  \quit 1
+\endif
+\if :paid_update_allowed
+\else
+  \echo 'paid direct update was rejected'
+  \quit 1
+\endif
+
+-- Exact-expiry direct path: now() is transaction-stable, so the profile expiry and both RLS policy
+-- evaluations below observe the identical server timestamp.
+BEGIN;
+UPDATE public.user_profiles
+   SET trial_expires_at = now()
+ WHERE id = '00000000-0000-4000-8000-000000001282';
+SELECT set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000001282', true);
+SET LOCAL ROLE authenticated;
+SELECT public.matrix_try_session_insert(
+  '00000000-0000-4000-8000-0000000012c1',
+  '00000000-0000-4000-8000-000000001282'
+) AS expired_insert_allowed \gset
+SELECT public.matrix_try_session_update(
+  '00000000-0000-4000-8000-000000001299',
+  'expired bypass attempt'
+) AS expired_update_allowed \gset
+SELECT public.matrix_try_session_update(
+  '00000000-0000-4000-8000-0000000012b1',
+  'cross-user bypass attempt'
+) AS cross_user_update_allowed \gset
+SELECT public.matrix_can_read_session(
+  '00000000-0000-4000-8000-000000001299'
+) AS expired_read_allowed \gset
+RESET ROLE;
+COMMIT;
+\if :expired_insert_allowed
+  \echo 'expired direct insert was accepted'
+  \quit 1
+\endif
+\if :expired_update_allowed
+  \echo 'expired direct update was accepted'
+  \quit 1
+\endif
+\if :cross_user_update_allowed
+  \echo 'cross-user direct update was accepted'
+  \quit 1
+\endif
+\if :expired_read_allowed
+\else
+  \echo 'expired owner read was rejected'
+  \quit 1
+\endif
+
+-- service_role bypass is retained for system retention/maintenance even when the owner is expired.
+SET ROLE service_role;
+SELECT public.matrix_try_session_update(
+  '00000000-0000-4000-8000-000000001299',
+  'service retention update'
+) AS service_update_allowed \gset
+RESET ROLE;
+\if :service_update_allowed
+\else
+  \echo 'service-role retention update was rejected'
+  \quit 1
+\endif
+
+SELECT 'TRIAL SESSION RLS MATRIX PASSED' AS result;
+
 SELECT 'TRIAL COMMERCIAL MATRIX PASSED' AS result;

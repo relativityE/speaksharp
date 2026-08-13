@@ -130,4 +130,14 @@ describe('#1282 30-day trial lifecycle — expired state fails closed (slice 2)'
         expect(enforcement).toMatch(/IF COALESCE\(v_effective_tier, 'free'\) <> 'pro' THEN\s*\n\s*RETURN jsonb_build_object\('success', false, 'error', 'trial_expired'\)/);
         expect(enforcement).toMatch(/LEAST\(600, GREATEST\(0, COALESCE\(p_final_duration/);
     });
+
+    it('replaces owner-wide session RLS with entitlement-aware direct write policies', () => {
+        expect(enforcement).toMatch(/DROP POLICY IF EXISTS "Users can manage own sessions" ON public\.sessions/);
+        expect(enforcement).toMatch(/CREATE POLICY "Users can read own sessions" ON public\.sessions\s*\nFOR SELECT TO authenticated/);
+        expect(enforcement).toMatch(/CREATE POLICY "Entitled users can insert own sessions" ON public\.sessions\s*\nFOR INSERT TO authenticated/);
+        expect(enforcement).toMatch(/CREATE POLICY "Entitled users can update own sessions" ON public\.sessions\s*\nFOR UPDATE TO authenticated/);
+        expect(enforcement).toMatch(/public\.effective_subscription_tier\([\s\S]*p\.commercial_trial_granted_at[\s\S]*\) = 'pro'/);
+        expect(enforcement).toMatch(/CREATE POLICY "Users can delete own sessions" ON public\.sessions\s*\nFOR DELETE TO authenticated/);
+        expect(enforcement).not.toMatch(/CREATE POLICY "Users can manage own sessions"/);
+    });
 });

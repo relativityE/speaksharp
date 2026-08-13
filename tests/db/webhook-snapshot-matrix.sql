@@ -244,17 +244,67 @@ BEGIN
     RAISE EXCEPTION 'cross-profile binding collision was accepted';
   END IF;
 
-  -- Duplicate event remains idempotent.
+  -- A duplicate receipt does not suppress a newly hydrated canonical snapshot.
   SELECT public.apply_stripe_subscription_snapshot(
-    'evt_duplicate', 'sub_first', 'cus_first', 'past_due', false,
+    'evt_duplicate', 'sub_first', 'cus_first', 'past_due', true,
     false, NULL, NULL, 1012
   ) INTO v_result;
   SELECT public.apply_stripe_subscription_snapshot(
     'evt_duplicate', 'sub_first', 'cus_first', 'active', true,
     false, NULL, NULL, 1013
   ) INTO v_result;
-  IF v_result->>'success' <> 'true' OR v_result->>'skipped' <> 'true' THEN
-    RAISE EXCEPTION 'duplicate event was not idempotently skipped';
+  IF v_result->>'success' <> 'true' OR v_result->>'entitlement' <> 'pro'
+     OR v_result->>'receipt_preexisting' <> 'true' THEN
+    RAISE EXCEPTION 'duplicate event did not apply the newly hydrated active snapshot';
+  END IF;
+  SELECT subscription_status INTO v_status FROM public.user_profiles WHERE id = v_user_b;
+  IF v_status <> 'pro' THEN
+    RAISE EXCEPTION 'duplicate active snapshot did not restore Pro';
+  END IF;
+
+  -- An identical duplicate is harmless and retains exactly one receipt.
+  SELECT public.apply_stripe_subscription_snapshot(
+    'evt_identical', 'sub_first', 'cus_first', 'active', true,
+    false, NULL, NULL, 1014
+  ) INTO v_result;
+  SELECT public.apply_stripe_subscription_snapshot(
+    'evt_identical', 'sub_first', 'cus_first', 'active', true,
+    false, NULL, NULL, 1014
+  ) INTO v_result;
+  SELECT count(*)::int INTO v_count FROM public.processed_webhook_events
+   WHERE event_id = 'evt_identical';
+  IF v_result->>'entitlement' <> 'pro' OR v_count <> 1 THEN
+    RAISE EXCEPTION 'identical duplicate was not harmless/idempotent';
+  END IF;
+
+  -- A pre-existing receipt survives an application failure and identity remains unchanged.
+  SELECT public.apply_stripe_subscription_snapshot(
+    'evt_receipt_survives', 'sub_first', 'cus_first', 'active', true,
+    false, NULL, NULL, 1015
+  ) INTO v_result;
+  SELECT public.apply_stripe_subscription_snapshot(
+    'evt_receipt_survives', 'sub_first', 'cus_wrong', 'active', true,
+    false, NULL, NULL, 1016
+  ) INTO v_result;
+  SELECT count(*)::int INTO v_count FROM public.processed_webhook_events
+   WHERE event_id = 'evt_receipt_survives';
+  IF v_result->>'success' <> 'false' OR v_count <> 1 THEN
+    RAISE EXCEPTION 'failed duplicate removed a pre-existing receipt';
+  END IF;
+
+  -- A terminal tombstone remains sticky even when the same event id is retried as active.
+  SELECT public.apply_stripe_subscription_snapshot(
+    'evt_dup_terminal', 'sub_first', 'cus_first', 'canceled', false,
+    false, NULL, NULL, 1017
+  ) INTO v_result;
+  SELECT public.apply_stripe_subscription_snapshot(
+    'evt_dup_terminal', 'sub_first', 'cus_first', 'active', true,
+    false, NULL, NULL, 1018
+  ) INTO v_result;
+  SELECT subscription_status, stripe_subscription_id INTO v_status, v_subscription
+    FROM public.user_profiles WHERE id = v_user_b;
+  IF v_result->>'entitlement' <> 'free' OR v_status <> 'free' OR v_subscription IS NOT NULL THEN
+    RAISE EXCEPTION 'same-event duplicate reactivated a terminal tombstone';
   END IF;
 
   -- Old six-argument Edge/new-DB compatibility: exact old RPC still executes after #1287.

@@ -395,6 +395,76 @@ REVOKE EXECUTE ON FUNCTION public.complete_session(UUID, TEXT, TEXT, INT, TEXT) 
 GRANT EXECUTE ON FUNCTION public.complete_session(UUID, TEXT, TEXT, INT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.complete_session(UUID, TEXT, TEXT, INT, TEXT) TO service_role;
 
+-- Direct PostgREST writes must obey the same server-authoritative commercial entitlement as the RPCs.
+-- The historical FOR ALL owner policy allowed an expired user to bypass create/save gates with direct
+-- INSERT/UPDATE. Split it into least-privilege operations: reads and deliberate deletes remain owner-scoped;
+-- INSERT/UPDATE additionally require a paid or live marked-trial profile at server time. SECURITY DEFINER
+-- application/retention RPCs and service_role retain their established system behavior.
+DROP POLICY IF EXISTS "Users can manage own sessions" ON public.sessions;
+DROP POLICY IF EXISTS "Users can read own sessions" ON public.sessions;
+DROP POLICY IF EXISTS "Entitled users can insert own sessions" ON public.sessions;
+DROP POLICY IF EXISTS "Entitled users can update own sessions" ON public.sessions;
+DROP POLICY IF EXISTS "Users can delete own sessions" ON public.sessions;
+
+CREATE POLICY "Users can read own sessions" ON public.sessions
+FOR SELECT TO authenticated
+USING ((SELECT auth.uid()) = user_id);
+
+CREATE POLICY "Entitled users can insert own sessions" ON public.sessions
+FOR INSERT TO authenticated
+WITH CHECK (
+  (SELECT auth.uid()) = user_id
+  AND EXISTS (
+    SELECT 1
+    FROM public.user_profiles AS p
+    WHERE p.id = (SELECT auth.uid())
+      AND public.effective_subscription_tier(
+        p.subscription_status,
+        p.trial_expires_at,
+        p.stripe_subscription_id,
+        p.subscription_id,
+        p.commercial_trial_granted_at
+      ) = 'pro'
+  )
+);
+
+CREATE POLICY "Entitled users can update own sessions" ON public.sessions
+FOR UPDATE TO authenticated
+USING (
+  (SELECT auth.uid()) = user_id
+  AND EXISTS (
+    SELECT 1
+    FROM public.user_profiles AS p
+    WHERE p.id = (SELECT auth.uid())
+      AND public.effective_subscription_tier(
+        p.subscription_status,
+        p.trial_expires_at,
+        p.stripe_subscription_id,
+        p.subscription_id,
+        p.commercial_trial_granted_at
+      ) = 'pro'
+  )
+)
+WITH CHECK (
+  (SELECT auth.uid()) = user_id
+  AND EXISTS (
+    SELECT 1
+    FROM public.user_profiles AS p
+    WHERE p.id = (SELECT auth.uid())
+      AND public.effective_subscription_tier(
+        p.subscription_status,
+        p.trial_expires_at,
+        p.stripe_subscription_id,
+        p.subscription_id,
+        p.commercial_trial_granted_at
+      ) = 'pro'
+  )
+);
+
+CREATE POLICY "Users can delete own sessions" ON public.sessions
+FOR DELETE TO authenticated
+USING ((SELECT auth.uid()) = user_id);
+
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────
 -- #1282 blocker 6: Private-only entitlement gate. A live trial and a paid account both resolve to the
 -- effective 'pro' tier, which must NOT inherit the old Pro engine allowances (Browser/Cloud/Native). The

@@ -7,6 +7,7 @@ DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role; END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
 END $$;
+ALTER ROLE service_role BYPASSRLS;
 
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY);
@@ -54,6 +55,7 @@ CREATE TABLE IF NOT EXISTS public.sessions (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id uuid NOT NULL,
     duration int DEFAULT 0,
+    total_words int DEFAULT 0,
     transcript text,
     status text DEFAULT 'active',
     status_reason text,
@@ -61,6 +63,80 @@ CREATE TABLE IF NOT EXISTS public.sessions (
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now()
 );
+
+-- Production-shaped direct-table privileges and pre-#1282 owner-wide RLS. The enforcement migration must
+-- replace the broad session policy with entitlement-aware INSERT/UPDATE while retaining owner reads/deletes.
+GRANT USAGE ON SCHEMA public TO authenticated, service_role;
+GRANT SELECT ON public.user_profiles TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.sessions TO authenticated;
+GRANT ALL ON public.user_profiles, public.sessions TO service_role;
+
+ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can view own profile" ON public.user_profiles;
+CREATE POLICY "Users can view own profile" ON public.user_profiles
+FOR SELECT TO authenticated
+USING ((SELECT auth.uid()) = id);
+
+ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can manage own sessions" ON public.sessions;
+CREATE POLICY "Users can manage own sessions" ON public.sessions
+FOR ALL TO authenticated
+USING ((SELECT auth.uid()) = user_id)
+WITH CHECK ((SELECT auth.uid()) = user_id);
+
+-- Test-only SECURITY INVOKER wrappers. They execute real direct table DML under SET ROLE authenticated /
+-- service_role and catch only RLS/privilege rejection so the matrix can assert negative paths without
+-- aborting the psql session. These are disposable harness helpers, never production migrations.
+CREATE OR REPLACE FUNCTION public.matrix_try_session_insert(p_session_id uuid, p_user_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  INSERT INTO public.sessions(id, user_id, duration, transcript, status)
+  VALUES (p_session_id, p_user_id, 10, 'matrix direct insert', 'active');
+  RETURN true;
+EXCEPTION WHEN insufficient_privilege THEN
+  RETURN false;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.matrix_try_session_update(p_session_id uuid, p_transcript text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_rows int;
+BEGIN
+  UPDATE public.sessions
+     SET transcript = p_transcript,
+         status = 'completed',
+         total_words = 42,
+         updated_at = now()
+   WHERE id = p_session_id;
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  RETURN v_rows = 1;
+EXCEPTION WHEN insufficient_privilege THEN
+  RETURN false;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.matrix_can_read_session(p_session_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (SELECT 1 FROM public.sessions WHERE id = p_session_id)
+$$;
+
+GRANT EXECUTE ON FUNCTION public.matrix_try_session_insert(uuid, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.matrix_try_session_update(uuid, text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.matrix_can_read_session(uuid) TO authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.converge_transcript_retention(uuid)
 RETURNS jsonb LANGUAGE sql AS $$ SELECT jsonb_build_object('status', 'ok') $$;
