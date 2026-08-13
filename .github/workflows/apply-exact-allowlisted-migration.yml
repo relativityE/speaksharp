@@ -1,16 +1,27 @@
-name: Apply webhook DB prerequisite (exact migration)
+name: Apply one allowlisted migration (exact)
 
-# One-purpose production gate for #1287. It can apply only the reviewed webhook prerequisite while
-# 20260811143000 remains held. Dispatch itself still requires separate Product Owner authorization.
+# One target per dispatch. Checked-in ordering, hashes, and classification keep every unselected pending
+# migration apply-invisible. Source merge never authorizes a dispatch or production mutation.
 on:
   workflow_dispatch:
     inputs:
+      target_version:
+        description: 'One checked-in migration target'
+        required: true
+        type: choice
+        options:
+          - '20260811143000'
+          - '20260812030000'
+          - '20260812039500'
+          - '20260812040000'
+          - '20260812041000'
+          - '20260812042000'
       expected_head_sha:
         description: 'Exact 40-character main SHA authorized by the Product Owner'
         required: true
         type: string
       confirm:
-        description: 'Type APPLY 20260812002000 AT <exact SHA>'
+        description: 'Exact allowlist-derived phrase, including filename, SHA-256, and main SHA'
         required: true
         type: string
 
@@ -23,7 +34,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  apply-exact-webhook-prerequisite:
+  apply-one-allowlisted-migration:
     environment: production-db
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -31,10 +42,7 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
       GH_TOKEN: ${{ github.token }}
-      TARGET_VERSION: '20260812002000'
-      TARGET_FILE: '20260812002000_webhook_lifecycle_completeness_1282.sql'
-      TARGET_SHA256: 'e2e77217547100158d4324c29feafaa2d6ecd3462b96add3b0e9002b0d923a13'
-      HELD_FILE: '20260811143000_harden_exposed_security_definer_acl.sql'
+      SELECTED_TARGET_VERSION: ${{ inputs.target_version }}
     steps:
       - name: Checkout the dispatched commit
         uses: actions/checkout@v6
@@ -54,7 +62,8 @@ jobs:
           [[ "$EXPECTED_HEAD_SHA" =~ $sha_re ]] || { echo '::error::expected_head_sha must be a full lowercase SHA'; exit 1; }
           [ "$RESOLVED_REF" = "$DEFAULT_BRANCH" ] || { echo '::error::workflow must be dispatched from the default branch'; exit 1; }
           [ "$RESOLVED_SHA" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::dispatch resolved a different SHA'; exit 1; }
-          [ "$CONFIRM" = "APPLY $TARGET_VERSION AT $EXPECTED_HEAD_SHA" ] || { echo '::error::exact authorization phrase missing'; exit 1; }
+          expected_phrase="$(node scripts/exact-migration-gate.mjs phrase "$EXPECTED_HEAD_SHA" | jq -r '.phrase')"
+          [ "$CONFIRM" = "$expected_phrase" ] || { echo '::error::exact allowlist-derived authorization phrase missing'; exit 1; }
           current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
           [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced before execution'; exit 1; }
 
@@ -70,13 +79,19 @@ jobs:
         with:
           version: 2.101.0
 
-      - name: Verify migration source identity
+      - name: Verify checked-in allowlist and source identities
+        id: contract
         working-directory: backend/supabase
         run: |
           set -euo pipefail
-          actual="$(sha256sum "migrations/$TARGET_FILE" | awk '{print $1}')"
-          [ "$actual" = "$TARGET_SHA256" ] || { echo '::error::target migration hash differs from the reviewed source'; exit 1; }
-          test -f "migrations/$HELD_FILE"
+          contract="$(node ../../scripts/exact-migration-gate.mjs source .)"
+          echo "$contract"
+          echo "target_version=$(jq -r '.targetVersion' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "target_file=$(jq -r '.targetFile' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "target_sha256=$(jq -r '.targetSha256' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "classification=$(jq -r '.classification' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "requires_include_all=$(jq -r '.requiresIncludeAll' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "excluded_versions=$(jq -r '.excludedVersions | join(" ")' <<<"$contract")" >> "$GITHUB_OUTPUT"
 
       - name: Establish exact pre-apply state
         working-directory: backend/supabase
@@ -101,8 +116,12 @@ jobs:
         working-directory: ${{ runner.temp }}/exact-backend
         run: |
           set -euo pipefail
+          push_args=()
+          if [ '${{ steps.contract.outputs.requires_include_all }}' = 'true' ]; then
+            push_args+=(--include-all)
+          fi
           supabase link --project-ref "$SUPABASE_PROJECT_ID"
-          supabase db push --dry-run 2>&1 | tee "$RUNNER_TEMP/exact-dry-run.txt"
+          supabase db push --dry-run "${push_args[@]}" 2>&1 | tee "$RUNNER_TEMP/exact-dry-run.txt"
           node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" dry-run "$RUNNER_TEMP/exact-dry-run.txt"
 
       - name: Revalidate main immediately before apply
@@ -118,9 +137,15 @@ jobs:
         id: apply
         continue-on-error: true
         working-directory: ${{ runner.temp }}/exact-backend
-        run: supabase db push --yes
+        run: |
+          set -euo pipefail
+          push_args=()
+          if [ '${{ steps.contract.outputs.requires_include_all }}' = 'true' ]; then
+            push_args+=(--include-all)
+          fi
+          supabase db push --yes "${push_args[@]}"
 
-      - name: Verify target applied and held migration remained pending
+      - name: Verify target applied and every unselected pending migration remained pending
         id: verify
         if: ${{ always() && steps.apply.outcome != 'skipped' }}
         working-directory: backend/supabase
@@ -146,12 +171,16 @@ jobs:
       - name: Publish sanitized result
         if: always()
         run: |
-          echo '## Exact migration gate' >> "$GITHUB_STEP_SUMMARY"
+          echo '## Exact allowlisted migration gate' >> "$GITHUB_STEP_SUMMARY"
           echo "- Checked-out SHA: \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Authorized target: \`$TARGET_VERSION\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Held migration: \`20260811143000\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Authorized target: \`${{ steps.contract.outputs.target_version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Filename: \`${{ steps.contract.outputs.target_file }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SHA-256: \`${{ steps.contract.outputs.target_sha256 }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Classification: \`${{ steps.contract.outputs.classification }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Isolated out-of-order flag required: \`${{ steps.contract.outputs.requires_include_all }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Excluded pending migrations: \`${{ steps.contract.outputs.excluded_versions }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Apply step outcome: \`${{ steps.apply.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Post-apply verification outcome: \`${{ steps.verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Baseline-relative lint outcome: \`${{ steps.lint_verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Terminal exact-operation gate: \`${{ steps.terminal.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo '- No migration repair, `--include-all`, Edge deployment, secrets/config change, or trial/billing activation is performed.' >> "$GITHUB_STEP_SUMMARY"
+          echo '- The selected migration is the only authorized mutation. `--include-all` is permitted only for the isolated #1276 target and must be disclosed by its exact authorization phrase. No repair, broad-directory application, Edge deployment, payment configuration, or secrets/config change is performed.' >> "$GITHUB_STEP_SUMMARY"

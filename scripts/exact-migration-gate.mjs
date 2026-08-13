@@ -7,17 +7,29 @@ import {
     assertExactDryRun,
     assertNoNewLint,
     assertTerminalOutcome,
+    expectedAuthorizationPhrase,
     prepareExactMigrationWorkspace,
+    resolveExactMigrationConfig,
+    verifyMigrationSourceIdentity,
 } from './lib/exactMigrationGate.mjs';
 
 const [mode, ...args] = process.argv.slice(2);
 if (!mode) {
-    console.error('usage: exact-migration-gate.mjs <prepare-workspace|before|dry-run|after|lint-delta|final> <arguments...>');
+    console.error('usage: exact-migration-gate.mjs <resolve|source|phrase|prepare-workspace|before|dry-run|after|lint-delta|final> <arguments...>');
     process.exit(2);
 }
 
 let result;
 switch (mode) {
+case 'resolve':
+    result = resolveExactMigrationConfig(process.env);
+    break;
+case 'source':
+    result = verifyMigrationSourceIdentity(args[0]);
+    break;
+case 'phrase':
+    result = { phrase: expectedAuthorizationPhrase(args[0]) };
+    break;
 case 'prepare-workspace':
     result = prepareExactMigrationWorkspace(args[0], args[1]);
     break;
