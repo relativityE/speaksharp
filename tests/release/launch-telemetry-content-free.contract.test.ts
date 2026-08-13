@@ -6,10 +6,10 @@ import {
   trackFreeformPracticeStarted,
 } from '@/services/practiceTelemetry';
 import {
-  sanitizePrivateSampleProps,
-  PRIVATE_SAMPLE_ALLOWED_PROPS,
-  PRIVATE_SAMPLE_EVENTS,
-} from '@/services/transcription/privateSampleTelemetry';
+  sanitizePrivateTelemetryProps,
+  PRIVATE_TELEMETRY_ALLOWED_PROPS,
+  PRIVATE_TELEMETRY_EVENTS,
+} from '@/services/transcription/privateTelemetry';
 
 /**
  * #1259 — the launch-telemetry FALSIFICATION contract.
@@ -64,17 +64,16 @@ describe('#1259 — launch telemetry is content-free (falsification)', () => {
     for (const [, props] of push.mock.calls) assertNoLeak(props);
   });
 
-  it('Private sample props: every prohibited field is dropped, allowlisted fields survive', () => {
-    const out = sanitizePrivateSampleProps({
+  it('Private telemetry props: every prohibited field is dropped, allowlisted fields survive', () => {
+    const out = sanitizePrivateTelemetryProps({
       ...PROHIBITED_INPUT,
       // valid, content-free failure context that MUST survive
       error_code: 'SetupError',
-      save_success: false,
       session_id: 'sess-123',
     });
 
     // Allowlisted, content-free fields are kept.
-    expect(out).toMatchObject({ error_code: 'SetupError', save_success: false, session_id: 'sess-123' });
+    expect(out).toMatchObject({ error_code: 'SetupError', session_id: 'sess-123' });
     // Not one prohibited key survives.
     for (const key of Object.keys(PROHIBITED_INPUT)) {
       expect(Object.prototype.hasOwnProperty.call(out, key)).toBe(false);
@@ -83,7 +82,7 @@ describe('#1259 — launch telemetry is content-free (falsification)', () => {
   });
 
   it('objects/arrays/functions (potential PII containers) never survive the Private allowlist', () => {
-    const out = sanitizePrivateSampleProps({
+    const out = sanitizePrivateTelemetryProps({
       error_code: 'SetupError',
       nested: { transcript: 'leak' },
       list: ['leak'],
@@ -94,16 +93,15 @@ describe('#1259 — launch telemetry is content-free (falsification)', () => {
   });
 
   it('the Private allowlist declares no PII-shaped property key', () => {
-    for (const key of PRIVATE_SAMPLE_ALLOWED_PROPS) {
+    for (const key of PRIVATE_TELEMETRY_ALLOWED_PROPS) {
       expect(key).not.toMatch(/transcript|audio|email|\bname\b|password|token|raw_?user/i);
     }
   });
 
   it('the documented Private failure signals exist in the event taxonomy', () => {
     // Drift guard against QUALITY.md §5 (Launch telemetry).
-    expect(PRIVATE_SAMPLE_EVENTS.SETUP_FAILED).toBe('private_sample_setup_failed');
-    expect(PRIVATE_SAMPLE_EVENTS.ERROR).toBe('private_sample_error');
-    expect(PRIVATE_SAMPLE_EVENTS.SETUP_SUCCEEDED).toBe('private_sample_setup_succeeded');
-    expect(PRIVATE_SAMPLE_EVENTS.SAVED).toBe('private_sample_saved');
+    expect(PRIVATE_TELEMETRY_EVENTS.SETUP_FAILED).toBe('private_setup_failed');
+    expect(PRIVATE_TELEMETRY_EVENTS.ERROR).toBe('private_error');
+    expect(PRIVATE_TELEMETRY_EVENTS.SETUP_SUCCEEDED).toBe('private_setup_succeeded');
   });
 });

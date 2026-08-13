@@ -54,7 +54,8 @@ const pseudo = (userId) => 't_' + createHmac('sha256', PSEUDO_SALT).update(Strin
  */
 const AUTOMATED_DOMAINS = [/@example\.com$/i, /@test\.com$/i];
 const AUTOMATED_LOCAL_PREFIXES = [
-    /^first-time-tester-/i, /^stt-corpus-/i, /^private-sample-telemetry-/i, /^private-decode-ab-/i,
+    /^first-time-tester-/i, /^stt-corpus-/i, /^private-sample-telemetry-/i, // historical residue cleanup only
+    /^private-decode-ab-/i,
     /^private-longform/i, /^tester-b-/i, /^account-mutex/i, /^ux-[a-z]+-/i, /^soak-test/i,
     /^canary/i, /^visual-/i, /^manual-pro-cloud-/i, /^basic-user$/i, /^free-user$/i, /^pro-user$/i,
 ];

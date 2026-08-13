@@ -18,11 +18,12 @@ const surfaces = {
   sessionLifecycle: read('frontend/src/hooks/useSessionLifecycle.ts'),
   speechRecognition: read('frontend/src/hooks/useSpeechRecognition/useSpeechRecognition_prod.ts'),
   finalizedAnalysis: read('frontend/src/utils/finalizedSessionAnalysis.ts'),
-  privateWindow: read('frontend/src/utils/privateSampleDuration.ts'),
   upgradePrompt: read('frontend/src/components/UpgradePromptDialog.tsx'),
   statusNotification: read('frontend/src/components/session/StatusNotificationBar.tsx'),
   transcriptPanel: read('frontend/src/components/session/LiveTranscriptPanel.tsx'),
   faq: read('frontend/src/content/faqSections.ts'),
+  landingHero: read('frontend/src/components/landing/HeroSection.tsx'),
+  landingFeatures: read('frontend/src/components/landing/FeaturesSection.tsx'),
 };
 
 const stringLiterals = (source: string) =>
@@ -65,6 +66,11 @@ describe('Private-only public product copy contract (#1254)', () => {
     expect(surfaces.testerGuide).toContain('Every customer practice session uses Private transcription on your device');
     expect(surfaces.testerGuide).toContain('free for 30 days');
     expect(surfaces.testerGuide).toContain('$10/month');
+    expect(surfaces.landingHero).toContain('Complete product free for 30 days');
+    expect(surfaces.landingHero).toContain('$10/month after');
+    expect(surfaces.landingHero).toContain('Every recording uses Private on-device transcription');
+    expect(surfaces.landingFeatures).toContain('Every customer recording uses on-device Private transcription');
+    expect(surfaces.landingFeatures).toContain('Trial and paid access provide the same complete product');
   });
 
   it('forbids the retired customer propositions', () => {

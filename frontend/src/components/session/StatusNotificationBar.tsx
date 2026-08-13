@@ -4,7 +4,6 @@ import { AlertCircle, CheckCircle2, Loader2, Info, AlertTriangle, Lock, ArrowRig
 
 import { SttStatus, SttStatusType } from '../../types/transcription';
 import { useSessionStore } from '@/stores/useSessionStore';
-import { speechRuntimeController } from '../../services/SpeechRuntimeController';
 
 // prefers-reduced-motion, reactive + SSR/jsdom-safe. Used to SKIP the pulse entirely for reduced-motion
 // users (they get the persistent static emphasis immediately).
@@ -39,15 +38,6 @@ interface StatusNotificationBarProps {
     analyticsAction?: {
         cueKey?: string | number;
         onSelect?: () => void;
-    };
-    /**
-     * Existing Native→Private nudge, folded into this bar as the QUIET secondary action (left of the
-     * Analytics action, which stays rightmost). SessionPage decides visibility (post-save + Native +
-     * canUsePrivateStt); when omitted, nothing renders. Preserves the existing copy + setMode('private')
-     * action. On mobile the bar stacks (flex-col), so this sits within the same surface — never a new one.
-     */
-    privateCta?: {
-        onSelect: () => void;
     };
 }
 
@@ -138,7 +128,7 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
  * Displays above the Live Recording card to inform users of initialization,
  * fallback, and error states.
  */
-export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ status, className = '', analyticsAction, privateCta }) => {
+export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ status, className = '', analyticsAction }) => {
     // Primary Status Configuration
     const config = statusConfig[status.type];
     const Icon = config.icon;
@@ -153,15 +143,14 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     //
     // CRITICAL CARVE-OUT: this same bar is ALSO the single post-save surface — SessionPage emits
     // `{ type: 'ready', message: reconciliationCopy }` once a session finalizes, and hangs the
-    // reconciliation copy, the Private CTA and the Analytics action off it. That is the most
+    // reconciliation copy and Analytics action off it. That is the most
     // consequential thing on the page at that moment, and demoting it by status TYPE alone would have
     // buried it in the ambient wash. The presence of either action is the reliable signal that this is
     // the post-save bar rather than idle chrome, so it keeps full prominence.
-    const carriesPostSaveActions = Boolean(analyticsAction || privateCta);
+    const carriesPostSaveActions = Boolean(analyticsAction);
     const isQuiet = (status.type === 'ready' || status.type === 'idle') && !carriesPostSaveActions;
 
-    // Secondary status follows the caller-filtered status so inactive private setup
-    // progress does not leak into Free/Native Browser views.
+    // Secondary status follows the caller-filtered status so inactive Private setup progress does not leak.
     const isListening = useSessionStore((s) => s.isListening);
     const activeEngine = useSessionStore((s) => s.activeEngine);
 
@@ -305,34 +294,13 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 </div>
             </div>
 
-            {status.isFrozen && (
-                <button
-                    onClick={() => { void speechRuntimeController.switchToNative(); }}
-                    className="sm:ml-4 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-md surface-shadow hover:bg-primary/90 transition-all active:scale-95 border border-primary/30"
-                    data-action="switch-to-native"
-                >
-                    Switch to Browser
-                </button>
-            )}
-
             <div className="hidden sm:block flex-1" />
 
             {/* Post-save actions. Mobile: ONE compact row below the message — Private CTA left, Analytics
                 pushed right (rightmost). Desktop: inline on the right. Analytics always rightmost + carries
                 the cue. Tap targets ≥ min-h-9; visible keyboard focus rings. */}
-            {(privateCta || analyticsAction) && (
+            {analyticsAction && (
                 <div className="flex w-full items-center gap-3 sm:w-auto">
-                    {/* Quiet secondary Native→Private nudge — muted so Analytics stays primary. */}
-                    {privateCta && (
-                        <button
-                            type="button"
-                            onClick={() => privateCta.onSelect()}
-                            data-testid="post-save-private-cta"
-                            className="inline-flex min-h-9 items-center rounded-md px-2 py-1.5 text-left text-[13px] font-medium leading-snug text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        >
-                            Try Private — the main beta experience
-                        </button>
-                    )}
 
                     {/* Existing /analytics destination; bounded then PERSISTENT success-green cue; no new button.
                         - pulsing (motion only): bounded ~6.5s pulse over the green emphasis.

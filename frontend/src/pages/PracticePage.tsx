@@ -112,12 +112,9 @@ function ModeCard({ vars, art, title, promise, bullets, ctaLabel, ctaAria, ctaSo
   );
 }
 
-/** Freeform FREE TRIAL strip (anonymous only) — a compact promo above the product cards. It reuses the
- * SHARED Freeform teal token (`--ss-session-panel`) so the repeated color communicates that the trial
- * belongs to Freeform; it is deliberately smaller than the product card (promo vs. decision). The CTA
- * routes to Freeform (account access → /session, never auto-recording) and does not imply Private is
- * already active — it is a trial offer. */
-function FreeformTrialStrip({ onStart }: { onStart: () => void }) {
+/** Complete-product trial strip (anonymous only). The trial and paid product have the same Private-only
+ * Practice Loop; the only retained runtime ceiling is the ten-minute per-recording technical cap. */
+function CompleteTrialStrip({ onStart }: { onStart: () => void }) {
   // DARK SLATE — deliberately NOT teal/violet: a neutral, system-level offer that gives the page its third
   // value step and (with the -mt overlap) kills the hard hero/page seam. Orange CTA uses near-black text
   // (never white on orange). The private-trial offer belongs to Freeform; the CTA routes to Freeform.
@@ -129,13 +126,13 @@ function FreeformTrialStrip({ onStart }: { onStart: () => void }) {
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span className="rounded-full px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide" style={{ background: '#f4c77b', color: '#6b3f08' }}>Free trial</span>
-        <span className="text-[17px] font-bold text-white">Try a 5-minute private session — no card, no script.</span>
+        <span className="text-[17px] font-bold text-white">The complete Private Practice Loop is free for 30 days.</span>
       </div>
       <button
         type="button"
         onClick={onStart}
         data-testid="freeform-trial-start"
-        aria-label={"Start your session with a 5-minute Private trial"}
+        aria-label="Start your 30-day trial"
         className="ss-ring inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-bold shadow-sm"
         style={{ background: '#d98a1f', color: '#241503' }}
       >
@@ -187,17 +184,14 @@ export default function PracticePage() {
     else navigate('/auth/signup', { state: { from: { pathname: '/session' } } });
   };
 
-  // #1047 anonymous handoff: the "Try a 5-minute private session" band promises Private, so it must
-  // carry that intent to /session — surviving signup/login via `location.state.from.search`, which
-  // `resolvePostAuthPath` preserves. /session honours `?trial=private` by PRESELECTING Private only
-  // when the account is eligible (never a silent Browser fallback, never auto-record/auto-download);
-  // an ineligible account is told truthfully and stays on Browser.
-  const startPrivateTrial = () => {
+  // The complete-product trial routes through account access and then into the same Private-only
+  // session used by paid customers. It never auto-starts recording.
+  const startCompleteTrial = () => {
     setGuidedSelected(false);
     trackPracticeModeSelected('quick', 'landing_card');
     trackFreeformPracticeStarted('landing_card');
-    if (isAuthed) navigate('/session?trial=private');
-    else navigate('/auth/signup', { state: { from: { pathname: '/session', search: '?trial=private' } } });
+    if (isAuthed) navigate('/session');
+    else navigate('/auth/signup', { state: { from: { pathname: '/session' } } });
   };
 
   // #1046 slice 5b: Focus Points is ACTIVATED. Authed users set their points in a modal, then route
@@ -308,7 +302,7 @@ export default function PracticePage() {
             the two product cards. The strip carries the trial promo; each product card owns its decision
             + action. No four-card support section. */}
         <div className="mx-auto mt-0 max-w-[1120px] px-5 pb-28 [padding-bottom:calc(7rem+env(safe-area-inset-bottom))] sm:px-10 md:pb-12 md:[padding-bottom:3rem]">
-          <FreeformTrialStrip onStart={startPrivateTrial} />
+          <CompleteTrialStrip onStart={startCompleteTrial} />
           <div className="mb-6 mt-11 flex flex-col items-center text-center" data-testid="practice-support-heading">
             {/* Filled pill eyebrow (Rule 6) — small teal text on light grey would disappear. */}
             <span className="inline-flex items-center rounded-full px-4 py-2 text-[13px] font-extrabold uppercase tracking-[0.1em] text-white" style={{ background: '#0a5f58' }}>How it helps</span>

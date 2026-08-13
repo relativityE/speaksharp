@@ -1,7 +1,7 @@
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
-import { emitPrivateSample, getLastSampleArm, PRIVATE_SAMPLE_EVENTS } from '@/services/transcription/privateSampleTelemetry';
+import { emitPrivateTelemetry, getLastPrivateIdentity, PRIVATE_TELEMETRY_EVENTS } from '@/services/transcription/privateTelemetry';
 import { issueAreasForContext, type PageContext } from '@/services/pageContext';
 import { pickPersistedRuntimeConfig, type PersistedRuntimeConfig } from '@/config/appRuntimeConfig';
 
@@ -148,10 +148,10 @@ export const issueReportService = {
     }
 
     // Non-PII analytics breadcrumb so a Report Issue can be correlated to the user's
-    // journey (session id, and the Private arm/release via the active sample context).
+    // journey (session id and the most recent content-free Private engine identity).
     // The strict allowlist guarantees no title/description/transcript/audio rides along.
-    const arm = getLastSampleArm();
-    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.REPORT_ISSUE_SUBMITTED, {
+    const arm = getLastPrivateIdentity();
+    emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.REPORT_ISSUE_SUBMITTED, {
       issue_category: input.category,
       issue_severity: input.severity,
       session_id: input.sessionId ?? arm.session_id ?? null,

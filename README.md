@@ -1,8 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 
-# SpeakSharp v0.6.18 (SpeechRuntime Stabilized)
-**v0.6.18 (SpeechRuntime Stabilized)** | **Last Updated: 2026-05-06**
+# SpeakSharp
 
 - **Phase 8: SpeechRuntime Stabilization (v0.6.18):** **Deterministic Engine Signaling**.
     - **Token-First warmUp Pattern**: Implemented safe, enqueued re-initialization in `SpeechRuntimeController.updatePolicy` to eliminate race conditions during tier-switch hydration.
@@ -14,10 +13,11 @@ SpeakSharp is an AI-powered speech coaching application that helps users improve
 
 ### 🎙️ Core Features
 
--   **Triple-Engine Transcription:** 
-    -   **Private Mode:** Recommended Pro default. On-device processing via WebGPU first, then CPU/Transformers.js, with browser-managed model caching for maximum privacy and zero variable STT cost.
-    -   **Cloud Mode:** First-class Pro option for high-fidelity AssemblyAI Streaming with user word boosting.
-    -   **Native Mode:** Browser Web Speech API baseline and final fallback when Private cannot initialize.
+-   **Private-only transcription:** Every customer recording uses on-device Private STT. Open Mic is
+    primary and Focus Points is optional guidance. Native exists only as an internal deterministic E2E hook.
+-   **One complete product:** The complete Practice Loop is free for 30 days, then $10/month for the same
+    product. There are no accumulated daily or monthly recording-minute gates. Each recording retains a
+    ten-minute technical cap.
 -   **Advanced Vocal Analytics:**
     -   **Adaptive Noise Floor:** Intelligently filters background noise to provide precision pause detection.
     -   **Rolling WPM:** Smooth, 15-second rolling window for real-time speaking pace feedback.
@@ -152,13 +152,13 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     These are Supabase secrets, set via `supabase secrets set` or the Supabase Dashboard:
     
     ```bash
-    ASSEMBLYAI_API_KEY=your-assemblyai-key    # For cloud transcription
     STRIPE_SECRET_KEY=sk_test_your-key        # For payment processing
     STRIPE_WEBHOOK_SECRET=whsec_your-secret   # For webhook verification
     SUPABASE_SERVICE_ROLE_KEY=your-role-key   # For admin DB operations
     ```
 
-    > **Trial Access:** New accounts receive an automatic one-hour Pro trial through the database entitlement layer. No tester code or admin secret is required. Cloud STT is a Pro feature (unavailable for trial) to avoid provider costs during trial testing.
+    > **Commercial activation:** Source support for the 30-day trial and $10/month continuation is kept
+    > fail-closed until the separately authorized migration and payment activation sequence completes.
 
 5.  **Run the development server:**
     ```bash

@@ -141,11 +141,6 @@ async function enablePrivateLiveHooks(page: Page) {
       ...win.__E2E_DEPS__,
       fetchUsageLimit: async () => ({
         can_start: true,
-        daily_remaining: 3600,
-        daily_limit: 3600,
-        monthly_remaining: 3600,
-        monthly_limit: 3600,
-        remaining_seconds: 3600,
         subscription_status: 'pro',
         is_pro: true,
         streak_count: 0,

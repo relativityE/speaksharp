@@ -1,116 +1,77 @@
-**Status:** Authoritative (SSOT for tier model, entitlement authority, quota provenance, and the billing fail-closed contract)
+**Status:** Authoritative product contract
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-08-12
-**Last Verified:** 2026-08-12 — reconciled to the accepted #1254/#1269 Private-only product truth and the #1266/#1282 30-day-trial → $10/month lifecycle (§2, §2a), checked against the cited code/DB paths and the #1282 migrations. Observed values are labeled by provenance category; they are not asserted as approved policy. No volatile run IDs or SHAs are carried here — release posture lives in `RELEASE_STATUS.md`.
-**Applies To:** SpeakSharp — the ONE Private Practice product under the #1266 30-day-trial → $10/month model (Private-only for customers; Cloud unavailable; Browser is not a current customer entitlement; Native is an internal E2E hook only). Enterprise packaging is future direction (→ `#1048`), not current scope.
-**Class:** Entitlement & billing policy (product decision).
-**Authority:** The source for the tier/lifecycle model, the entitlement authoritative-source (mechanics), Cloud/Browser disposition (not current customer entitlements), quota provenance, the billing fail-closed contract, comped-entitlement QA, and the live-activation contract.
-**Not Authoritative For:** the structural entitlement *authority ADR* (→ `ARCHITECTURE.md` ADR-1); the entitlement selector *implementation* refactor (→ `#1036`); STT runtime/Cloud data contracts (→ `STT.md`); deferred pricing/packaging sequencing & unresolved quota decisions (→ `ROADMAP.md`); current deployment posture (→ `RELEASE_STATUS.md`); dated live billing evidence (→ `EVIDENCE_INDEX.md`).
-**Supersedes:** the billing/entitlement material interim-held in `PRD.operational.md` §1, `PAID_OPS_HARDENING_RUNBOOK.md`, and `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` (archived/retained at closeout per `DOC_MIGRATION_LEDGER.md`).
-**Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §2/§3.I mapping; the `frontend/` + `backend/` code and `tier_configs` DB paths cited inline; `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` Finding 1.
+**Last Reviewed:** 2026-08-13
+**Last Verified:** 2026-08-13 — reconciled to the locked 30-day / $10 Private-only launch contract; implementation and activation remain separately gated.
+**Applies To:** Private Practice Loop commercial launch
+**Class:** Entitlement and billing policy
+**Authority:** Product terms, commercial access, expiry permissions, Private-only customer entitlement, and activation boundaries.
+**Not Authoritative For:** Current implementation, deployment, migration, activation, qualification, or GO/HOLD status (→ `RELEASE_STATUS.md`).
+**Supersedes:** The former Free/Pro feature-tier, external-transcription, one-shot, and accumulated-minute policy in this file.
+**Evidence Sources:** Product Owner contract for #1266/#1282/#1290; executable proof remains required before release acceptance.
 
-# SpeakSharp Entitlements & Billing (v1)
+# SpeakSharp Entitlements and Billing
 
-Canonical statement of the tier model, who is entitled to what, how quotas are provenance-labeled, and how billing stays fail-closed during the no-billing beta. This is a **policy/contract** doc: observed code and DB values are recorded **by provenance category** and are **not** promoted to approved policy without a Product Owner decision. It changes by Product Owner decision, carries no volatile release facts, and routes implementation to its owning code paths.
+This document defines product authority. It does not authorize a merge, migration, deployment, commercial
+trial stamp, payment activation, production mutation, or charge.
 
-This is a **documentation** artifact. It defines the contract; it does not change any code, DB configuration, quota, price, payment switch, or entitlement behavior, and authorizes no billing activation or live charge.
+## One product
 
----
+SpeakSharp is one Private Practice product:
 
-## 1. How to read this doc — five separated categories
+- every customer recording uses on-device Private STT;
+- Open Mic is primary and Focus Points is optional guidance;
+- Native is an isolated internal deterministic E2E hook, never a customer entitlement;
+- no external transcription provider is a customer entitlement or fallback.
 
-Every quantitative claim below is tagged with exactly one provenance category. **They are not interchangeable.**
+## Commercial contract
 
-1. **Observed code policy** — a constant in the codebase (may be dead/unused).
-2. **Deployed DB configuration** — the read-only value in the production `tier_configs` / RPC path.
-3. **Marketing statement** — user-facing copy (may lag reality).
-4. **Product Owner-approved policy** — an explicitly recorded PO/release-owner decision.
-5. **Unresolved conflict** — a disagreement routed to `ROADMAP.md` as `OPEN_GAP`; not decided here.
+- A new account receives the complete product free for **30 days**.
+- After 30 days, the same product costs **$10/month**.
+- Trial and paid accounts receive the same product capabilities.
+- There is no permanent feature-limited free product.
+- There is no accumulated daily or monthly recording-minute gate for an active trial or paid account.
+- Usage counters may remain as content-free telemetry but cannot deny or auto-stop an entitled recording.
+- Each individual recording retains a **ten-minute technical cap**. This is a runtime safety boundary, not a
+  commercial quota.
 
-## 2. Product & lifecycle model (#1266 one product)
+## Server authority and expiry
 
-SpeakSharp is **ONE product** — the Private Practice product (Open Mic + Focus Points, saved review, Progress, History, PDF), built on **Private on-device** transcription. There is **no permanent feature-limited Free tier and no feature-tiered Private**. The distinction between states is **lifecycle, not features** — the same complete product throughout:
+The database is authoritative for commercial time and entitlement. Client time, copy, cached profile state,
+and raw tier labels cannot extend access.
 
-- **Trial** — a new account has the **complete** product free for its first **30 days** (`effective_subscription_tier` → `pro` while the trial window is live). No card required.
-- **Paid (Pro)** — after the trial, **$10/month** continues the **same complete product** (requires `subscription_status='pro'` AND a real `stripe_subscription_id`).
-- **Expired (unpaid)** — the 30-day trial has ended and the account is unpaid: new recording/persistence/analysis **fail closed**; reading existing sessions, PDF export, account management, and upgrade remain available. Existing paid customers retain billing management. Accumulated minutes never deny an active trial or paid account; the shared 600-second per-recording technical cap remains.
+At exact expiry, an unpaid account cannot create, record, save, or analyze a new recording. It retains access
+to exact-session reads, History, Progress, PDF/export, account management/deletion, and upgrade.
 
-**Every customer recording uses Private.** Per the accepted #1254/#1269 product truth, the customer product is **Private-only**: the complete Private Practice product is free for 30 days, then **$10/month to continue the same Private-only product**. **Cloud remains unavailable**, and **Browser is not a current customer entitlement** — Browser and Cloud are absent from customer-facing product claims. **Native** exists only as an internal deterministic E2E test hook, never a customer surface (see §6). The paid distinction is trial-vs-paid continuation of the same Private-only product — never a feature gate.
+A paid account remains active while its verified subscription snapshot is entitled. Webhook or checkout
+identity uncertainty fails closed and remains retryable. Existing paid users retain billing-management access.
 
-**No-billing beta posture:** both payment switches stay OFF (§5); paid continuation is reachable only via an existing subscription or an explicitly approved comped DB entitlement (§6); existing/comped Pro accounts retain access. Server-authoritative mechanics are in §2a.
+## Trial grant and activation
 
-### 2a. #1266/#1282 commercial contract (30-day full-product trial → $10/month)
+- The foundation must establish an immutable commercial-trial grant marker before provisioning relies on it.
+- New accounts atomically receive one marker and one 30-day server-time window.
+- Legacy unpaid accounts remain unmarked until a separately authorized commercial activation.
+- That activation grants each eligible legacy unpaid account exactly once from one recorded server timestamp.
+- Reruns cannot reset, shorten, or extend a window; paid accounts are untouched.
 
-The locked commercial model is **ONE product**: the complete Private Practice product (Open Mic + Focus Points, saved review, Progress, History, PDF) is **free for a new account's first 30 days**, then **$10/month** to continue. It is NOT a permanent feature-limited Free tier. Server-authoritative mechanics (foundation `20260812040000`, enforcement `…041000`, separately authorized legacy activation `…042000`, consuming applied prerequisite `…002000`):
+## Price and checkout
 
-- **Trial grant** — the canonical `effective_subscription_tier()` signature resolves to `pro` for a **marked live** trial window (`commercial_trial_granted_at IS NOT NULL AND trial_expires_at > now()`) OR paid (`subscription_status='pro'` AND real `stripe_subscription_id`). New accounts atomically receive the immutable marker and 30-day window. Existing unpaid beta accounts remain unmarked until the separately authorized one-time activation stamp; a rerun cannot extend them. An unmarked legacy timestamp never grants access.
-- **Expiry fails closed** — once the trial expires and the account is unpaid, `check_usage_limit`/`update_user_usage` refuse new recording/persistence/analysis (`trial_expired`). Reading existing sessions, PDF export, account management, billing portal and upgrade remain available. The prior 300s private-sample fallback is retired for this model.
-- **Checkout price** — `stripe-checkout` verifies `STRIPE_PRO_PRICE_ID` is an active recurring **monthly** price of **exactly 1000 cents** in the configured currency (`STRIPE_PRICE_CURRENCY`, default `usd`) before creating a session; the amount is server-owned, never caller-supplied. Any mismatch fails closed (`CONFIG_INVALID_PRICE`).
-- **Webhook lifecycle** — every entitlement event hydrates the current Stripe subscription and sends that canonical snapshot to the already-applied #1287 RPC. Active/trialing grants only with the approved-price result; recoverable lapse preserves exact identity; terminal cancellation records a tombstone and cannot reactivate; duplicate/out-of-order deliveries converge idempotently. Existing paid customers stay manageable with new enrollment closed.
+The only approved customer offer is one active recurring Price in the configured currency for exactly
+**$10.00**, monthly, with interval count one. Checkout and hydrated subscription identity must match exactly;
+missing or uncertain metadata, customer, subscription, or Price facts return non-success so Stripe can retry.
 
-**Merge/deploy note (corrected):** merging the #1282 branch to `main` **auto-deploys the changed Edge Functions** (`stripe-checkout`, `stripe-webhook`, `get-ai-suggestions`) via `deploy-supabase-edge-release.yml` (triggered by a push to `main` touching `backend/supabase/functions/**`). This deploys the *code* but **activates no billing** — the fail-closed enrollment guard (`PAYMENTS_ENABLED` + a live `sk_live_` secret) keeps checkout returning `403` until both switches are deliberately enabled (§5). **Migrations do NOT apply on merge** — they run only via the separately-dispatched migrations workflow. So: merge = Edge code deploy (fail-closed, no charge) + no migration; enabling the paid model remains a distinct, explicitly-authorized step.
+The customer engine allow-list is exactly `ARRAY['private']`. Provider/model names, implementation variants,
+Native, and any external transcription path are rejected as customer entitlements.
 
-**Webhook = current-state snapshot; DATABASE-FIRST split.** Entitlement is decided by the **current observed Stripe subscription state**, never by event action or arrival order (Stripe does not guarantee webhook delivery order and recommends retrieving current objects). `stripe-webhook`: verify signature → resolve the subscription id from the event → **hydrate the current Stripe subscription** → for a granting state (`active`/`trialing`) validate it carries SpeakSharp's configured, validated **$10 monthly** price → call `apply_stripe_subscription_snapshot`, which maps the current status to entitlement (active/trialing → Pro; past_due/unpaid/incomplete/incomplete_expired/paused → Free, id preserved; canceled/incomplete_expired → Free, id cleared) idempotently per event id. `checkout.session.completed` alone does NOT grant — the subscription is hydrated first; first binding uses the server-created checkout metadata, later events use the stored subscription/customer identity. **Retrieval / identity / price / DB uncertainty returns non-2xx** so Stripe retries. This closes unordered and same-second delivery together. The snapshot RPC ships as a **separate DB-only prerequisite PR (#1287, under #1266)** — DB-only and backward-compatible with the pre-#1282 Edge (it does not touch the existing action-based function) — **merged/applied/verified FIRST**, then #1282's new Edge deploys against it. There is **no runtime fallback**. Proven by `tests/db/webhook-lifecycle.integration.test.ts` (#1287) + `stripe-webhook/index.test.ts` (#1282).
+## Fail-closed activation
 
-**Private-only entitlement gate.** A marked live trial and a paid account both resolve to effective `pro`, but that must NOT inherit old Browser/Cloud/Native or implementation-variant allowances. The enforcement migration makes `tier_configs.pro.allowed_engines` exactly `ARRAY['private']`; `update_user_usage` gates recording on that exact customer token. Browser, Cloud, Native, provider/model names, and variant strings are rejected for both trial and paid accounts (`tests/db/trial-journey.integration.test.ts`). `native` remains solely an internal deterministic E2E hook, never a customer entitlement.
+Payment availability requires the separately authorized source, database prerequisite, migrations, approved
+Price configuration, frontend/backend switches, webhook verification, and launch-window checks. Keys or copy
+alone never activate checkout. No source document authorizes a live charge.
 
-## 3. Entitlement authority (mechanics; ADR in `ARCHITECTURE.md`)
+## Required launch proof
 
-Per `ARCHITECTURE.md` ADR-1 — **payment status and product capability are distinct**:
-
-- **Full-product access** resolves to `pro` when EITHER (a) **paid**: `subscription_status = 'pro'` **AND** a real `stripe_subscription_id` is present, OR (b) a **commercially granted live 30-day trial**: immutable `commercial_trial_granted_at` is present and `trial_expires_at > now()` (`effective_subscription_tier()`, #1282 migration `20260812040000`). `subscription_status = 'pro'` alone (and any frontend-derived boolean) is **advisory, never sufficient** for the paid path; the legacy `subscription_id` argument is **deprecated and ignored**; an unmarked legacy window never grants access. Billing-portal access is gated separately on `stripe_subscription_id`, so a trial user gets the full product but no billing management (nothing to manage yet).
-- **`canUsePrivate`** is the **server-derived capability entitlement** for the customer product and MAY include explicitly approved **comped or legacy grants** — capability ≠ payment. (`canUseCloud` is moot: Cloud is unavailable and Browser is not a customer entitlement — see §6.)
-- **`check-usage-limit`** enforces server-side **quota** policy; it is **not** proof of payment.
-- The client selector (`getEffectiveSubscriptionStatus` / `hasPaidProEntitlement`) is advisory for UI; centralizing it is **#1036** (which must not change these boundaries).
-
-## 4. Quota — the daily/monthly limits are provisional configuration, NOT policy
-
-> The current numeric limits are **observed implementation values only** — provisional development configuration, **subject to change**, and **not customer commitments or approved policy**. Preserving current behavior (the prior direction) is *not* the same as approving these values. The current implementation is numerically limited (not unlimited); that is a fact about the code, not a commercial policy.
-
-| Provenance | Free daily | Pro daily | Pro monthly | Source |
-| :--- | :--- | :--- | :--- | :--- |
-| **(1) Observed code** | `3600s` (1h) | `7200s` (2h) | — | `frontend/src/constants/subscriptionTiers.ts` — `TIER_LIMITS.pro.dailySeconds = 7200`, `free = 3600`; the historical `Infinity` special-case was removed (PR #769) and a consistency test rejects `Infinity`. **Provisional dev config.** |
-| **(2) Migration-seeded DB** | `3600s` (1h) | `7200s` (2h) | `180000s` (50h) | `tier_configs` per `20260309000000_phase2_integration.sql`; enforced by `check_usage_limit()` RPC via the `check-usage-limit` edge fn; `useUsageLimit.ts` reflects the DB. **Prod-equality to the latest migration is unverified** — a read-only ops query (`ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`): **evidence about deployed state, not policy approval.** |
-| **(3) Marketing** | — | (was "unlimited") | — | older "Want unlimited sessions?" upsell — corrected to "Need more recording time?" (PR #769). |
-| **(4) PO-approved policy** | **none** | **none** | **none** | **No quota is approved as policy.** The prior "leave the configuration unchanged" direction preserved current dev behavior; it did **not** approve these values as policy or customer commitments, and did **not** adopt "not unlimited" as future positioning. |
-| **(5) Unresolved → ROADMAP** | final Free quota | final Pro quota | final Pro quota | Final quotas, pricing, packaging, **unlimited positioning**, and comped-access rules are **unresolved product decisions** — `OPEN_GAP` → `ROADMAP.md`, to be decided in **later product/pricing work informed by product readiness and usage evidence**. |
-
-**Net (facts only):** the current code and the seeded migration are numerically limited to 1h/day (Free) and 2h/day + 50h/month (Pro); the `Infinity` special-case was removed. These are **provisional implementation values, not approved policy or customer commitments.** Whether live prod `tier_configs` equals the latest migration is unverified (ops query outstanding).
-
-## 5. Billing fail-closed contract
-
-- **Dual switch, both must be ON to enable payments; both are OFF in the beta:**
-  - **Frontend** — `VITE_PAYMENTS_ENABLED` (`arePaymentsEnabled()` in `appRuntimeConfig.ts`); when off, checkout entry points are hidden (no broken checkout).
-  - **Backend** — `PAYMENTS_ENABLED` gating the `stripe-checkout` edge function.
-- **Key-class validates configuration; it does NOT open checkout.** Presence of a Stripe key never by itself enables purchase — both switches gate it.
-- **Freeze proof in CI** — `scripts/billing-freeze-check.mjs` asserts billing is CLOSED; enabling billing is the separate, explicitly-authorized paid-launch sequence.
-- **No live charge** is authorized by this document.
-
-## 6. Cloud & Browser disposition (not customer entitlements)
-
-- **Cloud STT is unavailable** in the current product — **not** a customer entitlement and **not** a paid differentiator. The paid distinction is trial-vs-paid continuation of the same **Private-only** product, never Private-vs-Cloud.
-- **Browser is not a current customer entitlement.** Browser and Cloud are **absent from customer-facing product claims**; every customer recording uses Private.
-- **Native** exists **only as an internal deterministic E2E test hook**, never a customer surface.
-- *(Historical note: Cloud was previously positioned as a Pro feature; that framing is superseded by the accepted #1254/#1269 Private-only product truth.)* The **privacy invariant still holds** should Cloud ever return: Private STT MUST NOT auto-switch to Cloud (privacy + variable-cost change); it would be entered only by explicit user selection with the capability entitlement (`ARCHITECTURE.md` §7).
-- **Comped / legacy grants — actual mechanism (no separate comped id).** There is **no separate "comped entitlement" table or id.** Per `effective_subscription_tier()` (§3), Pro requires `subscription_status = 'pro'` **AND** a `stripe_subscription_id`; the legacy `subscription_id` is deprecated/ignored. Comped or QA Pro is therefore granted by setting those DB profile fields directly (an **evidence/QA convention** using a synthetic test subscription id, **never a live Stripe charge**); live Stripe stays read-only. Whether a synthetic id qualifies as "real" is an implementation detail owned by the RPC / #1036.
-
-## 7. Live-activation contract (future; separate PO authorization)
-
-Enabling paid billing is a **deliberate activation sequence**, **not a key swap**: it requires flipping **both** payment switches, real live Stripe configuration validated server-side, the paid-launch approval, and live-activation verification (per `PAID_OPS_HARDENING_RUNBOOK.md`). Until then this doc records the contract; it activates nothing.
-
-## 7a. Enterprise / organization entitlement posture (requirements only)
-
-No organization tier exists, and none is being built. This records what an organization tier **would have to satisfy**, so that no partial version ships by accident. Requirement classification and triggers live in `PRODUCT_REQUIREMENTS.md` §10a.
-
-- **The entitlement authority does not change.** Today entitlement is per-user and record-time authoritative. An organization tier would add a **seat grant** that resolves to the same per-user entitlement — it must **not** introduce a second, parallel authority.
-- **Seat entitlement is explicit, never inherited by domain.** Sharing an email domain with a customer grants nothing; a seat is assigned.
-- **Fail-closed is unchanged.** An unresolvable org or seat yields the **Free** entitlement, never an elevated one.
-- **No org-level quota pooling** is defined. Any pooled or transferable quota is a new product decision, not an implementation detail.
-- **Billing stays fail-closed and PO-authorized.** Nothing about an organization tier relaxes the live-activation contract in §7.
-
-**Not authorized:** creating an organization tier, seat model, or admin surface. This section is a specification of constraints, not a plan to build.
-
-## 8. Open gaps (→ ROADMAP)
-
-- **Final quotas, pricing, packaging, unlimited positioning, and comped-access rules — all UNRESOLVED product decisions.** The current numeric limits are provisional development configuration, not policy or customer commitments. **Decision timing:** later product/pricing work, informed by product readiness and usage evidence. Enterprise packaging → `#1048`.
-- **Prod-DB-vs-latest-migration entitlement equality** — a read-only **evidence** item about deployed state (→ `EVIDENCE_INDEX.md` / `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`), **not** a policy approval.
+Executed evidence must cover trial start, immediately before expiry, exact expiry, immediately after expiry,
+client-clock tampering, one-time legacy activation, paid continuity, the expired permission matrix, and
+Private-only behavior for both trial and paid accounts. Accounts with exhausted historical one-shot fields or
+usage above former aggregate thresholds must remain able to record, save, and analyze while entitled and fail
+only at server-authoritative expiry.

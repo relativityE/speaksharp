@@ -1,5 +1,8 @@
 # Flawless-launch product-contract audit remediation
 
+> Temporary PR #1290 implementation and closure packet. This runbook is not product authority and
+> must be reconciled into the canonical documentation set at the final accepted checkpoint.
+
 ## Purpose
 
 This document is the scope and closure contract for the dedicated audit-remediation PR. It prevents the cross-repository corrections from expanding PR #1282 beyond its original trial-and-billing ticket.

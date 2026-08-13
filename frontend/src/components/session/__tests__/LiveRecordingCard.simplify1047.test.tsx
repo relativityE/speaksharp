@@ -1,14 +1,7 @@
-import { render, screen, fireEvent, cleanup } from '../../../../tests/support/test-utils';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen } from '../../../../tests/support/test-utils';
+import { describe, it, expect, vi } from 'vitest';
 import { LiveRecordingCard } from '../LiveRecordingCard';
 import { TEST_IDS } from '@/constants/testIds';
-import { emitPrivateSample, PRIVATE_SAMPLE_EVENTS } from '@/services/transcription/privateSampleTelemetry';
-
-// Mock ONLY the emitter (keep the real event enum) so the nudge funnel emissions are assertable.
-vi.mock('@/services/transcription/privateSampleTelemetry', async (orig) => {
-    const actual = await (orig() as Promise<Record<string, unknown>>);
-    return { ...actual, emitPrivateSample: vi.fn() };
-});
 
 /**
  * #1047 — Practice Session simplification, recorder card.
@@ -77,110 +70,5 @@ describe('LiveRecordingCard — #1047', () => {
         // "muted/unavailable", the opposite of a ready Start control).
         expect(container.querySelector('.lucide-mic')).not.toBeNull();
         expect(record.querySelector('.-rotate-45')).toBeNull();
-    });
-});
-
-describe('LiveRecordingCard — #1047 Free→Private trial nudge (conversion repair)', () => {
-    const emit = vi.mocked(emitPrivateSample);
-    // An eligible Free user: Browser selected, idle, engine unlocked, sample available.
-    const eligibleProps = {
-        mode: 'native' as const,
-        isListening: false,
-        isReady: true,
-        canUsePrivate: true,
-        isPaidProUser: false,
-        privateTrialAvailable: true,
-        privateTrialFresh: true,
-        privateTrialRemainingSeconds: 300,
-        privateTrialLimitSeconds: 300,
-        engineSelectionLocked: false,
-        formattedTime: '00:00',
-        elapsedSeconds: 0,
-        isButtonDisabled: false,
-        privateModelStatus: 'idle',
-        activeEngine: null as 'native' | 'cloud' | 'private' | 'none' | null,
-        onModeChange: vi.fn(),
-        onStartStop: vi.fn(),
-        onDownloadModel: vi.fn(),
-    };
-
-    beforeEach(() => { emit.mockClear(); });
-    afterEach(() => { cleanup(); });
-
-    it('FRESH sample: shows the trial copy (derived from the server limit) and emits NUDGE_VIEWED once', () => {
-        render(<LiveRecordingCard {...eligibleProps} />);
-        const nudge = screen.getByTestId('private-trial-nudge');
-        expect(nudge).toHaveTextContent('5-minute Private trial available');
-        expect(nudge).toHaveTextContent('Audio stays on this device.');
-        expect(screen.getByTestId('private-trial-nudge-cta')).toHaveTextContent('Try Private');
-        expect(emit).toHaveBeenCalledWith(PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED);
-        expect(emit.mock.calls.filter((c) => c[0] === PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED)).toHaveLength(1);
-    });
-
-    it('the "N-minute" figure comes from the SERVER limit, not a hard-coded 5', () => {
-        render(<LiveRecordingCard {...eligibleProps} privateTrialLimitSeconds={600} privateTrialRemainingSeconds={600} />);
-        expect(screen.getByTestId('private-trial-nudge-title')).toHaveTextContent('10-minute Private trial available');
-    });
-
-    it('PARTIALLY-USED sample: converts with truthful, FLOORED "Continue with Private" copy', () => {
-        render(<LiveRecordingCard {...eligibleProps} privateTrialFresh={false} privateTrialRemainingSeconds={125} privateTrialLimitSeconds={300} />);
-        const nudge = screen.getByTestId('private-trial-nudge');
-        expect(nudge).toBeInTheDocument(); // still offered — a partial sample must not lose the conversion
-        expect(screen.getByTestId('private-trial-nudge-title')).toHaveTextContent('Continue with Private — about 2 minutes remaining');
-        expect(nudge).not.toHaveTextContent('trial available'); // never overstate a full trial
-    });
-
-    it('partial time FLOORS (never overstates): 61s reads "about 1 minute", not "2 minutes"', () => {
-        render(<LiveRecordingCard {...eligibleProps} privateTrialFresh={false} privateTrialRemainingSeconds={61} privateTrialLimitSeconds={300} />);
-        expect(screen.getByTestId('private-trial-nudge-title')).toHaveTextContent('Continue with Private — about 1 minute remaining');
-    });
-
-    it('partial with under a minute left collapses to "less than a minute remaining"', () => {
-        render(<LiveRecordingCard {...eligibleProps} privateTrialFresh={false} privateTrialRemainingSeconds={40} privateTrialLimitSeconds={300} />);
-        expect(screen.getByTestId('private-trial-nudge-title')).toHaveTextContent('Continue with Private — less than a minute remaining');
-    });
-
-    it('FAILS CLOSED: a partial sample with no remaining time shows no nudge (never a false claim)', () => {
-        render(<LiveRecordingCard {...eligibleProps} privateTrialFresh={false} privateTrialRemainingSeconds={0} privateTrialLimitSeconds={300} />);
-        expect(screen.queryByTestId('private-trial-nudge')).toBeNull();
-        expect(emit).not.toHaveBeenCalledWith(PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED);
-    });
-
-    it.each([
-        ['Pro user', { isPaidProUser: true }],
-        ['sample unavailable', { privateTrialAvailable: false }],
-        ['Private unavailable in this runtime/browser', { canUsePrivate: false }],
-        ['Private already selected', { mode: 'private' as const }],
-        ['Cloud selected', { mode: 'cloud' as const }],
-        ['recording', { isListening: true }],
-        ['engine selection locked', { engineSelectionLocked: true }],
-    ])('hides the nudge when %s', (_label, override) => {
-        render(<LiveRecordingCard {...eligibleProps} {...override} />);
-        expect(screen.queryByTestId('private-trial-nudge')).toBeNull();
-        expect(emit).not.toHaveBeenCalledWith(PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED);
-    });
-
-    it('emits NUDGE_VIEWED at most once per mount even when the nudge hides and reappears', () => {
-        const { rerender } = render(<LiveRecordingCard {...eligibleProps} />);
-        const viewed = () => emit.mock.calls.filter((c) => c[0] === PRIVATE_SAMPLE_EVENTS.NUDGE_VIEWED).length;
-        expect(viewed()).toBe(1);
-        // hide (switch to recording), then reappear (back to idle Browser) — no second view event.
-        rerender(<LiveRecordingCard {...eligibleProps} isListening />);
-        rerender(<LiveRecordingCard {...eligibleProps} />);
-        expect(screen.getByTestId('private-trial-nudge')).toBeInTheDocument();
-        expect(viewed()).toBe(1); // NOT inflated by the hide/show cycle
-    });
-
-    it('"Try Private" selects Private only — no recording, no model download — and emits the funnel events', () => {
-        render(<LiveRecordingCard {...eligibleProps} />);
-        fireEvent.click(screen.getByTestId('private-trial-nudge-cta'));
-        // selects Private
-        expect(eligibleProps.onModeChange).toHaveBeenCalledWith('private');
-        // does NOT start recording and does NOT download the model
-        expect(eligibleProps.onStartStop).not.toHaveBeenCalled();
-        expect(eligibleProps.onDownloadModel).not.toHaveBeenCalled();
-        // nudge-attributed intent + the mode-switch SELECTED both fire
-        expect(emit).toHaveBeenCalledWith(PRIVATE_SAMPLE_EVENTS.NUDGE_SELECTED);
-        expect(emit).toHaveBeenCalledWith(PRIVATE_SAMPLE_EVENTS.SELECTED);
     });
 });

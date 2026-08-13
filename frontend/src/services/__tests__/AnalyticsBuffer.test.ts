@@ -175,7 +175,7 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     vi.mocked(posthog.capture).mockClear();
     analyticsBuffer.ready = true;
 
-    analyticsBuffer.push('private_sample_error', {
+    analyticsBuffer.push('private_error', {
       error_code: 'SetupError',        // allowlisted → survives
       transcript: 'um leaked words',   // NOT allowlisted → dropped by the second boundary
       email: 'user@example.com',       // NOT allowlisted → dropped
@@ -183,7 +183,7 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     }, 'CRITICAL');
 
     const [name, props] = vi.mocked(posthog.capture).mock.calls[0];
-    expect(name).toBe('private_sample_error');
+    expect(name).toBe('private_error');
     expect(props).toMatchObject({ error_code: 'SetupError' });
     expect(props).not.toHaveProperty('transcript');
     expect(props).not.toHaveProperty('email');

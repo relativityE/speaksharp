@@ -2,17 +2,12 @@
  * Primary User Journey Matrix
  * 
  * This spec handles the complete lifecycle (Auth -> Session -> Analytics)
- * for both Free and Pro tiers using a parameterized matrix. It ensures 
- * deterministic tier-gating and persistent data flow using behavioral signals.
+ * for active-trial and paid fixtures using a parameterized matrix. It ensures
+ * deterministic Private-only behavior and persistent data flow using behavioral signals.
  * 
  * Coverage:
  * - Core Features: Recording lifecycle, deterministic persistence, and session history.
- * - Free Features: Marketing/Upgrade funnels and simplified analytics.
- * - Pro Features: advanced analytics details and PDF exports.
- *
- * #1184: Private is the ONLY engine for every tier — the former engine-toggling / Cloud-Pro-gating /
- * Free-native branch is gone. Both tiers run the identical Private recording path; they differ only on
- * usage minutes, upgrade funnels, and analytics detail. The matrix keeps one Free and one Pro scenario.
+ * - The complete product is identical during the trial and after payment.
  */
 import { test, expect } from './fixtures';
 import {
@@ -28,11 +23,11 @@ import { MOCK_TRANSCRIPTS_WITH_FILLERS } from './fixtures/mockData';
 
 const SCENARIOS = [
   {
-    name: 'Free Tier (Private)',
+    name: 'Active Trial (Private)',
     userType: 'free' as const,
   },
   {
-    name: 'Pro Tier (Private)',
+    name: 'Paid Continuation (Private)',
     userType: 'pro' as const,
   }
 ];
