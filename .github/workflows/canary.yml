@@ -33,7 +33,8 @@ jobs:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           # Sign-in-first: the healthy path uses the public anon flow (the same path testers authenticate
           # through) and read-only verifies the local paid profile binding. Authoritative Stripe identity,
-          # active status, and approved-price proof are required by the coordinated cutover runbook. CI
+          # active status, and approved-price proof are required by
+          # .github/runbooks/PAID_CANARY_CUTOVER.md. CI
           # never resets a one-shot sample, grants Pro, or extends a customer-style trial.
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           # Service-role is the RECOVERY-only path (deterministic invalid-credentials → account lookup /
