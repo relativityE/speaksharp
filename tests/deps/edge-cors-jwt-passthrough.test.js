@@ -23,6 +23,7 @@ const BROWSER_CALLABLE = [
   'attest-session-engine',
   'check-usage-limit',
   'get-ai-suggestions',
+  'objective-register-source',
   'stripe-checkout',
   'stripe-billing-portal',
 ];
@@ -85,5 +86,9 @@ describe('P0.3 — edge CORS requires gateway JWT pass-through so corsGuard runs
         expect(map[fn], `${fn} must be deployed with --no-verify-jwt`).toBe(true);
       }
     }
+  });
+
+  it('keeps the retired guided waitlist out of the production deployment manifest', () => {
+    expect(workflow).not.toMatch(/supabase functions deploy guided-waitlist/);
   });
 });
