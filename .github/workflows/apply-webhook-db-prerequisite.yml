@@ -1,0 +1,161 @@
+name: Apply webhook DB prerequisite (exact migration)
+
+# One-purpose production gate for #1287. It can apply only the reviewed webhook prerequisite while
+# 20260811143000 remains held. Dispatch itself still requires separate Product Owner authorization.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_head_sha:
+        description: 'Exact 40-character main SHA authorized by the Product Owner'
+        required: true
+        type: string
+      confirm:
+        description: 'Type APPLY 20260812002000 AT <exact SHA>'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: production-database-migrations
+  cancel-in-progress: false
+
+jobs:
+  apply-exact-webhook-prerequisite:
+    environment: production-db
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+      GH_TOKEN: ${{ github.token }}
+      TARGET_VERSION: '20260812002000'
+      TARGET_FILE: '20260812002000_webhook_lifecycle_completeness_1282.sql'
+      TARGET_SHA256: 'e2e77217547100158d4324c29feafaa2d6ecd3462b96add3b0e9002b0d923a13'
+      HELD_FILE: '20260811143000_harden_exposed_security_definer_acl.sql'
+    steps:
+      - name: Checkout the dispatched commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Validate exact main identity and authorization phrase
+        env:
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          CONFIRM: ${{ inputs.confirm }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RESOLVED_SHA: ${{ github.sha }}
+          RESOLVED_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          sha_re='^[0-9a-f]{40}$'
+          [[ "$EXPECTED_HEAD_SHA" =~ $sha_re ]] || { echo '::error::expected_head_sha must be a full lowercase SHA'; exit 1; }
+          [ "$RESOLVED_REF" = "$DEFAULT_BRANCH" ] || { echo '::error::workflow must be dispatched from the default branch'; exit 1; }
+          [ "$RESOLVED_SHA" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::dispatch resolved a different SHA'; exit 1; }
+          [ "$CONFIRM" = "APPLY $TARGET_VERSION AT $EXPECTED_HEAD_SHA" ] || { echo '::error::exact authorization phrase missing'; exit 1; }
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
+          [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced before execution'; exit 1; }
+
+          for status in in_progress queued waiting pending requested; do
+            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=$status&per_page=100")"
+            others="$(jq --argjson current "$GITHUB_RUN_ID" '[.workflow_runs[] | select(.id != $current) | select(.name == "Deploy Supabase" or .name == "Apply webhook DB prerequisite (exact migration)" or .name == "Migrations Preflight (read-only)")] | length' <<<"$runs")"
+            [ "$others" = '0' ] || { echo '::error::another migration-capable or migration-preflight workflow is active or pending'; exit 1; }
+          done
+
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: 2.101.0
+
+      - name: Verify migration source identity
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          actual="$(sha256sum "migrations/$TARGET_FILE" | awk '{print $1}')"
+          [ "$actual" = "$TARGET_SHA256" ] || { echo '::error::target migration hash differs from the reviewed source'; exit 1; }
+          test -f "migrations/$HELD_FILE"
+
+      - name: Establish exact pre-apply state
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$SUPABASE_PROJECT_ID"
+          supabase migration list 2>&1 | tee "$RUNNER_TEMP/migrations-before.txt"
+          node ../../scripts/exact-migration-gate.mjs before "$RUNNER_TEMP/migrations-before.txt"
+
+      - name: Establish read-only production lint baseline
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase db lint --linked --schema public --level warning 2>&1 | tee "$RUNNER_TEMP/lint-before.txt"
+
+      - name: Build isolated target-only migration workspace
+        run: |
+          set -euo pipefail
+          cp -R backend/supabase "$RUNNER_TEMP/exact-supabase"
+          mkdir "$RUNNER_TEMP/held-migrations"
+          mv "$RUNNER_TEMP/exact-supabase/migrations/$HELD_FILE" "$RUNNER_TEMP/held-migrations/$HELD_FILE"
+          test -f "$RUNNER_TEMP/exact-supabase/migrations/$TARGET_FILE"
+          test ! -e "$RUNNER_TEMP/exact-supabase/migrations/$HELD_FILE"
+
+      - name: Prove dry-run is target-only
+        working-directory: ${{ runner.temp }}/exact-supabase
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$SUPABASE_PROJECT_ID"
+          supabase db push --dry-run 2>&1 | tee "$RUNNER_TEMP/exact-dry-run.txt"
+          node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" dry-run "$RUNNER_TEMP/exact-dry-run.txt"
+
+      - name: Revalidate main immediately before apply
+        env:
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
+          [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced after dry-run'; exit 1; }
+
+      - name: Apply the exact reviewed migration
+        id: apply
+        continue-on-error: true
+        working-directory: ${{ runner.temp }}/exact-supabase
+        run: supabase db push --yes
+
+      - name: Verify target applied and held migration remained pending
+        id: verify
+        if: ${{ always() && steps.apply.outcome != 'skipped' }}
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase migration list 2>&1 | tee "$RUNNER_TEMP/migrations-after.txt"
+          node ../../scripts/exact-migration-gate.mjs after "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"
+
+      - name: Verify migration introduced no production lint change
+        id: lint_verify
+        if: ${{ always() && steps.apply.outcome != 'skipped' }}
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase db lint --linked --schema public --level warning 2>&1 | tee "$RUNNER_TEMP/lint-after.txt"
+          node ../../scripts/exact-migration-gate.mjs lint-delta "$RUNNER_TEMP/lint-before.txt" "$RUNNER_TEMP/lint-after.txt"
+
+      - name: Require unambiguous exact-operation success
+        id: terminal
+        if: always()
+        run: node scripts/exact-migration-gate.mjs final "${{ steps.apply.outcome }}" "${{ steps.verify.outcome }}" "${{ steps.lint_verify.outcome }}"
+
+      - name: Publish sanitized result
+        if: always()
+        run: |
+          echo '## Exact migration gate' >> "$GITHUB_STEP_SUMMARY"
+          echo "- Checked-out SHA: \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Authorized target: \`$TARGET_VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Held migration: \`20260811143000\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Apply step outcome: \`${{ steps.apply.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Post-apply verification outcome: \`${{ steps.verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Baseline-relative lint outcome: \`${{ steps.lint_verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Terminal exact-operation gate: \`${{ steps.terminal.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo '- No migration repair, `--include-all`, Edge deployment, secrets/config change, or trial/billing activation is performed.' >> "$GITHUB_STEP_SUMMARY"
