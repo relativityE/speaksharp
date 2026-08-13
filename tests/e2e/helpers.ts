@@ -403,7 +403,7 @@ export async function programmaticLoginWithRoutes(
   options: {
     projectRef?: string;
     supabaseUrl?: string;
-    userType?: 'free' | 'basic' | 'pro';
+    userType?: 'free' | 'pro';
     emptySessions?: boolean;
     debug?: boolean;
     mockProfile?: Record<string, unknown>;
@@ -478,7 +478,7 @@ export async function verifyCredentialsAndInjectSession(
   page: Page,
   email: string,
   password: string,
-  userType: 'free' | 'basic' | 'pro' = 'pro'
+  userType: 'free' | 'pro' = 'pro'
 ) {
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const anonKey = process.env.VITE_SUPABASE_ANON_KEY;

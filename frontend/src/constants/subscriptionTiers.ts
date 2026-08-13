@@ -7,7 +7,6 @@
 
 export const SUBSCRIPTION_TIERS = {
     FREE: 'free',
-    BASIC: 'basic',
     PRO: 'pro',
 } as const;
 
@@ -16,8 +15,6 @@ export type SubscriptionTier = typeof SUBSCRIPTION_TIERS[keyof typeof SUBSCRIPTI
 export function normalizeSubscriptionTier(subscriptionStatus: string | undefined | null): SubscriptionTier {
     return subscriptionStatus === SUBSCRIPTION_TIERS.PRO
         ? SUBSCRIPTION_TIERS.PRO
-        : subscriptionStatus === SUBSCRIPTION_TIERS.BASIC
-            ? SUBSCRIPTION_TIERS.BASIC
         : SUBSCRIPTION_TIERS.FREE;
 }
 
@@ -74,13 +71,6 @@ export function getEffectiveSubscriptionStatus(
     return profileTier;
 }
 
-/**
- * Check if a subscription status indicates the future paid Basic tier
- */
-export function isBasic(subscriptionStatus: string | undefined | null): boolean {
-    return subscriptionStatus === SUBSCRIPTION_TIERS.BASIC;
-}
-
 export function isFree(subscriptionStatus: string | undefined | null): boolean {
     return normalizeSubscriptionTier(subscriptionStatus) === SUBSCRIPTION_TIERS.FREE;
 }
@@ -90,16 +80,12 @@ export function isFree(subscriptionStatus: string | undefined | null): boolean {
  */
 export function getTierLabel(subscriptionStatus: string | undefined | null): string {
     if (isPro(subscriptionStatus)) return 'Pro';
-    if (isBasic(subscriptionStatus)) return 'Basic';
     return 'Free';
 }
 
 /** Content-feature constants retained for legacy status compatibility. */
 export const TIER_LIMITS = {
     [SUBSCRIPTION_TIERS.FREE]: {
-        maxCustomWords: 100,
-    },
-    [SUBSCRIPTION_TIERS.BASIC]: {
         maxCustomWords: 100,
     },
     [SUBSCRIPTION_TIERS.PRO]: {

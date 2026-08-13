@@ -14,7 +14,7 @@ export interface SSE2EManifest {
   realEngineRegistryKeys?: string[];
   forbiddenEngineKeys?: string[];
   MOCK_STT_AVAILABILITY?: boolean;
-  guestStatus?: 'free' | 'basic' | 'pro';
+  guestStatus?: 'free' | 'pro';
   emitTranscript?: (text: string, isFinal?: boolean) => void;
   onStateChange?: (cb: (state: string) => void) => (() => void) | void;
   destroyService?: () => Promise<void>;
@@ -115,7 +115,7 @@ export async function setupE2EManifest(
      */
     forbiddenEngineKeys?: string[];
     storage?: Record<string, string>;
-    userType?: 'free' | 'basic' | 'pro';
+    userType?: 'free' | 'pro';
     mockProfile?: Record<string, unknown>;
     emptySessions?: boolean;
     /** #1047: seed the in-browser mock session DB (e.g. transcript_state variants) instead of defaults. */
@@ -152,7 +152,7 @@ export async function setupE2EManifest(
     // 0. AUTHORITATIVE TIER SIGNAL
     const win = window as unknown as E2EWindow;
     win.__MOCK_PROFILE__ = { 
-      subscription_status: ut === 'pro' ? 'pro' : ut === 'basic' ? 'basic' : 'free',
+      subscription_status: ut === 'pro' ? 'pro' : 'free',
       stripe_subscription_id: ut === 'pro' ? 'sub_e2e_pro_cloud' : null,
       subscription_id: ut === 'pro' ? 'sub_e2e_pro_cloud' : null,
       ...(mp || {})
@@ -192,7 +192,7 @@ export async function setupE2EManifest(
 
     const e2eProfile = {
       id: authSession?.user?.id || '__E2E_GUEST_USER__',
-      subscription_status: ut === 'pro' ? 'pro' : ut === 'basic' ? 'basic' : 'free',
+      subscription_status: ut === 'pro' ? 'pro' : 'free',
       stripe_subscription_id: ut === 'pro' ? 'sub_e2e_paid_pro' : null,
       subscription_id: ut === 'pro' ? 'sub_e2e_paid_pro' : null,
       usage_seconds: 0,
@@ -782,7 +782,7 @@ export async function setupE2EManifest(
       isActive: true,
       enableRealEngine: false,
       MOCK_STT_AVAILABILITY: true,
-      guestStatus: ut as 'free' | 'basic' | 'pro',
+      guestStatus: ut as 'free' | 'pro',
       ... mCast,
       registry: {
         ...engineRegistry,

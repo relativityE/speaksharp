@@ -57,7 +57,7 @@ Build gate: `env.required` (must be set) / `env.optional` (warn-only), read by `
 | `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` | optional | A | Analytics; absent → disabled. |
 | `VITE_LOG_LEVEL` | optional | A | Client log level. |
 | `VITE_ENABLE_SENTRY_TRACING` / `_REPLAY` / `_CONSOLE_CAPTURE` | optional | A/B | Sentry feature flags. |
-| `VITE_ENABLE_FREE_PLAN_SUPPORT` / `VITE_AUTH_MODE` / `VITE_AUTH_TIMEOUT` | optional | A/B | Product / auth flags. |
+| `VITE_AUTH_MODE` / `VITE_AUTH_TIMEOUT` | optional | A/B | Authentication configuration. |
 | `VITE_ENABLE_INTERNAL_ROUTES` | must be false/absent in prod | B/E | Dev/internal-routes gate. |
 | `VITE_GUIDED_WAITLIST_ENABLED` | optional | A/B | Activates the Guided "Notify me" waitlist backend call; `=== 'true'` gates `GUIDED_WAITLIST_ENABLED` (`frontend/src/config/env.ts`). Default off → the dialog shows the coming-soon acknowledgement, no capture/backend call (#1081). |
 | `VITE_EXECUTIVE_REHEARSAL_DISABLED` | optional | A/B | Build-time hard kill for Executive Rehearsal; `=== 'true'` disables the feature (`frontend/src/services/rehearsal/executiveRehearsalFlags.ts`). |

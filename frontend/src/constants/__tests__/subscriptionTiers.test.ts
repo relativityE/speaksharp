@@ -3,7 +3,6 @@ import {
     SUBSCRIPTION_TIERS,
     TIER_LIMITS,
     isPro,
-    isBasic,
     isFree,
 	    getEffectiveSubscriptionStatus,
 	    hasPaidProEntitlement,
@@ -36,20 +35,6 @@ describe('subscriptionTiers', () => {
         });
     });
 
-    describe('isBasic', () => {
-        it('returns true for "basic"', () => {
-            expect(isBasic('basic')).toBe(true);
-        });
-
-        it('returns false for "pro"', () => {
-            expect(isBasic('pro')).toBe(false);
-        });
-
-        it('returns false for null', () => {
-            expect(isBasic(null)).toBe(false);
-        });
-    });
-
     describe('isFree', () => {
         it('returns true for "free" and unknown empty statuses', () => {
             expect(isFree('free')).toBe(true);
@@ -57,8 +42,8 @@ describe('subscriptionTiers', () => {
             expect(isFree(undefined)).toBe(true);
         });
 
-        it('returns false for paid Basic and Pro', () => {
-            expect(isFree('basic')).toBe(false);
+        it('treats retired or unknown tiers as Free and Pro as paid', () => {
+            expect(isFree('basic')).toBe(true);
             expect(isFree('pro')).toBe(false);
         });
     });
@@ -138,8 +123,8 @@ describe('subscriptionTiers', () => {
             expect(getTierLabel('pro')).toBe('Pro');
         });
 
-        it('retains a label for the future paid Basic tier', () => {
-            expect(getTierLabel('basic')).toBe('Basic');
+        it('does not expose a retired Basic product label', () => {
+            expect(getTierLabel('basic')).toBe('Free');
         });
 
         it('returns "Free" for free/null/undefined', () => {
@@ -160,9 +145,9 @@ describe('subscriptionTiers', () => {
             expect(limits).toBe(TIER_LIMITS[SUBSCRIPTION_TIERS.FREE]);
         });
 
-        it('returns BASIC limits for "basic"', () => {
+        it('maps retired Basic state to the shared Free-compatible constants', () => {
             const limits = getTierLimits('basic');
-            expect(limits).toBe(TIER_LIMITS[SUBSCRIPTION_TIERS.BASIC]);
+            expect(limits).toBe(TIER_LIMITS[SUBSCRIPTION_TIERS.FREE]);
         });
 
         it('returns PRO limits for "pro"', () => {
@@ -189,11 +174,6 @@ describe('subscriptionTiers', () => {
         it('legacy FREE status has the shared content-feature constant', () => {
             const freeLimits = TIER_LIMITS[SUBSCRIPTION_TIERS.FREE];
             expect(freeLimits.maxCustomWords).toBe(100);
-        });
-
-        it('legacy BASIC status has the shared content-feature constant', () => {
-            const basicLimits = TIER_LIMITS[SUBSCRIPTION_TIERS.BASIC];
-            expect(basicLimits.maxCustomWords).toBe(100);
         });
 
         it('paid status has the same content-feature constant', () => {

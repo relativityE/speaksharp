@@ -31,19 +31,11 @@ export interface E2EConfig {
         mockUser?: {
             id: string;
             email: string;
-            subscription_status: 'free' | 'basic' | 'pro';
+            subscription_status: 'free' | 'pro';
         };
         mockSession?: {
             id: string;
             userId: string;
-        };
-    };
-
-    limits: {
-        mode: 'real' | 'mock';
-        mockLimit?: {
-            remaining_seconds: number;
-            error?: string;
         };
     };
 
@@ -70,7 +62,6 @@ export const DEFAULT_E2E_CONFIG: E2EConfig = {
     stt: { mode: 'real', mocks: {} },
     progress: { mode: 'auto' },
     auth: { mode: 'real' },
-    limits: { mode: 'real' },
     registry: { overrides: new Map() },
     exposedState: {}
 };

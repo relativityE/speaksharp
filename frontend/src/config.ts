@@ -30,11 +30,6 @@ export const DISCOURSE_MARKER_WORDS: readonly string[] = [
   FILLER_WORD_KEYS.KIND_OF, FILLER_WORD_KEYS.SORT_OF,
 ];
 
-// NOTE: session/usage limits are NOT defined here. The authoritative source is the DB
-// `tier_configs` reconciled with `constants/subscriptionTiers.ts` (Pro = 7200s/day, NOT
-// unlimited). A former `SESSION_LIMITS` constant here was dead code carrying a stale
-// "unlimited for pro users" claim; it was removed to avoid drift from the real limits.
-
 // Pause detection configuration
 export const PAUSE_DETECTION = {
   SILENCE_THRESHOLD: 0.01,      // RMS threshold for silence detection
@@ -55,16 +50,6 @@ export const AUDIO_CONFIG = {
 
 export const API_CONFIG = {
   ASSEMBLYAI_TOKEN_ENDPOINT: 'assemblyai-token',
-} as const;
-
-export const SUBSCRIPTION_LIMITS = {
-  FREE_MONTHLY_MINUTES: 30,
-  BASIC_MONTHLY_MINUTES: 30,
-} as const;
-
-export const FREE_PLAN_SUPPORT_CONFIG = {
-  // Soft release keeps free-plan support surfaces dark until explicitly enabled.
-  ENABLE_FREE_PLAN_SUPPORT: import.meta.env.VITE_ENABLE_FREE_PLAN_SUPPORT === 'true',
 } as const;
 
 export const STT_CONFIG = {

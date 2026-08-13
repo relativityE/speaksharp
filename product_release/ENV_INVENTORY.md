@@ -77,7 +77,6 @@ Build gate: `env.required` (must be set) / `env.optional` (warn-only). See `vali
 | `VITE_ENABLE_SENTRY_TRACING` | optional | A/B | Feature flag. |
 | `VITE_ENABLE_SENTRY_REPLAY` | optional | A/B | Feature flag. |
 | `VITE_ENABLE_SENTRY_CONSOLE_CAPTURE` | optional | A/B | Feature flag. |
-| `VITE_ENABLE_FREE_PLAN_SUPPORT` | optional | A/B | Product flag. |
 | `VITE_AUTH_MODE` | optional | A/B | Auth mode selector. |
 | `VITE_AUTH_TIMEOUT` | optional | A/B | Auth timeout ms. |
 | `VITE_ENABLE_INTERNAL_ROUTES` | **must be false/absent in prod** | B/E | Dev/internal routes gate. |
@@ -230,7 +229,7 @@ Verified by reading the source on the current `main` baseline (names/homes only;
 | `VITE_SENTRY_DSN` | A/B (`VITE_*`) | `frontend/src/main.tsx:104,116` | Frontend Sentry DSN; skipped if absent or contains `example.invalid`. Sentry **environment** = `import.meta.env.MODE` (Vite build mode), `main.tsx:121` — not a dedicated var. Gating flags: `VITE_ENABLE_SENTRY_TRACING`, `VITE_ENABLE_SENTRY_REPLAY`, `VITE_ENABLE_SENTRY_CONSOLE_CAPTURE`. |
 | `SENTRY_DSN` (backend) | C (Supabase) / D (CI `vars`) | `backend/supabase/functions/observability-smoke/index.ts:27`; workflows also use `SENTRY_AUTH_TOKEN`/`SENTRY_ORG`/`SENTRY_PROJECT` | Edge/observability Sentry sender (`_shared/sentry.ts`). |
 | `SITE_URL` | C — **Ops-managed in Supabase; NOT synced from GitHub** | `stripe-checkout/index.ts:99,103,212`, `stripe-billing-portal/index.ts:75,130` (via `getEnv`) | Base URL for Stripe checkout/portal redirect URLs. Prod-required (errors if missing); local-dev fallback `http://localhost:${DEV_PORT}`. No `VITE_SITE_URL`/`PUBLIC_SITE_URL` variant exists. |
-| Stripe gating | C (Ops-managed) / D | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_BASIC_PRICE_ID`, `STRIPE_PRO_PRICE_ID` (edge, Ops-managed); `VITE_STRIPE_PUBLISHABLE_KEY` (client); `VITE_ENABLE_FREE_PLAN_SUPPORT` (`config.ts:54`) | Checkout opens ONLY when BOTH payment switches are ON (`VITE_PAYMENTS_ENABLED=true` **and** `PAYMENTS_ENABLED=true` — either OFF keeps checkout closed) **and** the live Stripe keys/webhook/prices are correctly aligned (verified by `rc-gates.yml` `paid_launch` + `billing-freeze-check.yml`, `BILLING_FREEZE_EMAILS`). Key class alone does not open checkout. Beta billing freeze active. |
+| Stripe gating | C (Ops-managed) / D | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_BASIC_PRICE_ID`, `STRIPE_PRO_PRICE_ID` (edge, Ops-managed); `VITE_STRIPE_PUBLISHABLE_KEY` (client) | Checkout opens ONLY when BOTH payment switches are ON (`VITE_PAYMENTS_ENABLED=true` **and** `PAYMENTS_ENABLED=true` — either OFF keeps checkout closed) **and** the live Stripe keys/webhook/prices are correctly aligned (verified by `rc-gates.yml` `paid_launch` + `billing-freeze-check.yml`, `BILLING_FREEZE_EMAILS`). Key class alone does not open checkout. Beta billing freeze active. |
 | #979 grant check | (workflow inputs) | `.github/workflows/db-grant-check.yml` — inputs `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_ID`; default target `public.get_user_id_by_email(text)` | Read-only `has_function_privilege()` audit of EXECUTE grants; enforced by migration `20260714000000_harden_get_user_id_by_email_grant.sql`. |
 
 ## Draft #1006 — NOT deployed (do not treat as shipped vars)

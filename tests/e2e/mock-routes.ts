@@ -600,7 +600,7 @@ export async function setupE2EMocks(
         strictMode?: boolean;
         emptySessions?: boolean;
         /** Hard override status. If not set, uses base statefulProfile. */
-        userType?: 'free' | 'basic' | 'pro';
+        userType?: 'free' | 'pro';
         profile?: Record<string, unknown>;
         /** #1047: seed a specific saved-session set (e.g. transcript_state variants) instead of the default history. */
         sessions?: Partial<MockSession>[];
