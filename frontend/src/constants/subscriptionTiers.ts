@@ -52,10 +52,6 @@ export function hasPaidProEntitlement(profile: TierProfile): boolean {
     return Boolean(profile?.stripe_subscription_id?.trim());
 }
 
-export function hasCloudSttEntitlement(profile: TierProfile): boolean {
-    return hasPaidProEntitlement(profile);
-}
-
 export function getEffectiveSubscriptionStatus(
     usageLimitStatus?: string | null,
     profile?: TierProfile

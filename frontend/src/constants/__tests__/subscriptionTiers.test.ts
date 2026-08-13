@@ -6,7 +6,6 @@ import {
     isBasic,
     isFree,
 	    getEffectiveSubscriptionStatus,
-	    hasCloudSttEntitlement,
 	    hasPaidProEntitlement,
     isActiveTrialProfile,
     getTierLabel,
@@ -132,33 +131,6 @@ describe('subscriptionTiers', () => {
                 subscription_id: 'sub_legacy_123',
             })).toBe(false);
         });
-	    });
-
-	    describe('hasCloudSttEntitlement', () => {
-	        it('does not allow legacy active trial timestamp profiles to use Cloud STT', () => {
-	            expect(hasCloudSttEntitlement({
-	                subscription_status: 'free',
-	                trial_expires_at: '2999-01-01T00:00:00.000Z',
-	            })).toBe(false);
-	        });
-
-	        it('allows subscribed Pro profiles to use Cloud STT', () => {
-	            expect(hasCloudSttEntitlement({
-	                subscription_status: 'pro',
-	                stripe_subscription_id: 'sub_123',
-	            })).toBe(true);
-	        });
-
-	        it('does not allow expired legacy trials or unsubscribed Pro-shaped profiles to use Cloud STT', () => {
-	            expect(hasCloudSttEntitlement({
-	                subscription_status: 'free',
-	                trial_expires_at: '2024-01-01T00:00:00.000Z',
-	            })).toBe(false);
-
-	            expect(hasCloudSttEntitlement({
-	                subscription_status: 'pro',
-	            })).toBe(false);
-	        });
 	    });
 
 	    describe('getTierLabel', () => {

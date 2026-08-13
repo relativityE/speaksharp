@@ -184,7 +184,6 @@ vi.mock('@/constants/subscriptionTiers', () => ({
     isPro: vi.fn((status: string | undefined) => status === 'pro'),
     isActiveTrialProfile: vi.fn(() => false),
     hasPaidProEntitlement: vi.fn(() => false),
-    hasCloudSttEntitlement: vi.fn(() => false),
     getEffectiveSubscriptionStatus: vi.fn((usageStatus: string | undefined, profile: { subscription_status?: string } | null | undefined) => usageStatus ?? profile?.subscription_status ?? 'free'),
 }));
 
@@ -1001,7 +1000,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
 
         await act(async () => {
-            await result.current.handleStartStop({ stopReason: 'Auto-stopped: your 5-minute sample ended.' });
+            await result.current.handleStartStop({ stopReason: 'Auto-stopped at the 10-minute recording cap.' });
         });
 
         // The warning + detail survive: neither the auto-stop stopReason nor the success copy replaced them.
