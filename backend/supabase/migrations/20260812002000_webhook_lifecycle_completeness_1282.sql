@@ -10,6 +10,9 @@
 -- action-based process_stripe_webhook_event (the old 6-arg caller keeps working unchanged — old Edge + new
 -- DB). It only ADDS a service-role, pg_temp-safe snapshot RPC + an audit column. It contains no trial clock,
 -- checkout, pricing, or commercial-activation logic (those live in #1282). Applying it activates no billing.
+-- DEPLOYMENT ORDER: if this version is applied first, #1282's held 20260812000000/20260812001000 files must
+-- be re-versioned above this applied identity during their post-ACCEPT rebase. Commercial activation remains
+-- a separate authorization; never use an include-all recovery to couple it to this prerequisite.
 
 -- FAIL-CLOSED identity preflight. Production operators run the same read-only aggregates before separately
 -- authorizing this migration. The migration repeats them so a changed/unclean state aborts rather than
@@ -206,11 +209,16 @@ BEGIN
             IF v_existing_customer IS NOT NULL AND v_existing_customer <> v_customer THEN
                 RAISE EXCEPTION 'snapshot: profile % already holds a different customer id (conflicting billing identity)', p_user_id;
             END IF;
-            IF v_terminal AND v_existing_subscription IS NULL THEN
-                RAISE EXCEPTION 'snapshot: an unbound terminal subscription cannot create a first binding';
+            IF v_terminal
+               AND (v_existing_subscription IS NULL OR v_existing_customer IS NULL) THEN
+                RAISE EXCEPTION 'snapshot: terminal state requires an exact existing subscription/customer binding';
             END IF;
-            IF v_status IN ('active', 'trialing') AND NOT p_has_approved_price
-               AND v_existing_subscription IS NULL THEN
+            -- A first binding is incomplete until BOTH identifiers are already exact. No unapproved
+            -- snapshot may claim either durable unique identity, regardless of its nonterminal status.
+            -- Already-bound wrong-price snapshots remain valid non-grants so they can revoke Pro while
+            -- preserving the exact identity needed for a later correction.
+            IF NOT p_has_approved_price
+               AND (v_existing_subscription IS NULL OR v_existing_customer IS NULL) THEN
                 RAISE EXCEPTION 'snapshot: first binding requires the approved price';
             END IF;
 

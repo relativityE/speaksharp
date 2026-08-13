@@ -16,6 +16,7 @@ DECLARE
   v_user_a uuid := '00000000-0000-0000-0000-000000001287';
   v_user_b uuid := '00000000-0000-0000-0000-000000001288';
   v_user_c uuid := '00000000-0000-0000-0000-000000001289';
+  v_user_d uuid := '00000000-0000-0000-0000-000000001290';
 BEGIN
   IF v_snapshot IS NULL THEN
     RAISE EXCEPTION 'snapshot RPC is absent';
@@ -71,7 +72,8 @@ BEGIN
   VALUES
     (v_user_a, 'pro', 'sub_matrix_live', 'cus_matrix_live'),
     (v_user_b, 'free', NULL, NULL),
-    (v_user_c, 'free', NULL, NULL);
+    (v_user_c, 'free', NULL, NULL),
+    (v_user_d, 'free', 'sub_missing_customer', NULL);
 
   -- Already-bound active wrong-price is a deterministic non-grant and preserves exact identity.
   SELECT public.apply_stripe_subscription_snapshot(
@@ -165,10 +167,58 @@ BEGIN
     RAISE EXCEPTION 'failed unknown terminal retained processed marker';
   END IF;
 
+  -- An unapproved non-active first snapshot cannot claim either unique identity or retain retry state.
+  SELECT public.apply_stripe_subscription_snapshot(
+    'evt_first_wrong_price_nonactive', 'sub_first_wrong_nonactive', 'cus_first_wrong_nonactive', 'past_due', false,
+    false, NULL, v_user_b, 1007
+  ) INTO v_result;
+  IF v_result->>'success' <> 'false' THEN
+    RAISE EXCEPTION 'unapproved non-active first binding was accepted';
+  END IF;
+  SELECT stripe_subscription_id, stripe_customer_id INTO v_subscription, v_customer
+    FROM public.user_profiles WHERE id = v_user_b;
+  IF v_subscription IS NOT NULL OR v_customer IS NOT NULL THEN
+    RAISE EXCEPTION 'unapproved non-active first binding wrote identity';
+  END IF;
+  SELECT count(*)::int INTO v_count FROM public.stripe_subscription_tombstones
+   WHERE subscription_id = 'sub_first_wrong_nonactive';
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'unapproved non-active first binding wrote tombstone';
+  END IF;
+  SELECT count(*)::int INTO v_count FROM public.processed_webhook_events
+   WHERE event_id = 'evt_first_wrong_price_nonactive';
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'unapproved non-active first binding retained processed marker';
+  END IF;
+
+  -- Matching subscription plus missing stored customer is not exact terminal authority.
+  SELECT public.apply_stripe_subscription_snapshot(
+    'evt_terminal_missing_customer', 'sub_missing_customer', 'cus_supplied_terminal', 'canceled', false,
+    false, NULL, v_user_d, 1008
+  ) INTO v_result;
+  IF v_result->>'success' <> 'false' THEN
+    RAISE EXCEPTION 'terminal snapshot filled a missing stored customer';
+  END IF;
+  SELECT stripe_subscription_id, stripe_customer_id INTO v_subscription, v_customer
+    FROM public.user_profiles WHERE id = v_user_d;
+  IF v_subscription <> 'sub_missing_customer' OR v_customer IS NOT NULL THEN
+    RAISE EXCEPTION 'failed terminal snapshot changed profile identity';
+  END IF;
+  SELECT count(*)::int INTO v_count FROM public.stripe_subscription_tombstones
+   WHERE subscription_id = 'sub_missing_customer';
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'missing-customer terminal snapshot wrote tombstone';
+  END IF;
+  SELECT count(*)::int INTO v_count FROM public.processed_webhook_events
+   WHERE event_id = 'evt_terminal_missing_customer';
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'missing-customer terminal snapshot retained processed marker';
+  END IF;
+
   -- First binding requires approved price and exact unused identities.
   SELECT public.apply_stripe_subscription_snapshot(
     'evt_first_wrong_price', 'sub_first_wrong', 'cus_first_wrong', 'active', false,
-    false, NULL, v_user_b, 1007
+    false, NULL, v_user_b, 1009
   ) INTO v_result;
   IF v_result->>'success' <> 'false' THEN
     RAISE EXCEPTION 'unapproved first binding was accepted';
@@ -180,7 +230,7 @@ BEGIN
 
   SELECT public.apply_stripe_subscription_snapshot(
     'evt_first', 'sub_first', 'cus_first', 'active', true,
-    false, NULL, v_user_b, 1008
+    false, NULL, v_user_b, 1010
   ) INTO v_result;
   IF v_result->>'success' <> 'true' OR v_result->>'entitlement' <> 'pro' THEN
     RAISE EXCEPTION 'approved first binding failed';
@@ -188,7 +238,7 @@ BEGIN
 
   SELECT public.apply_stripe_subscription_snapshot(
     'evt_collision', 'sub_first', 'cus_first', 'active', true,
-    false, NULL, v_user_c, 1009
+    false, NULL, v_user_c, 1011
   ) INTO v_result;
   IF v_result->>'success' <> 'false' THEN
     RAISE EXCEPTION 'cross-profile binding collision was accepted';
@@ -197,11 +247,11 @@ BEGIN
   -- Duplicate event remains idempotent.
   SELECT public.apply_stripe_subscription_snapshot(
     'evt_duplicate', 'sub_first', 'cus_first', 'past_due', false,
-    false, NULL, NULL, 1010
+    false, NULL, NULL, 1012
   ) INTO v_result;
   SELECT public.apply_stripe_subscription_snapshot(
     'evt_duplicate', 'sub_first', 'cus_first', 'active', true,
-    false, NULL, NULL, 1011
+    false, NULL, NULL, 1013
   ) INTO v_result;
   IF v_result->>'success' <> 'true' OR v_result->>'skipped' <> 'true' THEN
     RAISE EXCEPTION 'duplicate event was not idempotently skipped';

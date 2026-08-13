@@ -317,6 +317,63 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     await db.close();
   });
 
+  it('an unapproved non-active first snapshot cannot claim identity or retain retry state', async () => {
+    const db = new PGlite();
+    await db.exec(BOOTSTRAP);
+    await db.exec(MIGRATION);
+    await db.exec(`INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${USER}', 'free')`);
+
+    const r = await snapshot(db, 'wrong_price_past_due', 'past_due', 1000, {
+      userId: USER,
+      hasApprovedPrice: false,
+    });
+
+    expect(r.success).toBe('false');
+    expect(r.error).not.toBeNull();
+    expect(await profile(db)).toEqual({
+      subscription_status: 'free',
+      stripe_subscription_id: null,
+      stripe_customer_id: null,
+    });
+    expect((await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM public.stripe_subscription_tombstones WHERE subscription_id = '${SUB}'`,
+    )).rows[0].n).toBe(0);
+    expect((await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM public.processed_webhook_events WHERE event_id = 'wrong_price_past_due'`,
+    )).rows[0].n).toBe(0);
+    await db.close();
+  });
+
+  it('a terminal snapshot cannot fill a missing customer on an otherwise matching subscription', async () => {
+    const db = new PGlite();
+    await db.exec(BOOTSTRAP);
+    await db.exec(MIGRATION);
+    await db.exec(
+      `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
+       VALUES ('${USER}', 'free', '${SUB}', NULL)`,
+    );
+
+    const r = await snapshot(db, 'terminal_missing_customer', 'canceled', 1000, {
+      userId: USER,
+      hasApprovedPrice: false,
+    });
+
+    expect(r.success).toBe('false');
+    expect(r.error).not.toBeNull();
+    expect(await profile(db)).toEqual({
+      subscription_status: 'free',
+      stripe_subscription_id: SUB,
+      stripe_customer_id: null,
+    });
+    expect((await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM public.stripe_subscription_tombstones WHERE subscription_id = '${SUB}'`,
+    )).rows[0].n).toBe(0);
+    expect((await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM public.processed_webhook_events WHERE event_id = 'terminal_missing_customer'`,
+    )).rows[0].n).toBe(0);
+    await db.close();
+  });
+
   it('an active wrong-price snapshot revokes Pro but preserves the exact bound identity for correction', async () => {
     const db = await freshDbWithPaidPro();
     const r = await snapshot(db, 'wrong_price_bound', 'active', 1000, { hasApprovedPrice: false });
