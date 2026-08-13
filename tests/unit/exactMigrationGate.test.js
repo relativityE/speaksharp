@@ -6,6 +6,8 @@ import {
     assertAfterApply,
     assertBeforeApply,
     assertExactDryRun,
+    assertNoNewLint,
+    assertTerminalOutcome,
     HELD_FILE,
     TARGET_FILE,
     TARGET_SHA256,
@@ -35,12 +37,31 @@ describe('exact migration gate', () => {
     });
 
     it('proves only the target moved to remote history after apply', () => {
-        expect(assertAfterApply([matched, heldPending, targetApplied].join('\n'))).toEqual({
+        const before = [matched, heldPending, targetPending].join('\n');
+        expect(assertAfterApply(before, [matched, heldPending, targetApplied].join('\n'))).toEqual({
             pending: ['20260811143000'],
+            appliedDelta: '20260812002000:pending->applied',
         });
-        expect(() => assertAfterApply([matched, targetApplied].join('\n'))).toThrow(/held migration/);
-        expect(() => assertAfterApply([matched, targetApplied, ' 20260811143000 | 20260811143000 | x'].join('\n')))
-            .toThrow(/unexpectedly applied/);
+        expect(() => assertAfterApply(before, [matched, targetApplied].join('\n'))).toThrow(/added, removed/);
+        expect(() => assertAfterApply(before, [matched, targetApplied, ' 20260811143000 | 20260811143000 | x'].join('\n')))
+            .toThrow(/unexpected migration history delta/);
+        expect(() => assertAfterApply(before, [matched, heldPending, targetPending].join('\n')))
+            .toThrow(/unexpected migration history delta/);
+        expect(() => assertAfterApply(before, [matched, heldPending, targetApplied, ' | 20260813000000 | x'].join('\n')))
+            .toThrow(/remote migration history/);
+        expect(() => assertAfterApply(before, [matched, heldPending, targetApplied, ' 20260813000000 | 20260813000000 | x'].join('\n')))
+            .toThrow(/added, removed/);
+    });
+
+    it('requires baseline-relative lint and an unambiguous successful terminal outcome', () => {
+        const baseline = 'Connecting to remote database\nwarning: existing issue\n';
+        expect(assertNoNewLint(baseline, 'Connecting to remote database\nwarning: existing issue\n'))
+            .toEqual({ baselineFindings: 1, postFindings: 1 });
+        expect(() => assertNoNewLint(baseline, `${baseline}warning: new issue\n`)).toThrow(/differs/);
+        expect(assertTerminalOutcome('success', 'success', 'success')).toEqual({ terminal: 'success' });
+        expect(() => assertTerminalOutcome('failure', 'success', 'success')).toThrow(/apply command outcome/);
+        expect(() => assertTerminalOutcome('success', 'failure', 'success')).toThrow(/history verification/);
+        expect(() => assertTerminalOutcome('success', 'success', 'failure')).toThrow(/lint verification/);
     });
 
     it('fails closed on unparsable or remote-only migration state', () => {
@@ -63,9 +84,14 @@ describe('exact migration gate', () => {
         expect(workflow).toContain('environment: production-db');
         expect(workflow).toContain('group: production-database-migrations');
         expect(workflow).toContain('default branch advanced after dry-run');
+        expect(workflow).toContain('another migration-capable or migration-preflight workflow is active/queued');
         expect(workflow).toContain('node ../../scripts/exact-migration-gate.mjs before');
         expect(workflow).toContain('node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" dry-run');
-        expect(workflow).toContain('node ../../scripts/exact-migration-gate.mjs after');
+        expect(workflow).toContain('node ../../scripts/exact-migration-gate.mjs after "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"');
+        expect(workflow).toContain('continue-on-error: true');
+        expect(workflow).toContain("if: ${{ always() && steps.apply.outcome != 'skipped' }}");
+        expect(workflow).toContain('node ../../scripts/exact-migration-gate.mjs lint-delta');
+        expect(workflow).toContain('node scripts/exact-migration-gate.mjs final');
         expect(workflow).not.toMatch(/^\s+supabase migration repair/m);
         expect(workflow).not.toMatch(/^\s+supabase db push .*--include-all/m);
 

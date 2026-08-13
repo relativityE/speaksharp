@@ -57,6 +57,13 @@ jobs:
           current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
           [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced before execution'; exit 1; }
 
+          active_runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=in_progress&per_page=100")"
+          queued_runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=queued&per_page=100")"
+          for runs in "$active_runs" "$queued_runs"; do
+            others="$(jq --argjson current "$GITHUB_RUN_ID" '[.workflow_runs[] | select(.id != $current) | select(.name == "Deploy Supabase" or .name == "Apply webhook DB prerequisite (exact migration)" or .name == "Migrations Preflight (read-only)")] | length' <<<"$runs")"
+            [ "$others" = '0' ] || { echo '::error::another migration-capable or migration-preflight workflow is active/queued'; exit 1; }
+          done
+
       - uses: supabase/setup-cli@v2
         env:
           SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
@@ -78,6 +85,12 @@ jobs:
           supabase link --project-ref "$SUPABASE_PROJECT_ID"
           supabase migration list 2>&1 | tee "$RUNNER_TEMP/migrations-before.txt"
           node ../../scripts/exact-migration-gate.mjs before "$RUNNER_TEMP/migrations-before.txt"
+
+      - name: Establish read-only production lint baseline
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase db lint --linked --schema public --level warning 2>&1 | tee "$RUNNER_TEMP/lint-before.txt"
 
       - name: Build isolated target-only migration workspace
         run: |
@@ -107,17 +120,32 @@ jobs:
 
       - name: Apply the exact reviewed migration
         id: apply
+        continue-on-error: true
         working-directory: ${{ runner.temp }}/exact-supabase
         run: supabase db push --yes
 
       - name: Verify target applied and held migration remained pending
         id: verify
+        if: ${{ always() && steps.apply.outcome != 'skipped' }}
         working-directory: backend/supabase
         run: |
           set -euo pipefail
           supabase migration list 2>&1 | tee "$RUNNER_TEMP/migrations-after.txt"
-          node ../../scripts/exact-migration-gate.mjs after "$RUNNER_TEMP/migrations-after.txt"
-          supabase db lint --linked --schema public --fail-on warning
+          node ../../scripts/exact-migration-gate.mjs after "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"
+
+      - name: Verify migration introduced no production lint change
+        id: lint_verify
+        if: ${{ always() && steps.apply.outcome != 'skipped' }}
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase db lint --linked --schema public --level warning 2>&1 | tee "$RUNNER_TEMP/lint-after.txt"
+          node ../../scripts/exact-migration-gate.mjs lint-delta "$RUNNER_TEMP/lint-before.txt" "$RUNNER_TEMP/lint-after.txt"
+
+      - name: Require unambiguous exact-operation success
+        id: terminal
+        if: always()
+        run: node scripts/exact-migration-gate.mjs final "${{ steps.apply.outcome }}" "${{ steps.verify.outcome }}" "${{ steps.lint_verify.outcome }}"
 
       - name: Publish sanitized result
         if: always()
@@ -128,4 +156,6 @@ jobs:
           echo "- Held migration: \`20260811143000\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Apply step outcome: \`${{ steps.apply.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Post-apply verification outcome: \`${{ steps.verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Baseline-relative lint outcome: \`${{ steps.lint_verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Terminal exact-operation gate: \`${{ steps.terminal.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo '- No migration repair, `--include-all`, Edge deployment, secrets/config change, or trial/billing activation is performed.' >> "$GITHUB_STEP_SUMMARY"
