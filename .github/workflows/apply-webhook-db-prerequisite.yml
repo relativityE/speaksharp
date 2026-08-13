@@ -95,14 +95,10 @@ jobs:
       - name: Build isolated target-only migration workspace
         run: |
           set -euo pipefail
-          cp -R backend/supabase "$RUNNER_TEMP/exact-supabase"
-          mkdir "$RUNNER_TEMP/held-migrations"
-          mv "$RUNNER_TEMP/exact-supabase/migrations/$HELD_FILE" "$RUNNER_TEMP/held-migrations/$HELD_FILE"
-          test -f "$RUNNER_TEMP/exact-supabase/migrations/$TARGET_FILE"
-          test ! -e "$RUNNER_TEMP/exact-supabase/migrations/$HELD_FILE"
+          node scripts/exact-migration-gate.mjs prepare-workspace backend/supabase "$RUNNER_TEMP"
 
       - name: Prove dry-run is target-only
-        working-directory: ${{ runner.temp }}/exact-supabase
+        working-directory: ${{ runner.temp }}/exact-backend
         run: |
           set -euo pipefail
           supabase link --project-ref "$SUPABASE_PROJECT_ID"
@@ -121,7 +117,7 @@ jobs:
       - name: Apply the exact reviewed migration
         id: apply
         continue-on-error: true
-        working-directory: ${{ runner.temp }}/exact-supabase
+        working-directory: ${{ runner.temp }}/exact-backend
         run: supabase db push --yes
 
       - name: Verify target applied and held migration remained pending

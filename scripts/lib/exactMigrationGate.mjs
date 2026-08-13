@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
+import { basename, join, relative, resolve, sep } from 'node:path';
+
 export const TARGET_VERSION = '20260812002000';
 export const TARGET_FILE = `${TARGET_VERSION}_webhook_lifecycle_completeness_1282.sql`;
 export const TARGET_SHA256 = 'e2e77217547100158d4324c29feafaa2d6ecd3462b96add3b0e9002b0d923a13';
@@ -6,6 +10,110 @@ export const HELD_FILE = `${HELD_VERSION}_harden_exposed_security_definer_acl.sq
 
 const LIST_ROW = /^\s*(\d{8,14})?\s*\|\s*(\d{8,14})?\s*\|/;
 const MIGRATION_FILE = /\b(\d{8,14}_[A-Za-z0-9_.-]+\.sql)\b/g;
+const HELD_RELATIVE_PATH = `migrations/${HELD_FILE}`;
+
+function assertRegularFile(path, label) {
+    if (!existsSync(path) || !lstatSync(path).isFile()) {
+        throw new Error(`${label} is missing`);
+    }
+}
+
+function assertDirectory(path, label) {
+    if (!existsSync(path) || !lstatSync(path).isDirectory()) {
+        throw new Error(`${label} is missing`);
+    }
+}
+
+function fileHash(path) {
+    return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+/** Return a stable relative-path and SHA-256 inventory, rejecting non-file tree entries. */
+export function snapshotFileInventory(rootDir) {
+    const root = resolve(rootDir);
+    assertDirectory(root, 'Supabase source directory');
+    const inventory = [];
+
+    function visit(directory) {
+        for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+            const path = join(directory, entry.name);
+            if (entry.isSymbolicLink()) throw new Error('Supabase file inventory contains a symbolic link');
+            if (entry.isDirectory()) {
+                visit(path);
+            } else if (entry.isFile()) {
+                inventory.push({
+                    path: relative(root, path).split(sep).join('/'),
+                    sha256: fileHash(path),
+                });
+            } else {
+                throw new Error('Supabase file inventory contains an unsupported entry');
+            }
+        }
+    }
+
+    visit(root);
+    return inventory;
+}
+
+export function assertFileInventory(actual, expected, label) {
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+        throw new Error(`${label} inventory or bytes differ`);
+    }
+}
+
+export function verifyExactMigrationWorkspace(sourceSupabaseDir, workdir, sourceInventory) {
+    const source = resolve(sourceSupabaseDir);
+    const isolatedWorkdir = resolve(workdir);
+    if (basename(isolatedWorkdir) !== 'exact-backend') {
+        throw new Error('isolated workdir must be named exact-backend');
+    }
+
+    const supabaseDir = join(isolatedWorkdir, 'supabase');
+    const migrationsDir = join(supabaseDir, 'migrations');
+    assertRegularFile(join(supabaseDir, 'config.toml'), 'isolated supabase/config.toml');
+    assertDirectory(migrationsDir, 'isolated supabase/migrations directory');
+
+    const expectedInventory = sourceInventory.filter(({ path }) => path !== HELD_RELATIVE_PATH);
+    const isolatedInventory = snapshotFileInventory(supabaseDir);
+    assertFileInventory(isolatedInventory, expectedInventory, 'isolated Supabase');
+
+    const sourceAfter = snapshotFileInventory(source);
+    assertFileInventory(sourceAfter, sourceInventory, 'source Supabase');
+    return { isolatedInventory, sourceAfter };
+}
+
+/** Preserve the CLI-required <workdir>/supabase/migrations shape while holding one migration. */
+export function prepareExactMigrationWorkspace(sourceSupabaseDir, tempRoot) {
+    const source = resolve(sourceSupabaseDir);
+    const root = resolve(tempRoot);
+    const workdir = join(root, 'exact-backend');
+    const supabaseDir = join(workdir, 'supabase');
+    const migrationsDir = join(supabaseDir, 'migrations');
+    const heldDir = join(root, 'held-migrations');
+
+    if (existsSync(workdir) || existsSync(heldDir)) {
+        throw new Error('isolated migration workspace already exists');
+    }
+
+    assertRegularFile(join(source, 'config.toml'), 'source supabase/config.toml');
+    assertDirectory(join(source, 'migrations'), 'source supabase/migrations directory');
+    assertRegularFile(join(source, 'migrations', TARGET_FILE), 'source target migration');
+    assertRegularFile(join(source, 'migrations', HELD_FILE), 'source held migration');
+    const sourceInventory = snapshotFileInventory(source);
+    const heldSourceEntry = sourceInventory.find(({ path }) => path === HELD_RELATIVE_PATH);
+
+    mkdirSync(workdir);
+    cpSync(source, supabaseDir, { recursive: true, errorOnExist: true, force: false });
+    mkdirSync(heldDir);
+    renameSync(join(migrationsDir, HELD_FILE), join(heldDir, HELD_FILE));
+
+    const verification = verifyExactMigrationWorkspace(source, workdir, sourceInventory);
+    if (!heldSourceEntry || fileHash(join(heldDir, HELD_FILE)) !== heldSourceEntry.sha256) {
+        throw new Error('held migration bytes differ from source');
+    }
+
+    return { workdir, supabaseDir, heldDir, sourceInventory, ...verification };
+}
 
 export function parseMigrationList(output) {
     const rows = [];
