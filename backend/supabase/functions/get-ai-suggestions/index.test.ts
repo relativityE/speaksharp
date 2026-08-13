@@ -14,6 +14,8 @@ const suggestionB = {
 
 interface MockOptions {
   profile?: 'pro' | 'free' | 'unauthenticated';
+  entitlement?: Record<string, unknown>;
+  entitlementError?: unknown;
   userId?: string | null;
   session?: Record<string, unknown> | null;
   sessionError?: unknown;
@@ -75,7 +77,15 @@ function mockSupabase(options: MockOptions = {}) {
         ? { data: { user: { id: userId } }, error: null }
         : { data: { user: null }, error: { message: 'Unauthorized' } }),
     },
-    rpc: () => {
+    rpc: (name: string) => {
+      if (name === 'check_usage_limit') {
+        return Promise.resolve({
+          data: options.entitlement ?? (profile === 'free'
+            ? { can_start: false, is_pro: false, error: 'trial_expired' }
+            : { can_start: true, is_pro: true }),
+          error: options.entitlementError ?? null,
+        });
+      }
       state.rpcCount++;
       return Promise.resolve({
         data: options.quota ?? { allowed: true, remaining: 19, limit: 20 },
@@ -152,6 +162,23 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals((await handler(request(), mock.create)).status, 403);
   });
 
+  await t.step('allows active-trial analysis through the server entitlement seam', async () => {
+    resetProvider();
+    const mock = mockSupabase({
+      profile: 'free',
+      entitlement: { can_start: true, is_pro: true, trial_active: true },
+    });
+    assertEquals((await handler(request(), mock.create)).status, 200);
+    assertEquals(fetchCount, 1);
+  });
+
+  await t.step('fails closed when analysis entitlement is uncertain', async () => {
+    resetProvider();
+    const mock = mockSupabase({ entitlementError: { message: 'database unavailable' } });
+    assertEquals((await handler(request(), mock.create)).status, 503);
+    assertEquals(fetchCount, 0);
+  });
+
   await t.step('requires a saved session id and ignores caller evidence', async () => {
     const missing = mockSupabase();
     assertEquals((await handler(request({ transcript: 'forged' }), missing.create)).status, 400);
@@ -174,6 +201,19 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   await t.step('returns valid persisted coaching even after transcript expiry without regeneration', async () => {
     resetProvider();
     const mock = mockSupabase({ session: savedSession({ transcript: null, transcript_state: 'expired', ai_suggestions: suggestionA }) });
+    const res = await handler(request(), mock.create);
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).suggestions, suggestionA);
+    assertEquals(fetchCount, 0);
+    assertEquals(mock.state.rpcCount, 0);
+  });
+
+  await t.step('keeps cached coaching readable for an expired account without new analysis', async () => {
+    resetProvider();
+    const mock = mockSupabase({
+      profile: 'free',
+      session: savedSession({ ai_suggestions: suggestionA }),
+    });
     const res = await handler(request(), mock.create);
     assertEquals(res.status, 200);
     assertEquals((await res.json()).suggestions, suggestionA);

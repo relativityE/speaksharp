@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const STAMP = readFileSync(
-  resolve(process.cwd(), 'backend', 'supabase', 'migrations', '20260812000500_trial_activation_stamp_1282.sql'),
+  resolve(process.cwd(), 'backend', 'supabase', 'migrations', '20260812042000_trial_activation_stamp_1282.sql'),
   'utf8',
 );
 
@@ -19,6 +19,7 @@ CREATE TABLE public.user_profiles (
   stripe_subscription_id text,
   trial_started_at timestamptz,
   trial_expires_at timestamptz,
+  commercial_trial_granted_at timestamptz,
   updated_at timestamptz DEFAULT now()
 );`;
 

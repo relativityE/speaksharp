@@ -49,3 +49,18 @@ INSERT INTO public.tier_configs (tier_name, daily_limit_seconds, monthly_limit_s
 VALUES ('free', 3600, 90000, ARRAY['native']::text[]),
        ('pro',  7200, 180000, ARRAY['native', 'private', 'cloud']::text[])
 ON CONFLICT (tier_name) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS public.sessions (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id uuid NOT NULL,
+    duration int DEFAULT 0,
+    transcript text,
+    status text DEFAULT 'active',
+    status_reason text,
+    engine text DEFAULT 'private',
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
+);
+
+CREATE OR REPLACE FUNCTION public.converge_transcript_retention(uuid)
+RETURNS jsonb LANGUAGE sql AS $$ SELECT jsonb_build_object('status', 'ok') $$;

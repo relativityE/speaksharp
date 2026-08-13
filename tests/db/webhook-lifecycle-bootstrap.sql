@@ -1,8 +1,8 @@
 -- Throwaway bootstrap for EXECUTING the #1282 webhook-lifecycle migration in a REAL PostgreSQL (PGlite).
 -- NOT a migration; never applied anywhere. Supplies only what a bare engine lacks and Supabase
 -- preinstalls: roles, and the minimal public.user_profiles / public.processed_webhook_events shapes the
--- migration REFERENCES, plus a faithful public.effective_subscription_tier stub mirroring #1282 migration
--- 20260812000000 (so entitlement transitions can be asserted). The artefact under test — the webhook
+-- migration REFERENCES, plus a paid-entitlement compatibility stub for the #1282 foundation migration
+-- 20260812040000 (these tests exercise paid webhook transitions). The artefact under test — the webhook
 -- migration 20260812002000 (process_stripe_webhook_event) — is applied VERBATIM from disk by the test and
 -- is never rewritten here. Content-free: synthetic ids only.
 
@@ -34,9 +34,8 @@ CREATE TABLE IF NOT EXISTS public.processed_webhook_events (
     processed_at timestamptz DEFAULT now()
 );
 
--- Faithful stub of the #1282 resolver (migration 20260812000000): full product (pro) when paid
--- (status=pro AND a real stripe_subscription_id) OR inside a live trial (trial_expires_at > now());
--- otherwise free. Lets the test assert entitlement at each lifecycle step.
+-- Paid-path compatibility stub of the #1282 resolver. Trial-marker behavior is exercised by the dedicated
+-- trial journey suite; this bootstrap asserts paid webhook lifecycle transitions only.
 CREATE OR REPLACE FUNCTION public.effective_subscription_tier(
   p_subscription_status TEXT,
   p_trial_expires_at TIMESTAMPTZ DEFAULT NULL,
@@ -50,8 +49,6 @@ AS $$
   SELECT CASE
     WHEN lower(COALESCE(p_subscription_status, 'free')) = 'pro'
       AND NULLIF(trim(COALESCE(p_stripe_subscription_id, '')), '') IS NOT NULL
-    THEN 'pro'
-    WHEN p_trial_expires_at IS NOT NULL AND p_trial_expires_at > now()
     THEN 'pro'
     ELSE 'free'
   END;

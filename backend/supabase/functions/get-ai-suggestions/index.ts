@@ -72,9 +72,9 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
 
     // RLS policy on user_profiles enforces that users can only access their own profile
     // This eliminates the redundant getUser() + eq('id', user.id) pattern
-    const { data: profile, error: profileError } = await supabaseClient
+    const { error: profileError } = await supabaseClient
       .from('user_profiles')
-      .select('subscription_status')
+      .select('id')
       .single();
 
     if (profileError) {
@@ -89,14 +89,6 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       return new Response(JSON.stringify({ error: 'Failed to fetch user profile' }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 500,
-      });
-    }
-
-    const isPro = profile?.subscription_status === 'pro';
-    if (!isPro) {
-      return new Response(JSON.stringify({ error: 'User is not on a Pro plan' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 403,
       });
     }
 
@@ -149,6 +141,24 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       return new Response(JSON.stringify({ error: 'AI coaching requires an available saved transcript' }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 409,
+      });
+    }
+
+    // Generating new coaching is an analysis operation, so it uses the same server-authoritative
+    // commercial entitlement seam as recording. A marked active trial and a paid subscription both
+    // pass; an expired/unpaid account fails closed. Cached coaching above remains readable after expiry.
+    const { data: entitlement, error: entitlementError } = await supabaseClient.rpc('check_usage_limit');
+    if (entitlementError) {
+      console.error('Entitlement check failed:', entitlementError);
+      return new Response(JSON.stringify({ error: 'Unable to verify analysis access' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 503,
+      });
+    }
+    if (entitlement?.can_start !== true || entitlement?.is_pro !== true) {
+      return new Response(JSON.stringify({ error: 'Trial has ended' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 403,
       });
     }
 

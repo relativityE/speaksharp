@@ -43,13 +43,51 @@ Deno.test("stripe-webhook — canonical snapshot flow", async (t) => {
   await t.step("checkout.session.completed with an active, correctly-priced sub → snapshot with user binding", async () => {
     const sb = mkSupabase();
     const res = await handler(req({ id: "e1", type: "checkout.session.completed", created: 1000,
-      data: { object: { metadata: { userId: "user_1" }, subscription: "sub_1", customer: "cus_1" } } }),
+      data: { object: { metadata: { userId: "user_1" }, client_reference_id: "user_1", subscription: "sub_1", customer: "cus_1" } } }),
       mkStripe(), sb.supabase, "secret", env);
     assertEquals(res.status, 200);
     assertEquals(sb.calls().p_status, "active");
     assertEquals(sb.calls().p_user_id, "user_1");        // first binding uses checkout metadata
     assertEquals(sb.calls().p_subscription_id, "sub_1");
+    assertEquals(sb.calls().p_customer_id, "cus_1");
+    assertEquals(sb.calls().p_has_approved_price, true);
     assertEquals(sb.calls().p_event_created, 1000);
+  });
+
+  await t.step("checkout.session.completed WITHOUT client_reference_id → 400 (no grant)", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e2b", type: "checkout.session.completed", data: { object: {
+      metadata: { userId: "user_1" }, subscription: "sub_1", customer: "cus_1",
+    } } }), mkStripe(), sb.supabase, "secret", env);
+    assertEquals(res.status, 400);
+    assertEquals(sb.calls(), null);
+  });
+
+  await t.step("checkout metadata/client_reference_id mismatch → 400 (no grant)", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e2c", type: "checkout.session.completed", data: { object: {
+      metadata: { userId: "user_1" }, client_reference_id: "user_2", subscription: "sub_1", customer: "cus_1",
+    } } }), mkStripe(), sb.supabase, "secret", env);
+    assertEquals(res.status, 400);
+    assertEquals(sb.calls(), null);
+  });
+
+  await t.step("checkout missing customer → 400 (no grant)", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e2d", type: "checkout.session.completed", data: { object: {
+      metadata: { userId: "user_1" }, client_reference_id: "user_1", subscription: "sub_1",
+    } } }), mkStripe(), sb.supabase, "secret", env);
+    assertEquals(res.status, 400);
+    assertEquals(sb.calls(), null);
+  });
+
+  await t.step("checkout customer differs from hydrated subscription customer → non-2xx (no grant)", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e2e", type: "checkout.session.completed", data: { object: {
+      metadata: { userId: "user_1" }, client_reference_id: "user_1", subscription: "sub_1", customer: "cus_other",
+    } } }), mkStripe(), sb.supabase, "secret", env);
+    assertEquals(res.status, 400);
+    assertEquals(sb.calls(), null);
   });
 
   await t.step("checkout.session.completed WITHOUT userId metadata → 400 (no grant)", async () => {
@@ -65,15 +103,16 @@ Deno.test("stripe-webhook — canonical snapshot flow", async (t) => {
     assertEquals(res.status, 200);
     assertEquals(sb.calls().p_status, "active");
     assertEquals(sb.calls().p_user_id, null);           // later events use stored identity
+    assertEquals(sb.calls().p_has_approved_price, true);
   });
 
-  await t.step("active sub with the WRONG price → non-2xx, NO snapshot (cannot grant)", async () => {
+  await t.step("active sub with the WRONG price → snapshot revokes/refuses Pro, then non-2xx", async () => {
     const sb = mkSupabase();
     const wrong = sub({ items: { data: [{ price: { id: "price_other", active: true, unit_amount: 500, currency: "usd", recurring: { interval: "month", interval_count: 1 } } }] } });
     const res = await handler(req({ id: "e4", type: "customer.subscription.updated", data: { object: { id: "sub_1" } } }),
       mkStripe({ retrieveSub: wrong }), sb.supabase, "secret", env);
     assertEquals(res.status, 500);
-    assertEquals(sb.calls(), null);                     // snapshot never called
+    assertEquals(sb.calls().p_has_approved_price, false);
   });
 
   await t.step("active sub with a 3-month interval_count → non-2xx (not monthly)", async () => {
@@ -89,6 +128,7 @@ Deno.test("stripe-webhook — canonical snapshot flow", async (t) => {
       mkStripe({ retrieveSub: sub({ status: "past_due" }) }), sb.supabase, "secret", env);
     assertEquals(res.status, 200);
     assertEquals(sb.calls().p_status, "past_due");
+    assertEquals(sb.calls().p_has_approved_price, false);
   });
 
   await t.step("deleted/canceled → snapshot 'canceled' (terminal; no price check)", async () => {
@@ -97,6 +137,15 @@ Deno.test("stripe-webhook — canonical snapshot flow", async (t) => {
       mkStripe({ retrieveSub: sub({ status: "canceled" }) }), sb.supabase, "secret", env);
     assertEquals(res.status, 200);
     assertEquals(sb.calls().p_status, "canceled");
+    assertEquals(sb.calls().p_has_approved_price, false);
+  });
+
+  await t.step("hydrated subscription missing customer → non-2xx, no snapshot", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e6b", type: "customer.subscription.updated", data: { object: { id: "sub_1" } } }),
+      mkStripe({ retrieveSub: sub({ customer: "" }) }), sb.supabase, "secret", env);
+    assertEquals(res.status, 502);
+    assertEquals(sb.calls(), null);
   });
 
   await t.step("subscription retrieval failure → 502 (retryable, no snapshot)", async () => {

@@ -80,6 +80,7 @@ export async function handler(
     // VALIDATE the configured $10/mo price for granting states, then apply a canonical snapshot.
     let subscriptionId: string | null = null;
     let bindUserId: string | null = null; // first-activation binding uses server-created checkout metadata
+    let checkoutCustomerId: string | null = null;
 
     switch (event.type) {
       case "checkout.session.completed": {
@@ -87,11 +88,25 @@ export async function handler(
         // below. First account binding uses the server-created metadata.userId; later events use the
         // stored subscription/customer identity (no metadata needed).
         const session = event.data.object;
-        bindUserId = session?.metadata?.userId ?? null;
+        bindUserId = typeof session?.metadata?.userId === "string" && session.metadata.userId.trim()
+          ? session.metadata.userId.trim()
+          : null;
+        const clientReferenceId = typeof session?.client_reference_id === "string" && session.client_reference_id.trim()
+          ? session.client_reference_id.trim()
+          : null;
+        checkoutCustomerId = normalizeStripeObjectId(session?.customer);
         subscriptionId = normalizeStripeObjectId(session?.subscription);
-        if (!bindUserId) {
-          console.error("[Stripe] Missing userId in checkout session metadata");
-          return createErrorResponse(ErrorCodes.VALIDATION_MISSING_METADATA, "Missing userId metadata", responseHeaders);
+        if (!bindUserId || !clientReferenceId || bindUserId !== clientReferenceId) {
+          console.error("[Stripe] Checkout user identity is missing or inconsistent");
+          return createErrorResponse(ErrorCodes.VALIDATION_MISSING_METADATA, "Checkout identity validation failed", responseHeaders);
+        }
+        if (!checkoutCustomerId) {
+          console.error("[Stripe] Checkout customer is missing");
+          return createErrorResponse(ErrorCodes.VALIDATION_MISSING_METADATA, "Checkout customer validation failed", responseHeaders);
+        }
+        if (!subscriptionId) {
+          console.error("[Stripe] Checkout subscription is missing");
+          return createErrorResponse(ErrorCodes.VALIDATION_MISSING_METADATA, "Checkout subscription validation failed", responseHeaders);
         }
         break;
       }
@@ -126,11 +141,20 @@ export async function handler(
 
     const status = String(subscription?.status ?? "");
     const customerId = normalizeStripeObjectId(subscription?.customer);
+    if (!status || !customerId) {
+      console.error(`[Stripe Webhook] hydrated subscription identity is incomplete for ${subscriptionId}`);
+      return createErrorResponse(ErrorCodes.STRIPE_API_ERROR, "Subscription identity is incomplete", responseHeaders);
+    }
+    if (checkoutCustomerId && checkoutCustomerId !== customerId) {
+      console.error(`[Stripe Webhook] checkout/subscription customer mismatch for ${subscriptionId}`);
+      return createErrorResponse(ErrorCodes.VALIDATION_MISSING_METADATA, "Checkout customer validation failed", responseHeaders);
+    }
     const cancelAtPeriodEnd = subscription?.cancel_at_period_end === true;
     const currentPeriodEnd = typeof subscription?.current_period_end === "number" ? subscription.current_period_end : null;
     // Only active/trialing grant paid access; past_due/unpaid/incomplete/incomplete_expired/paused/canceled
     // do not. cancel_at_period_end with an 'active' status keeps access until the period-end 'canceled' snapshot.
     const grantingStatus = status === "active" || status === "trialing";
+    let hasApprovedPrice = false;
 
     // A GRANTING subscription MUST contain the configured, validated $10 monthly price. Price uncertainty is
     // retryable (non-2xx); a definitive price mismatch cannot grant paid access (non-2xx, surfaced).
@@ -142,7 +166,8 @@ export async function handler(
       }
       if (!priceCheck.ok) {
         console.error(`[Stripe Webhook] active subscription lacks the configured price (${priceCheck.reason})`);
-        return createErrorResponse(ErrorCodes.CONFIG_INVALID_PRICE, "Subscription does not match the configured Pro price", responseHeaders);
+      } else {
+        hasApprovedPrice = true;
       }
     }
 
@@ -155,6 +180,7 @@ export async function handler(
       p_status: status,
       p_cancel_at_period_end: cancelAtPeriodEnd,
       p_current_period_end: currentPeriodEnd,
+      p_has_approved_price: hasApprovedPrice,
       p_user_id: bindUserId,
       p_event_created: typeof event.created === 'number' ? event.created : null,
     });
@@ -162,6 +188,12 @@ export async function handler(
     if (error || (data && data.success === false)) {
       console.error(`[Stripe Webhook] snapshot application failed for ${event.id}:`, error ?? data?.error);
       return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Snapshot application failed", responseHeaders);
+    }
+
+    // A definitive wrong-price snapshot must first revoke/refuse entitlement in the database, then remain
+    // non-2xx so Stripe/operator evidence cannot mistake it for a valid paid subscription.
+    if (grantingStatus && !hasApprovedPrice) {
+      return createErrorResponse(ErrorCodes.CONFIG_INVALID_PRICE, "Subscription does not match the configured Pro price", responseHeaders);
     }
 
     if (data?.skipped) {

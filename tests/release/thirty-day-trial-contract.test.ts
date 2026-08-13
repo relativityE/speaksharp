@@ -9,11 +9,11 @@ const readMigration = (name: string) =>
     readFileSync(resolve(process.cwd(), 'backend', 'supabase', 'migrations', name), 'utf8');
 
 describe('#1282 30-day trial lifecycle — entitlement foundation', () => {
-    const migration = readMigration('20260812000000_thirty_day_trial_lifecycle_1282.sql');
+    const migration = readMigration('20260812040000_thirty_day_trial_lifecycle_1282.sql');
 
     it('grants full product for a LIVE trial window while preserving the paid-Pro invariant', () => {
         // Live (unexpired) trial -> pro.
-        expect(migration).toMatch(/p_trial_expires_at IS NOT NULL AND p_trial_expires_at > now\(\)\s*\n\s*THEN 'pro'/);
+        expect(migration).toMatch(/p_commercial_trial_granted_at IS NOT NULL\s*\n\s*AND p_trial_expires_at IS NOT NULL\s*\n\s*AND p_trial_expires_at > now\(\)\s*\n\s*THEN 'pro'/);
         // Paid Pro STILL requires status=pro AND a real stripe_subscription_id (unchanged invariant).
         expect(migration).toMatch(/lower\(COALESCE\(p_subscription_status, 'free'\)\) = 'pro'\s*\n\s*AND NULLIF\(trim\(COALESCE\(p_stripe_subscription_id, ''\)\), ''\) IS NOT NULL\s*\n\s*THEN 'pro'/);
         // Everything else is free.
@@ -23,6 +23,8 @@ describe('#1282 30-day trial lifecycle — entitlement foundation', () => {
     it('stamps a 30-day full-product window on a new account', () => {
         expect(migration).toMatch(/CREATE OR REPLACE FUNCTION public\.ensure_trial_profile_for_new_user/);
         expect(migration).toMatch(/now\(\)\s*\+\s*interval '30 days'/);
+        expect(migration).toMatch(/ADD COLUMN IF NOT EXISTS commercial_trial_granted_at TIMESTAMPTZ/);
+        expect(migration).toMatch(/trial_expires_at,\s*\n\s*commercial_trial_granted_at/);
         // New account is 'free' subscription_status with a live trial window (not paid).
         expect(migration).toMatch(/NEW\.id,\s*\n\s*'free',/);
         // Idempotent: never shorten/backdate an existing live window.
@@ -35,11 +37,17 @@ describe('#1282 30-day trial lifecycle — entitlement foundation', () => {
         expect(migration).toMatch(/REVOKE EXECUTE ON FUNCTION public\.ensure_trial_profile_for_new_user\(\) FROM PUBLIC, anon, authenticated, service_role/);
     });
 
+    it('makes the commercial grant marker immutable once set', () => {
+        expect(migration).toMatch(/IF OLD\.commercial_trial_granted_at IS NOT NULL/);
+        expect(migration).toMatch(/RAISE EXCEPTION 'commercial_trial_granted_at is immutable'/);
+        expect(migration).toMatch(/REVOKE EXECUTE ON FUNCTION public\.preserve_commercial_trial_grant\(\) FROM PUBLIC, anon, authenticated, service_role/);
+    });
+
     it('the activation stamp is a SEPARATE launch-authorized migration, not in the foundation', () => {
         // #1282 blocker 3: the foundation migration must NOT stamp existing users (that would start the
         // 30-day clock at an early apply). It only documents that the stamp lives elsewhere.
         expect(migration).not.toMatch(/UPDATE public\.user_profiles\s*\n\s*SET trial_started_at = now\(\)/);
-        expect(migration).toMatch(/20260812000500_trial_activation_stamp_1282\.sql/);
+        expect(migration).toMatch(/20260812042000_trial_activation_stamp_1282\.sql/);
     });
 
     it('restores a 30-day default on both trial-window columns', () => {
@@ -53,14 +61,14 @@ describe('#1282 30-day trial lifecycle — entitlement foundation', () => {
 });
 
 describe('#1282 trial activation stamp — separate, one-time, non-extending (blocker 3)', () => {
-    const stamp = readMigration('20260812000500_trial_activation_stamp_1282.sql');
+    const stamp = readMigration('20260812042000_trial_activation_stamp_1282.sql');
 
     it('gates on a DEDICATED immutable grant marker (not the extend-prone trial_started_at)', () => {
         // Legacy accounts may already carry an expired non-null trial_started_at; the guard must be the
         // dedicated marker so they still get exactly one fresh window and a rerun cannot re-grant.
-        expect(stamp).toMatch(/ADD COLUMN IF NOT EXISTS commercial_trial_granted_at TIMESTAMPTZ/);
+        expect(stamp).not.toMatch(/ADD COLUMN IF NOT EXISTS commercial_trial_granted_at/);
         expect(stamp).toMatch(/WHERE commercial_trial_granted_at IS NULL/);
-        expect(stamp).toMatch(/commercial_trial_granted_at = now\(\)/); // the marker is set on grant
+        expect(stamp).toMatch(/commercial_trial_granted_at = v_activation_at/); // one captured server timestamp
         expect(stamp).not.toMatch(/WHERE trial_started_at IS NULL/);
         expect(stamp).not.toMatch(/trial_expires_at IS NULL OR trial_expires_at <= now\(\)/);
     });
@@ -70,15 +78,15 @@ describe('#1282 trial activation stamp — separate, one-time, non-extending (bl
     });
 
     it('provides a read-only preflight count AND a post-apply count (NOTICE is not the sole authority)', () => {
-        expect(stamp).toMatch(/#1282 preflight: % unpaid account\(s\) will be granted/);
-        expect(stamp).toMatch(/% paid account\(s\) protected/);
-        expect(stamp).toMatch(/SET trial_started_at = now\(\),\s*\n\s*trial_expires_at = now\(\) \+ interval '30 days',\s*\n\s*commercial_trial_granted_at = now\(\)/);
-        expect(stamp).toMatch(/post-apply count/);
+        expect(stamp).toMatch(/AS commercial_trial_activation_preflight/);
+        expect(stamp).toMatch(/'eligible_unpaid'/);
+        expect(stamp).toMatch(/SET trial_started_at = v_activation_at,\s*\n\s*trial_expires_at = v_activation_at \+ interval '30 days',\s*\n\s*commercial_trial_granted_at = v_activation_at/);
+        expect(stamp).toMatch(/AS commercial_trial_activation_post_state/);
     });
 });
 
 describe('#1282 30-day trial lifecycle — expired state fails closed (slice 2)', () => {
-    const enforcement = readMigration('20260812001000_trial_expiry_fail_closed_1282.sql');
+    const enforcement = readMigration('20260812041000_trial_expiry_fail_closed_1282.sql');
 
     it('refuses new recording for non-pro (expired/unpaid) in the write path', () => {
         expect(enforcement).toMatch(/CREATE OR REPLACE FUNCTION public\.update_user_usage/);
@@ -107,5 +115,19 @@ describe('#1282 30-day trial lifecycle — expired state fails closed (slice 2)'
 
     it('keeps the paid invariant when computing paid-vs-trial (real Stripe sub required for paid)', () => {
         expect(enforcement).toMatch(/lower\(COALESCE\(subscription_status, 'free'\)\) = 'pro'\s*\n\s*AND NULLIF\(trim\(COALESCE\(stripe_subscription_id, ''\)\), ''\) IS NOT NULL\)/);
+    });
+
+    it('never denies an entitled account for accumulated daily/monthly usage and allows only Private', () => {
+        expect(enforcement).not.toMatch(/'error', 'daily_limit_reached'/);
+        expect(enforcement).not.toMatch(/'error', 'monthly_limit_reached'/);
+        expect(enforcement).toMatch(/'can_start', true/);
+        expect(enforcement).toMatch(/SET allowed_engines = ARRAY\['private'\]::text\[\]/);
+        expect(enforcement).not.toMatch(/ARRAY\['private',/);
+    });
+
+    it('rechecks expiry on save and preserves the shared 600-second per-recording cap', () => {
+        expect(enforcement).toMatch(/CREATE OR REPLACE FUNCTION public\.complete_session/);
+        expect(enforcement).toMatch(/IF COALESCE\(v_effective_tier, 'free'\) <> 'pro' THEN\s*\n\s*RETURN jsonb_build_object\('success', false, 'error', 'trial_expired'\)/);
+        expect(enforcement).toMatch(/LEAST\(600, GREATEST\(0, COALESCE\(p_final_duration/);
     });
 });
