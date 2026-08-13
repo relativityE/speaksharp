@@ -1,6 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import { navigateToRoute, debugLog, canaryLogin } from '../e2e/helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
+import {
+    classifyCanaryStartResponse,
+    classifyCanaryUsageEntitlement,
+    type CanaryStartRpcPayload,
+} from './canaryRuntimeContract';
 
 /**
  * #1106 — deploy-race gate. The canary is triggered on push to main, but Vercel's deploy is async, so a
@@ -101,11 +106,11 @@ async function ensurePrivateReady(page: Page) {
  * 
  * Purpose: Verify the "Critical Path" is operational.
  * 1. Login (Real Auth)
- * 2. Start Session (Real DB Insert, Native STT)
+ * 2. Start Session (Real DB Insert, on-device Private STT)
  * 3. Stop Session (Real DB Update)
  * 4. Verify Analytics (Real DB Select)
  * 
- * Cost: $0.00 (Uses Native Browser STT)
+ * Recording cost: $0.00 (uses on-device Private STT)
  * 
  * Modeled after soak test pattern for proven reliability.
  * 
@@ -123,10 +128,10 @@ test.describe('Production Smoke Canary @canary', () => {
 
     test('should complete a full session cycle on real infrastructure', async ({ page }) => {
         // Capture the SERVER entitlement response (also recorded in the trace's network log) so the
-        // affordance assertion below matches the account's ACTUAL state — post-#1047 there is no fixed
-        // tier badge; a Free account's affordance depends on its live Private-sample state.
+        // journey proves the reusable synthetic account is durably paid and currently allowed to start.
         let usageBody: {
             subscription_status?: string; is_pro?: boolean; can_start?: boolean;
+            error?: string;
             private_sample_available?: boolean; private_sample_seconds_remaining?: number;
             private_sample_limit_seconds?: number;
         } | null = null;
@@ -182,10 +187,16 @@ test.describe('Production Smoke Canary @canary', () => {
             }, null, 2),
         });
 
-        // #1184: Private is the ONLY engine for every account — Free and Pro alike. There is no
-        // Browser/Cloud choice and no Free→Private trial nudge (the sample-trial machinery is retired).
-        // Every account can start a Private session; `can_start` reflects usage-minute availability, not
-        // engine access. Pro still surfaces the Pro badge.
+        // After the coordinated cutover, this reusable account is an isolated paid synthetic canary.
+        // Stripe authority is proven outside this browser response; CI never resets a one-shot sample
+        // or extends a customer-style trial to keep this journey green.
+        const usageOutcome = classifyCanaryUsageEntitlement(u);
+        if ('category' in usageOutcome) {
+            throw new Error(`CANARY_ENTITLEMENT_DENIED:${usageOutcome.category}`);
+        }
+
+        // #1184: Private is the only engine surfaced to this paid canary. There is no Browser/Cloud choice
+        // or trial nudge; `can_start` must be confirmed by the server before recording begins.
         if (u.is_pro) {
             await expect(page.getByTestId(TEST_IDS.PRO_BADGE)).toBeVisible({ timeout: 15000 });
         }
@@ -200,20 +211,37 @@ test.describe('Production Smoke Canary @canary', () => {
         debugLog('[CANARY] Starting session...');
         const startButton = page.getByTestId('mic-start');
         await expect(startButton).toBeEnabled();
+        const authoritativeStart = page.waitForResponse((response) =>
+            response.request().method() === 'POST'
+            && response.url().includes('/rest/v1/rpc/create_session_and_update_usage'),
+        { timeout: 20000 });
         await startButton.click();
 
-        // Wait for session to become active
-        await page.waitForSelector('[data-testid="session-status-indicator"]', { timeout: 10000 });
+        // Fail on the authoritative start denial BEFORE waiting on any secondary UI selector. The
+        // category is strictly sanitized so traces/logs identify private_sample_used (etc.) without
+        // reflecting arbitrary database text.
+        const startResponse = await authoritativeStart;
+        let startPayload: CanaryStartRpcPayload | null = null;
+        try { startPayload = await startResponse.json() as CanaryStartRpcPayload; } catch { /* classified below */ }
+        const startOutcome = classifyCanaryStartResponse(startResponse.status(), startPayload);
+        await test.info().attach('authoritative-recording-start', {
+            contentType: 'application/json',
+            body: JSON.stringify(startOutcome, null, 2),
+        });
+        expect(startOutcome.ok, `CANARY_START_DENIED:${startOutcome.ok ? 'none' : startOutcome.category}`).toBe(true);
 
-        // #1267 P1 — PROVE the ACTIVE recording engine is Private, not merely that a recorder control was
-        // visible. The live session header (StatusNotificationBar) exposes the resolved engine on
-        // `data-engine` (the store's `activeEngine`, which is literally `private` for on-device Private STT).
-        // Asserting it here means the canary can NEVER pass while a non-Private engine (Browser/Cloud) is
-        // the one actually transcribing — the core privacy guarantee of the Practice Loop.
+        // Prove the current runtime + during-state seams AND exact Private authority. The ambient header
+        // remains a corroborating assertion, never the sole proof; Browser/Cloud/Native cannot satisfy
+        // these exact attributes.
+        await expect(page.locator('html[data-runtime-state="RECORDING"][data-stt-resolved-mode="private"]'))
+            .toBeVisible({ timeout: 10000 });
+        await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]'))
+            .toBeVisible({ timeout: 10000 });
+        await expect(page.locator('body[data-stt-policy="private"]')).toBeVisible();
         await expect(
-            page.locator('[data-testid="live-session-header"][data-engine="private"]'),
+            page.locator('[data-testid="live-session-header"][data-engine="private"][data-recording="true"]'),
         ).toBeVisible({ timeout: 10000 });
-        debugLog('[CANARY] Confirmed active recording engine is Private (data-engine="private").');
+        debugLog('[CANARY] Confirmed runtime=RECORDING, during-state, and exact Private engine authority.');
 
         // 5. Record for 5 seconds
         debugLog('[CANARY] Recording for 5 seconds...');
@@ -221,7 +249,9 @@ test.describe('Production Smoke Canary @canary', () => {
 
         // 6. Stop Session — the during-state RecorderBar exposes `recorder-stop`.
         debugLog('[CANARY] Stopping session...');
-        await page.getByTestId('recorder-stop').click();
+        const stopButton = page.getByTestId('recorder-stop');
+        await expect(stopButton).toBeVisible();
+        await stopButton.click();
 
         // 7. Handle session end (dialog, empty state, or redirect)
         const dialogLocator = page.locator('div[role="alertdialog"]');

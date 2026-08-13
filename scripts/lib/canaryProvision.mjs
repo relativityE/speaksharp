@@ -14,8 +14,11 @@
  *    deterministic invalid-credentials/account-unavailable result → recovery.
  *  - Recovery is existence-FIRST (admin lookup), then update-only (existing) or create-only (missing) —
  *    never uses a createUser conflict as the existence test, never touches a non-canary account.
- *  - Tier verification FAILS CLOSED: a query error, missing profile, null/unknown, or non-free tier is
- *    NOT healthy. provisionCanary consumes and enforces it.
+ *  - Local profile-binding verification FAILS CLOSED: a query error, missing profile, non-Pro status,
+ *    or blank billing identity is NOT healthy. This row is not authoritative Stripe proof; coordinated
+ *    cutover requires separate read-only Stripe verification before the first green production run.
+ *    Provisioning never writes profile, trial, subscription, or Stripe state; those remain separately
+ *    authorized production operations.
  * No credentials, tokens, JWT claims, or user records are returned/logged.
  */
 
@@ -87,14 +90,27 @@ export async function signInWithBoundedRetry(anon, creds, { attempts = 3, sleep 
   return { ok: false, classification: cls }; // transient exhausted
 }
 
-/** Verify the signed-in canary's own tier. FAIL-CLOSED: error / missing / null / non-free is NOT healthy. */
-export async function verifyTier(anon, userId) {
-  const { data, error } = await anon.from('user_profiles').select('subscription_status').eq('id', userId).maybeSingle();
+const nonBlank = (value) => typeof value === 'string' && value.trim().length > 0;
+
+/**
+ * Verify the signed-in canary's local profile binding. This is intentionally read-only and deliberately
+ * does not claim the referenced Stripe objects exist or are current. CI must never reset/extend a
+ * customer-style trial, forge a profile entitlement, or manufacture Stripe identity.
+ */
+export async function verifyCanaryProfileBinding(anon, userId) {
+  const { data, error } = await anon
+    .from('user_profiles')
+    .select('subscription_status,stripe_customer_id,stripe_subscription_id')
+    .eq('id', userId)
+    .maybeSingle();
   if (error) return { ok: false, tier: null, reason: `profile query error [${classifyError(error).category}]` };
   const tier = data?.subscription_status ?? null;
   if (tier === null) return { ok: false, tier: null, reason: 'profile missing or subscription_status null' };
-  if (tier !== 'free') return { ok: false, tier, reason: `unexpected tier '${tier}' (expected free)` };
-  return { ok: true, tier };
+  if (tier !== 'pro') return { ok: false, tier, reason: `unexpected tier '${tier}' (expected paid pro)` };
+  if (!nonBlank(data?.stripe_customer_id) || !nonBlank(data?.stripe_subscription_id)) {
+    return { ok: false, tier, reason: 'paid canary local profile is missing customer/subscription identifiers' };
+  }
+  return { ok: true, tier, localProfileBound: true };
 }
 
 /** Existence-FIRST admin lookup of the EXACT canary account by email (bounded retry). Admin path only. */
@@ -144,7 +160,7 @@ export async function enforceCeiling(admin, { max = 1, enforce = false, emailRe 
 
 /**
  * Provisioning/HEALTH only (no ceiling — that is a separate hygiene step). RETURNS a result.
- * Statuses: 'healthy' | 'recovered' | 'config_error' | 'tier_error' | 'failed'.
+ * Statuses: 'healthy' | 'recovered' | 'config_error' | 'entitlement_error' | 'failed'.
  */
 export async function provisionCanary({ anon, admin, config }) {
   const { email, password } = config;
@@ -171,8 +187,8 @@ export async function provisionCanary({ anon, admin, config }) {
     recovered = true;
   }
 
-  const tier = await verifyTier(anon, signIn.userId);
-  if (!tier.ok) return { status: 'tier_error', tier: tier.tier, message: tier.reason };
+  const tier = await verifyCanaryProfileBinding(anon, signIn.userId);
+  if (!tier.ok) return { status: 'entitlement_error', tier: tier.tier, message: tier.reason };
 
-  return { status: recovered ? 'recovered' : 'healthy', userId: signIn.userId, tier: tier.tier };
+  return { status: recovered ? 'recovered' : 'healthy', userId: signIn.userId, tier: tier.tier, localProfileBound: true };
 }

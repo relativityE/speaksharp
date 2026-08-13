@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest';
-import { classifyError, withRetry, signInWithBoundedRetry, verifyTier, enforceCeiling, provisionCanary } from '../../scripts/lib/canaryProvision.mjs';
+import { classifyError, withRetry, signInWithBoundedRetry, verifyCanaryProfileBinding, enforceCeiling, provisionCanary } from '../../scripts/lib/canaryProvision.mjs';
 
 const CANARY = 'canary@speaksharp.app';
 const config = { email: CANARY, password: 'pw' };
@@ -12,13 +12,19 @@ const malformed = {};                                                           
 const noSleep = { sleep: () => Promise.resolve() };
 
 // ---- mock builders ----
-const profile = (opts) => ({ select: () => ({ eq: () => ({ maybeSingle: async () => opts }) }) });
-function makeAnon({ signIn = [{ ok: true }], profileResult = { data: { subscription_status: 'free' } } } = {}) {
+const PAID_PROFILE = { subscription_status: 'pro', stripe_customer_id: 'cus_canary', stripe_subscription_id: 'sub_canary' };
+function makeAnon({ signIn = [{ ok: true }], profileResult = { data: PAID_PROFILE } } = {}) {
   const seq = [...signIn];
-  return {
+  const maybeSingle = vi.fn(async () => profileResult);
+  const eq = vi.fn(() => ({ maybeSingle }));
+  const select = vi.fn(() => ({ eq }));
+  const update = vi.fn(() => { throw new Error('profile/trial mutation is forbidden in canary provisioning'); });
+  const anon = {
     auth: { signInWithPassword: vi.fn(async () => { const s = seq.length > 1 ? seq.shift() : seq[0]; return s.ok ? { data: { user: { id: s.userId || 'u1' } }, error: null } : { data: null, error: s.error }; }) },
-    from: () => profile(profileResult),
+    from: vi.fn(() => ({ select, update })),
+    _profile: { select, eq, maybeSingle, update },
   };
+  return anon;
 }
 function makeAdmin({ listUsers = [{ users: [{ email: CANARY, id: 'u1' }] }], createUser = { error: null }, updateUser = { error: null } } = {}) {
   const lu = [...listUsers];
@@ -64,13 +70,22 @@ describe('withRetry / signInWithBoundedRetry', () => {
   });
 });
 
-describe('verifyTier — FAIL-CLOSED', () => {
-  it('free → ok; pro/null/missing/error → NOT ok', async () => {
-    expect((await verifyTier(makeAnon({ profileResult: { data: { subscription_status: 'free' } } }), 'u1')).ok).toBe(true);
-    expect((await verifyTier(makeAnon({ profileResult: { data: { subscription_status: 'pro' } } }), 'u1')).ok).toBe(false);
-    expect((await verifyTier(makeAnon({ profileResult: { data: null } }), 'u1')).ok).toBe(false);
-    expect((await verifyTier(makeAnon({ profileResult: { data: { subscription_status: null } } }), 'u1')).ok).toBe(false);
-    expect((await verifyTier(makeAnon({ profileResult: { data: null, error: { message: 'boom' } } }), 'u1')).ok).toBe(false);
+describe('verifyCanaryProfileBinding — FAIL-CLOSED and exact-account scoped', () => {
+  it('accepts only Pro with nonblank Stripe customer/subscription binding', async () => {
+    expect((await verifyCanaryProfileBinding(makeAnon(), 'u1')).ok).toBe(true);
+    expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: { ...PAID_PROFILE, subscription_status: 'free' } } }), 'u1')).ok).toBe(false);
+    expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: { ...PAID_PROFILE, stripe_customer_id: ' ' } } }), 'u1')).ok).toBe(false);
+    expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: { ...PAID_PROFILE, stripe_subscription_id: null } } }), 'u1')).ok).toBe(false);
+    expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: null } }), 'u1')).ok).toBe(false);
+    expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: null, error: { message: 'boom' } } }), 'u1')).ok).toBe(false);
+  });
+  it('reads only the signed-in account and never mutates profile/trial state', async () => {
+    const anon = makeAnon();
+    await verifyCanaryProfileBinding(anon, 'exact-canary-user');
+    expect(anon.from).toHaveBeenCalledWith('user_profiles');
+    expect(anon._profile.select).toHaveBeenCalledWith('subscription_status,stripe_customer_id,stripe_subscription_id');
+    expect(anon._profile.eq).toHaveBeenCalledWith('id', 'exact-canary-user');
+    expect(anon._profile.update).not.toHaveBeenCalled();
   });
 });
 
@@ -85,12 +100,15 @@ describe('enforceCeiling', () => {
 });
 
 describe('provisionCanary — health only, fail-closed', () => {
-  it('HEALTHY: signs in + free tier → no admin mutation', async () => {
+  it('HEALTHY: signs in + Stripe-bound paid entitlement → no auth/profile/trial mutation', async () => {
     const admin = makeAdmin();
-    const res = await provisionCanary({ anon: makeAnon(), admin, config });
+    const anon = makeAnon();
+    const res = await provisionCanary({ anon, admin, config });
     expect(res.status).toBe('healthy');
+    expect(res).toMatchObject({ tier: 'pro', localProfileBound: true });
     expect(admin.auth.admin.createUser).not.toHaveBeenCalled();
     expect(admin.auth.admin.updateUserById).not.toHaveBeenCalled();
+    expect(anon._profile.update).not.toHaveBeenCalled();
   });
   it('AUTH/CONFIG sign-in failure → config_error, and NO account mutation', async () => {
     const admin = makeAdmin();
@@ -132,9 +150,11 @@ describe('provisionCanary — health only, fail-closed', () => {
     expect(res.status).toBe('recovered');
     expect(admin.auth.admin.createUser).toHaveBeenCalled();
   });
-  it('TIER ERROR: healthy sign-in but Pro tier → tier_error (not healthy)', async () => {
-    const res = await provisionCanary({ anon: makeAnon({ profileResult: { data: { subscription_status: 'pro' } } }), admin: makeAdmin(), config });
-    expect(res).toMatchObject({ status: 'tier_error', tier: 'pro' });
+  it('ENTITLEMENT ERROR: healthy sign-in but Free/unbound profile → not healthy and no mutation', async () => {
+    const anon = makeAnon({ profileResult: { data: { subscription_status: 'free', stripe_customer_id: null, stripe_subscription_id: null } } });
+    const res = await provisionCanary({ anon, admin: makeAdmin(), config });
+    expect(res).toMatchObject({ status: 'entitlement_error', tier: 'free' });
+    expect(anon._profile.update).not.toHaveBeenCalled();
   });
   it('never surfaces the credential VALUE in the returned result', async () => {
     const secret = 'S3cr3t-canary-value';
