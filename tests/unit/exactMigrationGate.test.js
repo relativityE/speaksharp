@@ -13,6 +13,7 @@ import {
     TARGET_FILE,
     TARGET_SHA256,
     prepareExactMigrationWorkspace,
+    resolveExactMigrationConfig,
     verifyExactMigrationWorkspace,
 } from '../../scripts/lib/exactMigrationGate.mjs';
 
@@ -39,6 +40,29 @@ function createWorkspaceFixture() {
 }
 
 describe('exact migration gate', () => {
+    it('accepts a workflow-pinned target while preserving the webhook contract as the default', () => {
+        expect(resolveExactMigrationConfig({})).toEqual({
+            targetVersion: '20260812002000',
+            targetFile: '20260812002000_webhook_lifecycle_completeness_1282.sql',
+            targetSha256: TARGET_SHA256,
+            heldVersion: '20260811143000',
+            heldFile: HELD_FILE,
+        });
+        expect(resolveExactMigrationConfig({
+            TARGET_VERSION: '20260812030000',
+            TARGET_FILE: '20260812030000_progress_cohort_mode_separation_1265.sql',
+            TARGET_SHA256: 'progress-hash',
+            HELD_VERSION: '20260811143000',
+            HELD_FILE: HELD_FILE,
+        })).toEqual({
+            targetVersion: '20260812030000',
+            targetFile: '20260812030000_progress_cohort_mode_separation_1265.sql',
+            targetSha256: 'progress-hash',
+            heldVersion: '20260811143000',
+            heldFile: HELD_FILE,
+        });
+    });
+
     it('preserves the full byte-identical Supabase inventory while removing only the held migration', () => {
         const { fixture, source, isolatedRoot } = createWorkspaceFixture();
         try {
@@ -210,5 +234,33 @@ describe('exact migration gate', () => {
 
         const legacyWorkflow = readFileSync(resolve(root, '.github/workflows/deploy-supabase-migrations.yml'), 'utf8');
         expect(legacyWorkflow).toContain('group: production-database-migrations');
+    });
+
+    it('pins a separate exact Progress gate without widening the held migration boundary', () => {
+        const root = process.cwd();
+        const targetFile = '20260812030000_progress_cohort_mode_separation_1265.sql';
+        const targetHash = 'deeb6845ff26a1bafbfdb3751727eea723625a00ff29d4829618e4b58106f5fa';
+        const migration = readFileSync(resolve(root, 'backend/supabase/migrations', targetFile));
+        expect(createHash('sha256').update(migration).digest('hex')).toBe(targetHash);
+
+        const workflow = readFileSync(resolve(root, '.github/workflows/apply-progress-mode-separation.yml'), 'utf8');
+        expect(workflow).toContain("TARGET_VERSION: '20260812030000'");
+        expect(workflow).toContain(`TARGET_FILE: '${targetFile}'`);
+        expect(workflow).toContain(`TARGET_SHA256: '${targetHash}'`);
+        expect(workflow).toContain("HELD_VERSION: '20260811143000'");
+        expect(workflow).toContain("HELD_FILE: '20260811143000_harden_exposed_security_definer_acl.sql'");
+        expect(workflow).toMatch(/permissions:\s*\n\s+actions: read\s*\n\s+contents: read/);
+        expect(workflow).toContain('environment: production-db');
+        expect(workflow).toContain('group: production-database-migrations');
+        expect(workflow).toContain('APPLY $TARGET_VERSION AT $EXPECTED_HEAD_SHA');
+        expect(workflow).toContain('default branch advanced after dry-run');
+        expect(workflow).toContain('Apply Progress mode separation (exact migration)');
+        expect(workflow).toContain('prepare-workspace backend/supabase "$RUNNER_TEMP"');
+        expect(workflow).toContain('continue-on-error: true');
+        expect(workflow).toContain('node ../../scripts/exact-migration-gate.mjs after');
+        expect(workflow).toContain('node ../../scripts/exact-migration-gate.mjs lint-delta');
+        expect(workflow).toContain('node scripts/exact-migration-gate.mjs final');
+        expect(workflow).not.toMatch(/^\s+supabase migration repair/m);
+        expect(workflow).not.toMatch(/^\s+supabase db push .*--include-all/m);
     });
 });

@@ -2,11 +2,31 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 import { basename, join, relative, resolve, sep } from 'node:path';
 
-export const TARGET_VERSION = '20260812002000';
-export const TARGET_FILE = `${TARGET_VERSION}_webhook_lifecycle_completeness_1282.sql`;
-export const TARGET_SHA256 = 'e2e77217547100158d4324c29feafaa2d6ecd3462b96add3b0e9002b0d923a13';
-export const HELD_VERSION = '20260811143000';
-export const HELD_FILE = `${HELD_VERSION}_harden_exposed_security_definer_acl.sql`;
+const DEFAULT_CONFIG = Object.freeze({
+    targetVersion: '20260812002000',
+    targetFile: '20260812002000_webhook_lifecycle_completeness_1282.sql',
+    targetSha256: 'e2e77217547100158d4324c29feafaa2d6ecd3462b96add3b0e9002b0d923a13',
+    heldVersion: '20260811143000',
+    heldFile: '20260811143000_harden_exposed_security_definer_acl.sql',
+});
+
+/** Resolve the workflow-pinned exact-migration contract, retaining the webhook gate as the default. */
+export function resolveExactMigrationConfig(env = process.env) {
+    return {
+        targetVersion: env.TARGET_VERSION || DEFAULT_CONFIG.targetVersion,
+        targetFile: env.TARGET_FILE || DEFAULT_CONFIG.targetFile,
+        targetSha256: env.TARGET_SHA256 || DEFAULT_CONFIG.targetSha256,
+        heldVersion: env.HELD_VERSION || DEFAULT_CONFIG.heldVersion,
+        heldFile: env.HELD_FILE || DEFAULT_CONFIG.heldFile,
+    };
+}
+
+const CONFIG = resolveExactMigrationConfig();
+export const TARGET_VERSION = CONFIG.targetVersion;
+export const TARGET_FILE = CONFIG.targetFile;
+export const TARGET_SHA256 = CONFIG.targetSha256;
+export const HELD_VERSION = CONFIG.heldVersion;
+export const HELD_FILE = CONFIG.heldFile;
 
 const LIST_ROW = /^\s*(\d{8,14})?\s*\|\s*(\d{8,14})?\s*\|/;
 const MIGRATION_FILE = /\b(\d{8,14}_[A-Za-z0-9_.-]+\.sql)\b/g;
