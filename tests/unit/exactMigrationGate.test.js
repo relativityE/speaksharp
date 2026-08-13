@@ -13,36 +13,115 @@ import {
     TARGET_FILE,
     TARGET_SHA256,
     prepareExactMigrationWorkspace,
+    verifyExactMigrationWorkspace,
 } from '../../scripts/lib/exactMigrationGate.mjs';
 
 const matched = ' 20260810120000 | 20260810120000 | 2026-08-10 12:00:00';
 const heldPending = ' 20260811143000 |                | 2026-08-11 14:30:00';
 const targetPending = ' 20260812002000 |                | 2026-08-12 00:20:00';
 const targetApplied = ' 20260812002000 | 20260812002000 | 2026-08-12 00:20:00';
+const PRIOR_FILE = '20260810120000_prior.sql';
+const TARGET_BYTES = '-- target\n';
+const PRIOR_BYTES = '-- prior\n';
+
+function createWorkspaceFixture() {
+    const fixture = mkdtempSync(join(tmpdir(), 'exact-migration-workspace-'));
+    const source = join(fixture, 'source-supabase');
+    const migrations = join(source, 'migrations');
+    const isolatedRoot = join(fixture, 'runner-temp');
+    mkdirSync(migrations, { recursive: true });
+    mkdirSync(isolatedRoot);
+    writeFileSync(join(source, 'config.toml'), 'project_id = "fixture"\n');
+    writeFileSync(join(migrations, TARGET_FILE), TARGET_BYTES);
+    writeFileSync(join(migrations, HELD_FILE), '-- held\n');
+    writeFileSync(join(migrations, PRIOR_FILE), PRIOR_BYTES);
+    return { fixture, source, migrations, isolatedRoot };
+}
 
 describe('exact migration gate', () => {
-    it('preserves the Supabase CLI workdir shape while removing only the held migration', () => {
-        const fixture = mkdtempSync(join(tmpdir(), 'exact-migration-workspace-'));
+    it('preserves the full byte-identical Supabase inventory while removing only the held migration', () => {
+        const { fixture, source, isolatedRoot } = createWorkspaceFixture();
         try {
-            const source = join(fixture, 'source-supabase');
-            const migrations = join(source, 'migrations');
-            const isolatedRoot = join(fixture, 'runner-temp');
-            mkdirSync(migrations, { recursive: true });
-            mkdirSync(isolatedRoot);
-            writeFileSync(join(source, 'config.toml'), 'project_id = "fixture"\n');
-            writeFileSync(join(migrations, TARGET_FILE), '-- target\n');
-            writeFileSync(join(migrations, HELD_FILE), '-- held\n');
-            writeFileSync(join(migrations, '20260810120000_prior.sql'), '-- prior\n');
-
             const result = prepareExactMigrationWorkspace(source, isolatedRoot);
 
             expect(result.workdir).toBe(join(isolatedRoot, 'exact-backend'));
             expect(existsSync(join(result.workdir, 'supabase', 'config.toml'))).toBe(true);
             expect(existsSync(join(result.workdir, 'supabase', 'migrations', TARGET_FILE))).toBe(true);
-            expect(existsSync(join(result.workdir, 'supabase', 'migrations', '20260810120000_prior.sql'))).toBe(true);
+            expect(existsSync(join(result.workdir, 'supabase', 'migrations', PRIOR_FILE))).toBe(true);
             expect(existsSync(join(result.workdir, 'supabase', 'migrations', HELD_FILE))).toBe(false);
             expect(existsSync(join(result.heldDir, HELD_FILE))).toBe(true);
+            expect(result.isolatedInventory).toEqual(
+                result.sourceInventory.filter(({ path }) => path !== `migrations/${HELD_FILE}`),
+            );
+            expect(readFileSync(join(result.supabaseDir, 'migrations', TARGET_FILE)))
+                .toEqual(readFileSync(join(source, 'migrations', TARGET_FILE)));
+            expect(readFileSync(join(result.supabaseDir, 'migrations', PRIOR_FILE)))
+                .toEqual(readFileSync(join(source, 'migrations', PRIOR_FILE)));
             expect(() => prepareExactMigrationWorkspace(source, isolatedRoot)).toThrow(/already exists/);
+        } finally {
+            rmSync(fixture, { recursive: true, force: true });
+        }
+    });
+
+    it('fails before copying when the source target or held migration is missing', () => {
+        const targetFixture = createWorkspaceFixture();
+        try {
+            rmSync(join(targetFixture.migrations, TARGET_FILE));
+            expect(() => prepareExactMigrationWorkspace(targetFixture.source, targetFixture.isolatedRoot))
+                .toThrow(/source target migration is missing/);
+        } finally {
+            rmSync(targetFixture.fixture, { recursive: true, force: true });
+        }
+
+        const heldFixture = createWorkspaceFixture();
+        try {
+            rmSync(join(heldFixture.migrations, HELD_FILE));
+            expect(() => prepareExactMigrationWorkspace(heldFixture.source, heldFixture.isolatedRoot))
+                .toThrow(/source held migration is missing/);
+        } finally {
+            rmSync(heldFixture.fixture, { recursive: true, force: true });
+        }
+    });
+
+    it('rejects a workspace outside exact-backend/supabase and missing required layout entries', () => {
+        const { fixture, source, isolatedRoot } = createWorkspaceFixture();
+        try {
+            const result = prepareExactMigrationWorkspace(source, isolatedRoot);
+            expect(() => verifyExactMigrationWorkspace(source, result.supabaseDir, result.sourceInventory))
+                .toThrow(/must be named exact-backend/);
+            rmSync(join(result.supabaseDir, 'config.toml'));
+            expect(() => verifyExactMigrationWorkspace(source, result.workdir, result.sourceInventory))
+                .toThrow(/isolated supabase\/config.toml is missing/);
+        } finally {
+            rmSync(fixture, { recursive: true, force: true });
+        }
+    });
+
+    it('rejects any removed or byte-changed retained file', () => {
+        const { fixture, source, isolatedRoot } = createWorkspaceFixture();
+        try {
+            const result = prepareExactMigrationWorkspace(source, isolatedRoot);
+            const isolatedPrior = join(result.supabaseDir, 'migrations', PRIOR_FILE);
+            rmSync(isolatedPrior);
+            expect(() => verifyExactMigrationWorkspace(source, result.workdir, result.sourceInventory))
+                .toThrow(/isolated Supabase inventory or bytes differ/);
+
+            writeFileSync(isolatedPrior, PRIOR_BYTES);
+            writeFileSync(join(result.supabaseDir, 'migrations', TARGET_FILE), '-- changed target\n');
+            expect(() => verifyExactMigrationWorkspace(source, result.workdir, result.sourceInventory))
+                .toThrow(/isolated Supabase inventory or bytes differ/);
+        } finally {
+            rmSync(fixture, { recursive: true, force: true });
+        }
+    });
+
+    it('rejects source-tree mutation after the inventory snapshot', () => {
+        const { fixture, source, migrations, isolatedRoot } = createWorkspaceFixture();
+        try {
+            const result = prepareExactMigrationWorkspace(source, isolatedRoot);
+            writeFileSync(join(migrations, PRIOR_FILE), '-- changed source\n');
+            expect(() => verifyExactMigrationWorkspace(source, result.workdir, result.sourceInventory))
+                .toThrow(/source Supabase inventory or bytes differ/);
         } finally {
             rmSync(fixture, { recursive: true, force: true });
         }
