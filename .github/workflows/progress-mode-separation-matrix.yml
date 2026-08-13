@@ -1,0 +1,116 @@
+name: "Progress mode separation matrix (disposable Postgres)"
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/20260812030000_progress_cohort_mode_separation_1265.sql'
+      - 'tests/db/progress-mode-*.sql'
+      - 'tests/db/progress-mode-separation.integration.test.ts'
+      - 'frontend/src/services/SpeechRuntimeController.ts'
+      - 'frontend/src/services/__tests__/SpeechRuntimeController.progressRetryGate.test.ts'
+      - 'frontend/src/services/progress/loadSessionProgress.ts'
+      - 'frontend/src/services/progress/__tests__/loadSessionProgress.test.ts'
+      - '.github/workflows/progress-mode-separation-matrix.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: progress-mode-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matrix:
+    name: "mode/tuple matrix (postgres:${{ matrix.pg }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '16', '17']
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: disposable_ci_only
+          POSTGRES_DB: matrix_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: disposable_ci_only
+      PGDATABASE: matrix_test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install psql client and record version
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          psql -Atc 'select version()' | tee server-version.txt
+
+      - name: Bootstrap clean legacy state
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f tests/db/attribution-authority-bootstrap.sql
+          psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260731120000_session_progress_evaluations.sql
+          psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260803010000_session_attribution_authority.sql
+          psql -v ON_ERROR_STOP=1 -f tests/db/progress-mode-realpg-bootstrap.sql
+          psql -v ON_ERROR_STOP=1 -f tests/db/progress-mode-realpg-seed.sql
+
+      - name: Apply exact migration, verify, replay, and verify again
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812030000_progress_cohort_mode_separation_1265.sql
+          psql -v ON_ERROR_STOP=1 -f tests/db/progress-mode-realpg-matrix.sql 2>&1 | tee clean-output.txt
+          psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812030000_progress_cohort_mode_separation_1265.sql
+          psql -v ON_ERROR_STOP=1 -f tests/db/progress-mode-realpg-matrix.sql 2>&1 | tee replay-output.txt
+
+      - name: Prove malformed state HOLDs before row mutation
+        run: |
+          set -euo pipefail
+          createdb dirty_test
+          export PGDATABASE=dirty_test
+          psql -v ON_ERROR_STOP=1 -f tests/db/attribution-authority-bootstrap.sql
+          psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260731120000_session_progress_evaluations.sql
+          psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260803010000_session_attribution_authority.sql
+          psql -v ON_ERROR_STOP=1 -f tests/db/progress-mode-realpg-bootstrap.sql
+          psql -v ON_ERROR_STOP=1 -f tests/db/progress-mode-malformed-fixture.sql
+          if psql -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812030000_progress_cohort_mode_separation_1265.sql > malformed-output.txt 2>&1; then
+            echo "::error::malformed eligible cohorts did not HOLD the migration"
+            exit 1
+          fi
+          grep -q 'malformed_or_unknown_eligible_cohort_keys=4' malformed-output.txt
+          psql -v ON_ERROR_STOP=1 -f tests/db/progress-mode-malformed-verify.sql 2>&1 | tee malformed-verify-output.txt
+
+      - name: Publish sanitized evidence
+        if: always()
+        run: |
+          {
+            echo "### Progress mode matrix — postgres:${{ matrix.pg }}"
+            echo '```'
+            cat server-version.txt 2>/dev/null || true
+            grep -E 'PROGRESS MODE MATRIX COMPLETE|MALFORMED HOLD' clean-output.txt replay-output.txt malformed-output.txt malformed-verify-output.txt 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: progress-mode-matrix-pg${{ matrix.pg }}
+          path: |
+            server-version.txt
+            clean-output.txt
+            replay-output.txt
+            malformed-output.txt
+            malformed-verify-output.txt
+          retention-days: 30
+          if-no-files-found: warn

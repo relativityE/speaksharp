@@ -63,6 +63,8 @@ export interface SessionEvidence {
     engineVersion: string | null;
     modelName: string | null;
     attributionStatus: string | null;
+    /** Server-established practice mode. A cohort is never valid without this fifth identity component. */
+    practiceMode: 'objective' | 'freeform';
 }
 
 export interface ProgressEvaluation {
@@ -88,12 +90,12 @@ export interface ProgressEvaluation {
 }
 
 /**
- * §4 comparable cohort — exact engine × engine version × model name × formula version. `model_name` is
+ * §4 comparable cohort — exact engine × engine version × model name × formula version × practice mode. `model_name` is
  * included because `engine_version` is not proven to identify the producing model, so version alone
  * could silently mix two models into one "comparable" series.
  */
-export function progressCohortKey(e: Pick<SessionEvidence, 'engine' | 'engineVersion' | 'modelName'>): string {
-    return [e.engine ?? '', e.engineVersion ?? '', e.modelName ?? '', PROGRESS_FORMULA_VERSION].join('|');
+export function progressCohortKey(e: Pick<SessionEvidence, 'engine' | 'engineVersion' | 'modelName' | 'practiceMode'>): string {
+    return [e.engine ?? '', e.engineVersion ?? '', e.modelName ?? '', PROGRESS_FORMULA_VERSION, e.practiceMode].join('|');
 }
 
 /** Gate 1 — does a clear-delivery measurement structurally EXIST? A measured zero is valid. */

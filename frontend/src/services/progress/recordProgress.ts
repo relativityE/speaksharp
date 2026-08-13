@@ -325,12 +325,9 @@ async function resolveOpenAttemptWith(userId: string, newSessionId: string): Pro
 /**
  * DURABLE on-load recovery. Called once per authenticated user after their session list is available.
  *
- * Two layers, both idempotent (the RPC no-ops on an already-recorded session):
- *  1. Drains the owner-scoped localStorage queue — sessions a save KNEW it failed to record (incl. the
- *     first-ever session, before any evaluation exists).
- *  2. A bounded sweep of the loaded sessions: records any completed + terminal-attribution session that has
- *     no evaluation yet, but ONLY within the ACTIVE ERA (created at/after the earliest existing evaluation)
- *     so pre-activation history is never retro-fitted (§5 future-only). Capped; the remainder carries over.
+ * One authoritative, idempotent recovery path: drain the owner-scoped localStorage queue for sessions whose
+ * save path established mode + rich-metrics persistence and then observed a transient evaluation failure.
+ * There is deliberately no generic session sweep: absence alone cannot prove a recording's practice mode.
  */
 export async function reconcileProgressEvaluations(
     userId: string,

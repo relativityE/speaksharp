@@ -649,6 +649,8 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         await expect(driveStopWithService(mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }), 'sess-attr-retry', 'native')).resolves.not.toThrow();
         // transcript survived the attribution failure
         expect(storage.completeSession).toHaveBeenCalledWith('sess-attr-retry', expect.objectContaining({ status: 'completed' }));
+        expect((controller as unknown as { pendingAttributionRetry: { progressMetrics: { persisted: boolean } } }).pendingAttributionRetry
+            .progressMetrics.persisted).toBe(true); // carries the actual original rich-metrics result
         // now Retry Save re-attests the SAME session (no new saveSession/duplicate)
         attestInvoke.mockClear();
         attestInvoke.mockResolvedValue({ data: { attributed: true }, error: null });
@@ -657,6 +659,62 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(retryCall).toBeTruthy();
         expect((retryCall![1] as { body: { runtimeEvidence: Record<string, unknown> } }).body.runtimeEvidence).toMatchObject({ provider: 'web-speech', engine: 'native' });
         expect(vi.mocked(storage.saveSession).mock.calls.length).toBe(saveCallsBefore); // no duplicate session created
+    });
+
+    it('#1265: attribution retry retains an original rich-metrics failure and writes no Progress evaluation', async () => {
+        const storage = await import('../../lib/storage');
+        const { wireProgressEvaluationOnSave } = await import('../progress/recordProgress');
+        vi.mocked(wireProgressEvaluationOnSave).mockClear();
+        vi.mocked(storage.updateSession).mockResolvedValueOnce({ success: false, error: 'metrics unavailable' });
+        attestInvoke.mockReset();
+        attestInvoke
+            .mockResolvedValueOnce({ data: null, error: { message: 'producer down' } })
+            .mockResolvedValue({ data: { attributed: true }, error: null });
+
+        await expect(driveStopWithService(
+            mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }),
+            'sess-attr-metrics-failed',
+            'native',
+        )).resolves.not.toThrow();
+        const pending = (controller as unknown as {
+            pendingAttributionRetry: { progressMetrics: { payload: unknown; persisted: boolean } };
+        }).pendingAttributionRetry;
+        expect(pending.progressMetrics.payload).toBeTruthy();
+        expect(pending.progressMetrics.persisted).toBe(false);
+
+        await expect((controller as unknown as { retryPendingAttribution: () => Promise<boolean> })
+            .retryPendingAttribution()).resolves.toBe(true);
+
+        expect(wireProgressEvaluationOnSave).not.toHaveBeenCalled();
+        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
+    });
+
+    it('#1265: an early attribution retry cannot outrun in-flight rich metrics and fabricate success', async () => {
+        const storage = await import('../../lib/storage');
+        const { wireProgressEvaluationOnSave } = await import('../progress/recordProgress');
+        vi.mocked(wireProgressEvaluationOnSave).mockClear();
+        let finishMetrics!: (value: { success: true }) => void;
+        vi.mocked(storage.updateSession).mockImplementationOnce(() => new Promise(resolve => { finishMetrics = resolve; }));
+        attestInvoke.mockReset();
+        attestInvoke
+            .mockResolvedValueOnce({ data: null, error: { message: 'producer down' } })
+            .mockResolvedValue({ data: { attributed: true }, error: null });
+
+        const stopping = driveStopWithService(
+            mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }),
+            'sess-attr-metrics-inflight',
+            'native',
+        );
+        await vi.waitFor(() => expect(storage.updateSession).toHaveBeenCalled());
+
+        await expect((controller as unknown as { retryPendingAttribution: () => Promise<boolean> })
+            .retryPendingAttribution()).resolves.toBe(true);
+        expect(wireProgressEvaluationOnSave).not.toHaveBeenCalled();
+
+        finishMetrics({ success: true });
+        await expect(stopping).resolves.not.toThrow();
+        await vi.waitFor(() => expect(wireProgressEvaluationOnSave).toHaveBeenCalledTimes(1));
+        vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
     });
 
     // #1033 Part 2 — runtime enforcement (controller-level, not UI-only).

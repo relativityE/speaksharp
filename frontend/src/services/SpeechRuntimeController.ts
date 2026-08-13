@@ -137,6 +137,14 @@ type ProgressCompletionContext =
     }
     | { mode: 'unknown' };
 
+type RichMetricsPayload = Parameters<typeof updateSession>[1];
+type ProgressMetricsState = {
+    /** Exact immutable payload calculated for this recording, or null when recovery cannot prove it. */
+    payload: RichMetricsPayload | null;
+    /** Actual result of the rich-metrics write. Never inferred from transcript completion or attribution. */
+    persisted: boolean;
+};
+
 const normalizeTranscriptPrefix = (text: string): string =>
     text
         .toLowerCase()
@@ -591,6 +599,7 @@ export class SpeechRuntimeController {
         sessionId: string;
         evidence: RuntimeEvidence | null;
         progressContext: ProgressCompletionContext;
+        progressMetrics: ProgressMetricsState;
     } | null = null;
     /** #1033 (item 2/3): last recording whose durable FULL SAVE (completeSession) failed — a strictly worse
      *  failure than an attribution-only miss (the transcript row itself is not persisted). Stashed so Retry
@@ -605,6 +614,7 @@ export class SpeechRuntimeController {
         completeArgs: { status: 'completed'; transcript: string; duration: number };
         attributionEvidence: RuntimeEvidence | null;
         progressContext: ProgressCompletionContext;
+        progressMetrics: ProgressMetricsState;
     } | null = null;
 
     /** #1265: immutable practice-mode snapshot captured when this recording enters RECORDING. Retry paths
@@ -701,7 +711,7 @@ export class SpeechRuntimeController {
                 pending.progressContext ?? { mode: 'unknown' },
                 targetSessionId,
                 res.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
-                true,
+                pending.progressMetrics?.persisted ?? false,
             );
             return true;
         } catch {
@@ -758,6 +768,28 @@ export class SpeechRuntimeController {
                 // #1161: attribution via the trusted server producer. null = transient → stay retryable.
                 const attrRes = await this.attestSessionEngine(targetSessionId, fullSave.attributionEvidence);
                 if (attrRes === null) return false;
+                // #1265: transcript completion and attribution do not prove the rich delivery metrics landed.
+                // Re-run the exact payload captured for this recording; missing payload or any failed/throwing
+                // write is a completed recording with NO Progress evaluation, never an immutable partial row.
+                let metricsPersisted = false;
+                const metricsPayload = fullSave.progressMetrics?.payload ?? null;
+                if (metricsPayload) {
+                    try {
+                        const metricsResult = await updateSession(targetSessionId, metricsPayload);
+                        metricsPersisted = metricsResult.success;
+                        if (!metricsPersisted) {
+                            logger.warn(
+                                { sessionId: targetSessionId, error: metricsResult.error ?? null },
+                                '[controller] Retry Save completed, but rich metrics did not persist; Progress skipped (#1265)',
+                            );
+                        }
+                    } catch (metricsError) {
+                        logger.warn(
+                            { sessionId: targetSessionId, metricsError },
+                            '[controller] Retry Save rich metrics threw; recording kept, Progress skipped (#1265)',
+                        );
+                    }
+                }
                 // Full save + attribution both durable → recording resolved. Compare-and-clear (the slot may
                 // have been re-pointed to another session mid-flight, though the single-unresolved invariant
                 // makes that near-impossible); never clear a different session's unresolved work.
@@ -769,7 +801,7 @@ export class SpeechRuntimeController {
                         fullSave.progressContext ?? { mode: 'unknown' },
                         targetSessionId,
                         attrRes.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
-                        true,
+                        metricsPersisted,
                     );
                 }
                 return true;
@@ -929,6 +961,7 @@ export class SpeechRuntimeController {
                 progressContext: this.buildProgressCompletionContext(
                     Math.round(draftForThisSession?.durationSeconds || liveDuration),
                 ),
+                progressMetrics: { payload: null, persisted: false },
             };
             logger.warn({ sessionId, kind: this.pendingResolutionKind(), state: this.state }, '[controller] post-start failure with recoverable transcript → save retry armed (#1033 1/B)');
             this.publishLockState();
@@ -1003,6 +1036,9 @@ export class SpeechRuntimeController {
             // The recovery draft intentionally carries no objective brief/transcript linkage. Missing mode
             // context therefore fails closed instead of being guessed as Open Mic after reload.
             progressContext: { mode: 'unknown' },
+            // Recovery drafts do not contain a trustworthy rich-metrics payload. Saving may complete, but
+            // Progress must remain unavailable rather than writing an immutable partial evaluation.
+            progressMetrics: { payload: null, persisted: false },
         };
         this.publishLockState();
         logger.info({ sessionId: draft.sessionId }, '[controller] rehydrated unresolved recording for same user (#1033 C)');
@@ -3478,6 +3514,22 @@ export class SpeechRuntimeController {
                                 duration: Math.round(duration)
                             };
                             const progressContext = this.buildProgressCompletionContext(Math.round(duration));
+                            // Capture the exact rich-metrics write before either persistence step can fail.
+                            // A full-save retry replays this immutable payload; an attribution retry carries
+                            // the actual result of the original write. Recovery paths without this payload
+                            // fail closed and never create an immutable incomplete Progress evaluation.
+                            const richMetricsPayload: RichMetricsPayload = {
+                                total_words: wordCount,
+                                filler_words: fillerWords as unknown as FillerCounts,
+                                custom_words: this.userWords.reduce<Record<string, { count: number }>>((acc, word) => {
+                                    acc[word] = { count: fillerWords[word]?.count || 0 };
+                                    return acc;
+                                }, {}),
+                                pause_metrics: store.pauseMetrics,
+                                wpm,
+                                clarity_score: clarityScore,
+                                accuracy,
+                            };
                             const completion = await completeSession(sessionId, completeArgs);
                             if (!completion.success) {
                                 // #1033 (item 2/3): the durable FULL SAVE failed — the transcript row is NOT
@@ -3493,6 +3545,7 @@ export class SpeechRuntimeController {
                                         completeArgs,
                                         attributionEvidence: attestationEvidence,
                                         progressContext,
+                                        progressMetrics: { payload: richMetricsPayload, persisted: false },
                                     };
                                 } else {
                                     logger.error({ existing: this.pendingFullSaveRetry.sessionId, sessionId }, '[controller] full-save retry slot held by another session — failing closed, not overwriting (#1033)');
@@ -3541,6 +3594,9 @@ export class SpeechRuntimeController {
                                         sessionId,
                                         evidence: attestationEvidence,
                                         progressContext,
+                                        // The result is filled after the ordinary rich-metrics write below.
+                                        // Until then a concurrent retry fails closed rather than guessing.
+                                        progressMetrics: { payload: richMetricsPayload, persisted: false },
                                     };
                                 } else {
                                     logger.error({ existing: this.pendingAttributionRetry.sessionId, sessionId }, '[controller] attribution retry slot held by another session — failing closed, not overwriting (#1033)');
@@ -3649,18 +3705,7 @@ export class SpeechRuntimeController {
                             }
 
                             logger.info({ sessionId }, '[DEBUG-STOP] updateSession starting');
-                            const updateResult = await updateSession(sessionId, {
-                                total_words: wordCount,
-                                filler_words: fillerWords as unknown as FillerCounts,
-                                custom_words: this.userWords.reduce<Record<string, { count: number }>>((acc, word) => {
-                                    acc[word] = { count: fillerWords[word]?.count || 0 };
-                                    return acc;
-                                }, {}),
-                                pause_metrics: store.pauseMetrics,
-                                wpm,
-                                clarity_score: clarityScore,
-                                accuracy
-                            });
+                            const updateResult = await updateSession(sessionId, richMetricsPayload);
                             if (!updateResult.success) {
                                 logger.warn({
                                     sessionId,
@@ -3679,6 +3724,14 @@ export class SpeechRuntimeController {
                             // gate never publishes → the warning above stands and no success toast/cue shows.
                             metricsDone = true;
                             metricsOk = updateResult.success;
+                            // Attribution may still be pending, but its eventual retry must use this exact
+                            // result — transcript completion alone never implies rich metrics persisted.
+                            if (this.pendingAttributionRetry?.sessionId === sessionId) {
+                                this.pendingAttributionRetry = {
+                                    ...this.pendingAttributionRetry,
+                                    progressMetrics: { payload: richMetricsPayload, persisted: metricsOk },
+                                };
+                            }
                             maybePublishFinalized();
 
                             // Normal completion and both retry completions share this one immutable
@@ -3799,6 +3852,9 @@ export class SpeechRuntimeController {
         metricsPersisted: boolean,
     ): Promise<void> {
         if (context.mode === 'unknown') return;
+        // Both practice modes require actual durable delivery metrics. This guard sits before Open Mic's
+        // immediate path and Focus Points registration so neither can create an immutable partial evaluation.
+        if (!metricsPersisted) return;
 
         const runProgressEval = () => void wireProgressEvaluationOnSave({
             sessionId,
@@ -3815,7 +3871,6 @@ export class SpeechRuntimeController {
             runProgressEval();
             return;
         }
-        if (!metricsPersisted) return;
 
         const store = useSessionStore.getState();
         store.setCompletedObjectiveBrief(context.brief);

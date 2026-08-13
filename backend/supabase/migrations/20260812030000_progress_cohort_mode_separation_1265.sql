@@ -20,6 +20,37 @@
 --
 -- Applying this migration changes only Progress comparability; it activates no billing and no capture path.
 
+-- FAIL-CLOSED PRECONDITION. Only a nonblank four-part legacy cohort or a nonblank five-part cohort ending
+-- in the exact approved mode token can be reconciled deterministically. Unknown eligible rows are a HOLD:
+-- report only the sanitized count, and abort before replacing the function or mutating any evaluation row.
+DO $preflight$
+DECLARE
+    v_malformed_or_unknown integer;
+BEGIN
+    SELECT count(*)::integer INTO v_malformed_or_unknown
+    FROM public.session_progress_evaluations e
+    WHERE e.eligible
+      AND (
+          e.cohort_key IS NULL
+          OR cardinality(string_to_array(e.cohort_key, '|')) NOT IN (4, 5)
+          OR EXISTS (
+              SELECT 1 FROM unnest(string_to_array(e.cohort_key, '|')) AS part
+              WHERE btrim(part) = ''
+          )
+          OR (
+              cardinality(string_to_array(e.cohort_key, '|')) = 5
+              AND (string_to_array(e.cohort_key, '|'))[5] NOT IN ('objective', 'freeform')
+          )
+      );
+
+    IF v_malformed_or_unknown > 0 THEN
+        RAISE EXCEPTION 'progress mode migration HOLD: malformed_or_unknown_eligible_cohort_keys=%',
+            v_malformed_or_unknown
+            USING ERRCODE = 'check_violation';
+    END IF;
+END;
+$preflight$;
+
 CREATE OR REPLACE FUNCTION public.record_progress_evaluation(p_session_id uuid)
 RETURNS uuid
 LANGUAGE plpgsql
@@ -229,7 +260,12 @@ SET cohort_key = e.cohort_key || '|' ||
     CASE WHEN EXISTS (SELECT 1 FROM public.objective_source_recording o WHERE o.session_id = e.session_id)
          THEN 'objective' ELSE 'freeform' END
 WHERE e.cohort_key IS NOT NULL
-  AND array_length(string_to_array(e.cohort_key, '|'), 1) = 4;
+  AND e.eligible
+  AND cardinality(string_to_array(e.cohort_key, '|')) = 4
+  AND NOT EXISTS (
+      SELECT 1 FROM unnest(string_to_array(e.cohort_key, '|')) AS part
+      WHERE btrim(part) = ''
+  );
 
 -- (b) REBUILD each eligible row's baseline/previous pointer from the earliest/latest eligible session in
 --     the SAME (user, moded cohort_key) that precedes it by the deterministic tuple

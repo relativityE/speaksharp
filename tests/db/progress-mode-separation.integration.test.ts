@@ -94,6 +94,32 @@ const evalRow = async (db: Sql, sessionId: string): Promise<Row> =>
          FROM public.session_progress_evaluations WHERE session_id=$1`, [sessionId])).rows[0];
 
 describe('#1265 Focus Points vs Open Mic Progress separation (executed in PGlite)', () => {
+    it('HOLDs malformed eligible cohorts before any suffix or pointer mutation', async () => {
+        const db = await makeDb(false);
+        const timestamp = '2026-08-12T12:00:00Z';
+        const a = await eligibleSessionAt(db, '00000000-0000-4000-8000-0000000000a1', timestamp);
+        const b = await eligibleSessionAt(db, '00000000-0000-4000-8000-0000000000b1', timestamp);
+        await attestAuthority(db, a); await evaluate(db, a);
+        await attestAuthority(db, b); await evaluate(db, b);
+        await db.query(`UPDATE public.session_progress_evaluations
+            SET cohort_key = CASE session_id WHEN $1::uuid THEN 'private-v2|v2|base|clarity_v1|unknown'
+                                             ELSE cohort_key END,
+                previous_comparable_session_id = CASE session_id WHEN $2::uuid THEN $1::uuid
+                                                  ELSE previous_comparable_session_id END
+            WHERE session_id IN ($1::uuid, $2::uuid)`, [a, b]);
+
+        expect((await db.query<PreflightCounts>(modePreflight)).rows[0]).toMatchObject({
+            rows_to_suffix: 1,
+            malformed_or_unknown_cohort_keys: 1,
+        });
+        await expect(db.exec(modeMigration)).rejects.toThrow(/migration HOLD.*=1/i);
+
+        expect((await evalRow(db, a)).cohort_key).toBe('private-v2|v2|base|clarity_v1|unknown');
+        expect((await evalRow(db, b)).cohort_key?.split('|')).toHaveLength(4);
+        expect((await evalRow(db, b)).previous_comparable_session_id).toBe(a);
+        await db.close();
+    });
+
     it('objective and freeform sessions get DISTINCT cohorts and never compare across modes', async () => {
         const db = await makeDb();
         const fp = await eligibleSession(db);

@@ -10,6 +10,7 @@ let currentSession: Record<string, unknown> | null = { created_at: '2026-08-03T1
 let priorSessions: Record<string, unknown>[] = [];
 let priorError: unknown = null;
 let chronologyRows: Record<string, unknown>[] = [];
+let priorOrFilters: string[] = [];
 
 const rec = (id: string, over: Record<string, unknown> = {}) => ({
     id,
@@ -28,6 +29,7 @@ function query(table: string) {
     chain.eq = () => chain;
     chain.neq = () => chain;
     chain.lt = () => chain;
+    chain.or = (filter: string) => { priorOrFilters.push(filter); return chain; };
     chain.in = () => { state.inMode = true; return chain; };
     chain.order = () => chain;
     chain.limit = () => chain;
@@ -61,6 +63,7 @@ beforeEach(() => {
         { id: 's1', created_at: '2026-08-03T11:00:00Z' },
         { id: 's2', created_at: '2026-08-03T12:00:00Z' },
     ];
+    priorOrFilters = [];
     rpc.mockReset();
     rpc.mockImplementation(async (name: string) => {
         if (name === 'record_progress_recommendation') recommendation = rec('rec-recovered');
@@ -114,16 +117,37 @@ describe('#1047 U2 loadSessionProgress', () => {
     });
 
     it.each([
-        ['future', '2026-08-03T13:00:00Z'],
-        ['equal-time', '2026-08-03T12:00:00Z'],
-    ])('rejects a %s persisted reference from comparison arithmetic', async (_label, created_at) => {
-        current = ev('s2', { baseline_session_id: 's1', previous_comparable_session_id: 's1' });
-        references = [ev('s1', { clarity_raw: 10 })];
-        chronologyRows = [{ id: 's1', created_at }, { id: 's2', created_at: '2026-08-03T12:00:00Z' }];
+        ['future timestamp', 's1', '2026-08-03T13:00:00Z'],
+        ['equal-time higher id', 's3', '2026-08-03T12:00:00Z'],
+    ])('rejects a %s persisted reference from comparison arithmetic', async (_label, referenceId, created_at) => {
+        current = ev('s2', { baseline_session_id: referenceId, previous_comparable_session_id: referenceId });
+        references = [ev(referenceId, { clarity_raw: 10 })];
+        chronologyRows = [{ id: referenceId, created_at }, { id: 's2', created_at: '2026-08-03T12:00:00Z' }];
         const view = await loadSessionProgress('s2');
         expect(view).toMatchObject({ status: 'eligible', comparison: 'restarted' });
         if (view.status !== 'eligible') throw new Error('expected eligible');
         expect(view.direction.deltaPoints).toBeNull();
+    });
+
+    it('consumes equal-timestamp A/B/C/D same-mode predecessors with the server tuple order', async () => {
+        const timestamp = '2026-08-03T12:00:00Z';
+
+        current = ev('c', { cohort_key: 'private|v2|base|clarity_v1|objective', baseline_session_id: 'a', previous_comparable_session_id: 'a' });
+        references = [ev('a', { cohort_key: current.cohort_key, clarity_raw: 80 })];
+        chronologyRows = [{ id: 'a', created_at: timestamp }, { id: 'c', created_at: timestamp }];
+        expect(await loadSessionProgress('c')).toMatchObject({ status: 'eligible', comparison: 'previous' });
+
+        current = ev('d', { cohort_key: 'private|v2|base|clarity_v1|freeform', baseline_session_id: 'b', previous_comparable_session_id: 'b' });
+        references = [ev('b', { cohort_key: current.cohort_key, clarity_raw: 82 })];
+        chronologyRows = [{ id: 'b', created_at: timestamp }, { id: 'd', created_at: timestamp }];
+        expect(await loadSessionProgress('d')).toMatchObject({ status: 'eligible', comparison: 'previous' });
+
+        current = ev('a', { cohort_key: 'private|v2|base|clarity_v1|objective' });
+        references = [];
+        currentSession = { id: 'a', created_at: timestamp };
+        priorSessions = [];
+        expect(await loadSessionProgress('a')).toMatchObject({ status: 'eligible', comparison: 'baseline' });
+        expect(priorOrFilters[priorOrFilters.length - 1]).toBe(`created_at.lt.${timestamp},and(created_at.eq.${timestamp},id.lt.a)`);
     });
 
     it('does not let an invalid previous role influence a valid baseline', async () => {

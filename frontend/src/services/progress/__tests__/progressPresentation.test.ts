@@ -19,6 +19,7 @@ const BASE: SessionEvidence = {
     fillerCount: 6, errorMarkerCount: 0, wpm: 140,
     engine: 'private', engineVersion: 'v2', modelName: 'whisper-base.en',
     attributionStatus: 'verified',
+    practiceMode: 'freeform',
 };
 const mk = (over: Partial<SessionEvidence> = {}) => buildProgressEvaluation({ ...BASE, ...over });
 /** Force an exact unrounded clarity value so direction arithmetic is deterministic. */
