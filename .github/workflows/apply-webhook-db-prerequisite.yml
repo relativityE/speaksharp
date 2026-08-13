@@ -106,10 +106,12 @@ jobs:
           [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced after dry-run'; exit 1; }
 
       - name: Apply the exact reviewed migration
+        id: apply
         working-directory: ${{ runner.temp }}/exact-supabase
         run: supabase db push --yes
 
       - name: Verify target applied and held migration remained pending
+        id: verify
         working-directory: backend/supabase
         run: |
           set -euo pipefail
@@ -124,4 +126,6 @@ jobs:
           echo "- Checked-out SHA: \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Authorized target: \`$TARGET_VERSION\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Held migration: \`20260811143000\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Apply step outcome: \`${{ steps.apply.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Post-apply verification outcome: \`${{ steps.verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo '- No migration repair, `--include-all`, Edge deployment, secrets/config change, or trial/billing activation is performed.' >> "$GITHUB_STEP_SUMMARY"
