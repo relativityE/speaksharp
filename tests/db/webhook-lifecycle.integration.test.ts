@@ -11,6 +11,10 @@ const MIGRATION = readFileSync(
   resolve(process.cwd(), 'backend', 'supabase', 'migrations', '20260812002000_webhook_lifecycle_completeness_1282.sql'),
   'utf8',
 );
+const CONVERGENCE = readFileSync(
+  resolve(process.cwd(), 'backend', 'supabase', 'migrations', '20260812039500_webhook_duplicate_snapshot_convergence_1282.sql'),
+  'utf8',
+);
 const BOOTSTRAP = readFileSync(resolve(process.cwd(), 'tests', 'db', 'webhook-lifecycle-bootstrap.sql'), 'utf8');
 
 const USER = '00000000-0000-0000-0000-0000000000a1';
@@ -21,6 +25,7 @@ async function freshDbWithPaidPro() {
   const db = new PGlite();
   await db.exec(BOOTSTRAP);
   await db.exec(MIGRATION); // adds the audit column + the snapshot RPC (proves the ADD COLUMN too)
+  await db.exec(CONVERGENCE); // duplicate receipts no longer suppress a newly hydrated snapshot
   await db.exec(
     `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
      VALUES ('${USER}', 'pro', '${SUB}', '${CUS}')`,
@@ -129,12 +134,55 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     await dbB.close();
   });
 
-  it('duplicate event id is idempotent (skipped, no double application)', async () => {
+  it('same event id converges active/unapproved -> active/approved retry to Pro', async () => {
     const db = await freshDbWithPaidPro();
-    await snapshot(db, 'dup', 'past_due', 1000);
-    const replay = await snapshot(db, 'dup', 'active', 2000); // same id, different status
-    expect(replay.skipped).toBe('true'); // ignored — the first application stands
-    expect((await profile(db)).subscription_status).toBe('free'); // not flipped to pro by the replay
+    const first = await snapshot(db, 'dup_price', 'active', 1000, { hasApprovedPrice: false });
+    expect(first.entitlement).toBe('free');
+    expect((await profile(db)).subscription_status).toBe('free');
+
+    const corrected = await snapshot(db, 'dup_price', 'active', 2000, { hasApprovedPrice: true });
+    expect(corrected.success).toBe('true');
+    expect(corrected.skipped).toBeNull();
+    expect(corrected.entitlement).toBe('pro');
+    expect((await profile(db)).subscription_status).toBe('pro');
+    expect((await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM public.processed_webhook_events WHERE event_id = 'dup_price'`,
+    )).rows[0].n).toBe(1);
+    await db.close();
+  });
+
+  it('same event id converges past_due -> current active/approved duplicate to Pro', async () => {
+    const db = await freshDbWithPaidPro();
+    expect((await snapshot(db, 'dup_status', 'past_due', 1000)).entitlement).toBe('free');
+    expect((await profile(db)).subscription_status).toBe('free');
+    expect((await profile(db)).stripe_subscription_id).toBe(SUB);
+
+    expect((await snapshot(db, 'dup_status', 'active', 2000)).entitlement).toBe('pro');
+    expect((await profile(db)).subscription_status).toBe('pro');
+    await db.close();
+  });
+
+  it('an identical duplicate remains harmless and idempotent', async () => {
+    const db = await freshDbWithPaidPro();
+    const first = await snapshot(db, 'dup_identical', 'active', 1000);
+    const duplicate = await snapshot(db, 'dup_identical', 'active', 1000);
+    expect(first.entitlement).toBe('pro');
+    expect(duplicate.entitlement).toBe('pro');
+    expect((await profile(db)).subscription_status).toBe('pro');
+    expect((await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM public.processed_webhook_events WHERE event_id = 'dup_identical'`,
+    )).rows[0].n).toBe(1);
+    await db.close();
+  });
+
+  it('a duplicate receipt survives a later mismatched-customer application failure', async () => {
+    const db = await freshDbWithPaidPro();
+    expect((await snapshot(db, 'dup_receipt', 'active', 1000)).success).toBe('true');
+    expect((await snapshot(db, 'dup_receipt', 'active', 2000, { customerId: 'cus_wrong' })).success).toBe('false');
+    expect((await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM public.processed_webhook_events WHERE event_id = 'dup_receipt'`,
+    )).rows[0].n).toBe(1);
+    expect((await profile(db)).stripe_customer_id).toBe(CUS);
     await db.close();
   });
 
@@ -142,6 +190,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     const db = new PGlite();
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
+    await db.exec(CONVERGENCE);
     await db.exec(`INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${USER}', 'free')`);
     const r = await snapshot(db, 'e_first', 'active', 1000, { userId: USER });
     expect(r.entitlement).toBe('pro');
@@ -166,6 +215,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     const db = new PGlite();
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
+    await db.exec(CONVERGENCE);
     // A profile exists, but bound to a DIFFERENT subscription id — SUB maps to nobody and is not terminal.
     await db.exec(
       `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
@@ -184,6 +234,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     const db = new PGlite();
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
+    await db.exec(CONVERGENCE);
     const OTHER = '00000000-0000-0000-0000-0000000000b9';
     // SUB already belongs to OTHER (with its own customer); a checkout binding for USER must not steal it.
     await db.exec(
@@ -205,6 +256,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     const db = new PGlite();
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
+    await db.exec(CONVERGENCE);
     // USER already has a live subscription; a new checkout for a different sub must fail closed, not overwrite.
     await db.exec(
       `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
@@ -235,6 +287,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     const db = new PGlite();
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
+    await db.exec(CONVERGENCE);
     const r = await snapshot(db, 'unknown_terminal', 'canceled', 1000);
     expect(r.success).toBe('false');
     expect(r.error).not.toBeNull();
@@ -286,6 +339,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     const db = new PGlite();
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
+    await db.exec(CONVERGENCE);
     const OTHER = '00000000-0000-0000-0000-0000000000b9';
     await db.exec(
       `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
@@ -308,6 +362,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     const db = new PGlite();
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
+    await db.exec(CONVERGENCE);
     await db.exec(`INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${USER}', 'free')`);
     const r = await snapshot(db, 'wrong_price', 'active', 1000, { userId: USER, hasApprovedPrice: false });
     expect(r.success).toBe('false');
@@ -321,6 +376,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     const db = new PGlite();
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
+    await db.exec(CONVERGENCE);
     await db.exec(`INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${USER}', 'free')`);
 
     const r = await snapshot(db, 'wrong_price_past_due', 'past_due', 1000, {
@@ -348,6 +404,7 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     const db = new PGlite();
     await db.exec(BOOTSTRAP);
     await db.exec(MIGRATION);
+    await db.exec(CONVERGENCE);
     await db.exec(
       `INSERT INTO public.user_profiles (id, subscription_status, stripe_subscription_id, stripe_customer_id)
        VALUES ('${USER}', 'free', '${SUB}', NULL)`,
@@ -404,6 +461,19 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
     await db.close();
   });
 
+  it('same event id cannot reactivate a terminal tombstone', async () => {
+    const db = await freshDbWithPaidPro();
+    expect((await snapshot(db, 'dup_terminal', 'canceled', 1000)).entitlement).toBe('free');
+    expect((await profile(db)).stripe_subscription_id).toBeNull();
+
+    const duplicate = await snapshot(db, 'dup_terminal', 'active', 2000);
+    expect(duplicate.success).toBe('true');
+    expect(duplicate.entitlement).toBe('free');
+    expect((await profile(db)).subscription_status).toBe('free');
+    expect((await profile(db)).stripe_subscription_id).toBeNull();
+    await db.close();
+  });
+
   it('migration replay is idempotent and preserves old six-argument Edge compatibility', async () => {
     const db = new PGlite();
     await db.exec(BOOTSTRAP);
@@ -411,7 +481,9 @@ describe('#1287 canonical subscription snapshot (executed in PGlite)', () => {
       `SELECT pg_get_functiondef('public.process_stripe_webhook_event(text,text,text,uuid,text,text)'::regprocedure) AS definition`,
     )).rows[0].definition;
     await db.exec(MIGRATION);
+    await db.exec(CONVERGENCE);
     await db.exec(MIGRATION);
+    await db.exec(CONVERGENCE);
     const after = (await db.query<{ definition: string }>(
       `SELECT pg_get_functiondef('public.process_stripe_webhook_event(text,text,text,uuid,text,text)'::regprocedure) AS definition`,
     )).rows[0].definition;

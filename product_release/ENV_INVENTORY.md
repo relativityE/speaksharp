@@ -107,6 +107,7 @@ Rotate per `SECRET_ROTATION_RUNBOOK.md`. **Never commit real values.**
 | `STRIPE_SECRET_KEY` | C — **Ops-managed in Supabase; NOT synced from GitHub** | stripe-checkout, stripe-webhook | product-ops |
 | `STRIPE_WEBHOOK_SECRET` | C — **Ops-managed in Supabase; NOT synced from GitHub** | stripe-webhook | product-ops |
 | `STRIPE_PRO_PRICE_ID` | C — **Ops-managed in Supabase; NOT synced from GitHub** | checkout | product-ops |
+| `STRIPE_PRICE_CURRENCY` | optional (default `usd`) | checkout | product-ops | **#1282 price verification.** `stripe-checkout` retrieves `STRIPE_PRO_PRICE_ID` and refuses (`CONFIG_INVALID_PRICE`, 500, no session created) unless the resolved Stripe Price is active, recurring **monthly**, exactly **1000 cents**, in **this** currency. The amount is server-owned and never caller-supplied. Set only if the Pro price is not USD. |
 | `STRIPE_BASIC_PRICE_ID` | C — **Ops-managed in Supabase; NOT synced from GitHub** | checkout (future/placeholder) | product-ops |
 | `ASSEMBLYAI_API_KEY` | C — **Ops-managed in Supabase; NOT synced from GitHub** | assemblyai-token (Cloud STT) | product-ops |
 | `GEMINI_API_KEY` | C (+D sync) | get-ai-suggestions (NOT format-transcript — that was removed) | product-ops |

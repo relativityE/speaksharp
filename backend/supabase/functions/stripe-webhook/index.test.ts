@@ -1,276 +1,196 @@
 /**
- * Unit tests for stripe-webhook Edge Function.
- * 
- * Strategy: Test business logic (subscription updates) without mocking Stripe signature verification.
- * The signature verification is Stripe SDK's responsibility - we trust it.
+ * #1282 blocker 5 — stripe-webhook: verify signature → HYDRATE the current Stripe subscription → VALIDATE
+ * the configured $10 monthly price for granting states → apply the canonical snapshot. Entitlement is
+ * decided by the current subscription state, never by event action/order. Retrieval/identity/price/DB
+ * uncertainty returns non-2xx so Stripe retries. checkout.session.completed alone does not grant.
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { handler } from "./index.ts";
 
-const mockStripe = {
-  webhooks: {
-    constructEvent: (body: string, _sig: string, _secret: string) => {
-      return JSON.parse(body);
-    }
-  }
+const env = (key: string) => {
+  const v: Record<string, string> = { STRIPE_PRO_PRICE_ID: "price_pro_1282", STRIPE_PRICE_CURRENCY: "usd" };
+  return v[key];
 };
 
-const createMockSupabase = (rpcResult: any) => ({
-  rpc: (_fn: string, _args: any) => Promise.resolve(rpcResult)
+const validPrice = { id: "price_pro_1282", active: true, unit_amount: 1000, currency: "usd", recurring: { interval: "month", interval_count: 1 } };
+// A subscription object as Stripe.subscriptions.retrieve returns it (price expanded on the item).
+const sub = (over: Record<string, unknown> = {}) => ({
+  id: "sub_1", status: "active", customer: "cus_1", cancel_at_period_end: false, current_period_end: 3000,
+  items: { data: [{ price: validPrice }] }, ...over,
 });
 
-Deno.test("stripe-webhook handlers", async (t) => {
-
-  const createRequest = (event: any) => new Request("http://localhost", {
-    method: "POST",
-    headers: { "Stripe-Signature": "mock" },
-    body: JSON.stringify(event)
-  });
-
-  await t.step("handles OPTIONS preflight without Stripe signature verification", async () => {
-    let constructed = false;
-    const stripe = {
-      webhooks: {
-        constructEvent: () => {
-          constructed = true;
-          throw new Error("should not construct Stripe events for preflight");
-        }
-      }
-    };
-
-    const response = await handler(
-      new Request("http://localhost", {
-        method: "OPTIONS",
-        headers: { Origin: "https://speaksharp-public.vercel.app" }
-      }),
-      stripe,
-      createMockSupabase({ data: { success: true }, error: null }),
-      "secret"
-    );
-
-    assertEquals(response.status, 204); // approved-origin preflight → 204 (exact-origin CORS)
-    assertEquals(constructed, false);
-    assertEquals(response.headers.get("Access-Control-Allow-Methods"), "GET, POST, OPTIONS");
-    assertEquals(response.headers.get("Access-Control-Allow-Origin"), "https://speaksharp-public.vercel.app");
-  });
-
-  await t.step("handleCheckoutCompleted - upgrades user to Pro", async () => {
-    const event = {
-      id: "evt_1",
-      type: "checkout.session.completed",
-      data: { object: { metadata: { userId: "user_1" }, subscription: "sub_1", customer: "cus_1" } }
-    };
-
-    let capturedArgs: any;
-    const mockSupabase = {
-      rpc: (_fn: string, args: any) => {
-        capturedArgs = args;
-        return Promise.resolve({ data: { success: true, skipped: false }, error: null });
-      }
-    };
-
-    const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
-
-    assertEquals(response.status, 200);
-    assertEquals(capturedArgs.p_action, "upgrade_to_pro");
-    assertEquals(capturedArgs.p_user_id, "user_1");
-    assertEquals(capturedArgs.p_subscription_id, "sub_1");
-    assertEquals(capturedArgs.p_stripe_customer_id, "cus_1");
-  });
-
-  await t.step("handleCheckoutCompleted - activates paid Basic without Pro upgrade", async () => {
-    const event = {
-      id: "evt_basic",
-      type: "checkout.session.completed",
-      data: { object: { metadata: { userId: "user_1", plan: "basic" }, subscription: "sub_basic", customer: "cus_basic" } }
-    };
-
-    let capturedArgs: any;
-    const mockSupabase = {
-      rpc: (_fn: string, args: any) => {
-        capturedArgs = args;
-        return Promise.resolve({ data: { success: true, skipped: false }, error: null });
-      }
-    };
-
-    const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
-
-    assertEquals(response.status, 200);
-    assertEquals(capturedArgs.p_action, "activate_basic");
-    assertEquals(capturedArgs.p_user_id, "user_1");
-    assertEquals(capturedArgs.p_subscription_id, "sub_basic");
-    assertEquals(capturedArgs.p_stripe_customer_id, "cus_basic");
-  });
-
-  await t.step("handleCheckoutCompleted - fails without userId", async () => {
-    const event = {
-      id: "evt_1",
-      type: "checkout.session.completed",
-      data: { object: { metadata: {}, subscription: "sub_1" } }
-    };
-
-    const mockSupabase = createMockSupabase({ data: { success: true }, error: null });
-    const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
-
-    assertEquals(response.status, 400); // Bad request due to missing metadata
-  });
-
-  await t.step("handleSubscriptionDeleted - downgrades user to Free baseline", async () => {
-    const event = {
-      id: "evt_1",
-      type: "customer.subscription.deleted",
-      data: { object: { id: "sub_1" } }
-    };
-
-    let capturedArgs: any;
-    const mockSupabase = {
-      rpc: (_fn: string, args: any) => {
-        capturedArgs = args;
-        return Promise.resolve({ data: { success: true, skipped: false }, error: null });
-      }
-    };
-
-    const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
-
-    assertEquals(response.status, 200);
-    assertEquals(capturedArgs.p_action, "downgrade_to_free");
-  });
-
-  await t.step("handles RPC error", async () => {
-    const event = {
-      id: "evt_1",
-      type: "customer.subscription.deleted",
-      data: { object: { id: "sub_1" } }
-    };
-
-    const mockSupabase = createMockSupabase({ data: null, error: { message: "RPC Error" } });
-    const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
-
-    assertEquals(response.status, 500);
-  });
-
-  await t.step("handles skipped event", async () => {
-    const event = {
-      id: "evt_1",
-      type: "customer.subscription.deleted",
-      data: { object: { id: "sub_1" } }
-    };
-
-    const mockSupabase = createMockSupabase({ data: { skipped: true }, error: null });
-    const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
-
-    assertEquals(response.status, 200);
-  });
+const mkStripe = (opts: { retrieveSub?: any; retrieveErr?: boolean; priceRetrieve?: any; priceErr?: boolean } = {}) => ({
+  webhooks: { constructEvent: (body: string) => JSON.parse(body) },
+  subscriptions: {
+    retrieve: (_id: string) => opts.retrieveErr ? Promise.reject(new Error("stripe down")) : Promise.resolve(opts.retrieveSub ?? sub()),
+  },
+  prices: {
+    retrieve: (_id: string) => opts.priceErr ? Promise.reject(new Error("price down")) : Promise.resolve(opts.priceRetrieve ?? validPrice),
+  },
 });
 
-Deno.test("stripe-webhook subscription.updated handlers", async (t) => {
-  const createRequest = (event: any) => new Request("http://localhost", {
-    method: "POST",
-    headers: { "Stripe-Signature": "mock" },
-    body: JSON.stringify(event)
-  });
-
-  const getArgs = async (status: string, plan = "pro") => {
-    const event = {
-      id: "evt_1",
-      type: "customer.subscription.updated",
-      data: { object: { id: "sub_1", status, customer: "cus_1", metadata: { userId: "user_1", plan } } }
-    };
-
-    let capturedArgs: any;
-    const mockSupabase = {
-      rpc: (_fn: string, args: any) => {
-        capturedArgs = args;
-        return Promise.resolve({ data: { success: true }, error: null });
-      }
-    };
-
-    await handler(createRequest(event), mockStripe, mockSupabase, "secret");
-    return capturedArgs;
+const mkSupabase = (rpcResult: any = { data: { success: true, entitlement: "pro" }, error: null }) => {
+  let capturedArgs: any = null;
+  return {
+    calls: () => capturedArgs,
+    supabase: { rpc: (_fn: string, args: any) => { capturedArgs = args; return Promise.resolve(rpcResult); } },
   };
+};
 
-  await t.step("handleSubscriptionUpdated - downgrades on canceled status", async () => {
-    const args = await getArgs("canceled");
-    assertEquals(args.p_action, "downgrade_to_free");
-    assertEquals(args.p_stripe_customer_id, "cus_1");
+const req = (event: any) => new Request("http://localhost", { method: "POST", headers: { "Stripe-Signature": "mock" }, body: JSON.stringify(event) });
+
+Deno.test("stripe-webhook — canonical snapshot flow", async (t) => {
+  await t.step("checkout.session.completed with an active, correctly-priced sub → snapshot with user binding", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e1", type: "checkout.session.completed", created: 1000,
+      data: { object: { metadata: { userId: "user_1" }, client_reference_id: "user_1", subscription: "sub_1", customer: "cus_1" } } }),
+      mkStripe(), sb.supabase, "secret", env);
+    assertEquals(res.status, 200);
+    assertEquals(sb.calls().p_status, "active");
+    assertEquals(sb.calls().p_user_id, "user_1");        // first binding uses checkout metadata
+    assertEquals(sb.calls().p_subscription_id, "sub_1");
+    assertEquals(sb.calls().p_customer_id, "cus_1");
+    assertEquals(sb.calls().p_has_approved_price, true);
+    assertEquals(sb.calls().p_event_created, 1000);
   });
 
-  await t.step("handleSubscriptionUpdated - downgrades on unpaid status", async () => {
-    assertEquals((await getArgs("unpaid")).p_action, "downgrade_to_free");
+  await t.step("checkout.session.completed WITHOUT client_reference_id → 400 (no grant)", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e2b", type: "checkout.session.completed", data: { object: {
+      metadata: { userId: "user_1" }, subscription: "sub_1", customer: "cus_1",
+    } } }), mkStripe(), sb.supabase, "secret", env);
+    assertEquals(res.status, 400);
+    assertEquals(sb.calls(), null);
   });
 
-  await t.step("handleSubscriptionUpdated - downgrades on past_due status", async () => {
-    assertEquals((await getArgs("past_due")).p_action, "downgrade_to_free");
+  await t.step("checkout metadata/client_reference_id mismatch → 400 (no grant)", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e2c", type: "checkout.session.completed", data: { object: {
+      metadata: { userId: "user_1" }, client_reference_id: "user_2", subscription: "sub_1", customer: "cus_1",
+    } } }), mkStripe(), sb.supabase, "secret", env);
+    assertEquals(res.status, 400);
+    assertEquals(sb.calls(), null);
   });
 
-  await t.step("handleSubscriptionUpdated - no action on active status", async () => {
-    assertEquals((await getArgs("active")).p_action, "upgrade_to_pro");
+  await t.step("checkout missing customer → 400 (no grant)", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e2d", type: "checkout.session.completed", data: { object: {
+      metadata: { userId: "user_1" }, client_reference_id: "user_1", subscription: "sub_1",
+    } } }), mkStripe(), sb.supabase, "secret", env);
+    assertEquals(res.status, 400);
+    assertEquals(sb.calls(), null);
   });
 
-  await t.step("handleSubscriptionUpdated - restores paid Basic on active status", async () => {
-    assertEquals((await getArgs("active", "basic")).p_action, "activate_basic");
+  await t.step("checkout customer differs from hydrated subscription customer → non-2xx (no grant)", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e2e", type: "checkout.session.completed", data: { object: {
+      metadata: { userId: "user_1" }, client_reference_id: "user_1", subscription: "sub_1", customer: "cus_other",
+    } } }), mkStripe(), sb.supabase, "secret", env);
+    assertEquals(res.status, 400);
+    assertEquals(sb.calls(), null);
   });
 
-  await t.step("handleSubscriptionUpdated - signed no-op (active, no userId) acks 200 without mutation", async () => {
-    // Mirrors the live signed-webhook readiness no-op: a valid, signed subscription
-    // event that resolves to no actionable user must be acknowledged (200 received),
-    // not surfaced as a DB failure, and must not mutate entitlement (p_action 'none').
-    const event = {
-      id: "evt_noop_1",
-      type: "customer.subscription.updated",
-      data: { object: { id: "sub_noop_1", status: "active" } }
-    };
-
-    let capturedArgs: any;
-    const mockSupabase = {
-      rpc: (_fn: string, args: any) => {
-        capturedArgs = args;
-        return Promise.resolve({ data: { success: true, skipped: false }, error: null });
-      }
-    };
-
-    const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
-    const body = await response.json();
-
-    assertEquals(response.status, 200);
-    assertEquals(body.received, true);
-    assertEquals(capturedArgs.p_action, "none");
-    assertEquals(capturedArgs.p_user_id, null);
-  });
-});
-
-Deno.test("stripe-webhook invoice.payment_failed handlers", async (t) => {
-  const createRequest = (event: any) => new Request("http://localhost", {
-    method: "POST",
-    headers: { "Stripe-Signature": "mock" },
-    body: JSON.stringify(event)
+  await t.step("checkout.session.completed WITHOUT userId metadata → 400 (no grant)", async () => {
+    const res = await handler(req({ id: "e2", type: "checkout.session.completed", data: { object: { metadata: {}, subscription: "sub_1" } } }),
+      mkStripe(), mkSupabase().supabase, "secret", env);
+    assertEquals(res.status, 400);
   });
 
-  const getArgs = async (attempt_count: number) => {
-    const event = {
-      id: "evt_1",
-      type: "invoice.payment_failed",
-      data: { object: { subscription: "sub_1", attempt_count } }
-    };
-
-    let capturedArgs: any;
-    const mockSupabase = {
-      rpc: (_fn: string, args: any) => {
-        capturedArgs = args;
-        return Promise.resolve({ data: { success: true }, error: null });
-      }
-    };
-
-    await handler(createRequest(event), mockStripe, mockSupabase, "secret");
-    return capturedArgs.p_action;
-  };
-
-  await t.step("handlePaymentFailed - no action if < 3 attempts", async () => {
-    assertEquals(await getArgs(2), "none");
+  await t.step("subscription.updated active + valid price → snapshot 'active' (no user binding on later events)", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e3", type: "customer.subscription.updated", created: 2000, data: { object: { id: "sub_1" } } }),
+      mkStripe(), sb.supabase, "secret", env);
+    assertEquals(res.status, 200);
+    assertEquals(sb.calls().p_status, "active");
+    assertEquals(sb.calls().p_user_id, null);           // later events use stored identity
+    assertEquals(sb.calls().p_has_approved_price, true);
   });
 
-  await t.step("handlePaymentFailed - downgrades at 3+ attempts", async () => {
-    assertEquals(await getArgs(3), "downgrade_to_free");
+  await t.step("active sub with the WRONG price → snapshot revokes/refuses Pro, then non-2xx", async () => {
+    const sb = mkSupabase();
+    const wrong = sub({ items: { data: [{ price: { id: "price_other", active: true, unit_amount: 500, currency: "usd", recurring: { interval: "month", interval_count: 1 } } }] } });
+    const res = await handler(req({ id: "e4", type: "customer.subscription.updated", data: { object: { id: "sub_1" } } }),
+      mkStripe({ retrieveSub: wrong }), sb.supabase, "secret", env);
+    assertEquals(res.status, 500);
+    assertEquals(sb.calls().p_has_approved_price, false);
   });
 
+  await t.step("active sub with a 3-month interval_count → non-2xx (not monthly)", async () => {
+    const bad = sub({ items: { data: [{ price: { ...validPrice, recurring: { interval: "month", interval_count: 3 } } }] } });
+    const res = await handler(req({ id: "e4b", type: "customer.subscription.updated", data: { object: { id: "sub_1" } } }),
+      mkStripe({ retrieveSub: bad }), mkSupabase().supabase, "secret", env);
+    assertEquals(res.status, 500);
+  });
+
+  await t.step("past_due → snapshot 'past_due' (NO price check; does not grant)", async () => {
+    const sb = mkSupabase({ data: { success: true, entitlement: "free" }, error: null });
+    const res = await handler(req({ id: "e5", type: "customer.subscription.updated", data: { object: { id: "sub_1" } } }),
+      mkStripe({ retrieveSub: sub({ status: "past_due" }) }), sb.supabase, "secret", env);
+    assertEquals(res.status, 200);
+    assertEquals(sb.calls().p_status, "past_due");
+    assertEquals(sb.calls().p_has_approved_price, false);
+  });
+
+  await t.step("deleted/canceled → snapshot 'canceled' (terminal; no price check)", async () => {
+    const sb = mkSupabase({ data: { success: true, entitlement: "free" }, error: null });
+    const res = await handler(req({ id: "e6", type: "customer.subscription.deleted", data: { object: { id: "sub_1" } } }),
+      mkStripe({ retrieveSub: sub({ status: "canceled" }) }), sb.supabase, "secret", env);
+    assertEquals(res.status, 200);
+    assertEquals(sb.calls().p_status, "canceled");
+    assertEquals(sb.calls().p_has_approved_price, false);
+  });
+
+  await t.step("hydrated subscription missing customer → non-2xx, no snapshot", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e6b", type: "customer.subscription.updated", data: { object: { id: "sub_1" } } }),
+      mkStripe({ retrieveSub: sub({ customer: "" }) }), sb.supabase, "secret", env);
+    assertEquals(res.status, 502);
+    assertEquals(sb.calls(), null);
+  });
+
+  await t.step("subscription retrieval failure → 502 (retryable, no snapshot)", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e7", type: "customer.subscription.updated", data: { object: { id: "sub_1" } } }),
+      mkStripe({ retrieveErr: true }), sb.supabase, "secret", env);
+    assertEquals(res.status, 502);
+    assertEquals(sb.calls(), null);
+  });
+
+  await t.step("price identity UNCERTAIN (unexpanded price + retrieve fails) → 502 (retryable)", async () => {
+    const sb = mkSupabase();
+    const unexpanded = sub({ items: { data: [{ price: "price_pro_1282" }] } }); // just an id, not expanded
+    const res = await handler(req({ id: "e8", type: "customer.subscription.updated", data: { object: { id: "sub_1" } } }),
+      mkStripe({ retrieveSub: unexpanded, priceErr: true }), sb.supabase, "secret", env);
+    assertEquals(res.status, 502);
+    assertEquals(sb.calls(), null);
+  });
+
+  await t.step("DB snapshot failure → 500 (retryable)", async () => {
+    const res = await handler(req({ id: "e9", type: "customer.subscription.updated", data: { object: { id: "sub_1" } } }),
+      mkStripe(), mkSupabase({ data: { success: false, error: "boom" }, error: null }).supabase, "secret", env);
+    assertEquals(res.status, 500);
+  });
+
+  await t.step("duplicate delivery (snapshot skipped) → 200 idempotent", async () => {
+    const res = await handler(req({ id: "e10", type: "customer.subscription.updated", data: { object: { id: "sub_1" } } }),
+      mkStripe(), mkSupabase({ data: { success: true, skipped: true }, error: null }).supabase, "secret", env);
+    assertEquals(res.status, 200);
+  });
+
+  await t.step("a non-subscription event is acknowledged and ignored (200)", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e11", type: "customer.updated", data: { object: { id: "cus_1" } } }),
+      mkStripe(), sb.supabase, "secret", env);
+    assertEquals(res.status, 200);
+    assertEquals(sb.calls(), null); // no snapshot for a non-subscription event
+  });
+
+  await t.step("cancel_at_period_end on an active sub keeps access (status active forwarded)", async () => {
+    const sb = mkSupabase();
+    const res = await handler(req({ id: "e12", type: "customer.subscription.updated", data: { object: { id: "sub_1" } } }),
+      mkStripe({ retrieveSub: sub({ cancel_at_period_end: true }) }), sb.supabase, "secret", env);
+    assertEquals(res.status, 200);
+    assertEquals(sb.calls().p_status, "active");
+    assertEquals(sb.calls().p_cancel_at_period_end, true);
+  });
 });
