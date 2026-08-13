@@ -50,6 +50,7 @@ describe('exact migration gate', () => {
             targetFile: '20260812002000_webhook_lifecycle_completeness_1282.sql',
             targetSha256: TARGET_SHA256,
             classification: 'legacy-webhook-prerequisite',
+            requiresIncludeAll: false,
             requiredAppliedVersions: [],
             excludedMigrations: [{ version: '20260811143000', file: HELD_FILE }],
             allowlisted: false,
@@ -65,6 +66,7 @@ describe('exact migration gate', () => {
             targetFile: '20260812030000_progress_cohort_mode_separation_1265.sql',
             targetSha256: 'progress-hash',
             classification: 'legacy-webhook-prerequisite',
+            requiresIncludeAll: false,
             requiredAppliedVersions: [],
             excludedMigrations: [
                 { version: '20260811143000', file: HELD_FILE },
@@ -202,11 +204,16 @@ describe('exact migration gate', () => {
             .toThrow(/added, removed/);
     });
 
-    it('requires baseline-relative lint and an unambiguous successful terminal outcome', () => {
-        const baseline = 'Connecting to remote database\nwarning: existing issue\n';
-        expect(assertNoNewLint(baseline, 'Connecting to remote database\nwarning: existing issue\n'))
-            .toEqual({ baselineFindings: 1, postFindings: 1 });
-        expect(() => assertNoNewLint(baseline, `${baseline}warning: new issue\n`)).toThrow(/differs/);
+    it('allows lint cleanup while rejecting additions, changes, and increased duplicate counts', () => {
+        const baseline = 'Connecting to remote database\nwarning: existing issue\nwarning: duplicate issue\nwarning: duplicate issue\n';
+        expect(assertNoNewLint(baseline, baseline)).toEqual({ baselineFindings: 3, postFindings: 3 });
+        expect(assertNoNewLint(baseline, 'warning: existing issue\n')).toEqual({ baselineFindings: 3, postFindings: 1 });
+        expect(() => assertNoNewLint(baseline, `${baseline}warning: new issue\n`)).toThrow(/adds or increases/);
+        expect(() => assertNoNewLint(baseline, 'warning: changed issue\n')).toThrow(/adds or increases/);
+        expect(() => assertNoNewLint(baseline, `${baseline}warning: duplicate issue\n`)).toThrow(/adds or increases/);
+    });
+
+    it('requires an unambiguous successful terminal outcome', () => {
         expect(assertTerminalOutcome('success', 'success', 'success')).toEqual({ terminal: 'success' });
         expect(() => assertTerminalOutcome('failure', 'success', 'success')).toThrow(/apply command outcome/);
         expect(() => assertTerminalOutcome('success', 'failure', 'success')).toThrow(/history verification/);
@@ -272,25 +279,27 @@ describe('exact migration gate', () => {
         expect(workflow).toContain('node ../../scripts/exact-migration-gate.mjs after');
         expect(workflow).toContain('node ../../scripts/exact-migration-gate.mjs lint-delta');
         expect(workflow).toContain('node scripts/exact-migration-gate.mjs final');
+        expect(workflow).toContain("if [ '${{ steps.contract.outputs.requires_include_all }}' = 'true' ]; then");
+        expect(workflow.match(/push_args\+=\(--include-all\)/g)).toHaveLength(2);
         expect(workflow).not.toMatch(/^\s+supabase migration repair/m);
-        expect(workflow).not.toMatch(/^\s+supabase db push .*--include-all/m);
     });
 
     it('pins every allowlisted source byte and gives commercial activation a distinct phrase', () => {
         const source = resolve(process.cwd(), 'backend/supabase');
         const sha = 'a'.repeat(40);
+        const actualPhrases = [];
+        const expectedPhrases = [];
         for (const target of EXACT_MIGRATION_ALLOWLIST) {
             const migration = readFileSync(resolve(source, 'migrations', target.file));
             expect(createHash('sha256').update(migration).digest('hex')).toBe(target.sha256);
             const config = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: target.version });
             expect(verifyMigrationSourceIdentity(source, config).targetSha256).toBe(target.sha256);
-            const phrase = expectedAuthorizationPhrase(sha, config);
-            if (target.classification === 'commercial-activation') {
-                expect(phrase).toBe(`ACTIVATE COMMERCIAL TRIAL WITH ${target.version} ${target.file} SHA256 ${target.sha256} AT ${sha}`);
-            } else {
-                expect(phrase).toBe(`APPLY ${target.version} ${target.file} SHA256 ${target.sha256} AT ${sha}`);
-            }
+            actualPhrases.push(expectedAuthorizationPhrase(sha, config));
+            const prefix = target.classification === 'commercial-activation' ? 'ACTIVATE COMMERCIAL TRIAL WITH' : 'APPLY';
+            const outOfOrderDisclosure = target.version === '20260811143000' ? ' USING ISOLATED --include-all' : '';
+            expectedPhrases.push(`${prefix} ${target.version} ${target.file} SHA256 ${target.sha256}${outOfOrderDisclosure} AT ${sha}`);
         }
+        expect(actualPhrases).toEqual(expectedPhrases);
         expect(() => resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: '20260812999999' }))
             .toThrow(/not in the checked-in allowlist/);
         expect(() => expectedAuthorizationPhrase('short', resolveExactMigrationConfig({
@@ -308,10 +317,37 @@ describe('exact migration gate', () => {
         ])).toThrow(/must be the final/);
     });
 
+    it('uses isolated --include-all only for #1276 when newer webhook history already exists', () => {
+        const config = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: '20260811143000' });
+        const before = [
+            matched,
+            ' 20260811143000 |                | pending',
+            ' 20260812002000 | 20260812002000 | applied',
+            ...EXACT_MIGRATION_ALLOWLIST.slice(1).map(({ version }) => ` ${version} |                | pending`),
+        ].join('\n');
+        const after = before.replace(
+            ' 20260811143000 |                | pending',
+            ' 20260811143000 | 20260811143000 | applied',
+        );
+
+        expect(config.requiresIncludeAll).toBe(true);
+        expect(config.requiredAppliedVersions).toEqual(['20260812002000']);
+        expect(expectedAuthorizationPhrase('a'.repeat(40), config)).toContain('USING ISOLATED --include-all');
+        expect(assertBeforeApply(before, config).pending).toEqual(EXACT_MIGRATION_ALLOWLIST.map(({ version }) => version));
+        expect(assertExactDryRun(`Would push these migrations:\n • ${config.targetFile}`, config))
+            .toEqual({ files: [config.targetFile] });
+        expect(assertAfterApply(before, after, config)).toEqual({
+            pending: EXACT_MIGRATION_ALLOWLIST.slice(1).map(({ version }) => version),
+            appliedDelta: '20260811143000:pending->applied',
+        });
+    });
+
     it('enforces staged dependency order, one-row history delta, and target-only visibility for all six targets', () => {
         const appliedWebhook = ' 20260812002000 | 20260812002000 | applied';
+        const dependencyViolations = [];
         for (const [targetIndex, target] of EXACT_MIGRATION_ALLOWLIST.entries()) {
             const config = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: target.version });
+            expect(config.requiresIncludeAll).toBe(targetIndex === 0);
             expect(config.requiredAppliedVersions).toEqual([
                 '20260812002000',
                 ...EXACT_MIGRATION_ALLOWLIST.slice(0, targetIndex).map(({ version }) => version),
@@ -334,11 +370,14 @@ describe('exact migration gate', () => {
                 }
 
                 const result = prepareExactMigrationWorkspace(source, isolatedRoot, config);
-                for (const [index, entry] of EXACT_MIGRATION_ALLOWLIST.entries()) {
-                    const applyVisible = index <= targetIndex;
-                    expect(existsSync(join(result.supabaseDir, 'migrations', entry.file))).toBe(applyVisible);
-                    expect(existsSync(join(result.heldDir, entry.file))).toBe(!applyVisible);
-                }
+                const visible = EXACT_MIGRATION_ALLOWLIST
+                    .filter((entry) => existsSync(join(result.supabaseDir, 'migrations', entry.file)))
+                    .map(({ version }) => version);
+                const held = EXACT_MIGRATION_ALLOWLIST
+                    .filter((entry) => existsSync(join(result.heldDir, entry.file)))
+                    .map(({ version }) => version);
+                expect(visible).toEqual(EXACT_MIGRATION_ALLOWLIST.slice(0, targetIndex + 1).map(({ version }) => version));
+                expect(held).toEqual(EXACT_MIGRATION_ALLOWLIST.slice(targetIndex + 1).map(({ version }) => version));
 
                 const beforeRows = [matched, appliedWebhook];
                 const afterRows = [matched, appliedWebhook];
@@ -368,11 +407,13 @@ describe('exact migration gate', () => {
                         ` ${EXACT_MIGRATION_ALLOWLIST[targetIndex - 1].version} | ${EXACT_MIGRATION_ALLOWLIST[targetIndex - 1].version} | applied`,
                         ` ${EXACT_MIGRATION_ALLOWLIST[targetIndex - 1].version} |                | pending`,
                     );
-                    expect(() => assertBeforeApply(outOfOrder, config)).toThrow(/unexpected pending/);
+                    dependencyViolations.push(() => assertBeforeApply(outOfOrder, config));
                 }
             } finally {
                 rmSync(fixture, { recursive: true, force: true });
             }
         }
+        expect(dependencyViolations).toHaveLength(EXACT_MIGRATION_ALLOWLIST.length - 1);
+        for (const violation of dependencyViolations) expect(violation).toThrow(/unexpected pending/);
     });
 });

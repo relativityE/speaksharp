@@ -108,6 +108,7 @@ export function resolveExactMigrationConfig(env = process.env) {
             targetFile: target.file,
             targetSha256: target.sha256,
             classification: target.classification,
+            requiresIncludeAll: targetIndex === 0,
             requiredAppliedVersions: [
                 APPLIED_WEBHOOK_PREREQUISITE,
                 ...EXACT_MIGRATION_ALLOWLIST.slice(0, targetIndex).map(({ version }) => version),
@@ -122,6 +123,7 @@ export function resolveExactMigrationConfig(env = process.env) {
         targetFile: env.TARGET_FILE || DEFAULT_CONFIG.targetFile,
         targetSha256: env.TARGET_SHA256 || DEFAULT_CONFIG.targetSha256,
         classification: 'legacy-webhook-prerequisite',
+        requiresIncludeAll: false,
         requiredAppliedVersions: [],
         excludedMigrations: parseExcludedMigrations(env),
         allowlisted: false,
@@ -176,6 +178,7 @@ export function verifyMigrationSourceIdentity(sourceSupabaseDir, config = CONFIG
         targetFile: config.targetFile,
         targetSha256: config.targetSha256,
         classification: config.classification,
+        requiresIncludeAll: config.requiresIncludeAll,
         excludedVersions: config.excludedMigrations.map(({ version }) => version),
     };
 }
@@ -185,7 +188,8 @@ export function expectedAuthorizationPhrase(expectedHeadSha, config = CONFIG) {
     const prefix = config.classification === 'commercial-activation'
         ? 'ACTIVATE COMMERCIAL TRIAL WITH'
         : 'APPLY';
-    return `${prefix} ${config.targetVersion} ${config.targetFile} SHA256 ${config.targetSha256} AT ${expectedHeadSha}`;
+    const outOfOrderDisclosure = config.requiresIncludeAll ? ' USING ISOLATED --include-all' : '';
+    return `${prefix} ${config.targetVersion} ${config.targetFile} SHA256 ${config.targetSha256}${outOfOrderDisclosure} AT ${expectedHeadSha}`;
 }
 
 /** Return a stable relative-path and SHA-256 inventory, rejecting non-file tree entries. */
@@ -397,12 +401,21 @@ function normalizedLintFindings(output) {
         .sort();
 }
 
-/** Whole-schema lint is baseline-relative: no new or changed warning/error may appear after apply. */
+function findingCounts(findings) {
+    const counts = new Map();
+    for (const finding of findings) counts.set(finding, (counts.get(finding) ?? 0) + 1);
+    return counts;
+}
+
+/** Whole-schema lint is baseline-relative: findings may disappear, but none may be added or increase. */
 export function assertNoNewLint(beforeOutput, afterOutput) {
     const before = normalizedLintFindings(beforeOutput);
     const after = normalizedLintFindings(afterOutput);
-    if (JSON.stringify(before) !== JSON.stringify(after)) {
-        throw new Error('post-apply production lint differs from the read-only pre-apply baseline');
+    const baselineCounts = findingCounts(before);
+    for (const [finding, count] of findingCounts(after)) {
+        if (count > (baselineCounts.get(finding) ?? 0)) {
+            throw new Error('post-apply production lint adds or increases a finding relative to the read-only baseline');
+        }
     }
     return { baselineFindings: before.length, postFindings: after.length };
 }

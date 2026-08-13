@@ -90,6 +90,7 @@ jobs:
           echo "target_file=$(jq -r '.targetFile' <<<"$contract")" >> "$GITHUB_OUTPUT"
           echo "target_sha256=$(jq -r '.targetSha256' <<<"$contract")" >> "$GITHUB_OUTPUT"
           echo "classification=$(jq -r '.classification' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "requires_include_all=$(jq -r '.requiresIncludeAll' <<<"$contract")" >> "$GITHUB_OUTPUT"
           echo "excluded_versions=$(jq -r '.excludedVersions | join(" ")' <<<"$contract")" >> "$GITHUB_OUTPUT"
 
       - name: Establish exact pre-apply state
@@ -115,8 +116,12 @@ jobs:
         working-directory: ${{ runner.temp }}/exact-backend
         run: |
           set -euo pipefail
+          push_args=()
+          if [ '${{ steps.contract.outputs.requires_include_all }}' = 'true' ]; then
+            push_args+=(--include-all)
+          fi
           supabase link --project-ref "$SUPABASE_PROJECT_ID"
-          supabase db push --dry-run 2>&1 | tee "$RUNNER_TEMP/exact-dry-run.txt"
+          supabase db push --dry-run "${push_args[@]}" 2>&1 | tee "$RUNNER_TEMP/exact-dry-run.txt"
           node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" dry-run "$RUNNER_TEMP/exact-dry-run.txt"
 
       - name: Revalidate main immediately before apply
@@ -132,7 +137,13 @@ jobs:
         id: apply
         continue-on-error: true
         working-directory: ${{ runner.temp }}/exact-backend
-        run: supabase db push --yes
+        run: |
+          set -euo pipefail
+          push_args=()
+          if [ '${{ steps.contract.outputs.requires_include_all }}' = 'true' ]; then
+            push_args+=(--include-all)
+          fi
+          supabase db push --yes "${push_args[@]}"
 
       - name: Verify target applied and every unselected pending migration remained pending
         id: verify
@@ -166,9 +177,10 @@ jobs:
           echo "- Filename: \`${{ steps.contract.outputs.target_file }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- SHA-256: \`${{ steps.contract.outputs.target_sha256 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Classification: \`${{ steps.contract.outputs.classification }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Isolated out-of-order flag required: \`${{ steps.contract.outputs.requires_include_all }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Excluded pending migrations: \`${{ steps.contract.outputs.excluded_versions }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Apply step outcome: \`${{ steps.apply.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Post-apply verification outcome: \`${{ steps.verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Baseline-relative lint outcome: \`${{ steps.lint_verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Terminal exact-operation gate: \`${{ steps.terminal.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo '- The selected migration is the only authorized mutation. No repair, `--include-all`, Edge deployment, payment configuration, or secrets/config change is performed.' >> "$GITHUB_STEP_SUMMARY"
+          echo '- The selected migration is the only authorized mutation. `--include-all` is permitted only for the isolated #1276 target and must be disclosed by its exact authorization phrase. No repair, broad-directory application, Edge deployment, payment configuration, or secrets/config change is performed.' >> "$GITHUB_STEP_SUMMARY"
