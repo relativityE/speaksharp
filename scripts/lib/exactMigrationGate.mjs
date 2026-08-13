@@ -1,3 +1,6 @@
+import { cpSync, existsSync, mkdirSync, renameSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
 export const TARGET_VERSION = '20260812002000';
 export const TARGET_FILE = `${TARGET_VERSION}_webhook_lifecycle_completeness_1282.sql`;
 export const TARGET_SHA256 = 'e2e77217547100158d4324c29feafaa2d6ecd3462b96add3b0e9002b0d923a13';
@@ -6,6 +9,34 @@ export const HELD_FILE = `${HELD_VERSION}_harden_exposed_security_definer_acl.sq
 
 const LIST_ROW = /^\s*(\d{8,14})?\s*\|\s*(\d{8,14})?\s*\|/;
 const MIGRATION_FILE = /\b(\d{8,14}_[A-Za-z0-9_.-]+\.sql)\b/g;
+
+/** Preserve the CLI-required <workdir>/supabase/migrations shape while holding one migration. */
+export function prepareExactMigrationWorkspace(sourceSupabaseDir, tempRoot) {
+    const source = resolve(sourceSupabaseDir);
+    const root = resolve(tempRoot);
+    const workdir = join(root, 'exact-backend');
+    const supabaseDir = join(workdir, 'supabase');
+    const migrationsDir = join(supabaseDir, 'migrations');
+    const heldDir = join(root, 'held-migrations');
+
+    if (existsSync(workdir) || existsSync(heldDir)) {
+        throw new Error('isolated migration workspace already exists');
+    }
+
+    mkdirSync(workdir);
+    cpSync(source, supabaseDir, { recursive: true, errorOnExist: true, force: false });
+    mkdirSync(heldDir);
+    renameSync(join(migrationsDir, HELD_FILE), join(heldDir, HELD_FILE));
+
+    if (!existsSync(join(migrationsDir, TARGET_FILE))) {
+        throw new Error('target migration is missing from isolated workspace');
+    }
+    if (existsSync(join(migrationsDir, HELD_FILE))) {
+        throw new Error('held migration remains in isolated workspace');
+    }
+
+    return { workdir, supabaseDir, heldDir };
+}
 
 export function parseMigrationList(output) {
     const rows = [];

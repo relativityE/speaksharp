@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
     assertAfterApply,
@@ -11,6 +12,7 @@ import {
     HELD_FILE,
     TARGET_FILE,
     TARGET_SHA256,
+    prepareExactMigrationWorkspace,
 } from '../../scripts/lib/exactMigrationGate.mjs';
 
 const matched = ' 20260810120000 | 20260810120000 | 2026-08-10 12:00:00';
@@ -19,6 +21,33 @@ const targetPending = ' 20260812002000 |                | 2026-08-12 00:20:00';
 const targetApplied = ' 20260812002000 | 20260812002000 | 2026-08-12 00:20:00';
 
 describe('exact migration gate', () => {
+    it('preserves the Supabase CLI workdir shape while removing only the held migration', () => {
+        const fixture = mkdtempSync(join(tmpdir(), 'exact-migration-workspace-'));
+        try {
+            const source = join(fixture, 'source-supabase');
+            const migrations = join(source, 'migrations');
+            const isolatedRoot = join(fixture, 'runner-temp');
+            mkdirSync(migrations, { recursive: true });
+            mkdirSync(isolatedRoot);
+            writeFileSync(join(source, 'config.toml'), 'project_id = "fixture"\n');
+            writeFileSync(join(migrations, TARGET_FILE), '-- target\n');
+            writeFileSync(join(migrations, HELD_FILE), '-- held\n');
+            writeFileSync(join(migrations, '20260810120000_prior.sql'), '-- prior\n');
+
+            const result = prepareExactMigrationWorkspace(source, isolatedRoot);
+
+            expect(result.workdir).toBe(join(isolatedRoot, 'exact-backend'));
+            expect(existsSync(join(result.workdir, 'supabase', 'config.toml'))).toBe(true);
+            expect(existsSync(join(result.workdir, 'supabase', 'migrations', TARGET_FILE))).toBe(true);
+            expect(existsSync(join(result.workdir, 'supabase', 'migrations', '20260810120000_prior.sql'))).toBe(true);
+            expect(existsSync(join(result.workdir, 'supabase', 'migrations', HELD_FILE))).toBe(false);
+            expect(existsSync(join(result.heldDir, HELD_FILE))).toBe(true);
+            expect(() => prepareExactMigrationWorkspace(source, isolatedRoot)).toThrow(/already exists/);
+        } finally {
+            rmSync(fixture, { recursive: true, force: true });
+        }
+    });
+
     it('accepts only the observed two-migration pre-apply state', () => {
         expect(assertBeforeApply([matched, heldPending, targetPending].join('\n'))).toEqual({
             pending: ['20260811143000', '20260812002000'],
@@ -94,6 +123,9 @@ describe('exact migration gate', () => {
         expect(workflow).toContain("if: ${{ always() && steps.apply.outcome != 'skipped' }}");
         expect(workflow).toContain('node ../../scripts/exact-migration-gate.mjs lint-delta');
         expect(workflow).toContain('node scripts/exact-migration-gate.mjs final');
+        expect(workflow).toContain('prepare-workspace backend/supabase "$RUNNER_TEMP"');
+        expect(workflow.match(/working-directory: \$\{\{ runner\.temp \}\}\/exact-backend/g)).toHaveLength(2);
+        expect(workflow).not.toContain('exact-supabase');
         expect(workflow).not.toMatch(/^\s+supabase migration repair/m);
         expect(workflow).not.toMatch(/^\s+supabase db push .*--include-all/m);
 

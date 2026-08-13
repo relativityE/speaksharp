@@ -7,16 +7,20 @@ import {
     assertExactDryRun,
     assertNoNewLint,
     assertTerminalOutcome,
+    prepareExactMigrationWorkspace,
 } from './lib/exactMigrationGate.mjs';
 
 const [mode, ...args] = process.argv.slice(2);
 if (!mode) {
-    console.error('usage: exact-migration-gate.mjs <before|dry-run|after|lint-delta|final> <arguments...>');
+    console.error('usage: exact-migration-gate.mjs <prepare-workspace|before|dry-run|after|lint-delta|final> <arguments...>');
     process.exit(2);
 }
 
 let result;
 switch (mode) {
+case 'prepare-workspace':
+    result = prepareExactMigrationWorkspace(args[0], args[1]);
+    break;
 case 'before':
     result = assertBeforeApply(await readFile(args[0], 'utf8'));
     break;
