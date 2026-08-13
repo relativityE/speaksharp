@@ -81,6 +81,7 @@ describe('exact migration gate', () => {
 
         const workflow = readFileSync(resolve(root, '.github/workflows/apply-webhook-db-prerequisite.yml'), 'utf8');
         expect(workflow).toContain(TARGET_SHA256);
+        expect(workflow).toMatch(/permissions:\s*\n\s+actions: read\s*\n\s+contents: read/);
         expect(workflow).toContain('environment: production-db');
         expect(workflow).toContain('group: production-database-migrations');
         expect(workflow).toContain('default branch advanced after dry-run');
