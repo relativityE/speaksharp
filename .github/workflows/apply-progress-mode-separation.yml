@@ -1,7 +1,7 @@
 name: Apply Progress mode separation (exact migration)
 
 # One-purpose production gate for #1286. It can apply only the reviewed Progress migration while
-# 20260811143000 remains held. Dispatch itself still requires separate Product Owner authorization.
+# #1276 and every unselected #1282 migration remain excluded. Dispatch still requires separate PO authorization.
 on:
   workflow_dispatch:
     inputs:
@@ -34,8 +34,8 @@ jobs:
       TARGET_VERSION: '20260812030000'
       TARGET_FILE: '20260812030000_progress_cohort_mode_separation_1265.sql'
       TARGET_SHA256: 'deeb6845ff26a1bafbfdb3751727eea723625a00ff29d4829618e4b58106f5fa'
-      HELD_VERSION: '20260811143000'
-      HELD_FILE: '20260811143000_harden_exposed_security_definer_acl.sql'
+      EXCLUDED_VERSIONS: '20260811143000 20260812039500 20260812040000 20260812041000 20260812042000'
+      EXCLUDED_FILES: '20260811143000_harden_exposed_security_definer_acl.sql 20260812039500_webhook_duplicate_snapshot_convergence_1282.sql 20260812040000_thirty_day_trial_lifecycle_1282.sql 20260812041000_trial_expiry_fail_closed_1282.sql 20260812042000_trial_activation_stamp_1282.sql'
     steps:
       - name: Checkout the dispatched commit
         uses: actions/checkout@v6
@@ -77,7 +77,10 @@ jobs:
           set -euo pipefail
           actual="$(sha256sum "migrations/$TARGET_FILE" | awk '{print $1}')"
           [ "$actual" = "$TARGET_SHA256" ] || { echo '::error::target migration hash differs from the reviewed source'; exit 1; }
-          test -f "migrations/$HELD_FILE"
+          read -r -a excluded_files <<<"$EXCLUDED_FILES"
+          for file in "${excluded_files[@]}"; do
+            test -f "migrations/$file" || { echo "::error::excluded migration is missing: $file"; exit 1; }
+          done
 
       - name: Establish exact pre-apply state
         working-directory: backend/supabase
@@ -121,7 +124,7 @@ jobs:
         working-directory: ${{ runner.temp }}/exact-backend
         run: supabase db push --yes
 
-      - name: Verify target applied and held migration remained pending
+      - name: Verify target applied and every excluded migration remained pending
         id: verify
         if: ${{ always() && steps.apply.outcome != 'skipped' }}
         working-directory: backend/supabase
@@ -150,7 +153,7 @@ jobs:
           echo '## Exact Progress migration gate' >> "$GITHUB_STEP_SUMMARY"
           echo "- Checked-out SHA: \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Authorized target: \`$TARGET_VERSION\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Held migration: \`$HELD_VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Excluded migrations: \`$EXCLUDED_VERSIONS\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Apply step outcome: \`${{ steps.apply.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Post-apply verification outcome: \`${{ steps.verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Baseline-relative lint outcome: \`${{ steps.lint_verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"

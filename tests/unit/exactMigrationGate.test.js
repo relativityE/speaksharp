@@ -45,22 +45,29 @@ describe('exact migration gate', () => {
             targetVersion: '20260812002000',
             targetFile: '20260812002000_webhook_lifecycle_completeness_1282.sql',
             targetSha256: TARGET_SHA256,
-            heldVersion: '20260811143000',
-            heldFile: HELD_FILE,
+            excludedMigrations: [{ version: '20260811143000', file: HELD_FILE }],
         });
         expect(resolveExactMigrationConfig({
             TARGET_VERSION: '20260812030000',
             TARGET_FILE: '20260812030000_progress_cohort_mode_separation_1265.sql',
             TARGET_SHA256: 'progress-hash',
-            HELD_VERSION: '20260811143000',
-            HELD_FILE: HELD_FILE,
+            EXCLUDED_VERSIONS: '20260811143000 20260812039500',
+            EXCLUDED_FILES: `${HELD_FILE} 20260812039500_webhook_duplicate_snapshot_convergence_1282.sql`,
         })).toEqual({
             targetVersion: '20260812030000',
             targetFile: '20260812030000_progress_cohort_mode_separation_1265.sql',
             targetSha256: 'progress-hash',
-            heldVersion: '20260811143000',
-            heldFile: HELD_FILE,
+            excludedMigrations: [
+                { version: '20260811143000', file: HELD_FILE },
+                { version: '20260812039500', file: '20260812039500_webhook_duplicate_snapshot_convergence_1282.sql' },
+            ],
         });
+        expect(() => resolveExactMigrationConfig({
+            TARGET_VERSION: '20260812030000',
+            TARGET_FILE: 'target.sql',
+            EXCLUDED_VERSIONS: '20260811143000 20260812039500',
+            EXCLUDED_FILES: HELD_FILE,
+        })).toThrow(/paired lists/);
     });
 
     it('preserves the full byte-identical Supabase inventory while removing only the held migration', () => {
@@ -101,7 +108,7 @@ describe('exact migration gate', () => {
         try {
             rmSync(join(heldFixture.migrations, HELD_FILE));
             expect(() => prepareExactMigrationWorkspace(heldFixture.source, heldFixture.isolatedRoot))
-                .toThrow(/source held migration is missing/);
+                .toThrow(/source excluded migration .* is missing/);
         } finally {
             rmSync(heldFixture.fixture, { recursive: true, force: true });
         }
@@ -236,7 +243,7 @@ describe('exact migration gate', () => {
         expect(legacyWorkflow).toContain('group: production-database-migrations');
     });
 
-    it('pins a separate exact Progress gate without widening the held migration boundary', () => {
+    it('pins a separate exact Progress gate that excludes #1276 and every unselected #1282 migration', () => {
         const root = process.cwd();
         const targetFile = '20260812030000_progress_cohort_mode_separation_1265.sql';
         const targetHash = 'deeb6845ff26a1bafbfdb3751727eea723625a00ff29d4829618e4b58106f5fa';
@@ -247,8 +254,14 @@ describe('exact migration gate', () => {
         expect(workflow).toContain("TARGET_VERSION: '20260812030000'");
         expect(workflow).toContain(`TARGET_FILE: '${targetFile}'`);
         expect(workflow).toContain(`TARGET_SHA256: '${targetHash}'`);
-        expect(workflow).toContain("HELD_VERSION: '20260811143000'");
-        expect(workflow).toContain("HELD_FILE: '20260811143000_harden_exposed_security_definer_acl.sql'");
+        expect(workflow).toContain("EXCLUDED_VERSIONS: '20260811143000 20260812039500 20260812040000 20260812041000 20260812042000'");
+        for (const file of [
+            '20260811143000_harden_exposed_security_definer_acl.sql',
+            '20260812039500_webhook_duplicate_snapshot_convergence_1282.sql',
+            '20260812040000_thirty_day_trial_lifecycle_1282.sql',
+            '20260812041000_trial_expiry_fail_closed_1282.sql',
+            '20260812042000_trial_activation_stamp_1282.sql',
+        ]) expect(workflow).toContain(file);
         expect(workflow).toMatch(/permissions:\s*\n\s+actions: read\s*\n\s+contents: read/);
         expect(workflow).toContain('environment: production-db');
         expect(workflow).toContain('group: production-database-migrations');
@@ -262,5 +275,60 @@ describe('exact migration gate', () => {
         expect(workflow).toContain('node scripts/exact-migration-gate.mjs final');
         expect(workflow).not.toMatch(/^\s+supabase migration repair/m);
         expect(workflow).not.toMatch(/^\s+supabase db push .*--include-all/m);
+    });
+
+    it('makes only #1286 apply-visible with the current-main pending set', () => {
+        const excluded = [
+            ['20260811143000', '20260811143000_harden_exposed_security_definer_acl.sql'],
+            ['20260812039500', '20260812039500_webhook_duplicate_snapshot_convergence_1282.sql'],
+            ['20260812040000', '20260812040000_thirty_day_trial_lifecycle_1282.sql'],
+            ['20260812041000', '20260812041000_trial_expiry_fail_closed_1282.sql'],
+            ['20260812042000', '20260812042000_trial_activation_stamp_1282.sql'],
+        ];
+        const progressConfig = resolveExactMigrationConfig({
+            TARGET_VERSION: '20260812030000',
+            TARGET_FILE: '20260812030000_progress_cohort_mode_separation_1265.sql',
+            TARGET_SHA256: 'progress-hash',
+            EXCLUDED_VERSIONS: excluded.map(([version]) => version).join(' '),
+            EXCLUDED_FILES: excluded.map(([, file]) => file).join(' '),
+        });
+        const fixture = mkdtempSync(join(tmpdir(), 'progress-exact-migration-workspace-'));
+        try {
+            const source = join(fixture, 'source-supabase');
+            const migrations = join(source, 'migrations');
+            const isolatedRoot = join(fixture, 'runner-temp');
+            mkdirSync(migrations, { recursive: true });
+            mkdirSync(isolatedRoot);
+            writeFileSync(join(source, 'config.toml'), 'project_id = "fixture"\n');
+            writeFileSync(join(migrations, PRIOR_FILE), PRIOR_BYTES);
+            writeFileSync(join(migrations, progressConfig.targetFile), '-- progress target\n');
+            for (const [, file] of excluded) writeFileSync(join(migrations, file), `-- excluded ${file}\n`);
+
+            const result = prepareExactMigrationWorkspace(source, isolatedRoot, progressConfig);
+            expect(existsSync(join(result.supabaseDir, 'migrations', progressConfig.targetFile))).toBe(true);
+            for (const [, file] of excluded) {
+                expect(existsSync(join(result.supabaseDir, 'migrations', file))).toBe(false);
+                expect(existsSync(join(result.heldDir, file))).toBe(true);
+            }
+
+            const excludedPending = excluded.map(([version]) => ` ${version} |                | pending`);
+            const progressPending = ' 20260812030000 |                | pending';
+            const progressApplied = ' 20260812030000 | 20260812030000 | applied';
+            const before = [matched, ...excludedPending, progressPending].join('\n');
+            const after = [matched, ...excludedPending, progressApplied].join('\n');
+            expect(assertBeforeApply(before, progressConfig).pending).toHaveLength(6);
+            expect(assertExactDryRun(`Would push these migrations:\n • ${progressConfig.targetFile}`, progressConfig))
+                .toEqual({ files: [progressConfig.targetFile] });
+            expect(() => assertExactDryRun(
+                `Would push these migrations:\n • ${progressConfig.targetFile}\n • ${excluded[1][1]}`,
+                progressConfig,
+            )).toThrow(/not target-only/);
+            expect(assertAfterApply(before, after, progressConfig)).toEqual({
+                pending: excluded.map(([version]) => version),
+                appliedDelta: '20260812030000:pending->applied',
+            });
+        } finally {
+            rmSync(fixture, { recursive: true, force: true });
+        }
     });
 });

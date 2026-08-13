@@ -10,27 +10,46 @@ const DEFAULT_CONFIG = Object.freeze({
     heldFile: '20260811143000_harden_exposed_security_definer_acl.sql',
 });
 
+function parseExcludedMigrations(env) {
+    const versions = (env.EXCLUDED_VERSIONS || env.HELD_VERSION || DEFAULT_CONFIG.heldVersion)
+        .trim().split(/\s+/).filter(Boolean);
+    const files = (env.EXCLUDED_FILES || env.HELD_FILE || DEFAULT_CONFIG.heldFile)
+        .trim().split(/\s+/).filter(Boolean);
+    if (versions.length === 0 || versions.length !== files.length) {
+        throw new Error('excluded migration versions/files must be non-empty, paired lists');
+    }
+    const migrations = versions.map((version, index) => ({ version, file: files[index] }));
+    if (new Set(versions).size !== versions.length || new Set(files).size !== files.length) {
+        throw new Error('excluded migration versions/files must be unique');
+    }
+    return migrations;
+}
+
 /** Resolve the workflow-pinned exact-migration contract, retaining the webhook gate as the default. */
 export function resolveExactMigrationConfig(env = process.env) {
-    return {
+    const config = {
         targetVersion: env.TARGET_VERSION || DEFAULT_CONFIG.targetVersion,
         targetFile: env.TARGET_FILE || DEFAULT_CONFIG.targetFile,
         targetSha256: env.TARGET_SHA256 || DEFAULT_CONFIG.targetSha256,
-        heldVersion: env.HELD_VERSION || DEFAULT_CONFIG.heldVersion,
-        heldFile: env.HELD_FILE || DEFAULT_CONFIG.heldFile,
+        excludedMigrations: parseExcludedMigrations(env),
     };
+    if (config.excludedMigrations.some(({ version, file }) => version === config.targetVersion || file === config.targetFile)) {
+        throw new Error('target migration cannot also be excluded');
+    }
+    return config;
 }
 
 const CONFIG = resolveExactMigrationConfig();
 export const TARGET_VERSION = CONFIG.targetVersion;
 export const TARGET_FILE = CONFIG.targetFile;
 export const TARGET_SHA256 = CONFIG.targetSha256;
-export const HELD_VERSION = CONFIG.heldVersion;
-export const HELD_FILE = CONFIG.heldFile;
+export const EXCLUDED_MIGRATIONS = CONFIG.excludedMigrations;
+// Backward-compatible names for the original webhook gate and its focused tests.
+export const HELD_VERSION = EXCLUDED_MIGRATIONS[0].version;
+export const HELD_FILE = EXCLUDED_MIGRATIONS[0].file;
 
 const LIST_ROW = /^\s*(\d{8,14})?\s*\|\s*(\d{8,14})?\s*\|/;
 const MIGRATION_FILE = /\b(\d{8,14}_[A-Za-z0-9_.-]+\.sql)\b/g;
-const HELD_RELATIVE_PATH = `migrations/${HELD_FILE}`;
 
 function assertRegularFile(path, label) {
     if (!existsSync(path) || !lstatSync(path).isFile()) {
@@ -81,7 +100,7 @@ export function assertFileInventory(actual, expected, label) {
     }
 }
 
-export function verifyExactMigrationWorkspace(sourceSupabaseDir, workdir, sourceInventory) {
+export function verifyExactMigrationWorkspace(sourceSupabaseDir, workdir, sourceInventory, config = CONFIG) {
     const source = resolve(sourceSupabaseDir);
     const isolatedWorkdir = resolve(workdir);
     if (basename(isolatedWorkdir) !== 'exact-backend') {
@@ -93,7 +112,8 @@ export function verifyExactMigrationWorkspace(sourceSupabaseDir, workdir, source
     assertRegularFile(join(supabaseDir, 'config.toml'), 'isolated supabase/config.toml');
     assertDirectory(migrationsDir, 'isolated supabase/migrations directory');
 
-    const expectedInventory = sourceInventory.filter(({ path }) => path !== HELD_RELATIVE_PATH);
+    const excludedRelativePaths = new Set(config.excludedMigrations.map(({ file }) => `migrations/${file}`));
+    const expectedInventory = sourceInventory.filter(({ path }) => !excludedRelativePaths.has(path));
     const isolatedInventory = snapshotFileInventory(supabaseDir);
     assertFileInventory(isolatedInventory, expectedInventory, 'isolated Supabase');
 
@@ -102,8 +122,8 @@ export function verifyExactMigrationWorkspace(sourceSupabaseDir, workdir, source
     return { isolatedInventory, sourceAfter };
 }
 
-/** Preserve the CLI-required <workdir>/supabase/migrations shape while holding one migration. */
-export function prepareExactMigrationWorkspace(sourceSupabaseDir, tempRoot) {
+/** Preserve the CLI-required layout while excluding every unselected pending migration. */
+export function prepareExactMigrationWorkspace(sourceSupabaseDir, tempRoot, config = CONFIG) {
     const source = resolve(sourceSupabaseDir);
     const root = resolve(tempRoot);
     const workdir = join(root, 'exact-backend');
@@ -117,19 +137,29 @@ export function prepareExactMigrationWorkspace(sourceSupabaseDir, tempRoot) {
 
     assertRegularFile(join(source, 'config.toml'), 'source supabase/config.toml');
     assertDirectory(join(source, 'migrations'), 'source supabase/migrations directory');
-    assertRegularFile(join(source, 'migrations', TARGET_FILE), 'source target migration');
-    assertRegularFile(join(source, 'migrations', HELD_FILE), 'source held migration');
+    assertRegularFile(join(source, 'migrations', config.targetFile), 'source target migration');
+    for (const { file } of config.excludedMigrations) {
+        assertRegularFile(join(source, 'migrations', file), `source excluded migration ${file}`);
+    }
     const sourceInventory = snapshotFileInventory(source);
-    const heldSourceEntry = sourceInventory.find(({ path }) => path === HELD_RELATIVE_PATH);
+    const excludedSourceEntries = new Map(config.excludedMigrations.map(({ file }) => {
+        const relativePath = `migrations/${file}`;
+        return [file, sourceInventory.find(({ path }) => path === relativePath)];
+    }));
 
     mkdirSync(workdir);
     cpSync(source, supabaseDir, { recursive: true, errorOnExist: true, force: false });
     mkdirSync(heldDir);
-    renameSync(join(migrationsDir, HELD_FILE), join(heldDir, HELD_FILE));
+    for (const { file } of config.excludedMigrations) {
+        renameSync(join(migrationsDir, file), join(heldDir, file));
+    }
 
-    const verification = verifyExactMigrationWorkspace(source, workdir, sourceInventory);
-    if (!heldSourceEntry || fileHash(join(heldDir, HELD_FILE)) !== heldSourceEntry.sha256) {
-        throw new Error('held migration bytes differ from source');
+    const verification = verifyExactMigrationWorkspace(source, workdir, sourceInventory, config);
+    for (const { file } of config.excludedMigrations) {
+        const sourceEntry = excludedSourceEntries.get(file);
+        if (!sourceEntry || fileHash(join(heldDir, file)) !== sourceEntry.sha256) {
+            throw new Error(`excluded migration bytes differ from source: ${file}`);
+        }
     }
 
     return { workdir, supabaseDir, heldDir, sourceInventory, ...verification };
@@ -168,11 +198,11 @@ function historyMap(rows) {
     return history;
 }
 
-export function assertBeforeApply(output) {
+export function assertBeforeApply(output, config = CONFIG) {
     const rows = parseMigrationList(output);
     const pending = rows.filter((row) => row.local && !row.remote).map((row) => row.local);
-    const expected = [HELD_VERSION, TARGET_VERSION];
-    if (pending.length !== expected.length || expected.some((version, index) => pending[index] !== version)) {
+    const expected = new Set([...config.excludedMigrations.map(({ version }) => version), config.targetVersion]);
+    if (pending.length !== expected.size || pending.some((version) => !expected.has(version))) {
         throw new Error(`unexpected pending migration set: ${pending.join(',') || 'none'}`);
     }
     const remoteOnly = rows.filter((row) => !row.local && row.remote);
@@ -180,19 +210,19 @@ export function assertBeforeApply(output) {
     return { pending };
 }
 
-export function assertExactDryRun(output) {
+export function assertExactDryRun(output, config = CONFIG) {
     const files = [...output.matchAll(MIGRATION_FILE)].map((match) => match[1]);
     const unique = [...new Set(files)];
     if (!output.includes('Would push these migrations:')) {
         throw new Error('dry-run did not advertise a migration apply set');
     }
-    if (unique.length !== 1 || unique[0] !== TARGET_FILE) {
+    if (unique.length !== 1 || unique[0] !== config.targetFile) {
         throw new Error(`dry-run was not target-only: ${unique.join(',') || 'none'}`);
     }
     return { files: unique };
 }
 
-export function assertAfterApply(beforeOutput, afterOutput) {
+export function assertAfterApply(beforeOutput, afterOutput, config = CONFIG) {
     const beforeRows = parseMigrationList(beforeOutput);
     const rows = parseMigrationList(afterOutput);
     const remoteOnly = rows.filter((row) => !row.local && row.remote);
@@ -205,26 +235,29 @@ export function assertAfterApply(beforeOutput, afterOutput) {
     }
     for (const [version, beforeRow] of before) {
         const afterRow = after.get(version);
-        const expectedRemote = version === TARGET_VERSION ? TARGET_VERSION : beforeRow.remote;
+        const expectedRemote = version === config.targetVersion ? config.targetVersion : beforeRow.remote;
         if (afterRow.local !== beforeRow.local || afterRow.remote !== expectedRemote) {
             throw new Error(`unexpected migration history delta at ${version}`);
         }
     }
 
-    const target = rowFor(rows, TARGET_VERSION);
-    if (target.local !== TARGET_VERSION || target.remote !== TARGET_VERSION) {
+    const target = rowFor(rows, config.targetVersion);
+    if (target.local !== config.targetVersion || target.remote !== config.targetVersion) {
         throw new Error('target migration is not recorded as applied');
     }
-    const held = rows.find((row) => row.local === HELD_VERSION || row.remote === HELD_VERSION);
-    if (!held) throw new Error('held migration is absent from migration list');
-    if (held.local !== HELD_VERSION || held.remote !== null) {
-        throw new Error('held migration was unexpectedly applied or disappeared');
+    for (const { version } of config.excludedMigrations) {
+        const excluded = rows.find((row) => row.local === version || row.remote === version);
+        if (!excluded) throw new Error(`excluded migration ${version} is absent from migration list`);
+        if (excluded.local !== version || excluded.remote !== null) {
+            throw new Error(`excluded migration ${version} was unexpectedly applied or disappeared`);
+        }
     }
     const pending = rows.filter((row) => row.local && !row.remote).map((row) => row.local);
-    if (pending.length !== 1 || pending[0] !== HELD_VERSION) {
+    const expectedPending = new Set(config.excludedMigrations.map(({ version }) => version));
+    if (pending.length !== expectedPending.size || pending.some((version) => !expectedPending.has(version))) {
         throw new Error(`unexpected post-apply pending set: ${pending.join(',') || 'none'}`);
     }
-    return { pending, appliedDelta: `${TARGET_VERSION}:pending->applied` };
+    return { pending, appliedDelta: `${config.targetVersion}:pending->applied` };
 }
 
 const IGNORED_LINT_LINE = /^(Connecting to (?:remote|local) database|No schema errors found)/i;
