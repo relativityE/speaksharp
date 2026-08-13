@@ -516,6 +516,8 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { service: unknown }).service = svc;
         (controller as unknown as { state: string }).state = 'RECORDING';
         (controller as unknown as { sessionId: string }).sessionId = sessionId;
+        // This helper jumps directly to RECORDING, bypassing the real transition that captures mode.
+        (controller as unknown as { recordingProgressMode: unknown }).recordingProgressMode = { mode: 'open_mic' };
         useSessionStore.getState().setRuntimeState('RECORDING');
         useSessionStore.getState().setSTTMode(mode);
         (controller as unknown as { handleTranscriptUpdate: (d: { transcript: { partial: string } }) => void }).handleTranscriptUpdate({

@@ -164,15 +164,17 @@ BEGIN
         SELECT e.session_id INTO v_baseline
         FROM public.session_progress_evaluations e
         JOIN public.sessions cs ON cs.id = e.session_id
-        WHERE e.user_id = v_uid AND e.eligible AND e.cohort_key = v_cohort AND e.session_id <> p_session_id
-        ORDER BY cs.created_at ASC
+        WHERE e.user_id = v_uid AND e.eligible AND e.cohort_key = v_cohort
+          AND (cs.created_at, e.session_id) < (s.created_at, p_session_id)
+        ORDER BY cs.created_at ASC, e.session_id ASC
         LIMIT 1;
 
         SELECT e.session_id INTO v_previous
         FROM public.session_progress_evaluations e
         JOIN public.sessions cs ON cs.id = e.session_id
-        WHERE e.user_id = v_uid AND e.eligible AND e.cohort_key = v_cohort AND e.session_id <> p_session_id
-        ORDER BY cs.created_at DESC
+        WHERE e.user_id = v_uid AND e.eligible AND e.cohort_key = v_cohort
+          AND (cs.created_at, e.session_id) < (s.created_at, p_session_id)
+        ORDER BY cs.created_at DESC, e.session_id DESC
         LIMIT 1;
     END IF;
 
@@ -230,7 +232,8 @@ WHERE e.cohort_key IS NOT NULL
   AND array_length(string_to_array(e.cohort_key, '|'), 1) = 4;
 
 -- (b) REBUILD each eligible row's baseline/previous pointer from the earliest/latest eligible session in
---     the SAME (user, moded cohort_key) created strictly BEFORE it. This preserves legitimate within-mode
+--     the SAME (user, moded cohort_key) that precedes it by the deterministic tuple
+--     (created_at, session_id). This preserves legitimate within-mode
 --     comparisons across interleaved histories (objective A, freeform B, objective C -> C.baseline =
 --     C.previous = A) and eliminates every cross-mode pointer (a different-mode session has a different
 --     cohort_key and is never selected). Mirrors the evaluator's own selection (earliest = baseline,
@@ -242,7 +245,7 @@ SET baseline_session_id = (
         JOIN public.sessions os ON os.id = o.session_id
         JOIN public.sessions es ON es.id = e.session_id
         WHERE o.user_id = e.user_id AND o.eligible AND o.cohort_key = e.cohort_key
-          AND o.session_id <> e.session_id AND os.created_at < es.created_at
+          AND (os.created_at, o.session_id) < (es.created_at, e.session_id)
         ORDER BY os.created_at ASC, o.session_id ASC   -- deterministic ID tie-break
         LIMIT 1
     ),
@@ -252,7 +255,7 @@ SET baseline_session_id = (
         JOIN public.sessions os ON os.id = o.session_id
         JOIN public.sessions es ON es.id = e.session_id
         WHERE o.user_id = e.user_id AND o.eligible AND o.cohort_key = e.cohort_key
-          AND o.session_id <> e.session_id AND os.created_at < es.created_at
+          AND (os.created_at, o.session_id) < (es.created_at, e.session_id)
         ORDER BY os.created_at DESC, o.session_id DESC  -- deterministic ID tie-break
         LIMIT 1
     )

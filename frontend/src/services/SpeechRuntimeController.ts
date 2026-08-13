@@ -114,6 +114,29 @@ const hasMeaningfulTranscriptText = (text: string): boolean => {
     return normalized.split(' ').filter(Boolean).length >= 2;
 };
 
+type ObjectiveBriefSnapshot = {
+    projectId: string;
+    briefId: string;
+    points?: string[];
+    topic?: string;
+    paceGuideSecPerPoint?: number | null;
+};
+
+type RecordingProgressMode =
+    | { mode: 'open_mic' }
+    | { mode: 'focus_points'; brief: ObjectiveBriefSnapshot }
+    | { mode: 'unknown' };
+
+type ProgressCompletionContext =
+    | { mode: 'open_mic' }
+    | {
+        mode: 'focus_points';
+        brief: ObjectiveBriefSnapshot;
+        segments: { text: string; startSec: number }[];
+        durationSeconds: number;
+    }
+    | { mode: 'unknown' };
+
 const normalizeTranscriptPrefix = (text: string): string =>
     text
         .toLowerCase()
@@ -564,7 +587,11 @@ export class SpeechRuntimeController {
     private resolvedPrivateEngineSessionId: string | null = null;
     /** #1033: last recording whose durable attribution write failed — stashed so Retry Save can promote it
      *  pending→verified via UPDATE (never a duplicate session). Null when nothing is awaiting retry. */
-    private pendingAttributionRetry: { sessionId: string; evidence: RuntimeEvidence | null } | null = null;
+    private pendingAttributionRetry: {
+        sessionId: string;
+        evidence: RuntimeEvidence | null;
+        progressContext: ProgressCompletionContext;
+    } | null = null;
     /** #1033 (item 2/3): last recording whose durable FULL SAVE (completeSession) failed — a strictly worse
      *  failure than an attribution-only miss (the transcript row itself is not persisted). Stashed so Retry
      *  Save re-runs the ACTUAL failed op — completeSession THEN the attribution write — for the SAME session,
@@ -577,7 +604,12 @@ export class SpeechRuntimeController {
         initialSave?: { userId: string; recordingId: string; mode: string; engineVersion?: string; modelName?: string; deviceType?: string };
         completeArgs: { status: 'completed'; transcript: string; duration: number };
         attributionEvidence: RuntimeEvidence | null;
+        progressContext: ProgressCompletionContext;
     } | null = null;
+
+    /** #1265: immutable practice-mode snapshot captured when this recording enters RECORDING. Retry paths
+     *  must never infer mode from a later live store or default missing context to Open Mic. */
+    private recordingProgressMode: RecordingProgressMode = { mode: 'unknown' };
 
     /** #1033 (1): owner + idempotency identity for the window between RECORDING and the initial save. Set
      *  once the authenticated owner is known (before speech), cleared once the row exists or at resolution.
@@ -665,15 +697,12 @@ export class SpeechRuntimeController {
                 this.pendingAttributionRetry = null;
                 this.markRecordingResolved(); // Retry Save succeeded → recording fully resolved → unlock
             }
-            // #1045: attribution reached a terminal state on retry; the metrics were persisted inline at
-            // stop, so record the (now-recordable) Progress evaluation. Non-fatal, idempotent.
-            void wireProgressEvaluationOnSave({
-                sessionId: targetSessionId,
-                status: 'completed',
-                attributionStatus: res.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
-                metricsPersisted: true,
-                userId: this.capturedUserId,
-            }).catch(() => { /* non-fatal */ });
+            await this.completeProgressForRecording(
+                pending.progressContext ?? { mode: 'unknown' },
+                targetSessionId,
+                res.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
+                true,
+            );
             return true;
         } catch {
             return false;
@@ -736,14 +765,12 @@ export class SpeechRuntimeController {
                     this.pendingFullSaveRetry = null;
                     if (this.pendingAttributionRetry?.sessionId === targetSessionId) this.pendingAttributionRetry = null;
                     this.markRecordingResolved();
-                    // #1045: full save + attribution now durable → record the Progress evaluation. Non-fatal.
-                    void wireProgressEvaluationOnSave({
-                        sessionId: targetSessionId,
-                        status: 'completed',
-                        attributionStatus: attrRes.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
-                        metricsPersisted: true,
-                        userId: this.capturedUserId,
-                    }).catch(() => { /* non-fatal */ });
+                    await this.completeProgressForRecording(
+                        fullSave.progressContext ?? { mode: 'unknown' },
+                        targetSessionId,
+                        attrRes.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
+                        true,
+                    );
                 }
                 return true;
             } catch {
@@ -832,6 +859,31 @@ export class SpeechRuntimeController {
         }
     }
 
+    private snapshotProgressModeAtRecordingBoundary(): RecordingProgressMode {
+        const brief = useSessionStore.getState().activeObjectiveBrief;
+        if (!brief) return { mode: 'open_mic' };
+        return {
+            mode: 'focus_points',
+            brief: {
+                ...brief,
+                ...(brief.points ? { points: [...brief.points] } : {}),
+            },
+        };
+    }
+
+    private buildProgressCompletionContext(durationSeconds?: number): ProgressCompletionContext {
+        if (this.recordingProgressMode.mode !== 'focus_points') return this.recordingProgressMode;
+        const store = useSessionStore.getState();
+        return {
+            mode: 'focus_points',
+            brief: this.recordingProgressMode.brief,
+            segments: store.chunks
+                .filter((chunk) => chunk.isFinal)
+                .map((chunk) => ({ text: chunk.transcript, startSec: chunk.timestamp })),
+            durationSeconds: durationSeconds ?? store.completedSessionDurationSeconds ?? 0,
+        };
+    }
+
     private markRecordingResolved(): void {
         this.recordingStartedUnresolved = false;
         this.recordingEngineMode = null;
@@ -874,6 +926,9 @@ export class SpeechRuntimeController {
                 ...(initialSave ? { initialSave } : {}),
                 completeArgs: { status: 'completed', transcript, duration: Math.round(draftForThisSession?.durationSeconds || liveDuration) },
                 attributionEvidence: null,  // #1161: mid-recording failure has no trusted identity → no authority
+                progressContext: this.buildProgressCompletionContext(
+                    Math.round(draftForThisSession?.durationSeconds || liveDuration),
+                ),
             };
             logger.warn({ sessionId, kind: this.pendingResolutionKind(), state: this.state }, '[controller] post-start failure with recoverable transcript → save retry armed (#1033 1/B)');
             this.publishLockState();
@@ -945,6 +1000,9 @@ export class SpeechRuntimeController {
             sessionId: draft.sessionId,
             completeArgs: { status: 'completed', transcript: draft.transcript, duration: Math.round(draft.durationSeconds) },
             attributionEvidence: null,  // #1161: rehydrated recording has no trusted identity → no authority
+            // The recovery draft intentionally carries no objective brief/transcript linkage. Missing mode
+            // context therefore fails closed instead of being guessed as Open Mic after reload.
+            progressContext: { mode: 'unknown' },
         };
         this.publishLockState();
         logger.info({ sessionId: draft.sessionId }, '[controller] rehydrated unresolved recording for same user (#1033 C)');
@@ -1763,6 +1821,7 @@ export class SpeechRuntimeController {
         }
 
         if (newState === 'RECORDING' && previousState !== 'RECORDING') {
+            this.recordingProgressMode = this.snapshotProgressModeAtRecordingBoundary();
             store.startSession();
         }
 
@@ -2817,6 +2876,7 @@ export class SpeechRuntimeController {
         this.markRecordingResolved();
         this.pendingAttributionRetry = null;
         this.pendingFullSaveRetry = null;
+        this.recordingProgressMode = { mode: 'unknown' };
 
         // 2. Cancel tokens & Clear registry
         this.activeTasks.forEach(t => t.cancelled = true);
@@ -3417,6 +3477,7 @@ export class SpeechRuntimeController {
                                 transcript: finalTranscript,
                                 duration: Math.round(duration)
                             };
+                            const progressContext = this.buildProgressCompletionContext(Math.round(duration));
                             const completion = await completeSession(sessionId, completeArgs);
                             if (!completion.success) {
                                 // #1033 (item 2/3): the durable FULL SAVE failed — the transcript row is NOT
@@ -3431,6 +3492,7 @@ export class SpeechRuntimeController {
                                         sessionId,
                                         completeArgs,
                                         attributionEvidence: attestationEvidence,
+                                        progressContext,
                                     };
                                 } else {
                                     logger.error({ existing: this.pendingFullSaveRetry.sessionId, sessionId }, '[controller] full-save retry slot held by another session — failing closed, not overwriting (#1033)');
@@ -3475,7 +3537,11 @@ export class SpeechRuntimeController {
                                 // UPDATE (no duplicate session, no transcript loss). Session-safe: NEVER overwrite a
                                 // DIFFERENT session's unresolved pending retry — fail closed if one impossibly exists.
                                 if (!this.pendingAttributionRetry || this.pendingAttributionRetry.sessionId === sessionId) {
-                                    this.pendingAttributionRetry = { sessionId, evidence: attestationEvidence };
+                                    this.pendingAttributionRetry = {
+                                        sessionId,
+                                        evidence: attestationEvidence,
+                                        progressContext,
+                                    };
                                 } else {
                                     logger.error({ existing: this.pendingAttributionRetry.sessionId, sessionId }, '[controller] attribution retry slot held by another session — failing closed, not overwriting (#1033)');
                                 }
@@ -3615,48 +3681,15 @@ export class SpeechRuntimeController {
                             metricsOk = updateResult.success;
                             maybePublishFinalized();
 
-                            // #1045/#1265: record the immutable Progress evaluation for this completed session,
-                            // now that its metrics are persisted AND attribution has reached a terminal state.
-                            // The seam is guarded (no-op unless completed + metrics persisted + terminal
-                            // attribution), idempotent, and strictly non-fatal — Progress must never break the
-                            // save journey. #1265: a Focus Points session must be evaluated ONLY AFTER its
-                            // objective registration lands (below), so its Progress is cohorted as 'objective',
-                            // not 'freeform'. Open Mic has no registration and evaluates immediately.
-                            const runProgressEval = () => void wireProgressEvaluationOnSave({
+                            // Normal completion and both retry completions share this one immutable
+                            // mode-aware seam. It uses the recording-boundary snapshot above, never the current
+                            // live brief, so a later Focus Points selection cannot attach to this take.
+                            void this.completeProgressForRecording(
+                                progressContext,
                                 sessionId,
-                                status: 'completed',
-                                attributionStatus: attributionTerminalStatus,
-                                metricsPersisted: metricsOk,
-                                userId: this.capturedUserId,
-                            }).catch((progressErr) => logger.warn({ progressErr, sessionId }, '[controller] progress recording failed (non-fatal)'));
-
-                            // #1046 slice 3b-ii: if this recording was made against a Focus Points brief,
-                            // finalize per-point coverage now — the same guarded, idempotent, strictly
-                            // non-fatal seam as Progress. The brief is CONSUMED (set null) before the async
-                            // call so a stale brief can never attach a later Open Mic recording (the
-                            // Open-Floor-vs-Focus-Points isolation invariant). Fires only when a brief is
-                            // present AND metrics persisted; the orchestrator itself also fails closed
-                            // (server-verified Private-only), so it can never fabricate a score.
-                            const objectiveBrief = useSessionStore.getState().activeObjectiveBrief;
-                            if (objectiveBrief && metricsOk) {
-                                // #1046 G6/G7: snapshot the finished brief BEFORE clearing the live one, so the
-                                // after-state review screen keeps its Focus Points coverage card, delivery strip,
-                                // and highlights. Clearing the live brief still enforces the isolation invariant
-                                // (it can never attach to the next recording); the snapshot is cleared on next start.
-                                useSessionStore.getState().setCompletedObjectiveBrief(objectiveBrief);
-                                useSessionStore.getState().setActiveObjectiveBrief(null);
-                                const segments = useSessionStore.getState().chunks
-                                    .filter((c) => c.isFinal)
-                                    .map((c) => ({ text: c.transcript, startSec: c.timestamp }));
-                                const durationSeconds = useSessionStore.getState().completedSessionDurationSeconds ?? 0;
-                                void this.finalizeObjectiveAndGateProgress(
-                                    { projectId: objectiveBrief.projectId, briefId: objectiveBrief.briefId },
-                                    sessionId, segments, durationSeconds, runProgressEval,
-                                );
-                            } else {
-                                // Open Mic (or no brief / no metrics): evaluate immediately.
-                                runProgressEval();
-                            }
+                                attributionTerminalStatus,
+                                metricsOk,
+                            );
 
                             clearSessionRecoveryDraft(sessionId);
 
@@ -3750,6 +3783,53 @@ export class SpeechRuntimeController {
                 throw err;
             }
         });
+    }
+
+    /**
+     * #1265: the only completion seam allowed to invoke Progress for a recording. Normal completion,
+     * attribution retry, and full-save retry all arrive here with the immutable recording-boundary mode.
+     * Unknown/legacy retry context fails closed. Open Mic evaluates immediately. Focus Points evaluates
+     * only after its original brief is explicitly registered; registration failure or ambiguity writes no
+     * evaluation. Later objective-stage failure after confirmed registration still evaluates.
+     */
+    private async completeProgressForRecording(
+        context: ProgressCompletionContext,
+        sessionId: string,
+        attributionStatus: string | undefined,
+        metricsPersisted: boolean,
+    ): Promise<void> {
+        if (context.mode === 'unknown') return;
+
+        const runProgressEval = () => void wireProgressEvaluationOnSave({
+            sessionId,
+            status: 'completed',
+            attributionStatus,
+            metricsPersisted,
+            userId: this.capturedUserId,
+        }).catch((progressErr) => logger.warn(
+            { progressErr, sessionId },
+            '[controller] progress recording failed (non-fatal)',
+        ));
+
+        if (context.mode === 'open_mic') {
+            runProgressEval();
+            return;
+        }
+        if (!metricsPersisted) return;
+
+        const store = useSessionStore.getState();
+        store.setCompletedObjectiveBrief(context.brief);
+        const liveBrief = store.activeObjectiveBrief;
+        if (liveBrief?.projectId === context.brief.projectId && liveBrief.briefId === context.brief.briefId) {
+            store.setActiveObjectiveBrief(null);
+        }
+        await this.finalizeObjectiveAndGateProgress(
+            { projectId: context.brief.projectId, briefId: context.brief.briefId },
+            sessionId,
+            context.segments,
+            context.durationSeconds,
+            runProgressEval,
+        );
     }
 
     /**

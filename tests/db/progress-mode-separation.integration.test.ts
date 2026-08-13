@@ -17,6 +17,7 @@ const bootstrapSql = readFileSync(resolve(process.cwd(), 'tests', 'db', 'attribu
 const evalMigration = MIG('20260731120000_session_progress_evaluations.sql');
 const authorityMigration = MIG('20260803010000_session_attribution_authority.sql');
 const modeMigration = MIG('20260812030000_progress_cohort_mode_separation_1265.sql');
+const modePreflight = readFileSync(resolve(process.cwd(), 'tests', 'db', 'progress-mode-preflight.sql'), 'utf8');
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const OBJECTIVE_STUB = `CREATE TABLE IF NOT EXISTS public.objective_source_recording (
@@ -47,6 +48,16 @@ async function eligibleSession(db: Sql, engine = 'private-v2'): Promise<string> 
          RETURNING id`, [USER, engine])).rows[0].id;
 }
 
+async function eligibleSessionAt(db: Sql, id: string, createdAt: string, engine = 'private-v2'): Promise<string> {
+    return (await db.query<{ id: string }>(
+        `INSERT INTO public.sessions
+           (id, user_id, status, duration, total_words, wpm, transcript, filler_words,
+            engine, engine_version, model_name, device_type, attribution_status, created_at)
+         VALUES ($1,$2,'active',120,150,120,'a clean transcript with plenty of ordinary words and no markers',
+            '{"total":{"count":5}}'::jsonb,$3,'v2','base','cpu','pending',$4)
+         RETURNING id`, [id, USER, engine, createdAt])).rows[0].id;
+}
+
 const PRIVATE_EV = { provider: 'transformers-js', model_id: 'base', fallback_occurred: false, cloud_used: false };
 
 async function attestAuthority(db: Sql, sessionId: string): Promise<void> {
@@ -71,6 +82,12 @@ async function evaluate(db: Sql, sessionId: string): Promise<void> {
 }
 
 type Row = { cohort_key: string | null; baseline_session_id: string | null; previous_comparable_session_id: string | null; eligible: boolean };
+type PreflightCounts = {
+    rows_to_suffix: number;
+    cross_mode_pointers_to_replace: number;
+    malformed_or_unknown_cohort_keys: number;
+    expected_post_apply_cross_mode_pointers: number;
+};
 const evalRow = async (db: Sql, sessionId: string): Promise<Row> =>
     (await db.query<Row>(
         `SELECT cohort_key, baseline_session_id, previous_comparable_session_id, eligible
@@ -126,19 +143,34 @@ describe('#1265 Focus Points vs Open Mic Progress separation (executed in PGlite
         await db.close();
     });
 
-    it('deterministic backfill REBUILDS same-mode pointers over interleaved history (A obj, B free, C obj, D free)', async () => {
-        // Legacy (pre-#1265) history in ONE 4-part cohort, chronologically A < B < C < D:
-        //   A objective, B freeform, C objective, D freeform. After #1265, each row points ONLY to an
-        //   earlier same-mode session: C -> A, D -> B; A and B (first of their mode) stay NULL. Never self,
-        //   never future, never cross-mode. Rerun is identical.
+    it('tuple chronology repairs equal-timestamp A/B/C/D and the next same-mode sessions continue it', async () => {
+        // All four legacy rows share one persisted timestamp. UUID order is therefore the only chronology:
+        // objective A < freeform B < objective C < freeform D. A real tuple predecessor rule must produce
+        // C -> A and D -> B; a created_at-only filter would incorrectly leave both without predecessors.
         const db = await makeDb(false);
-        const setCreatedAt = (id: string, iso: string) =>
-            db.query(`UPDATE public.sessions SET created_at=$2 WHERE id=$1`, [id, iso]);
+        const timestamp = '2026-07-20T00:00:00Z';
+        const a = await eligibleSessionAt(db, '00000000-0000-4000-8000-0000000000a1', timestamp); await attestAuthority(db, a); await registerObjective(db, a); await evaluate(db, a);
+        const b = await eligibleSessionAt(db, '00000000-0000-4000-8000-0000000000b1', timestamp); await attestAuthority(db, b); await evaluate(db, b);
+        const c = await eligibleSessionAt(db, '00000000-0000-4000-8000-0000000000c1', timestamp); await attestAuthority(db, c); await registerObjective(db, c); await evaluate(db, c);
+        const d = await eligibleSessionAt(db, '00000000-0000-4000-8000-0000000000d1', timestamp); await attestAuthority(db, d); await evaluate(db, d);
 
-        const a = await eligibleSession(db); await attestAuthority(db, a); await setCreatedAt(a, '2026-07-20T00:00:00Z'); await registerObjective(db, a); await evaluate(db, a);
-        const b = await eligibleSession(db); await attestAuthority(db, b); await setCreatedAt(b, '2026-07-21T00:00:00Z'); await evaluate(db, b); // freeform
-        const c = await eligibleSession(db); await attestAuthority(db, c); await setCreatedAt(c, '2026-07-22T00:00:00Z'); await registerObjective(db, c); await evaluate(db, c);
-        const d = await eligibleSession(db); await attestAuthority(db, d); await setCreatedAt(d, '2026-07-23T00:00:00Z'); await evaluate(db, d); // freeform
+        // Make the legacy defect deterministic for the read-only preflight: legitimate same-mode baselines,
+        // but C.previous -> B and D.previous -> C cross modes.
+        await db.query(`UPDATE public.session_progress_evaluations
+            SET baseline_session_id = NULL, previous_comparable_session_id = NULL
+            WHERE session_id IN ($1::uuid, $2::uuid)`, [a, b]);
+        await db.query(`UPDATE public.session_progress_evaluations
+            SET baseline_session_id = CASE session_id WHEN $1::uuid THEN $3::uuid WHEN $2::uuid THEN $4::uuid END,
+                previous_comparable_session_id = CASE session_id WHEN $1::uuid THEN $4::uuid WHEN $2::uuid THEN $1::uuid END
+            WHERE session_id IN ($1::uuid, $2::uuid)`, [c, d, a, b]);
+
+        const before = (await db.query<PreflightCounts>(modePreflight)).rows[0];
+        expect(before).toEqual({
+            rows_to_suffix: 4,
+            cross_mode_pointers_to_replace: 2,
+            malformed_or_unknown_cohort_keys: 0,
+            expected_post_apply_cross_mode_pointers: 0,
+        });
 
         // Pre-#1265: single 4-part cohort; C/D most-recent-prior is cross-mode (B/C respectively).
         expect((await evalRow(db, c)).cohort_key?.split('|').length).toBe(4);
@@ -162,6 +194,12 @@ describe('#1265 Focus Points vs Open Mic Progress separation (executed in PGlite
         expect(rowA.previous_comparable_session_id).toBeNull();
         expect(rowB.baseline_session_id).toBeNull();
         expect(rowB.previous_comparable_session_id).toBeNull();
+        expect((await db.query<PreflightCounts>(modePreflight)).rows[0]).toEqual({
+            rows_to_suffix: 0,
+            cross_mode_pointers_to_replace: 0,
+            malformed_or_unknown_cohort_keys: 0,
+            expected_post_apply_cross_mode_pointers: 0,
+        });
         // No row points to itself or a future session.
         for (const [id, row] of [[a, rowA], [b, rowB], [c, rowC], [d, rowD]] as const) {
             expect(row.baseline_session_id).not.toBe(id);
@@ -172,6 +210,15 @@ describe('#1265 Focus Points vs Open Mic Progress separation (executed in PGlite
         await db.exec(modeMigration);
         expect((await evalRow(db, c)).previous_comparable_session_id).toBe(a);
         expect((await evalRow(db, d)).previous_comparable_session_id).toBe(b);
+
+        // The runtime RPC uses the same tuple chronology. Later same-timestamp objective/freeform rows
+        // continue from their repaired same-mode histories rather than restarting or crossing modes.
+        const e = await eligibleSessionAt(db, '00000000-0000-4000-8000-0000000000e1', timestamp); await attestAuthority(db, e); await registerObjective(db, e); await evaluate(db, e);
+        const f = await eligibleSessionAt(db, '00000000-0000-4000-8000-0000000000f1', timestamp); await attestAuthority(db, f); await evaluate(db, f);
+        expect((await evalRow(db, e)).baseline_session_id).toBe(a);
+        expect((await evalRow(db, e)).previous_comparable_session_id).toBe(c);
+        expect((await evalRow(db, f)).baseline_session_id).toBe(b);
+        expect((await evalRow(db, f)).previous_comparable_session_id).toBe(d);
         await db.close();
     });
 });
