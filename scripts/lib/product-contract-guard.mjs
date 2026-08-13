@@ -56,6 +56,7 @@ const rules = [
     applies: (path) => isActiveRuntimeOrGate(path) || isCustomerAuthority(path),
     matches: (unit) => /\b(?:1|2|25|50)[ -]?(?:hour|hr)s?\s*(?:\/|per)\s*(?:day|month)\b/i.test(unit)
       || /\b(?:daily|monthly|recording[- ]time|accumulated[- ]minute)[ -_]?(?:quota|limit|remaining|allowance|upsell)\b/i.test(unit)
+      || /\b(?:daily|monthly)\s+usage\s+(?:quota|limit|remaining|allowance|upsell)\b/i.test(unit)
       || /\b(?:7200|180000)\b[^\n]{0,50}\b(?:seconds?|quota|limit|usage)\b/i.test(unit)
       || /\b(?:seconds?|quota|limit|usage)\b[^\n]{0,50}\b(?:7200|180000)\b/i.test(unit),
   },

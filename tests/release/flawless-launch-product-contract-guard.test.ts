@@ -12,6 +12,7 @@ describe('flawless-launch product-contract guard (#1290)', () => {
       ['frontend/src/pages/Pricing.tsx', 'Our Basic tier is a free plan forever'],
       ['README.md', 'Choose Browser transcription or upgrade to the Cloud option'],
       ['frontend/src/components/Usage.tsx', 'Upgrade when your 2 hours/day recording limit is reached'],
+      ['frontend/src/hooks/useSessionLifecycle.ts', 'Daily usage limit reached.'],
       ['product_release/ENTITLEMENTS_AND_BILLING.md', 'Configure the monthly price at $9.99 (999 cents)'],
     ] as const;
 

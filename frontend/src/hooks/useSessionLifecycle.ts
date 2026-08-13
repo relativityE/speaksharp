@@ -275,7 +275,7 @@ export const useSessionLifecycle = () => {
                 // #1282 — a fail-closed expired trial returns the raw code 'trial_expired'; show a
                 // human message instead. Recording is closed once the 30-day trial ends and the account
                 // is unpaid; existing sessions, export and account management remain available.
-                const rawError = usageLimit.error || 'Daily usage limit reached.';
+                const rawError = usageLimit.error || 'Recording access is unavailable. Refresh and try again.';
                 const errorMsg = rawError === 'trial_expired'
                     ? 'Your 30-day free trial has ended. Upgrade to keep recording — your saved sessions and exports stay available.'
                     : rawError;

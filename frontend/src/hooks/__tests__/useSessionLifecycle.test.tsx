@@ -74,20 +74,8 @@ vi.mock('@/services/SpeechRuntimeController', () => ({
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 
 // Global mock for useUsageLimit
-type LegacyUsageFixture = UsageLimitCheck & {
-    daily_remaining: number;
-    daily_limit: number;
-    monthly_remaining: number;
-    monthly_limit: number;
-    remaining_seconds: number;
-};
-const baseUsageLimit: LegacyUsageFixture = {
+const baseUsageLimit: UsageLimitCheck = {
     can_start: true,
-    daily_remaining: 30,
-    daily_limit: 3600,
-    monthly_remaining: 90000,
-    monthly_limit: 90000,
-    remaining_seconds: 30,
     subscription_status: 'free',
     is_pro: false,
     streak_count: 0,
@@ -230,12 +218,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
     it('does not stop an entitled recording when accumulated usage exceeds former limits', async () => {
         const mockElapsedTime = 31;
-        const mockLimit: LegacyUsageFixture = {
-            daily_remaining: 30,
-            daily_limit: 3600,
-            monthly_remaining: 90000,
-            monthly_limit: 90000,
-            remaining_seconds: 30,
+        const mockLimit: UsageLimitCheck = {
             can_start: true,
             subscription_status: 'free',
             is_pro: false,
@@ -327,14 +310,8 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
     });
 
     it('caps a Private recording at 10 minutes / 600s (auto-stops past the per-recording cap, independent of budget)', async () => {
-        // Beta recording length = 10 min (raised from 5; the old value assumed slow finalization, now measured
-        // false at ~38.7s for a 5-min take on MT-WASM). Generous usage budget so ONLY the cap can trigger the stop.
-        const mockLimit: LegacyUsageFixture = {
-            daily_remaining: 99999,
-            daily_limit: 99999,
-            monthly_remaining: 99999,
-            monthly_limit: 99999,
-            remaining_seconds: 99999,
+        // The 10-minute technical safety cap is independent of commercial entitlement.
+        const mockLimit: UsageLimitCheck = {
             can_start: true,
             subscription_status: 'pro',
             is_pro: true,
@@ -437,15 +414,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
      * finalized and saved.
      */
     it('#1089: performs a controlled stop when the engine reports the capture backstop', async () => {
-        // The file-level useUsageLimit default is remaining_seconds: 30, which would auto-stop at
-        // elapsedTime 120 all on its own — the assertion would then pass with the backstop feature
-        // deleted. Pin a generous budget so the ONLY reachable stop is the capture backstop.
-        const generousLimit: LegacyUsageFixture = {
-            daily_remaining: 99999,
-            daily_limit: 99999,
-            monthly_remaining: 99999,
-            monthly_limit: 99999,
-            remaining_seconds: 99999,
+        const generousLimit: UsageLimitCheck = {
             can_start: true,
             subscription_status: 'pro',
             is_pro: true,
@@ -552,11 +521,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 30,
-                daily_limit: 3600,
-                monthly_remaining: 90000,
-                monthly_limit: 90000,
-                remaining_seconds: 30,
                 can_start: true,
                 subscription_status: 'free',
                 is_pro: false,
@@ -618,10 +582,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 can_start: true,
                 subscription_status: 'free',
                 is_pro: false,
-                remaining_seconds: 30,
-                daily_remaining: 30,
-                private_sample_available: false, // retired legacy field: no entitlement authority
-                private_sample_seconds_remaining: 0, // retired legacy field: no entitlement authority
             },
             isLoading: false,
             isError: false,
@@ -684,11 +644,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 300,
-                daily_limit: 7200,
-                monthly_remaining: 180000,
-                monthly_limit: 180000,
-                remaining_seconds: -1,
                 can_start: true,
                 subscription_status: 'pro',
                 is_pro: true,
@@ -725,11 +680,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 0,
-                daily_limit: 7200,
-                monthly_remaining: 0,
-                monthly_limit: 180000,
-                remaining_seconds: 0,
                 can_start: false,
                 subscription_status: 'free',
                 is_pro: false,
@@ -794,11 +744,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 7200,
-                daily_limit: 7200,
-                monthly_remaining: 180000,
-                monthly_limit: 180000,
-                remaining_seconds: -1,
                 can_start: true,
                 subscription_status: 'pro',
                 is_pro: true,
@@ -860,11 +805,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 7200,
-                daily_limit: 7200,
-                monthly_remaining: 180000,
-                monthly_limit: 180000,
-                remaining_seconds: -1,
                 can_start: true,
                 subscription_status: 'pro',
                 is_pro: true,
@@ -1028,11 +968,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 3600,
-                daily_limit: 3600,
-                monthly_remaining: 3600,
-                monthly_limit: 3600,
-                remaining_seconds: 3600,
                 can_start: true,
                 subscription_status: 'free',
                 is_pro: false,
@@ -1176,11 +1111,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 7200,
-                daily_limit: 7200,
-                monthly_remaining: 180000,
-                monthly_limit: 180000,
-                remaining_seconds: -1,
                 can_start: true,
                 subscription_status: 'pro',
                 is_pro: true,
@@ -1230,11 +1160,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 7200,
-                daily_limit: 7200,
-                monthly_remaining: 180000,
-                monthly_limit: 180000,
-                remaining_seconds: -1,
                 can_start: true,
                 subscription_status: 'pro',
                 is_pro: true,
