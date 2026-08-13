@@ -343,7 +343,6 @@ For detailed test metrics, coverage, and E2E results, see the latest [PRD.md Sof
 | Dispatch and wait for soak | `pnpm ci:dispatch:soak:wait` | Starts soak and waits for result. |
 | Download Private STT model | `pnpm model:download` | Downloads Whisper model assets. |
 | Benchmark Private | `pnpm benchmark:whisper` | Node CPU Private STT benchmark. |
-| Benchmark Cloud | `pnpm benchmark:cloud` | AssemblyAI benchmark. |
 | Benchmark browser STT | `pnpm benchmark:browser` | Browser Native/Private benchmark specs. |
 
 ### Debugging And Recovery

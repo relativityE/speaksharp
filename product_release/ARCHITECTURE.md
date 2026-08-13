@@ -79,7 +79,7 @@ These govern behavior and take precedence over implementation preference:
 - **Session** — only one active session per tab (mutex-guarded).
 - **FSM** — transcription cannot enter RECORDING before a verified engine `READY` handshake.
 - **Finalized-producer** — the "finalized" signal is published exactly once, at the terminal join, session-guarded; it feeds exactly one post-save surface and discards signals from a superseded session.
-- **Billing** — quota enforcement fails closed: if the usage check is unreachable, a new metered session is denied. Private STT MUST NOT silently fail over to Cloud (that changes privacy posture and variable cost); Cloud is entered only by explicit user selection.
+- **Commercial access** — access decisions fail closed. Active-trial and paid users receive the same Private capability; expired users retain only the documented read/export/account/upgrade permissions. Private STT never routes to another producer.
 - **Data** — final transcripts are append-only and monotonic (see §5).
 - **Subscription (lifecycle)** — unmount detaches listeners but never destroys active sessions.
 
@@ -123,20 +123,20 @@ There is **no `version.json` endpoint** and no `__BUILD_ID__` JS define (removed
 
 ## 14. Authority ADRs
 
-- **ADR-1 — Entitlement authority.** Server-side state is authoritative, but **payment status and product capabilities are distinct**:
-  - Verified paid-Pro requires **real Stripe subscription evidence**.
-  - `canUsePrivate` and `canUseCloud` are **server-derived capability entitlements** and MAY include explicitly approved **comped or legacy grants** — they are not equivalent to payment status.
-  - A profile field such as `subscription_status = 'pro'` and any frontend-derived booleans are **advisory** and are never sufficient authority by themselves.
-  - `check-usage-limit` enforces server-side **quota policy**; it is **not itself proof of payment**.
-  - Exact quotas, pricing, packaging, and comped-access policy remain owned by **#1053** (`ENTITLEMENTS_AND_BILLING.md`).
-  - **#1036** will centralize the client selector **without changing these authority boundaries**.
+- **ADR-1 — Entitlement authority.** Server-side commercial state is authoritative and fail-closed:
+  - Active-trial and paid users receive the same customer capability allow-list: exactly `private`.
+  - Verified paid access requires an exact Stripe customer/subscription binding and the approved monthly Price; a profile flag or frontend boolean is never sufficient.
+  - Trial access requires the immutable server-side grant marker and server-authoritative window defined by `ENTITLEMENTS_AND_BILLING.md`.
+  - Browser, Cloud, Native, provider names, and Private implementation variants never become customer capabilities through a tier or legacy grant.
+  - Usage counters may remain for sanitized telemetry or compatibility, but they are not entitlement authority and cannot deny an active-trial or paid user.
+  - Expired users lose create/record/save/analyze capability while retaining the read/export/history/progress/account/billing-management/upgrade surfaces defined by the product contract.
 - **ADR-2 — Storage & retention boundary.**
   - Final transcript / session data MAY persist in `sessions` under RLS (see §5).
   - Raw Private audio remains on-device and is **never uploaded or persisted server-side**.
   - CI UX screenshots remain ephemeral (1-day retention).
   - This ADR does **not** approve indefinite transcript retention or establish a deletion SLA. **Retention duration, user deletion, and account-deletion requirements remain unresolved policy** for the appropriate enterprise/operations contracts and require Product Owner approval.
 - **ADR-3 — Persistence vs observability.** Supabase is the sole persistence truth; PostHog/Sentry are never a durable-write guarantee (§3).
-- **ADR-4 — No silent STT fallback.** Cloud is never entered implicitly; engine provenance is truthful (§8).
+- **ADR-4 — Private-only producer.** Private is the only customer STT producer. There is no customer engine selector or silent fallback; the internal Native hook remains isolated to deterministic E2E, and producer provenance is truthful (§8).
 
 ## 14a. Enterprise readiness — structural implications (no buildout)
 
@@ -150,7 +150,7 @@ Requirements and triggers are owned by `PRODUCT_REQUIREMENTS.md` §10a; this rec
 
 ## 15. Current limitations & open ADRs
 
-- **Entitlement selector not yet centralized** — the entitlement decision is currently read by multiple callers; unifying it behind one selector is **open** (#1036). Until then, ADR-1 fixes the authority boundaries (payment vs capability) but the code path is not yet single-sourced. Exact quotas/pricing/packaging/comped-access policy is owned by #1053.
+- **Commercial integration in progress** — the canonical trial, paid, expiry, checkout, webhook, and activation seam is implemented and qualified through #1282 after its required database prerequisite. This document does not duplicate that implementation; `ENTITLEMENTS_AND_BILLING.md` owns the durable contract.
 - **Retention duration & deletion — unresolved policy.** ADR-2 fixes *where* data lives and that Private audio never persists, but retention duration, user deletion, and account-deletion (SLA/erasure) are **not decided here**; they belong to the enterprise/operations contracts and require Product Owner approval.
 - **Durable telemetry/alert outbox + provenance registry** — DRAFT design only (#1006), **NOT shipped / NOT activated**. The persistence-vs-observability invariants above stand unchanged; do not cite the outbox as current behavior.
-- **Native Browser STT verification** — a browser-dependent convenience path; non-Chrome browsers require browser-specific proof before being marketed as verified (→ `STT.md`).
+- **Private STT device verification** — every supported browser/device requires Private setup, record, finalize, save, and reopen proof before it is marketed as supported (→ `STT.md`).

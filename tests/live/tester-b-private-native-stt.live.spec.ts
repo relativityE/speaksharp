@@ -1,5 +1,5 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test';
-import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode } from './helpers/benchmark-utils';
+import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot } from './helpers/benchmark-utils';
 import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
@@ -9,7 +9,7 @@ const PRIVATE_REQUIRED_WORDS = ['um', 'basically', 'literally', 'like'];
 const EXPECTED_FILLERS = ['um', 'basically', 'literally', 'like'];
 const PLACEHOLDER_PATTERN = /\b(words appear here|listening|session complete|no speech was detected)\b/i;
 
-type SttMode = 'private' | 'native';
+type SttMode = 'private';
 
 test.describe.configure({ retries: 0 });
 
@@ -26,7 +26,7 @@ test.use({
   },
 });
 
-test.describe('Tester B no-cost STT gate with known audio @live', () => {
+test.describe('Private STT gate with known audio @live', () => {
   test.beforeEach(() => {
     test.skip(!BASE_URL, 'BASE_URL is required so this gate can target the intended app.');
   });
@@ -39,13 +39,11 @@ test.describe('Tester B no-cost STT gate with known audio @live', () => {
     test.setTimeout(360_000);
     const consoleEvents = attachBrowserEvidence(page);
 
-    await enableNoCostTesterHooks(page, { enablePrivate: true });
+    await enablePrivateTesterHooks(page);
     const { email, password } = makeTesterAccount('private');
     await signUp(page, email, password);
 
     await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
-    await expect(page.getByTestId('pro-badge')).toBeVisible({ timeout: 20_000 });
-    await selectBenchmarkMode(page, 'private');
     await preparePrivateModelIfPrompted(page);
 
     const evidence = await recordKnownAudioSession(page, 'private');
@@ -55,25 +53,9 @@ test.describe('Tester B no-cost STT gate with known audio @live', () => {
     expectKnownFixtureFillers(evidence, 'private');
   });
 
-  test('Native Browser STT transcribes conv_01 audio and detects fillers', async ({ page }, testInfo) => {
-    test.setTimeout(180_000);
-    const consoleEvents = attachBrowserEvidence(page);
-
-    await enableNoCostTesterHooks(page);
-    const { email, password } = makeTesterAccount('native');
-    await signUp(page, email, password);
-    await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
-    await selectBenchmarkMode(page, 'native');
-
-    const evidence = await recordKnownAudioSession(page, 'native');
-    await writeEvidence(testInfo, 'native', evidence, consoleEvents);
-
-    expectNativeFixtureTranscript(evidence);
-    expectKnownFixtureFillers(evidence, 'native');
-  });
 });
 
-async function enableNoCostTesterHooks(page: Page, options: { enablePrivate?: boolean } = {}) {
+async function enablePrivateTesterHooks(page: Page) {
   await page.addInitScript(() => {
     const win = window as Window & {
       __E2E_CONTEXT__?: boolean;
@@ -88,21 +70,19 @@ async function enableNoCostTesterHooks(page: Page, options: { enablePrivate?: bo
       ...win.__E2E_DEPS__,
       fetchUsageLimit: async () => ({
         can_start: true,
-        subscription_status: 'pro',
-        is_pro: true,
+        subscription_status: 'free',
+        is_pro: false,
         streak_count: 0,
         trial_active: true,
       }),
     };
   });
 
-  if (options.enablePrivate) {
-    await page.addInitScript(() => {
-      window.REAL_WHISPER_TEST = true;
-      window.__FORCE_TRANSFORMERS_JS__ = true;
-      window.__STT_LOAD_TIMEOUT__ = 180000;
-    });
-  }
+  await page.addInitScript(() => {
+    window.REAL_WHISPER_TEST = true;
+    window.__FORCE_TRANSFORMERS_JS__ = true;
+    window.__STT_LOAD_TIMEOUT__ = 180000;
+  });
 }
 
 function makeTesterAccount(label: SttMode) {
@@ -229,14 +209,6 @@ function expectPrivateFixtureTranscript(evidence: Awaited<ReturnType<typeof reco
   }
 }
 
-function expectNativeFixtureTranscript(evidence: Awaited<ReturnType<typeof recordKnownAudioSession>>) {
-  const transcript = `${evidence.liveTranscript} ${evidence.afterStopTranscript}`;
-  const words = normalizeWords(transcript);
-  const found = EXPECTED_TRUTH_WORDS.filter((word) => words.includes(word));
-
-  expect(found, `native transcript should match conv_01 truth. Transcript="${transcript}"`).toEqual(EXPECTED_TRUTH_WORDS);
-}
-
 function expectKnownFixtureFillers(evidence: Awaited<ReturnType<typeof recordKnownAudioSession>>, mode: SttMode) {
   const fillerWords = evidence.fillerRows.length > 0
     ? evidence.fillerRows.map((row) => row.word)
@@ -278,7 +250,7 @@ function attachBrowserEvidence(page: Page) {
   const events: Array<{ type: string; text: string }> = [];
   page.on('console', (message) => {
     const text = message.text();
-    if (/CloudAssemblyAI|ModelManager|TransformersJS|PrivateWhisper|SpeechRuntime|TranscriptionService|recording|transcript|Native/i.test(text)) {
+    if (/ModelManager|TransformersJS|PrivateWhisper|SpeechRuntime|TranscriptionService|recording|transcript/i.test(text)) {
       events.push({ type: message.type(), text });
       console.log(`[browser:${message.type()}] ${text}`);
     }

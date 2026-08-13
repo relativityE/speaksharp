@@ -34,6 +34,20 @@ describe('flawless-launch product-contract guard (#1290)', () => {
     }
   });
 
+  it('does not let a nearby retirement statement hide an active contradiction', () => {
+    const source = [
+      '- Browser remains an available customer option.',
+      '- Cloud is not a customer entitlement.',
+    ].join('\n');
+
+    expect(scanText('product_release/PRODUCT_REQUIREMENTS.md', source)).toEqual([
+      expect.objectContaining({
+        line: 1,
+        rule: 'browser-cloud-customer-entitlement',
+      }),
+    ]);
+  });
+
   it('keeps the historical exclusion list narrow and explicit', () => {
     expect(HISTORICAL_EXCLUSIONS).toEqual([
       'backend/supabase/migrations/',

@@ -330,7 +330,7 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
             transcript: p_session_data.transcript || '',
             title: p_session_data.title || 'New Session',
             total_words: p_session_data.total_words || 0,
-            engine: (p_session_data.engine as STTEngine) || 'native',
+            engine: (p_session_data.engine as STTEngine) || 'private',
             clarity_score: p_session_data.clarity_score || 0,
             wpm: p_session_data.wpm || 0,
             filler_words: p_session_data.filler_words || {},
@@ -514,14 +514,6 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
         });
     });
 
-    // POST /functions/v1/assemblyai-token
-    await registerRoute(page, '**/functions/v1/assemblyai-token', async (route) => {
-        await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ token: 'mock-assemblyai-token' }),
-        });
-    });
 }
 
 /**
@@ -621,8 +613,8 @@ export async function setupE2EMocks(
         await page.addInitScript((status: string) => {
             (window as Window & { __E2E_MOCK_PROFILE__?: Record<string, unknown> }).__E2E_MOCK_PROFILE__ = {
                 subscription_status: status,
-                stripe_subscription_id: status === 'pro' ? 'sub_e2e_pro_cloud' : null,
-                subscription_id: status === 'pro' ? 'sub_e2e_pro_cloud' : null,
+                stripe_subscription_id: status === 'pro' ? 'sub_e2e_paid_private' : null,
+                subscription_id: status === 'pro' ? 'sub_e2e_paid_private' : null,
             };
         }, userType);
     }
@@ -635,8 +627,8 @@ export async function setupE2EMocks(
         if (userType === 'pro') {
             state.profile = {
                 ...state.profile,
-                stripe_subscription_id: 'sub_e2e_pro_cloud',
-                subscription_id: 'sub_e2e_pro_cloud',
+                stripe_subscription_id: 'sub_e2e_paid_private',
+                subscription_id: 'sub_e2e_paid_private',
             } as typeof MOCK_USER_PROFILE;
         }
     }

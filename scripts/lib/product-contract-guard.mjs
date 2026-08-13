@@ -22,13 +22,13 @@ const GUARD_INFRASTRUCTURE = new Set([
   'tests/release/flawless-launch-product-contract-guard.test.ts',
 ]);
 
-const CUSTOMER_AUTHORITY = /^(?:README\.md|USER_GUIDE\.md|frontend\/(?:index\.html|public\/|src\/(?:components|content|pages)\/)|product_release\/(?:ENTITLEMENTS_AND_BILLING|PRODUCT_REQUIREMENTS|TESTER_GUIDE)\.md$)/;
+const CUSTOMER_AUTHORITY = /^(?:README\.md|USER_GUIDE\.md|frontend\/(?:index\.html|public\/|src\/(?:components|content|pages)\/)|product_release\/(?:ARCHITECTURE|ENTITLEMENTS_AND_BILLING|OPERATIONS_AND_SECURITY|PRODUCT_REQUIREMENTS|QUALITY|RELEASE_PROCESS|STT|TESTER_GUIDE|TESTER_OPERATIONS)\.md$)/;
 const RUNTIME_OR_GATE = /^(?:frontend\/src\/|backend\/supabase\/functions\/|scripts\/|tests\/(?:canary|e2e|live|release)\/|\.github\/workflows\/)/;
 const isTestImplementation = (path) => /(?:\/__tests__\/|\.(?:test|spec)\.[cm]?[jt]sx?$)/.test(path);
 const isCustomerAuthority = (path) => CUSTOMER_AUTHORITY.test(path) && !isTestImplementation(path);
 const isActiveRuntimeOrGate = (path) => RUNTIME_OR_GATE.test(path)
   && !((path.startsWith('frontend/src/') || path.startsWith('backend/supabase/functions/')) && isTestImplementation(path));
-const NEGATED_OR_HISTORICAL = /\b(?:no|not|never|without|remove(?:d|s|ing)?|retire(?:d|s|ment)?|reject(?:ed|s|ing)?|forbid(?:den|s)?|prohibit(?:ed|s)?|obsolete|abandoned|deprecated|historical|former|old|stale|superseded|mustn['’]t|must not|may not|doesn['’]t|does not|isn['’]t|is not|aren['’]t|are not)\b/i;
+const NEGATED_OR_HISTORICAL = /\b(?:no|not|never|without|remove(?:d|s|ing)?|retire(?:d|s|ment)?|reject(?:ed|s|ing)?|forbid(?:den|s)?|prohibit(?:ed|s)?|obsolete|abandoned|deprecated|historical|former|earlier|old|stale|superseded|mustn['’]t|must not|may not|doesn['’]t|does not|isn['’]t|is not|aren['’]t|are not)\b/i;
 
 const rules = [
   {
@@ -46,8 +46,10 @@ const rules = [
   {
     id: 'browser-cloud-customer-entitlement',
     applies: (path) => isCustomerAuthority(path),
-    matches: (unit) => /\b(?:browser|cloud)\b[^\n]{0,100}\b(?:customer|entitlement|mode|option|choice|plan|tier|pro|select|switch|available|fallback|upgrade|try|start)\b/i.test(unit)
-      || /\b(?:customer|entitlement|mode|option|choice|plan|tier|pro|select|switch|available|fallback|upgrade|try|start)\b[^\n]{0,100}\b(?:browser|cloud)\b/i.test(unit),
+    matches: (unit) => /\b(?:Browser|Cloud)\b/.test(unit) && (
+      /\b(?:Browser|Cloud)\b[^\n]{0,100}\b(?:customer|entitlement|mode|option|choice|plan|tier|pro|select|switch|available|fallback|upgrade|try|start)\b/i.test(unit)
+      || /\b(?:customer|entitlement|mode|option|choice|plan|tier|pro|select|switch|available|fallback|upgrade|try|start)\b[^\n]{0,100}\b(?:Browser|Cloud)\b/i.test(unit)
+    ),
   },
   {
     id: 'accumulated-minute-quota',
@@ -70,32 +72,9 @@ const rules = [
 const normalize = (value) => value.replace(/\s+/g, ' ').trim();
 
 function unitsFor(path, source) {
-  if (!path.endsWith('.md')) {
-    return source.split('\n').map((text, index) => ({ line: index + 1, text: normalize(text) }));
-  }
-
-  const units = [];
-  let paragraph = [];
-  let paragraphLine = 1;
-  const flush = () => {
-    const text = normalize(paragraph.join(' '));
-    if (text) units.push({ line: paragraphLine, text });
-    paragraph = [];
-  };
-
-  source.split('\n').forEach((line, index) => {
-    if (/^\s*\|/.test(line)) {
-      flush();
-      units.push({ line: index + 1, text: normalize(line) });
-    } else if (!line.trim()) {
-      flush();
-    } else {
-      if (paragraph.length === 0) paragraphLine = index + 1;
-      paragraph.push(line);
-    }
-  });
-  flush();
-  return units;
+  // Scan Markdown line-by-line too. Treating a whole multi-bullet paragraph as one unit allowed a
+  // single explicit retirement statement to suppress a contradictory positive claim beside it.
+  return source.split('\n').map((text, index) => ({ line: index + 1, text: normalize(text) }));
 }
 
 export function isExcluded(path) {

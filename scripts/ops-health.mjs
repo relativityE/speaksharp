@@ -54,6 +54,8 @@ await row('Supabase API', 'Can clients reach Auth and SpeakSharp Edge Functions?
   const usageLimitEdge = await edgePreflight('check-usage-limit');
   const tokenEdge = await edgeExpectedStatus('assemblyai-token', {
     method: 'POST',
+    // Unauthenticated remains 401; authenticated customer denial/no-provider-call is covered by
+    // the Edge contract tests and deployed canary.
     expectedStatus: 401,
     detailPrefix: 'assemblyai-token',
   });
@@ -62,13 +64,6 @@ await row('Supabase API', 'Can clients reach Auth and SpeakSharp Edge Functions?
     usageLimitEdge,
     tokenEdge,
   ], 'https://supabase.com/dashboard');
-});
-
-await row('AssemblyAI API', 'Can Cloud STT provider credentials reach AssemblyAI?', async () => {
-  const response = await http('https://api.assemblyai.com/v2/transcript', {
-    headers: { authorization: env('ASSEMBLYAI_API_KEY') },
-  });
-  return simple(response.ok, `transcript-api=${response.status}`, 'https://www.assemblyai.com/dashboard/', response.ms);
 });
 
 await row('Gemini API', 'Can AI suggestions provider credentials reach Gemini?', async () => {
@@ -84,7 +79,6 @@ await row('Stripe API', 'Can billing credentials reach Stripe and read product p
   });
   const checks = await Promise.all([
     { ok: stripe.ok, detail: `balance=${stripe.status}` },
-    optionalStripePrice(secret, 'basic', optionalEnv('STRIPE_BASIC_PRICE_ID', ['STRIPE_LIVE_BASIC_PRICE_ID', 'VITE_STRIPE_BASIC_PRICE_ID'])),
     stripePrice(secret, 'pro', env('STRIPE_PRO_PRICE_ID', ['VITE_STRIPE_PRO_PRICE_ID', 'VITE_STRIPE_PRICE_ID'])),
   ]);
   return combined(checks, 'https://dashboard.stripe.com/');
@@ -266,19 +260,6 @@ async function stripePrice(secret, label, priceId) {
     ok: response.ok && body?.active === true,
     detail: `${label}=${response.status}${body?.active === false ? ':inactive' : ''}`,
   };
-}
-
-// Basic is a future-reserved product (not launch scope): surface its status for visibility but
-// never gate launch health on it. Absent id => reserved (pass); present-but-unreadable/inactive
-// => reserved warning (non-fatal). Pro remains a hard gate via stripePrice().
-async function optionalStripePrice(secret, label, priceId) {
-  if (!priceId) {
-    return { ok: true, detail: `${label}=reserved/not-launched` };
-  }
-  const probe = await stripePrice(secret, label, priceId);
-  return probe.ok
-    ? { ok: true, detail: probe.detail }
-    : { ok: null, skipped: true, detail: `${label}=reserved/not-launched(${probe.detail})` };
 }
 
 function secretShape(name, value, { minLength = 1 } = {}) {
