@@ -68,7 +68,7 @@ How to test the Practice Loop
 6. Save the session and review the transcript, delivery evidence, and suggested next action.
 7. Open the saved session again from History or Progress. If a PDF report is available, open or export it.
 8. Repeat once using the suggested next action. You may use Open Mic again or try Focus Points.
-9. Use Report Issue from any page whenever something is confusing, inaccurate, slow, or broken.
+9. Use Report Issue from any page whenever something is confusing, broken, slow, inaccurate, or surprising.
 
 What to evaluate
 
