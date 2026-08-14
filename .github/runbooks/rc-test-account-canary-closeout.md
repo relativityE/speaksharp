@@ -66,11 +66,17 @@ Add a fail-closed repository guard for the retired exact names across active sou
 
 ## B. Controlled canary identities and passwords
 
-Canonical protected pairs:
-- `CANARY_TRIAL_EMAIL` / `CANARY_TRIAL_PASSWORD`
-- `CANARY_PAID_EMAIL` / `CANARY_PAID_PASSWORD`
+Canonical GitHub Secret pairs:
+- `CANARY_TRIAL_EMAIL` = a valid, operator-controlled and recoverable email address
+- `CANARY_TRIAL_PASSWORD` = that account's protected password
+- `CANARY_PAID_EMAIL` = a different valid, operator-controlled and recoverable email address
+- `CANARY_PAID_PASSWORD` = that account's protected password
 
-Retire the ambiguous `CANARY_PASSWORD` name after a safe secret migration. The transition must fail closed: configure the new secret first, change source references, prove both lanes, then separately remove the old secret. Never print values.
+All four are GitHub **Secrets**, including the email values. The workflow injects them only at runtime through `${{ secrets.CANARY_TRIAL_EMAIL }}`, `${{ secrets.CANARY_TRIAL_PASSWORD }}`, `${{ secrets.CANARY_PAID_EMAIL }}`, and `${{ secrets.CANARY_PAID_PASSWORD }}`. Do not hard-code addresses, commit them, infer a domain, or move the email values to repository variables.
+
+Before account creation, Test User Admin must fail closed when an email is blank, malformed, equal to the other canary identity, or uses the explicitly prohibited unaffiliated `speaksharp.app` domain. The manual operator attests that both addresses are controlled and recoverable.
+
+Retire the ambiguous `CANARY_PASSWORD` name after a safe secret migration. The transition must fail closed: configure `CANARY_PAID_PASSWORD` first, change source references, prove both lanes, then separately remove the old secret. Never print values.
 
 Use the existing `Test User Admin` workflow as the authorized account-creation mechanism for both controlled canary identities. Correct and extend its canary-specific path so it consumes the protected pairs directly:
 
