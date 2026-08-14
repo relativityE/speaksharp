@@ -87,6 +87,37 @@ describe('classifyRequestFailure', () => {
         });
     });
 
+    // #1294 finding #5: the fire-and-forget set_user_timezone RPC is idempotent; a navigation abort during
+    // setup is benign (the app never awaits it). Only an abort during active recording stays critical.
+    it('records set_user_timezone POST aborts during setup as benign', () => {
+        const result = classifyRequestFailure({
+            ...baseFailure,
+            url: 'https://yxlapjuovrsvjswkwnrk.supabase.co/rest/v1/rpc/set_user_timezone',
+            method: 'POST',
+            phase: 'setup',
+            functionalJourneyPassed: false,
+        });
+        expect(result).toEqual({
+            kind: 'ignored_teardown_read',
+            reason: IGNORED_READ_REASON,
+            category: 'timezone_preference',
+        });
+    });
+
+    it('fails set_user_timezone POST aborts DURING active recording before the functional journey', () => {
+        const result = classifyRequestFailure({
+            ...baseFailure,
+            url: 'https://yxlapjuovrsvjswkwnrk.supabase.co/rest/v1/rpc/set_user_timezone',
+            method: 'POST',
+            phase: 'active',
+            functionalJourneyPassed: false,
+        });
+        expect(result).toEqual({
+            kind: 'critical',
+            reason: 'Read aborted during active recording before the functional journey passed',
+        });
+    });
+
     it('fails aborted write requests even during teardown', () => {
         const result = classifyRequestFailure({
             ...baseFailure,
