@@ -379,17 +379,10 @@ export const handlers: RequestHandler[] = [
 
     return HttpResponse.json({
       can_start: true,
-      daily_remaining: 999 * 60,
-      daily_limit: 999 * 60,
-      monthly_remaining: 999 * 60,
-      monthly_limit: 999 * 60,
-      remaining_seconds: 999 * 60,
       subscription_status: isPro ? 'pro' : 'free',
       streak_count: 0,
-      allowed: true,
-      remaining_minutes: 999,
-      limit_minutes: 999,
       is_pro: isPro,
+      trial_active: !isPro,
     });
   }),
 

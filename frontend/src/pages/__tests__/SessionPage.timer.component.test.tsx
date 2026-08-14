@@ -149,7 +149,7 @@ describe('useSessionLifecycle Timer Logic', () => {
         } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
         mockUseUsageLimit.mockReturnValue({
-            data: { can_start: true, remaining_seconds: 1800, limit_seconds: 1800, is_pro: false },
+            data: { can_start: true, subscription_status: 'pro', is_pro: true, streak_count: 0 },
             isLoading: false,
         } as unknown as ReturnType<typeof UsageLimitHook.useUsageLimit>);
     });

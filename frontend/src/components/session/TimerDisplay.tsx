@@ -13,7 +13,7 @@ interface TimerDisplayProps {
  * 
  * Subscribes directly to useSessionStore.elapsedTime.
  * By isolating this high-frequency (1Hz) update here, we prevent 
- * the entire SessionPage and LiveRecordingCard from re-rendering 
+ * the entire SessionPage and session shell from re-rendering
  * every second.
  */
 export const TimerDisplay: React.FC<TimerDisplayProps> = ({ isListening, className = '' }) => {

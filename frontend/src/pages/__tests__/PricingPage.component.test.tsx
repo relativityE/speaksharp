@@ -133,7 +133,7 @@ describe('PricingPage', () => {
     });
 
     describe('Button States', () => {
-        it('should enable Free tier button', () => {
+    it('should enable the trial entry button', () => {
             renderPricingPage();
 
             const freeButton = screen.getByText('Start free');

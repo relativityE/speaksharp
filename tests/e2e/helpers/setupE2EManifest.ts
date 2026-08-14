@@ -14,7 +14,7 @@ export interface SSE2EManifest {
   realEngineRegistryKeys?: string[];
   forbiddenEngineKeys?: string[];
   MOCK_STT_AVAILABILITY?: boolean;
-  guestStatus?: 'free' | 'basic' | 'pro';
+  guestStatus?: 'free' | 'pro';
   emitTranscript?: (text: string, isFinal?: boolean) => void;
   onStateChange?: (cb: (state: string) => void) => (() => void) | void;
   destroyService?: () => Promise<void>;
@@ -115,7 +115,7 @@ export async function setupE2EManifest(
      */
     forbiddenEngineKeys?: string[];
     storage?: Record<string, string>;
-    userType?: 'free' | 'basic' | 'pro';
+    userType?: 'free' | 'pro';
     mockProfile?: Record<string, unknown>;
     emptySessions?: boolean;
     /** #1047: seed the in-browser mock session DB (e.g. transcript_state variants) instead of defaults. */
@@ -152,7 +152,7 @@ export async function setupE2EManifest(
     // 0. AUTHORITATIVE TIER SIGNAL
     const win = window as unknown as E2EWindow;
     win.__MOCK_PROFILE__ = { 
-      subscription_status: ut === 'pro' ? 'pro' : ut === 'basic' ? 'basic' : 'free',
+      subscription_status: ut === 'pro' ? 'pro' : 'free',
       stripe_subscription_id: ut === 'pro' ? 'sub_e2e_pro_cloud' : null,
       subscription_id: ut === 'pro' ? 'sub_e2e_pro_cloud' : null,
       ...(mp || {})
@@ -192,7 +192,7 @@ export async function setupE2EManifest(
 
     const e2eProfile = {
       id: authSession?.user?.id || '__E2E_GUEST_USER__',
-      subscription_status: ut === 'pro' ? 'pro' : ut === 'basic' ? 'basic' : 'free',
+      subscription_status: ut === 'pro' ? 'pro' : 'free',
       stripe_subscription_id: ut === 'pro' ? 'sub_e2e_paid_pro' : null,
       subscription_id: ut === 'pro' ? 'sub_e2e_paid_pro' : null,
       usage_seconds: 0,
@@ -509,36 +509,15 @@ export async function setupE2EManifest(
       const profile = e2eProfile as Record<string, unknown>;
       const userType = String(profile.subscription_status || 'free');
       const isPro = userType === 'pro';
-      const sampleLimit = typeof profile.private_sample_limit_seconds === 'number'
-        ? profile.private_sample_limit_seconds
-        : 300;
-      const sampleUsed = typeof profile.private_sample_seconds_used === 'number'
-        ? profile.private_sample_seconds_used
-        : 0;
-      const sampleRemaining = typeof profile.private_sample_seconds_remaining === 'number'
-        ? profile.private_sample_seconds_remaining
-        : Math.max(0, sampleLimit - sampleUsed);
-      const sampleAvailable = profile.private_sample_available === true;
 
       return {
-        can_start: true,
-        remaining_seconds: isPro ? -1 : 3600,
-        limit_seconds: isPro ? -1 : 3600,
-        used_seconds: 0,
-        daily_remaining: isPro ? -1 : 3600,
-        daily_limit: isPro ? -1 : 3600,
-        monthly_remaining: isPro ? -1 : 90000,
-        monthly_limit: isPro ? -1 : 90000,
+        can_start: profile.can_start !== false,
         subscription_status: userType,
         is_pro: isPro,
+        trial_active: profile.trial_active ?? !isPro,
+        trial_expires_at: profile.trial_expires_at ?? null,
         user_type: userType,
         streak_count: 0,
-        private_sample_available: sampleAvailable,
-        private_sample_limit_seconds: sampleLimit,
-        private_sample_seconds_used: sampleUsed,
-        private_sample_seconds_remaining: sampleRemaining,
-        private_sample_session_id: profile.private_sample_session_id ?? null,
-        private_sample_completed_at: profile.private_sample_completed_at ?? null,
       };
     };
 
@@ -803,7 +782,7 @@ export async function setupE2EManifest(
       isActive: true,
       enableRealEngine: false,
       MOCK_STT_AVAILABILITY: true,
-      guestStatus: ut as 'free' | 'basic' | 'pro',
+      guestStatus: ut as 'free' | 'pro',
       ... mCast,
       registry: {
         ...engineRegistry,

@@ -24,13 +24,6 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
-import {
-    PRIVATE_SAMPLE_EVENTS,
-    emitPrivateSample,
-    setPrivateSampleContext,
-    clearPrivateSampleContext,
-    buildSampleEnvProps,
-} from '@/services/transcription/privateSampleTelemetry';
 
 const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string => {
     const err = error as { name?: string; message?: string } | null;
@@ -72,10 +65,8 @@ export const useSessionLifecycle = () => {
 
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = isPro(effectiveSubscriptionStatus);
-    // #1184: Private is the ONLY STT, for EVERYONE — Free and Pro alike (PO 2026-08-08). Every authenticated
-    // user can use Private; Free vs Pro differ only on usage minutes, not the engine. Browser and Cloud are
-    // removed from the product entirely (no selector, no fallback). The prior `isPro || sample` gate + the
-    // private-sample trial are retired.
+    // Private is the only customer STT for active-trial and paid accounts. Access timing comes from the
+    // server's can_start result; accumulated usage never changes the engine or auto-stops a recording.
     const canUsePrivateStt = true;
     const canUseCloudStt = false;
     // Native (Browser) is never a user destination now. The only remaining E2E force-native hook is honored
@@ -87,13 +78,8 @@ export const useSessionLifecycle = () => {
     const setSTTStatus = useSessionStore(state => state.setSTTStatus);
     const sttMode = useSessionStore(state => state.sttMode);
     const setSTTMode = useSessionStore(state => state.setSTTMode);
-    const sunsetModal = useSessionStore(state => state.sunsetModal);
-    const setSunsetModal = useSessionStore(state => state.setSunsetModal);
-    // #1184: Private is the ONLY engine, so the default is unconditionally 'private' for every session.
-    // (The #1120 `stt_private_primary` flag is repurposed: under Private-only it no longer toggles
-    // Private-vs-Browser — it will select which Private VARIANT (v2 vs v4) is the default primary, decided by
-    // an apples-to-apples benchmark. That variant selection is a separate polish issue, not a launch gate;
-    // today v4 is hard-off so 'private' resolves to v2.)
+    // Private is the only customer engine, so every customer session resolves to it unconditionally.
+    // Private implementation variants remain internal policy, never customer entitlements.
     const defaultMode: TranscriptionMode = 'private';
     const effectiveMode: TranscriptionMode = sttMode ?? defaultMode;
     const [privateModelStatus, setPrivateModelStatus] = useState<string>(() => {
@@ -117,28 +103,6 @@ export const useSessionLifecycle = () => {
     // Guards to prevent double stops in the same session
     const hasAutoStoppedRef = useRef(false);
     const hasVADStoppedRef = useRef(false);
-    // Private-sample telemetry tracking: did a private sample recording start, and when.
-    const privateSampleActiveRef = useRef(false);
-    const recordingStartTsRef = useRef(0);
-    const firstTextSeenRef = useRef(false);
-    // If the user navigates away / unmounts mid-private-sample without saving, record it.
-    useEffect(() => {
-        const onPageHide = () => {
-            if (privateSampleActiveRef.current) {
-                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ABANDONED_UNSAVED);
-                privateSampleActiveRef.current = false;
-            }
-        };
-        window.addEventListener('pagehide', onPageHide);
-        return () => {
-            window.removeEventListener('pagehide', onPageHide);
-            if (privateSampleActiveRef.current) {
-                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ABANDONED_UNSAVED);
-                privateSampleActiveRef.current = false;
-                clearPrivateSampleContext();
-            }
-        };
-    }, []);
     const modeSourceRef = useRef<'default' | 'user' | null>(null);
 
     const speechConfig = useMemo(() => ({
@@ -227,12 +191,6 @@ export const useSessionLifecycle = () => {
                     type: 'info',
                     message: `⚠️ Session too short (${elapsedTime}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
                 });
-                if (privateSampleActiveRef.current) {
-                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.RECORDING_STOPPED, { recording_duration_seconds: elapsedTime });
-                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ABANDONED_UNSAVED, { recording_duration_seconds: elapsedTime });
-                    privateSampleActiveRef.current = false;
-                    clearPrivateSampleContext();
-                }
                 isProcessingRef.current = false;
                 return;
             }
@@ -244,11 +202,6 @@ export const useSessionLifecycle = () => {
 
                 if (!stopResult) {
                     setShowAnalyticsPrompt(false);
-                    if (privateSampleActiveRef.current) {
-                        emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ABANDONED_UNSAVED);
-                        privateSampleActiveRef.current = false;
-                        clearPrivateSampleContext();
-                    }
                     return;
                 }
 
@@ -264,39 +217,6 @@ export const useSessionLifecycle = () => {
                     streak_count: streakResult.currentStreak,
                     ...getSessionCoachingExperimentProperties(),
                 }, 'HIGH');
-                if (effectiveMode === 'private' && privateSampleActiveRef.current) {
-                    const sampleDuration = recordingStartTsRef.current
-                        ? Math.round((Date.now() - recordingStartTsRef.current) / 1000)
-                        : elapsedTime;
-                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.RECORDING_STOPPED, { recording_duration_seconds: sampleDuration });
-                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SAVED, {
-                        recording_duration_seconds: sampleDuration,
-                        word_count: metrics.wordCount,
-                        save_success: true,
-                    });
-                    // usage_updated/exhausted emitted here (context still set, before clear) so the
-                    // sample's consumption is recorded reliably regardless of cache/usage-sync timing.
-                    {
-                        const sampleLimit = usageLimit?.private_sample_limit_seconds ?? null;
-                        const priorUsed = typeof usageLimit?.private_sample_seconds_used === 'number'
-                            ? usageLimit.private_sample_seconds_used
-                            : 0;
-                        const used = priorUsed + sampleDuration;
-                        const remaining = sampleLimit != null
-                            ? Math.max(0, sampleLimit - used)
-                            : (usageLimit?.private_sample_seconds_remaining ?? null);
-                        emitPrivateSample(PRIVATE_SAMPLE_EVENTS.USAGE_UPDATED, {
-                            sample_seconds_used: used,
-                            sample_seconds_remaining: remaining,
-                        });
-                        if (remaining != null && remaining <= 0) {
-                            emitPrivateSample(PRIVATE_SAMPLE_EVENTS.EXHAUSTED, { sample_seconds_used: used });
-                        }
-                    }
-                    privateSampleActiveRef.current = false;
-                    clearPrivateSampleContext();
-                }
-
                 // P1: read the controller's current terminal status FIRST. If it left a warning/error (e.g.
                 // filler/metrics persistence failed → guardedStopStatus), preserve it — apply NEITHER the
                 // stopReason NOR the ordinary success/streak copy. This holds for auto-stops (which carry a
@@ -350,7 +270,7 @@ export const useSessionLifecycle = () => {
                 // #1282 — a fail-closed expired trial returns the raw code 'trial_expired'; show a
                 // human message instead. Recording is closed once the 30-day trial ends and the account
                 // is unpaid; existing sessions, export and account management remain available.
-                const rawError = usageLimit.error || 'Daily usage limit reached.';
+                const rawError = usageLimit.error || 'Recording access is unavailable. Refresh and try again.';
                 const errorMsg = rawError === 'trial_expired'
                     ? 'Your 30-day free trial has ended. Upgrade to keep recording — your saved sessions and exports stay available.'
                     : rawError;
@@ -378,7 +298,7 @@ export const useSessionLifecycle = () => {
                         isListening,
                         isProUser,
                         isLockHeldByOther,
-                        remaining_seconds: usageLimit?.remaining_seconds,
+                        canStart: usageLimit?.can_start,
                     }, '[SESSION_DIAG]');
                 }
 
@@ -404,18 +324,6 @@ export const useSessionLifecycle = () => {
                     user_tier: effectiveSubscriptionStatus,
                     ...getSessionCoachingExperimentProperties(),
                 });
-                if (latestMode === 'private') {
-                    // Set the resolved arm/assignment context, then emit recording_started.
-                    speechRuntimeController.applyPrivateSampleContext();
-                    recordingStartTsRef.current = Date.now();
-                    setPrivateSampleContext({
-                        sample_limit_seconds: usageLimit?.private_sample_limit_seconds ?? null,
-                        recording_start_ts: recordingStartTsRef.current,
-                    });
-                    privateSampleActiveRef.current = true;
-                    firstTextSeenRef.current = false;
-                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.RECORDING_STARTED, { ...buildSampleEnvProps() });
-                }
             } catch (error) {
                 const err = error as Error;
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
@@ -471,11 +379,6 @@ export const useSessionLifecycle = () => {
                     start_leaf_name: startLeaf?.name ?? null,
                     ...getSessionCoachingExperimentProperties(),
                 });
-                if (latestMode === 'private') {
-                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.ERROR, { error_code: err?.name || 'Error' });
-                    privateSampleActiveRef.current = false;
-                    clearPrivateSampleContext();
-                }
                 try {
                     await speechRuntimeController.reset('start_failed');
                 } catch (resetError) {
@@ -555,71 +458,6 @@ export const useSessionLifecycle = () => {
     }, []);
 
 
-    // Tier enforcement: auto-stop paid practice limits and the one-session
-    // unpaid Private sample. The sample has its own countdown/copy so users do
-    // not confuse it with the free Browser path.
-    useEffect(() => {
-        if (!isVerified || !usageLimit) return;
-
-        // A Private sample recording stays a sample recording for its whole duration.
-        // `private_sample_available` flips to false once `private_sample_session_id` is
-        // set (sample in progress), so a mid-recording entitlement refetch must NOT make
-        // the countdown/auto-stop fall back to the free daily limit. Treat any in-progress
-        // sample (seconds remaining > 0) as a sample recording regardless of the
-        // post-start availability flag.
-        const isPrivateSampleRecording = effectiveMode === 'private'
-            && !isProUser
-            && typeof usageLimit.private_sample_seconds_remaining === 'number'
-            && (usageLimit.private_sample_available === true
-                || usageLimit.private_sample_seconds_remaining > 0);
-        const sourceRemaining = isPrivateSampleRecording
-            ? usageLimit.private_sample_seconds_remaining
-            : isProUser && typeof usageLimit.daily_remaining === 'number'
-            ? usageLimit.daily_remaining
-            : usageLimit.remaining_seconds;
-
-        if (sourceRemaining === -1 || !Number.isFinite(sourceRemaining)) return;
-
-        if (isListening && typeof sourceRemaining === 'number' && sourceRemaining > 0) {
-            const remaining = sourceRemaining - elapsedTime;
-            const warningThresholdSeconds = isPrivateSampleRecording ? 60 : 300;
-
-            if (remaining > 0 && remaining <= warningThresholdSeconds) {
-                const minutes = Math.ceil(remaining / 60);
-                const warningMsg = isPrivateSampleRecording
-                    ? '1 minute left in this Private practice window. We’ll stop and save when time runs out.'
-                    : `⚠️ Great practice! ${minutes} minute${minutes > 1 ? 's' : ''} remaining for today's ${isProUser ? 'Pro ' : ''}practice limit.`;
-                if (sttStatus.message !== warningMsg) {
-                    setSTTStatus({ type: 'info', message: warningMsg });
-                    analyticsBuffer.push('session_limit_warning', {
-                        remaining_seconds: remaining,
-                        tier: isProUser ? 'pro' : 'free',
-                        limit_type: isPrivateSampleRecording ? 'private_sample' : 'daily',
-                        ...getSessionCoachingExperimentProperties(),
-                    });
-                }
-            } else if (remaining <= 0) {
-                if (hasAutoStoppedRef.current) return;
-                hasAutoStoppedRef.current = true;
-
-                logger.warn({ elapsedTime, remaining }, '[useSessionLifecycle] ⚠️ AUTO-STOPPING: limit reached');
-
-                if (!isPrivateSampleRecording) {
-                    const isMonthly = usageLimit.monthly_remaining <= 0;
-                    setSunsetModal({ type: isMonthly ? 'monthly' : 'daily', open: true });
-                }
-
-                void handleStartStopRef.current?.({
-                    stopReason: isPrivateSampleRecording
-                        ? 'Your Private practice window ended. We stopped and saved your session.'
-                        : isProUser
-                        ? "⛔ Pro daily practice limit reached."
-                        : "⛔ Daily usage limit reached."
-                });
-            }
-        }
-    }, [elapsedTime, effectiveMode, isListening, usageLimit, sttStatus.message, isProUser, isVerified, setSTTStatus, setSunsetModal]);
-
     // #1089 CAPTURE BACKSTOP (data integrity). MAX_UTTERANCE_SECONDS is a hard memory ceiling that sits
     // STRICTLY ABOVE the recording cap, so a normal take never reaches it. If it IS reached — clock drift,
     // pause/resume, or a cap regression — the engine has already stopped accepting audio. Previously it
@@ -648,9 +486,9 @@ export const useSessionLifecycle = () => {
     }, [captureLimitReached, setCaptureLimitReached]);
 
     // #891 beta recording length: a single Private take may run the full cap
-    // (MAX_PRIVATE_RECORDING_SECONDS, now 600s = 10 min). This fires on WALL-CLOCK elapsedTime (not the sample count), so it cannot
-    // early-fire from any duration over-count. Independent of the usage allowance above — whichever
-    // limit (budget or the recording cap) is hit first triggers the single auto-stop (shared hasAutoStoppedRef).
+    // (MAX_PRIVATE_RECORDING_SECONDS, now 600s = 10 min). This fires on WALL-CLOCK elapsedTime, so it
+    // cannot early-fire from any duration over-count. It is a per-recording technical safety bound,
+    // not an accumulated entitlement quota, and a new recording may start after finalization.
     // Warns 20s before the cap. The Stop→final decode wait is shown honestly via the Finalizing… state.
     useEffect(() => {
         if (effectiveMode !== 'private' || !isListening) return;
@@ -686,13 +524,6 @@ export const useSessionLifecycle = () => {
         if (transcript.transcript !== lastTranscriptRef.current) {
             lastTranscriptRef.current = transcript.transcript;
             lastActivityTimeRef.current = Date.now();
-            // First non-empty transcript of a Private sample → measure time-to-first-text.
-            if (privateSampleActiveRef.current && !firstTextSeenRef.current && transcript.transcript.trim().length > 0) {
-                firstTextSeenRef.current = true;
-                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.FIRST_TRANSCRIPT_SEEN, {
-                    time_to_first_text_ms: recordingStartTsRef.current ? Math.max(0, Date.now() - recordingStartTsRef.current) : null,
-                });
-            }
         }
 
         const inactivityLimit = 300 * 1000; // 5 minutes
@@ -816,8 +647,8 @@ export const useSessionLifecycle = () => {
             }
             modeSourceRef.current = 'user';
             // Opt 2 (#772-safe, PR 1a): a MANUAL mode switch starts a fresh context. setSTTMode (called inside
-            // requestModeChange) intentionally preserves a just-saved transcript for the AUTOMATIC #772
-            // Private-sample force-switch (guarded by sessionSaved), so on a user-initiated switch we clear the
+            // requestModeChange) intentionally preserves a just-saved transcript during internal normalization,
+            // so on a user-initiated test-mode switch we clear the
             // prior visible transcript here so stale text does not carry into the new mode.
             if (prevSaved && prevMode !== safeMode) {
                 const s = useSessionStore.getState();
@@ -832,8 +663,6 @@ export const useSessionLifecycle = () => {
         showAnalyticsPrompt,
         setShowAnalyticsPrompt,
         sessionFeedbackMessage: sttStatus.message,
-        sunsetModal,
-        setSunsetModal,
         pauseMetrics,
         micLevel,
         hasSpeechActivity,

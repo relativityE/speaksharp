@@ -375,38 +375,4 @@ describe('StatusNotificationBar', () => {
         });
     });
 
-    describe('quiet Private CTA (folded into the one bar)', () => {
-        it('renders the exact existing copy and calls onSelect (setMode) on click', () => {
-            mockStore();
-            const onSelect = vi.fn();
-            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} privateCta={{ onSelect }} />);
-            const cta = screen.getByTestId('post-save-private-cta');
-            expect(cta).toHaveTextContent('Try Private — the main beta experience');
-            fireEvent.click(cta);
-            expect(onSelect).toHaveBeenCalledTimes(1);
-        });
-
-        it('is absent when not provided (Private sessions / ineligible users)', () => {
-            mockStore();
-            renderRouted(<StatusNotificationBar status={{ type: 'ready', message: 'Session saved' }} analyticsAction={{ cueKey: 's1' }} />);
-            expect(screen.queryByTestId('post-save-private-cta')).toBeNull();
-        });
-
-        it('keeps Analytics rightmost and renders exactly ONE Analytics action alongside the CTA', () => {
-            mockStore();
-            renderRouted(
-                <StatusNotificationBar
-                    status={{ type: 'ready', message: 'Session saved' }}
-                    analyticsAction={{ cueKey: 's1' }}
-                    privateCta={{ onSelect: vi.fn() }}
-                />,
-            );
-            // Never two Analytics actions in a rendered state.
-            const analytics = screen.getAllByTestId('post-save-review-session-link');
-            expect(analytics).toHaveLength(1);
-            const cta = screen.getByTestId('post-save-private-cta');
-            // Analytics comes AFTER the Private CTA in DOM order (rightmost in the flex row).
-            expect(cta.compareDocumentPosition(analytics[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-        });
-    });
 });

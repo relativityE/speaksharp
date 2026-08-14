@@ -1,3 +1,7 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+> **Current authority:** the open GitHub issue set and final-last canonical roadmap reconciliation in #1272.
+
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-26
 **Version:** v0.6.19-rc0

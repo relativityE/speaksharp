@@ -11,6 +11,7 @@ const MIG = (f: string) => readFileSync(resolve(process.cwd(), 'backend', 'supab
 const BOOTSTRAP = readFileSync(resolve(process.cwd(), 'tests', 'db', 'trial-journey-bootstrap.sql'), 'utf8');
 const FOUNDATION = MIG('20260812040000_thirty_day_trial_lifecycle_1282.sql');
 const ENFORCEMENT = MIG('20260812041000_trial_expiry_fail_closed_1282.sql');
+const RUNTIME_CONVERGENCE = MIG('20260812041500_flawless_launch_runtime_convergence_1290.sql');
 
 const USER = '00000000-0000-0000-0000-0000000000a1';
 
@@ -19,6 +20,7 @@ async function make(seed: string): Promise<PGlite> {
   await db.exec(BOOTSTRAP);
   await db.exec(FOUNDATION);
   await db.exec(ENFORCEMENT); // also restricts tier_configs.pro to Private-only (blocker 6)
+  await db.exec(RUNTIME_CONVERGENCE); // removes retired sample/quota response authority
   await db.exec(`INSERT INTO auth.users (id) VALUES ('${USER}')`);
   await db.exec(seed);
   return db;
@@ -33,7 +35,7 @@ const tier = async (db: PGlite): Promise<string> =>
 const record = async (db: PGlite, engine: string, seconds = 60): Promise<string | null> => {
   await act(db);
   return (await db.query<{ error: string | null }>(
-    `SELECT (public.update_user_usage(${seconds}, '${engine}', gen_random_uuid()) ->> 'error') AS error`)).rows[0].error;
+    `SELECT (public.update_user_usage(${seconds}, '${engine}', NULL) ->> 'error') AS error`)).rows[0].error;
 };
 
 const TRIAL_ACTIVE = `INSERT INTO public.user_profiles (id, subscription_status, trial_started_at, trial_expires_at, commercial_trial_granted_at)
@@ -133,15 +135,64 @@ describe('#1282 trial/expiry + Private-only journey (executed in PGlite)', () =>
       const db = await make(entitlement);
       await db.exec(`UPDATE public.user_profiles
         SET private_sample_seconds_used = 300, daily_usage_seconds = 7201,
-            native_usage_seconds = 180001, cloud_usage_seconds = 180001
+            native_usage_seconds = 180001, cloud_usage_seconds = 180001,
+            last_daily_reset = now(), usage_reset_date = now()
         WHERE id = '${USER}'`);
       expect(await record(db, 'private')).toBeNull();
-      const limit = (await db.query<{ can_start: string; daily_limit: string }>(
+      const limit = (await db.query<{ can_start: string; keys: string[]; daily: number; aggregate: number }>(
         `SELECT public.check_usage_limit()->>'can_start' AS can_start,
-                public.check_usage_limit()->>'daily_limit' AS daily_limit`,
+                ARRAY(SELECT jsonb_object_keys(public.check_usage_limit()) ORDER BY 1) AS keys,
+                daily_usage_seconds AS daily,
+                native_usage_seconds + cloud_usage_seconds AS aggregate
+           FROM public.user_profiles WHERE id = '${USER}'`,
       )).rows[0];
       expect(limit.can_start).toBe('true');
-      expect(limit.daily_limit).toBe('-1');
+      expect(limit.daily).toBeGreaterThan(7201);
+      expect(limit.aggregate).toBeGreaterThan(360002);
+      expect(limit.keys).not.toEqual(expect.arrayContaining([
+        'daily_limit', 'daily_remaining', 'monthly_limit', 'monthly_remaining',
+        'remaining_seconds', 'private_sample_available', 'private_sample_seconds_remaining',
+      ]));
+      await db.close();
+    }
+  });
+
+  it('trial and paid lifecycle RPCs stay usable above former thresholds and expose no retired quota/sample shape', async () => {
+    for (const entitlement of [TRIAL_ACTIVE, PAID]) {
+      const db = await make(entitlement);
+      await act(db);
+      await db.exec(`UPDATE public.user_profiles
+        SET private_sample_seconds_used = 300, daily_usage_seconds = 7201,
+            native_usage_seconds = 180001, cloud_usage_seconds = 180001,
+            last_daily_reset = now(), usage_reset_date = now()
+        WHERE id = '${USER}'`);
+
+      const created = (await db.query<{ result: Record<string, unknown> }>(`
+        SELECT public.create_session_and_update_usage(
+          '{"title":"threshold proof","duration":10,"total_words":2,"transcript":"safe proof"}'::jsonb,
+          'private', '00000000-0000-0000-0000-000000000901', 'private-v2', 'whisper-tiny.en', 'desktop'
+        ) AS result
+      `)).rows[0].result;
+      const sessionId = (created.new_session as { id: string }).id;
+      expect(created.usage_exceeded).toBe(false);
+      expect(Object.keys(created)).not.toEqual(expect.arrayContaining([
+        'private_sample_seconds_remaining', 'daily_limit', 'monthly_limit', 'remaining_seconds',
+      ]));
+
+      const heartbeat = (await db.query<{ result: Record<string, unknown> }>(`
+        SELECT public.heartbeat_session('${sessionId}', 10) AS result
+      `)).rows[0].result;
+      expect(heartbeat.success).toBe(true);
+      expect(Object.keys(heartbeat)).not.toContain('private_sample_seconds_remaining');
+
+      const completed = (await db.query<{ result: Record<string, unknown> }>(`
+        SELECT public.complete_session('${sessionId}', 'completed', 'safe proof', 900, NULL) AS result
+      `)).rows[0].result;
+      expect(completed.success).toBe(true);
+      expect(Object.keys(completed)).not.toContain('private_sample_completed');
+      expect((await db.query<{ duration: number }>(
+        `SELECT duration FROM public.sessions WHERE id='${sessionId}'`,
+      )).rows[0].duration).toBe(600);
       await db.close();
     }
   });

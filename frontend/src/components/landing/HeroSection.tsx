@@ -49,7 +49,7 @@ export const HeroSection = () => {
             <motion.div variants={itemVariants}>
               <Badge className="w-fit bg-amber-100 text-amber-900 border border-amber-200 px-4 py-1.5 text-[11px] font-semibold flex items-center gap-2 rounded-full shadow-none">
                 <Sparkles className="size-3 fill-current" />
-                Free browser practice + 5-minute Private trial
+                Complete product free for 30 days
               </Badge>
             </motion.div>
 
@@ -66,7 +66,7 @@ export const HeroSection = () => {
               variants={itemVariants}
             className="text-lg font-medium leading-relaxed text-foreground/70 max-w-xl"
             >
-              Cut filler words, fix your pace, and speak clearer. Start fast in your browser, then use Private for on-device transcription — your practice audio stays on your device in Private mode.
+              Practice in Open Mic or add optional Focus Points. Every recording uses Private on-device transcription, so your practice audio stays on your device.
             </motion.p>
 
             {/* Buttons + Trust badges share the same max-width so edges align */}
@@ -79,7 +79,7 @@ export const HeroSection = () => {
                     className="flex items-center justify-center gap-2"
                     onClick={() => trackConversionCtaClicked({ source: 'hero_primary' })}
                   >
-                    Start free practice
+                    Start your 30-day trial
                     <ArrowRight className="size-5" />
                   </Link>
                 </Button>
@@ -93,15 +93,15 @@ export const HeroSection = () => {
             <motion.div variants={itemVariants} className="grid grid-cols-1 gap-2 text-sm font-semibold text-foreground/70 sm:grid-cols-3">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-amber-700" />
-                  <span>Free to start</span>
+                  <span>30 days free</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-amber-700" />
-                  <span>Browser starts instantly</span>
+                  <span>$10/month after</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-amber-700" />
-                  <span>Private runs on your device</span>
+                  <span>Private on your device</span>
                 </div>
               </motion.div>
             </div>

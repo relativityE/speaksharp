@@ -1,3 +1,7 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+> **Current authority:** [`PRODUCT_REQUIREMENTS.md`](./PRODUCT_REQUIREMENTS.md).
+
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-26
 **Version:** v0.6.19-rc0

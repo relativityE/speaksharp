@@ -1,5 +1,5 @@
 import React from 'react';
-import { Lock, Cloud, Loader2 } from 'lucide-react';
+import { Lock, FileText, Loader2 } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { SESSION_INSET_SURFACE_CLASS, SESSION_SURFACE_CLASS } from './sessionSurface';
 import { splitSettledActiveTranscript, hasSevereRepetitionLoop, collapseRepeatedFinalForDisplay } from './liveTranscriptUtils';
@@ -134,7 +134,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     const isPrivateMode = normalizedSttMode === 'private';
     // LIVE-TRANSCRIPT-REPEATED-DISPLAY: containment for a severe Whisper repetition-loop in the live
     // (committed or interim) text. When detected, WITHHOLD the looped candidate from the surface.
-    // Display-only: no transcript data is mutated/de-duplicated; gated to private mode so Native/Cloud
+    // Display-only: no transcript data is mutated/de-duplicated; gated to Private mode so internal test
     // are untouched. NOTE (#891): the detector is now adjacency-gated (see hasSevereRepetitionLoop) so
     // it fires on genuine loops, NOT on long healthy rhetorical v2 speech (the old absolute-count cut
     // false-fired there). When it does fire, we degrade gracefully to the last known-good draft below
@@ -159,7 +159,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     // "the engine died"). Retain the last known-GOOD live draft (one that did NOT loop) so the loop
     // branch can keep showing it + a "Stabilizing…" marker instead of an empty placeholder. Display-only:
     // this never mutates or de-duplicates transcript data, never touches the saved final, and only
-    // tracks in Private mode (Native/Cloud unaffected). Reset when the session settles/idles.
+    // tracks only in Private mode. Reset when the session settles/idles.
     const [lastGoodLiveDraft, setLastGoodLiveDraft] = React.useState('');
     React.useEffect(() => {
         if (isPrivateMode && (isListening || isFinalizing) && !withholdLoopedLive && visibleTranscript.trim()) {
@@ -342,8 +342,8 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                                     </>
                                 ) : (
                                     <>
-                                        <Cloud className="h-3 w-3 text-accent" />
-                                        <span className="text-[10px] font-semibold text-accent">Chapter {idx + 1}: Cloud</span>
+                                        <FileText className="h-3 w-3 text-accent" />
+                                        <span className="text-[10px] font-semibold text-accent">Chapter {idx + 1}: Legacy transcript</span>
                                     </>
                                 )}
                             </div>

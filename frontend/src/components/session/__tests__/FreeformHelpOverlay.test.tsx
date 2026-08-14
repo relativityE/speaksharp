@@ -7,8 +7,8 @@ import { PRODUCT_NAMES } from '@/constants/productNames';
 const TITLE = `How ${PRODUCT_NAMES.freeform} works`;
 // Modal redesign (#1116): three ideas, not six recorder steps — each a bold action + a clause.
 const STEP_ACTIONS = [
-    "Pick how you're transcribed",
-    'Speak as long as you like',
+    'Set up Private once',
+    'Speak for up to ten minutes',
     'Take one thing to improve',
 ];
 const DISABLED_REASON = 'Finish the current recording, save, or recovery step to view this guide.';
@@ -90,6 +90,6 @@ describe('FreeformHelpOverlay (#1042 PR2 / #1116 redesign)', () => {
         expect(within(overlay).getByText('Name the points that must land')).toBeInTheDocument();
         expect(within(overlay).getByText('See what you covered')).toBeInTheDocument();
         // The Open Mic step copy must NOT leak into the objective guide.
-        expect(within(overlay).queryByText("Pick how you're transcribed")).toBeNull();
+        expect(within(overlay).queryByText('Set up Private once')).toBeNull();
     });
 });

@@ -1,149 +1,165 @@
-**Status:** Authoritative (SSOT for STT runtime & data contracts, baselines, accuracy, and SLOs)
-**Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-07-30
-**Last Verified:** 2026-07-30 — consolidated from approved sources (`STT_BASELINE_CONTRACTS.operational.md`, `PRIVATE_STT_ACCURACY_LEVERS.md`, `stt-perf-proof-protocol.md`, STT rows of `SERVICE_LEVELS.operational.md`) and the #1033 single-producer decision. Numeric targets are carried only where an approved source exists; every unproven target is labeled. No volatile run IDs or SHAs are carried here — release posture lives in `RELEASE_STATUS.md`.
-**Applies To:** The four SpeakSharp speech-to-text engines — Browser, Cloud, Private v2, Private v4 — and the shared recording/transcript lifecycle.
-**Class:** Runtime & data contract.
-**Authority:** The source for per-engine purpose, audio/data route, lifecycle and failure behavior, accuracy baselines, metric-validity rules, and internal STT SLOs.
-**Not Authoritative For:** user-visible product guarantees and copy (→ `PRODUCT_REQUIREMENTS.md`); tier / entitlement / quota gating of engines (→ `ENTITLEMENTS_AND_BILLING.md`); the personal progress and next-action contract (→ `PROGRESS_AND_NEXT_ACTION.md`); persisted schema and retention (→ `ARCHITECTURE.md`); current release & deployment status (→ `RELEASE_STATUS.md`); deferred sequencing (→ `ROADMAP.md`).
-**Supersedes:** `STT_BASELINE_CONTRACTS.operational.md`, `PRIVATE_STT_ACCURACY_LEVERS.md`, and the STT portions of `stt-perf-proof-protocol.md` (interim sources; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
-**Evidence Sources:** `STT_BASELINE_CONTRACTS.operational.md` (baselines, drop-in definitions, stored targets); `SERVICE_LEVELS.operational.md` §STT (SLOs, SLO/SLA vocabulary); `tests/STT_BENCHMARKS.json` (stored numeric targets); the `frontend/src/services/transcription/` code paths cited inline; issue #1033 (single-producer invariant), #1044 (v4 HOLD decision).
+**Status:** Authoritative (SSOT for STT runtime and data contracts, baselines, accuracy, and SLOs)
+**Owner:** Engineering / Product Owner (relativityE)
+**Last Reviewed:** 2026-08-13
+**Last Verified:** 2026-08-13 — reconciled to the Product Owner-locked Private-only launch contract; release evidence remains separately gated.
+**Applies To:** Customer Private STT, the internal deterministic E2E hook, and the inactive Private v4 candidate.
+**Class:** Runtime and data contract.
+**Authority:** STT audio route, lifecycle, attribution, failure behavior, metric validity, and evidence requirements.
+**Not Authoritative For:** customer product copy (→ `PRODUCT_REQUIREMENTS.md`); commercial access mechanics (→ `ENTITLEMENTS_AND_BILLING.md`); persistence and retention (→ `ARCHITECTURE.md`); deployed status (→ `RELEASE_STATUS.md`).
+**Supersedes:** Earlier Browser/Cloud customer-engine maps, sample eligibility, and multi-engine selector requirements in this file.
+**Evidence Sources:** `tests/STT_BENCHMARKS.json`; current `frontend/src/services/transcription/` implementation and tests; issue #1033 single-producer decision; #1044 v4 HOLD decision; qualification artifacts indexed by `EVIDENCE_INDEX.md`.
 
-# SpeakSharp STT Contract (v1)
+# SpeakSharp STT Contract
 
-Canonical, per-engine statement of how each speech-to-text engine must behave: what it is for and who may use it, where the audio and transcript go, how it initializes / streams / stops / finalizes / saves, the conditions it supports, which metrics are valid and which are not, how it fails, and what evidence is required before an STT claim or release. It changes only by Product Owner decision and routes user-facing copy to `PRODUCT_REQUIREMENTS.md` and entitlement gating to `ENTITLEMENTS_AND_BILLING.md`.
+SpeakSharp customer recordings use one transcription product: **Private STT**, running on the customer's device. Browser and Cloud are not customer engines or entitlements. Native is retained only as an isolated deterministic E2E hook. Private v4 is OFF unless separately promoted.
 
-**No numeric target appears here without an approved source.** Where a target is aspirational or unproven, it is labeled `UNPROVEN` and routed to `ROADMAP.md`; it must not be presented to users or externally as a measured result.
-
-## Engine map (user-facing name → internal token)
-
-| User-facing name | Internal engine token | Tier eligibility | Default? |
-|---|---|---|---|
-| **Browser** | `native` | All authenticated users (the free convenience path) | **Yes — the mode a new session starts on** (`defaultMode = 'native'`, `useSessionLifecycle.ts`), for zero-setup quick start |
-| **Cloud** | `cloud` (AssemblyAI Universal-Streaming) | **Pro-entitled only** (real Stripe subscription id, or a comped/QA synthetic id per `ENTITLEMENTS_AND_BILLING.md` §6); never live-charged in the beta; never offered to un-entitled Free testers | No |
-| **Private (v2)** | `private` / persisted `private_v2` (e.g. `private_v2:whisper-base.en`, Whisper base.en, on-device) | **Pro, OR an active one-time Free Private sample** (`canUsePrivateStt = isPro \|\| hasActivePrivateSample`, `useSessionLifecycle.ts`) — **not** all authenticated users | No auto-start — the **recommended** higher-quality engine, selected once entitled |
-| **Private v4** | `private_v4` (Whisper WebGPU) | **OFF — research only** | No — hard-disabled |
-
-Naming is a product decision owned by `PRODUCT_REQUIREMENTS.md`; the internal token / telemetry / DB value is stable and separate (e.g. Browser's DB value remains `native`).
-
-## Shared cross-engine contract
-
-These rules bind **every** engine.
-
-### Single-producer recording invariant (#1033 — product requirement)
-One persisted recording/transcript has **exactly one STT producer**. The engine selector is locked **synchronously from Start intent** and stays locked across the whole lifecycle — `STARTING / INITIALIZING → RECORDING → STOPPING → FINALIZING → SAVING` — and is re-enabled only after a durable save (or a clean failed start). A new engine selection applies only to the **next** recording. There is:
-- **no user- or code-triggered mid-recording engine switch;**
-- **no mixed-engine transcript** (a single saved transcript never blends two engines);
-- **no silent fallback** — an engine that cannot start or cannot finish fails **visibly** and the recording is honestly marked; it never quietly hands off to another engine and presents the result as the selected one.
-
-The producing engine is latched immutably per recording and recorded as `attribution_status ∈ {legacy_unknown, pending, verified, unverified}`; **only `verified` counts as accuracy/quality evidence** (see `ARCHITECTURE.md`).
-
-### Transcript lifecycle acceptance
-An STT mode is acceptable **only** when useful text becomes visible quickly, survives stop, saves correctly, and feeds history/analytics from the **same selected transcript**. Internal engine logging of text is never sufficient. Two transcript states are measured **separately** and must never be conflated:
-- **live provisional** text (shown during recording; for Whisper-style chunk inference it is rough and must be labeled provisional);
-- **saved/detail final** text (the durable transcript that feeds history, analytics, and scoring).
-
-### Metric-validity rules (no fabricated or mis-attributed numbers)
-- **Drop-in parity is the hard release gate**, not a published external number: the app must not be materially worse than a minimal same-engine drop-in comparator on the **same corpus + audio route**.
-- **Published/vendor numbers are sanity references only**, valid as gates *only* when corpus, audio route, model, streaming mode, normalization, and scoring are comparable. SpeakSharp must never imply it beats a vendor — corpus/path differences make that a measurement artifact.
-- **Harness-limited runs are not gates.** Chrome fake-audio-capture and contaminated physical-route rows can expose lifecycle bugs but must be **excluded from accuracy math**.
-- WER is lower-is-better; Accuracy = `100% − WER`. Any numeric target must cite its vendor/model/benchmark source or be labeled an internal/drop-in target.
-- **Journey proof is separate from accuracy.** Text must appear live, survive stop, save, and appear in history/detail — accuracy alone never releases an engine.
-
-### SLO vs SLA (do not publish SLA language)
-STT targets in this document are **internal SLOs / quality targets on controlled fixtures**, never external SLAs. Per `SERVICE_LEVELS.operational.md`: do not publish SLA language until external obligations are intentionally accepted; a public/SLC promise is shown only when supported by evidence.
+No numeric target in this document is a customer promise. Release claims require current, comparable, exact-head evidence.
 
 ---
 
-## Browser (`native`)
+## 1. Engine map
 
-- **Purpose & eligibility.** The free, zero-setup quick-start path — the browser's own speech recognition. Available to all authenticated users, and it is the **default mode a new session starts on** (`defaultMode = 'native'`). It is the free convenience option, not the recommended-quality path (Private is recommended once the user is entitled).
-- **Audio/data route & privacy.** Uses the browser's built-in `SpeechRecognition`. Audio handling is the **browser vendor's**, not SpeakSharp's — depending on the browser this may send audio off-device to the vendor's servers. Copy must therefore **not** claim on-device/private for Browser (that is Private's guarantee). Approved description: *"Uses your browser's speech recognition. Availability and accuracy vary by browser. Chrome recommended."*
-- **Lifecycle.** `continuous=true`, `interimResults=true`; interim results display live, a committed final replaces them on stop. A committed final plus a same/case/punctuation-variant pending interim must **not** be appended (duplicate-on-stop regression guard, `NativeBrowser.test.ts`).
-- **Supported conditions.** Chrome recommended; availability/accuracy vary by browser and OS. No offline guarantee.
-- **Metrics & validity.** **No approved numeric WER target** — Web Speech is browser/server/audio-route dependent, and no credible official Google/MDN WER figure exists. Browser is judged as a **browser-product journey**, against the same-machine standalone Chrome Web Speech **drop-in parity** harness on the same corpus/route — **not** a corpus-WER claim, unless a validated fixture route is proven. Fake-audio rows are diagnostic only.
-- **Failure behavior.** On unavailable/failed recognition it fails visibly (no silent fallback to Private or Cloud); the recording is marked honestly.
-- **Evidence required for release.** A valid clean-input drop-in parity proof (human-style Chrome real-mic or a validated loopback with separated transcript states) + a journey proof (live → stop → save → history). Fresh human proof is still required before Browser can be called release-green. `UNPROVEN`: a numeric Browser accuracy target (none approved).
+| Surface | Internal token | Product role | Customer availability |
+|---|---|---|---|
+| **Private** | `private`, persisted `private_v2[:model]` | On-device customer transcription | The only customer engine for active-trial and paid users |
+| **Native test hook** | `native` | Deterministic isolated E2E fixture | Never a customer choice, entitlement, or production fallback |
+| **Private v4** | `private_v4` | Internal WebGPU research candidate | OFF; never user-selectable |
 
-## Cloud (`cloud`, AssemblyAI Universal-Streaming / `universal-streaming-english`)
+Legacy Cloud/provider code and tokens confer no customer entitlement. Provider token endpoints must fail closed and must not call the provider for customer requests.
 
-- **Purpose & eligibility.** Highest-accuracy streaming transcription for entitled users. **Pro-entitled only** — where "Pro" is `subscription_status = 'pro'` **AND** a `stripe_subscription_id` (a real Stripe subscription, or a **comped/QA synthetic id** per `ENTITLEMENTS_AND_BILLING.md` §6; **never a live charge** in the beta). Not offered to un-entitled Free testers; entered only by explicit user selection, never as a silent fallback.
-- **Audio/data route & privacy.** Audio is streamed to **AssemblyAI** (third-party processor). Copy must state that audio leaves the device to the provider — it is **not** private/on-device.
-- **Lifecycle.** Uses the AssemblyAI Universal-Streaming model — the production provider builds `speech_model=universal-streaming-english` — with streaming partials and post-Terminate tail handling. It **intentionally sends neither `prompt` nor `keyterms`** (those params are unproven for this route and are deliberately omitted, `CloudAssemblyAI.test.ts`).
-- **Supported conditions.** Requires network + a valid `ASSEMBLYAI_API_KEY` / Pro entitlement; unavailable offline.
-- **Metrics & validity.** Approved streaming target: **91.86% accuracy / 8.14% WER** (AssemblyAI published English streaming benchmark, cited; `tests/STT_BENCHMARKS.json`). SLO quality target: **Cloud STT WER < 8% on controlled fixtures** (`SERVICE_LEVELS.operational.md`). Pre-recorded/batch (e.g. 95%) is **stretch-only, `UNPROVEN`**. Provider/model/version must be recorded with any evidence.
-- **Failure behavior.** **Never a silent fallback target** — no other engine's failure may quietly route to Cloud, and Cloud's own failure fails visibly. Provider/network errors surface honestly.
-- **Evidence required for release.** A fresh streaming A/B against the published benchmark **with a real `ASSEMBLYAI_API_KEY`** + a Pro-account app journey proof. Local mock credentials are not release evidence.
+---
 
-## Private v2 (`private` / persisted `private_v2`, Whisper base.en, on-device) — RECOMMENDED (entitlement-gated)
+## 2. Single-producer recording invariant
 
-- **Purpose & eligibility.** The **recommended** Private engine: local-first, privacy-preserving transcription. It is **entitlement-gated — available to Pro users OR a user with an active one-time Free Private sample** (`canUsePrivateStt = isPro || hasActivePrivateSample`, `useSessionLifecycle.ts`); it is **not** available to every authenticated user, and it is not the auto-start default (a new session starts on Browser until Private is selected). Multi-threaded WASM is enabled in production via cross-origin isolation (#1043).
-- **Audio/data route & privacy.** Runs **on-device in the browser** (WASM). **Practice audio stays on the device**; only the resulting transcript is saved with the session. This is the sole engine that may make the on-device/private claim.
-- **Lifecycle.** Model loads locally (from `/models/`); provisional text streams during recording via chunk inference; on stop, a whole-utterance finalization produces the durable transcript. Live decode-window capping, silence-tail capping, and a warm-engine idle-reset guard bound live latency.
-- **Finalization latency.** Two distinct things — do not conflate them:
-  - **Earlier pre-MT planning budget (~90s):** the ~90-second finalization figure for a ~5-minute recording is the **earlier pre-multi-thread planning-budget risk**, explicitly **not a measured p95** and predating the MT-WASM path. It remains a conservative planning bound, not a performance guarantee.
-  - **Observed MT-WASM run (2026-07-29, n=1 — long-form performance + journey evidence, not a percentile):** on the production multi-threaded WASM path, a **303.5s** human recording (**passed the five-minute mark**) finalized in **~39.1s total** (decode **38.702s**, finalize wait **350ms**, preparation **20ms**), an observed **real-time factor ≈ 0.128**; bounded recovery **completed well within the 240s cap**; the transcript **saved/exported — confirmed**. This is **observed long-form performance AND journey evidence — NOT p50/p95/SLO/SLA/WER/accuracy**, and it carries **no WER/accuracy claim** (exact spoken ground truth was not scored). It is consistent with #1085's controlled MT result (1.7–2.2× faster decode with **byte-identical** transcripts — faster, WER unchanged). Evidence: `product_release/evidence/private_v2_mtwasm_human_2026-07-29.json`. A real finalization **p95** still requires the #1037 evidence orchestrator (not built).
-  - **Transcript fidelity — UNRESOLVED.** In this run the exported PDF transcript **did not reliably correspond to the supplied reading corpus**. This is a separate integrity finding, not a performance regression, and is **not** derived into any accuracy figure here. The STT-evidence boundary is owned by **#1037** (evidence orchestrator); raw-session-transcript / PDF parity is owned by **#896 / TEMP-PR-08**. It does not block this contract.
-- **Supported conditions.** Modern browser with WASM (and cross-origin isolation for multi-thread); works offline after the model is cached.
-- **Metrics & validity.** Saved/detail transcript must not materially underperform a **same-model browser drop-in** control on the same audio route (the hard parity gate). Stored advisory targets: **Private CPU 93.89%** — a **historical `whisper-tiny.en` Node-CPU** control result, advisory only; it is **NOT** the current shipping `whisper-base.en` MT-WASM accuracy — and **Private WebGPU 93.00%** (`tests/STT_BENCHMARKS.json`). No current `whisper-base.en` MT-WASM **accuracy** figure is established (the 2026-07-29 MT-WASM run measured timing only, no WER). SLO quality target: **Private STT WER < 10% on controlled fixtures** (`SERVICE_LEVELS.operational.md`; do not promise globally — user environment varies). **Live provisional text is measured separately** and remains rough; it must be labeled provisional. Row-level model gaps (e.g. `like`→`light`) are tracked as model/audio gaps, **never** patched with speculative text replacement.
-- **Failure behavior.** On model-load or decode failure it fails visibly; no silent fallback. A partial/failed finalize is marked honestly and the transcript is preserved where recoverable.
-- **Evidence required for release.** Browser drop-in parity on the current corpus + a 10/10 journey proof (already demonstrated on Harvard-10 saved/detail). `UNPROVEN`: a measured finalization p95 (currently a planning budget only).
+One persisted recording and transcript has exactly one STT producer.
 
-## Private v4 (`private-v4`, Whisper WebGPU) — OFF (research only)
+- The producer is latched at recording start and remains immutable through initialization, recording, stop, finalization, save, and evaluation.
+- A recording never blends output from multiple engines.
+- There is no mid-recording switch or silent fallback.
+- A start or finalize failure is visible and honestly attributed.
+- The saved session records sufficient producer/model provenance to reproduce or classify evidence.
+- Only verified attribution may count as accuracy or release evidence.
 
-- **Purpose & eligibility.** A WebGPU re-platform candidate for Private. **Hard-disabled** — `VITE_PRIVATE_STT_V4_DISABLED` is authoritative and cannot be overridden by any PostHog flag. Not on any release path.
-- **Decision (#1044 — HOLD).** v4 is neither promoted nor rejected: existing evidence is **insufficient to decide** (memory, cohort failure rate, cross-browser/GPU coverage, and real-session finalization have no documented evidence; the one accuracy figure is harness-limited and not a gate). It stays off pending trustworthy evidence.
-- **Audio/data route & privacy.** Same on-device model as v2 when/if enabled; requires WebGPU (non-WebGPU devices would fall back to v2 — a device-capability routing decision for a *future* recording, never a mid-recording switch).
-- **Metrics & validity.** Stored target **Private v4 88.89%** is **harness-limited and NOT a gate**. No approved v4 replacement threshold exists; the eventual GO gate is defined in #1044 (build #1037, repair producing-engine attribution across fallback, agree a base.en six-metric threshold, run a cohort PostHog A/B).
-- **Failure behavior / evidence required.** Not applicable while hard-off. Any future activation is a **separate, explicitly PO-approved gate** and is out of scope for this contract.
+The internal E2E hook may replace Private only inside explicitly isolated deterministic test configuration. Production policy cannot select it.
 
-### v2 vs v4 benchmark protocol + flag inventory (#1263)
+---
 
-The Private engine version is **never a user choice** — the PO picks the single best dependable default from apples-to-apples evidence. To be comparable, v2 and v4 are measured on the **same corpus, the same devices, and the same conditions**, one row per engine:
+## 3. Private audio and data route
 
-| Dimension | What is measured (identical for v2 and v4) |
+- Private transcription executes in the browser through the approved on-device worker/runtime.
+- Recording audio is not uploaded for STT and is not persisted server-side.
+- Model assets may be downloaded and cached through the browser. After setup, transcription must work without sending audio to a provider.
+- The resulting transcript and derived session evidence may be saved under the persistence and access contract in `ARCHITECTURE.md`.
+- Audio, transcripts, and raw model output must never enter analytics or error reporting.
+- A later server feature that processes saved text must be disclosed separately; the Private STT claim does not imply that every downstream text operation is local.
+
+---
+
+## 4. Lifecycle acceptance
+
+### Setup and start
+
+- Setup exposes accurate download, initialization, ready, retry, and failure states.
+- A recording cannot start before the Private engine is ready.
+- Start failure creates no partial session authority and cannot fall through to another producer.
+
+### During recording
+
+- Live text is provisional and must be presented as such.
+- Audio chunk ownership and transcript assembly remain bound to the latched recording identity.
+- The 10-minute individual-recording technical cap is enforced independently of commercial access.
+- No accumulated daily or monthly usage value may stop an active-trial or paid recording.
+
+### Stop, finalize, and save
+
+- Stop finalizes the same recording and producer that started.
+- Final text replaces or reconciles provisional text without duplicate suffixes or invented content.
+- A partial or failed finalization is surfaced honestly; recoverable text is not silently discarded.
+- The saved/detail transcript is the durable transcript used by History, Progress, analysis, and export.
+- Internal logs containing text are not proof that the customer journey saved correctly.
+
+---
+
+## 5. Failure behavior
+
+- Model-download, cache, worker, decode, and finalization errors fail visibly.
+- Private failure never routes audio to a browser vendor or cloud provider.
+- Unsupported capabilities use only an approved on-device Private fallback; otherwise the product reports that Private cannot start on that device.
+- A watchdog may convert a stalled lifecycle into an actionable failure, but it must not fabricate a transcript or mark an unsaved recording complete.
+- Retry must remain bound to the original recording, producer, and idempotency identity.
+
+---
+
+## 6. Metric validity
+
+- Live provisional and saved/detail transcripts are measured separately.
+- Drop-in parity uses the same model, corpus, device, runtime, and audio route.
+- Harness-limited or contaminated audio runs are diagnostic, not accuracy gates.
+- WER is lower-is-better; `accuracy = 100% - WER` only for a valid scored corpus.
+- Published vendor or historical model results are context, not evidence for the current shipping runtime.
+- Every reported result records model file and quantization, runtime/version, browser, device, cache state, audio route, corpus, and exact source SHA.
+- Journey proof and accuracy proof are separate: a transcript must appear, finalize, save, and reopen even when an accuracy score is good.
+
+The internal quality target remains Private WER below 10% on controlled, comparable fixtures. It is not an external SLA and is not a universal environment claim.
+
+---
+
+## 7. Private v2 release evidence
+
+Private v2 is the safe launch default until a separately authorized decision changes it.
+
+Required evidence includes:
+
+- cold and warm model setup;
+- real-device start, first text, stop, finalization, save, History/detail, Progress, and export;
+- opening and trailing-word preservation;
+- silence and immediate-speech cases;
+- duplicate-loop and hallucinated-prefix negatives;
+- finalization duration and real-time factor for representative recording lengths up to the 10-minute cap;
+- controlled accuracy/drop-in comparison; and
+- sanitized error, memory, and recovery evidence on the supported device/browser matrix.
+
+An observed run is not a percentile. A planning target is not a measured SLO. Current qualifying identities and results belong in `RELEASE_STATUS.md` and `EVIDENCE_INDEX.md`.
+
+---
+
+## 8. Private v4 disposition
+
+Private v4 is OFF and research-only.
+
+- The build kill switch remains authoritative over flags.
+- No flag, allowlist, or deterministic override may expose v4 to a customer while it is OFF.
+- Saved historical v4 evidence remains labeled with its exact producer and cannot be compared without matching corpus, device, and conditions.
+- Promotion requires an explicit Product Owner decision after comparable v2/v4 setup, accuracy, opening/tail, finalization, memory, and failure evidence.
+- Any future device-capability choice occurs before a new recording; it is never a mid-recording switch.
+
+### Comparable benchmark protocol
+
+For each candidate, collect one row per engine on the same corpus, devices, and conditions:
+
+| Dimension | Required measurement |
 |---|---|
-| Setup — cold / warm | model download + init time, cold (empty cache) and warm (cached) |
-| Accuracy | WER / accuracy on the controlled fixtures (content-safe; cite the fixture set) |
-| Opening / tail | first-token latency and trailing-word capture at start/end of a take |
-| Finalization | post-Stop decode time and RTF on the same recording durations |
-| Memory | peak/steady JS-heap (and GPU memory for v4) where the API exposes it |
-| Failure | cold-start failure rate, cross-browser/GPU coverage, and fallback behavior |
+| Setup | cold and warm model acquisition plus initialization time |
+| Accuracy | WER/accuracy on the same content-safe fixtures |
+| Opening/tail | first-token latency and trailing-word capture |
+| Finalization | post-stop duration and real-time factor |
+| Memory | peak/steady JS heap and GPU memory where exposed |
+| Failure | startup/finalization failure rate and device coverage |
 
-**Provenance (record with every result):** exact model file + quantization (e.g. `whisper-base.en` vs `base_q4`), runtime + version (transformers.js / WASM threads vs WebGPU), browser + version, device/GPU, cache state, and the SHA the build was cut from. Numbers without this provenance are not comparable evidence.
-
-**Flag inventory (code-verified; `privateV4Flags.ts`, `privateV4FlagInventory.test.ts`).** The only v4 controls are these four PostHog flags plus one build kill-switch. **Intended production state: all OFF → v2-base default.** No accidental cohort: v4 activates only on the explicit master flag, and distil requires the master flag too (a stray distil flag is inert).
-
-| Flag / switch | Purpose | Intended prod state | Rollback |
-|---|---|---|---|
-| `private_stt_v4_enabled` | master switch (may the resolver consider v4) | OFF / 0% | set to 0% |
-| `private_stt_v4_distil_enabled` | WebGPU distil-q4 accuracy tier (gated on master) | OFF — **unused; archive** | set to 0% / archive |
-| `private_stt_v4_internal_only` | restrict v4 to internal testers | OFF | set to 0% |
-| `private_stt_v4_allowlist` | named-user allowlist (deliberate targeting) | empty | clear allowlist |
-| `VITE_PRIVATE_STT_V4_DISABLED` (build) | hard global kill, overrides every flag | may be `true` (belt-and-suspenders) | build env |
-
-**Separate, PO/ops-authorized (not this source PR):** the actual benchmark RUNS on real devices (WASM/WebGPU qualification where supported) and their content-safe artifacts; the PostHog flag-state cleanup — **remove the ad-hoc single-`distinct_id` target on `private_stt_v4_enabled`** and **archive the unused `private_stt_v4_distil_enabled` flag** — proving no accidental cohort remains live; and the explicit PO **default/activation decision**. v2 stays the default until evidence and that decision approve v4.
+Until those proofs and approval exist, Private v2 remains the only customer producer.
 
 ---
 
-## Consolidated SLO / quality-target table (internal — not SLAs)
+## 9. Release gate
 
-| Target | Value | Class | Source / evidence | Note |
-|---|---|---|---|---|
-| Primary recording path availability | 99.5% internal target | SLO (aspirational) | Canary, RC gates, live STT paths | Controlled-test evidence only; not uptime monitoring |
-| Private STT WER | < 10% on controlled fixtures | Quality target (not SLA) | STT benchmark/proof artifacts | Do not promise globally (environment varies) |
-| Cloud STT WER | < 8% on controlled fixtures | Quality target (not SLA) | Cloud live proof; provider/model/version recorded | Paid-Pro path |
-| Cloud streaming accuracy | 91.86% / 8.14% WER | Approved streaming target | AssemblyAI published benchmark (cited) | Batch/95% is stretch-only, `UNPROVEN` |
-| Private CPU accuracy | 93.89% | Advisory control (historical) | Node CPU drop-in, **`whisper-tiny.en`** | Historical tiny.en advisory — **NOT** current shipping `whisper-base.en` MT-WASM accuracy |
-| Private WebGPU accuracy | 93.00% | Advisory control | `tests/STT_BENCHMARKS.json` | |
-| Private v4 accuracy | 88.89% | `UNPROVEN`, harness-limited | `tests/STT_BENCHMARKS.json` | Not a gate; v4 is off |
-| Browser accuracy | none | `UNPROVEN` | — | Drop-in parity is the gate, not a number |
-| Private v2 finalization (pre-MT budget) | ~90s planning budget | `UNPROVEN` (not a measured p95) | — | Earlier pre-multi-thread bound; route real p95 to #1037 |
-| Private v2 finalization (observed MT-WASM) | ~39.1s total, RTF ≈ 0.128 | Observed performance (n=1, NOT a percentile) | `evidence/private_v2_mtwasm_human_2026-07-29.json` | 303.5s recording, 2026-07-29 human run; **no WER/accuracy claim** |
+STT is release-qualified only when the integrated deployed merge SHA proves:
 
-**No external SLA is published for any STT engine.** Publishing an STT SLA or a public accuracy claim requires prior Product-Owner approval and supporting measured evidence.
+- the active-trial Private journey;
+- the paid-continuation Private journey;
+- no alternate customer entitlement or fallback;
+- no audio/transcript leakage into telemetry;
+- real-device coverage through #1258;
+- sanitized SLO/canary evidence through #1259; and
+- zero unresolved critical STT residue.
 
-## Out of scope / routed elsewhere
-- The STT evidence orchestrator that would produce two-lane (corpus vs browser-journey) decision-grade evidence is **#1037** (not built).
-- Private v2 finalization-latency optimization is a separate performance issue.
-- Any engine implementation change, activation, rollout-flag change, or default-engine change is out of scope for this contract and requires its own PO-approved gate.
+Mocks, an open provider socket, a token response, local unit tests, or green PR CI alone are not deployed STT qualification.

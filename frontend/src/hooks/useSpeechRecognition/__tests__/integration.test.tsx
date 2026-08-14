@@ -235,7 +235,7 @@ describe('useSpeechRecognition Integration', () => {
         expect(status.message).toBe('Microphone access is denied. Please grant permission in your browser settings.');
     });
 
-    it('should capture usage limit exceeded state mid-session', async () => {
+    it('should capture an entitlement denial state mid-session', async () => {
         const { result } = renderHookWithProviders(
             () => useSpeechRecognition(),
             { store: speechRuntimeController.getStore() }
@@ -252,7 +252,7 @@ describe('useSpeechRecognition Integration', () => {
             if (currentService) {
                 currentService.simulateStatusChange({
                     type: 'error',
-                    message: 'Daily usage limit reached'
+                    message: 'Your trial has ended'
                 });
             }
         });
@@ -260,7 +260,7 @@ describe('useSpeechRecognition Integration', () => {
         await waitForAsync(() => {
             const status = result.current.sttStatus;
             expect(status.type).toBe('error');
-            expect(status.message).toBe('Daily usage limit reached');
+            expect(status.message).toBe('Your trial has ended');
         });
     });
 

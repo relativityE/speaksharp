@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useRef, useEffect } from 'react';
 // ... existing imports ...
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { useUnresolvedRecovery } from '@/hooks/useUnresolvedRecovery';
@@ -10,16 +10,13 @@ import { MobileActionBar } from '@/components/session/MobileActionBar';
 import { StatusNotificationBar } from '@/components/session/StatusNotificationBar';
 import { FreeformHelpOverlay } from '@/components/session/FreeformHelpOverlay';
 import { SttStatus } from '@/types/transcription';
-import { SunsetModals } from '@/components/session/SunsetModals';
 import { SessionOverhaulView } from '@/components/session/SessionOverhaulView';
 import { usePracticeHistory } from '@/hooks/usePracticeHistory';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
-import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { estimateFinalizeSeconds } from '@/services/transcription/finalizeRateStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
-import { formatSampleCapLine } from '@/utils/privateSampleDuration';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 /**
  * ARCHITECTURE:
@@ -39,7 +36,6 @@ export const SessionPage: React.FC = () => {
     const { runtimeState } = useTranscriptionContext();
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
     const previousTranscriptScrollHeightRef = useRef(0);
-    const { data: usageLimit } = useUsageLimit();
     // #1222: real session history feeds the overhaul's Progress card (slot C, aggregate).
     const { data: practiceHistory } = usePracticeHistory();
     // #1033 Part-2b: authoritative engine-selection lock + pending recovery, published by the controller.
@@ -75,17 +71,13 @@ export const SessionPage: React.FC = () => {
         modelLoadingProgress,
         privateModelStatus,
         mode,
-        setMode,
         elapsedTime,
         handleStartStop,
         showAnalyticsPrompt,
         sessionFeedbackMessage,
-        sunsetModal,
-        setSunsetModal,
         micLevel,
         transcriptContent,
         interimTranscript,
-        isProUser,
         canUsePrivateStt,
         isButtonDisabled,
     } = useSessionLifecycle();
@@ -116,37 +108,7 @@ export const SessionPage: React.FC = () => {
         }
     }, [transcriptContent, interimTranscript]);
 
-    // #1047 anonymous handoff: honour the `?trial=private` intent carried from the marketing trial band
-    // (through signup/login). PRESELECT Private only when the account is actually eligible — never a
-    // silent Browser fallback, and NEVER auto-record / auto-download (this only sets the mode; the mic
-    // still owns first-time setup). An ineligible account is told truthfully and stays on Browser. The
-    // intent is consumed once (guarded + URL cleaned) so a refresh/re-render can't re-apply it.
-    const [searchParams, setSearchParams] = useSearchParams();
     const navigate = useNavigate();
-    const [trialUnavailableNotice, setTrialUnavailableNotice] = useState<string | null>(null);
-    const trialHandledRef = useRef(false);
-    useEffect(() => {
-        if (searchParams.get('trial') !== 'private' || trialHandledRef.current) return;
-        if (usageLimit === undefined) return; // entitlement still loading — decide only once resolved
-        if (canUsePrivateStt) {
-            // Eligible. DEFER (without consuming the intent) whenever the engine cannot be switched right
-            // now — that is the AUTHORITATIVE `engineSelectionLocked` lock, which is broader than
-            // `isListening`: during STOPPING / SAVING / retry / recovery `isListening` can already be
-            // false while the lock is still held. Acting then would consume the intent while
-            // `setMode('private')` is rejected — permanently losing the promised handoff. The effect
-            // re-runs when either flips (both are deps) and preselects Private once the lock clears.
-            if (isListening || engineSelectionLocked) return;
-            trialHandledRef.current = true;
-            setMode('private'); // preselect only; no recording, no model download
-        } else {
-            // Ineligible — surface a supported recovery without advertising a retired mode.
-            trialHandledRef.current = true;
-            setTrialUnavailableNotice('Private transcription isn’t available on your account right now. Refresh, then use Report Issue if this continues.');
-        }
-        const next = new URLSearchParams(searchParams);
-        next.delete('trial');
-        setSearchParams(next, { replace: true });
-    }, [searchParams, setSearchParams, usageLimit, canUsePrivateStt, isListening, engineSelectionLocked, setMode]);
 
     if (!metrics) return <SessionPageSkeleton />;
 
@@ -180,18 +142,15 @@ export const SessionPage: React.FC = () => {
         runtimeState === 'STOPPING'
     );
 
-    // Track 1: the post-save UI (settled copy, Analytics action, Private CTA, toast) is shown only once
+    // The post-save UI (settled copy, Analytics action, toast) is shown only once
     // finalization is TERMINAL — the controller publishes finalizedAnalysis after persistence +
-    // reconciliation + the native formatter reaches complete/failed and the final text is applied. Until
+    // reconciliation + formatting reaches complete/failed and the final text is applied. Until
     // then the transcript keeps its finalizing/tidying treatment and no settled/ready claim is made.
     const postSaveReady = showAnalyticsPrompt && !!finalizedAnalysis;
     // Mode-aware reconciliation status copy for the consolidated status bar's left side.
-    // Native discrepancy → "…Browser transcription may omit some…"; Private never gets Browser copy.
     const reconciliationCopy = finalizedAnalysis
         ? reconciliationStatusCopy(finalizedAnalysis.reconciliation, { mode: finalizedAnalysis.mode })
         : null;
-    // After a saved Native session, the status-bar Private CTA replaces the Browser-card nudge — never both.
-
     // #1222 G1: the title block (heading + dynamic subtitle + help entry) renders ONLY in the before-state
     // (idle: not recording, not finalizing, no post-save prompt). During/after it recedes so the live
     // workflow owns the frame — matching the PO's G1 mockup.
@@ -267,34 +226,12 @@ export const SessionPage: React.FC = () => {
     };
 
     const baseStatus = getBaseStatus();
-    const privateSampleSecondsRemaining = usageLimit?.private_sample_available
-        ? Math.max(0, usageLimit.private_sample_seconds_remaining ?? 0)
-        : 0;
-    // #1047 conversion repair: server-authoritative eligibility for the Free→Private trial nudge —
-    // a Free (non-Pro) account whose Private sample is AVAILABLE with time remaining. Partially-used
-    // samples still convert (they get "Continue with Private" copy), so availability — not freshness —
-    // gates the nudge; freshness only chooses the truthful copy variant below. The card combines this
-    // with its own runtime/idle/Browser/unlocked state before showing it.
-    const sampleLimitSeconds = usageLimit?.private_sample_limit_seconds ?? 0;
-    const privateSampleStatusDetail = privateSampleSecondsRemaining > 0
-        ? formatSampleCapLine(sampleLimitSeconds)
-        : undefined;
-    // #1047: the sample-cap sentence used to render on every idle/ready frame, so the demoted status
-    // bar carried a permanent second line — ambient status growing back into two rows of chrome, which
-    // is exactly what demoting it was meant to stop. It is shown only while a Private sample is
-    // ACTUALLY in flight (Private selected AND recording), which is when the cap is about to affect
-    // the user. The entitlement/upgrade variant is likewise not permanent chrome: it belongs to the
-    // mode selector's own copy, which already states it.
-    const isPrivateSampleActive = mode === 'private' && isListening && privateSampleSecondsRemaining > 0;
-    const shouldShowPrivateSampleDetail = isPrivateSampleActive
-        && ['recording', 'info'].includes(baseStatus.type);
-
     const visibleModelLoadingProgress =
         canUsePrivateStt && mode === 'private' ? modelLoadingProgress : null;
     // 2. Compose Final Status (Attach active Private model progress only)
     const displayStatus: SttStatus = {
         ...baseStatus,
-        detail: baseStatus.detail ?? (shouldShowPrivateSampleDetail ? privateSampleStatusDetail : undefined),
+        detail: baseStatus.detail,
         progress: visibleModelLoadingProgress ?? undefined
     };
     return (
@@ -321,21 +258,9 @@ export const SessionPage: React.FC = () => {
             )}
 
             {/* Status Bar - Spans full width of the main content area.
-                Post-save, this ONE bar carries the reconciliation copy (left), the quiet Private CTA
-                (Native + eligible), and the Analytics action (rightmost). There is no separate post-save
+                Post-save, this ONE bar carries the reconciliation copy and Analytics action. There is no separate post-save
                 surface — so a deployed state never contains two Analytics actions. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
-                {/* #1047 anonymous handoff: truthful notice when Private practice could not start for
-                    an ineligible account. The notice remains above the live workflow. */}
-                {trialUnavailableNotice && (
-                    <div
-                        role="status"
-                        data-testid="private-trial-unavailable-notice"
-                        className="mb-4 rounded-lg border border-amber-300/40 bg-amber-50 px-4 py-2.5 text-[13px] font-medium text-amber-900"
-                    >
-                        {trialUnavailableNotice}
-                    </div>
-                )}
                 {/* #1042 PR2's help affordance moved UP into the title block (#1047) — see the header above. */}
                 {/* #1046 E (slice 0): the quiet "Mic ready" green bar said the same thing three times — it
                     duplicated the recorder pill AND the "Ready on this device" card label. Suppress it ONLY
@@ -353,11 +278,6 @@ export const SessionPage: React.FC = () => {
                         className="mb-[26px]"
                         status={displayStatus}
                         analyticsAction={postSaveReady ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
-                        privateCta={
-                            postSaveReady && mode === 'native' && canUsePrivateStt
-                                ? { onSelect: () => setMode('private') }
-                                : undefined
-                        }
                     />
                 )}
                 {/* #1033 Part-2b (A3/A4): unresolved-recording recovery. Driven by the controller's
@@ -380,7 +300,7 @@ export const SessionPage: React.FC = () => {
                         data-testid="session-recovery-actions"
                     >
                         <span className="font-medium text-foreground/80">
-                            An unsaved transcript draft is available from this browser.
+                            A locally saved transcript draft is available.
                         </span>
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                             <Button
@@ -412,7 +332,7 @@ export const SessionPage: React.FC = () => {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-36 md:pb-6 mt-0">
                 {/* #1222: the session page is the fixed 4-slot overhaul shell driven by the live runtime
                     (before/during/after). The surrounding chrome — header, status bar, recovery banner,
-                    sunset modals, mobile action bar — wraps it. This is the only session page. */}
+                    access modals, mobile action bar — wraps it. This is the only session page. */}
                 <SessionOverhaulView
                     authUserId={authUserId}
                     isListening={isListening}
@@ -465,19 +385,9 @@ export const SessionPage: React.FC = () => {
                 isButtonDisabled={isButtonDisabled}
                 modelLoadingProgress={visibleModelLoadingProgress}
                 onStartStop={() => { void handleStartStop(); }}
-                isFrozen={sttStatus.isFrozen}
-                onSwitchToNative={() => { void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.switchToNative()); }}
                 mode={mode}
                 privateModelStatus={privateModelStatus}
                 onDownloadModel={() => { void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private')); }}
-            />
-
-            {/* Sunset Modals */}
-            <SunsetModals
-                open={sunsetModal.open}
-                onOpenChange={(open) => setSunsetModal({ ...sunsetModal, open })}
-                type={sunsetModal.type}
-                isPro={isProUser}
             />
 
         </main>

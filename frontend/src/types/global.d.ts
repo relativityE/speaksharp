@@ -19,8 +19,6 @@ interface SS_E2E_Manifest {
   flags?: {
     bypassMutex?: boolean;
     fastTimers?: boolean;
-    /** #1120 S1: bounded E2E-only STT Private-primary hierarchy override (true=ON, false=OFF). */
-    sttPrivatePrimary?: boolean;
     /** #1222 S12c: bounded E2E-only session-overhaul override (true=ON, false=OFF). */
     sessionOverhaul?: boolean;
   };

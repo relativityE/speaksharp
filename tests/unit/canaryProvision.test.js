@@ -2,7 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { classifyError, withRetry, signInWithBoundedRetry, verifyCanaryProfileBinding, enforceCeiling, provisionCanary } from '../../scripts/lib/canaryProvision.mjs';
 
-const CANARY = 'canary@speaksharp.app';
+const CANARY = 'paid-canary@example.test';
 const config = { email: CANARY, password: 'pw' };
 const invalidJwt = { message: 'invalid JWT ... unrecognized JWT kid <nil> for algorithm ES256' };
 const badCreds = { status: 400, message: 'Invalid login credentials' };          // recognized → recoverable
@@ -12,7 +12,14 @@ const malformed = {};                                                           
 const noSleep = { sleep: () => Promise.resolve() };
 
 // ---- mock builders ----
-const PAID_PROFILE = { subscription_status: 'pro', stripe_customer_id: 'cus_canary', stripe_subscription_id: 'sub_canary' };
+const PAID_PROFILE = {
+  subscription_status: 'pro', stripe_customer_id: 'cus_canary', stripe_subscription_id: 'sub_canary',
+  commercial_trial_granted_at: null, trial_expires_at: null,
+};
+const TRIAL_PROFILE = {
+  subscription_status: 'free', stripe_customer_id: null, stripe_subscription_id: null,
+  commercial_trial_granted_at: '2026-08-13T00:00:00.000Z', trial_expires_at: '2099-09-12T00:00:00.000Z',
+};
 function makeAnon({ signIn = [{ ok: true }], profileResult = { data: PAID_PROFILE } } = {}) {
   const seq = [...signIn];
   const maybeSingle = vi.fn(async () => profileResult);
@@ -83,19 +90,30 @@ describe('verifyCanaryProfileBinding — FAIL-CLOSED and exact-account scoped', 
     const anon = makeAnon();
     await verifyCanaryProfileBinding(anon, 'exact-canary-user');
     expect(anon.from).toHaveBeenCalledWith('user_profiles');
-    expect(anon._profile.select).toHaveBeenCalledWith('subscription_status,stripe_customer_id,stripe_subscription_id');
+    expect(anon._profile.select).toHaveBeenCalledWith('subscription_status,stripe_customer_id,stripe_subscription_id,commercial_trial_granted_at,trial_expires_at');
     expect(anon._profile.eq).toHaveBeenCalledWith('id', 'exact-canary-user');
     expect(anon._profile.update).not.toHaveBeenCalled();
   });
 });
 
+describe('verifyCanaryProfileBinding — active trial lane', () => {
+  it('accepts an unbilled live marked trial and rejects missing/expired/paid-shaped trials', async () => {
+    expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: TRIAL_PROFILE } }), 'u1', 'active-trial')).ok).toBe(true);
+    expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: { ...TRIAL_PROFILE, commercial_trial_granted_at: null } } }), 'u1', 'active-trial')).ok).toBe(false);
+    expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: { ...TRIAL_PROFILE, trial_expires_at: '2000-01-01T00:00:00Z' } } }), 'u1', 'active-trial')).ok).toBe(false);
+    expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: { ...TRIAL_PROFILE, stripe_customer_id: 'cus_wrong' } } }), 'u1', 'active-trial')).ok).toBe(false);
+  });
+});
+
 describe('enforceCeiling', () => {
   it('ok / warn / exceeded / skipped', async () => {
-    expect((await enforceCeiling(makeAdmin({ listUsers: [{ users: [{ email: CANARY }] }] }), { max: 1, enforce: true })).status).toBe('ok');
-    const two = [{ users: [{ email: CANARY }, { email: 'canary-x@speaksharp.app' }] }];
-    expect((await enforceCeiling(makeAdmin({ listUsers: two }), { max: 1, enforce: false })).status).toBe('warn');
-    expect((await enforceCeiling(makeAdmin({ listUsers: two }), { max: 1, enforce: true })).status).toBe('exceeded');
-    expect((await enforceCeiling(makeAdmin({ listUsers: [{ error: invalidJwt }] }), { max: 1, enforce: true })).status).toBe('skipped');
+    expect((await enforceCeiling(makeAdmin({ listUsers: [{ users: [{ email: CANARY }] }] }), { max: 1, enforce: true, allowedEmails: [CANARY] })).status).toBe('ok');
+    const second = 'trial-canary@example.test';
+    const two = [{ users: [{ email: CANARY }, { email: second }] }];
+    expect((await enforceCeiling(makeAdmin({ listUsers: two }), { max: 1, enforce: false, allowedEmails: [CANARY, second] })).status).toBe('warn');
+    expect((await enforceCeiling(makeAdmin({ listUsers: two }), { max: 1, enforce: true, allowedEmails: [CANARY, second] })).status).toBe('exceeded');
+    expect((await enforceCeiling(makeAdmin({ listUsers: [{ error: invalidJwt }] }), { max: 1, enforce: true, allowedEmails: [CANARY] })).status).toBe('skipped');
+    expect((await enforceCeiling(makeAdmin(), { max: 1, enforce: true })).status).toBe('skipped');
   });
 });
 
@@ -155,6 +173,23 @@ describe('provisionCanary — health only, fail-closed', () => {
     const res = await provisionCanary({ anon, admin: makeAdmin(), config });
     expect(res).toMatchObject({ status: 'entitlement_error', tier: 'free' });
     expect(anon._profile.update).not.toHaveBeenCalled();
+  });
+  it('ACTIVE TRIAL: healthy sign-in + live immutable unbilled trial → healthy without mutation', async () => {
+    const anon = makeAnon({ profileResult: { data: TRIAL_PROFILE } });
+    const res = await provisionCanary({ anon, admin: makeAdmin(), config: { ...config, lane: 'active-trial' } });
+    expect(res).toMatchObject({ status: 'healthy', lane: 'active-trial' });
+    expect(anon._profile.update).not.toHaveBeenCalled();
+  });
+  it('ACTIVE TRIAL: invalid credentials never trigger account creation or trial refresh', async () => {
+    const admin = makeAdmin({ listUsers: [{ users: [] }] });
+    const res = await provisionCanary({
+      anon: makeAnon({ signIn: [{ ok: false, error: badCreds }] }),
+      admin,
+      config: { ...config, lane: 'active-trial' },
+    });
+    expect(res).toMatchObject({ status: 'failed', scope: 'trial_account_unavailable' });
+    expect(admin.auth.admin.createUser).not.toHaveBeenCalled();
+    expect(admin.auth.admin.updateUserById).not.toHaveBeenCalled();
   });
   it('never surfaces the credential VALUE in the returned result', async () => {
     const secret = 'S3cr3t-canary-value';

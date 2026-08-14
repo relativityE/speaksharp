@@ -43,11 +43,11 @@ function HelpTitle({ name }: { name: string }) {
 // most valuable idea ("take one thing to improve") is item 3 of 3, not buried at 6 of 6.
 const HELP_STEPS: readonly { action: string; detail: string }[] = [
     {
-        action: "Pick how you're transcribed",
-        detail: 'Browser is instant. Private keeps audio on your device.',
+        action: 'Set up Private once',
+        detail: 'The on-device model keeps recording audio on this device.',
     },
     {
-        action: 'Speak as long as you like',
+        action: 'Speak for up to ten minutes',
         detail: "No agenda, no script. Stop whenever you're done.",
     },
     {

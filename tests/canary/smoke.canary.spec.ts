@@ -132,8 +132,7 @@ test.describe('Production Smoke Canary @canary', () => {
         let usageBody: {
             subscription_status?: string; is_pro?: boolean; can_start?: boolean;
             error?: string;
-            private_sample_available?: boolean; private_sample_seconds_remaining?: number;
-            private_sample_limit_seconds?: number;
+            trial_active?: boolean; trial_expires_at?: string | null;
         } | null = null;
         page.on('response', async (r) => {
             if (r.url().includes('check-usage-limit') && r.status() === 200) {
@@ -181,26 +180,25 @@ test.describe('Production Smoke Canary @canary', () => {
             contentType: 'application/json',
             body: JSON.stringify({
                 subscription_status: u.subscription_status, is_pro: u.is_pro, can_start: u.can_start,
-                private_sample_available: u.private_sample_available,
-                private_sample_seconds_remaining: u.private_sample_seconds_remaining,
-                private_sample_limit_seconds: u.private_sample_limit_seconds,
+                lane: CANARY_USER.lane,
+                trial_active: u.trial_active,
+                trial_expires_at: u.trial_expires_at,
             }, null, 2),
         });
 
-        // After the coordinated cutover, this reusable account is an isolated paid synthetic canary.
-        // Stripe authority is proven outside this browser response; CI never resets a one-shot sample
-        // or extends a customer-style trial to keep this journey green.
-        const usageOutcome = classifyCanaryUsageEntitlement(u);
+        // The primary lane proves a real active 30-day trial; the secondary lane proves paid continuity.
+        // CI never grants, resets, or extends either account's commercial state.
+        const usageOutcome = classifyCanaryUsageEntitlement(u, CANARY_USER.lane);
         if ('category' in usageOutcome) {
             throw new Error(`CANARY_ENTITLEMENT_DENIED:${usageOutcome.category}`);
         }
 
-        // #1184: Private is the only engine surfaced to this paid canary. There is no Browser/Cloud choice
-        // or trial nudge; `can_start` must be confirmed by the server before recording begins.
-        if (u.is_pro) {
+        // Private is the only customer engine for both the trial and paid-continuation lanes.
+        if (CANARY_USER.lane === 'paid-continuation') {
             await expect(page.getByTestId(TEST_IDS.PRO_BADGE)).toBeVisible({ timeout: 15000 });
+        } else {
+            await expect(page.getByTestId(TEST_IDS.PRO_BADGE)).toHaveCount(0);
         }
-        await expect(page.getByTestId('private-trial-nudge')).toHaveCount(0);
         await expect(page.getByTestId('mic-download').or(page.getByTestId('mic-start')).first()).toBeVisible();
 
         // 3. Confirm the Private engine surface and make the recorder ready (on-device model; $0).

@@ -12,6 +12,12 @@ DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
 END $$;
 
+CREATE SCHEMA IF NOT EXISTS auth;
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
+LANGUAGE sql STABLE AS $$
+  SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
+$$;
+
 -- Minimal production-shaped user_profiles (only the columns the webhook RPC + resolver touch).
 -- NOTE: last_stripe_event_at is intentionally ABSENT — the migration's ADD COLUMN IF NOT EXISTS adds it,
 -- so applying the migration also proves that ALTER.
@@ -25,8 +31,58 @@ CREATE TABLE IF NOT EXISTS public.user_profiles (
     private_sample_seconds_used   int DEFAULT 0,
     private_sample_completed_at   timestamptz,
     trial_expires_at              timestamptz,
+    commercial_trial_granted_at   timestamptz,
+    daily_usage_seconds           int DEFAULT 0,
+    native_usage_seconds          int DEFAULT 0,
+    cloud_usage_seconds           int DEFAULT 0,
+    usage_seconds                 int DEFAULT 0,
+    last_daily_reset              timestamptz,
+    usage_reset_date              timestamptz,
     updated_at                    timestamptz DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS public.sessions (
+    id uuid PRIMARY KEY,
+    user_id uuid NOT NULL,
+    title text,
+    duration int DEFAULT 0,
+    total_words int DEFAULT 0,
+    filler_words jsonb DEFAULT '{}'::jsonb,
+    accuracy float8,
+    ground_truth text,
+    transcript text,
+    engine text,
+    clarity_score float8,
+    wpm float8,
+    idempotency_key uuid,
+    engine_version text,
+    model_name text,
+    device_type text,
+    status text,
+    status_reason text,
+    expires_at timestamptz,
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.usage_checkpoints (
+    session_id uuid,
+    user_id uuid,
+    incremental_seconds int,
+    engine_type text
+);
+
+CREATE TABLE IF NOT EXISTS public.tier_configs (
+    tier_name text PRIMARY KEY,
+    allowed_engines text[],
+    max_concurrent_sessions int
+);
+INSERT INTO public.tier_configs (tier_name, allowed_engines, max_concurrent_sessions)
+VALUES ('free', ARRAY[]::text[], 1), ('pro', ARRAY['private']::text[], 1)
+ON CONFLICT (tier_name) DO NOTHING;
+
+CREATE OR REPLACE FUNCTION public.converge_transcript_retention(p_user_id uuid)
+RETURNS jsonb LANGUAGE sql AS $$ SELECT jsonb_build_object('status', 'ok') $$;
 
 CREATE TABLE IF NOT EXISTS public.processed_webhook_events (
     event_id     text PRIMARY KEY,
@@ -49,6 +105,30 @@ AS $$
   SELECT CASE
     WHEN lower(COALESCE(p_subscription_status, 'free')) = 'pro'
       AND NULLIF(trim(COALESCE(p_stripe_subscription_id, '')), '') IS NOT NULL
+    THEN 'pro'
+    ELSE 'free'
+  END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.effective_subscription_tier(
+  p_subscription_status TEXT,
+  p_trial_expires_at TIMESTAMPTZ,
+  p_stripe_subscription_id TEXT,
+  p_subscription_id TEXT,
+  p_commercial_trial_granted_at TIMESTAMPTZ
+)
+RETURNS TEXT
+LANGUAGE sql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT CASE
+    WHEN lower(COALESCE(p_subscription_status, 'free')) = 'pro'
+      AND NULLIF(trim(COALESCE(p_stripe_subscription_id, '')), '') IS NOT NULL
+    THEN 'pro'
+    WHEN p_commercial_trial_granted_at IS NOT NULL
+      AND p_trial_expires_at IS NOT NULL
+      AND p_trial_expires_at > now()
     THEN 'pro'
     ELSE 'free'
   END;

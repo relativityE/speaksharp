@@ -6,6 +6,7 @@ import { useSessionStore } from '@/stores/useSessionStore';
 import { ITranscriptionService } from '../../hooks/useSpeechRecognition/useTranscriptionService';
 import { sessionManager } from '@/services/transcription/SessionManager';
 import { getSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
+import { clearPrivateRecordingIdentity, getLastPrivateIdentity, setPrivateTelemetryContext } from '@/services/transcription/privateTelemetry';
 
 // Mock Dependencies
 vi.mock('../../lib/logger', () => ({
@@ -54,6 +55,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         localStorage.clear();
+        clearPrivateRecordingIdentity();
         controller = SpeechRuntimeController.getInstance();
         // Reset singleton private state
         (controller as unknown as { state: string }).state = 'IDLE';
@@ -1095,6 +1097,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             attributionEvidence: null,   // #1161: recovered pre-session work has no trusted identity
         };
         setUnresolved(true);
+        setPrivateTelemetryContext({ session_id: 'prior-recording' });
         expect(controller.pendingResolutionKind()).toBe('initial_save');
         await expect((controller as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave()).resolves.toBe(true);
         // created ONCE, with the recording id as the idempotency key → no duplicate session
@@ -1106,6 +1109,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(attestInvoke).toHaveBeenCalledTimes(1);
         expect((attestInvoke.mock.calls[0][1] as { body?: { op?: string; sessionId?: string; runtimeEvidence?: unknown } })?.body)
             .toMatchObject({ op: 'resolve_unattributed', sessionId: 'new-row-1' });
+        expect(getLastPrivateIdentity().session_id).toBe('new-row-1');
         expect(controller.isEngineSelectionLocked()).toBe(false);
     });
 
@@ -2105,14 +2109,9 @@ describe('SpeechRuntimeController.persistActiveRecoveryDraft (UX-NAV-1)', () => 
     });
 });
 
-describe('SpeechRuntimeController — policy-writer divergence (P2 regression guard)', () => {
-    // Locks the controller-level invariant behind the P2 "policy-writer divergence" thread:
-    // the tier-only writer (TranscriptionProvider) can write a FREE policy (allowPrivate=false) for a
-    // free user who actually holds a valid private sample, while the Session lifecycle writes the
-    // sample-aware CAPABILITY policy (allowPrivate=true). Both target this singleton. This guard proves
-    // the lifecycle's policy governs (last-writer-wins) and that updatePolicy never downgrades Private —
-    // so the free-sample user stays Private-capable. `policy` is set synchronously in updatePolicy
-    // (before the async service enqueue), so these assertions are deterministic without timer flushing.
+describe('SpeechRuntimeController — Private-only policy-writer convergence', () => {
+    // Every production writer must converge on Private regardless of commercial status. The policy is
+    // set synchronously before the async service enqueue, so these assertions need no timer flushing.
     let controller: SpeechRuntimeController;
 
     beforeEach(() => {
@@ -2152,12 +2151,11 @@ describe('SpeechRuntimeController — policy-writer divergence (P2 regression gu
     const readPolicy = () => (controller as unknown as { policy: TranscriptionPolicy }).policy;
 
     it('#1184: both writers yield Private-capable — the former tier/writer divergence is gone (convergence)', () => {
-        // 1) Provider resync (tier-only, free user): under STT exclusivity this ALSO grants Private — the
-        //    former "tier-only denies Private" divergence is retired.
+        // 1) Profile resync with a non-paid compatibility label remains Private.
         controller.updatePolicy(buildPolicyForUser(false, null, { allowCloud: false }));
         expect(readPolicy().allowPrivate).toBe(true);
 
-        // 2) Session lifecycle capability write: still Private-capable — both writers agree.
+        // 2) Session lifecycle write agrees.
         controller.updatePolicy(buildPolicyForUser(true, 'private', { allowCloud: false }));
         expect(readPolicy().allowPrivate).toBe(true);
         expect(readPolicy().preferredMode).toBe('private');

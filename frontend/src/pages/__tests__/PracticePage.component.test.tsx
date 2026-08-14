@@ -142,7 +142,7 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       // Freeform FREE TRIAL strip (the four support cards + connectors are removed).
       const strip = screen.getByTestId('freeform-trial-strip');
       expect(strip).toHaveTextContent(/free trial/i);
-      expect(strip).toHaveTextContent(/try a 5-minute private session — no card, no script\./i);
+      expect(strip).toHaveTextContent(/complete Private Practice Loop is free for 30 days/i);
       expect(screen.queryByTestId('support-freeform-explain')).not.toBeInTheDocument();
       // Focus Points is activated — no SOON badge on the anonymous card either.
       expect(screen.queryByTestId('objective-soon-badge')).not.toBeInTheDocument();
@@ -161,12 +161,10 @@ describe('PracticePage — one canonical auth-aware page (#1061)', () => {
       expect(navigateSpy).toHaveBeenCalledWith('/auth/signup');
     });
 
-    it('Freeform FREE TRIAL strip CTA → account access carrying the Private-trial intent (no auto-record)', () => {
+    it('complete-product trial CTA → account access carrying the session intent (no auto-record)', () => {
       render(<PracticePage />);
       fireEvent.click(screen.getByTestId('freeform-trial-start'));
-      // The band promises Private, so the intent rides through signup via from.search (resolvePostAuthPath
-      // preserves it) → /session?trial=private. NOT a bare /session that silently lands on Browser.
-      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session', search: '?trial=private' } } });
+      expect(navigateSpy).toHaveBeenCalledWith('/auth/signup', { state: { from: { pathname: '/session' } } });
     });
 
     it('Freeform product card CTA → account access preserving /session intent', () => {

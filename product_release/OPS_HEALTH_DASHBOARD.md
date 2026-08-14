@@ -84,7 +84,7 @@ Some rows may show `🚧 NOT READY` until the corresponding secret is added to G
 | Supabase API | `SUPABASE_URL`, `SUPABASE_ANON_KEY` |
 | AssemblyAI API | `ASSEMBLYAI_API_KEY` |
 | Gemini API | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
-| Stripe API | `STRIPE_SECRET_KEY`, `STRIPE_BASIC_PRICE_ID`, `STRIPE_PRO_PRICE_ID` |
+| Stripe API | `STRIPE_SECRET_KEY`, `STRIPE_PRO_PRICE_ID` |
 | Sentry API | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`, optional `SENTRY_API_BASE` |
 | PostHog API | `POSTHOG_PERSONAL_API_KEY`, `POSTHOG_PROJECT_ID`, optional `POSTHOG_API_HOST` |
 | GitHub API | `GITHUB_TOKEN` in Actions, or `GH_TOKEN` / `GH_PAT` locally |

@@ -42,8 +42,9 @@ describe('SessionOverhaulView (#1222 S11)', () => {
         // Transcript-only: no audio playback affordances.
         expect(screen.queryByTestId('scrubber-play')).toBeNull();
         expect(screen.queryByTestId('scrubber-time')).toBeNull();
-        // The filler legend + seekable transcript remain.
+        // Open Mic retains the filler legend, but no inert seek/playback control is exposed.
         expect(screen.getByTestId('scrubber-legend')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /seek/i })).toBeNull();
     });
 
     // PO 2026-08-10: the post-Stop FINALIZING window must resolve to `after`, never `before` — otherwise the
@@ -101,6 +102,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.getByTestId('focus-point-1-not-detected')).toBeInTheDocument();
         expect(screen.getByTestId('focus-points-retry')).toBeInTheDocument();
         expect(screen.getByTestId('focus-delivery-strip')).toBeInTheDocument();
+        expect(screen.queryByTestId('scrubber-legend')).toBeNull();
+        expect(screen.queryByRole('button', { name: /seek/i })).toBeNull();
         expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
     });
 

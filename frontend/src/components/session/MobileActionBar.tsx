@@ -8,8 +8,6 @@ interface MobileActionBarProps {
     isButtonDisabled: boolean;
     modelLoadingProgress: number | null;
     onStartStop: () => void;
-    isFrozen?: boolean;
-    onSwitchToNative?: () => void;
     /** Current mode + DURABLE Private model status, so mobile mirrors the desktop first-run flow. */
     mode?: string | null;
     privateModelStatus?: string;
@@ -25,8 +23,6 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
     isButtonDisabled,
     modelLoadingProgress,
     onStartStop,
-    isFrozen,
-    onSwitchToNative,
     mode,
     privateModelStatus = 'idle',
     onDownloadModel,
@@ -38,19 +34,8 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
     // primary "Start Recording" CTA is always reachable without scrolling to the recording
     // card (aligns mobile with the always-present desktop control). The button below already
     // renders the correct state: Start (idle) / Stop (listening) / download progress; the
-    // "Switch to Browser" row stays gated to the frozen state only.
     return (
         <div className="fixed bottom-0 left-0 right-0 px-4 pt-3 pb-[calc(0.875rem+env(safe-area-inset-bottom))] bg-background/95 backdrop-blur-xl md:hidden z-40 flex flex-col items-center gap-2.5 shadow-[0_-10px_30px_rgba(15,23,42,0.10)] safe-area-bottom border-t border-border">
-            {isFrozen && (
-                <Button
-                    onClick={onSwitchToNative}
-                    variant="outline"
-                    className="h-10 w-full max-w-sm bg-amber-50 border-primary/50 text-primary font-semibold"
-                    data-action="switch-to-native-mobile"
-                >
-                    Switch to Browser
-                </Button>
-            )}
             <Button
                 onClick={() => { if (isPrivateDownloadRequired) { onDownloadModel?.(); } else { onStartStop(); } }}
                 size="lg"

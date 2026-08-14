@@ -37,9 +37,8 @@ export interface TranscriptionPolicy {
 // ============================================================================
 
 /**
- * Free tier production policy.
- * #1184 STT exclusivity: Private is the ONLY engine for every user, Free included. Native/Cloud are
- * never resolved — tiers differ on usage minutes, not engine.
+ * Legacy unpaid-state production policy. Private is the only customer engine. Access timing is decided
+ * by the server entitlement seam before recording starts, not by engine policy or accumulated minutes.
  */
 export const PROD_FREE_POLICY: TranscriptionPolicy = {
     allowNative: false,
@@ -51,9 +50,7 @@ export const PROD_FREE_POLICY: TranscriptionPolicy = {
 };
 
 /**
- * Pro tier production policy.
- * #1184 STT exclusivity: identical engine posture to Free — Private only. Pro differs on minutes, not
- * engine; Cloud/Native are never resolved.
+ * Paid-state production policy. It is intentionally engine-identical to the active trial: Private only.
  */
 export const PROD_PRO_POLICY: TranscriptionPolicy = {
     allowNative: false,
@@ -178,21 +175,10 @@ export function isModeAllowed(
 }
 
 /**
- * Build a policy from a Private-STT *capability* flag + an optional UI mode.
+ * Build a Private-only policy from the caller's already-resolved entitlement state plus an optional
+ * internal test request. The server remains authoritative for whether a recording may start.
  *
- * @param hasPrivateSttAccess - Whether the user may use Private STT — the capability,
- *   NOT raw subscription tier. The Session-lifecycle writers pass
- *   `isPro || hasPrivateSampleEntitlement` so a free user with a valid private sample
- *   still receives the Private-capable base policy (`allowPrivate: true`). This flag
- *   selects the entire base policy (PRO vs FREE), so passing tier-only `isPro` for a
- *   sample user would incorrectly yield `allowPrivate: false`.
- *   NOTE (P2, tracked in BACKLOG): some writers — `TranscriptionProvider` and
- *   `useSpeechRecognition_prod` — still pass tier-only `isPro` here. That is currently
- *   safe because the lifecycle's start/select policy is the authority for a recording
- *   (`SpeechRuntimeController.startRecording` overwrites the stored policy) and the
- *   provider's resync cannot re-fire on sample state. Unifying every writer on the
- *   capability source is deferred; do NOT "fix" by passing raw `isPro` everywhere.
- *   Cloud stays independently gated via `options.allowCloud`.
+ * @param hasPrivateSttAccess - Already-resolved access state; it affects observability labels only.
  * @param uiMode - Optional mode selected by user in UI
  * @returns A TranscriptionPolicy configured for the user
  */

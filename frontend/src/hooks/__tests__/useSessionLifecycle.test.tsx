@@ -76,18 +76,9 @@ import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 // Global mock for useUsageLimit
 const baseUsageLimit: UsageLimitCheck = {
     can_start: true,
-    daily_remaining: 30,
-    daily_limit: 3600,
-    monthly_remaining: 90000,
-    monthly_limit: 90000,
-    remaining_seconds: 30,
     subscription_status: 'free',
     is_pro: false,
     streak_count: 0,
-    private_sample_available: false,
-    private_sample_limit_seconds: 300,
-    private_sample_seconds_used: 0,
-    private_sample_seconds_remaining: 300,
 };
 
 const mockUsageLimitQuery = {
@@ -181,9 +172,6 @@ vi.mock('@/constants/subscriptionTiers', () => ({
     isPro: vi.fn((status: string | undefined) => status === 'pro'),
     isActiveTrialProfile: vi.fn(() => false),
     hasPaidProEntitlement: vi.fn(() => false),
-    hasCloudSttEntitlement: vi.fn(() => false),
-    hasActivePrivateSample: vi.fn((u: { private_sample_available?: boolean; private_sample_seconds_remaining?: number } | null | undefined) =>
-        u?.private_sample_available === true && Math.max(0, u?.private_sample_seconds_remaining ?? 0) > 0),
     getEffectiveSubscriptionStatus: vi.fn((usageStatus: string | undefined, profile: { subscription_status?: string } | null | undefined) => usageStatus ?? profile?.subscription_status ?? 'free'),
 }));
 
@@ -228,14 +216,9 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
-    it('should trigger handleStartStop when elapsed time exceeds limit', async () => {
+    it('does not stop an entitled recording when accumulated usage exceeds former limits', async () => {
         const mockElapsedTime = 31;
         const mockLimit: UsageLimitCheck = {
-            daily_remaining: 30,
-            daily_limit: 3600,
-            monthly_remaining: 90000,
-            monthly_limit: 90000,
-            remaining_seconds: 30,
             can_start: true,
             subscription_status: 'free',
             is_pro: false,
@@ -291,9 +274,8 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             )
         });
 
-        await waitFor(() => {
-            expect(speechRuntimeController.stopRecording).toHaveBeenCalled();
-        }, { timeout: 2000 });
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+        expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
     });
 
     /**
@@ -328,14 +310,8 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
     });
 
     it('caps a Private recording at 10 minutes / 600s (auto-stops past the per-recording cap, independent of budget)', async () => {
-        // Beta recording length = 10 min (raised from 5; the old value assumed slow finalization, now measured
-        // false at ~38.7s for a 5-min take on MT-WASM). Generous usage budget so ONLY the cap can trigger the stop.
+        // The 10-minute technical safety cap is independent of commercial entitlement.
         const mockLimit: UsageLimitCheck = {
-            daily_remaining: 99999,
-            daily_limit: 99999,
-            monthly_remaining: 99999,
-            monthly_limit: 99999,
-            remaining_seconds: 99999,
             can_start: true,
             subscription_status: 'pro',
             is_pro: true,
@@ -438,15 +414,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
      * finalized and saved.
      */
     it('#1089: performs a controlled stop when the engine reports the capture backstop', async () => {
-        // The file-level useUsageLimit default is remaining_seconds: 30, which would auto-stop at
-        // elapsedTime 120 all on its own — the assertion would then pass with the backstop feature
-        // deleted. Pin a generous budget so the ONLY reachable stop is the capture backstop.
         const generousLimit: UsageLimitCheck = {
-            daily_remaining: 99999,
-            daily_limit: 99999,
-            monthly_remaining: 99999,
-            monthly_limit: 99999,
-            remaining_seconds: 99999,
             can_start: true,
             subscription_status: 'pro',
             is_pro: true,
@@ -553,11 +521,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 30,
-                daily_limit: 3600,
-                monthly_remaining: 90000,
-                monthly_limit: 90000,
-                remaining_seconds: 30,
                 can_start: true,
                 subscription_status: 'free',
                 is_pro: false,
@@ -580,13 +543,8 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
     });
 
-    it('keeps enforcing the Private sample window (not the free daily limit) when availability flips false mid-recording', async () => {
-        // Regression for the #770 HOLD: once `private_sample_session_id` is set, the
-        // entitlement refetch returns private_sample_available=false while sample seconds
-        // remain. The countdown/auto-stop must keep using the sample's remaining seconds,
-        // NOT fall back to the free daily remaining (which would prematurely auto-stop the
-        // sample and pop the daily sunset modal).
-        const mockElapsedTime = 31; // past the 30s daily remaining, far under the 300s sample
+    it('ignores exhausted legacy sample fields for an entitled Private recording', async () => {
+        const mockElapsedTime = 31;
         const mockStore = createTestSessionStore({
             sttMode: 'private',
             isListening: true,
@@ -624,10 +582,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 can_start: true,
                 subscription_status: 'free',
                 is_pro: false,
-                remaining_seconds: 30,
-                daily_remaining: 30,
-                private_sample_available: false,        // flips false once session_id is set
-                private_sample_seconds_remaining: 300,  // sample still has the full window left
             },
             isLoading: false,
             isError: false,
@@ -643,17 +597,11 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             )
         });
 
-        // The daily sunset modal only fires for non-sample auto-stops. With the fix the
-        // sample window (300s) governs, so at 31s elapsed nothing stops and the modal stays
-        // closed. Pre-fix, sourceRemaining fell back to daily (30s) and popped it.
-        expect(mockStore.getState().sunsetModal.open).toBe(false);
-
-        // And it must not have auto-stopped the recording.
         await new Promise((resolve) => setTimeout(resolve, 50));
         expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
     });
 
-    it('should warn pro users when they are within five minutes of their daily practice limit', async () => {
+    it('does not show quota warnings for paid users above former accumulated limits', async () => {
         vi.mocked(useProfile).mockReturnValue({
             profile: {
                 id: 'test-user',
@@ -695,11 +643,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 300,
-                daily_limit: 7200,
-                monthly_remaining: 180000,
-                monthly_limit: 180000,
-                remaining_seconds: -1,
                 can_start: true,
                 subscription_status: 'pro',
                 is_pro: true,
@@ -719,15 +662,12 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             )
         });
 
-        await waitFor(() => {
-            expect(mockStore.getState().sttStatus).toEqual({
-                type: 'info',
-                message: "⚠️ Great practice! 5 minutes remaining for today's Pro practice limit."
-            });
-        });
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+        expect(mockStore.getState().sttStatus).toEqual({ type: 'idle', message: 'Ready to record' });
+        expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
     });
 
-    it('should honor can_start=false for stale Pro or unavailable sample users', async () => {
+    it('honors the canonical can_start=false entitlement result', async () => {
         vi.mocked(useProfile).mockReturnValue({
             profile: {
                 id: 'test-user',
@@ -739,16 +679,11 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 0,
-                daily_limit: 7200,
-                monthly_remaining: 0,
-                monthly_limit: 180000,
-                remaining_seconds: 0,
                 can_start: false,
                 subscription_status: 'free',
                 is_pro: false,
                 streak_count: 0,
-                error: 'Private sample unavailable'
+                error: 'Your trial has ended'
             },
             isLoading: false,
             isError: false,
@@ -779,7 +714,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
         expect(mockStore.getState().sttStatus).toEqual({
             type: 'error',
-            message: '⛔ Private sample unavailable'
+            message: '⛔ Your trial has ended'
         });
     });
 
@@ -808,11 +743,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 7200,
-                daily_limit: 7200,
-                monthly_remaining: 180000,
-                monthly_limit: 180000,
-                remaining_seconds: -1,
                 can_start: true,
                 subscription_status: 'pro',
                 is_pro: true,
@@ -874,11 +804,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 7200,
-                daily_limit: 7200,
-                monthly_remaining: 180000,
-                monthly_limit: 180000,
-                remaining_seconds: -1,
                 can_start: true,
                 subscription_status: 'pro',
                 is_pro: true,
@@ -1014,7 +939,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
 
         await act(async () => {
-            await result.current.handleStartStop({ stopReason: 'Auto-stopped: your 5-minute sample ended.' });
+            await result.current.handleStartStop({ stopReason: 'Auto-stopped at the 10-minute recording cap.' });
         });
 
         // The warning + detail survive: neither the auto-stop stopReason nor the success copy replaced them.
@@ -1042,11 +967,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 3600,
-                daily_limit: 3600,
-                monthly_remaining: 3600,
-                monthly_limit: 3600,
-                remaining_seconds: 3600,
                 can_start: true,
                 subscription_status: 'free',
                 is_pro: false,
@@ -1073,7 +993,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
-    it('keeps Private selected regardless of Private-sample state (Private is universal)', async () => {
+    it('keeps Private as the only customer engine when entitlement is inactive', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',
             isListening: false,
@@ -1101,8 +1021,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 is_pro: false,
                 trial_active: false,
                 trial_seconds_remaining: 0,
-                private_sample_available: false,
-                private_sample_seconds_remaining: 0,
             },
             isLoading: false,
             isError: false,
@@ -1123,10 +1041,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
-    it('should allow a server-backed Private sample user to keep Private selected', async () => {
-        // Option A: the default is the instant Native path, but a user with an
-        // available Private sample who has SELECTED Private must not be forced
-        // back to Native.
+    it('keeps Private selected for an active-trial user', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',
             isListening: false,
@@ -1151,12 +1066,8 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 can_start: true,
                 subscription_status: 'free',
                 is_pro: false,
-                trial_active: false,
-                trial_seconds_remaining: 0,
-                private_sample_available: true,
-                private_sample_limit_seconds: 300,
-                private_sample_seconds_used: 0,
-                private_sample_seconds_remaining: 300,
+                trial_active: true,
+                trial_seconds_remaining: 30 * 24 * 60 * 60,
             },
             isLoading: false,
             isError: false,
@@ -1199,11 +1110,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 7200,
-                daily_limit: 7200,
-                monthly_remaining: 180000,
-                monthly_limit: 180000,
-                remaining_seconds: -1,
                 can_start: true,
                 subscription_status: 'pro',
                 is_pro: true,
@@ -1253,11 +1159,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 7200,
-                daily_limit: 7200,
-                monthly_remaining: 180000,
-                monthly_limit: 180000,
-                remaining_seconds: -1,
                 can_start: true,
                 subscription_status: 'pro',
                 is_pro: true,

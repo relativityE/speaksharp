@@ -6,7 +6,7 @@
  * "which humans tried SpeakSharp, what did they do, and did they report anything" — including testers
  * with ZERO activity and ZERO reports. It also treats every non-excluded account as a candidate tester,
  * which massively over-counts: the test suite mints accounts on @example.com, @test.com and
- * @speaksharp.app (several with per-run timestamps), so automated accounts were being reported as testers.
+ * reserved test domains (several with per-run timestamps), so automated accounts were being reported as testers.
  *
  * This script adds ONLY what is missing:
  *   - pattern-based classification (automated / internal / human) so the human cohort is trustworthy
@@ -54,7 +54,8 @@ const pseudo = (userId) => 't_' + createHmac('sha256', PSEUDO_SALT).update(Strin
  */
 const AUTOMATED_DOMAINS = [/@example\.com$/i, /@test\.com$/i];
 const AUTOMATED_LOCAL_PREFIXES = [
-    /^first-time-tester-/i, /^stt-corpus-/i, /^private-sample-telemetry-/i, /^private-decode-ab-/i,
+    /^first-time-tester-/i, /^stt-corpus-/i, /^private-sample-telemetry-/i, // historical residue cleanup only
+    /^private-decode-ab-/i,
     /^private-longform/i, /^tester-b-/i, /^account-mutex/i, /^ux-[a-z]+-/i, /^soak-test/i,
     /^canary/i, /^visual-/i, /^manual-pro-cloud-/i, /^basic-user$/i, /^free-user$/i, /^pro-user$/i,
 ];

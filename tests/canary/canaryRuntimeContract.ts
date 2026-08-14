@@ -13,7 +13,11 @@ export type CanaryUsagePayload = {
     is_pro?: unknown;
     can_start?: unknown;
     error?: unknown;
+    trial_active?: unknown;
+    trial_expires_at?: unknown;
 };
+
+export type CanaryAccessLane = 'active-trial' | 'paid-continuation';
 
 export type CanaryUsageOutcome =
     | { ok: true }
@@ -29,11 +33,22 @@ export function sanitizeCanaryDenialCategory(value: unknown): string {
 }
 
 /** Classify the advisory usage response without reflecting provider/database text into CI. */
-export function classifyCanaryUsageEntitlement(payload: CanaryUsagePayload): CanaryUsageOutcome {
+export function classifyCanaryUsageEntitlement(
+    payload: CanaryUsagePayload,
+    lane: CanaryAccessLane,
+): CanaryUsageOutcome {
     if (payload.subscription_status !== 'pro') return { ok: false, category: 'subscription_status' };
     if (payload.is_pro !== true) return { ok: false, category: 'is_pro' };
     if (payload.can_start !== true) {
         return { ok: false, category: sanitizeCanaryDenialCategory(payload.error) };
+    }
+    if (lane === 'active-trial') {
+        if (payload.trial_active !== true) return { ok: false, category: 'trial_inactive' };
+        if (typeof payload.trial_expires_at !== 'string' || payload.trial_expires_at.trim().length === 0) {
+            return { ok: false, category: 'trial_expiry_missing' };
+        }
+    } else if (payload.trial_active !== false) {
+        return { ok: false, category: 'paid_marked_trial' };
     }
     return { ok: true };
 }

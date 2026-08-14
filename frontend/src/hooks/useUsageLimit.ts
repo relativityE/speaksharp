@@ -1,18 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import logger from '../lib/logger';
 
 /**
  * Response from check-usage-limit Edge Function
  */
 export interface UsageLimitCheck {
     can_start: boolean;
-    daily_remaining: number; // For the new "Sunsetting" UX
-    daily_limit: number;
-    monthly_remaining: number; // For COGS protection check
-    monthly_limit: number;
-    remaining_seconds: number; // Legacy, kept for compatibility with existing UI
     subscription_status: string;
     is_pro: boolean;
     streak_count: number;
@@ -20,18 +14,11 @@ export interface UsageLimitCheck {
     trial_started_at?: string | null;
     trial_expires_at?: string | null;
     trial_seconds_remaining?: number;
-    private_sample_available?: boolean;
-    private_sample_limit_seconds?: number;
-    private_sample_seconds_used?: number;
-    private_sample_seconds_remaining?: number;
-    private_sample_started_at?: string | null;
-    private_sample_completed_at?: string | null;
-    private_sample_session_id?: string | null;
     error?: string;
 }
 
 /**
- * Hook to check user's usage limit before starting a session.
+ * Hook to check server-authoritative recording access before starting a session.
  * This enables pre-session validation to prevent frustrating UX
  * where users record for minutes only to find they can't save.
  * 
@@ -55,7 +42,7 @@ const defaultFetchUsageLimit = async (session?: { access_token: string }): Promi
 };
 
 /**
- * Hook to check user's usage limit.
+ * Hook to check recording access through the legacy-named endpoint.
  * Follows exact Phase 3 - Step 1 prescription.
  */
 export function useUsageLimit(deps?: { fetchUsageLimit?: () => Promise<UsageLimitCheck> }) {
@@ -74,62 +61,4 @@ export function useUsageLimit(deps?: { fetchUsageLimit?: () => Promise<UsageLimi
         staleTime: 0,
         refetchOnWindowFocus: true,
     });
-}
-
-/**
- * Optimistic usage update to prevent Tier + DB race conditions (E15, E17).
- * Updates the react-query cache immediately before DB sync.
- */
-export function updateLocalUsage(userId: string, additionalSeconds: number) {
-    // Use direct dynamic import for better compatibility with test environment
-    const win = window as unknown as { 
-        queryClientAPI?: { getQueryClient: () => unknown };
-        queryClient?: unknown;
-    };
-    const { getQueryClient } = win.queryClientAPI || { getQueryClient: () => win.queryClient };
-    const queryClient = (getQueryClient?.() || win.queryClient) as { 
-        setQueryData: (key: unknown[], updater: (old: UsageLimitCheck | undefined) => UsageLimitCheck | undefined) => void 
-    };
-    
-    if (!queryClient) {
-        logger.warn('[updateLocalUsage] QueryClient not found, skipping optimistic update');
-        return;
-    }
-
-    // Optimistic usage decrement. private_sample_usage_updated / _exhausted telemetry is emitted
-    // from the session-lifecycle save block (context-live, deterministic), not here — the usage
-    // sync timing relative to the sample-context lifecycle was unreliable.
-    queryClient.setQueryData(['usageLimit', userId], (old: UsageLimitCheck | undefined) => {
-        if (!old) return old;
-        return {
-            ...old,
-            daily_remaining: Math.max(0, old.daily_remaining - additionalSeconds),
-            remaining_seconds: Math.max(0, old.remaining_seconds - additionalSeconds),
-            private_sample_seconds_remaining: typeof old.private_sample_seconds_remaining === 'number'
-                ? Math.max(0, old.private_sample_seconds_remaining - additionalSeconds)
-                : old.private_sample_seconds_remaining,
-            private_sample_seconds_used: typeof old.private_sample_seconds_used === 'number'
-                ? old.private_sample_seconds_used + additionalSeconds
-                : old.private_sample_seconds_used,
-        };
-    });
-}
-
-/**
- * Format remaining seconds as human-readable string
- */
-export function formatRemainingTime(seconds: number): string {
-    if (seconds < 0) return 'Unlimited';
-    if (seconds === 0) return 'No time remaining';
-
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-
-    if (minutes === 0) {
-        return `${remainingSeconds}s`;
-    }
-    if (remainingSeconds === 0) {
-        return `${minutes}m`;
-    }
-    return `${minutes}m ${remainingSeconds}s`;
 }

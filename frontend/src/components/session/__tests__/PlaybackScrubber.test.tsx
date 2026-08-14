@@ -44,4 +44,19 @@ describe('PlaybackScrubber (#1222 slot A after)', () => {
         expect(screen.queryByRole('link', { name: /download/i })).toBeNull();
         expect(screen.queryByRole('button', { name: /download/i })).toBeNull();
     });
+
+    it('is a non-interactive static envelope when no audio is retained', () => {
+        render(<PlaybackScrubber {...base} audioAvailable={false} />);
+        expect(screen.queryByTestId('scrubber-play')).toBeNull();
+        expect(screen.queryByTestId('scrubber-time')).toBeNull();
+        expect(screen.queryByTestId('scrubber-waveform-playhead')).toBeNull();
+        expect(screen.queryByRole('button')).toBeNull();
+    });
+
+    it('omits filler chrome for an amplitude-only Focus Points review', () => {
+        render(<PlaybackScrubber {...base} fillerBars={[]} audioAvailable={false} />);
+        expect(screen.queryByTestId('scrubber-legend')).toBeNull();
+        expect(screen.getAllByTestId('scrubber-waveform-bar')).toHaveLength(amps.length);
+        expect(screen.queryByRole('button')).toBeNull();
+    });
 });

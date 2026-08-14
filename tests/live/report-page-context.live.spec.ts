@@ -14,7 +14,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 //  - the owned session UUID appears ONLY in session_id — never in page_url or metadata;
 //  - an unregistered route FAILS CLOSED to `/other` with no path content retained;
 //  - reports persist independently of telemetry.
-// Runs the same BASIC_TEST_EMAIL account as the attribution live spec; free tier is sufficient.
+// Runs the same maintained test account as the attribution live spec; read-only report access is sufficient.
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;

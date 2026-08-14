@@ -102,9 +102,6 @@ describe('#1282 30-day trial lifecycle — expired state fails closed (slice 2)'
         // The gates must not grant or track a private-sample allowance any more.
         expect(enforcement).not.toMatch(/private_sample_limit_reached|private_sample_used|private_sample_session_required/);
         expect(enforcement).not.toMatch(/v_sample_remaining|v_new_sample_used/);
-        // private_sample_available is always false now.
-        expect(enforcement).not.toMatch(/'private_sample_available', \(/);
-        expect(enforcement).toMatch(/'private_sample_available', false/);
     });
 
     it('surfaces a real live-trial countdown (not hardcoded false) for the UI', () => {

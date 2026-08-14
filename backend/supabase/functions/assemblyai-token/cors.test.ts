@@ -13,7 +13,7 @@ function req(method: string, origin?: string, authHeader?: string) {
 
 // Spies: any invocation means the CORS guard failed to reject before side effects.
 function spies() {
-  const calls = { createSupabase: 0, fetch: 0, getEnv: 0 };
+  const calls = { createSupabase: 0, fetch: 0 };
   const createSupabase = () => {
     calls.createSupabase++;
     throw new Error("createSupabase must not run for a hostile origin");
@@ -22,11 +22,7 @@ function spies() {
     calls.fetch++;
     return Promise.reject(new Error("fetch must not run for a hostile origin"));
   }) as unknown as typeof fetch;
-  const getEnv = (k: string) => {
-    calls.getEnv++;
-    return k === "ASSEMBLYAI_API_KEY" ? "test-key" : undefined;
-  };
-  return { calls, createSupabase, fetchImpl, getEnv };
+  return { calls, createSupabase, fetchImpl };
 }
 
 Deno.test("assemblyai-token CORS: approved OPTIONS → 204 + exact ACAO + Vary", async () => {
@@ -35,7 +31,6 @@ Deno.test("assemblyai-token CORS: approved OPTIONS → 204 + exact ACAO + Vary",
     req("OPTIONS", APPROVED),
     s.createSupabase,
     s.fetchImpl,
-    s.getEnv,
   );
   assertEquals(res.status, 204);
   assertEquals(res.headers.get("Access-Control-Allow-Origin"), APPROVED);
@@ -50,7 +45,6 @@ Deno.test("assemblyai-token CORS: hostile OPTIONS → 403, no ACAO, zero downstr
     req("OPTIONS", HOSTILE),
     s.createSupabase,
     s.fetchImpl,
-    s.getEnv,
   );
   assertEquals(res.status, 403);
   assertEquals(res.headers.get("Access-Control-Allow-Origin"), null);
@@ -64,15 +58,13 @@ Deno.test("assemblyai-token CORS: hostile normal request → 403 BEFORE auth/pro
     req("POST", HOSTILE, "Bearer x"),
     s.createSupabase,
     s.fetchImpl,
-    s.getEnv,
   );
   assertEquals(res.status, 403);
   assertEquals(res.headers.get("Access-Control-Allow-Origin"), null);
   assertEquals((await res.json()).error.code, "origin_not_allowed");
-  // Proof: no Supabase client, no AssemblyAI fetch, not even an env read for the key.
+  // Proof: no Supabase client or external provider fetch.
   assertEquals(s.calls.createSupabase, 0);
   assertEquals(s.calls.fetch, 0);
-  assertEquals(s.calls.getEnv, 0);
 });
 
 Deno.test("assemblyai-token CORS: approved origin retains exact ACAO on its own auth error", async () => {
@@ -82,7 +74,6 @@ Deno.test("assemblyai-token CORS: approved origin retains exact ACAO on its own 
     req("POST", APPROVED),
     s.createSupabase,
     s.fetchImpl,
-    s.getEnv,
   );
   assertEquals(res.status, 401);
   assertEquals(res.headers.get("Access-Control-Allow-Origin"), APPROVED);
@@ -95,7 +86,6 @@ Deno.test("assemblyai-token CORS: no-Origin request is not CORS-rejected, no fab
     req("POST", undefined),
     s.createSupabase,
     s.fetchImpl,
-    s.getEnv,
   );
   // Reaches its own auth (401 missing header) rather than a 403 origin rejection.
   assertEquals(res.status, 401);

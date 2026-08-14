@@ -23,7 +23,7 @@ export interface SSMasterControl {
     heartbeat: 'ok' | 'stale' | 'none';
   };
   auth: {
-    userType: 'free' | 'basic' | 'pro' | 'unknown';
+    userType: 'free' | 'pro' | 'unknown';
     isMock: boolean;
   };
   engine: {

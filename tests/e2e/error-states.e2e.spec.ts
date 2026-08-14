@@ -50,24 +50,6 @@ test.describe('Error State Handling', () => {
     });
 
     test.describe('Network Error Handling', () => {
-        test('should handle token endpoint failure gracefully', async ({ userPage }) => {
-            // Block AssemblyAI token endpoint BEFORE navigation
-            await userPage.route('**/functions/v1/assemblyai-token', route => {
-                route.abort('failed');
-            });
-
-            await navigateToRoute(userPage, '/session');
-
-            // App should remain functional despite token fetch failure
-            await expect(userPage.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
-
-            // Session page should still show UI
-            const startButton = userPage.getByTestId('mic-start');
-            await expect(startButton).toBeVisible({ timeout: 10000 });
-
-            debugLog('[TEST] ✅ Token endpoint failure handled gracefully');
-        });
-
         test('should handle Supabase profile fetch failure gracefully', async ({ userPage }) => {
             // Block Supabase user endpoint
             await userPage.route('**/rest/v1/users*', route => {

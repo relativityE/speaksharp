@@ -18,8 +18,9 @@ import { programmaticLoginWithRoutes, navigateToRoute, startRecording, stopRecor
 const DIR = 'test-results/freeform-help';
 const DESKTOP = { width: 1280, height: 900 };
 const MOBILE = { width: 390, height: 844 };
-// One of the three redesigned step action lines — proves the new content, not the retired copy.
-const STEP_ACTION = "Pick how you're transcribed";
+// One of the three Private-only step action lines — proves the current product contract, not the
+// retired multi-engine chooser copy.
+const STEP_ACTION = 'Set up Private once';
 const START_CTA = /got it — start speaking/i;
 
 async function openSession(page: Page) {

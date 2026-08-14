@@ -77,7 +77,6 @@ Build gate: `env.required` (must be set) / `env.optional` (warn-only). See `vali
 | `VITE_ENABLE_SENTRY_TRACING` | optional | A/B | Feature flag. |
 | `VITE_ENABLE_SENTRY_REPLAY` | optional | A/B | Feature flag. |
 | `VITE_ENABLE_SENTRY_CONSOLE_CAPTURE` | optional | A/B | Feature flag. |
-| `VITE_ENABLE_FREE_PLAN_SUPPORT` | optional | A/B | Product flag. |
 | `VITE_AUTH_MODE` | optional | A/B | Auth mode selector. |
 | `VITE_AUTH_TIMEOUT` | optional | A/B | Auth timeout ms. |
 | `VITE_ENABLE_INTERNAL_ROUTES` | **must be false/absent in prod** | B/E | Dev/internal routes gate. |
@@ -108,7 +107,6 @@ Rotate per `SECRET_ROTATION_RUNBOOK.md`. **Never commit real values.**
 | `STRIPE_WEBHOOK_SECRET` | C — **Ops-managed in Supabase; NOT synced from GitHub** | stripe-webhook | product-ops |
 | `STRIPE_PRO_PRICE_ID` | C — **Ops-managed in Supabase; NOT synced from GitHub** | checkout | product-ops |
 | `STRIPE_PRICE_CURRENCY` | optional (default `usd`) | checkout | product-ops | **#1282 price verification.** `stripe-checkout` retrieves `STRIPE_PRO_PRICE_ID` and refuses (`CONFIG_INVALID_PRICE`, 500, no session created) unless the resolved Stripe Price is active, recurring **monthly**, exactly **1000 cents**, in **this** currency. The amount is server-owned and never caller-supplied. Set only if the Pro price is not USD. |
-| `STRIPE_BASIC_PRICE_ID` | C — **Ops-managed in Supabase; NOT synced from GitHub** | checkout (future/placeholder) | product-ops |
 | `ASSEMBLYAI_API_KEY` | C — **Ops-managed in Supabase; NOT synced from GitHub** | assemblyai-token (Cloud STT) | product-ops |
 | `GEMINI_API_KEY` | C (+D sync) | get-ai-suggestions (NOT format-transcript — that was removed) | product-ops |
 | `ALLOWED_ORIGIN` | C (+D sync) | `_shared/cors.ts` (`getAllowedOrigins`/`parseConfiguredOrigins`) | product-ops. **APPENDS extra exact origins only.** `cors.ts` ships a frozen `BUILTIN_ALLOWED_ORIGINS` exact allowlist (`https://speaksharp-public.vercel.app`, plus `http://localhost:5173/5174` + `http://127.0.0.1:5173/5174`); `ALLOWED_ORIGIN` adds comma-separated **exact** origins (e.g. explicit preview hosts). Every entry is parsed to canonical `URL.origin` — no wildcard/suffix/substring; malformed entries are logged and ignored. Fail-closed: a disallowed origin gets a 403 with NO `Access-Control-Allow-Origin`. |
@@ -117,7 +115,7 @@ Rotate per `SECRET_ROTATION_RUNBOOK.md`. **Never commit real values.**
 | `SENTRY_DSN` (backend) | C | edge-fn error ingest | product-ops |
 | `LOG_LEVEL` (backend) | C | edge-fn log level | product-ops |
 
-> **GitHub→Supabase secret sync (`deploy-supabase-migrations.yml`, `operation=secrets`) sets ONLY `AGENT_SECRET`, `ALLOWED_ORIGIN`, and `GEMINI_API_KEY`.** All other Home-C runtime secrets — `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`, `STRIPE_BASIC_PRICE_ID`, `ASSEMBLYAI_API_KEY`, `SITE_URL` — are **Ops-managed directly in Supabase and are NOT synced from GitHub** (the sync intentionally excludes them so a CI/test value can never overwrite the live production runtime). `ALLOWED_ORIGIN` reflects #1010's deployed, live-DAST-proven exact-origin allowlist (legacy `speaksharp.vercel.app` removed).
+> **GitHub→Supabase secret sync (`deploy-supabase-migrations.yml`, `operation=secrets`) sets ONLY `AGENT_SECRET`, `ALLOWED_ORIGIN`, and `GEMINI_API_KEY`.** All other Home-C runtime secrets — `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`, `ASSEMBLYAI_API_KEY`, `SITE_URL` — are **Ops-managed directly in Supabase and are NOT synced from GitHub** (the sync intentionally excludes them so a CI/test value can never overwrite the live production runtime). `ALLOWED_ORIGIN` reflects #1010's deployed, live-DAST-proven exact-origin allowlist (legacy `speaksharp.vercel.app` removed).
 
 ---
 
@@ -153,7 +151,8 @@ Names are referenced as `secrets.*` across `.github/workflows`; a **small number
 | `PROMO_GEN_ADMIN_SECRET` | admin promo auth |
 | `GH_PAT` | GitHub PAT |
 | `VERCEL_ACCESS_TOKEN` | Vercel deploy token |
-| `FREE_TEST_PASSWORD` · `PRO_TEST_PASSWORD` · `BASIC_TEST_PASSWORD` · `CANARY_PASSWORD` · `SOAK_TEST_PASSWORD` | real test-account credentials |
+| `FREE_TEST_PASSWORD` · `PRO_TEST_PASSWORD` · `BASIC_TEST_PASSWORD` · `CANARY_PASSWORD` · `CANARY_TRIAL_PASSWORD` · `SOAK_TEST_PASSWORD` | real test-account credentials |
+| `CANARY_PAID_EMAIL` · `CANARY_TRIAL_EMAIL` | protected, operator-controlled recoverable canary identities; never hard-code or infer a domain |
 
 ### 3b. Over-classified → should be GitHub **Variables** (non-secret config)
 | Variable | Why it is NOT a secret |
@@ -162,7 +161,7 @@ Names are referenced as `secrets.*` across `.github/workflows`; a **small number
 | `SUPABASE_ANON_KEY` | client-public anon key (shipped in bundle; RLS-guarded) |
 | `SUPABASE_PROJECT_ID` | public project ref |
 | `STRIPE_PUBLISHABLE_KEY` · `VITE_STRIPE_PUBLISHABLE_KEY` | publishable key is public by design |
-| `STRIPE_PRO_PRICE_ID` · `STRIPE_BASIC_PRICE_ID` | public price identifiers |
+| `STRIPE_PRO_PRICE_ID` | public product price identifier |
 | `SENTRY_DSN` | client-public DSN (shipped in bundle) |
 | `SENTRY_API_BASE` · `SENTRY_ORG` · `SENTRY_PROJECT` | non-secret config / slugs |
 | `POSTHOG_PROJECT_API_KEY` | public ingest key (shipped in client) |
@@ -183,9 +182,9 @@ this is the safe intermediate state, nothing flipped yet):
 `POSTHOG_INGEST_HOST` · `POSTHOG_API_HOST` · `VERCEL_PROJECT_ID`
 
 - **`SUPABASE_ANON_KEY` — owner decision: KEEP as a Secret** (despite being client-public). Removed from the move set.
-- **Still pending owner values (9):** `STRIPE_PUBLISHABLE_KEY` (local is `pk_test_`; prod needs `pk_live_`),
-  `STRIPE_PRO_PRICE_ID` (local is test-mode), `STRIPE_BASIC_PRICE_ID`, `SENTRY_API_BASE` (region unconfirmed),
-  `SENTRY_ORG`, `SENTRY_PROJECT`, `POSTHOG_PROJECT_ID`, `BASIC_TEST_EMAIL`, `PRO_TEST_EMAIL`.
+- **Still pending owner values:** `STRIPE_PUBLISHABLE_KEY` (local is `pk_test_`; prod needs `pk_live_`),
+  `STRIPE_PRO_PRICE_ID` (local is test-mode), `SENTRY_API_BASE` (region unconfirmed),
+  `SENTRY_ORG`, `SENTRY_PROJECT`, `POSTHOG_PROJECT_ID`, and the protected test-account identities.
 - **Cutover progress:**
   1. ✅ **DONE** — flipped `secrets.X → vars.X` for the 8 (52 refs across 11 files; merged to `main@c010434d`). Workflows now read the Variables; the old Secrets are unused for these names.
   2. ✅ **DONE** — post-merge verification green: `CI - Test Audit` run `27153261348`, `Production Canary` run `27153261334`, and `Deploy Supabase` run `27153261357`.
@@ -230,7 +229,7 @@ Verified by reading the source on the current `main` baseline (names/homes only;
 | `VITE_SENTRY_DSN` | A/B (`VITE_*`) | `frontend/src/main.tsx:104,116` | Frontend Sentry DSN; skipped if absent or contains `example.invalid`. Sentry **environment** = `import.meta.env.MODE` (Vite build mode), `main.tsx:121` — not a dedicated var. Gating flags: `VITE_ENABLE_SENTRY_TRACING`, `VITE_ENABLE_SENTRY_REPLAY`, `VITE_ENABLE_SENTRY_CONSOLE_CAPTURE`. |
 | `SENTRY_DSN` (backend) | C (Supabase) / D (CI `vars`) | `backend/supabase/functions/observability-smoke/index.ts:27`; workflows also use `SENTRY_AUTH_TOKEN`/`SENTRY_ORG`/`SENTRY_PROJECT` | Edge/observability Sentry sender (`_shared/sentry.ts`). |
 | `SITE_URL` | C — **Ops-managed in Supabase; NOT synced from GitHub** | `stripe-checkout/index.ts:99,103,212`, `stripe-billing-portal/index.ts:75,130` (via `getEnv`) | Base URL for Stripe checkout/portal redirect URLs. Prod-required (errors if missing); local-dev fallback `http://localhost:${DEV_PORT}`. No `VITE_SITE_URL`/`PUBLIC_SITE_URL` variant exists. |
-| Stripe gating | C (Ops-managed) / D | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_BASIC_PRICE_ID`, `STRIPE_PRO_PRICE_ID` (edge, Ops-managed); `VITE_STRIPE_PUBLISHABLE_KEY` (client); `VITE_ENABLE_FREE_PLAN_SUPPORT` (`config.ts:54`) | Checkout opens ONLY when BOTH payment switches are ON (`VITE_PAYMENTS_ENABLED=true` **and** `PAYMENTS_ENABLED=true` — either OFF keeps checkout closed) **and** the live Stripe keys/webhook/prices are correctly aligned (verified by `rc-gates.yml` `paid_launch` + `billing-freeze-check.yml`, `BILLING_FREEZE_EMAILS`). Key class alone does not open checkout. Beta billing freeze active. |
+| Stripe gating | C (Ops-managed) / D | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID` (edge, Ops-managed); `VITE_STRIPE_PUBLISHABLE_KEY` (client) | Checkout opens ONLY when BOTH payment switches are ON (`VITE_PAYMENTS_ENABLED=true` **and** `PAYMENTS_ENABLED=true` — either OFF keeps checkout closed) **and** the live Stripe keys/webhook/price are correctly aligned (verified by `rc-gates.yml` `paid_launch` + `billing-freeze-check.yml`, `BILLING_FREEZE_EMAILS`). Key class alone does not open checkout. Beta billing freeze active. |
 | #979 grant check | (workflow inputs) | `.github/workflows/db-grant-check.yml` — inputs `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_ID`; default target `public.get_user_id_by_email(text)` | Read-only `has_function_privilege()` audit of EXECUTE grants; enforced by migration `20260714000000_harden_get_user_id_by_email_grant.sql`. |
 
 ## Draft #1006 — NOT deployed (do not treat as shipped vars)

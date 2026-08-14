@@ -37,22 +37,22 @@ const FeatureCard: React.FC<FeatureCardProps> = ({ icon, title, description, ico
 const features = [
   {
     icon: <Mic className="size-8" />,
-    title: "Quick browser practice",
-    description: "Start speaking in seconds. Browser mode is fastest, though punctuation and some filler-word capture may vary by browser.",
+    title: "Open Mic",
+    description: "Start a Private practice recording whenever you are ready. Speak freely, then review the transcript and coaching.",
     iconBgColor: "bg-primary/20",
     iconTextColor: "text-primary",
   },
   {
     icon: <BarChart3 className="size-8" />,
-    title: "Feedback you can act on",
-    description: "See filler words, pace, structure, vocabulary variety, and Audience Impact so you know what to improve next.",
+    title: "Focus Points",
+    description: "Optionally name the points you want to cover, then see which were detected and what to retry.",
     iconBgColor: "bg-primary/20",
     iconTextColor: "text-primary",
   },
   {
     icon: <ShieldCheck className="size-8" />,
-    title: "5-minute Private trial",
-    description: "Try a 5-minute on-device transcript for more complete practice feedback. Private runs in your browser after setup; longer recordings may take longer to finalize.",
+    title: "Private by design",
+    description: "Every customer recording uses on-device Private transcription. Trial and paid access provide the same complete product.",
     iconBgColor: "bg-primary/20",
     iconTextColor: "text-primary",
   }
@@ -74,10 +74,10 @@ export const FeaturesSection = () => {
               How it works
             </span>
             <h2 className="text-3xl sm:text-5xl font-bold text-foreground leading-tight tracking-tight mt-3">
-              Start fast. Improve with <span className="text-amber-700">better feedback</span>.
+              Practice privately. Improve with <span className="text-amber-700">clear feedback</span>.
             </h2>
             <p className="mt-3 max-w-[760px] text-lg font-medium leading-relaxed text-foreground/70">
-              Use quick browser practice to start, then try Private on-device transcription when transcript quality matters.
+              Use Open Mic as your default, add Focus Points when useful, and leave each session with one next action.
             </p>
           </div>
         </motion.div>

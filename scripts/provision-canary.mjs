@@ -23,9 +23,11 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // optional — recovery path only
 const CANARY_EMAIL = process.env.CANARY_EMAIL;
 const CANARY_PASSWORD = process.env.CANARY_PASSWORD;
+const CANARY_EXPECTED_ACCESS = process.env.CANARY_EXPECTED_ACCESS;
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !CANARY_EMAIL || !CANARY_PASSWORD) {
-  console.error('❌ Missing required env: SUPABASE_URL, SUPABASE_ANON_KEY, CANARY_EMAIL, CANARY_PASSWORD');
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !CANARY_EMAIL || !CANARY_PASSWORD ||
+    !['active-trial', 'paid-continuation'].includes(CANARY_EXPECTED_ACCESS)) {
+  console.error('❌ Missing/invalid canary configuration.');
   process.exit(1);
 }
 
@@ -35,14 +37,18 @@ const admin = SUPABASE_SERVICE_ROLE_KEY ? createClient(SUPABASE_URL, SUPABASE_SE
 
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 console.log('🐤 Canary provisioning (sign-in-first health)');
-console.log(`Target: ${CANARY_EMAIL}`);
+console.log(`Lane: ${CANARY_EXPECTED_ACCESS}`);
 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-const result = await provisionCanary({ anon, admin, config: { email: CANARY_EMAIL, password: CANARY_PASSWORD } });
+const result = await provisionCanary({
+  anon,
+  admin,
+  config: { email: CANARY_EMAIL, password: CANARY_PASSWORD, lane: CANARY_EXPECTED_ACCESS },
+});
 
 if (result.status === 'healthy' || result.status === 'recovered') {
-  console.log(`  [OK] ${result.status === 'recovered' ? 'Recovered and re-verified' : 'Signed in'}; tier=${result.tier}; local_profile_binding=true.`);
-  console.log('✅ Canary account locally healthy; authoritative Stripe verification is a cutover prerequisite.');
+  console.log(`  [OK] ${result.status === 'recovered' ? 'Recovered and re-verified' : 'Signed in'}; lane=${result.lane}; local_profile_binding=true.`);
+  console.log('✅ Canary account locally healthy; the browser journey must still prove server-authoritative access.');
   process.exit(0);
 }
 if (result.status === 'entitlement_error') {

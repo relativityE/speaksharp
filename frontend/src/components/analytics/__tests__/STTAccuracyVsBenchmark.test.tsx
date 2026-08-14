@@ -45,7 +45,7 @@ describe('STTAccuracyVsBenchmark', () => {
         } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
-        expect(screen.getByText('STT Accuracy vs Benchmark')).toBeInTheDocument();
+        expect(screen.getByText('Transcription quality')).toBeInTheDocument();
     });
 
     it('should render engine quality fallback when no WER benchmark data exists', () => {
@@ -95,10 +95,12 @@ describe('STTAccuracyVsBenchmark', () => {
         } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
-        expect(screen.getByText('STT Engine Session Quality')).toBeInTheDocument();
+        expect(screen.getByText('Transcription quality')).toBeInTheDocument();
         expect(screen.getByText(/Based on saved session metrics/)).toBeInTheDocument();
-        expect(screen.getByText(/Browser/)).toBeInTheDocument();
-        expect(screen.getByText(/Cloud/)).toBeInTheDocument();
+        expect(screen.getAllByText(/Legacy recording/).length).toBeGreaterThan(0);
+        for (const retired of ['Browser', 'Cloud', 'Native', 'assemblyai', 'whisper-base', 'transformers-js-v4']) {
+            expect(screen.queryByText(new RegExp(retired, 'i'))).not.toBeInTheDocument();
+        }
         expect(screen.queryByText('Theoretical Max')).not.toBeInTheDocument();
     });
 
@@ -125,7 +127,7 @@ describe('STTAccuracyVsBenchmark', () => {
         } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
-        expect(screen.getByText('Complete a session to compare STT engine quality.')).toBeInTheDocument();
+        expect(screen.getByText('Complete a session to see transcription quality.')).toBeInTheDocument();
     });
 
     it('should render specific session view when URL has sessionId parameter', () => {
@@ -165,11 +167,38 @@ describe('STTAccuracyVsBenchmark', () => {
         } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
-        expect(screen.getByText('Session STT Accuracy')).toBeInTheDocument();
-        const engineEls = screen.getAllByText(/Private/);
-        expect(engineEls.length).toBeGreaterThan(0);
-        expect(screen.getByText(/This session used the/)).toBeInTheDocument();
-        expect(screen.getByText('Current WER benchmark evidence is not available for this STT runtime yet.')).toBeInTheDocument();
+        expect(screen.getByText('Session transcription accuracy')).toBeInTheDocument();
+        expect(screen.getByText(/Internal provider and implementation labels/)).toBeInTheDocument();
         expect(screen.queryByText(/Theoretical Max/)).not.toBeInTheDocument();
+    });
+
+    it('neutralizes every historical engine/provider/variant in customer-visible output', () => {
+        mockUseAnalytics.mockReturnValue({
+            accuracyData: [],
+            sessionHistory: ['native', 'cloud', 'assemblyai', 'browser', 'transformers-js-v4'].map((engine, index) => ({
+                id: `legacy-${index}`,
+                user_id: 'user',
+                created_at: new Date().toISOString(),
+                duration: 60,
+                transcript: 'historical transcript',
+                engine,
+                clarity_score: 80,
+                filler_words: {},
+            })),
+            loading: false,
+            error: null,
+            overallStats: {},
+            fillerWordTrends: {},
+            topFillerWords: [],
+            weeklySessionsCount: 0,
+            weeklyActivity: [],
+            refreshAnalytics: vi.fn(),
+        } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
+
+        const { container } = render(<STTAccuracyVsBenchmark />);
+        expect(container).toHaveTextContent('Legacy recording');
+        for (const retired of ['native', 'cloud', 'assemblyai', 'browser', 'transformers-js-v4']) {
+            expect(container.textContent?.toLowerCase()).not.toContain(retired);
+        }
     });
 });

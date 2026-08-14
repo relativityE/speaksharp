@@ -1,3 +1,7 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+> **Current authority:** [`TESTER_OPERATIONS.md`](./TESTER_OPERATIONS.md), [`TESTER_GUIDE.md`](./TESTER_GUIDE.md), and [`RELEASE_PROCESS.md`](./RELEASE_PROCESS.md).
+
 # Internal Test Protocol — Soft Release (operators / dev / test agents)
 
 **Last updated:** 2026-07-20
@@ -128,9 +132,10 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
 - Run `.github/workflows/live-release-matrix.yml` with the first-time tester / sample suite.
   It clears browser model storage, creates a fresh account, prepares Private STT, records,
   stops, and verifies save/history like a first-time tester.
-- This suite owns its own cleanup (fresh account is deleted in `afterEach`). The reusable
-  live-test accounts (`*-reuse@speaksharp.app`) are intentional and must **not** be deleted by
-  hygiene tooling. Confirm persistent `auth.users` Δ = 0 around any live run.
+- This suite owns its own cleanup (fresh account is deleted in `afterEach`). Historical reusable
+  accounts on unaffiliated domains must not be used by new runs. Inventory them read-only, preserve
+  them for forensics until deletion is separately authorized, and use only protected identities on
+  an operator-controlled domain. Confirm persistent `auth.users` Δ = 0 around any live run.
 
 ---
 

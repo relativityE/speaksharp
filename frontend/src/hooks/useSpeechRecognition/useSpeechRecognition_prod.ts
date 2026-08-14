@@ -1,11 +1,9 @@
 import { useMemo, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getSupabaseClient } from '@/lib/supabaseClient';
 import { calculateTranscriptStats } from '../../utils/fillerWordUtils';
 import logger from '../../lib/logger';
 import { useProfile } from '../useProfile';
 import { toast } from '@/lib/toast';
-import { checkRateLimit } from '../../lib/rateLimiter';
 
 import { useTranscriptionState } from './useTranscriptionState';
 import { useFillerWords } from './useFillerWords';
@@ -13,38 +11,13 @@ import { useTranscriptionControl } from './useTranscriptionControl';
 import { useTranscriptionCallbacks } from './useTranscriptionCallbacks';
 import { useVocalAnalysis } from '../useVocalAnalysis';
 import { useUsageLimit } from '../useUsageLimit';
-import { API_CONFIG } from '../../config';
 import type { UseSpeechRecognitionProps, TranscriptStats, TranscriptionPolicy, Chunk } from './types';
 import type { SttStatus } from '@/types/transcription';
 import { E2E_DETERMINISTIC_NATIVE, buildPolicyForUser } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '../../services/SpeechRuntimeController';
-import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement, isPro } from '@/constants/subscriptionTiers';
-
-function getCloudTokenFailureMessage(err: unknown): string {
-    const errorLike = err as {
-        message?: string;
-        status?: number;
-        context?: { status?: number };
-    };
-    const message = errorLike?.message ?? String(err);
-    const status = errorLike?.context?.status ?? errorLike?.status;
-
-    if (status === 403 || /Cloud STT is (available (with Pro|as a Pro feature)|a Pro feature)|paid Early Access/i.test(message)) {
-        return 'This transcription path is unavailable. Private on-device transcription is the supported customer experience.';
-    }
-
-    if (status === 401 || /Invalid or expired token|Missing Authorization/i.test(message)) {
-        return 'Please sign in again before using Cloud STT.';
-    }
-
-    if (status === 429 || /Usage limit reached/i.test(message)) {
-        return 'Daily usage limit reached.';
-    }
-
-    return 'Cloud STT Service Unavailable. Check connection or switch modes.';
-}
+import { getEffectiveSubscriptionStatus, isPro } from '@/constants/subscriptionTiers';
 
 // Error handling helper
 function handleTranscriptionError(err: Error) {
@@ -105,19 +78,12 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     } = store;
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isEffectiveProUser = isPro(effectiveSubscriptionStatus);
-    const canUseCloudStt = isEffectiveProUser && hasCloudSttEntitlement(profile);
-    const effectivePolicyMode = isEffectiveProUser
-        ? sttMode === 'cloud' && !canUseCloudStt ? 'private' : sttMode
-        : 'native';
-    // NOTE (P2, tracked in BACKLOG): this writer remains TIER-ONLY for now — it builds the policy from
-    // `isEffectiveProUser`, not the sample-aware `isPro || hasPrivateSampleEntitlement` capability, so a
-    // free user with a valid private sample would compute `allowPrivate: false` HERE. This is currently
-    // safe because the Session lifecycle builds and applies the sample-aware policy at select/record
-    // (and `startRecording` overwrites the controller policy), so this hook's policy is not the authority
-    // for a sample user's Private recording. Unifying all writers on one capability source is deferred.
+    void sttMode;
+    // Commercial state cannot widen the customer engine set. The session lifecycle's can_start result
+    // remains recording authority; this compatibility hook always publishes the Private-only policy.
     const transcriptionPolicy = useMemo(
-        () => buildPolicyForUser(isEffectiveProUser, effectivePolicyMode, { allowCloud: canUseCloudStt }),
-        [isEffectiveProUser, effectivePolicyMode, canUseCloudStt],
+        () => buildPolicyForUser(isEffectiveProUser, 'private'),
+        [isEffectiveProUser],
     );
     useTranscriptionControl();
     const fillerSourceChunks = useMemo(() => {
@@ -138,27 +104,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     // timer logic is centralized in useSessionStore.tick (driven by useSessionLifecycle)
 
     // 2. Specialized Callbacks (Controller Auth)
-    const getAssemblyAIToken = useCallback(async (): Promise<string | null> => {
-        const rateCheck = checkRateLimit('ASSEMBLYAI_TOKEN');
-        if (!rateCheck.allowed && rateCheck.retryAfterMs && rateCheck.retryAfterMs > 0) {
-            const seconds = Math.ceil(rateCheck.retryAfterMs / 1000);
-            toast.error(`Please wait ${seconds} seconds before starting another session.`);
-            return null;
-        }
-
-        try {
-            const supabase = getSupabaseClient();
-            const { data, error } = await supabase.functions.invoke(API_CONFIG.ASSEMBLYAI_TOKEN_ENDPOINT, { body: {} });
-            if (error) throw new Error(`Token function error: ${error.message}`);
-            return data.token;
-        } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : String(err);
-            logger.error({ err, message }, "Error getting AssemblyAI token");
-            logger.error(`[CloudAssemblyAI] AssemblyAI token callback failed: ${message}`);
-            toast.error(getCloudTokenFailureMessage(err));
-            return null;
-        }
-    }, []);
+    const getAssemblyAIToken = useCallback(async (): Promise<string | null> => null, []);
 
     // 3. Callback Synchronization with Authoritative Controller
     useTranscriptionCallbacks({

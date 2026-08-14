@@ -13,6 +13,8 @@ DECLARE
   v_status text;
   v_subscription text;
   v_customer text;
+  v_cancel_at_period_end boolean;
+  v_current_period_end timestamptz;
   v_user_a uuid := '00000000-0000-0000-0000-000000001287';
   v_user_b uuid := '00000000-0000-0000-0000-000000001288';
   v_user_c uuid := '00000000-0000-0000-0000-000000001289';
@@ -98,6 +100,39 @@ BEGIN
   ) INTO v_result;
   IF v_result->>'entitlement' <> 'pro' THEN
     RAISE EXCEPTION 'approved active snapshot did not grant Pro';
+  END IF;
+
+  -- The accepted RPC's cancellation metadata is validated and retained as audit-only state. It does not
+  -- change active entitlement, and malformed/ambiguous cancellation state fails before any receipt write.
+  SELECT public.apply_stripe_subscription_snapshot(
+    'evt_audit_fields', 'sub_matrix_live', 'cus_matrix_live', 'active', true,
+    true, 9999999999, NULL, 1001
+  ) INTO v_result;
+  SELECT stripe_cancel_at_period_end, stripe_current_period_end
+    INTO v_cancel_at_period_end, v_current_period_end
+    FROM public.user_profiles WHERE id = v_user_a;
+  IF v_result->>'entitlement' <> 'pro' OR NOT v_cancel_at_period_end OR v_current_period_end IS NULL THEN
+    RAISE EXCEPTION 'cancellation audit fields were not retained without changing entitlement';
+  END IF;
+
+  BEGIN
+    PERFORM public.apply_stripe_subscription_snapshot(
+      'evt_audit_missing_period', 'sub_matrix_live', 'cus_matrix_live', 'active', true,
+      true, NULL, NULL, 1001
+    );
+    RAISE EXCEPTION 'scheduled cancellation without current_period_end was accepted';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM = 'scheduled cancellation without current_period_end was accepted' THEN
+      RAISE;
+    END IF;
+    IF SQLERRM NOT LIKE '%scheduled cancellation requires current_period_end%' THEN
+      RAISE;
+    END IF;
+  END;
+  SELECT count(*)::int INTO v_count FROM public.processed_webhook_events
+   WHERE event_id = 'evt_audit_missing_period';
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'invalid cancellation metadata retained a receipt';
   END IF;
 
   -- Live customer mismatch fails and cannot replace the stored customer.

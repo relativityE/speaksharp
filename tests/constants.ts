@@ -39,6 +39,7 @@ export const SOAK_TEST_USER = {
 export const CANARY_USER = {
   email: process.env.CANARY_EMAIL!, // Required env var (injected by CI or .env)
   password: process.env.CANARY_PASSWORD || '',
+  lane: (process.env.CANARY_EXPECTED_ACCESS || 'active-trial') as 'active-trial' | 'paid-continuation',
 };
 
 // The two specific credentials we use for frontend isolated sandboxes.
@@ -110,7 +111,7 @@ export const TEST_IDS = {
   TRANSCRIPT_CONTAINER: 'transcript-container',
   TRANSCRIPT_DISPLAY: 'transcript-display',
   MODEL_LOADING_INDICATOR: 'model-loading-indicator',
-  PRIVATE_SAMPLE_SETUP_BUTTON: 'first-run-setup-private',
+  PRIVATE_MODEL_SETUP_BUTTON: 'first-run-setup-private',
 
   // Metrics
   CLARITY_SCORE_VALUE: 'clarity-score-value',

@@ -130,10 +130,7 @@ describe('useSessionStore', () => {
             expect(useSessionStore.getState().frozenTranscriptAtStop).toBe('Already committed still speaking');
         });
 
-        it('keeps the just-saved transcript visible when a Private sample auto-save forces a Browser fallback switch', () => {
-            // When a first-time Private sample auto-ends and saves, the app force-switches the
-            // mode to native/browser. The transcript the tester just recorded must stay visible
-            // on the session page (it is saved + correct in Analytics) until the next recording.
+        it('keeps the just-saved transcript visible across post-save internal mode normalization', () => {
             useSessionStore.setState({
                 runtimeState: 'READY',
                 sttMode: 'private',
@@ -287,11 +284,8 @@ describe('useSessionStore', () => {
         });
     });
 
-    // PR 1a / #772 regression guard: setSTTMode's GLOBAL behavior must stay unchanged. The B fix
-    // (clearing a stale transcript on a MANUAL mode switch) lives in the user-initiated setMode
-    // handler, NOT in setSTTMode. So setSTTMode must still PRESERVE a just-saved transcript across
-    // the automatic post-save force-switch (#772 Private-sample auto-end), and still RESET the
-    // visible session on a normal (unsaved) mode switch.
+    // setSTTMode preserves a just-saved transcript across internal normalization and resets an unsaved
+    // visible session on a normal mode switch.
     describe('setSTTMode visible-session reset guard (#772)', () => {
         const seedSavedSession = (sessionSaved: boolean) => {
             useSessionStore.setState({
@@ -305,7 +299,7 @@ describe('useSessionStore', () => {
             });
         };
 
-        it('PRESERVES a just-saved transcript on a post-save force-switch (sessionSaved=true) — #772 intact', () => {
+        it('preserves a just-saved transcript on post-save normalization', () => {
             seedSavedSession(true);
             useSessionStore.getState().setSTTMode('cloud');
             const state = useSessionStore.getState();

@@ -134,7 +134,6 @@ export interface SessionState {
     nativeFormatting: NativeFormattingUiState;
     /** Post-persistence finalized reconciliation for the settled Session page; null until a save. */
     finalizedAnalysis: FinalizedAnalysisState | null;
-    sunsetModal: { type: 'daily' | 'monthly'; open: boolean };
     isBooting: boolean;
 }
 
@@ -174,7 +173,6 @@ interface SessionActions {
     setSessionSaved: (saved: boolean) => void;
     setNativeFormatting: (formatting: NativeFormattingUiState) => void;
     setFinalizedAnalysis: (analysis: FinalizedAnalysisState | null) => void;
-    setSunsetModal: (modal: { type: 'daily' | 'monthly'; open: boolean }) => void;
     setIsBooting: (isBooting: boolean) => void;
 }
 
@@ -240,7 +238,6 @@ const initialState: SessionState = {
     sessionSaved: false,
     nativeFormatting: { status: 'idle', startedAt: null },
     finalizedAnalysis: null,
-    sunsetModal: { type: 'daily', open: false },
     isBooting: false,
 };
 
@@ -401,10 +398,8 @@ export const useSessionStore = create<SessionStore>((set) => {
                 state.runtimeState !== 'RECORDING' &&
                 !state.isTranscriptFinalizing &&
                 !state.frozenTranscriptAtStop &&
-                // #772: when a Private sample auto-ends + saves, the app force-switches the mode
-                // to native/browser. Don't wipe the just-saved transcript on that switch — keep it
-                // visible on /session until the next recording (which resets via
-                // resetAnalysisStateForNewRecording). Saved data is untouched either way.
+                // Preserve a just-saved transcript across any post-save internal mode normalization.
+                // The next recording resets visible state via resetAnalysisStateForNewRecording.
                 !state.sessionSaved;
             const next = {
                 ...state,
@@ -530,11 +525,6 @@ export const useSessionStore = create<SessionStore>((set) => {
             sessionSaved: saved,
         }),
 
-    setSunsetModal: (sunsetModal) =>
-        set({
-            sunsetModal,
-        }),
-    
     setIsBooting: (isBooting) =>
         set({
             isBooting,

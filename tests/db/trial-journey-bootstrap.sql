@@ -54,14 +54,32 @@ ON CONFLICT (tier_name) DO NOTHING;
 CREATE TABLE IF NOT EXISTS public.sessions (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id uuid NOT NULL,
+    title text,
     duration int DEFAULT 0,
     total_words int DEFAULT 0,
+    filler_words jsonb DEFAULT '{}'::jsonb,
+    accuracy float8,
+    ground_truth text,
     transcript text,
+    clarity_score float8,
+    wpm float8,
+    idempotency_key uuid,
+    engine_version text,
+    model_name text,
+    device_type text,
     status text DEFAULT 'active',
     status_reason text,
     engine text DEFAULT 'private',
+    expires_at timestamptz,
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.usage_checkpoints (
+    session_id uuid,
+    user_id uuid,
+    incremental_seconds int,
+    engine_type text
 );
 
 -- Production-shaped direct-table privileges and pre-#1282 owner-wide RLS. The enforcement migration must

@@ -13,13 +13,14 @@ import { safeResetSessionTelemetry } from '@/services/telemetry/sessionTelemetry
 import { computeLegacyMetrics, compareSnapshotToLegacy, type ParityReport } from '@/services/telemetry/metricsParity';
 import { measureFillerDivergence, cloneFillerCounts, buildSanitizedFillerArtifact, type FillerDivergenceReport, type SanitizedFillerArtifact } from '@/services/telemetry/fillerDivergence';
 import {
-    PRIVATE_SAMPLE_EVENTS,
-    emitPrivateSample,
-    resolveSampleAssignment,
-    setPrivateSampleContext,
-    buildSampleEnvProps,
+    PRIVATE_TELEMETRY_EVENTS,
+    emitPrivateTelemetry,
+    resolvePrivateAssignment,
+    setPrivateTelemetryContext,
+    clearPrivateRecordingIdentity,
+    buildPrivateEnvProps,
     buildEngineVersion,
-} from '@/services/transcription/privateSampleTelemetry';
+} from '@/services/transcription/privateTelemetry';
 import { ATTRIBUTION_STATUS, type AttributionStatus } from '@/constants/attributionStatus';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { saveSession, completeSession, heartbeatSession } from '@/lib/storage';
@@ -537,7 +538,7 @@ export class SpeechRuntimeController {
         return useSessionStore;
     }
 
-    /** Active DB session id (null when no session is persisted). For sample telemetry. */
+    /** Active DB session id (null when no session is persisted). */
     public getSessionId(): string | null {
         return this.sessionId;
     }
@@ -548,14 +549,12 @@ export class SpeechRuntimeController {
     }
 
     /**
-     * Set the session-scoped Private-sample telemetry context (engine_variant +
-     * assignment_source + flag attribution + model + release) so every downstream
-     * sample event is consistently attributable. Never throws.
+     * Set content-free Private engine telemetry context and capture the durable engine version.
      */
-    public applyPrivateSampleContext(): void {
+    public applyPrivateTelemetryContext(): void {
         try {
             const flags = getV4FlagState();
-            const assignment = resolveSampleAssignment({
+            const assignment = resolvePrivateAssignment({
                 resolvedEngineType: this.getResolvedEngineType(),
                 overrideActive: isPrivateEngineOverrideActive(),
                 allowlisted: flags.allowlisted,
@@ -566,7 +565,7 @@ export class SpeechRuntimeController {
             // the durable engine_version is always private_v2:<model> / private_v4:<model>.
             const model = meta?.modelName ?? (assignment.engine_variant === 'private_v4' ? 'base_q4' : 'whisper-base.en');
             const release = typeof window !== 'undefined' ? (window.__APP_RELEASE__ ?? null) : null;
-            setPrivateSampleContext({
+            setPrivateTelemetryContext({
                 session_id: this.sessionId,
                 engine_variant: assignment.engine_variant,
                 assignment_source: assignment.assignment_source,
@@ -584,7 +583,7 @@ export class SpeechRuntimeController {
         }
     }
 
-    // Private-sample SETUP telemetry, driven by the engine status stream so it fires regardless
+    // Private setup telemetry, driven by the engine status stream so it fires regardless
     // of how the model load was triggered (warmUp / auto-init on mode select / explicit download).
     private privateSetupStartedAt: number | null = null;
     private privateSetupResolved = false;
@@ -762,6 +761,7 @@ export class SpeechRuntimeController {
                         this.pendingFullSaveRetry = { ...fullSave, sessionId: createdId };
                     }
                     if (!this.sessionId) this.sessionId = createdId;
+                    this.applyPrivateTelemetryContext();
                 }
                 const completion = await completeSession(targetSessionId, fullSave.completeArgs);
                 if (!completion?.success) return false;
@@ -1164,7 +1164,7 @@ export class SpeechRuntimeController {
         }
     }
 
-    private emitPrivateSampleSetupStatus(type: string): void {
+    private emitPrivateSetupStatus(type: string): void {
         try {
             if ((this.service?.getMode?.() ?? null) !== 'private') return;
             const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -1173,19 +1173,19 @@ export class SpeechRuntimeController {
                 if (this.privateSetupStartedAt == null || this.privateSetupResolved) {
                     this.privateSetupStartedAt = now;
                     this.privateSetupResolved = false;
-                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_STARTED, { ...buildSampleEnvProps() });
+                    emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.SETUP_STARTED, { ...buildPrivateEnvProps() });
                 }
             } else if (type === 'ready' && !this.privateSetupResolved) {
                 this.privateSetupResolved = true;
-                this.applyPrivateSampleContext();
-                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_SUCCEEDED, {
+                this.applyPrivateTelemetryContext();
+                emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.SETUP_SUCCEEDED, {
                     setup_duration_ms: this.privateSetupStartedAt != null ? Math.round(now - this.privateSetupStartedAt) : null,
-                    ...buildSampleEnvProps(),
+                    ...buildPrivateEnvProps(),
                 });
             } else if (type === 'error' && !this.privateSetupResolved && this.privateSetupStartedAt != null) {
                 this.privateSetupResolved = true;
-                this.applyPrivateSampleContext();
-                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_FAILED, { error_code: 'SetupError', ...buildSampleEnvProps() });
+                this.applyPrivateTelemetryContext();
+                emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.SETUP_FAILED, { error_code: 'SetupError', ...buildPrivateEnvProps() });
             }
         } catch {
             /* telemetry must never break the recording pipeline */
@@ -2095,7 +2095,7 @@ export class SpeechRuntimeController {
         if (status.type === 'ready') {
             this.setEngineReady(true);
         }
-        this.emitPrivateSampleSetupStatus(status.type);
+        this.emitPrivateSetupStatus(status.type);
         // P0.2: surface engine-originated local finalization status to the store so
         // the UI shows "Processing speech locally…" during STOPPING instead of the
         // stale "Recording active". Scoped to informational status while a session
@@ -2533,6 +2533,9 @@ export class SpeechRuntimeController {
         // #1033: lock engine selection SYNCHRONOUSLY at Start intent — before any async enqueue reaches
         // INITIATING — so a rapid engine change right after Start cannot win the race. Released in transition().
         this.engineSelectionIntentLocked = true;
+        // This take has no persisted row yet. Clear the previous take synchronously so a report opened
+        // during setup/start cannot inherit stale session correlation.
+        clearPrivateRecordingIdentity();
         this.policy = policy || null;
         this.userWords = userWords;
         // A new recording supersedes any prior stop's pending finalization: bump the finalize token so a
@@ -2838,6 +2841,7 @@ export class SpeechRuntimeController {
 
                     if (dbSession) {
                         this.sessionId = dbSession.id;
+                        this.applyPrivateTelemetryContext();
                         // #1161 (Option 2): ATOMICALLY bind the pre-session intent (registered before start) to the
                         // session this recording just produced. AWAITED; a bind failure/miss ⇒ the session resolves
                         // definitively unattributed later (no authority); recording unaffected. Only local trusted
@@ -3189,6 +3193,7 @@ export class SpeechRuntimeController {
                             if (saveResult?.session?.id) {
                                 sessionId = saveResult.session.id;
                                 this.sessionId = sessionId;
+                                this.applyPrivateTelemetryContext();
                                 service.setSessionId?.(sessionId);
                                 logger.warn({ sessionId, mode }, '[DEBUG-STOP] Recovered missing sessionId with late session create');
                             }
@@ -3485,11 +3490,6 @@ export class SpeechRuntimeController {
                             const supabase = getSupabaseClient();
                             const { data: { session } } = await supabase.auth.getSession();
                             const userId = session?.user?.id;
-
-                            if (userId) {
-                                const { updateLocalUsage } = await import('../hooks/useUsageLimit');
-                                updateLocalUsage(userId, Math.round(duration));
-                            }
 
                             logger.info({
                                 sessionId,

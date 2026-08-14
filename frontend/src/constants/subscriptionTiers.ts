@@ -7,7 +7,6 @@
 
 export const SUBSCRIPTION_TIERS = {
     FREE: 'free',
-    BASIC: 'basic',
     PRO: 'pro',
 } as const;
 
@@ -16,8 +15,6 @@ export type SubscriptionTier = typeof SUBSCRIPTION_TIERS[keyof typeof SUBSCRIPTI
 export function normalizeSubscriptionTier(subscriptionStatus: string | undefined | null): SubscriptionTier {
     return subscriptionStatus === SUBSCRIPTION_TIERS.PRO
         ? SUBSCRIPTION_TIERS.PRO
-        : subscriptionStatus === SUBSCRIPTION_TIERS.BASIC
-            ? SUBSCRIPTION_TIERS.BASIC
         : SUBSCRIPTION_TIERS.FREE;
 }
 
@@ -37,11 +34,7 @@ type TierProfile = {
     subscription_id?: string | null;
 } | null | undefined;
 
-/**
- * Legacy trial timestamps are no longer an entitlement source. Private access
- * for unpaid users is decided by the server-backed private sample fields from
- * check_usage_limit; paid access requires Stripe/subscription evidence.
- */
+/** Legacy trial timestamps are not a client-side entitlement source. */
 export function isActiveTrialProfile(_profile: TierProfile, _nowMs = Date.now()): boolean {
     return false;
 }
@@ -54,26 +47,6 @@ export function hasPaidProEntitlement(profile: TierProfile): boolean {
     // Production Pro requires the canonical stripe_subscription_id. The legacy subscription_id
     // column is deprecated and intentionally NOT read here (see migration deprecating it).
     return Boolean(profile?.stripe_subscription_id?.trim());
-}
-
-export function hasCloudSttEntitlement(profile: TierProfile): boolean {
-    return hasPaidProEntitlement(profile);
-}
-
-type SampleUsageLimit = {
-    private_sample_available?: boolean;
-    private_sample_seconds_remaining?: number;
-} | null | undefined;
-
-/**
- * Private-sample entitlement — server-driven (check_usage_limit): a free user has an ACTIVE Private
- * sample when the server marks it available AND seconds remain. Pure w.r.t. billing: it never reads the
- * payments kill-switch (arePaymentsEnabled), so fail-closed beta billing cannot change whether the
- * sample is available or consumed. Exhausted (no seconds / not available) => denied.
- */
-export function hasActivePrivateSample(usageLimit: SampleUsageLimit): boolean {
-    const remaining = Math.max(0, usageLimit?.private_sample_seconds_remaining ?? 0);
-    return usageLimit?.private_sample_available === true && remaining > 0;
 }
 
 export function getEffectiveSubscriptionStatus(
@@ -98,13 +71,6 @@ export function getEffectiveSubscriptionStatus(
     return profileTier;
 }
 
-/**
- * Check if a subscription status indicates the future paid Basic tier
- */
-export function isBasic(subscriptionStatus: string | undefined | null): boolean {
-    return subscriptionStatus === SUBSCRIPTION_TIERS.BASIC;
-}
-
 export function isFree(subscriptionStatus: string | undefined | null): boolean {
     return normalizeSubscriptionTier(subscriptionStatus) === SUBSCRIPTION_TIERS.FREE;
 }
@@ -114,31 +80,16 @@ export function isFree(subscriptionStatus: string | undefined | null): boolean {
  */
 export function getTierLabel(subscriptionStatus: string | undefined | null): string {
     if (isPro(subscriptionStatus)) return 'Pro';
-    if (isBasic(subscriptionStatus)) return 'Basic';
     return 'Free';
 }
 
-/**
- * Tier-based limits
- */
+/** Content-feature constants retained for legacy status compatibility. */
 export const TIER_LIMITS = {
     [SUBSCRIPTION_TIERS.FREE]: {
-        dailySeconds: 3600,
         maxCustomWords: 100,
-        maxSessionDuration: Infinity,
-    },
-    [SUBSCRIPTION_TIERS.BASIC]: {
-        dailySeconds: 3600, // 1 hour per day
-        maxCustomWords: 100, // Matched with Pro
-        maxSessionDuration: Infinity, // No session-level cap, only daily
     },
     [SUBSCRIPTION_TIERS.PRO]: {
-        // 2h/day — MUST match the effective enforcement source: DB tier_configs 'pro'
-        // (daily_limit_seconds = 7200, monthly 180000). Pro is NOT unlimited for this release;
-        // raising it is a deliberate Product/pricing decision, not a stale-config drift.
-        dailySeconds: 7200,
         maxCustomWords: 100,
-        maxSessionDuration: Infinity, // No session-level cap, only daily
     },
 } as const;
 
@@ -153,8 +104,5 @@ export function getTierLimits(subscriptionStatus: string | undefined | null) {
 /**
  * Get specific limit getters for centralized access
  */
-export const getDailyLimit = (subscriptionStatus: string | undefined | null) =>
-    getTierLimits(subscriptionStatus).dailySeconds;
-
 export const getMaxFillerWords = (subscriptionStatus: string | undefined | null) =>
     getTierLimits(subscriptionStatus).maxCustomWords;

@@ -127,7 +127,7 @@ Exact current measured values live in the latest CI `software-quality.latest.jso
 | Usage-limit Edge Function p95 | < 2 s floor; < 1 s target | SLO | `check-usage-limit` tests + backend stress path | Needs fresh GitHub stress artifact. |
 | Session-save RPC p95 | < 2 s floor; < 1 s target | SLO | RPC used by backend stress path | Needs fresh GitHub stress artifact with p50/p95 and counts. |
 | Stress failure rate | 0% floor and target | SLO | Stress script checks auth, usage-Edge, session RPC success counts | State exact concurrency tested; do not generalize. |
-| Browser endurance | ≤ 50 MB max JS-heap growth (when memory API available) + no functional failure | SLO | Browser endurance path (Native mode) emits memory-growth evidence when exposed | Needs fresh artifact with duration/memory growth or explicit memory-unavailable note. |
+| Browser endurance | ≤ 50 MB max JS-heap growth (when memory API available) + no functional failure | SLO | Private browser journey emits memory-growth evidence when exposed | Needs fresh artifact with duration/memory growth or explicit memory-unavailable note. |
 | PDF export durability | 99.9% aspirational from valid state | SLC candidate | PDF unit/e2e/live artifact evidence | Too aggressive for external claim until repeated export evidence exists. |
 | Session restoration | 95% aspirational | SLC candidate | Product intent exists | Evidence weak; needs targeted restoration proof before public claim. |
 
@@ -144,7 +144,7 @@ Availability 99.9% is common for mature paid SaaS; 99.5% is realistic for early 
 | Can real Supabase auth/users survive concurrent traffic? | `stress-endurance.yml` backend stress, auth phase. |
 | Can `check-usage-limit` respond under load? | `stress-endurance.yml` backend stress, usage-edge phase. |
 | Can `create_session_and_update_usage` handle concurrent writes/locking? | `stress-endurance.yml` backend stress, session-rpc phase. |
-| Can the browser run an extended Native flow without UI/state/memory problems? | `stress-endurance.yml` browser endurance. |
+| Can the browser run an extended Private flow without UI/state/memory problems? | `stress-endurance.yml` browser endurance. |
 | Are core workflows correct in normal CI? | `CI - Test Audit`. |
 | Are deployed boundaries healthy? | Production smoke/canary, live release matrix, ops-health status. |
 
@@ -164,7 +164,7 @@ Launch decisions use clean, privacy-safe product signals, never stale test traff
 
 **Practice Loop funnel:** `practice_entry_viewed` → `practice_mode_selected` (`quick`/`objective`) → `freeform_practice_started` / `session_started` → `session_saved` (the finalize/save success signal). There is no dedicated `session_save_failed` event today; save failure is the `session_started`-without-`session_saved` drop-off (surfaced to the user as an actionable retry). A content-free `session_save_failed` (bounded `error_code`) is a recommended follow-on if a direct save-failure SLO is required.
 
-**Private setup/start/finalize signals** (`privateSampleTelemetry.ts`, allowlisted): setup `private_sample_setup_started` → `_setup_succeeded` / `_setup_failed`; start `private_sample_recording_started` → `_first_transcript_seen` / `private_sample_error`; finalize `private_sample_recording_stopped` → `_saved`.
+**Private engineering signals** (`privateTelemetry.ts`, allowlisted): `private_setup_started` → `private_setup_succeeded` / `private_setup_failed`, plus bounded `private_error` and `report_issue_submitted`. Recording completion remains represented by the content-free Practice/session funnel rather than sample-specific lifecycle events.
 
 **Launch SLOs & alert thresholds** (internal launch-health signals on the sanitized baseline; distinct from the reliability SLOs above and from STT WER/latency in `STT.md`; alerts page on two consecutive breached windows):
 
@@ -172,11 +172,11 @@ Launch decisions use clean, privacy-safe product signals, never stale test traff
 |---|---|---|
 | Practice-start → save conversion | ≥ 70% of `session_started` reach `session_saved` | < 55% |
 | Private setup success | ≥ 95% of `_setup_started` reach `_setup_succeeded` | < 90% |
-| Private start success | ≥ 98% of recording setups reach `_first_transcript_seen` | < 95% |
-| Private error rate | ≤ 2% of Private sessions emit `private_sample_error` | > 5% |
+| Private start/save success | ≥ 98% of entitled recording starts reach `session_saved` | < 95% |
+| Private error rate | ≤ 2% of Private sessions emit `private_error` | > 5% |
 | Funnel-entry health | `practice_entry_viewed` non-zero per active day | zero for a full active day |
 
-**Content-free contract (privacy).** Redaction is layered, and each channel re-projects at the send boundary **on the path it actually uses**: (1) emitter allowlists (`practiceTelemetry.ts`, `privateSampleTelemetry.ts`) project every payload down to enumerated non-PII primitives — transcript, audio, email, free-form title/agenda, and raw identifiers are dropped before send; (2) the **second** projection lives on each event's real send path. Private lifecycle events capture directly to PostHog from `emitPrivateSample` (they do NOT route through `AnalyticsBuffer`), so their second projection is a **dedicated Private send boundary** that re-runs `sanitizePrivateSampleProps` immediately before `posthog.capture` — a Private event therefore can never carry a non-allowlisted field even if a caller assembled props outside the emitter. General events routed through `AnalyticsBuffer` have any `transcript`/`audio`/`wav`/`blob`/`base64`-shaped value redacted at that send boundary, and any `private_*` event that does pass through the buffer is likewise re-projected through the Private allowlist there.
+**Content-free contract (privacy).** Redaction is layered, and each channel re-projects at its actual send boundary: (1) emitter allowlists (`practiceTelemetry.ts`, `privateTelemetry.ts`) project payloads to enumerated non-PII primitives; transcript, audio, email, free-form title/agenda, and arbitrary fields are dropped; (2) Private events are re-projected through `sanitizePrivateTelemetryProps` immediately before `posthog.capture`, while general events are redacted again by `AnalyticsBuffer`. A caller cannot smuggle non-allowlisted content by assembling props outside the emitter.
 
 **Identity (accurate two-path reality).** The **client** identifies the person to PostHog by their Supabase **auth UUID** — a random, non-PII account identifier, never an email or name. The **server-side analytics worker** additionally uses a keyed HMAC pseudonym (`usr_v1_<HMAC(user_id)>`, `tst_v1_` for automated traffic) so no raw id appears in server-emitted events; a browser bundle cannot hold that HMAC secret, so the client does not (and cannot) reproduce the server pseudonym. No event property carries an email, name, transcript, or audio. Enforced by `tests/release/launch-telemetry-content-free.contract.test.ts` (the #1259 falsification evidence).
 
@@ -215,7 +215,7 @@ A test folds into an RC gate when it proves one of that gate's release-blocking 
 
 ### STT corpus gate layers
 
-STT correctness has two release layers because they catch different failure classes. **Fake-device corpus** (Chrome fake media device + checked-in WAV fixtures) = deterministic code-correctness proof for chunking, buffering, RMS gates, worker messages, WER, transcript output, filler analytics — RC-counted only for engines proven to receive the intended fixture audio. **Real-mic corpus** (`pnpm rc:stt:corpus` plays fixtures through the speaker into the real mic) = product-readiness proof for mic permission, hardware input, `AudioContext`, Native Web Speech provider behavior, transcript, save/history, analytics — RC-counted release-time evidence. The fake-device layer is not a shortcut around real-mic testing. Native Chrome is launch-critical, so its real-mic corpus and journey evidence must be green for the onboarding path to close. Detailed STT sub-gates (STT-A Accuracy / STT-B Browser Journey / STT-C Filler Value) and the Native `continuous=true` regression note are specified in `RELEASE_PROCESS.md` and `STT.md`.
+STT correctness has two release layers because they catch different failure classes. **Fake-device corpus** (Chrome fake media device plus checked-in WAV fixtures) is deterministic code-correctness proof for chunking, buffering, RMS gates, worker messages, WER, transcript output, and filler analytics. **Real-mic corpus** plays controlled speech through a real supported device and proves permission, hardware input, Private runtime behavior, transcript, save/History, and analytics. The fake-device layer is not a shortcut around real-device testing. Detailed accuracy, journey, filler-value, and provenance rules live in `RELEASE_PROCESS.md` and `STT.md`.
 
 ### RC-counted ledgers
 
@@ -223,27 +223,27 @@ The named browser/live/canary files and unit/component files that currently clos
 
 ### Gate coverage map (summary)
 
-- **Gate 1 (Product truth):** `CI - Test Audit`; primary-journey / analytics-truth / user-features / user-filler-words E2E; analytics math-integrity; Native/Private/Cloud engine contract tests; ModelManager decision table; Pro STT artifact matrix; private-cache; first-time-tester; Native Chrome mic proof; tester-instructions.
-- **Gate 2 (SAST / code review):** `pnpm quality`; secret scan; production-hardening; `pnpm test:edge`; Edge token/quota/webhook/CORS tests; env/tier/lifecycle tests; race/zombie protection; filler regex safety.
-- **Gate 3 (DAST / running app):** `pnpm rc:dast:local` / `:live`; live cloud-token gates; Stripe checkout/webhook readiness; live filler-word persistence; STT switching contract; deploy-supabase-migrations; canary.
+- **Gate 1 (Product truth):** `CI - Test Audit`; Private-only product-contract guard; exact public-copy contracts; active-trial and paid-continuation journeys; Open Mic/Focus Points isolation; analytics truth; Progress chronology; Private setup/finalize/save; first-time tester; and tester instructions.
+- **Gate 2 (SAST / code review):** `pnpm quality`; secret scan; production hardening; Edge tests; entitlement/webhook/CORS tests; environment/lifecycle tests; race/zombie protection; and filler-regex safety.
+- **Gate 3 (DAST / running app):** `pnpm rc:dast:local` / `:live`; Private-only entitlement and provider-token denial; Stripe checkout/webhook readiness; exact expiry and retained-permission proofs; live persistence; migration preflight/apply verification; and canary.
 - **Gate 4 (SCA / dependency review):** `node scripts/sca-osv-gate.mjs` (`osv-scanner` over the root `pnpm-lock.yaml`, failing on any distinct un-ignored CRITICAL) + Actions/runtime warning review. A critical runtime exploit with a safe fix blocks release; non-critical advisories/deprecations are P2 unless they break CI/deploy or expose secrets. (The current SCA suppression — and the historical migration off the retired pnpm-audit endpoint — are documented in `OPERATIONS_AND_SECURITY.md`.)
-- **Gate 5 (UX smoke):** `pnpm rc:ux:smoke`; error-states; user-facing-regressions; tester-instructions; LiveRecordingCard state expectations; canary; manual Native/Safari/browser wording check.
+- **Gate 5 (UX smoke):** `pnpm rc:ux:smoke`; error states; user-facing regressions; tester instructions; Private setup/record/finalize states; mobile/desktop session layout; Focus Points isolation; and canary.
 
 ### Where workflows fit
 
-`ci.yml` = Gate 1 baseline + partial Gate 2/5 + Lighthouse advisory (counted baseline). `deploy-supabase-migrations.yml` = Gate 3 + partial Gate 4 toolchain/deploy health (counted when backend/Edge changed). `canary.yml` = Gate 1/5 production smoke (counted). `rc-gates.yml` = all gates (counted umbrella). `live-release-matrix.yml` = Gate 1/3 release-time (counted). `pro-stt-artifact-matrix.yml` = Gate 1/3 (counted release-time / STT changes). `observability-api-smoke.yml` = advisory for controlled tester release, counted for public-launch readiness. `private-model-smoke.yml` = advisory, non-blocking dormant-v4 regression guard (does not activate v4). `benchmarks.yml` / `stress-endurance.yml` = advisory unless engine/model/SLA change or stability is the concern. `setup-test-users.yml` = utility, not a gate.
+`ci.yml` = Gate 1 baseline plus partial Gate 2/5 and Lighthouse advisory. `canary.yml` = deployed Gate 1/5 smoke and must prove primary active-trial plus secondary paid-continuation before GO. Database/migration workflows count only for the exact separately authorized migration and deployed verification. `rc-gates.yml` is the umbrella release gate. `observability-api-smoke.yml` is counted for launch-readiness only with a sanitized baseline. `private-model-smoke.yml` is an advisory dormant-v4 regression guard and never activates v4. Benchmarks and stress/endurance remain advisory unless explicitly promoted for the current risk. Test-account setup is utility, never proof by itself.
 
 ### Script inventory (buckets)
 
-Scripts are maintained only when invoked by package scripts, workflows, or documented release/operator procedures. Buckets: **Gate runners / CI orchestration** (test-audit, run-ci, aggregators, reporters, verify-*); **Gate 2 security / hardening** (rc-secret-scan, rc-production-hardening, verify-secret-digest, check-eslint-disable, validate-env, preflight, pnpm-only); **Gate 3 / live utilities** (setup-test-users, provision/trigger-canary, trigger-soak, live-observability-proof, stripe-price-audit); **build / local serving**; **STT/model/audio benchmark utilities** (advisory unless an STT SLA changes; `manual-native-chrome-proof.mjs` produces Gate 1 evidence when run for RC); **developer recovery / impact tooling** (utility only; destructive recovery scripts require explicit approval and never count as release evidence).
+Scripts are maintained only when invoked by package scripts, workflows, or documented release/operator procedures. Buckets: **Gate runners / CI orchestration** (test-audit, run-ci, aggregators, reporters, verify-*); **Gate 2 security / hardening** (secret scan, production hardening, secret-digest, eslint-disable, environment, and package-manager checks); **Gate 3 / live utilities** (test-account setup, canary, soak, observability, Stripe price audit); **build / local serving**; **Private STT/model/audio benchmark utilities** (advisory unless an STT SLO changes); and **developer recovery / impact tooling**. Destructive recovery requires explicit approval and never counts as release evidence.
 
 ### Confidence tiers
 
-**Highest signal:** primary-journey, user-facing-regressions, analytics-truth, user-features, error-states E2E; Edge access-control/quota/token/CORS/webhook tests; live cloud-token-gates; Pro STT artifact matrix; private-cache; first-time-tester; canary smoke. **Important but not sufficient alone:** frontend component tests, STT unit tests, Lighthouse, coverage (global percent matters less than critical-path coverage). **Advisory / not RC-green by default:** dump-ground diagnostics, benchmark live specs, wer-baseline, soak.
+**Highest signal:** active-trial and paid-continuation Private journeys; exact-expiry/retained-permission tests; user-facing regressions; analytics truth; Edge access-control/entitlement/CORS/webhook tests; Private setup/finalize/save; first-time tester; and deployed canary smoke. **Important but not sufficient alone:** component/unit tests, Lighthouse, and aggregate coverage. **Advisory by default:** diagnostic dumps, benchmark probes, WER baselines, and soak runs unless explicitly promoted for the release risk.
 
 ### Release posture (engineering, non-volatile)
 
-The current release is a **controlled private beta / early-access, non-payment** line. The *changing* posture (signoff SHA, run IDs, current gate colors) lives only in `RELEASE_STATUS.md`; the freshness rule is: every merge to `main` resets the signoff clock (final-SHA freshness). Verify entitlement scope against `ENTITLEMENTS_AND_BILLING.md` — effective paid Pro requires a real `stripe_subscription_id`, not merely `subscription_status='pro'`.
+Changing posture—signoff SHA, payment/activation state, deployed identities, and gate colors—lives only in `RELEASE_STATUS.md`. Every merge to `main` resets the signoff clock. Commercial qualification requires the complete identity/price contract in `ENTITLEMENTS_AND_BILLING.md`; neither a profile status nor green CI is sufficient.
 
 ### Recommended RC reporting format
 
@@ -265,7 +265,7 @@ Each RC gate should report: **Gate ID** (1–5); **Definition of green** (binary
 | Production canary | Green on the latest commit SHA. |
 | Supabase deploy | Green on the latest commit SHA when backend/Edge files changed. |
 | Service-Level Evidence | `countsAsReleaseEvidence=true`, no critical failures, backend stress present, browser endurance present, artifacts parseable. |
-| STT proof | Native/Private/Cloud evidence labeled by engine, account entitlement, browser/runtime, transcript result, and console-log artifact. |
+| STT proof | Active-trial and paid-continuation Private evidence labeled by account class, device/runtime/model, deployed SHA, transcript/save/reopen result, and content-safe artifact. |
 
 ---
 
@@ -277,29 +277,28 @@ These are the **engineering** acceptance definitions and the manual hardware **p
 
 - **Save/history/detail:** after stopping, the session must persist to History and re-open to the saved analytics/session detail. A transcript without persisted history is **not** a successful session.
 - **Custom words:** an added custom word said during recording must show the expected analytics count after save.
-- **PDF export:** the exported file must contain session metadata, transcript, transcription mode, and the analytics summary (Free and Pro exports retain the large SpeakSharp watermark).
-- **Private sample fidelity (added 2026-06-29, #891/#892 — check the persisted History transcript, not the live draft):** the opening clause is preserved *including the immediate-start case* (Record → wait for the green "Ready — speak now" pill → speak immediately); coverage threshold passes; no ≥5-word verbatim loop (the saved transcript is flagged, never mutated); History/detail matches end-to-end; long leading silence produces no hallucinated prefix; the finalize state shows the dimmed draft + honest progress, never the wrong rolling text as final; and stop-to-final latency is recorded (**accepted RC limitation: a full 5-min single Private v2 recording finalizes in ≈90 s post-stop, shown as honest "Finalizing…" progress — the earlier `<30 s` requirement is withdrawn**). This is a quality/latency observation, **not** a measured p95 — see `STT.md`.
+- **PDF export:** the exported file must contain session metadata, transcript, Private attribution, and the analytics summary with consistent SpeakSharp branding.
+- **Private recording fidelity:** check the persisted History transcript, not only the live draft. The opening clause is preserved in immediate-speech cases; no repeated verbatim loop or hallucinated prefix appears; trailing words survive; History/detail matches the saved record; finalization shows honest progress; and stop-to-final latency is recorded for representative durations up to the 10-minute technical cap. An observed duration is not a percentile; see `STT.md`.
 
 ### Session UI truth (what the deployed session screen shows)
 
-Mode selector order is **Private-first** — Private → Browser → Cloud — verified current in `LiveRecordingCard.tsx` and enforced by `mode-selector-private-first.e2e.spec.ts`. The mode **tags** are: Private = "Stays local" (`stt-mode-tag-stays-local`, a privacy descriptor); Browser = "Quick preview" (`stt-mode-tag-quick-preview`); Cloud = "Pro" (`stt-mode-tag-pro`). **"Recommended" is retired from every Private surface (#1064)** — do not describe Private as "Recommended"; the accessible name stays exactly "Private"/"Browser" (the descriptor badges are `aria-hidden`). The **default selected engine is Browser** unless the server reports sample/paid entitlement. Mode help is **one surface** (a single disjoint desktop flyout when a non-overlapping placement fits, else the single "About transcription modes" panel; touch devices always get the About panel — never stacked bubbles; About panel and dropdown are mutually exclusive). Post-save is **one consolidated status bar with one Analytics action** (no completion toast / "Next: Analytics" overlay). The authoritative user-visible Session-surface contract is owned by `PRODUCT_REQUIREMENTS.md`; this subsection records only the acceptance detail the RC UX specs (`mode-selector-private-first`, `post-save-consolidation`) enforce.
+The session has no customer engine selector. Private is the sole recording path and carries the accurate “Stays local” privacy signal. The setup/status UI is one coherent surface; internal model/provider/debug terms do not appear as customer choices. On mobile, the shell stacks in mic → transcript → Progress → coaching order with no horizontal overflow. Post-save uses one consolidated status surface with persistent review action and no completion toast or duplicate overlay. Focus Points state never survives into a fresh Open Mic take.
 
 ### Data provenance / observability truth
 
 **Supabase is authoritative** for saved sessions and submitted issue reports — verify persistence there, not in analytics. **PostHog is observability only**; a missing PostHog event does **not** imply data loss — confirm the Supabase row before concluding a session did not save. **Sentry** carries failures and sanitized alerts only — no transcript/audio/raw model output. **Report Issue** is the feedback channel but does **not** yet generate a real-time owner notification (that path is DRAFT #1006, not deployed). Keep provenance terms separate: distinguish automated / seed / owner / tester accounts; do not call active accounts "testers" without correlating them to an authoritative invitation roster.
 
-### Browser-support wording
+### Device-support wording
 
-Chrome is recommended. Browser (standard) transcription uses the browser's built-in speech recognition; availability and accuracy vary by browser. Do **not** claim Edge support unless an Edge-specific proof has passed start, transcript, save, history/detail, and analytics — until then use "Chrome recommended" wording.
+Describe only the browsers/devices qualified for the current Private runtime. Never offer a browser-vendor speech engine as a fallback. When a device is unsupported, show an accurate Private setup/failure message and route the gap to qualification rather than silently switching producers.
 
 ### Manual hardware-validation protocol
 
 CI does not validate real microphone hardware; this protocol is run on real devices, real browser permissions, and a real authenticated user before launch (execution and dated logs → `TESTER_OPERATIONS.md` / `EVIDENCE_INDEX.md`):
 
-- **Desktop Chrome:** grant/deny mic (verify error UX); Native STT live transcript for a clear 10–15 s sentence; record browser/version + sentence; stop returns to ready; save shows success text; history appears after reload; analytics change from baseline; refresh during recording; mode switch only via explicit user action; Private STT launch-default CPU/Transformers.js path; missing-cache setup/download/progress/ready flow; cached-model reuse on second start; separately enable the WebGPU/WhisperTurbo path and verify fast start or fast-fail to explicit recovery.
-- **Desktop Safari:** grant mic; verify Web Speech support; if supported, live transcript + stop/save + history/analytics; no crash on `AudioContext` init; if unsupported/unreliable, document the limitation and verify fallback messaging.
-- **Firefox:** grant mic; start/stop; verify compatibility messaging if unsupported.
-- **iPhone Safari:** open app; auth works; mic prompt appears; optional Native transcript if supported; if unsupported, UX explains the limitation; background during recording → recoverable stop/pause.
-- **Bluetooth / external mic:** start built-in; start external; disconnect mid-session; verify recoverable error behavior.
-- **Stress / degraded:** rapid start/stop ×10 (no overlapping timers/duplicate sessions); backgrounded active tab 2 min (expected recording/timeout behavior); disable WiFi during Cloud STT (connection-loss messaging + recovery/failure path); hardware mute during recording (no crash / unrecoverable FSM).
-- **On any failure:** capture screen recording, export `TranscriptionService` debug logs from console, and note specific hardware (e.g. "AirPods Pro Gen 2", "MacBook Pro M3"). Native Browser launch proof must come from real Chrome microphone behavior — GitHub Chromium fake-audio counts only as readiness/no-crash/save diagnostics because Web Speech transcript production is browser/vendor dependent.
+- **Desktop Chrome:** grant/deny mic; Private cold/warm setup; immediate and delayed speech; stop/finalize/save/reopen; refresh/recovery; and 1024/1280/1440px layout.
+- **Desktop Safari and Firefox:** exercise the documented Private support path; if unsupported, prove accurate failure messaging and no alternate producer.
+- **iPhone Safari:** authenticate, grant/deny mic, exercise Private where supported, verify background recovery, and validate 320/375/390px layout without overflow.
+- **Bluetooth / external mic:** built-in/external start, disconnect during recording, and recoverable error behavior.
+- **Stress / degraded:** rapid start/stop ×10, backgrounded active tab, model/network setup interruption, hardware mute, and representative long recording within the 10-minute cap.
+- **On any failure:** capture content-safe screen/trace/log evidence and exact hardware. Fake-audio CI is readiness and code-correctness evidence, not real-microphone qualification.
