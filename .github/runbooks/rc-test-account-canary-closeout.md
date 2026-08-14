@@ -64,44 +64,51 @@ Do not merely rename a permanent Basic account to Free. Route each live/customer
 
 Add a fail-closed repository guard for the retired exact names across active source, workflows, config examples, tests, `AGENTS.md`, and active `product_release` Markdown. Exclude pinned `product_release/archive/**` and dated `product_release/evidence/**` only as explicitly enumerated provenance; no active workflow may consume an archive claim.
 
-## B. Controlled canary identities and passwords
+## B. Robust Test User Admin credential creation for canaries
 
-Canonical GitHub Secret pairs:
+Keep the existing Test User Admin workflow and its current `action=create` seam. Do not create a second provisioning system. Preserve existing standard Free/Pro/soak behavior unless a specific retired Basic reference is removed elsewhere in this PR.
+
+### Canonical GitHub Secret pairs
+
 - `CANARY_TRIAL_EMAIL` = a valid, operator-controlled and recoverable email address
 - `CANARY_TRIAL_PASSWORD` = that account's protected password
 - `CANARY_PAID_EMAIL` = a different valid, operator-controlled and recoverable email address
 - `CANARY_PAID_PASSWORD` = that account's protected password
 
-All four are GitHub **Secrets**, including the email values. The workflow injects them only at runtime through `${{ secrets.CANARY_TRIAL_EMAIL }}`, `${{ secrets.CANARY_TRIAL_PASSWORD }}`, `${{ secrets.CANARY_PAID_EMAIL }}`, and `${{ secrets.CANARY_PAID_PASSWORD }}`. Do not hard-code addresses, commit them, infer a domain, or move the email values to repository variables.
+All four values are GitHub Secrets. Never hard-code, commit, print, or pass the canary passwords through workflow-dispatch text inputs.
 
-Before account creation, Test User Admin must fail closed when an email is blank, malformed, equal to the other canary identity, or uses the explicitly prohibited unaffiliated `speaksharp.app` domain. The manual operator attests that both addresses are controlled and recoverable.
+### Extend the existing create action
 
-Retire the ambiguous `CANARY_PASSWORD` name after a safe secret migration. The transition must fail closed: configure `CANARY_PAID_PASSWORD` first, change source references, prove both lanes, then separately remove the old secret. Never print values.
+Add a `create_purpose` choice to the current `action=create` path:
 
-Use the existing `Test User Admin` workflow as the authorized account-creation mechanism for both controlled canary identities. Correct and extend its canary-specific path so it consumes the protected pairs directly:
+- `standard` — preserves the existing email/password/tier behavior for current test users;
+- `canary_trial` — resolves email/password from `CANARY_TRIAL_EMAIL` / `CANARY_TRIAL_PASSWORD`;
+- `canary_paid` — resolves email/password from `CANARY_PAID_EMAIL` / `CANARY_PAID_PASSWORD`.
 
-- `CANARY_TRIAL_EMAIL` / `CANARY_TRIAL_PASSWORD`
-- `CANARY_PAID_EMAIL` / `CANARY_PAID_PASSWORD`
+For the two canary purposes:
 
-Do not pass either password through a `workflow_dispatch` string input, command argument, log, artifact, or step summary. The protected values must come only from GitHub Secrets; identity output is masked.
+1. Resolve the chosen secret pair only at runtime.
+2. Validate nonblank email/password, valid email syntax, controlled/recoverable operator attestation, and reject the unaffiliated exact/subdomain `speaksharp.app`.
+3. Ensure trial and paid canary email values are different.
+4. Mask identity output and never log password content.
+5. Query Supabase Auth by normalized email.
+6. If absent, create the confirmed auth user with the supplied email/password.
+7. If present, reuse it only when the canonical profile and intended purpose are safe; report a masked `REUSED` result. Never create a duplicate.
+8. Do not silently reset an existing password. Password reset/rotation remains an explicit separately authorized Test User Admin operation.
+9. Do not route a canary purpose through `buildProfilePatchForTier('pro')`, generate `sub_test_*`, or write trial/paid entitlement fields.
+10. Rely on the accepted new-account database foundation to create the canonical profile and immutable trial fields; read them back and fail closed if foundation state is missing or ambiguous.
+11. For `canary_trial`, require a currently active server-time trial and prove reuse does not alter its window.
+12. For `canary_paid`, Test User Admin creates/reuses credentials only. Genuine paid state is established separately through the authorized Stripe customer/subscription/exact-$10-price/database binding path.
+13. Emit only `CREATED | REUSED | BLOCKED`, masked identity, purpose, and content-free verification facts.
 
-The workflow is the account-creation authority, not the entitlement authority:
+This keeps Test User Admin as the single account credential creator: the operator supplies the email/password pair, and the existing create seam creates or safely reuses the account.
 
-- remove its retired Free/Basic aliases from the canary path;
-- do not use the current Pro helper that synthesizes `stripe_subscription_id`;
-- do not write `subscription_status='pro'` to qualify the paid canary;
-- do not grant, reset, or extend a trial on a rerun.
+### Canary consumption
 
-Preserve a strict separation:
-
-1. **Canary execution** is read-only with respect to auth, trial, billing, credentials, and entitlement.
-2. **Test User Admin — create trial canary** creates the controlled auth identity with the protected password after the accepted trial-foundation migrations are applied. Account creation must receive the normal immutable one-time trial foundation; a rerun verifies/reuses and cannot reset or extend it.
-3. **Test User Admin — create paid canary** creates the controlled auth identity with the protected password but does not synthesize or grant paid state.
-4. A separately authorized genuine Stripe operation establishes the paid fixture. Its customer, subscription, exact approved $10 monthly Price, and database bindings must be mutually consistent. A tier flag or synthetic subscription ID never qualifies.
-5. Password recovery/rotation is a separately selected Test User Admin operation with masked identity output and no entitlement write.
-6. Every verification report is sanitized: account class, pass/fail reason, masked identity, lifecycle state, and binding presence only.
-
-Update `verify-test-users.mjs` or replace it with a lifecycle-aware read-only verifier. A passing verifier must not rely on the raw `subscription_status` label alone.
+- Canary execution remains read-only with respect to credentials and entitlement.
+- Update the existing paid canary to consume `CANARY_PAID_PASSWORD`.
+- Retire legacy `CANARY_PASSWORD` only after the new secret is configured and both lanes are proven.
+- The lifecycle-aware read-only verifier must prove immutable active trial and genuine Stripe-authoritative paid continuation; a raw `subscription_status` label is insufficient.
 
 ## C. Migration readiness and ordered production prerequisites
 
