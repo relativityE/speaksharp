@@ -123,7 +123,7 @@ async function ensurePrivateReady(page: Page) {
 test.describe('Production Smoke Canary @canary', () => {
     test.beforeAll(() => {
         // Dynamic skip if password is missing (Local Run)
-        test.skip(!CANARY_USER.password, 'Skipping Canary test: Missing CANARY_PASSWORD');
+        test.skip(!CANARY_USER.password, 'Skipping Canary test: Missing CANARY_LANE_PASSWORD');
     });
 
     test('should complete a full session cycle on real infrastructure', async ({ page }) => {

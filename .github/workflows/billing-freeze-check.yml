@@ -31,7 +31,6 @@ jobs:
           BILLING_FREEZE_EMAILS: ${{ vars.BILLING_FREEZE_EMAILS }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           CHECKOUT_TEST_EMAIL: ${{ secrets.CHECKOUT_TEST_EMAIL }}
-          BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
           # Sanitized (masked-email) JSON report path + a rendered run-page step summary,
           # so the full audit is auditable without grepping truncated step logs.
           BILLING_FREEZE_REPORT_PATH: billing-freeze-report.json

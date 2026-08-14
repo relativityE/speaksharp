@@ -16,7 +16,7 @@
 // Env:
 //   STRIPE_SECRET_KEY        live (or test) Stripe secret — read-only use here.
 //   BILLING_FREEZE_EMAILS    comma-separated QA/test emails to audit (preferred; keeps emails out of git).
-//   PRO_TEST_EMAIL / CHECKOUT_TEST_EMAIL / BASIC_TEST_EMAIL   fallbacks if BILLING_FREEZE_EMAILS is unset.
+//   PRO_TEST_EMAIL / CHECKOUT_TEST_EMAIL   fallbacks if BILLING_FREEZE_EMAILS is unset.
 
 import { writeFileSync, appendFileSync } from 'node:fs';
 import { probeCheckoutClosed, CHECKOUT_PROBE } from './lib/checkout-probe.mjs';
@@ -30,7 +30,7 @@ if (!key) {
 
 const emails = (
   process.env.BILLING_FREEZE_EMAILS ||
-  [process.env.PRO_TEST_EMAIL, process.env.CHECKOUT_TEST_EMAIL, process.env.BASIC_TEST_EMAIL]
+  [process.env.PRO_TEST_EMAIL, process.env.CHECKOUT_TEST_EMAIL]
     .filter(Boolean)
     .join(',')
 )

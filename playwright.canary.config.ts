@@ -12,7 +12,7 @@ import { loadEnv, getChromeWithMic, baseConfig } from './playwright.base.config'
  * 
  * Requirements:
  *   - .env.development with real VITE_SUPABASE_URL/KEY
- *   - CANARY_PASSWORD env var (from GitHub secret)
+ *   - CANARY_LANE_PASSWORD env var (lane-resolved from the lane's GitHub secret)
  *   - VITE_USE_LIVE_DB=true and VITE_TEST_MODE=true
  */
 

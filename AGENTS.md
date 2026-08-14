@@ -323,7 +323,7 @@ workflows without learning or copying their credential values.
 
 | Account variables | Intended use |
 |---|---|
-| `BASIC_TEST_EMAIL` / `BASIC_TEST_PASSWORD` | Reusable Free/Basic authentication and ordinary Free-path live checks |
+| `FREE_TEST_EMAIL` / `FREE_TEST_PASSWORD` | Reusable Free authentication and ordinary Free-path live checks (SpeakSharp has no Basic product) |
 | `PRO_TEST_EMAIL` / `PRO_TEST_PASSWORD` | Reusable Pro authentication, Cloud/Pro checks, and authenticated STT live checks |
 | `CHECKOUT_TEST_EMAIL` / `CHECKOUT_TEST_PASSWORD` | Dedicated paid-checkout proof only; do not substitute a general account when clean checkout state matters |
 | `SOAK_TEST_PASSWORD` with the soak registry | Stress/endurance workflows only; not the default account for feature verification |

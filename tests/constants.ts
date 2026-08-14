@@ -20,12 +20,6 @@ export const TEST_USER_FREE = {
   password: 'password123',
 };
 
-// Reserved for future paid Basic tests. Current unpaid baseline users are Free.
-export const TEST_USER_BASIC = {
-  email: 'basic-user@test.com',
-  password: 'password123',
-};
-
 export const TEST_USER_EMAIL = 'test-user@example.com';
 export const TEST_USER_PASSWORD = 'password123';
 
@@ -35,10 +29,11 @@ export const SOAK_TEST_USER = {
 };
 
 // Canary test user for production smoke tests
-// Password is shared via CANARY_PASSWORD secret in GitHub Actions
+// The lane-resolved canary password (CANARY_LANE_PASSWORD) is injected by CI from the lane's own secret —
+// CANARY_TRIAL_PASSWORD for active-trial, CANARY_PAID_PASSWORD for paid-continuation.
 export const CANARY_USER = {
   email: process.env.CANARY_EMAIL!, // Required env var (injected by CI or .env)
-  password: process.env.CANARY_PASSWORD || '',
+  password: process.env.CANARY_LANE_PASSWORD || '',
   lane: (process.env.CANARY_EXPECTED_ACCESS || 'active-trial') as 'active-trial' | 'paid-continuation',
 };
 
@@ -151,8 +146,6 @@ export const TEST_IDS = {
 // These define how many real accounts setup-test-users.mjs will provision in the DB.
 // We need exactly 15 to satisfy the cloud API_LOAD_CONCURRENCY of 15, plus 2 for UI Memcheck.
 export const FREE_USER_COUNT = 5;
-// Backward-compatible alias for older scripts; new code should use FREE_USER_COUNT.
-export const BASIC_USER_COUNT = FREE_USER_COUNT;
 export const PRO_USER_COUNT = 10;
 export const MAX_TOTAL_TEST_USERS = 50;
 

@@ -7,7 +7,7 @@
  * 2. Renames old users if needed
  * 3. Updates all passwords to shared SOAK_TEST_PASSWORD
  * 4. Creates missing users to meet targets
- * 5. Syncs subscription tiers (Free/Pro; Basic is reserved for future paid plans)
+ * 5. Syncs subscription tiers (Free/Pro only; SpeakSharp has no Basic product)
  * 6. Verifies login for all users
  */
 
@@ -78,7 +78,7 @@ function getExpectedAccounts(freeCount, proCount, includeBrowserEnduranceAccount
 
 function getNewUserCounts() {
     return {
-        newFreeCount: parseInt(process.env.NUM_FREE_USERS || process.env.NEW_FREE_COUNT || process.env.NUM_BASIC_USERS || process.env.NEW_BASIC_COUNT || '0', 10),
+        newFreeCount: parseInt(process.env.NUM_FREE_USERS || process.env.NEW_FREE_COUNT || '0', 10),
         newProCount: parseInt(process.env.NUM_PRO_USERS || process.env.NEW_PRO_COUNT || '0', 10)
     };
 }
@@ -90,11 +90,10 @@ async function getConfigCounts() {
 
         // Extract exact numeric constants
         const freeMatch = content.match(/FREE_USER_COUNT = (\d+);/);
-        const legacyBasicMatch = content.match(/BASIC_USER_COUNT = (\d+);/);
         const proMatch = content.match(/PRO_USER_COUNT = (\d+);/);
         const maxMatch = content.match(/MAX_TOTAL_TEST_USERS = (\d+);/);
 
-        const free = freeMatch ? parseInt(freeMatch[1], 10) : legacyBasicMatch ? parseInt(legacyBasicMatch[1], 10) : 30;
+        const free = freeMatch ? parseInt(freeMatch[1], 10) : 30;
         const pro = proMatch ? parseInt(proMatch[1], 10) : 5;
         const max = maxMatch ? parseInt(maxMatch[1], 10) : 50;
 
@@ -267,8 +266,8 @@ async function createSingleUser() {
         process.exit(1);
     }
 
-    if (!['free', 'basic', 'pro'].includes(tier)) {
-        console.error(`❌ Invalid CREATE_USER_TIER: ${tier}. Expected "free", "basic", or "pro".`);
+    if (!['free', 'pro'].includes(tier)) {
+        console.error(`❌ Invalid CREATE_USER_TIER: ${tier}. Expected "free" or "pro".`);
         process.exit(1);
     }
 

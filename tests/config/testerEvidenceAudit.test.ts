@@ -193,7 +193,7 @@ describe('behavior — pagination, candidate terminology, sanitized errors', () 
 describe('source — no sign-in / anon / password / individual-email reads; narrow Auth-Admin; guarded PostgREST', () => {
   it('never signs in and reads no anon key / password / individual email from env', () => {
     expect(script).not.toMatch(/signInWithPassword|signInWithOtp|setSession|signOut/);
-    for (const f of ['SUPABASE_ANON_KEY', 'OWNER_EMAIL', 'BASIC_TEST_EMAIL', 'FREE_TEST_EMAIL', 'PRO_TEST_EMAIL', 'CHECKOUT_TEST_EMAIL', 'BASIC_TEST_PASSWORD', 'PRO_TEST_PASSWORD']) {
+    for (const f of ['SUPABASE_ANON_KEY', 'OWNER_EMAIL', 'FREE_TEST_EMAIL', 'PRO_TEST_EMAIL', 'CHECKOUT_TEST_EMAIL', 'PRO_TEST_PASSWORD']) {
       expect(script, `${f} must not be read from env`).not.toMatch(new RegExp(`(env|process\\.env)\\.${f}\\b`));
     }
   });
@@ -225,7 +225,7 @@ describe('session-duration threshold — contract with product config (no drift)
 
 describe('workflow — allowlisted inputs, no individual-account secrets, no preflight script, fail-safe output', () => {
   it('references no individual email/password/anon-key/verify-test-users anywhere', () => {
-    for (const f of ['OWNER_EMAIL', 'BASIC_TEST_EMAIL', 'FREE_TEST_EMAIL', 'PRO_TEST_EMAIL', 'CHECKOUT_TEST_EMAIL', '_PASSWORD', 'SUPABASE_ANON_KEY', 'verify-test-users', 'setup-test-users', 'provision-canary']) {
+    for (const f of ['OWNER_EMAIL', 'FREE_TEST_EMAIL', 'PRO_TEST_EMAIL', 'CHECKOUT_TEST_EMAIL', '_PASSWORD', 'SUPABASE_ANON_KEY', 'verify-test-users', 'setup-test-users', 'provision-canary']) {
       expect(workflow, `${f} must not appear in the audit workflow`).not.toContain(f);
     }
   });

@@ -87,7 +87,7 @@ _Last refreshed: 2026-06-14 (post #774/#775 merge; #772 Dev fix raised as PR #77
 - **Go-live activation (Ops, at launch — enable BOTH payment switches `VITE_PAYMENTS_ENABLED` / `PAYMENTS_ENABLED` + align live config + written owner approval; not merely a key swap):** set the aligned live deploy-env vars from test → live:
   - `STRIPE_SECRET_KEY` = `sk_live_…`
   - `STRIPE_WEBHOOK_SECRET` = live `whsec_…` (from the live webhook endpoint)
-  - `STRIPE_PRO_PRICE_ID`, `STRIPE_BASIC_PRICE_ID` = LIVE price IDs
+  - `STRIPE_PRO_PRICE_ID` = LIVE price ID (Basic price retired in #1294 — SpeakSharp has no Basic product)
   - `SITE_URL` = production URL; confirm `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Webhook endpoint (cutover step):** register `{prod}/functions/v1/stripe-webhook` in the Stripe LIVE dashboard → copy the live `whsec_` → set `STRIPE_WEBHOOK_SECRET`.
 - **Webhook security (already correct, mode-agnostic):** signature-verified via `constructEventAsync`/`constructEvent` (`stripe-webhook/index.ts:171-175`, secret L188); fails closed (non-2xx → Stripe retries).

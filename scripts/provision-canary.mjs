@@ -22,10 +22,10 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // optional — recovery path only
 const CANARY_EMAIL = process.env.CANARY_EMAIL;
-const CANARY_PASSWORD = process.env.CANARY_PASSWORD;
+const CANARY_LANE_PASSWORD = process.env.CANARY_LANE_PASSWORD;
 const CANARY_EXPECTED_ACCESS = process.env.CANARY_EXPECTED_ACCESS;
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !CANARY_EMAIL || !CANARY_PASSWORD ||
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !CANARY_EMAIL || !CANARY_LANE_PASSWORD ||
     !['active-trial', 'paid-continuation'].includes(CANARY_EXPECTED_ACCESS)) {
   console.error('❌ Missing/invalid canary configuration.');
   process.exit(1);
@@ -43,7 +43,7 @@ console.log('━━━━━━━━━━━━━━━━━━━━━━�
 const result = await provisionCanary({
   anon,
   admin,
-  config: { email: CANARY_EMAIL, password: CANARY_PASSWORD, lane: CANARY_EXPECTED_ACCESS },
+  config: { email: CANARY_EMAIL, password: CANARY_LANE_PASSWORD, lane: CANARY_EXPECTED_ACCESS },
 });
 
 if (result.status === 'healthy' || result.status === 'recovered') {
