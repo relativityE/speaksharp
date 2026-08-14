@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyRequestFailure, type RequestFailureEvent } from './frontend-ui-memcheck';
+import { classifyRequestFailure, filterFailingConsoleErrors, type RequestFailureEvent } from './frontend-ui-memcheck';
 
 const IGNORED_READ_REASON = 'Known read-only polling endpoint aborted outside active recording (setup/navigation/teardown).';
 
@@ -182,5 +182,54 @@ describe('classifyRequestFailure', () => {
             kind: 'critical',
             reason: 'Aborted read endpoint is not in the teardown allowlist',
         });
+    });
+});
+
+// #1294 finding #5 — the benign-console filter must suppress ONLY the exact setup/navigation abort noise, and
+// genuine HTTP/runtime errors (even ones whose text mentions the same endpoints) must still fail the run.
+describe('filterFailingConsoleErrors — narrow benign-console suppression', () => {
+    const TZ = '{error: Object} Error calling set_user_timezone:';
+    const HIST = '{error: Object} [sessionService.getRecentReviewable] Unable to load your session history';
+    const abortedTz = new Set(['timezone_preference']);
+    const abortedHist = new Set(['session_history_read']);
+
+    it('SUPPRESSES the exact set_user_timezone abort log when that endpoint recorded a benign abort in setup', () => {
+        const out = filterFailingConsoleErrors([{ type: 'error', text: TZ, phase: 'setup' }], abortedTz);
+        expect(out).toHaveLength(0);
+    });
+
+    it('SUPPRESSES the getRecentReviewable abort log when a session-history read aborted during navigation', () => {
+        const out = filterFailingConsoleErrors([{ type: 'error', text: HIST, phase: 'navigation' }], abortedHist);
+        expect(out).toHaveLength(0);
+    });
+
+    // NEGATIVE: a genuine error (NO abort recorded for that endpoint — e.g. an HTTP 5xx, which is
+    // requestfinished, never requestfailed) still FAILS even though its text mentions set_user_timezone.
+    it('FAILS a genuine set_user_timezone error when no benign abort was recorded (e.g. HTTP 500)', () => {
+        const out = filterFailingConsoleErrors([{ type: 'error', text: TZ, phase: 'setup' }], new Set());
+        expect(out).toHaveLength(1);
+    });
+
+    // NEGATIVE: an error during ACTIVE recording is never suppressed, even if the endpoint aborted elsewhere.
+    it('FAILS a set_user_timezone error during active recording', () => {
+        const out = filterFailingConsoleErrors([{ type: 'error', text: TZ, phase: 'active' }], abortedTz);
+        expect(out).toHaveLength(1);
+    });
+
+    // NEGATIVE: an unrelated runtime error is never suppressed.
+    it('FAILS an unrelated runtime error', () => {
+        const out = filterFailingConsoleErrors([{ type: 'error', text: 'TypeError: cannot read x of undefined', phase: 'setup' }], abortedTz);
+        expect(out).toHaveLength(1);
+    });
+
+    // NEGATIVE: a getRecentReviewable error without the correlated abort still fails.
+    it('FAILS a getRecentReviewable error when no session-history abort was recorded', () => {
+        const out = filterFailingConsoleErrors([{ type: 'error', text: HIST, phase: 'navigation' }], new Set());
+        expect(out).toHaveLength(1);
+    });
+
+    it('ignores warnings (only error-type console issues can fail)', () => {
+        const out = filterFailingConsoleErrors([{ type: 'warning', text: 'a warning', phase: 'active' }], new Set());
+        expect(out).toHaveLength(0);
     });
 });
