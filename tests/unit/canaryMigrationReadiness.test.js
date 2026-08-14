@@ -22,10 +22,11 @@ const listing = (states) =>
 const allAppliedStates = () => Object.fromEntries(REQUIRED_APPLIED_MIGRATIONS.map((v) => [v, 'applied']));
 
 describe('canary migration readiness (full ordered staged set, not just 41500)', () => {
-  it('requires the ordered staged prerequisites through 41500 and holds 42000', () => {
+  it('requires the ordered staged prerequisites through 41600 and holds 42000', () => {
     expect(REQUIRED_APPLIED_MIGRATIONS).toEqual([
       '20260812002000', '20260811143000', '20260812030000',
       '20260812039500', '20260812040000', '20260812041000', '20260812041500',
+      '20260812041600',
     ]);
     expect(HELD_ACTIVATION_MIGRATION).toBe('20260812042000');
   });
