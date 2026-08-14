@@ -21,10 +21,11 @@ const START = Date.now() - 5 * 86400_000;
 const DAY = 86400_000;
 const trialProfile = (over = {}) => ({
   id: 'x', subscription_status: 'free', subscription_id: null, stripe_customer_id: null, stripe_subscription_id: null,
-  trial_started_at: iso(START), trial_expires_at: iso(START + 30 * DAY), commercial_trial_granted_at: iso(START), ...over,
+  trial_started_at: iso(START), trial_expires_at: iso(START + 30 * DAY), commercial_trial_granted_at: iso(START),
+  ...(typeof over === 'string' ? { id: over } : over),
 });
 
-function makeAdmin({ pages = [[]], full = false, profile, createId = 'created-id', createError = null, effTier = 'pro' } = {}) {
+function makeAdmin({ pages = [[]], full = false, fullMatchFirst = null, profile, createId = 'created-id', createError = null, effTier = 'pro' } = {}) {
   const calls = { listUsers: 0, createUser: [], updateUserById: [], from: [] };
   return {
     calls,
@@ -32,7 +33,11 @@ function makeAdmin({ pages = [[]], full = false, profile, createId = 'created-id
       admin: {
         listUsers: async ({ page }) => {
           calls.listUsers++;
-          if (full) return { data: { users: Array.from({ length: 200 }, (_, i) => ({ email: `f${page}_${i}@x.z`, id: `f${page}_${i}` })) }, error: null };
+          if (full) {
+            const filler = Array.from({ length: 200 }, (_, i) => ({ email: `f${page}_${i}@x.z`, id: `f${page}_${i}` }));
+            if (fullMatchFirst && page === 1) filler[0] = { email: fullMatchFirst, id: 'early-match' }; // one match, but pages stay full
+            return { data: { users: filler }, error: null };
+          }
           return { data: { users: pages[page - 1] || [] }, error: null };
         },
         createUser: async (payload) => { calls.createUser.push(payload); return createError ? { data: null, error: createError } : { data: { user: { id: createId } }, error: null }; },
@@ -59,6 +64,11 @@ describe('strictLookup', () => {
     expect(await strictLookup(makeAdmin({ pages: [[]] }), 'a@b.c')).toMatchObject({ status: 'absent' });
     expect(await strictLookup(makeAdmin({ pages: [[{ email: 'a@b.c', id: 'i1' }, { email: 'A@B.C', id: 'i2' }]] }), 'a@b.c')).toMatchObject({ status: 'ambiguous' });
     expect(await strictLookup(makeAdmin({ full: true }), 'a@b.c')).toMatchObject({ status: 'truncated' });
+  });
+
+  it('ONE match before the page cap with a full final page → truncated (a 2nd match could be unscanned)', async () => {
+    const r = await strictLookup(makeAdmin({ full: true, fullMatchFirst: 'a@b.c' }), 'a@b.c');
+    expect(r.status).toBe('truncated'); // NOT 'found' — uniqueness cannot be proven from a truncated scan
   });
 });
 
@@ -129,7 +139,7 @@ describe('#1294 Admin - Test Users canary credential seam', () => {
   it('trial readback BLOCKS synthetic sub / wrong 30-day window / missing marker / not-active-server-time', async () => {
     const found = (over) => ({ adminOpts: { pages: [[{ email: 'operator+trial@example.test', id: 'found-id' }]], profile: trialProfile({ id: 'found-id', ...over.profile }), effTier: over.effTier }, signIn: { userId: 'found-id' } });
     expect((await run(found({ profile: { stripe_subscription_id: 'sub_test_x' } }))).facts.reason).toBe('synthetic_subscription_present');
-    expect((await run(found({ profile: { trial_expires_at: iso(START + 10 * DAY) } }))).facts.reason).toBe('trial_window_not_30d');
+    expect((await run(found({ profile: { trial_expires_at: iso(START + 10 * DAY) } }))).facts.reason).toBe('trial_window_not_exactly_30d');
     expect((await run(found({ profile: { commercial_trial_granted_at: null } }))).facts.reason).toBe('trial_missing_commercial_marker');
     expect((await run(found({ effTier: 'free' }))).facts.reason).toBe('trial_not_active_server_time');
   });
@@ -173,5 +183,32 @@ describe('#1294 Admin - Test Users canary credential seam', () => {
     expect((await run({ purpose: 'free_test', secrets: { ...SECRETS, FREE_TEST_EMAIL: 'operator+paid@example.net' } })).result).toBe('BLOCKED'); // == canary_paid
     expect((await run({ purpose: 'free_test', secrets: { ...SECRETS, FREE_TEST_EMAIL: 'x@speaksharp.app' } })).result).toBe('BLOCKED');
     expect((await run({ purpose: 'free_test', secrets: { ...SECRETS, FREE_TEST_EMAIL: '' } })).result).toBe('BLOCKED');
+  });
+
+  // #2 — a purpose FAILS CLOSED when a RELEVANT PEER identity is missing/malformed (not just the selected one).
+  it('BLOCKS when a required peer identity is missing or malformed, for all three purposes', async () => {
+    // canary_trial requires a valid canary_paid peer
+    expect((await run({ purpose: 'canary_trial', secrets: { ...SECRETS, CANARY_PAID_EMAIL: '' } })).result).toBe('BLOCKED');
+    expect((await run({ purpose: 'canary_trial', secrets: { ...SECRETS, CANARY_PAID_EMAIL: 'not-an-email' } })).result).toBe('BLOCKED');
+    expect((await run({ purpose: 'canary_trial', secrets: { ...SECRETS, CANARY_PAID_EMAIL: 'peer@speaksharp.app' } })).result).toBe('BLOCKED');
+    // canary_paid requires a valid canary_trial peer
+    expect((await run({ purpose: 'canary_paid', secrets: { ...SECRETS, CANARY_TRIAL_EMAIL: '' } })).result).toBe('BLOCKED');
+    // free_test requires BOTH canary peers
+    expect((await run({ purpose: 'free_test', secrets: { ...SECRETS, CANARY_TRIAL_EMAIL: '' } })).result).toBe('BLOCKED');
+    expect((await run({ purpose: 'free_test', secrets: { ...SECRETS, CANARY_PAID_EMAIL: 'malformed' } })).result).toBe('BLOCKED');
+  });
+
+  // #3 — the trial window must be EXACTLY 30 days (a narrow tolerance), not ±1 day.
+  it.each([
+    ['29 days', START + 29 * DAY, 'BLOCKED'],
+    ['29d23h', START + 30 * DAY - 3600_000, 'BLOCKED'],
+    ['exactly 30 days', START + 30 * DAY, 'CREATED'],
+    ['30d1h', START + 30 * DAY + 3600_000, 'BLOCKED'],
+  ])('trial window %s → %s', async (_label, expiryMs, expected) => {
+    const admin = makeAdmin({ pages: [[]], profile: trialProfile({ id: 'created-id', trial_expires_at: iso(expiryMs) }) });
+    const r = await provisionCanaryCredential({ adminClient: admin, makeSignInClient: makeSignIn({ userId: 'created-id' }), secrets: SECRETS, purpose: 'canary_trial' });
+    expect(r.result).toBe(expected);
+    // No conditional expect: BLOCKED rows must name the exact-30d reason; the CREATED row carries none.
+    expect(r.facts?.reason ?? '').toMatch(expected === 'BLOCKED' ? /trial_window_not_exactly/ : /^$/);
   });
 });

@@ -125,7 +125,8 @@ export async function verifyCanaryProfileBinding(anon, userId, lane = 'paid-cont
     const start = Date.parse(data.trial_started_at), expiry = Date.parse(data.trial_expires_at), marker = Date.parse(data.commercial_trial_granted_at);
     if (![start, expiry, marker].every(Number.isFinite)) return { ok: false, tier, reason: 'trial timestamps unparseable' };
     if (expiry <= start) return { ok: false, tier, reason: 'trial window inverted' };
-    if (Math.abs((expiry - start) / 86400_000 - 30) > 1) return { ok: false, tier, reason: 'trial window is not the 30-day foundation' };
+    // EXACTLY 30*24h (UTC) — allow only a few seconds of serialization noise, never hours (rejects 29d23h/30d1h).
+    if (Math.abs((expiry - start) - 30 * 86400_000) > 5000) return { ok: false, tier, reason: 'trial window is not exactly the 30-day foundation' };
     if (Math.abs(marker - start) > 3600_000) return { ok: false, tier, reason: 'trial marker/start inconsistent' };
     if (String(tier).toLowerCase() === 'pro') return { ok: false, tier, reason: 'trial stored state is paid' };
     if (nonBlank(data.stripe_customer_id) || nonBlank(data.stripe_subscription_id)) return { ok: false, tier, reason: 'trial canary has billing identity' };
@@ -160,21 +161,35 @@ export async function findCanaryUserId(admin, email) {
 // for #1294 — the canary is strictly read-only. Account creation/reuse is the separately-authorized
 // Admin - Test Users operation (scripts/lib/canaryAccountAdmin.mjs). No mutation code exists in this path.
 
-/** BEST-EFFORT ceiling (used by a SEPARATE hygiene step): 'ok' | 'warn' | 'exceeded' | 'skipped'. */
-export async function enforceCeiling(admin, { max = 1, enforce = false, allowedEmails = [] } = {}) {
+// Domain-independent canary COHORT: any account whose local-part contains the token "canary" (delimited),
+// so a retired/stray canary that is NOT one of the configured allowed identities is still counted.
+const CANARY_COHORT_LOCAL = /(^|[^a-z0-9])canary([^a-z0-9]|$)/i;
+
+/**
+ * BEST-EFFORT canary cohort ceiling (SEPARATE read-only hygiene step): 'ok' | 'warn' | 'exceeded' |
+ * 'skipped'. Counts the AUTHORITATIVE canary cohort = the configured allowed identities UNION every account
+ * whose local-part matches the canary token — so two configured identities plus one stray/retired canary
+ * account exceeds `max`. This DETECTS strays; it never deletes (disposition is a separate authorized op).
+ */
+export async function enforceCeiling(admin, { max = 1, enforce = false, allowedEmails = [], cohortMatch = CANARY_COHORT_LOCAL } = {}) {
   const identities = new Set(allowedEmails.map((email) => email?.trim().toLowerCase()).filter(Boolean));
   if (identities.size === 0) return { status: 'skipped', reason: 'configured_canary_identities_missing' };
-  if (identities.size > max) return { status: enforce ? 'exceeded' : 'warn', count: identities.size, max };
-  const emails = [];
+  if (identities.size > max) return { status: enforce ? 'exceeded' : 'warn', count: identities.size, max, reason: 'more_configured_identities_than_max' };
+  const cohort = new Set();
   for (let page = 1; page <= 25; page++) {
     const { data, error } = await withRetry(() => admin.auth.admin.listUsers({ page, perPage: 200 }));
     if (error) return { status: 'skipped', reason: classifyError(error).category };
     const users = data?.users || [];
-    for (const u of users) if (u.email && identities.has(u.email.toLowerCase())) emails.push(u.email.toLowerCase());
+    for (const u of users) {
+      const email = (u.email || '').toLowerCase();
+      if (!email) continue;
+      // A configured allowed identity OR any canary-token account (a stray/retired canary not in the set).
+      if (identities.has(email) || cohortMatch.test(email.split('@')[0] || '')) cohort.add(email);
+    }
     if (users.length < 200) break;
   }
-  if (emails.length > max) return { status: enforce ? 'exceeded' : 'warn', count: emails.length, max };
-  return { status: 'ok', count: emails.length, max };
+  if (cohort.size > max) return { status: enforce ? 'exceeded' : 'warn', count: cohort.size, max };
+  return { status: 'ok', count: cohort.size, max };
 }
 
 /**

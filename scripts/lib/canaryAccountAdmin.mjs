@@ -31,6 +31,10 @@ export const PURPOSES = {
 export const CANARY_PURPOSES = PURPOSES;
 
 const TRIAL_WINDOW_DAYS = 30;
+const TRIAL_WINDOW_MS = TRIAL_WINDOW_DAYS * 86400_000;
+// The DB sets trial_started_at=now() and trial_expires_at=now()+interval '30 days' in one statement (UTC),
+// so the window is exactly 30*24h — allow only a few seconds for ISO serialization noise, never hours.
+const WINDOW_TOLERANCE_MS = 5000;
 const HOUR_MS = 3600_000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const nonBlankStr = (v) => typeof v === 'string' && v.trim().length > 0;
@@ -40,23 +44,43 @@ const isProhibitedDomain = (email) => {
     return domain === 'speaksharp.app' || domain.endsWith('.speaksharp.app');
 };
 
+// The peer identities a purpose must be provably DISTINCT from. A purpose can never proceed unless every
+// relevant peer is also present, normalized, valid, and prohibited-domain-free (fail closed) — so
+// canary_trial cannot run without a valid canary_paid, and free_test cannot run without both canaries.
+const RELEVANT_PEERS = {
+    canary_trial: ['canary_paid'],
+    canary_paid: ['canary_trial'],
+    free_test: ['canary_trial', 'canary_paid'],
+};
+
+const identityError = (email, label) => {
+    if (!nonBlankStr(email)) return `missing_${label}`;
+    if (!EMAIL_RE.test(email)) return `${label}_not_a_valid_email`;
+    if (isProhibitedDomain(email)) return `${label}_prohibited_domain`;
+    return null;
+};
+
 /**
- * Validate the SELECTED purpose's identity: nonblank, syntactically valid, not the unaffiliated
- * speaksharp.app apex/subdomain, and DISTINCT from every other configured purpose identity present (so a
- * free_test account can never collide with a canary, and the two canaries can never collide).
+ * Validate the SELECTED identity AND every relevant peer: each present, syntactically valid, not the
+ * unaffiliated speaksharp.app apex/subdomain, and the whole set MUTUALLY DISTINCT. Fails closed when any
+ * required peer identity is missing or malformed (never proceeds on the selected identity alone).
  */
 function validateSelectedIdentity(purpose, secrets) {
     const cfg = PURPOSES[purpose];
-    const email = (secrets[cfg.emailVar] || '').trim().toLowerCase();
-    if (!email) return { error: `missing_${cfg.emailVar}` };
-    if (!EMAIL_RE.test(email)) return { error: `${cfg.emailVar}_not_a_valid_email` };
-    if (isProhibitedDomain(email)) return { error: `${cfg.emailVar}_prohibited_domain` };
-    for (const [p, ocfg] of Object.entries(PURPOSES)) {
-        if (p === purpose) continue;
-        const other = (secrets[ocfg.emailVar] || '').trim().toLowerCase();
-        if (other && other === email) return { error: `${cfg.emailVar}_not_distinct_from_${ocfg.emailVar}` };
+    if (!cfg) return { error: `invalid_purpose_${purpose}` };
+    const involved = [purpose, ...(RELEVANT_PEERS[purpose] || [])];
+    const seen = new Map(); // normalized email -> purpose
+    let selectedEmail = null;
+    for (const p of involved) {
+        const pcfg = PURPOSES[p];
+        const email = (secrets[pcfg.emailVar] || '').trim().toLowerCase();
+        const err = identityError(email, pcfg.emailVar);
+        if (err) return { error: err };
+        if (seen.has(email)) return { error: `${pcfg.emailVar}_not_distinct_from_${PURPOSES[seen.get(email)].emailVar}` };
+        seen.set(email, p);
+        if (p === purpose) selectedEmail = email;
     }
-    return { email };
+    return { email: selectedEmail };
 }
 
 /** Mask an email so logs/summaries correlate a run without exposing the identity. Never masks a password. */
@@ -95,9 +119,11 @@ export async function strictLookup(adminClient, email) {
             return matches.length === 1 ? { status: 'found', userId: matches[0] } : { status: 'absent' };
         }
     }
-    // Reached the page cap with a still-full final page → inventory not fully scanned.
+    // Reached the page cap with a still-full final page → the inventory was NOT fully scanned. We cannot
+    // prove absence OR the uniqueness of a single match (a second normalized match could sit in the
+    // unscanned remainder). ANY page-cap exhaustion fails closed as `truncated` regardless of matches so
+    // far — a single early match is NOT accepted as an exact identity. (>1 is already unambiguously bad.)
     if (matches.length > 1) return { status: 'ambiguous', count: matches.length };
-    if (matches.length === 1) return { status: 'found', userId: matches[0] };
     return { status: 'truncated' };
 }
 
@@ -140,10 +166,9 @@ export async function verifyCanaryFoundation(adminClient, userId, purpose) {
             return { ok: false, reason: 'trial_timestamps_unparseable' };
         }
         if (expiry <= start) return { ok: false, reason: 'trial_window_inverted' };
-        // Exactly the server-authoritative 30-day foundation window (compares two DB timestamps to each
-        // other — not to the runner clock). Marker is stamped at start.
-        const windowDays = (expiry - start) / 86400_000;
-        if (Math.abs(windowDays - TRIAL_WINDOW_DAYS) > 1) return { ok: false, reason: `trial_window_not_${TRIAL_WINDOW_DAYS}d` };
+        // EXACTLY the server-authoritative 30-day foundation window (compares two DB timestamps to each
+        // other — not to the runner clock; a narrow serialization tolerance, never hours). Marker at start.
+        if (Math.abs((expiry - start) - TRIAL_WINDOW_MS) > WINDOW_TOLERANCE_MS) return { ok: false, reason: `trial_window_not_exactly_${TRIAL_WINDOW_DAYS}d` };
         if (Math.abs(marker - start) > HOUR_MS) return { ok: false, reason: 'trial_marker_start_inconsistent' };
         // Stored state must be UNBILLED / non-paid-shaped (effective 'pro' comes from the live trial only).
         if (String(data.subscription_status).toLowerCase() === 'pro') return { ok: false, reason: 'trial_stored_state_is_paid' };

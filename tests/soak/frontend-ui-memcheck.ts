@@ -310,8 +310,9 @@ export async function setupAuthenticatedUser(page: Page, userIndex: number): Pro
     // Verify application auth state
     await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible({ timeout: 30000 });
 
-    // Verify session page readiness
-    await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 30000 });
+    // Verify session page readiness. Current session shell: the readied recorder control is `mic-start`
+    // (or the one-time `mic-download` model gate) — the combined start/stop selector was retired.
+    await expect(page.getByTestId('mic-download').or(page.getByTestId('mic-start')).first()).toBeVisible({ timeout: 30000 });
 }
 
 /**
@@ -407,26 +408,29 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             userPhases[userIndex] = 'navigation';
             await page.goto(ROUTES.SESSION);
             await installSoakSttBridge(page);
-            await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 30000 });
+            // Current session shell readiness: the `mic-start` control (or the one-time `mic-download`
+            // model gate). The combined start/stop selector was retired.
+            await expect(page.getByTestId('mic-download').or(page.getByTestId('mic-start')).first()).toBeVisible({ timeout: 30000 });
 
-            // 2. Force Browser/Native STT before recording. This endurance
-            // proof tracks browser stability; Private model download/cache
-            // behavior belongs to dedicated Private proofs.
-            const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+            // 2. Select the engine via the INTERNAL deterministic E2E hook — there is no customer-facing
+            // Native/mode selector. Native transcript output is browser-owned, so this endurance path
+            // validates sustained recording stability; the soak STT bridge supplies deterministic input.
             if (SOAK_CONFIG.USE_NATIVE_MODE) {
-                const modeSelect = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
-                await expect(modeSelect).toBeVisible({ timeout: 15000 });
-                await modeSelect.click();
-                await page.getByTestId(TEST_IDS.STT_MODE_NATIVE).click();
-                await expect(modeSelect).toHaveAttribute('data-state', 'native', { timeout: 10000 });
+                await page.evaluate(() => {
+                    const setMode = (window as unknown as { __E2E_SET_MODE__?: (mode: string) => void }).__E2E_SET_MODE__;
+                    if (typeof setMode === 'function') setMode('native');
+                });
             }
 
-            // 3. Start Recording. If this is disabled, fail with the selected
-            // mode so stale Private/download gating is obvious in logs.
-            await expect(startButton).toBeEnabled({ timeout: 10000 });
+            // 3. Start Recording via the current `mic-start` control. If disabled, the failure names the
+            // readiness gate so stale Private/download gating stays obvious in logs.
+            const startButton = page.getByTestId('mic-start');
+            await expect(startButton).toBeEnabled({ timeout: 15000 });
             await startButton.click();
-            await page.waitForSelector(`[data-testid="${TEST_IDS.SESSION_STATUS_INDICATOR}"]`, { timeout: 10000 });
-            await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 10000 });
+            // Runtime-state seam: the shell drives html[data-runtime-state="RECORDING"] and the
+            // during-state session shell. Both must resolve before the endurance wait.
+            await expect(page.locator('html[data-runtime-state="RECORDING"]')).toBeVisible({ timeout: 15000 });
+            await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({ timeout: 10000 });
             userPhases[userIndex] = 'active';
 
             // 4. Endurance wait. Native transcript output is browser-owned,
@@ -438,10 +442,10 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
                 await page.waitForTimeout(checkInterval);
             }
 
-            // 5. Stop Recording
-            const buttonText = await startButton.textContent();
-            if (!buttonText?.includes('Start')) {
-                await startButton.click();
+            // 5. Stop Recording via the during-state RecorderBar `recorder-stop` control.
+            const stopButton = page.getByTestId('recorder-stop');
+            if (await stopButton.isVisible().catch(() => false)) {
+                await stopButton.click();
                 const sessionEndLocator = page.locator('div[role="alertdialog"]').or(page.getByText('No speech was detected'));
                 await sessionEndLocator.first().waitFor({ timeout: 10000 }).catch(() => { });
             }

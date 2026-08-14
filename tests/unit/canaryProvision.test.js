@@ -99,6 +99,16 @@ describe('verifyCanaryProfileBinding — active trial lane (immutable marker, ex
   it('accepts an unbilled, marked, exactly-30-day, server-time-active trial', async () => {
     expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: TRIAL_PROFILE } }), 'u1', 'active-trial')).ok).toBe(true);
   });
+  it.each([
+    ['29 days', TRIAL_START + 29 * DAY, false],
+    ['29d23h', TRIAL_START + 30 * DAY - 3600_000, false],
+    ['exactly 30 days', TRIAL_START + 30 * DAY, true],
+    ['30d1h', TRIAL_START + 30 * DAY + 3600_000, false],
+  ])('trial window %s → ok=%s (narrow tolerance, never hours)', async (_l, expiryMs, ok) => {
+    const anon = makeAnon({ profileResult: { data: { ...TRIAL_PROFILE, trial_expires_at: iso(expiryMs) } } });
+    expect((await verifyCanaryProfileBinding(anon, 'u1', 'active-trial')).ok).toBe(ok);
+  });
+
   it('rejects missing marker / missing start / non-30d window / marker-start drift / billing identity / paid stored state / not-active', async () => {
     const bad = (over) => makeAnon({ profileResult: { data: { ...TRIAL_PROFILE, ...over } } });
     expect((await verifyCanaryProfileBinding(bad({ commercial_trial_granted_at: null }), 'u1', 'active-trial')).ok).toBe(false);
@@ -111,12 +121,20 @@ describe('verifyCanaryProfileBinding — active trial lane (immutable marker, ex
   });
 });
 
-describe('enforceCeiling (separate read-only hygiene)', () => {
-  it('ok / warn / exceeded / skipped', async () => {
+describe('enforceCeiling (authoritative canary cohort, separate read-only hygiene)', () => {
+  it('ok / exceeded / skipped', async () => {
     expect((await enforceCeiling(makeAdmin({ listUsers: [{ users: [{ email: CANARY }] }] }), { max: 1, enforce: true, allowedEmails: [CANARY] })).status).toBe('ok');
     const two = [{ users: [{ email: CANARY }, { email: 'trial-canary@example.test' }] }];
     expect((await enforceCeiling(makeAdmin({ listUsers: two }), { max: 1, enforce: true, allowedEmails: [CANARY, 'trial-canary@example.test'] })).status).toBe('exceeded');
     expect((await enforceCeiling(makeAdmin({ listUsers: [{ error: invalidJwt }] }), { max: 1, enforce: true, allowedEmails: [CANARY] })).status).toBe('skipped');
+  });
+
+  it('DETECTS a stray/retired canary account beyond the two configured identities (not just the allowlist)', async () => {
+    // 2 configured canary identities + 1 stray canary-token account that is NOT in allowedEmails.
+    const three = [{ users: [{ email: CANARY }, { email: 'trial-canary@example.test' }, { email: 'canary-retired@stray.test' }] }];
+    const r = await enforceCeiling(makeAdmin({ listUsers: three }), { max: 2, enforce: true, allowedEmails: [CANARY, 'trial-canary@example.test'] });
+    expect(r.status).toBe('exceeded');
+    expect(r.count).toBe(3);
   });
 });
 
