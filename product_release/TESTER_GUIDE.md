@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for the external, tester-facing beta copy)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-08-11
-**Last Verified:** 2026-08-11 — reconciled to the Private-only Practice Loop and the customer-copy contract in #1254. No volatile run IDs, SHAs, or current pass/fail posture are carried here.
+**Last Reviewed:** 2026-08-14
+**Last Verified:** 2026-08-14 — reconciled to the Private-only Open Mic and Focus Points Practice Loop, the complete 30-day trial, the $10/month continuation contract, and the page-aware Report Issue behavior. No volatile run IDs, SHAs, or current pass/fail posture are carried here.
 **Applies To:** The controlled invite-only SpeakSharp beta — the copy sent to human testers (intro, invitation, walkthrough, feedback prompts).
 **Class:** Product copy (external).
 **Authority:** The source for what testers are told and asked. This is the only place external tester copy is maintained; operators send from here verbatim.
@@ -23,10 +23,10 @@ This is a **documentation** artifact. It changes no application code, test, work
 
 This document owns **only the words testers see**. It deliberately routes everything operational elsewhere:
 
-- Operator setup, environment rules, entitlement/scope checks, the automated first-time-tester proof, and the internal v4 rollout posture → `TESTER_OPERATIONS.md`.
+- Operator setup, environment rules, entitlement/scope checks, the automated first-time-tester proof, and internal rollout posture → `TESTER_OPERATIONS.md`.
 - Engineering acceptance criteria ("what a successful session means") and the manual hardware-validation protocol → `QUALITY.md`.
 - Current gate/run status, blockers, signoff SHA, and go/no-go → `RELEASE_STATUS.md`.
-- Tier, quota, pricing, and billing mechanics → `ENTITLEMENTS_AND_BILLING.md`.
+- Access, pricing, and billing mechanics → `ENTITLEMENTS_AND_BILLING.md`.
 - Dated proof artifacts → `EVIDENCE_INDEX.md`.
 
 Keep this file **free of technical detail** (flags, model variants, telemetry, evidence, SHAs, run IDs). Anything an operator needs but a tester does not belongs in `TESTER_OPERATIONS.md`.
@@ -39,77 +39,120 @@ Keep this file **free of technical detail** (flags, model variants, telemetry, e
 
 ## 2. What is SpeakSharp?
 
-SpeakSharp is a private speaking-practice coach. Choose **Open Mic** for an unstructured take or **Focus Points** when specific ideas must land. Every customer practice session uses **Private transcription on your device**; speech audio is not uploaded to a transcription provider.
+SpeakSharp is a private speaking-practice coach. **Open Mic** is the simplest way to start an unstructured take. **Focus Points** is optional guidance when specific ideas must land. Every customer practice session uses Private transcription on your device; speech audio is not uploaded to a transcription provider.
 
-The commercial model is the complete product **free for 30 days**, then **$10/month** to continue — there is no permanent feature-limited Free tier and Private transcription is never a paid add-on. While paid enrollment is disabled, no checkout is shown and no card is ever required. If a build shows paid enrollment, testers may keep practicing without paying and must never treat Private transcription as a paid benefit.
+The complete product is **free for 30 days**, then **$10/month** to continue with the same product. There is no permanent feature-limited Free tier, and Private transcription is not a paid add-on. Nothing starts recording automatically; the tester chooses when to begin.
 
 ---
 
-## 3. Beta invitation copy (send-ready; link included)
-
-**Email (official — controlled invite-only beta):**
+## 3. Beta invitation email (official; send-ready)
 
 ```text
 Subject: A quick favor — test SpeakSharp (about 10 minutes)
 
 Hi there,
 
-Thanks in advance for your help. I'm inviting a small group to test SpeakSharp, and I'd value your honest feedback.
+Thank you again for helping us test SpeakSharp.
 
-SpeakSharp is a private speaking-practice coach. Choose Open Mic for an unstructured take or Focus Points when specific ideas must land. Every customer practice session uses Private transcription on your device.
+SpeakSharp is a private speaking-practice coach. Open Mic is the simplest way to begin an unstructured take. Focus Points is optional guidance when you want to check that specific ideas came through. Every recording uses Private transcription on your device.
 
-Could you take about 10 minutes to try SpeakSharp? Create an account, complete a practice take, save and review it, then repeat once using the suggested next action. Please use Report Issue whenever something feels confusing, inaccurate, slow, or broken.
+Nothing begins recording automatically. You remain in control of when to start.
 
-No card or checkout is required to test. If this build shows paid enrollment, ignore it for this test and keep practicing — Private transcription is on-device for everyone.
+How to test the Practice Loop
 
-Start testing SpeakSharp!
+1. Sign in to SpeakSharp. You should land on the Practice page.
+2. Start with Open Mic.
+3. If this is your first session, allow the one-time Private transcription setup. Wait until the session says “Ready — speak now.”
+4. Start recording when you are ready, speak for approximately 1–2 minutes, then stop.
+5. Keep the page open while the transcript finishes on your device.
+6. Save the session and review the transcript, delivery evidence, and suggested next action.
+7. Open the saved session again from History or Progress. If a PDF report is available, open or export it.
+8. Repeat once using the suggested next action. You may use Open Mic again or try Focus Points.
+9. Use Report Issue from any page whenever something is confusing, broken, slow, inaccurate, or surprising.
+
+What to evaluate
+
+- Was it clear where to begin and that recording would not start automatically?
+- Was the one-time Private setup clear?
+- Did the live transcript and recording visualization respond while you spoke?
+- Did the saved review preserve the beginning and end of your take?
+- Did the saved recording visualization and session details look correct after the session?
+- Did the filler-word, pacing, and pause feedback appear reasonable?
+- Was the suggested next action specific enough to use in another take?
+- If you tried Focus Points, did “detected / not detected” feel truthful?
+- Did Open Mic and Focus Points remain clearly separate?
+- Was anything confusing or difficult to navigate?
+- What one change would make you want to return tomorrow?
+
+Report Issue automatically records the product page where you submitted the report. Tell us what you were trying to do, what you expected, and what happened. Your transcript and audio are not included unless you explicitly choose to share optional details. Please do not include passwords, confidential material, or other sensitive personal information.
+
+The complete product is free for 30 days. You will not need a card for this test. If any page asks you to pay during this beta test, stop and report it.
+
+Optional one-minute practice sample
+
+This sample intentionally includes a few filler phrases and a self-correction. Read it naturally—there is no need to perform it perfectly.
+
+One place I enjoy visiting is a small neighborhood market. It has three main sections: fresh produce, baked goods, and household items.
+
+Um, I usually begin at the fruit stand because the colors are easy to notice and describe. The owner, Maria, often recommends something unfamiliar. I might ask for four apples—actually, make that five—and a small bag of oranges.
+
+The market can be noisy, so, you know, I sometimes pause or repeat myself. I may say a word incorrectly, correct it, and continue without starting over.
+
+Before leaving, I check that I have everything I need. I like this market because it feels friendly, practical, and, like, connected to the neighborhood.
+
+There is no need to perform the sample perfectly. Natural pauses, corrections, and speaking habits help us evaluate the experience.
+
+Thank you for helping us improve SpeakSharp.
+
+Start testing SpeakSharp:
 https://speaksharp-public.vercel.app/
 
 Thank you,
 Akin
 ```
 
-**Short text message:**
+---
+
+## 4. Short text message
 
 ```text
-I'm opening a small controlled beta for SpeakSharp, a private speaking-practice coach. Choose Open Mic or Focus Points, record a take using Private transcription on your device, then review the evidence and one suggested next action.
+I'm opening a small controlled beta for SpeakSharp, a private speaking-practice coach. Start with Open Mic, record a 1–2 minute take using Private transcription on your device, save and review it, then repeat once using the suggested next action. You can also try Focus Points when specific ideas must land.
 
-We'd love for you to try it and tell us what you liked or what we can improve. The beta is free; no card or checkout is required. Use Report Issue for anything confusing, inaccurate, slow, or broken.
+Nothing records automatically. The complete product is free for 30 days, and no card is needed for this test. Use Report Issue for anything confusing, inaccurate, slow, or broken.
 
 Beta link: https://speaksharp-public.vercel.app/
 ```
 
 ---
 
-## 4. A simple walkthrough
+## 5. Quick tester checklist
 
-We'd love for you to try SpeakSharp and tell us what you liked or what we can improve. Please use the **Report Issue** button for any feedback or problems.
+1. Complete one **Open Mic** take from start through saved review.
+2. Confirm the live transcript and recording visualization respond during the take.
+3. Reopen the exact saved session from History or Progress and inspect the transcript, evidence, recording visualization, and next action.
+4. Repeat using the suggested next action.
+5. Try **Focus Points** if you can identify two or three ideas that should be detected.
+6. Confirm Focus Points results remain separate from Open Mic Progress.
+7. Try Report Issue from the page where a problem occurs.
+8. If anything asks for payment during this beta test, stop and report it.
 
-1. Create an account and choose **Open Mic** or **Focus Points**.
-2. On first use, allow the one-time Private model setup, then wait for **Ready — speak now**.
-3. Record a natural practice take and stop.
-4. Keep the page open while the transcript finalizes on your device.
-5. Save and review the exact session: transcript, delivery evidence, and one suggested next action.
-6. Repeat once using that next action.
-7. Open History/Progress, hard reload the exact session, and check any available PDF report.
-8. Use **Report Issue** whenever something feels confusing, inaccurate, slow, or broken.
-
-You don't need to be polished. Natural speech is more useful for testing.
-
-> If anything feels **confusing, broken, slow, inaccurate, or surprising**, please use the **Report Issue** button. You don't need to explain it technically — just say what you were trying to do and what happened.
+You do not need to be polished. Natural speech is more useful for testing.
 
 ---
 
-## 5. What feedback helps most
+## 6. What feedback helps most
 
 After trying SpeakSharp, please tell us:
 
-1. Did you **complete the loop without help**?
-2. Was the one-time Private setup clear?
-3. Did the transcript preserve the beginning and end of your take?
-4. Was the next action specific enough to use in another take?
-5. In Focus Points, did “detected / not detected” feel truthful?
-6. What frustrated you or made you consider leaving?
-7. What **one change** would make you return tomorrow?
+1. Did you complete the full Practice Loop without help?
+2. Was it clear that recording would not begin automatically?
+3. Was the one-time Private setup clear?
+4. Did the transcript preserve the beginning and end of your take?
+5. Did the recording visualization behave correctly both during and after the session?
+6. Did the delivery evidence feel plausible?
+7. Was the suggested next action specific enough to use in another take?
+8. In Focus Points, did “detected / not detected” feel truthful?
+9. What frustrated you or made you consider leaving?
+10. What one change would make you return tomorrow?
 
 Even 3–4 sentences is a huge help. Thank you for testing it.
