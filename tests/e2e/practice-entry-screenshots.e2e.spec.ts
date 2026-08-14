@@ -28,7 +28,8 @@ const TRACKING_HOSTS = ['posthog.com', 'i.posthog.com', 'sentry.io', 'google-ana
 // freeform_practice_overview surface, so /practice now has two surfaces.
 const AREAS = {
   practice_home: ['understanding_choices', 'navigation', 'visual_layout', 'other'],
-  objective_unavailable: ['availability', 'product_clarity', 'navigation', 'visual_layout', 'other'],
+  // #1294: Focus Points is activated — the setup surface has NO "availability" area.
+  objective_setup: ['product_clarity', 'navigation', 'visual_layout', 'other'],
   session: ['session_mode', 'mic_start', 'recording', 'transcription', 'feedback', 'save', 'other'],
 };
 

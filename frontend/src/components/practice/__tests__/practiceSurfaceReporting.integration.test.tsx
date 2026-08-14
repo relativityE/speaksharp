@@ -13,7 +13,7 @@ vi.mock('@/services/issueReportService', async (orig) => {
 });
 vi.mock('@/services/practiceTelemetry', () => ({
   trackPracticeEntryViewed: vi.fn(), trackPracticeModeSelected: vi.fn(), trackPracticeOverviewExpanded: vi.fn(),
-  trackFreeformPracticeStarted: vi.fn(), trackObjectiveUnavailable: vi.fn(),
+  trackFreeformPracticeStarted: vi.fn(),
 }));
 // #1042 PR4: PracticePage reads the most-recent session via useRecentPracticeSummary; mock it (new user /
 // no sessions) so this integration test needs no QueryClient/Auth provider and the surface flow is unchanged.

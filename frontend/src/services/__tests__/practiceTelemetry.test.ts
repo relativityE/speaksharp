@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import {
   trackPracticeEntryViewed, trackPracticeModeSelected, trackPracticeOverviewExpanded,
-  trackFreeformPracticeStarted, trackObjectiveUnavailable,
+  trackFreeformPracticeStarted,
   type PracticeEntrySource,
 } from '@/services/practiceTelemetry';
 
@@ -20,16 +20,17 @@ describe('practiceTelemetry — content-free, allowlisted events via AnalyticsBu
     trackPracticeModeSelected('quick', 'landing_card');
     trackPracticeOverviewExpanded('quick');
     trackFreeformPracticeStarted('freeform_overview');
-    trackObjectiveUnavailable();
 
     const names = push.mock.calls.map((c) => c[0]);
     expect(names).toEqual([
       'practice_entry_viewed', 'practice_mode_selected', 'practice_overview_expanded',
-      'freeform_practice_started', 'objective_unavailable_selected',
+      'freeform_practice_started',
     ]);
+    // #1294: no `objective_unavailable_selected` event exists — Focus Points is an activated product.
+    expect(names).not.toContain('objective_unavailable_selected');
 
     // Every payload carries only allowlisted keys and no free-form user content.
-    const allowed = new Set(['mode', 'entry_source', 'returning_user', 'available', 'release_sha']);
+    const allowed = new Set(['mode', 'entry_source', 'returning_user', 'release_sha']);
     const allProps = push.mock.calls.map(([, props]) => (props ?? {}) as Record<string, unknown>);
     const allKeys = [...new Set(allProps.flatMap((p) => Object.keys(p)))];
     allKeys.forEach((key) => {
@@ -59,14 +60,6 @@ describe('practiceTelemetry — content-free, allowlisted events via AnalyticsBu
     trackFreeformPracticeStarted('freeform_overview');
     expect(push.mock.calls[0][1]).toMatchObject({ entry_source: 'landing_card' });
     expect(push.mock.calls[1][1]).toMatchObject({ entry_source: 'freeform_overview' });
-  });
-
-  it('objective-unavailable event is content-free: mode=objective + available=false, never the toast text', () => {
-    trackObjectiveUnavailable();
-    const [name, props] = push.mock.calls[0];
-    expect(name).toBe('objective_unavailable_selected');
-    expect(props).toMatchObject({ mode: 'objective', available: false });
-    expect(JSON.stringify(props)).not.toContain('not available at this time');
   });
 
   // RESTORED failure-path test (one-shot mock — a persistent throwing mockImplementation interferes with

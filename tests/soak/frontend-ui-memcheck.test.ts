@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { classifyRequestFailure, type RequestFailureEvent } from './frontend-ui-memcheck';
 
+const IGNORED_READ_REASON = 'Known read-only polling endpoint aborted outside active recording (setup/navigation/teardown).';
+
 const baseFailure: RequestFailureEvent = {
     userIndex: 0,
     url: 'https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/check-usage-limit',
@@ -16,7 +18,7 @@ describe('classifyRequestFailure', () => {
 
         expect(result).toEqual({
             kind: 'ignored_teardown_read',
-            reason: 'Known read-only polling endpoint aborted during teardown/navigation after functional proof.',
+            reason: IGNORED_READ_REASON,
             category: 'usage_poll',
         });
     });
@@ -31,7 +33,7 @@ describe('classifyRequestFailure', () => {
 
         expect(result).toEqual({
             kind: 'ignored_teardown_read',
-            reason: 'Known read-only polling endpoint aborted during teardown/navigation after functional proof.',
+            reason: IGNORED_READ_REASON,
             category: 'session_history_read',
         });
     });
@@ -45,8 +47,43 @@ describe('classifyRequestFailure', () => {
 
         expect(result).toEqual({
             kind: 'ignored_teardown_read',
-            reason: 'Known read-only polling endpoint aborted during teardown/navigation after functional proof.',
+            reason: IGNORED_READ_REASON,
             category: 'usage_poll',
+        });
+    });
+
+    // #1294 finding #5: a usage poll cancelled during SETUP (before the journey runs) is benign navigation
+    // churn — the functional journey still succeeded with healthy memory. It must NOT be flagged critical.
+    it('records read-only usage POST aborts during setup (before functional proof) as benign', () => {
+        const result = classifyRequestFailure({
+            ...baseFailure,
+            method: 'POST',
+            phase: 'setup',
+            functionalJourneyPassed: false,
+        });
+
+        expect(result).toEqual({
+            kind: 'ignored_teardown_read',
+            reason: IGNORED_READ_REASON,
+            category: 'usage_poll',
+        });
+    });
+
+    // #1294 finding #5: a Vite dev-server module/asset fetch cancelled by navigation is a dev-harness
+    // artifact (no such request exists in a production build), never a product failure.
+    it('records Vite dev-server module fetch aborts as a dev-harness artifact', () => {
+        const result = classifyRequestFailure({
+            ...baseFailure,
+            url: 'http://localhost:5173/src/pages/PracticePage.tsx',
+            method: 'GET',
+            phase: 'setup',
+            functionalJourneyPassed: false,
+        });
+
+        expect(result).toEqual({
+            kind: 'ignored_teardown_read',
+            reason: 'Vite dev-server module/asset fetch aborted by navigation (dev harness only).',
+            category: 'dev_asset_navigation_abort',
         });
     });
 
@@ -63,7 +100,21 @@ describe('classifyRequestFailure', () => {
         });
     });
 
-    it('fails known read aborts before the functional journey has passed', () => {
+    it('fails a NON-abort failure (real error) even on an allowlisted read endpoint', () => {
+        const result = classifyRequestFailure({
+            ...baseFailure,
+            errorText: 'net::ERR_CONNECTION_REFUSED',
+        });
+
+        expect(result).toEqual({
+            kind: 'critical',
+            reason: 'Unexpected request failure: net::ERR_CONNECTION_REFUSED',
+        });
+    });
+
+    // The active-recording window is the one place a known-read abort still matters: an abort there, before
+    // the functional proof, could mask an unexpected teardown — so it stays critical.
+    it('fails known read aborts DURING active recording before the functional journey has passed', () => {
         const result = classifyRequestFailure({
             ...baseFailure,
             phase: 'active',
@@ -72,11 +123,11 @@ describe('classifyRequestFailure', () => {
 
         expect(result).toEqual({
             kind: 'critical',
-            reason: 'Read aborted before the functional journey passed',
+            reason: 'Read aborted during active recording before the functional journey passed',
         });
     });
 
-    it('fails read-only usage POST aborts before the functional journey has passed', () => {
+    it('fails read-only usage POST aborts DURING active recording before the functional journey has passed', () => {
         const result = classifyRequestFailure({
             ...baseFailure,
             method: 'POST',
@@ -86,7 +137,7 @@ describe('classifyRequestFailure', () => {
 
         expect(result).toEqual({
             kind: 'critical',
-            reason: 'Read aborted before the functional journey passed',
+            reason: 'Read aborted during active recording before the functional journey passed',
         });
     });
 

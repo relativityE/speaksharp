@@ -61,18 +61,18 @@ describe('buildIssueReportMetadata — page context + sanitization', () => {
   it('validates issueArea against the ACTIVE /practice surface, rejecting cross-surface areas', () => {
     // #1042 PR3: overview surface removed — validate across the two remaining surfaces.
     const home = resolvePageContext('/practice', 'practice_home');
-    const objective = resolvePageContext('/practice', 'objective_unavailable');
+    const objective = resolvePageContext('/practice', 'objective_setup');
     // Valid for the active surface → kept.
     expect(buildIssueReportMetadata({ context: home, issueArea: 'understanding_choices' }).issueArea).toBe('understanding_choices');
-    expect(buildIssueReportMetadata({ context: objective, issueArea: 'availability' }).issueArea).toBe('availability');
+    expect(buildIssueReportMetadata({ context: objective, issueArea: 'product_clarity' }).issueArea).toBe('product_clarity');
     // Valid for a DIFFERENT surface → coerced to null (no cross-surface leakage).
-    expect(buildIssueReportMetadata({ context: home, issueArea: 'availability' }).issueArea).toBeNull();
+    expect(buildIssueReportMetadata({ context: home, issueArea: 'product_clarity' }).issueArea).toBeNull();
     expect(buildIssueReportMetadata({ context: objective, issueArea: 'understanding_choices' }).issueArea).toBeNull();
   });
 
   it('persists the active practiceSurface (and only a valid one) in metadata', () => {
-    expect(buildIssueReportMetadata({ context: resolvePageContext('/practice', 'objective_unavailable') }))
-      .toMatchObject({ practiceSurface: 'objective_unavailable', pageLabel: 'Focus Points', journeyStep: 'objective_unavailable', canonicalRoute: '/practice' });
+    expect(buildIssueReportMetadata({ context: resolvePageContext('/practice', 'objective_setup') }))
+      .toMatchObject({ practiceSurface: 'objective_setup', pageLabel: 'Focus Points', journeyStep: 'objective_setup', canonicalRoute: '/practice' });
     // Off /practice: no surface attached.
     expect(buildIssueReportMetadata({ context: resolvePageContext('/session') }).practiceSurface).toBeNull();
   });

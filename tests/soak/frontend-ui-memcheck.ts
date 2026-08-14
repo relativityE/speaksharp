@@ -215,11 +215,26 @@ function writeBrowserEnduranceEvidence(report: Omit<BrowserEnduranceEvidence, 's
     console.log(`📄 Browser endurance evidence written to ${ENDURANCE_EVIDENCE_PATH}`);
 }
 
+// Vite dev-server module/asset fetches — the soak runs against `pnpm dev:test` on localhost, so a route
+// navigation that unmounts a page cancels its in-flight module/HMR fetch. This is a dev-harness artifact
+// (it does not exist in a production build), never a product signal, and only ever ABORTED (never a real
+// status/connection error). Matches the app's own served modules/assets, not third-party hosts.
+const DEV_ASSET_ABORT = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/(?:src\/|@vite\/|@id\/|@react-refresh|node_modules\/\.vite\/|assets\/|@fs\/)/;
+
 export function classifyRequestFailure(failure: RequestFailureEvent): RequestFailureClassification {
     if (failure.errorText !== 'net::ERR_ABORTED') {
         return {
             kind: 'critical',
             reason: `Unexpected request failure: ${failure.errorText ?? 'unknown error'}`,
+        };
+    }
+
+    // A dev-server module/asset load cancelled by navigation is a harness artifact, not a product failure.
+    if (DEV_ASSET_ABORT.test(failure.url)) {
+        return {
+            kind: 'ignored_teardown_read',
+            reason: 'Vite dev-server module/asset fetch aborted by navigation (dev harness only).',
+            category: 'dev_asset_navigation_abort',
         };
     }
 
@@ -240,17 +255,20 @@ export function classifyRequestFailure(failure: RequestFailureEvent): RequestFai
         };
     }
 
-    const safePhase = failure.phase === 'navigation' || failure.phase === 'teardown' || failure.functionalJourneyPassed;
-    if (!safePhase) {
+    // A client-aborted read to a KNOWN read-only endpoint is benign in every phase EXCEPT active recording:
+    // an abort mid-journey (before the functional proof) could mask an unexpected teardown, so only the
+    // 'active' phase stays critical. Setup/navigation/teardown aborts of these polls are expected churn.
+    const abortDuringActiveJourney = failure.phase === 'active' && !failure.functionalJourneyPassed;
+    if (abortDuringActiveJourney) {
         return {
             kind: 'critical',
-            reason: 'Read aborted before the functional journey passed',
+            reason: 'Read aborted during active recording before the functional journey passed',
         };
     }
 
     return {
         kind: 'ignored_teardown_read',
-        reason: 'Known read-only polling endpoint aborted during teardown/navigation after functional proof.',
+        reason: 'Known read-only polling endpoint aborted outside active recording (setup/navigation/teardown).',
         category: match.category,
     };
 }

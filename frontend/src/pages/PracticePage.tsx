@@ -154,8 +154,7 @@ export default function PracticePage() {
   // check-usage-limit.streak_count and NOT a localStorage guess. Keyed by user id with stale-response
   // protection; the chip is always visible (loading → skeleton, else a settled label).
   const { streak: homeStreak, loading: homeStreakLoading } = useHomeStreak(user?.id ?? null);
-  // Objective selection marks the Report Issue surface; the "Notify me" dialog is the real interest capture.
-  const [objectiveSelected, setGuidedSelected] = React.useState(false);
+  // Focus Points is ACTIVATED: opening the points-setup modal is the objective surface for Report Issue.
   const [objectiveSetupOpen, setObjectiveSetupOpen] = React.useState(false);
   const returning = React.useRef(false);
 
@@ -168,16 +167,17 @@ export default function PracticePage() {
   }, []);
 
   React.useEffect(() => {
-    const surface: PracticeSurface = objectiveSelected ? 'objective_unavailable' : 'practice_home';
+    // Focus Points is available: the objective surface is the points-setup modal being open, not an
+    // "unavailable" state. Report Issue on /practice reflects exactly which of the two surfaces is active.
+    const surface: PracticeSurface = objectiveSetupOpen ? 'objective_setup' : 'practice_home';
     setSurface(surface);
-  }, [objectiveSelected, setSurface]);
+  }, [objectiveSetupOpen, setSurface]);
 
   React.useEffect(() => () => { setSurface(null); }, [setSurface]);
 
   // Freeform: authed → /session directly; anonymous → account access preserving the /session intent via
   // location.state.from (resolvePostAuthPath honors safe deep-links). Never auto-starts recording.
   const startFreeform = () => {
-    setGuidedSelected(false);
     trackPracticeModeSelected('quick', 'landing_card');
     trackFreeformPracticeStarted('landing_card');
     if (isAuthed) navigate('/session');
@@ -187,7 +187,6 @@ export default function PracticePage() {
   // The complete-product trial routes through account access and then into the same Private-only
   // session used by paid customers. It never auto-starts recording.
   const startCompleteTrial = () => {
-    setGuidedSelected(false);
     trackPracticeModeSelected('quick', 'landing_card');
     trackFreeformPracticeStarted('landing_card');
     if (isAuthed) navigate('/session');
