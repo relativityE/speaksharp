@@ -249,6 +249,8 @@ async function createCanaryUser(purpose) {
             CANARY_TRIAL_PASSWORD: process.env.CANARY_TRIAL_PASSWORD,
             CANARY_PAID_EMAIL: process.env.CANARY_PAID_EMAIL,
             CANARY_PAID_PASSWORD: process.env.CANARY_PAID_PASSWORD,
+            FREE_TEST_EMAIL: process.env.FREE_TEST_EMAIL,
+            FREE_TEST_PASSWORD: process.env.FREE_TEST_PASSWORD,
         },
         purpose,
     });
@@ -371,12 +373,12 @@ async function main() {
     }
 
     if (ACTION === 'create') {
-        if (CREATE_PURPOSE === 'canary_trial' || CREATE_PURPOSE === 'canary_paid') {
-            await createCanaryUser(CREATE_PURPOSE);
+        if (['canary_trial', 'canary_paid', 'free_test'].includes(CREATE_PURPOSE)) {
+            await createCanaryUser(CREATE_PURPOSE); // secret-backed purposes (password never a dispatch input)
         } else if (CREATE_PURPOSE === 'standard') {
             await createSingleUser();
         } else {
-            console.error(`❌ Invalid CREATE_PURPOSE: ${CREATE_PURPOSE}. Expected standard, canary_trial, or canary_paid.`);
+            console.error(`❌ Invalid CREATE_PURPOSE: ${CREATE_PURPOSE}. Expected standard, canary_trial, canary_paid, or free_test.`);
             process.exit(1);
         }
         return;

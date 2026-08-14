@@ -56,7 +56,7 @@ on:
           - free
           - pro
       create_purpose:
-        description: 'Create action only: account purpose (canary_* resolve credentials from GitHub Secrets, never inputs)'
+        description: 'Create action only: account purpose (canary_*/free_test resolve credentials from GitHub Secrets, never inputs)'
         required: false
         default: 'standard'
         type: choice
@@ -64,6 +64,7 @@ on:
           - standard
           - canary_trial
           - canary_paid
+          - free_test
 
 jobs:
   test-user-admin:
@@ -117,7 +118,9 @@ jobs:
           CANARY_TRIAL_PASSWORD: ${{ secrets.CANARY_TRIAL_PASSWORD }}
           CANARY_PAID_EMAIL: ${{ secrets.CANARY_PAID_EMAIL }}
           CANARY_PAID_PASSWORD: ${{ secrets.CANARY_PAID_PASSWORD }}
+          # free_test purpose: a genuine standard Free account, resolved from Secrets (password never an input).
           FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL }}
+          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
         run: |
           if [ "$ACTION" = "setup" ] && [ -z "$SOAK_TEST_PASSWORD" ]; then

@@ -16,17 +16,48 @@
  * only (the caller passes an anon client); a service-role key is NOT an acceptable customer-auth fallback.
  */
 import { signInWithBoundedRetry, withRetry, classifyError } from './canaryProvision.mjs';
-import { validateCanaryIdentityConfig } from './canaryIdentityConfig.mjs';
 
-export const CANARY_PURPOSES = {
-    canary_trial: { emailVar: 'CANARY_TRIAL_EMAIL', passwordVar: 'CANARY_TRIAL_PASSWORD' },
-    canary_paid: { emailVar: 'CANARY_PAID_EMAIL', passwordVar: 'CANARY_PAID_PASSWORD' },
+// Secret-backed create purposes. Each resolves its email/password ONLY from the named runtime GitHub
+// Secrets (never a dispatch input). `verify` selects the foundation lifecycle proof: a `trial` purpose
+// must read back an active immutable 30-day trial; a `paid` purpose establishes credentials only.
+//   canary_trial / canary_paid — the production canary identities;
+//   free_test — a genuine standard Free account (an active 30-day trial), distinct from both canaries.
+export const PURPOSES = {
+    canary_trial: { emailVar: 'CANARY_TRIAL_EMAIL', passwordVar: 'CANARY_TRIAL_PASSWORD', verify: 'trial' },
+    canary_paid: { emailVar: 'CANARY_PAID_EMAIL', passwordVar: 'CANARY_PAID_PASSWORD', verify: 'paid' },
+    free_test: { emailVar: 'FREE_TEST_EMAIL', passwordVar: 'FREE_TEST_PASSWORD', verify: 'trial' },
 };
+// Back-compat alias for the canary-only subset (older imports).
+export const CANARY_PURPOSES = PURPOSES;
 
 const TRIAL_WINDOW_DAYS = 30;
 const HOUR_MS = 3600_000;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const nonBlankStr = (v) => typeof v === 'string' && v.trim().length > 0;
 const isSyntheticSub = (v) => typeof v === 'string' && v.startsWith('sub_test_');
+const isProhibitedDomain = (email) => {
+    const domain = String(email).split('@')[1] || '';
+    return domain === 'speaksharp.app' || domain.endsWith('.speaksharp.app');
+};
+
+/**
+ * Validate the SELECTED purpose's identity: nonblank, syntactically valid, not the unaffiliated
+ * speaksharp.app apex/subdomain, and DISTINCT from every other configured purpose identity present (so a
+ * free_test account can never collide with a canary, and the two canaries can never collide).
+ */
+function validateSelectedIdentity(purpose, secrets) {
+    const cfg = PURPOSES[purpose];
+    const email = (secrets[cfg.emailVar] || '').trim().toLowerCase();
+    if (!email) return { error: `missing_${cfg.emailVar}` };
+    if (!EMAIL_RE.test(email)) return { error: `${cfg.emailVar}_not_a_valid_email` };
+    if (isProhibitedDomain(email)) return { error: `${cfg.emailVar}_prohibited_domain` };
+    for (const [p, ocfg] of Object.entries(PURPOSES)) {
+        if (p === purpose) continue;
+        const other = (secrets[ocfg.emailVar] || '').trim().toLowerCase();
+        if (other && other === email) return { error: `${cfg.emailVar}_not_distinct_from_${ocfg.emailVar}` };
+    }
+    return { email };
+}
 
 /** Mask an email so logs/summaries correlate a run without exposing the identity. Never masks a password. */
 export function maskEmail(email) {
@@ -77,6 +108,7 @@ export async function strictLookup(adminClient, email) {
  * authority. `expectedUserId` binds the readback to the authenticated identity.
  */
 export async function verifyCanaryFoundation(adminClient, userId, purpose) {
+    const verifyMode = PURPOSES[purpose]?.verify ?? 'trial';
     const { data, error } = await adminClient
         .from('user_profiles')
         .select('id, subscription_status, subscription_id, stripe_subscription_id, stripe_customer_id, trial_started_at, trial_expires_at, commercial_trial_granted_at')
@@ -96,7 +128,7 @@ export async function verifyCanaryFoundation(adminClient, userId, purpose) {
     });
     if (tierErr) return { ok: false, reason: `tier_rpc_error_[${classifyError(tierErr).category}]` };
 
-    if (purpose === 'canary_trial') {
+    if (verifyMode === 'trial') {
         // Immutable commercial marker + start + expiry all present and internally consistent.
         if (!nonBlankStr(data.commercial_trial_granted_at)) return { ok: false, reason: 'trial_missing_commercial_marker' };
         if (!nonBlankStr(data.trial_started_at)) return { ok: false, reason: 'trial_missing_start' };
@@ -157,25 +189,21 @@ async function authenticateAndVerify({ signInClient, adminClient, email, passwor
  * @param {object}   args
  * @param {object}   args.adminClient       service-role Supabase client (lookup + createUser + profile read + tier RPC)
  * @param {Function} args.makeSignInClient  () => PUBLIC anon Supabase client for read-only password auth
- * @param {object}   args.secrets           { CANARY_TRIAL_EMAIL, CANARY_TRIAL_PASSWORD, CANARY_PAID_EMAIL, CANARY_PAID_PASSWORD }
- * @param {string}   args.purpose           'canary_trial' | 'canary_paid'
+ * @param {object}   args.secrets           runtime secrets for the purpose (CANARY_*_EMAIL/PASSWORD, FREE_TEST_EMAIL/PASSWORD)
+ * @param {string}   args.purpose           'canary_trial' | 'canary_paid' | 'free_test'
  */
 export async function provisionCanaryCredential({ adminClient, makeSignInClient, secrets = {}, purpose }) {
-    const cfg = CANARY_PURPOSES[purpose];
+    const cfg = PURPOSES[purpose];
     if (!cfg) return blocked(purpose, '***', `invalid_purpose_${purpose}`);
 
-    // 1) Validate the full canary identity config: both emails present, distinct, and not the unaffiliated
-    //    speaksharp.app apex/subdomain. Throws on any violation → BLOCKED. Passwords are never logged.
-    try {
-        validateCanaryIdentityConfig({ trialEmail: secrets.CANARY_TRIAL_EMAIL, paidEmail: secrets.CANARY_PAID_EMAIL });
-    } catch (e) {
-        return blocked(purpose, '***', `identity_config_invalid: ${e.message}`);
-    }
+    // 1) Validate the SELECTED identity: present, valid, non-prohibited (speaksharp.app apex/subdomain), and
+    //    DISTINCT from every other configured purpose identity. Passwords are never logged.
+    const idCheck = validateSelectedIdentity(purpose, secrets);
+    if (idCheck.error) return blocked(purpose, '***', `identity_invalid: ${idCheck.error}`);
 
-    const email = (secrets[cfg.emailVar] || '').trim().toLowerCase();
+    const email = idCheck.email;
     const password = secrets[cfg.passwordVar] || '';
     const maskedEmail = maskEmail(email);
-    if (!nonBlankStr(email)) return blocked(purpose, '***', `missing_${cfg.emailVar}`);
     if (!nonBlankStr(password)) return blocked(purpose, maskedEmail, `missing_${cfg.passwordVar}`);
 
     const signInClient = typeof makeSignInClient === 'function' ? makeSignInClient() : null;

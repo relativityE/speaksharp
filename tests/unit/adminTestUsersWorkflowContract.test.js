@@ -28,19 +28,19 @@ describe('Admin - Test Users workflow contract', () => {
     expect(raw).not.toMatch(/new_basic_count|NEW_BASIC_COUNT/);
   });
 
-  it('adds an additive create_purpose selector (standard default + two canary purposes)', () => {
-    expect(inputs.create_purpose.options).toEqual(['standard', 'canary_trial', 'canary_paid']);
+  it('adds an additive create_purpose selector (standard default + secret-backed canary + free_test)', () => {
+    expect(inputs.create_purpose.options).toEqual(['standard', 'canary_trial', 'canary_paid', 'free_test']);
     expect(inputs.create_purpose.default).toBe('standard');
   });
 
-  it('never exposes a canary password as a dispatch input', () => {
+  it('never exposes a canary or free_test password as a dispatch input', () => {
     for (const key of Object.keys(inputs)) {
-      expect(key).not.toMatch(/canary.*password|password.*canary/i);
+      expect(key).not.toMatch(/canary.*password|password.*canary|free_test.*password/i);
     }
   });
 
-  it('wires all four canary secrets from GitHub Secrets at the provisioning step', () => {
-    for (const s of ['CANARY_TRIAL_EMAIL', 'CANARY_TRIAL_PASSWORD', 'CANARY_PAID_EMAIL', 'CANARY_PAID_PASSWORD']) {
+  it('wires the canary + free_test secrets from GitHub Secrets at the provisioning step', () => {
+    for (const s of ['CANARY_TRIAL_EMAIL', 'CANARY_TRIAL_PASSWORD', 'CANARY_PAID_EMAIL', 'CANARY_PAID_PASSWORD', 'FREE_TEST_EMAIL', 'FREE_TEST_PASSWORD']) {
       expect(raw).toContain(`${s}: \${{ secrets.${s} }}`);
     }
   });

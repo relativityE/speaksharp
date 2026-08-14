@@ -13,6 +13,8 @@ const SECRETS = {
   CANARY_TRIAL_PASSWORD: 'trial-secret-pw',
   CANARY_PAID_EMAIL: 'operator+paid@example.net',
   CANARY_PAID_PASSWORD: 'paid-secret-pw',
+  FREE_TEST_EMAIL: 'free-user@example.test',
+  FREE_TEST_PASSWORD: 'free-secret-pw',
 };
 const iso = (ms) => new Date(ms).toISOString();
 const START = Date.now() - 5 * 86400_000;
@@ -153,5 +155,23 @@ describe('#1294 Admin - Test Users canary credential seam', () => {
 
   it('maskEmail keeps only first-letter hints', () => {
     expect(maskEmail('alice.smith@company.co')).toBe('a***@c***.co');
+  });
+
+  // free_test — a genuine standard Free account (active 30-day trial), secret-backed, distinct from canaries.
+  it('free_test ABSENT → CREATE + authenticate + verify a genuine active 30-day trial', async () => {
+    const admin = makeAdmin({ pages: [[]], profile: trialProfile('created-id') });
+    const r = await provisionCanaryCredential({ adminClient: admin, makeSignInClient: makeSignIn({ userId: 'created-id' }), secrets: SECRETS, purpose: 'free_test' });
+    expect(r.result).toBe('CREATED');
+    expect(r.facts.trial_active_server_time).toBe(true);
+    expect(r.facts.trial_window_days).toBe(30);
+    expect(admin.calls.createUser).toEqual([{ email: 'free-user@example.test', password: 'free-secret-pw', email_confirm: true }]);
+    expect(admin.calls.updateUserById).toHaveLength(0);
+  });
+
+  it('free_test BLOCKS an identity that collides with a canary, or uses a prohibited domain', async () => {
+    expect((await run({ purpose: 'free_test', secrets: { ...SECRETS, FREE_TEST_EMAIL: 'operator+trial@example.test' } })).result).toBe('BLOCKED'); // == canary_trial
+    expect((await run({ purpose: 'free_test', secrets: { ...SECRETS, FREE_TEST_EMAIL: 'operator+paid@example.net' } })).result).toBe('BLOCKED'); // == canary_paid
+    expect((await run({ purpose: 'free_test', secrets: { ...SECRETS, FREE_TEST_EMAIL: 'x@speaksharp.app' } })).result).toBe('BLOCKED');
+    expect((await run({ purpose: 'free_test', secrets: { ...SECRETS, FREE_TEST_EMAIL: '' } })).result).toBe('BLOCKED');
   });
 });

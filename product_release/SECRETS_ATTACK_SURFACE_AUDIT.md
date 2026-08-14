@@ -137,6 +137,14 @@ still names five retired `@speaksharp.app` identities (4 `synthetic` + the forme
 changes below are OPERATIONAL and separately PO-authorized after ACCEPT + merge.** Never hardcode the
 controlled canary addresses in source or logs (reference them only by the Secret NAMES).
 
+Final manifest structure (all five keys always present; addresses referenced by Secret NAME, never hardcoded):
+`owner_admin` = the single genuine owner/admin identity (verify it is not a test account, else reclassify/retire);
+`synthetic` = `[]`; `checkout` = `[]`; `canary` = exactly `CANARY_TRIAL_EMAIL` + `CANARY_PAID_EMAIL`;
+`qa` = the new controlled `FREE_TEST_EMAIL`. The `FREE_TEST_EMAIL` Free account is created via **Admin - Test
+Users `create_purpose=free_test`** (secret-backed; password never a dispatch input) AFTER the non-activation
+migrations establish the 30-day trial, and is verified as a genuine active immutable 30-day trial, distinct
+from both canary identities and never a `@speaksharp.app`/`free-user@test.com`/`basic-user@test.com` address.
+
 Operational sequence (post-accept, PO-authorized, names-only evidence — no addresses/credentials printed):
 1. Sanitized read-only exact-identity inventory of the 5 retired `@speaksharp.app` identities + the two
    controlled canaries (`CANARY_TRIAL_EMAIL`, `CANARY_PAID_EMAIL`): report presence/absence + dependent-row counts.
