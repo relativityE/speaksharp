@@ -16,6 +16,7 @@ on:
           - '20260812040000'
           - '20260812041000'
           - '20260812041500'
+          - '20260812041600'
           - '20260812042000'
       expected_head_sha:
         description: 'Exact 40-character main SHA authorized by the Product Owner'
