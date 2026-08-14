@@ -1,8 +1,7 @@
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
-import { getLastPrivateIdentity } from '@/services/transcription/privateTelemetry';
-import { emitReportIssueSubmitted } from '@/services/reportIssueTelemetry';
+import { emitPrivateTelemetry, getLastPrivateIdentity, PRIVATE_TELEMETRY_EVENTS } from '@/services/transcription/privateTelemetry';
 import { issueAreasForContext, type PageContext } from '@/services/pageContext';
 import { pickPersistedRuntimeConfig, type PersistedRuntimeConfig } from '@/config/appRuntimeConfig';
 
@@ -148,30 +147,17 @@ export const issueReportService = {
       throw error;
     }
 
-    // #1294 ADDENDUM 3: emit the Report Issue breadcrumb ONLY after authoritative persistence, through the
-    // DEDICATED reportIssueTelemetry emitter — the one explicit user-submitted support-content exception to
-    // passive content-free telemetry. It carries the user's title + description and, ONLY when the user
-    // opted in above, the same bounded transcript snippet that was persisted (never audio / name / email /
-    // credentials / raw user id / full transcript / raw URL). A telemetry error here is swallowed so it can
-    // never mask the report that already persisted. The generic Private allowlist is left untouched.
+    // Non-PII analytics breadcrumb so a Report Issue can be correlated to the user's
+    // journey (session id and the most recent content-free Private engine identity).
+    // The strict allowlist guarantees no title/description/transcript/audio rides along.
     const arm = getLastPrivateIdentity();
-    try {
-      emitReportIssueSubmitted({
-        category: input.category,
-        severity: input.severity,
-        sessionId: input.sessionId ?? arm.session_id ?? null,
-        engineVariant: arm.engine_variant ?? null,
-        releaseSha: arm.release_sha ?? null,
-        title: input.title,
-        description: input.description,
-        includeTranscript: input.includeTranscript,
-        transcriptExcerpt,
-      });
-    } catch (telemetryError) {
-      // Defense in depth: the emitter already fails closed, but a persisted report must NEVER be masked by
-      // any telemetry error at the service boundary either.
-      logger.warn({ telemetryError }, '[issueReportService.submit] report persisted; telemetry emit failed');
-    }
+    emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.REPORT_ISSUE_SUBMITTED, {
+      issue_category: input.category,
+      issue_severity: input.severity,
+      session_id: input.sessionId ?? arm.session_id ?? null,
+      engine_variant: arm.engine_variant ?? null,
+      release_sha: arm.release_sha ?? null,
+    });
 
     return { id: null };
   },
