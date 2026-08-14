@@ -91,6 +91,12 @@ const READ_ABORT_ENDPOINTS = [
     },
 ] as const;
 
+// #1294 Option 1: the endurance journey runs the REAL customer Private policy. This bridge mirrors the
+// PROVEN local-e2e Private mock mechanism (tests/e2e/helpers/setupE2EManifest.ts, engineType 'mock') that
+// drives the Private start FSM to RECORDING — but ENGINE-ONLY. It installs NO mock profile and NO route
+// mocks, so the live active-trial account (real entitlement) and live DB are untouched. The deterministic
+// double lives BEHIND the Private adapter (the mock private engines below). Only Private-adapter engine
+// keys are registered — off-Private engines are never registered, selected, or instantiated here.
 const installSoakSttBridgeScript = () => {
         type SttOptions = {
             onReady?: () => void;
@@ -106,9 +112,13 @@ const installSoakSttBridgeScript = () => {
             __SS_E2E__?: {
                 isActive: boolean;
                 engineType?: 'mock';
+                enableRealEngine?: boolean;
+                MOCK_STT_AVAILABILITY?: boolean;
+                isEngineInitialized?: boolean;
                 registry?: Record<string, (options?: SttOptions) => unknown>;
                 _activeCallbacks?: SttOptions;
             };
+            __SS_E2E_BRIDGE__?: { emitTranscript: (text: string, isFinal?: boolean) => void };
             __SS_E2E_ENGINE_CACHE__?: Record<string, unknown>;
             TEST_MODE?: boolean;
         };
@@ -117,18 +127,18 @@ const installSoakSttBridgeScript = () => {
         win.TEST_MODE = true;
         win.__SS_E2E_ENGINE_CACHE__ = win.__SS_E2E_ENGINE_CACHE__ || {};
 
-        const minimalStubFactory = (mode: string) => (options?: SttOptions) => {
+        // A working deterministic Private-adapter double: matches the setupE2EManifest mock engine so the
+        // start FSM initializes and transitions to RECORDING (init sets isEngineInitialized).
+        const mockEngineFactory = (mode: string) => (options?: SttOptions) => {
             const cache = win.__SS_E2E_ENGINE_CACHE__ || {};
             win.__SS_E2E_ENGINE_CACHE__ = cache;
-            const cacheKey = `soak-${mode}`;
-            if (cache[cacheKey]) return cache[cacheKey];
-
+            if (cache[mode]) return cache[mode];
             const instance = {
                 instanceId: `soak-${mode}-${Math.random().toString(36).slice(2)}`,
                 checkAvailability: async () => ({ isAvailable: true }),
-                init: async () => {
-                    win.__SS_E2E__ = win.__SS_E2E__ || { isActive: true };
-                    options?.onReady?.();
+                init: async (io?: { onReady?: () => void }) => {
+                    if (win.__SS_E2E__) win.__SS_E2E__.isEngineInitialized = true;
+                    (io?.onReady ?? options?.onReady)?.();
                     return { isOk: true };
                 },
                 start: async () => {},
@@ -139,36 +149,40 @@ const installSoakSttBridgeScript = () => {
                 terminate: async () => {},
                 getEngineType: () => mode,
                 getLastHeartbeatTimestamp: () => Date.now(),
-                getTranscript: async () => '',
+                getTranscript: async () => '[E2E_MOCK]',
+                transcribe: async () => ({ isOk: true, value: '[E2E_MOCK]', data: '[E2E_MOCK]' }),
                 emitTranscript: (text: string, isFinal: boolean = true) => {
-                    const update = {
-                        transcript: isFinal ? { final: text } : { partial: text },
-                        isFinal,
-                        isPartial: !isFinal,
-                        timestamp: Date.now(),
-                    };
+                    const update = { transcript: isFinal ? { final: text } : { partial: text }, isFinal, isPartial: !isFinal, timestamp: Date.now() };
                     options?.onTranscriptUpdate?.(update);
                     win.__SS_E2E__?._activeCallbacks?.onTranscriptUpdate?.(update);
                 },
             };
-            cache[cacheKey] = instance;
+            cache[mode] = instance;
             return instance;
         };
 
-        // #1294 Option 1: the endurance journey runs the REAL customer Private policy. The deterministic
-        // double lives BEHIND the Private adapter as the mock `transformers-js` engine in this registry
-        // (engineType 'mock' routes the Private adapter to it, so no model downloads). No engine-force flag
-        // is set: exposing an off-Private engine as a customer path is out of the launch contract.
         win.__SS_E2E__ = {
             ...(win.__SS_E2E__ || {}),
             isActive: true,
             engineType: 'mock',
+            enableRealEngine: false,
+            MOCK_STT_AVAILABILITY: true,
+            isEngineInitialized: false,
             registry: {
                 ...(win.__SS_E2E__?.registry || {}),
-                'transformers-js': minimalStubFactory('transformers-js'),
-                'transformers-js-v4': minimalStubFactory('transformers-js-v4'),
-                'whisper-turbo': minimalStubFactory('whisper-turbo'),
-                mock: minimalStubFactory('mock'),
+                // Private-adapter engines only → working deterministic double. No off-Private engine is registered.
+                'transformers-js': mockEngineFactory('transformers-js'),
+                'transformers-js-v4': mockEngineFactory('transformers-js-v4'),
+                'whisper-turbo': mockEngineFactory('whisper-turbo'),
+                mock: mockEngineFactory('mock'),
+            },
+        };
+
+        win.__SS_E2E_BRIDGE__ = {
+            emitTranscript: (text: string, isFinal: boolean = true) => {
+                win.__SS_E2E__?._activeCallbacks?.onTranscriptUpdate?.({
+                    transcript: isFinal ? { final: text } : { partial: text }, isFinal, isPartial: !isFinal, timestamp: Date.now(),
+                });
             },
         };
 };
