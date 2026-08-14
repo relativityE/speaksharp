@@ -15,9 +15,11 @@ const EXCLUDED_PATHS = [
   'product_release/evidence/',
   // The temporary implementation packet is removed before review (tracked separately); do not scan it.
   '.github/runbooks/rc-test-account-canary-closeout.md',
-  // These meta-tests necessarily NAME the retired tokens in order to assert their absence.
+  // These meta-artifacts necessarily NAME the retired tokens — the guard tests (to assert absence) and the
+  // attack-surface audit (to schedule the post-merge deletion of those exact Secret names).
   'tests/deps/no-legacy-basic-canary-tokens.test.js',
   'tests/unit/adminTestUsersWorkflowContract.test.js',
+  'product_release/SECRETS_ATTACK_SURFACE_AUDIT.md',
 ];
 const SCANNED_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.yml', '.yaml', '.md', '.json', '.example', '.sh', '.toml']);
 const SCANNED_ROOTS = ['.github', 'scripts', 'tests', 'frontend/src', 'frontend/tests', 'backend', 'product_release', '.agent'];
