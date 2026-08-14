@@ -47,10 +47,11 @@ jobs:
           echo "ready=$(jq -r '.ready' <<<"$result")" >> "$GITHUB_OUTPUT"
           echo "state=$(jq -r '.state' <<<"$result")" >> "$GITHUB_OUTPUT"
           echo "### Canary migration readiness" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Required migration: \`20260812041500\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Required ordered set (all must be applied): \`20260812002000\` → \`20260811143000\` → \`20260812030000\` → \`20260812039500\` → \`20260812040000\` → \`20260812041000\` → \`20260812041500\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Held (must NOT be applied): \`20260812042000\` (commercial activation)" >> "$GITHUB_STEP_SUMMARY"
           echo "- Read-only state: \`$(jq -r '.state' <<<"$result")\`" >> "$GITHUB_STEP_SUMMARY"
           if [ "$(jq -r '.ready' <<<"$result")" != 'true' ]; then
-            echo '- **HOLD — migration pending; canary product lanes were not executed.**' >> "$GITHUB_STEP_SUMMARY"
+            echo "- **HOLD — required migration(s) pending: \`$(jq -r '(.pending // []) | join(", ")' <<<"$result")\`; canary product lanes were not executed.**" >> "$GITHUB_STEP_SUMMARY"
           fi
 
   canary-check:
@@ -96,7 +97,7 @@ jobs:
           # create-or-sync). An auth/config rejection here is reported as a scoped, actionable config
           # failure that affects recovery only; the healthy path never depends on it. No key is rotated.
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          CANARY_PASSWORD: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_PASSWORD || secrets.CANARY_PASSWORD }}
+          CANARY_PASSWORD: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_PASSWORD || secrets.CANARY_PAID_PASSWORD }}
           # Protected, operator-controlled identities only. Never hard-code or infer an email domain.
           CANARY_EMAIL: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_EMAIL || secrets.CANARY_PAID_EMAIL }}
           CANARY_EXPECTED_ACCESS: ${{ matrix.lane }}
@@ -110,7 +111,7 @@ jobs:
         env:
           VITE_TEST_MODE: "true"
           VITE_USE_LIVE_DB: "true"
-          CANARY_PASSWORD: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_PASSWORD || secrets.CANARY_PASSWORD }}
+          CANARY_PASSWORD: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_PASSWORD || secrets.CANARY_PAID_PASSWORD }}
           CANARY_EMAIL: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_EMAIL || secrets.CANARY_PAID_EMAIL }}
           CANARY_EXPECTED_ACCESS: ${{ matrix.lane }}
           BASE_URL: https://speaksharp-public.vercel.app/

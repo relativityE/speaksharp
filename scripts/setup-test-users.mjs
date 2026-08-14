@@ -15,6 +15,7 @@ import { createClient } from '@supabase/supabase-js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
+import { provisionCanaryCredential } from './lib/canaryAccountAdmin.mjs';
 
 // Load environment from .env.development (Standard for Soak/Canary tests)
 dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
@@ -25,8 +26,12 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const SOAK_TEST_PASSWORD = process.env.SOAK_TEST_PASSWORD;
 const ACTION = process.env.ACTION || process.env.USER_ADMIN_ACTION || 'setup';
+// Additive create purpose. 'standard' preserves the existing create_email/create_password/create_tier
+// behavior. The canary purposes resolve their credentials strictly from runtime GitHub Secrets.
+const CREATE_PURPOSE = process.env.CREATE_PURPOSE || 'standard';
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error('❌ Missing required env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY');
@@ -220,6 +225,39 @@ async function printSoakUsers() {
     });
 }
 
+// ============================================
+// Canary account credential creation (additive create_purpose = canary_trial | canary_paid).
+// The security-critical core lives in scripts/lib/canaryAccountAdmin.mjs (injectable + unit-tested). This
+// thin wrapper wires the runtime clients + secrets, prints a masked/content-free result, and maps a BLOCKED
+// outcome to a non-zero exit so a fail-closed refusal is never mistaken for success.
+// ============================================
+async function createCanaryUser(purpose) {
+    const outcome = await provisionCanaryCredential({
+        adminClient: supabase,
+        // Read-only sign-in verification uses the public anon key when present, otherwise the service-role
+        // key purely as the project apikey for the token endpoint (still a password grant — no mutation).
+        makeSignInClient: () => createClient(SUPABASE_URL, SUPABASE_ANON_KEY || SUPABASE_SERVICE_ROLE_KEY, {
+            auth: { autoRefreshToken: false, persistSession: false },
+        }),
+        secrets: {
+            CANARY_TRIAL_EMAIL: process.env.CANARY_TRIAL_EMAIL,
+            CANARY_TRIAL_PASSWORD: process.env.CANARY_TRIAL_PASSWORD,
+            CANARY_PAID_EMAIL: process.env.CANARY_PAID_EMAIL,
+            CANARY_PAID_PASSWORD: process.env.CANARY_PAID_PASSWORD,
+        },
+        purpose,
+    });
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('👤 Admin - Test Users — canary credential create');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`Admin - Test Users canary result: ${outcome.result}`);
+    console.log(JSON.stringify({ result: outcome.result, purpose: outcome.purpose, email: outcome.maskedEmail, ...outcome.facts }));
+
+    // BLOCKED is a safe, fail-closed refusal — surface it as a non-zero exit so it is never read as success.
+    if (outcome.result === 'BLOCKED') process.exit(1);
+}
+
 async function createSingleUser() {
     const email = process.env.CREATE_USER_EMAIL;
     const tier = process.env.CREATE_USER_TIER || 'free';
@@ -328,7 +366,14 @@ async function main() {
     }
 
     if (ACTION === 'create') {
-        await createSingleUser();
+        if (CREATE_PURPOSE === 'canary_trial' || CREATE_PURPOSE === 'canary_paid') {
+            await createCanaryUser(CREATE_PURPOSE);
+        } else if (CREATE_PURPOSE === 'standard') {
+            await createSingleUser();
+        } else {
+            console.error(`❌ Invalid CREATE_PURPOSE: ${CREATE_PURPOSE}. Expected standard, canary_trial, or canary_paid.`);
+            process.exit(1);
+        }
         return;
     }
 

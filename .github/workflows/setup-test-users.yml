@@ -1,4 +1,4 @@
-name: Test User Admin
+name: Admin - Test Users
 
 on:
   workflow_dispatch:
@@ -61,6 +61,15 @@ on:
           - free
           - basic
           - pro
+      create_purpose:
+        description: 'Create action only: account purpose (canary_* resolve credentials from GitHub Secrets, never inputs)'
+        required: false
+        default: 'standard'
+        type: choice
+        options:
+          - standard
+          - canary_trial
+          - canary_paid
 
 jobs:
   test-user-admin:
@@ -95,6 +104,9 @@ jobs:
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Public anon key: used ONLY to verify that a canary's supplied password authenticates (read-only
+          # sign-in). Never used to mutate an account.
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SOAK_TEST_PASSWORD: ${{ env.SOAK_TEST_PASSWORD || secrets.SOAK_TEST_PASSWORD }}
           ACTION: ${{ github.event.inputs.action }}
           MODE: ${{ github.event.inputs.mode }}
@@ -104,7 +116,15 @@ jobs:
           CREATE_USER_EMAIL: ${{ github.event.inputs.create_email }}
           CREATE_USER_PASSWORD: ${{ github.event.inputs.create_password }}
           CREATE_USER_TIER: ${{ github.event.inputs.create_tier }}
-          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
+          # Additive create purpose. 'standard' preserves the existing create_email/create_password/create_tier
+          # contract. The canary purposes resolve their credentials ONLY from the GitHub Secrets below — a canary
+          # password is never accepted through a workflow-dispatch input.
+          CREATE_PURPOSE: ${{ github.event.inputs.create_purpose }}
+          CANARY_TRIAL_EMAIL: ${{ secrets.CANARY_TRIAL_EMAIL }}
+          CANARY_TRIAL_PASSWORD: ${{ secrets.CANARY_TRIAL_PASSWORD }}
+          CANARY_PAID_EMAIL: ${{ secrets.CANARY_PAID_EMAIL }}
+          CANARY_PAID_PASSWORD: ${{ secrets.CANARY_PAID_PASSWORD }}
+          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
         run: |
           if [ "$ACTION" = "setup" ] && [ -z "$SOAK_TEST_PASSWORD" ]; then
@@ -127,10 +147,14 @@ jobs:
           ACTION: ${{ github.event.inputs.action }}
           MODE: ${{ github.event.inputs.mode }}
           PASSWORD_ACTION: ${{ github.event.inputs.password_action }}
+          CREATE_PURPOSE: ${{ github.event.inputs.create_purpose }}
         run: |
-          echo "### Test User Admin Complete" >> $GITHUB_STEP_SUMMARY
+          echo "### Admin - Test Users Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Action:** $ACTION" >> $GITHUB_STEP_SUMMARY
+          if [ "$ACTION" = "create" ]; then
+            echo "**Create purpose:** ${CREATE_PURPOSE:-standard}" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "**Mode:** $MODE" >> $GITHUB_STEP_SUMMARY
           echo "**Password Strategy:** $PASSWORD_ACTION" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
