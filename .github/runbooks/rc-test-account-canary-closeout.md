@@ -72,19 +72,27 @@ Canonical protected pairs:
 
 Retire the ambiguous `CANARY_PASSWORD` name after a safe secret migration. The transition must fail closed: configure the new secret first, change source references, prove both lanes, then separately remove the old secret. Never print values.
 
-The existing `Test User Admin` workflow is not acceptable as the canary entitlement authority:
-- it carries retired Free/Basic aliases;
-- it can write profile tiers;
-- its Pro path synthesizes `stripe_subscription_id`;
-- its verifier checks only `subscription_status`.
+Use the existing `Test User Admin` workflow as the authorized account-creation mechanism for both controlled canary identities. Correct and extend its canary-specific path so it consumes the protected pairs directly:
+
+- `CANARY_TRIAL_EMAIL` / `CANARY_TRIAL_PASSWORD`
+- `CANARY_PAID_EMAIL` / `CANARY_PAID_PASSWORD`
+
+Do not pass either password through a `workflow_dispatch` string input, command argument, log, artifact, or step summary. The protected values must come only from GitHub Secrets; identity output is masked.
+
+The workflow is the account-creation authority, not the entitlement authority:
+
+- remove its retired Free/Basic aliases from the canary path;
+- do not use the current Pro helper that synthesizes `stripe_subscription_id`;
+- do not write `subscription_status='pro'` to qualify the paid canary;
+- do not grant, reset, or extend a trial on a rerun.
 
 Preserve a strict separation:
 
-1. **Canary execution** is read-only with respect to auth, trial, billing, and entitlement.
-2. **Authorized account preparation** may create/reset the controlled auth identity and password only in a separately approved manual operation.
-3. The active-trial fixture must have an immutable one-time grant and current server-authoritative window; reruns cannot extend it.
-4. The paid fixture must have mutually consistent Stripe customer, subscription, exact approved $10 monthly Price, and database bindings. A tier flag or synthetic subscription ID never qualifies.
-5. Password recovery/rotation is a named manual operation with masked identity output and no entitlement write.
+1. **Canary execution** is read-only with respect to auth, trial, billing, credentials, and entitlement.
+2. **Test User Admin — create trial canary** creates the controlled auth identity with the protected password after the accepted trial-foundation migrations are applied. Account creation must receive the normal immutable one-time trial foundation; a rerun verifies/reuses and cannot reset or extend it.
+3. **Test User Admin — create paid canary** creates the controlled auth identity with the protected password but does not synthesize or grant paid state.
+4. A separately authorized genuine Stripe operation establishes the paid fixture. Its customer, subscription, exact approved $10 monthly Price, and database bindings must be mutually consistent. A tier flag or synthetic subscription ID never qualifies.
+5. Password recovery/rotation is a separately selected Test User Admin operation with masked identity output and no entitlement write.
 6. Every verification report is sanitized: account class, pass/fail reason, masked identity, lifecycle state, and binding presence only.
 
 Update `verify-test-users.mjs` or replace it with a lifecycle-aware read-only verifier. A passing verifier must not rely on the raw `subscription_status` label alone.
@@ -148,7 +156,7 @@ The final exact head must include:
 3. Source tests proving symmetric trial/paid canary secret pairs and rejection of missing/equal/uncontrolled identities.
 4. Read-only lifecycle verifier proofs for active trial, expired trial, genuine paid continuation, wrong price, mismatched customer/subscription, synthetic binding, and ambiguous state.
 5. Exact migration-readiness proofs for every predecessor missing individually, all staged migrations present, drift/remote-only/malformed history, and activation still held.
-6. Workflow contract showing CI never mutates entitlement or credentials.
+6. Workflow contract showing scheduled/push canary CI never mutates entitlement or credentials, and Test User Admin mutates credentials only under an explicit manual authorization path.
 7. Hosted Edge readback job-condition regression proof.
 8. Focused workflow/script tests, documentation contract, full unit/E2E, typecheck, lint, build, Edge tests, PG 15/16/17 where database contracts change, CI, U3, SCA, and zero-reference terminal green.
 9. After separately authorized operations, both deployed product lanes green on the same integrated merge SHA.
