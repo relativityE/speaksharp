@@ -50,6 +50,12 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        version: '20260812041600',
+        file: '20260812041600_trial_commercial_grant_on_conflict_1294.sql',
+        sha256: '76188035d2b050aa4bcd4cf4753fa86d1cc030a12f371f05c9c143378beff030',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
