@@ -15,8 +15,9 @@ const EXCLUDED_PATHS = [
   'product_release/evidence/',
   // The temporary implementation packet is removed before review (tracked separately); do not scan it.
   '.github/runbooks/rc-test-account-canary-closeout.md',
-  // This guard file necessarily names the forbidden tokens.
+  // These meta-tests necessarily NAME the retired tokens in order to assert their absence.
   'tests/deps/no-legacy-basic-canary-tokens.test.js',
+  'tests/unit/adminTestUsersWorkflowContract.test.js',
 ];
 const SCANNED_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.yml', '.yaml', '.md', '.json', '.example', '.sh', '.toml']);
 const SCANNED_ROOTS = ['.github', 'scripts', 'tests', 'frontend/src', 'frontend/tests', 'backend', 'product_release', '.agent'];

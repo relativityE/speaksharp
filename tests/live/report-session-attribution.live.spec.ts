@@ -8,9 +8,9 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 // boundary. Content-free and assertion-only: it submits two uniquely-marked synthetic Issue Reports
 // (transcript/audio OFF), verifies attribution server-side, and deletes ONLY this run's fixtures.
 //
-// Account: the dedicated FREE_TEST_EMAIL free fixture (unpaid baseline). Free tier is
-// sufficient — any authenticated user may file a report, and the DB trigger enforces session ownership
-// regardless of tier. No billing/Pro/Cloud capability is used or asserted.
+// Account: the dedicated FREE_TEST_EMAIL fixture (an ordinary authenticated user). Any authenticated user
+// may file a report, and the DB trigger enforces session ownership regardless of entitlement. No
+// billing/Pro/Cloud capability is used or asserted.
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
