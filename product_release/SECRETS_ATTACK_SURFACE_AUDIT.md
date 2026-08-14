@@ -126,6 +126,30 @@ auto-rotate step) is flagged for the owner.
 | `VITE_DEV_PREMIUM_ACCESS` | any | **DELETE if present** | not configured at repo scope; unconsumed by shipping source |
 | org-scoped settings | Organization | **UNKNOWN** | inventory with an org-scoped token before any decision |
 
+## Exclusion-manifest (`AUDIT_EXCLUDED_EMAILS_JSON`) cutover — retire the `@speaksharp.app` identities
+
+`AUDIT_EXCLUDED_EMAILS_JSON` is the reviewed exclusion manifest for `tester-evidence-audit` +
+`tester-cohort-audit`. Both now use **one strict shared parser** (`scripts/lib/auditManifest.mjs`) that
+fails closed — before any Supabase client construction or artifact — on an absent/malformed/loosely-shaped/
+incomplete/duplicate manifest **or any `speaksharp.app` (apex or subdomain) identity**. The current manifest
+still names five retired `@speaksharp.app` identities (4 `synthetic` + the former single `canary`); it now
+**fails the audits closed** until reconciled. **Source is complete; the manifest content + version metadata
+changes below are OPERATIONAL and separately PO-authorized after ACCEPT + merge.** Never hardcode the
+controlled canary addresses in source or logs (reference them only by the Secret NAMES).
+
+Operational sequence (post-accept, PO-authorized, names-only evidence — no addresses/credentials printed):
+1. Sanitized read-only exact-identity inventory of the 5 retired `@speaksharp.app` identities + the two
+   controlled canaries (`CANARY_TRIAL_EMAIL`, `CANARY_PAID_EMAIL`): report presence/absence + dependent-row counts.
+2. Disposition packet for every surviving retired-domain Auth/profile/session/evidence row (no deletion yet).
+3. After authorization, disable/delete the retired-domain identities + disposition dependent synthetic data.
+4. Replace the manifest `canary` category with **exactly** the `CANARY_TRIAL_EMAIL` + `CANARY_PAID_EMAIL`
+   values; remove the 4 old `synthetic` entries only after their production rows are proven absent. All five
+   keys stay present even when an array is empty.
+5. Verify `owner_admin` is a genuine owner/admin identity; reclassify or retire if it is a test account.
+6. Increment `AUDIT_EXCLUSION_LIST_VERSION` and set `AUDIT_EXCLUSION_LIST_REVIEWED_AT` to the actual UTC review time.
+7. Run both audits on exact integrated `main`: require terminal success, zero prohibited-domain identities,
+   correct exclusion counts, sanitized artifacts; record run IDs/URLs + names-only secret/variable readback.
+
 ## Deletion order (all gated on separate PO authorization; one auditable post-merge cutover)
 
 1. Merge #1294; re-scan **current `main`** (not the worktree) and prove zero `secrets.*` consumers for the DELETE + MIGRATE names.

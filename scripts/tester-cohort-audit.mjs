@@ -26,6 +26,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { createHmac } from 'node:crypto';
 import fs from 'node:fs';
+import { requireExclusionManifest } from './lib/auditManifest.mjs';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -59,27 +60,16 @@ const AUTOMATED_LOCAL_PREFIXES = [
     /^private-longform/i, /^tester-b-/i, /^account-mutex/i, /^ux-[a-z]+-/i, /^soak-test/i,
     /^canary/i, /^visual-/i, /^manual-pro-cloud-/i, /^free-user$/i, /^pro-user$/i,
 ];
-/** Internal humans (owner/dev/QA). Supplied via the reviewed exclusion manifest, addresses never printed. */
-function parseInternal() {
-    const raw = process.env.AUDIT_EXCLUDED_EMAILS_JSON;
-    if (!raw) return new Set();
-    // FAIL CLOSED on a malformed manifest. Silently returning an empty set (the old behaviour) would
-    // treat every internal owner/dev/QA account as NON-excluded, misclassifying them as human-likely
-    // testers — the exact over-count this manifest exists to prevent. A manifest that was supplied but
-    // cannot be parsed is an operator error, not "no exclusions": abort rather than emit a wrong cohort.
-    let parsed;
-    try {
-        parsed = JSON.parse(raw);
-    } catch (e) {
-        console.error(`[cohort] AUDIT_EXCLUDED_EMAILS_JSON is set but not valid JSON. FAILING CLOSED. (${e.message})`);
-        process.exit(1);
-    }
-    const list = Array.isArray(parsed) ? parsed : (parsed && typeof parsed === 'object' ? Object.values(parsed).flat() : null);
-    if (!Array.isArray(list)) {
-        console.error('[cohort] AUDIT_EXCLUDED_EMAILS_JSON parsed but is not an array or object of arrays. FAILING CLOSED.');
-        process.exit(1);
-    }
-    return new Set(list.filter((x) => typeof x === 'string').map((s) => s.trim().toLowerCase()));
+/**
+ * Internal humans (owner/dev/QA). Supplied via the reviewed exclusion manifest; addresses never printed.
+ * Uses the ONE strict shared parser and FAILS CLOSED before any Supabase access: an ABSENT manifest, loosely-
+ * shaped JSON (bare array / wrong keys), a cross-category duplicate, or a prohibited speaksharp.app identity
+ * all abort. Silently returning an empty set (the old behaviour) would misclassify every internal account as
+ * a human-likely tester — the exact over-count this manifest exists to prevent.
+ */
+function parseInternal(env = process.env) {
+    const { byEmail } = requireExclusionManifest(env.AUDIT_EXCLUDED_EMAILS_JSON, { label: 'cohort' });
+    return new Set(byEmail.keys());
 }
 
 /**
@@ -122,6 +112,10 @@ function classifyPauseSnapshot(snapshot) {
     return PAUSE_EVIDENCE_FIELDS.every((f) => snapshot[f] === 0) ? 'valid_measured_zero' : 'valid_nonzero';
 }
 
+// FAIL CLOSED on an invalid/absent/prohibited-domain exclusion manifest BEFORE constructing any Supabase
+// client or reading any data (strict shared parser).
+const internalSet = parseInternal();
+
 const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
 /** Paginate a PostgREST table to exhaustion; returns rows + a completion watermark. */
@@ -148,7 +142,6 @@ for (let page = 1; ; page++) {
     if (batch.length < 100) break;
 }
 
-const internalSet = parseInternal();
 const sessions = await pageAll('sessions', 'id,user_id,duration,total_words,engine,created_at,title,pause_metrics');
 const reports = await pageAll('user_issue_reports', 'id,user_id,title,metadata,created_at');
 
