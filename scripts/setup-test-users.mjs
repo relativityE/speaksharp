@@ -208,6 +208,63 @@ function buildProfilePatchForTier(tier, email) {
     };
 }
 
+// #1294 Option 1: the browser-endurance accounts must be GENUINE active-trial via the immutable 30-day
+// foundation (migration 20260812040000). The foundation stamps trial_started_at / trial_expires_at ONLY at
+// account creation, so a pre-foundation account is recreated — never hand-stamped, never extended.
+
+/** True iff the account's server-time trial window is currently active (foundation-stamped, not fabricated). */
+async function accountHasActiveTrial(userId) {
+    const { data, error } = await supabase
+        .from('user_profiles')
+        .select('trial_expires_at')
+        .eq('id', userId)
+        .maybeSingle();
+    if (error || !data?.trial_expires_at) return false;
+    return new Date(data.trial_expires_at).getTime() > Date.now();
+}
+
+// Tables that reference auth.users(id) WITHOUT ON DELETE CASCADE (RESTRICT) — deleting the auth user is
+// blocked until these child rows are removed. Enumerated from the schema (usage_checkpoints burned a prior
+// partial delete). user_profiles is deleted last (its own children cascade from it).
+const RESTRICT_USER_CHILD_TABLES = ['sessions', 'usage_checkpoints'];
+
+/** Cascade-safe delete of a single test account: clear RESTRICT children, then the profile, then the auth user. */
+async function deleteAccountCascadeSafe(userId) {
+    for (const table of RESTRICT_USER_CHILD_TABLES) {
+        const { error } = await supabase.from(table).delete().eq('user_id', userId);
+        // A missing table/column in the current schema is benign here; a real delete failure is surfaced by
+        // the deleteUser step below (which fails closed if any residual FK still blocks).
+        if (error && !/does not exist|schema cache/i.test(error.message)) {
+            console.log(`      ⚠️ child cleanup ${table}: ${error.message}`);
+        }
+    }
+    await supabase.from('user_profiles').delete().eq('id', userId);
+    return supabase.auth.admin.deleteUser(userId);
+}
+
+/**
+ * Ensure a browser-endurance identity is a genuine active-trial account. Reuse if already active-trial;
+ * otherwise recreate through the immutable foundation and verify the fresh trial. FAILS CLOSED (returns a
+ * reason) — the caller exits non-zero so Private can never silently run without a real trial entitlement.
+ */
+async function ensureActiveTrialEnduranceAccount(email) {
+    const existing = (await listExistingSoakUsers(false)).find((u) => u.email === email);
+    if (existing && await accountHasActiveTrial(existing.id)) {
+        return { email, action: 'reused', ok: true };
+    }
+    if (existing) {
+        console.log(`  ♻️  ${email}: no active trial — recreating through the immutable foundation...`);
+        const { error: delError } = await deleteAccountCascadeSafe(existing.id);
+        if (delError) return { email, action: 'recreate', ok: false, reason: `delete_failed: ${delError.message}` };
+    }
+    const user = await createUserWithTier(email, 'free'); // creation trigger stamps the immutable 30-day trial
+    if (!user) return { email, action: 'create', ok: false, reason: 'create_failed' };
+    if (!await accountHasActiveTrial(user.id)) {
+        return { email, action: 'verify', ok: false, reason: 'foundation_trial_not_active_after_create' };
+    }
+    return { email, action: existing ? 'recreated' : 'created', ok: true };
+}
+
 async function printSoakUsers() {
     const soakUsers = await listExistingSoakUsers();
     const results = soakUsers.sort((a, b) => {
@@ -466,7 +523,26 @@ async function main() {
     const updatedUsers = await listExistingSoakUsers(false);
     await syncUserTiers(updatedUsers, finalFree, finalPro);
 
-    console.log('\nStep 6: 🔑 Final Login Verification (Skipped - Deferred to Load Test)');
+    // #1294 Option 1: the browser-endurance accounts must run the REAL customer Private engine, which needs a
+    // genuine active-trial entitlement. Reuse if already active-trial; otherwise recreate through the
+    // immutable foundation. Fail closed — never let endurance proceed on a non-trial account.
+    if (MODE === 'soak') {
+        console.log('\nStep 6: 🎟️  Ensuring browser-endurance accounts are genuine active-trial (immutable foundation)...');
+        const results = [];
+        for (const account of DEDICATED_BROWSER_ENDURANCE_ACCOUNTS) {
+            const r = await ensureActiveTrialEnduranceAccount(account.email);
+            console.log(`  ${r.ok ? '✅' : '❌'} ${r.email}: ${r.action}${r.ok ? '' : ` — ${r.reason}`}`);
+            results.push(r);
+        }
+        const failed = results.filter((r) => !r.ok);
+        if (failed.length > 0) {
+            console.error(`\n❌ Browser-endurance active-trial provisioning FAILED for ${failed.length} account(s): ${failed.map((f) => `${f.email} (${f.reason})`).join(', ')}`);
+            console.error('   Endurance requires a genuine Private active-trial; refusing to proceed (no fabricated entitlement, no private_sample fallback).');
+            process.exit(1);
+        }
+    }
+
+    console.log('\nStep 7: 🔑 Final Login Verification (Skipped - Deferred to Load Test)');
 
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`🎉 Setup Complete: Users verified and synchronized successfully!`);
