@@ -4,6 +4,7 @@ import { resolvePageContext } from '@/services/pageContext';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import type { AppRuntimeConfig } from '@/config/appRuntimeConfig';
 import { clearPrivateRecordingIdentity, setPrivateTelemetryContext } from '@/services/transcription/privateTelemetry';
+import * as reportIssueTelemetry from '@/services/reportIssueTelemetry';
 
 const UUID_META = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
 
@@ -131,6 +132,13 @@ describe('buildIssueReportMetadata — appRuntimeConfig URL hygiene (P2 leak fix
 vi.mock('@/lib/supabaseClient', () => ({
   getSupabaseClient: vi.fn(),
 }));
+
+// Keep the REAL Report Issue emitter (so the correlation/content proofs assert true behavior), but wrap it
+// as a passthrough spy so a single test can force it to throw and prove persistence is never masked.
+vi.mock('@/services/reportIssueTelemetry', async (orig) => {
+  const actual = await orig<typeof import('@/services/reportIssueTelemetry')>();
+  return { ...actual, emitReportIssueSubmitted: vi.fn(actual.emitReportIssueSubmitted) };
+});
 
 vi.mock('@/lib/logger', () => ({
   default: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -302,5 +310,58 @@ describe('issueReportService', () => {
         includeAudio: false,
       }),
     ).rejects.toBeTruthy();
+    // #1294 ADDENDUM 3: a report that did NOT persist must emit NO Report Issue telemetry.
+    const events = (window as unknown as { __SS_PRIVATE_EVENTS__: unknown[] }).__SS_PRIVATE_EVENTS__;
+    expect(events).toHaveLength(0);
+  });
+
+  // #1294 ADDENDUM 3: the user's title + description ride the Report Issue breadcrumb (explicit
+  // user-submitted support content); transcript is absent unless opted in.
+  it('emits title + description on the Report Issue event, transcript omitted by default', async () => {
+    await issueReportService.submit({
+      userId: 'user-1',
+      sessionId: 'sess-42',
+      category: 'recording_transcription',
+      severity: 'high',
+      title: 'Mic did not start',
+      description: 'Pressing start did nothing for ~5 seconds.',
+      pageUrl: 'http://localhost:5174/session',
+      metadata: { route: '/session' },
+      includeTranscript: false,
+      transcriptExcerpt: 'secret transcript never opted in',
+      includeAudio: false,
+    });
+    const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
+    const latest = events[events.length - 1];
+    expect(latest).toMatchObject({
+      event: 'report_issue_submitted',
+      issue_title: 'Mic did not start',
+      issue_description: 'Pressing start did nothing for ~5 seconds.',
+      session_id: 'sess-42',
+    });
+    expect(latest).not.toHaveProperty('issue_transcript_snippet');
+    expect(JSON.stringify(latest)).not.toContain('secret transcript never opted in');
+  });
+
+  // #1294 ADDENDUM 3: a telemetry error must NEVER mask a report that already persisted.
+  it('resolves successfully even if telemetry emission throws (persistence is authoritative)', async () => {
+    vi.mocked(reportIssueTelemetry.emitReportIssueSubmitted).mockImplementationOnce(() => {
+      throw new Error('telemetry transport exploded');
+    });
+    await expect(
+      issueReportService.submit({
+        userId: 'user-1',
+        sessionId: 'sess-9',
+        category: 'something_else',
+        severity: 'low',
+        title: 'Persisted fine',
+        description: 'Telemetry blew up but the report is saved.',
+        pageUrl: 'http://localhost:5174/session',
+        metadata: { route: '/session' },
+        includeTranscript: false,
+        includeAudio: false,
+      }),
+    ).resolves.toEqual({ id: null });
+    expect(insert).toHaveBeenCalledTimes(1);
   });
 });
