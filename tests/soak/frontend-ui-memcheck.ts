@@ -426,9 +426,6 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             userPhases[userIndex] = 'navigation';
             await page.goto(ROUTES.SESSION);
             await installSoakSttBridge(page);
-            // Current session shell readiness: the `mic-start` control (or the one-time `mic-download`
-            // model gate). The combined start/stop selector was retired.
-            await expect(page.getByTestId('mic-download').or(page.getByTestId('mic-start')).first()).toBeVisible({ timeout: 30000 });
 
             // 2. Engine resolution is the NORMAL customer Private policy — there is NO Native / Browser /
             // Cloud path and no customer mode selector. The soak STT bridge supplies a deterministic
@@ -436,9 +433,16 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             // registry), so no model is downloaded or run. This endurance path exercises the REAL Private
             // start/stop/finalize lifecycle with active-trial accounts (no retired private-sample allowance).
 
-            // 3. Start Recording via the current `mic-start` control.
+            // 3. Ready the Private engine, then Start. The shipped session shell renders the recorder control
+            // as `mic-download` (one-time on-device model gate) until the model is loaded, then `mic-start`.
+            // Clicking the gate drives the (mocked) Private engine to ready — never a Browser/Cloud path.
+            const downloadBtn = page.getByTestId('mic-download');
             const startButton = page.getByTestId('mic-start');
-            await expect(startButton).toBeEnabled({ timeout: 15000 });
+            await expect(downloadBtn.or(startButton).first()).toBeVisible({ timeout: 30000 });
+            if (await downloadBtn.count() > 0) {
+                await downloadBtn.first().click();
+            }
+            await expect(startButton).toBeEnabled({ timeout: 60000 });
             await startButton.click();
             // Runtime-state seam: the shell must reach RECORDING resolved to PRIVATE. If Private cannot start,
             // FAIL with the exact runtime reason — engines are never silently changed to Browser/Cloud.
