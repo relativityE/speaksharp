@@ -69,15 +69,26 @@ export function evaluateCanaryMigrationReadiness(output) {
         };
     }
 
-    // Every staged prerequisite is applied. The commercial activation migration must remain held.
+    // Every staged prerequisite is applied. The commercial activation migration MUST remain held for this
+    // closeout: if 20260812042000 has been applied, the environment is in an UNEXPECTED activated state —
+    // fail closed (non-ready) so NEITHER product lane runs. This is not a soft flag; it is a HOLD.
     const activationRow = byVersion.get(HELD_ACTIVATION_MIGRATION);
     const activationApplied = Boolean(activationRow && activationRow.remote === HELD_ACTIVATION_MIGRATION);
+    if (activationApplied) {
+        return {
+            ready: false,
+            state: 'activation-applied',
+            version: CANARY_RUNTIME_MIGRATION,
+            activationHeld: false,
+            heldActivation: HELD_ACTIVATION_MIGRATION,
+        };
+    }
 
     return {
         ready: true,
         state: 'applied',
         version: CANARY_RUNTIME_MIGRATION,
         appliedSet: [...REQUIRED_APPLIED_MIGRATIONS],
-        activationHeld: !activationApplied,
+        activationHeld: true,
     };
 }

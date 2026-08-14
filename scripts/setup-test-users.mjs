@@ -231,11 +231,17 @@ async function printSoakUsers() {
 // outcome to a non-zero exit so a fail-closed refusal is never mistaken for success.
 // ============================================
 async function createCanaryUser(purpose) {
+    // Customer-path authentication MUST use the PUBLIC anon key. A service-role key is not an acceptable
+    // fallback for proving a real customer sign-in — require the anon key and fail closed if it is absent.
+    if (!SUPABASE_ANON_KEY) {
+        console.log('Admin - Test Users canary result: BLOCKED');
+        console.log(JSON.stringify({ result: 'BLOCKED', purpose, email: '***', reason: 'missing_SUPABASE_ANON_KEY' }));
+        process.exit(1);
+    }
     const outcome = await provisionCanaryCredential({
         adminClient: supabase,
-        // Read-only sign-in verification uses the public anon key when present, otherwise the service-role
-        // key purely as the project apikey for the token endpoint (still a password grant — no mutation).
-        makeSignInClient: () => createClient(SUPABASE_URL, SUPABASE_ANON_KEY || SUPABASE_SERVICE_ROLE_KEY, {
+        // Read-only sign-in verification uses the PUBLIC anon flow ONLY (the customer path); no service-role.
+        makeSignInClient: () => createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
             auth: { autoRefreshToken: false, persistSession: false },
         }),
         secrets: {

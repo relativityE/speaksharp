@@ -25,16 +25,17 @@ const SCANNED_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.yml
 const SCANNED_ROOTS = ['.github', 'scripts', 'tests', 'frontend/src', 'frontend/tests', 'backend', 'product_release', '.agent'];
 const ROOT_FILES = ['.env.test.example', 'AGENTS.md', 'playwright.canary.config.ts', 'playwright.config.ts', 'package.json'];
 
-const FORBIDDEN = [
-  { label: 'retired ambiguous CANARY_PASSWORD (use lane-specific CANARY_TRIAL_PASSWORD / CANARY_PAID_PASSWORD, or the lane-resolved CANARY_LANE_PASSWORD)', re: /\bCANARY_PASSWORD\b/ },
-  { label: 'retired BASIC_TEST_EMAIL account credential', re: /\bBASIC_TEST_EMAIL\b/ },
-  { label: 'retired BASIC_TEST_PASSWORD account credential', re: /\bBASIC_TEST_PASSWORD\b/ },
-  { label: 'retired E2E_BASIC_EMAIL account credential', re: /\bE2E_BASIC_EMAIL\b/ },
-  { label: 'retired E2E_BASIC_PASSWORD account credential', re: /\bE2E_BASIC_PASSWORD\b/ },
-  { label: 'retired STRIPE_BASIC_PRICE_ID (SpeakSharp has no Basic product)', re: /\bSTRIPE_BASIC_PRICE_ID\b/ },
-  { label: 'retired STRIPE_LIVE_BASIC_PRICE_ID (SpeakSharp has no Basic product)', re: /\bSTRIPE_LIVE_BASIC_PRICE_ID\b/ },
-  { label: 'retired Basic count/input/tier alias', re: /\b(NEW_BASIC_COUNT|NUM_BASIC_USERS|BASIC_USER_COUNT|TEST_USER_BASIC|new_basic_count)\b/ },
-  { label: 'any secrets.*BASIC* GitHub secret reference', re: /secrets\.[A-Za-z0-9_]*BASIC[A-Za-z0-9_]*/i },
+// Retired Basic credential/price/input/Secret/Variable identifiers (SpeakSharp has no Basic product) + the
+// account-admin `- basic` tier option + `basic-user` reusable account, plus the ambiguous CANARY_PASSWORD.
+// These are intentionally PRECISE: they never match unrelated tokens such as the filler word "basically",
+// HTTP "Basic" auth, or the legacy `subscription_status: 'basic'` DB value (a separate, still-functional
+// backward-compat tier that maps to Free — out of this cleanup's scope).
+export const FORBIDDEN = [
+  { label: 'retired ambiguous CANARY_PASSWORD (use CANARY_TRIAL_PASSWORD / CANARY_PAID_PASSWORD / CANARY_LANE_PASSWORD)', re: /\bCANARY_PASSWORD\b/ },
+  { label: 'retired Basic credential/price/input identifier', re: /\b(?:BASIC_TEST_EMAIL|BASIC_TEST_PASSWORD|E2E_BASIC_EMAIL|E2E_BASIC_PASSWORD|STRIPE_BASIC_PRICE_ID|STRIPE_LIVE_BASIC_PRICE_ID|NEW_BASIC_COUNT|NUM_BASIC_USERS|BASIC_USER_COUNT|TEST_USER_BASIC)\b/ },
+  { label: 'any secrets.*BASIC* / vars.*BASIC* Secret or Variable reference (case-insensitive)', re: /(?:secrets|vars)\.[A-Za-z0-9_]*BASIC[A-Za-z0-9_]*/i },
+  { label: 'basic tier as a workflow-dispatch choice option (a `- basic` list item)', re: /^\s*-\s*basic\s*$/i },
+  { label: 'basic-named reusable test account (basic-user / basic_user)', re: /\bbasic[-_]user\b/i },
 ];
 
 function isExcluded(relPath) {
@@ -84,4 +85,39 @@ describe('#1294 — no retired Basic / CANARY_PASSWORD tokens in active source',
     }
     expect(hits, `retired token found in active source:\n${hits.join('\n')}`).toEqual([]);
   });
+});
+
+// POSITIVE fixture: prove the guard actually CATCHES retired Basic identifiers (incl. vars.*BASIC* and
+// lower-case tier/account aliases) and does NOT flag unrelated English words such as "basically".
+describe('#1294 guard positive fixture — catches Basic identifiers, ignores prose', () => {
+  const anyMatch = (s) => FORBIDDEN.some(({ re }) => re.test(s));
+
+  it.each([
+    "CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}",
+    'BASIC_TEST_EMAIL',
+    'E2E_BASIC_PASSWORD',
+    'STRIPE_LIVE_BASIC_PRICE_ID',
+    'NEW_BASIC_COUNT',
+    'TEST_USER_BASIC',
+    'vars.STRIPE_BASIC_PRICE_ID',
+    'vars.SomethingBasicThing',      // any *BASIC* Secret/Variable ref, case-insensitive
+    'secrets.BASIC_TEST_EMAIL',
+    '  - basic',                     // the retired create_tier choice option
+    'basic-user@test.com',
+    'const x = "basic_user";',
+  ])('CATCHES %s', (s) => { expect(anyMatch(s)).toBe(true); });
+
+  it.each([
+    'This is basically a comment.',                       // filler word — never flagged
+    'const KEY = "BASICALLY";',                            // filler-word key
+    "subscription_status: 'free' | 'basic' | 'pro'",      // legacy DB tier value (separate, functional)
+    "expect(isPro('basic')).toBe(false);",                // legacy tier test
+    "res.headers.get('WWW-Authenticate') // Basic",       // HTTP Basic auth
+    'a fundamental building block',
+    'PRO_TEST_EMAIL',
+    'FREE_TEST_EMAIL',
+    'CANARY_PAID_PASSWORD',
+    'CANARY_TRIAL_PASSWORD',
+    'pl002-basic-useful-session',                         // historical evidence slug (not basic-user)
+  ])('IGNORES %s', (s) => { expect(anyMatch(s)).toBe(false); });
 });

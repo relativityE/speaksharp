@@ -164,7 +164,7 @@ Payment switches close checkout (either OFF ⇒ closed; opening needs both ON wi
 
 **Rollback to disabled proven:** setting either switch back to false/unset restores the fail-closed state (no Upgrade control, `403 payments_disabled`) — verify this before relying on the switch.
 
-**Guardrails honored:** v2-base default unchanged; no v4 touched; STT engine defaults untouched; no live Stripe secrets handled by Dev; no real payment; synthetic webhook never labeled live-money; no merges. Pricing and packaging (including any specific Pro/Basic amounts) are **UNRESOLVED** product decisions — no figure here is an approved commitment; the policy and its open status live in `ENTITLEMENTS_AND_BILLING.md` (→ `ROADMAP.md`).
+**Guardrails honored:** v2-base default unchanged; no v4 touched; STT engine defaults untouched; no live Stripe secrets handled by Dev; no real payment; synthetic webhook never labeled live-money; no merges. Pricing and packaging are **DECIDED**: one Private Practice product — complete for 30 days, then exactly **$10/month** for the same Private-only product. There is **no Basic product** and no permanent Free tier. The authoritative contract lives in `ENTITLEMENTS_AND_BILLING.md`; commercial activation itself remains a separately authorized launch step.
 
 ---
 

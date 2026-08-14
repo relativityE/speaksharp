@@ -55,10 +55,17 @@ describe('canary migration readiness (full ordered staged set, not just 41500)',
     expect(r.pending).toEqual(expect.arrayContaining(['20260812002000', '20260811143000', '20260812040000']));
   });
 
-  it('surfaces activationHeld=false if the held commercial activation migration is unexpectedly applied', () => {
+  it('FAILS CLOSED (not ready) if the held commercial activation migration 42000 is applied', () => {
     const r = evaluateCanaryMigrationReadiness(listing({ ...allAppliedStates(), [HELD_ACTIVATION_MIGRATION]: 'applied' }));
-    expect(r.ready).toBe(true);
+    expect(r.ready).toBe(false);
+    expect(r.state).toBe('activation-applied');
     expect(r.activationHeld).toBe(false);
+  });
+
+  it('READY reports activationHeld=true when 42000 is NOT applied', () => {
+    const r = evaluateCanaryMigrationReadiness(listing({ ...allAppliedStates(), [HELD_ACTIVATION_MIGRATION]: 'pending' }));
+    expect(r.ready).toBe(true);
+    expect(r.activationHeld).toBe(true);
   });
 
   it('fails closed on a checked-in SOURCE gap (a required migration is remote-only)', () => {

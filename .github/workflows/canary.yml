@@ -50,6 +50,14 @@ jobs:
           echo "- Required ordered set (all must be applied): \`20260812002000\` → \`20260811143000\` → \`20260812030000\` → \`20260812039500\` → \`20260812040000\` → \`20260812041000\` → \`20260812041500\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Held (must NOT be applied): \`20260812042000\` (commercial activation)" >> "$GITHUB_STEP_SUMMARY"
           echo "- Read-only state: \`$(jq -r '.state' <<<"$result")\`" >> "$GITHUB_STEP_SUMMARY"
+          state="$(jq -r '.state' <<<"$result")"
+          if [ "$state" = 'activation-applied' ]; then
+            # The held commercial-activation migration 20260812042000 is applied — an UNEXPECTED activated
+            # state for this closeout. Fail closed (hard error); neither product lane may run.
+            echo "- **FAIL CLOSED — held commercial-activation migration \`20260812042000\` is applied; the canary must not run in an activated state.**" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Held activation migration 20260812042000 is applied — canary fails closed."
+            exit 1
+          fi
           if [ "$(jq -r '.ready' <<<"$result")" != 'true' ]; then
             echo "- **HOLD — required migration(s) pending: \`$(jq -r '(.pending // []) | join(", ")' <<<"$result")\`; canary product lanes were not executed.**" >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -92,11 +100,10 @@ jobs:
           # lane's server-authoritative profile state. The primary lane requires a currently active,
           # previously provisioned 30-day trial; the secondary lane requires the approved Stripe binding.
           # CI never grants or extends access.
+          # READ-ONLY canary: the PUBLIC anon key is the ONLY credential. No service-role key is injected —
+          # the canary cannot create an account, reset a password, or grant/extend a trial. Any sign-in or
+          # verification failure fails closed.
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          # Service-role is the RECOVERY-only path (deterministic invalid-credentials → account lookup /
-          # create-or-sync). An auth/config rejection here is reported as a scoped, actionable config
-          # failure that affects recovery only; the healthy path never depends on it. No key is rotated.
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CANARY_LANE_PASSWORD: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_PASSWORD || secrets.CANARY_PAID_PASSWORD }}
           # Protected, operator-controlled identities only. Never hard-code or infer an email domain.
           CANARY_EMAIL: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_EMAIL || secrets.CANARY_PAID_EMAIL }}

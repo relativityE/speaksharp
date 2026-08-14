@@ -28,9 +28,8 @@ function firstEnv(names) {
 
 function normalizeTier(value, fallback = 'free') {
   const tier = String(value || fallback).trim().toLowerCase();
-  if (tier === 'basic') return 'basic';
   if (tier === 'pro') return 'pro';
-  return 'free';
+  return 'free'; // SpeakSharp has no Basic product — only free/pro
 }
 
 function maskEmail(email) {

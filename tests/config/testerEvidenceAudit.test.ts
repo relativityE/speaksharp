@@ -9,7 +9,7 @@ const script = read('../../scripts/tester-evidence-audit.mjs');
 const workflow = read('../../.github/workflows/tester-evidence-audit.yml');
 
 const FULL_MANIFEST = {
-  owner_admin: ['owner@x.io'], synthetic: ['basic@x.io'], checkout: ['co@x.io'], canary: ['canary@x.io'], qa: ['qa@x.io'],
+  owner_admin: ['owner@x.io'], synthetic: ['synthetic@x.io'], checkout: ['co@x.io'], canary: ['canary@x.io'], qa: ['qa@x.io'],
 };
 const NOW = Date.parse('2026-07-24T12:00:00Z');
 const BASE_ENV = {
@@ -124,9 +124,9 @@ describe('add-mask registration + no address anywhere', () => {
       emitMask: (a: string) => masked.push(a), errlog: (m: string) => errs.push(m),
     });
     expect(code).toBe(0);
-    expect(masked.sort()).toEqual(['basic@x.io', 'canary@x.io', 'co@x.io', 'owner@x.io', 'qa@x.io']);
+    expect(masked.sort()).toEqual(['canary@x.io', 'co@x.io', 'owner@x.io', 'qa@x.io', 'synthetic@x.io']);
     const surfaces = (report ?? '') + '\n' + errs.join('\n');
-    for (const addr of ['owner@x.io', 'basic@x.io', 'co@x.io', 'canary@x.io', 'qa@x.io', 'candidate@person.com']) {
+    for (const addr of ['owner@x.io', 'synthetic@x.io', 'co@x.io', 'canary@x.io', 'qa@x.io', 'candidate@person.com']) {
       expect(surfaces, `${addr} must not appear in report/stderr`).not.toContain(addr);
     }
   });
