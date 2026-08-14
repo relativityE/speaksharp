@@ -39,7 +39,7 @@ Keep this file **free of technical detail** (flags, model variants, telemetry, e
 
 ## 2. What is SpeakSharp?
 
-SpeakSharp is a private speaking-practice coach. **Open Mic** is the simplest way to start an unstructured take. **Focus Points** is optional guidance when specific ideas must land. Every customer practice session uses **Private transcription on your device**; speech audio is not uploaded to a transcription provider.
+SpeakSharp is a private speaking-practice coach. **Open Mic** is the simplest way to start an unstructured take. **Focus Points** is optional guidance when specific ideas must land. Every customer practice session uses Private transcription on your device; speech audio is not uploaded to a transcription provider.
 
 The complete product is **free for 30 days**, then **$10/month** to continue with the same product. There is no permanent feature-limited Free tier, and Private transcription is not a paid add-on. Nothing starts recording automatically; the tester chooses when to begin.
 
