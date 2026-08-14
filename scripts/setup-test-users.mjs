@@ -212,15 +212,27 @@ function buildProfilePatchForTier(tier, email) {
 // foundation (migration 20260812040000). The foundation stamps trial_started_at / trial_expires_at ONLY at
 // account creation, so a pre-foundation account is recreated — never hand-stamped, never extended.
 
-/** True iff the account's server-time trial window is currently active (foundation-stamped, not fabricated). */
-async function accountHasActiveTrial(userId) {
+/**
+ * True iff the account's trial is active by the SERVER's definition (public.effective_subscription_tier,
+ * migration 20260812040000): BOTH the immutable commercial grant marker `commercial_trial_granted_at` AND an
+ * unexpired `trial_expires_at` must exist. Checking only trial_expires_at is too weak — a stale account can
+ * have a window but a NULL grant (which the server reports as trial_expired). Logs the fields for diagnosis.
+ */
+async function accountHasActiveTrial(userId, email) {
     const { data, error } = await supabase
         .from('user_profiles')
-        .select('trial_expires_at')
+        .select('trial_started_at, trial_expires_at, commercial_trial_granted_at')
         .eq('id', userId)
         .maybeSingle();
-    if (error || !data?.trial_expires_at) return false;
-    return new Date(data.trial_expires_at).getTime() > Date.now();
+    if (error) {
+        console.log(`      ⚠️ trial read for ${email ?? userId} failed: ${error.message}`);
+        return false;
+    }
+    const grant = data?.commercial_trial_granted_at ?? null;
+    const expiry = data?.trial_expires_at ?? null;
+    const active = !!grant && !!expiry && new Date(expiry).getTime() > Date.now();
+    console.log(`      🔎 ${email ?? userId}: grant=${grant ?? 'NULL'} expiry=${expiry ?? 'NULL'} → active_trial=${active}`);
+    return active;
 }
 
 // Tables that reference auth.users(id) WITHOUT ON DELETE CASCADE (RESTRICT) — deleting the auth user is
@@ -249,7 +261,7 @@ async function deleteAccountCascadeSafe(userId) {
  */
 async function ensureActiveTrialEnduranceAccount(email) {
     const existing = (await listExistingSoakUsers(false)).find((u) => u.email === email);
-    if (existing && await accountHasActiveTrial(existing.id)) {
+    if (existing && await accountHasActiveTrial(existing.id, email)) {
         return { email, action: 'reused', ok: true };
     }
     if (existing) {
@@ -259,7 +271,7 @@ async function ensureActiveTrialEnduranceAccount(email) {
     }
     const user = await createUserWithTier(email, 'free'); // creation trigger stamps the immutable 30-day trial
     if (!user) return { email, action: 'create', ok: false, reason: 'create_failed' };
-    if (!await accountHasActiveTrial(user.id)) {
+    if (!await accountHasActiveTrial(user.id, email)) {
         return { email, action: 'verify', ok: false, reason: 'foundation_trial_not_active_after_create' };
     }
     return { email, action: existing ? 'recreated' : 'created', ok: true };
