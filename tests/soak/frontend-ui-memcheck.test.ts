@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { classifyRequestFailure, filterFailingConsoleErrors, type RequestFailureEvent } from './frontend-ui-memcheck';
+import { classifyRequestFailure, filterFailingConsoleErrors, type RequestFailureEvent, type BenignAbortEvent } from './frontend-ui-memcheck';
+
+type TestPhase = 'setup' | 'navigation' | 'teardown' | 'active' | 'complete';
 
 const IGNORED_READ_REASON = 'Known read-only polling endpoint aborted outside active recording (setup/navigation/teardown).';
 
@@ -185,51 +187,71 @@ describe('classifyRequestFailure', () => {
     });
 });
 
-// #1294 finding #5 — the benign-console filter must suppress ONLY the exact setup/navigation abort noise, and
-// genuine HTTP/runtime errors (even ones whose text mentions the same endpoints) must still fail the run.
-describe('filterFailingConsoleErrors — narrow benign-console suppression', () => {
+// #1294 finding #5 (RETURN 5298368995) — benign-console suppression is correlated PER ERR_ABORTED EVENT: same
+// user, same category, non-active phase, within a time window, and each abort consumed at most once. A run-wide
+// set is wrong (one user's/one moment's abort must not excuse another's error).
+describe('filterFailingConsoleErrors — per-event abort correlation, consumed once', () => {
     const TZ = '{error: Object} Error calling set_user_timezone:';
     const HIST = '{error: Object} [sessionService.getRecentReviewable] Unable to load your session history';
-    const abortedTz = new Set(['timezone_preference']);
-    const abortedHist = new Set(['session_history_read']);
+    const err = (userIndex: number, text: string, phase: TestPhase, ts: number) => ({ userIndex, type: 'error', text, phase, ts });
+    const abort = (userIndex: number, category: string, phase: TestPhase, ts: number): BenignAbortEvent => ({ userIndex, category, phase, ts });
 
-    it('SUPPRESSES the exact set_user_timezone abort log when that endpoint recorded a benign abort in setup', () => {
-        const out = filterFailingConsoleErrors([{ type: 'error', text: TZ, phase: 'setup' }], abortedTz);
+    it('SUPPRESSES a set_user_timezone log correlated to the same user/category/phase within the window', () => {
+        const out = filterFailingConsoleErrors([err(0, TZ, 'setup', 1000)], [abort(0, 'timezone_preference', 'setup', 1100)]);
         expect(out).toHaveLength(0);
     });
 
-    it('SUPPRESSES the getRecentReviewable abort log when a session-history read aborted during navigation', () => {
-        const out = filterFailingConsoleErrors([{ type: 'error', text: HIST, phase: 'navigation' }], abortedHist);
+    it('SUPPRESSES a getRecentReviewable log correlated to a same-user session-history abort in navigation', () => {
+        const out = filterFailingConsoleErrors([err(1, HIST, 'navigation', 2000)], [abort(1, 'session_history_read', 'navigation', 2050)]);
         expect(out).toHaveLength(0);
     });
 
-    // NEGATIVE: a genuine error (NO abort recorded for that endpoint — e.g. an HTTP 5xx, which is
-    // requestfinished, never requestfailed) still FAILS even though its text mentions set_user_timezone.
-    it('FAILS a genuine set_user_timezone error when no benign abort was recorded (e.g. HTTP 500)', () => {
-        const out = filterFailingConsoleErrors([{ type: 'error', text: TZ, phase: 'setup' }], new Set());
+    // NEGATIVE (RETURN #4a): user 0's abort cannot suppress user 1's matching error.
+    it("FAILS: user 0's abort cannot suppress user 1's error", () => {
+        const out = filterFailingConsoleErrors([err(1, TZ, 'setup', 1000)], [abort(0, 'timezone_preference', 'setup', 1000)]);
+        expect(out).toHaveLength(1);
+        expect(out[0].userIndex).toBe(1);
+    });
+
+    // NEGATIVE (RETURN #4b): one abort cannot suppress two errors — it is consumed once.
+    it('FAILS: one abort cannot suppress two errors (consumed once)', () => {
+        const out = filterFailingConsoleErrors(
+            [err(0, TZ, 'setup', 1000), err(0, TZ, 'setup', 1200)],
+            [abort(0, 'timezone_preference', 'setup', 1050)]);
+        expect(out).toHaveLength(1); // the first is suppressed; the second has no unconsumed abort → fails
+    });
+
+    // NEGATIVE (RETURN #4c): a stale abort cannot suppress a later error outside the correlation window.
+    it('FAILS: an old abort cannot suppress a much-later error (out of window)', () => {
+        const out = filterFailingConsoleErrors([err(0, TZ, 'setup', 60000)], [abort(0, 'timezone_preference', 'setup', 1000)]);
         expect(out).toHaveLength(1);
     });
 
-    // NEGATIVE: an error during ACTIVE recording is never suppressed, even if the endpoint aborted elsewhere.
-    it('FAILS a set_user_timezone error during active recording', () => {
-        const out = filterFailingConsoleErrors([{ type: 'error', text: TZ, phase: 'active' }], abortedTz);
+    // NEGATIVE (RETURN #4d): active-phase and unrelated errors remain fatal; a 5xx (no abort event) fails.
+    it('FAILS: an error during active recording is never suppressed', () => {
+        const out = filterFailingConsoleErrors([err(0, TZ, 'active', 1000)], [abort(0, 'timezone_preference', 'active', 1000)]);
         expect(out).toHaveLength(1);
     });
 
-    // NEGATIVE: an unrelated runtime error is never suppressed.
-    it('FAILS an unrelated runtime error', () => {
-        const out = filterFailingConsoleErrors([{ type: 'error', text: 'TypeError: cannot read x of undefined', phase: 'setup' }], abortedTz);
+    it('FAILS: a genuine set_user_timezone error with NO abort event (e.g. HTTP 5xx = requestfinished)', () => {
+        const out = filterFailingConsoleErrors([err(0, TZ, 'setup', 1000)], []);
         expect(out).toHaveLength(1);
     });
 
-    // NEGATIVE: a getRecentReviewable error without the correlated abort still fails.
-    it('FAILS a getRecentReviewable error when no session-history abort was recorded', () => {
-        const out = filterFailingConsoleErrors([{ type: 'error', text: HIST, phase: 'navigation' }], new Set());
+    it('FAILS: an unrelated runtime error is never suppressed', () => {
+        const out = filterFailingConsoleErrors([err(0, 'TypeError: cannot read x of undefined', 'setup', 1000)], [abort(0, 'timezone_preference', 'setup', 1000)]);
         expect(out).toHaveLength(1);
     });
 
     it('ignores warnings (only error-type console issues can fail)', () => {
-        const out = filterFailingConsoleErrors([{ type: 'warning', text: 'a warning', phase: 'active' }], new Set());
+        const out = filterFailingConsoleErrors([{ userIndex: 0, type: 'warning', text: 'a warning', phase: 'active', ts: 1 }], []);
         expect(out).toHaveLength(0);
+    });
+
+    it('two distinct aborts (same user/category) suppress exactly two matching errors, no more', () => {
+        const out = filterFailingConsoleErrors(
+            [err(0, TZ, 'setup', 1000), err(0, TZ, 'setup', 1100), err(0, TZ, 'setup', 1200)],
+            [abort(0, 'timezone_preference', 'setup', 1000), abort(0, 'timezone_preference', 'setup', 1100)]);
+        expect(out).toHaveLength(1); // 2 suppressed, the 3rd fails
     });
 });

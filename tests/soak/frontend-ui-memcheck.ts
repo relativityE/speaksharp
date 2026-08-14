@@ -65,7 +65,7 @@ type BrowserEnduranceEvidence = {
     durationMs: number;
     startedAt: string;
     completedAt: string;
-    consoleIssues: Array<{ userIndex: number; type: string; text: string; phase?: EndurancePhase }>;
+    consoleIssues: Array<{ userIndex: number; type: string; text: string; phase?: EndurancePhase; ts?: number }>;
     requestFailures: CriticalRequestFailure[];
     criticalFailures: CriticalRequestFailure[];
     ignoredRequestFailures: IgnoredRequestFailure[];
@@ -100,33 +100,51 @@ const READ_ABORT_ENDPOINTS = [
 
 // Console error logs that are benign ONLY as the exact setup/navigation abort noise: each pattern is the app's
 // abort log for a specific fire-and-forget endpoint, paired with the request-failure `category` that endpoint
-// produces when it is genuinely ERR_ABORTED. A console error is suppressed ONLY when it matches a pattern AND
-// that category actually recorded a benign ERR_ABORTED this run AND it occurred outside active recording. A
-// genuine HTTP error (a 5xx is `requestfinished`, never `requestfailed`, so it produces NO abort category) or
-// a runtime error — even one whose text contains `set_user_timezone`/`getRecentReviewable` — always fails.
-type ConsoleIssue = { userIndex?: number; type: string; text: string; phase?: EndurancePhase };
+// produces when it is genuinely ERR_ABORTED. Suppression is correlated PER-EVENT (see filterFailingConsoleErrors):
+// a console error is suppressed ONLY by a specific ERR_ABORTED event for the SAME user, SAME category, a
+// non-active phase, and within a small time window — and each abort is consumed once. A genuine HTTP error (a 5xx
+// is `requestfinished`, never `requestfailed`, so it produces NO abort event) or a runtime error — even one whose
+// text contains `set_user_timezone`/`getRecentReviewable` — always fails.
+type ConsoleIssue = { userIndex?: number; type: string; text: string; phase?: EndurancePhase; ts?: number };
+export type BenignAbortEvent = { userIndex: number; category: string; phase: EndurancePhase; ts: number };
 const BENIGN_NAVIGATION_CONSOLE_ERRORS: readonly { re: RegExp; category: string }[] = [
     { re: /Error calling set_user_timezone/, category: 'timezone_preference' },
     { re: /sessionService\.getRecentReviewable|Unable to load your session history/, category: 'session_history_read' },
 ] as const;
 
+const ABORT_CORRELATION_WINDOW_MS = 5000;
+const OUTSIDE_ACTIVE = (phase: EndurancePhase | undefined): boolean =>
+    phase === 'setup' || phase === 'navigation' || phase === 'teardown';
+
 /**
- * The console errors that must FAIL the run. Suppresses only the exact setup/navigation abort noise: a known
- * benign abort log whose correlated endpoint actually recorded a benign ERR_ABORTED this run, outside active
- * recording. Everything else — genuine HTTP/runtime errors (no abort recorded), or any active-phase error — is
- * returned as failing. Pure + exported so the narrowing is unit-tested (incl. negative cases).
+ * The console errors that must FAIL the run. Each benign navigation-abort console log is suppressed ONLY when it
+ * can be correlated to a distinct, still-unconsumed ERR_ABORTED event for the SAME user, the SAME endpoint
+ * category, a non-active phase, and within ±ABORT_CORRELATION_WINDOW_MS. Each abort is consumed at most once, so
+ * one abort can never excuse a second error, one user's abort can never excuse another user's error, and a stale
+ * abort can never excuse a later out-of-window error. Everything else — genuine HTTP/runtime errors (no abort),
+ * any active-phase error, unrelated errors — is returned as failing. `consoleIssues` is never mutated (raw
+ * evidence is preserved by the caller). Pure + exported so the correlation is unit-tested, incl. negative cases.
  */
 export function filterFailingConsoleErrors(
     consoleIssues: readonly ConsoleIssue[],
-    benignAbortedCategories: ReadonlySet<string>,
+    abortEvents: readonly BenignAbortEvent[],
 ): ConsoleIssue[] {
-    return consoleIssues.filter((issue) => {
-        if (issue.type !== 'error') return false;
-        const outsideActive = issue.phase === 'setup' || issue.phase === 'navigation' || issue.phase === 'teardown';
-        const isBenignAbortNoise = outsideActive && BENIGN_NAVIGATION_CONSOLE_ERRORS.some(
-            (p) => p.re.test(issue.text) && benignAbortedCategories.has(p.category));
-        return !isBenignAbortNoise;
-    });
+    const pool = abortEvents.map((a) => ({ event: a, used: false }));
+    const failing: ConsoleIssue[] = [];
+    for (const issue of consoleIssues) {
+        if (issue.type !== 'error') continue;
+        const pattern = OUTSIDE_ACTIVE(issue.phase)
+            ? BENIGN_NAVIGATION_CONSOLE_ERRORS.find((p) => p.re.test(issue.text))
+            : undefined;
+        const slot = pattern && pool.find((s) => !s.used
+            && s.event.userIndex === issue.userIndex
+            && s.event.category === pattern.category
+            && OUTSIDE_ACTIVE(s.event.phase)
+            && (issue.ts === undefined || Math.abs(issue.ts - s.event.ts) <= ABORT_CORRELATION_WINDOW_MS));
+        if (slot) { slot.used = true; continue; } // suppressed by exactly one correlated, now-consumed abort
+        failing.push(issue);
+    }
+    return failing;
 }
 
 // #1294 Option 1: the endurance journey runs the REAL customer Private policy. This bridge mirrors the
@@ -396,9 +414,9 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
     const consoleIssues: BrowserEnduranceEvidence['consoleIssues'] = [];
     const criticalFailures: BrowserEnduranceEvidence['criticalFailures'] = [];
     const ignoredRequestFailures: BrowserEnduranceEvidence['ignoredRequestFailures'] = [];
-    // Endpoint categories that recorded a benign ERR_ABORTED this run — the ONLY categories whose correlated
-    // console-abort logs may be suppressed (see filterFailingConsoleErrors). A genuine 5xx never lands here.
-    const benignAbortedCategories = new Set<string>();
+    // Individual benign ERR_ABORTED events (per user / category / phase / time). Each may correlate-and-consume
+    // AT MOST ONE console-abort log (see filterFailingConsoleErrors). A genuine 5xx never lands here.
+    const benignAbortEvents: BenignAbortEvent[] = [];
     const userResults: BrowserEnduranceUserResult[] = [];
     const userPhases: EndurancePhase[] = Array.from({ length: SOAK_CONFIG.CONCURRENT_USERS }, () => 'setup');
     const functionalJourneyPassedByUser: boolean[] = Array.from({ length: SOAK_CONFIG.CONCURRENT_USERS }, () => false);
@@ -426,7 +444,7 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
         userPages.forEach((page, userIndex) => {
             page.on('console', (message) => {
                 if (message.type() === 'error' || message.type() === 'warning') {
-                    consoleIssues.push({ userIndex, type: message.type(), text: message.text().slice(0, 500), phase: userPhases[userIndex] ?? 'setup' });
+                    consoleIssues.push({ userIndex, type: message.type(), text: message.text().slice(0, 500), phase: userPhases[userIndex] ?? 'setup', ts: Date.now() });
                 }
             });
             page.on('requestfailed', (request) => {
@@ -440,7 +458,7 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
                 };
                 const classification = classifyRequestFailure(failure);
                 if (classification.kind === 'ignored_teardown_read') {
-                    benignAbortedCategories.add(classification.category);
+                    benignAbortEvents.push({ userIndex, category: classification.category, phase: failure.phase, ts: Date.now() });
                     ignoredRequestFailures.push({
                         ...failure,
                         classification: classification.kind,
@@ -559,7 +577,7 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
         // Release-failing console errors EXCLUDE only the exact setup/navigation abort noise (a benign log whose
         // correlated endpoint actually recorded a benign ERR_ABORTED this run, outside active recording). All
         // are still recorded in the evidence. Any genuine HTTP/runtime error, or any active-phase error, fails.
-        const consoleErrors = filterFailingConsoleErrors(consoleIssues, benignAbortedCategories);
+        const consoleErrors = filterFailingConsoleErrors(consoleIssues, benignAbortEvents);
         if (consoleErrors.length > 0 || criticalFailures.length > 0) {
             throw new Error(`[Browser Endurance] Browser emitted ${consoleErrors.length} console errors and ${criticalFailures.length} critical failed requests.`);
         }
