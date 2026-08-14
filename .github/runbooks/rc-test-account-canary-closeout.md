@@ -134,9 +134,10 @@ Update active operational authority only:
 - canonical `product_release/OPERATIONS_AND_SECURITY.md`
 - canonical `product_release/TESTER_OPERATIONS.md`
 - canonical `product_release/QUALITY.md` / `RELEASE_PROCESS.md` where account/gate behavior changes
+- `product_release/RELEASE_STATUS.md`, because it is the current-posture SSOT and still carries retired Free/Browser/Cloud/sample claims
 - interim `product_release/ENV_INVENTORY.md` while it remains active
 
-Do not rewrite pinned archive or dated evidence. Enumerate stale historical Basic/Free/Pro claims as provenance and ensure their non-authoritative classification is explicit. Final root-document archival/canonical closeout remains #1272.
+Do not rewrite pinned archive or dated evidence. Enumerate stale historical Basic/Free/Pro claims as provenance and ensure their non-authoritative classification is explicit. Remove or correct stale active-root claims; do not let an interim superseded document remain usable as current authority. Final root-document archival/canonical closeout remains #1272.
 
 ## Closure evidence
 
