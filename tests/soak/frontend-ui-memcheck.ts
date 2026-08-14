@@ -61,7 +61,7 @@ type BrowserEnduranceEvidence = {
     functionalJourneyPassed: boolean;
     invalidEvidenceReasons: string[];
     concurrency: number;
-    mode: 'native' | 'configured-default';
+    mode: 'private';
     durationMs: number;
     startedAt: string;
     completedAt: string;
@@ -106,7 +106,6 @@ const installSoakSttBridgeScript = () => {
             __SS_E2E__?: {
                 isActive: boolean;
                 engineType?: 'mock';
-                forceNativeMode?: boolean;
                 registry?: Record<string, (options?: SttOptions) => unknown>;
                 _activeCallbacks?: SttOptions;
             };
@@ -156,18 +155,19 @@ const installSoakSttBridgeScript = () => {
             return instance;
         };
 
+        // #1294 Option 1: the endurance journey runs the REAL customer Private policy. The deterministic
+        // double lives BEHIND the Private adapter as the mock `transformers-js` engine in this registry
+        // (engineType 'mock' routes the Private adapter to it, so no model downloads). No engine-force flag
+        // is set: exposing an off-Private engine as a customer path is out of the launch contract.
         win.__SS_E2E__ = {
             ...(win.__SS_E2E__ || {}),
             isActive: true,
             engineType: 'mock',
-            forceNativeMode: true,
             registry: {
                 ...(win.__SS_E2E__?.registry || {}),
-                'native-browser': minimalStubFactory('native-browser'),
                 'transformers-js': minimalStubFactory('transformers-js'),
                 'transformers-js-v4': minimalStubFactory('transformers-js-v4'),
                 'whisper-turbo': minimalStubFactory('whisper-turbo'),
-                assemblyai: minimalStubFactory('assemblyai'),
                 mock: minimalStubFactory('mock'),
             },
         };
@@ -430,30 +430,29 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             // model gate). The combined start/stop selector was retired.
             await expect(page.getByTestId('mic-download').or(page.getByTestId('mic-start')).first()).toBeVisible({ timeout: 30000 });
 
-            // 2. Select the engine via the INTERNAL deterministic E2E hook — there is no customer-facing
-            // Native/mode selector. Native transcript output is browser-owned, so this endurance path
-            // validates sustained recording stability; the soak STT bridge supplies deterministic input.
-            if (SOAK_CONFIG.USE_NATIVE_MODE) {
-                await page.evaluate(() => {
-                    const setMode = (window as unknown as { __E2E_SET_MODE__?: (mode: string) => void }).__E2E_SET_MODE__;
-                    if (typeof setMode === 'function') setMode('native');
-                });
-            }
+            // 2. Engine resolution is the NORMAL customer Private policy — there is NO Native / Browser /
+            // Cloud path and no customer mode selector. The soak STT bridge supplies a deterministic
+            // transcription double BEHIND the Private adapter boundary (a mock engine in the __SS_E2E__
+            // registry), so no model is downloaded or run. This endurance path exercises the REAL Private
+            // start/stop/finalize lifecycle with active-trial accounts (no retired private-sample allowance).
 
-            // 3. Start Recording via the current `mic-start` control. If disabled, the failure names the
-            // readiness gate so stale Private/download gating stays obvious in logs.
+            // 3. Start Recording via the current `mic-start` control.
             const startButton = page.getByTestId('mic-start');
             await expect(startButton).toBeEnabled({ timeout: 15000 });
             await startButton.click();
-            // Runtime-state seam: the shell drives html[data-runtime-state="RECORDING"] and the
-            // during-state session shell. Both must resolve before the endurance wait.
-            await expect(page.locator('html[data-runtime-state="RECORDING"]')).toBeVisible({ timeout: 15000 });
+            // Runtime-state seam: the shell must reach RECORDING resolved to PRIVATE. If Private cannot start,
+            // FAIL with the exact runtime reason — engines are never silently changed to Browser/Cloud.
+            try {
+                await expect(page.locator('html[data-runtime-state="RECORDING"][data-stt-resolved-mode="private"]')).toBeVisible({ timeout: 20000 });
+            } catch {
+                const runtime = await page.getAttribute('html', 'data-runtime-state').catch(() => null);
+                const resolved = await page.getAttribute('html', 'data-stt-resolved-mode').catch(() => null);
+                throw new Error(`[Browser Endurance] User ${userIndex}: Private recording did not start (runtime-state=${runtime}, resolved-mode=${resolved}). Endurance requires the customer Private engine and never silently changes engines.`);
+            }
             await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({ timeout: 10000 });
             userPhases[userIndex] = 'active';
 
-            // 4. Endurance wait. Native transcript output is browser-owned,
-            // so this path validates sustained recording stability rather
-            // than mocked transcript accuracy.
+            // 4. Endurance wait — sustained Private recording; memory growth is measured start→end.
             const checkInterval = 10000;
             const iterations = Math.floor(SOAK_CONFIG.SESSION_DURATION_MS / checkInterval);
             for (let j = 0; j < iterations; j++) {
@@ -508,7 +507,7 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             functionalJourneyPassed: functionalJourneyPassedByUser.every(Boolean),
             invalidEvidenceReasons: [],
             concurrency: SOAK_CONFIG.CONCURRENT_USERS,
-            mode: SOAK_CONFIG.USE_NATIVE_MODE ? 'native' : 'configured-default',
+            mode: 'private',
             durationMs: Date.now() - startTime,
             startedAt,
             completedAt: new Date().toISOString(),
@@ -527,7 +526,7 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             functionalJourneyPassed: functionalJourneyPassedByUser.every(Boolean),
             invalidEvidenceReasons,
             concurrency: SOAK_CONFIG.CONCURRENT_USERS,
-            mode: SOAK_CONFIG.USE_NATIVE_MODE ? 'native' : 'configured-default',
+            mode: 'private',
             durationMs: Date.now() - startTime,
             startedAt,
             completedAt: new Date().toISOString(),

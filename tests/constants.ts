@@ -201,9 +201,9 @@ export const SOAK_CONFIG = {
   PLAYWRIGHT_TIMEOUT_MS: Math.max(SOAK_MEMORY_DURATION_MS * 2.5, 300 * 1000),
   P95_THRESHOLD_MS: 10000,
   MAX_MEMORY_MB: 200,
-  // Soak UI memory proof must use Browser/Native STT. Private requires a
-  // model cache and is covered by dedicated Private proofs, not the memory soak.
-  USE_NATIVE_MODE: true,
+  // #1294 Option 1: the soak UI memory proof runs the REAL customer Private engine (active-trial accounts);
+  // the deterministic transcription double lives behind the Private adapter (mock engine, no model download).
+  // Native/Browser/Cloud are not customer paths and are never exercised here.
   TRACK_MEMORY: true,
   RESULTS_DIR: 'test-results/soak',
 } as const;
