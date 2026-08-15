@@ -37,8 +37,10 @@ describe('flawless-launch product-contract guard (#1290)', () => {
     expect(workflow).toContain('vars.CANARY_PAID_EMAIL');
     expect(workflow).not.toContain('secrets.CANARY_TRIAL_EMAIL');
     expect(workflow).not.toContain('secrets.CANARY_PAID_EMAIL');
+    // The active-trial lane authenticates with the trial password Secret; the scheduled canary no longer
+    // references CANARY_PAID_PASSWORD (the paid password is reserved for a future live commercial-readiness
+    // proof, not the scheduled test-mode billing qualification).
     expect(workflow).toContain('secrets.CANARY_TRIAL_PASSWORD');
-    expect(workflow).toContain('secrets.CANARY_PAID_PASSWORD');
     // The retired ambiguous single canary password must never reappear in the workflow.
     expect(workflow).not.toContain('CANARY_PASSWORD:');
     expect(workflow).not.toContain('secrets.CANARY_PASSWORD');

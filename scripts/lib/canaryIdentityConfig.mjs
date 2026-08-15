@@ -12,7 +12,11 @@ const isProhibitedDomain = (domain) => [...PROHIBITED_DOMAINS]
 
 const isPresentSecret = (value) => typeof value === 'string' && value.trim().length > 0;
 
-export const CANARY_LANES = Object.freeze(['active-trial', 'paid-continuation']);
+export const CANARY_LANES = Object.freeze(['active-trial', 'paid-continuation', 'billing-qualification']);
+// Lanes that authenticate AS a protected canary account (and therefore require that account's password
+// Secret). The billing-qualification lane authenticates to Stripe (test mode), NOT a canary account, so it
+// requires no canary password — only email distinctness (ceiling safety) is validated for it.
+const CANARY_CREDENTIAL_LANES = new Set(['active-trial', 'paid-continuation']);
 
 /**
  * #1294 sourcing split — enforce that canary EMAILS (identifiers, resolved from repository Variables) are
@@ -43,10 +47,13 @@ export function validateCanaryIdentityConfig({ trialEmail, paidEmail, lane, lane
   }
 
   if (!CANARY_LANES.includes(lane)) throw new Error('unknown canary lane');
-  // Only the SELECTED lane's password is required (Secret; PRESENCE only, never the value/name).
-  if (!isPresentSecret(lanePassword)) {
+  // Only a canary-account lane requires its password (Secret; PRESENCE only, never the value/name). The
+  // billing-qualification lane uses Stripe test-mode credentials (validated in its own step), not a canary
+  // account, so no canary password is required for it.
+  const requiresCanaryPassword = CANARY_CREDENTIAL_LANES.has(lane);
+  if (requiresCanaryPassword && !isPresentSecret(lanePassword)) {
     throw new Error(`protected canary password secret is missing for lane ${lane}`);
   }
 
-  return Object.freeze({ valid: true, distinct: true, prohibited_domain: false, lane, lane_password_present: true });
+  return Object.freeze({ valid: true, distinct: true, prohibited_domain: false, lane, lane_password_present: requiresCanaryPassword });
 }

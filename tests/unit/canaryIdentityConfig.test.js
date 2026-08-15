@@ -18,8 +18,17 @@ describe('protected canary identity configuration (#1294 lane-scoped)', () => {
     });
   });
 
-  it('exports exactly the two canary lanes', () => {
-    expect(CANARY_LANES).toEqual(['active-trial', 'paid-continuation']);
+  it('billing-qualification: validates emails but requires NO canary password (Stripe-authenticated lane)', () => {
+    // No lanePassword supplied — the billing lane uses Stripe test-mode credentials, not a canary account.
+    expect(validateCanaryIdentityConfig({ ...EMAILS, lane: 'billing-qualification' })).toEqual({
+      valid: true, distinct: true, prohibited_domain: false, lane: 'billing-qualification', lane_password_present: false,
+    });
+    // Email distinctness is still enforced for the billing lane (ceiling safety).
+    expect(() => validateCanaryIdentityConfig({ trialEmail: 'a@example.test', paidEmail: 'a@example.test', lane: 'billing-qualification' })).toThrow('must be distinct');
+  });
+
+  it('exports the three canary lanes', () => {
+    expect(CANARY_LANES).toEqual(['active-trial', 'paid-continuation', 'billing-qualification']);
   });
 
   it.each([

@@ -6,19 +6,24 @@ on:
   workflow_dispatch:
     inputs:
       include_paid_billing:
-        description: 'Also run the strict paid-continuation billing qualification'
-        required: true
+        # OPTIONAL on-demand convenience only. The billing qualification runs AUTOMATICALLY every week; no
+        # release qualification depends on a human dispatching it.
+        description: 'Optional: also run the weekly Stripe test-mode/test-clock billing qualification now (it also runs automatically every Monday)'
+        required: false
         type: boolean
         default: false
   schedule:
-    - cron: '0 5 * * *' # Every day at 5 AM UTC
+    # DAILY — the genuine active-trial product canary (complete Pro product path).
+    - cron: '0 5 * * *'
+    # WEEKLY (Mondays) — active-trial PLUS the automated Stripe test-mode/test-clock billing qualification.
+    - cron: '0 6 * * 1'
 
-# Partition concurrency so a routine (push/schedule) active-trial run and an explicitly-dispatched paid
-# billing qualification NEVER cancel each other: they live in separate groups. Within a group, a newer run
-# still supersedes an older one of the SAME kind. `paid-qual` only exists for a dispatch that opted into
-# billing; every other trigger is `routine`.
+# Partition concurrency so the DAILY active-trial cadence and the WEEKLY billing-qualification cadence NEVER
+# cancel or replace each other: they live in separate groups. Within a group a newer run supersedes an older
+# one of the SAME kind. The `billing` group is the weekly schedule (or an optional opt-in dispatch); every
+# other trigger is `active-trial`.
 concurrency:
-  group: canary-${{ github.ref }}-${{ (github.event_name == 'workflow_dispatch' && inputs.include_paid_billing == true) && 'paid-qual' || 'routine' }}
+  group: canary-${{ github.ref }}-${{ (github.event.schedule == '0 6 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.include_paid_billing == true)) && 'billing' || 'active-trial' }}
   cancel-in-progress: true
 
 jobs:
@@ -78,11 +83,11 @@ jobs:
     if: ${{ needs.migration-readiness.outputs.ready == 'true' }}
     strategy:
       fail-fast: false
-      # Routine push/schedule runs prove the complete product through a genuine active trial.
-      # Paid continuation is a separate, explicit billing qualification; it is never implied by a
-      # routine green canary and never charges or mutates an account.
+      # DAILY (and push): the active-trial lane proves the complete product through a genuine active trial.
+      # WEEKLY (Mondays, or an optional opt-in dispatch): ALSO run the automated Stripe test-mode/test-clock
+      # billing-qualification lane. It never charges a real card and is never implied by a daily green canary.
       matrix:
-        lane: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.include_paid_billing == true && '["active-trial","paid-continuation"]' || '["active-trial"]') }}
+        lane: ${{ fromJSON((github.event.schedule == '0 6 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.include_paid_billing == true)) && '["active-trial","billing-qualification"]' || '["active-trial"]') }}
     runs-on: ubuntu-latest
     # 15 (was 10) so the #1106 deploy-race gate can spend its full budget and still emit its diagnostic:
     # the smoke test may now wait up to 4 min for the expected SHA to go live, plus 2 min for the product
@@ -100,14 +105,15 @@ jobs:
 
       - name: Validate protected canary identities
         env:
-          # #1294 email cutover: canary EMAILS resolve from repository Variables (non-secret, operator-owned);
-          # canary PASSWORDS remain Secrets. BOTH emails are always validated for distinctness/domain (a config
-          # invariant), but ONLY the SELECTED lane's password is required — so a routine active-trial run never
-          # depends on CANARY_PAID_PASSWORD.
+          # #1294 email cutover: canary EMAILS resolve from repository Variables (non-secret, operator-owned).
+          # BOTH emails are ALWAYS validated for distinctness/domain (a config invariant used for ceiling
+          # safety). Only the EXECUTING lane's credential is required: the active-trial lane needs
+          # CANARY_TRIAL_PASSWORD; the billing-qualification lane authenticates to Stripe (validated in its own
+          # step), NOT a canary account, so it requires no canary password here.
           CANARY_TRIAL_EMAIL: ${{ vars.CANARY_TRIAL_EMAIL }}
           CANARY_PAID_EMAIL: ${{ vars.CANARY_PAID_EMAIL }}
           CANARY_EXPECTED_ACCESS: ${{ matrix.lane }}
-          CANARY_LANE_PASSWORD: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_PASSWORD || secrets.CANARY_PAID_PASSWORD }}
+          CANARY_LANE_PASSWORD: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_PASSWORD || '' }}
         run: node scripts/canary-identity-config.mjs
 
       # ── Routine active-trial lane: the COMPLETE Pro product path through a genuine, server-active 30-day
@@ -141,32 +147,29 @@ jobs:
           EXPECTED_RELEASE_SHA: ${{ github.sha }}
         run: pnpm test:deploy:prod
 
-      # ── Explicit paid billing qualification (dispatch-only, include_paid_billing=true): Stripe TEST MODE,
-      #    NO live charge. It self-provisions its own throwaway test user through the real checkout → webhook →
-      #    entitlement path; it does NOT sign in as, or depend on, the canary-paid account or its password. The
-      #    step fails closed if a LIVE Stripe key is supplied. Routine active-trial green NEVER implies this. ──
-      - name: Stripe Test-Mode Billing Qualification (paid-continuation)
-        if: matrix.lane == 'paid-continuation'
+      # ── Automated WEEKLY Stripe test-mode/test-clock billing lifecycle qualification. NO live charge, NO real
+      #    card. It fails closed BEFORE creating anything unless Stripe proves livemode=false with a sk_test_ key
+      #    and a test-mode Price, then drives checkout → webhook → renewal → payment failure → cancellation →
+      #    continuation on a Stripe TEST CLOCK. It does NOT sign in as, or depend on, the canary-paid account or
+      #    its password. The strict production paid verifier (provision-canary paid lane) is PRESERVED for a
+      #    future, separately-authorized live commercial-readiness proof — it is NOT this scheduled lane. ──
+      - name: Stripe Test-Mode/Test-Clock Billing Qualification (billing-qualification)
+        if: matrix.lane == 'billing-qualification'
         env:
-          BASE_URL: https://speaksharp-public.vercel.app/
-          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          # Test-scoped Stripe credentials only. A live key is refused below (no-live-charge invariant).
+          # Test-scoped Stripe credentials ONLY. Live keys are refused (below + inside the runner's
+          # assertStripeTestMode preflight) before any Stripe object is created.
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
           STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_TEST_PRO_PRICE_ID }}
-          STRIPE_RUNTIME_MODE: test
-          STRIPE_COMPLETE_HOSTED_CHECKOUT: 'true'
         run: |
           set -euo pipefail
-          # No-live-charge invariant: refuse any live Stripe key outright before touching Stripe.
+          # Defence in depth (the runner also proves livemode=false): refuse a live key outright up front.
           case "${STRIPE_SECRET_KEY:-}" in
-            sk_live_*) echo '::error::Paid billing qualification is TEST-MODE only; a live Stripe key was supplied.'; exit 1 ;;
+            sk_live_*) echo '::error::Billing qualification is TEST-MODE only; a live Stripe key was supplied.'; exit 1 ;;
             sk_test_*) : ;;
-            *) echo '::error::Paid billing qualification requires a Stripe TEST secret key (sk_test_...).'; exit 1 ;;
+            *) echo '::error::Billing qualification requires a Stripe TEST secret key (sk_test_...).'; exit 1 ;;
           esac
-          pnpm exec playwright test tests/live/stripe-paid-soft-launch-runtime.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+          node scripts/paid-billing-qualification.mjs
 
       # Admin hygiene is SEPARATE from the tester-equivalent product smoke above and runs regardless of
       # its result (if: always()), so a hygiene problem never masks the product result — and with
@@ -207,7 +210,8 @@ jobs:
           READINESS_RESULT: ${{ needs.migration-readiness.result }}
           MIGRATION_READY: ${{ needs.migration-readiness.outputs.ready }}
           PRODUCT_LANES_RESULT: ${{ needs.canary-check.result }}
-          PAID_BILLING_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.include_paid_billing == true }}
+          # This run INCLUDED the billing-qualification lane iff it is the weekly schedule or an opt-in dispatch.
+          BILLING_QUALIFICATION_RAN: ${{ github.event.schedule == '0 6 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.include_paid_billing == true) }}
         run: |
           set -euo pipefail
           if [ "$READINESS_RESULT" != 'success' ]; then
@@ -216,26 +220,26 @@ jobs:
           fi
           if [ "$MIGRATION_READY" != 'true' ]; then
             echo '## HOLD — migration pending; canary not executed' >> "$GITHUB_STEP_SUMMARY"
-            echo 'The active-trial product lane produced no evidence.' >> "$GITHUB_STEP_SUMMARY"
-            if [ "$PAID_BILLING_REQUESTED" = 'true' ]; then
-              echo 'The explicitly requested paid billing qualification also produced no evidence.' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Daily active-trial product lane: produced no evidence (held).' >> "$GITHUB_STEP_SUMMARY"
+            if [ "$BILLING_QUALIFICATION_RAN" = 'true' ]; then
+              echo 'Weekly Stripe test-mode/test-clock billing qualification: produced no evidence (held).' >> "$GITHUB_STEP_SUMMARY"
             else
-              echo 'Paid billing qualification: not requested.' >> "$GITHUB_STEP_SUMMARY"
+              echo 'Weekly billing qualification: not part of this run (daily active-trial cadence).' >> "$GITHUB_STEP_SUMMARY"
             fi
             exit 0
           fi
           if [ "$PRODUCT_LANES_RESULT" != 'success' ]; then
-            if [ "$PAID_BILLING_REQUESTED" = 'true' ]; then
-              echo '::error::The active-trial product lane or explicitly requested paid billing qualification failed.'
+            if [ "$BILLING_QUALIFICATION_RAN" = 'true' ]; then
+              echo '::error::The active-trial product lane or the weekly Stripe test-mode/test-clock billing qualification failed.'
             else
-              echo '::error::The required active-trial product lane failed.'
+              echo '::error::The required daily active-trial product lane failed.'
             fi
             exit 1
           fi
           echo '## Canary qualification passed' >> "$GITHUB_STEP_SUMMARY"
-          echo 'The active-trial product journey completed.' >> "$GITHUB_STEP_SUMMARY"
-          if [ "$PAID_BILLING_REQUESTED" = 'true' ]; then
-            echo 'The explicitly requested paid-continuation billing qualification also completed.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Daily active-trial product journey: completed.' >> "$GITHUB_STEP_SUMMARY"
+          if [ "$BILLING_QUALIFICATION_RAN" = 'true' ]; then
+            echo 'Weekly Stripe test-mode/test-clock billing qualification: completed (no live charge).' >> "$GITHUB_STEP_SUMMARY"
           else
-            echo 'Paid billing qualification: not requested.' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Weekly billing qualification: not part of this run (runs automatically every Monday).' >> "$GITHUB_STEP_SUMMARY"
           fi
