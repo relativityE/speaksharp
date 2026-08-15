@@ -81,7 +81,11 @@ describe('verifyCanaryProfileBinding — paid lane (server-authoritative, non-sy
     const anon = makeAnon();
     expect((await verifyCanaryProfileBinding(anon, 'exact-id')).ok).toBe(true);
     expect(anon._profile.eq).toHaveBeenCalledWith('id', 'exact-id');
-    expect(anon._profile.rpc).toHaveBeenCalledWith('effective_subscription_tier', expect.any(Object));
+    // #1294: must call the CANONICAL 5-arg overload — the marker KEY must be passed (its value is null for a
+    // paid account, which is fine), NOT the legacy 4-arg overload that fails closed for trials. Lock the key
+    // so this can never silently regress to the 4-arg form.
+    const [, rpcArgs] = anon._profile.rpc.mock.calls.find((c) => c[0] === 'effective_subscription_tier');
+    expect(rpcArgs).toHaveProperty('p_commercial_trial_granted_at');
     expect(anon._profile.update).not.toHaveBeenCalled();
   });
   it('rejects synthetic sub_test_, non-pro effective tier, free stored tier, blank/absent ids, missing profile', async () => {

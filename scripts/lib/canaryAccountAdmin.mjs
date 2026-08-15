@@ -146,11 +146,15 @@ export async function verifyCanaryFoundation(adminClient, userId, purpose) {
     if (isSyntheticSub(data.stripe_subscription_id)) return { ok: false, reason: 'synthetic_subscription_present' };
 
     // Server-authoritative effective tier (uses now() inside the SECDEF function — NOT the runner clock).
+    // #1294: pass the immutable commercial grant marker to hit the CANONICAL 5-arg overload. The legacy
+    // 4-arg overload fails closed for trials, so a freshly-created active trial reads non-'pro' and blocks as
+    // `trial_not_active_server_time` even though its window is valid — the 5-arg overload resolves it to 'pro'.
     const { data: effTier, error: tierErr } = await adminClient.rpc('effective_subscription_tier', {
         p_subscription_status: data.subscription_status,
         p_trial_expires_at: data.trial_expires_at,
         p_stripe_subscription_id: data.stripe_subscription_id,
         p_subscription_id: data.subscription_id,
+        p_commercial_trial_granted_at: data.commercial_trial_granted_at,
     });
     if (tierErr) return { ok: false, reason: `tier_rpc_error_[${classifyError(tierErr).category}]` };
 

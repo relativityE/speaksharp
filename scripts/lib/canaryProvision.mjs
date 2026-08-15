@@ -111,11 +111,16 @@ export async function verifyCanaryProfileBinding(anon, userId, lane = 'paid-cont
   }
 
   // Server-authoritative effective tier (SECDEF effective_subscription_tier uses now() — NOT the runner clock).
+  // #1294: call the CANONICAL 5-arg overload by passing the immutable commercial grant marker. The legacy
+  // 4-arg overload fails closed for trials ("cannot carry the immutable commercial grant marker"), so an
+  // active-trial canary would falsely read non-'pro'. The 5-arg overload resolves trial = 'pro' when both the
+  // marker and an unexpired window exist.
   const { data: effTier, error: tierErr } = await anon.rpc('effective_subscription_tier', {
     p_subscription_status: data.subscription_status,
     p_trial_expires_at: data.trial_expires_at,
     p_stripe_subscription_id: data.stripe_subscription_id,
     p_subscription_id: data.subscription_id,
+    p_commercial_trial_granted_at: data.commercial_trial_granted_at,
   });
   if (tierErr) return { ok: false, tier, reason: `tier rpc error [${classifyError(tierErr).category}]` };
 
