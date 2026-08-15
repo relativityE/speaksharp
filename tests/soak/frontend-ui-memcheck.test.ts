@@ -237,6 +237,18 @@ describe('filterFailingConsoleErrors — per-event abort correlation, consumed o
         expect(out).toHaveLength(1);
     });
 
+    // NEGATIVE (RETURN 5299525928): EXACT phase equality — a navigation abort cannot excuse a setup error.
+    it('FAILS: a navigation abort cannot suppress a setup error (cross-phase)', () => {
+        const out = filterFailingConsoleErrors([err(0, TZ, 'setup', 1000)], [abort(0, 'timezone_preference', 'navigation', 1010)]);
+        expect(out).toHaveLength(1);
+    });
+
+    // NEGATIVE (RETURN 5299525928): and the reverse — a setup abort cannot excuse a navigation error.
+    it('FAILS: a setup abort cannot suppress a navigation error (cross-phase)', () => {
+        const out = filterFailingConsoleErrors([err(0, HIST, 'navigation', 1000)], [abort(0, 'session_history_read', 'setup', 1010)]);
+        expect(out).toHaveLength(1);
+    });
+
     // NEGATIVE (RETURN #4d): active-phase and unrelated errors remain fatal; a 5xx (no abort event) fails.
     it('FAILS: an error during active recording is never suppressed', () => {
         const out = filterFailingConsoleErrors([err(0, TZ, 'active', 1000)], [abort(0, 'timezone_preference', 'active', 1000)]);

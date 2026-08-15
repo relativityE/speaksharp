@@ -122,22 +122,24 @@ const OUTSIDE_ACTIVE = (phase: EndurancePhase | undefined): boolean =>
 
 /**
  * The console errors that must FAIL the run. A benign navigation-abort console log is suppressed ONLY when it
- * correlates to a distinct, still-unconsumed ERR_ABORTED event for the SAME user, the SAME endpoint category, a
- * non-active phase, and within ±ABORT_CORRELATION_WINDOW_MS — and each abort is consumed AT MOST ONCE. A single
+ * correlates to a distinct, still-unconsumed ERR_ABORTED event for the SAME user, the SAME endpoint category, the
+ * EXACT SAME (non-active) phase, and within ±ABORT_CORRELATION_WINDOW_MS — and each abort is consumed AT MOST
+ * ONCE. Phase must match exactly: a setup abort can never excuse a navigation error, and vice versa. A single
  * aborted fetch that the app double-logs (both lines within SAME_EVENT_DOUBLE_LOG_WINDOW_MS of an already-
- * suppressed same-user/category log) is that one event and is excused WITHOUT consuming a second abort; two
+ * suppressed same-user/category/PHASE log) is that one event and is excused WITHOUT consuming a second abort; two
  * genuinely distinct benign errors each still require their own abort. Consequences: one user's abort can never
- * excuse another user's error; one abort can never excuse a second DISTINCT error; a stale abort can never excuse
- * a later out-of-window error; and any genuine HTTP/runtime error (no abort), active-phase error, or unrelated
- * error is returned as failing. `consoleIssues` is never mutated (raw evidence is preserved by the caller).
- * Pure + exported so the correlation is unit-tested, incl. all negative cases.
+ * excuse another user's error; a cross-phase abort can never excuse an error in a different phase; one abort can
+ * never excuse a second DISTINCT error; a stale abort can never excuse a later out-of-window error; and any
+ * genuine HTTP/runtime error (no abort), active-phase error, or unrelated error is returned as failing.
+ * `consoleIssues` is never mutated (raw evidence is preserved by the caller). Pure + exported so the correlation
+ * is unit-tested, incl. all negative cases.
  */
 export function filterFailingConsoleErrors(
     consoleIssues: readonly ConsoleIssue[],
     abortEvents: readonly BenignAbortEvent[],
 ): ConsoleIssue[] {
     const pool = abortEvents.map((a) => ({ event: a, used: false }));
-    const lastSuppressedTsByKey = new Map<string, number>(); // `${userIndex}|${category}` -> ts last suppressed
+    const lastSuppressedTsByKey = new Map<string, number>(); // `${userIndex}|${category}|${phase}` -> ts last suppressed
     const failing: ConsoleIssue[] = [];
     for (const issue of consoleIssues) {
         if (issue.type !== 'error') continue;
@@ -145,15 +147,15 @@ export function filterFailingConsoleErrors(
             ? BENIGN_NAVIGATION_CONSOLE_ERRORS.find((p) => p.re.test(issue.text))
             : undefined;
         if (pattern) {
-            const key = `${issue.userIndex}|${pattern.category}`;
+            const key = `${issue.userIndex}|${pattern.category}|${issue.phase}`;
             const lastTs = lastSuppressedTsByKey.get(key);
             if (lastTs !== undefined && issue.ts !== undefined && Math.abs(issue.ts - lastTs) <= SAME_EVENT_DOUBLE_LOG_WINDOW_MS) {
-                continue; // duplicate line of an already-suppressed aborted event — no new abort consumed
+                continue; // duplicate line of an already-suppressed aborted event (same user/category/PHASE) — no new abort
             }
             const slot = pool.find((s) => !s.used
                 && s.event.userIndex === issue.userIndex
                 && s.event.category === pattern.category
-                && OUTSIDE_ACTIVE(s.event.phase)
+                && s.event.phase === issue.phase // EXACT phase equality — no setup↔navigation cross-suppression
                 && (issue.ts === undefined || Math.abs(issue.ts - s.event.ts) <= ABORT_CORRELATION_WINDOW_MS));
             if (slot) {
                 slot.used = true;
