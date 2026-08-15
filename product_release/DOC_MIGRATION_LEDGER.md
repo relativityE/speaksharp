@@ -70,6 +70,7 @@ Section-level inventory of every substantive documentation source in `product_re
 | `RELEASE_RECOVERY.md` | (9) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | OPS/EQ |
 | `OPS_HEALTH_DASHBOARD.md` | (11) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | OPS |
 | `SCA_EXCEPTIONS.md` | (11) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | OPS |
+| `SECRETS_ATTACK_SURFACE_AUDIT.md` | (11) #1294 | EVIDENCE_ONLY (names-only Secrets/Variables × consumers audit) | ARCHIVE_AT_CLOSEOUT | OPS |
 | `BACKLOG.md` | (3) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | PO |
 | `ACTIVE_COORDINATION.md` | (3) | EXTRACTED | ARCHIVE_AT_CLOSEOUT | PO |
 | `ROADMAP.operational.md` | (3) | EXTRACTED (durable risks only) | ARCHIVE_AT_CLOSEOUT | PO |

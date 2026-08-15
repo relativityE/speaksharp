@@ -98,26 +98,48 @@ const nonBlank = (value) => typeof value === 'string' && value.trim().length > 0
 export async function verifyCanaryProfileBinding(anon, userId, lane = 'paid-continuation') {
   const { data, error } = await anon
     .from('user_profiles')
-    .select('subscription_status,stripe_customer_id,stripe_subscription_id,commercial_trial_granted_at,trial_expires_at')
+    .select('subscription_status,subscription_id,stripe_customer_id,stripe_subscription_id,commercial_trial_granted_at,trial_started_at,trial_expires_at')
     .eq('id', userId)
     .maybeSingle();
   if (error) return { ok: false, tier: null, reason: `profile query error [${classifyError(error).category}]` };
-  const tier = data?.subscription_status ?? null;
-  if (tier === null) return { ok: false, tier: null, reason: 'profile missing or subscription_status null' };
+  if (!data) return { ok: false, tier: null, reason: 'profile missing' };
+  const tier = data.subscription_status ?? null;
+
+  // Reject any synthetic subscription identity outright (both lanes).
+  if (typeof data.stripe_subscription_id === 'string' && data.stripe_subscription_id.startsWith('sub_test_')) {
+    return { ok: false, tier, reason: 'synthetic subscription identity' };
+  }
+
+  // Server-authoritative effective tier (SECDEF effective_subscription_tier uses now() — NOT the runner clock).
+  const { data: effTier, error: tierErr } = await anon.rpc('effective_subscription_tier', {
+    p_subscription_status: data.subscription_status,
+    p_trial_expires_at: data.trial_expires_at,
+    p_stripe_subscription_id: data.stripe_subscription_id,
+    p_subscription_id: data.subscription_id,
+  });
+  if (tierErr) return { ok: false, tier, reason: `tier rpc error [${classifyError(tierErr).category}]` };
+
   if (lane === 'active-trial') {
-    const expiresAt = typeof data?.trial_expires_at === 'string' ? Date.parse(data.trial_expires_at) : Number.NaN;
-    if (!nonBlank(data?.commercial_trial_granted_at) || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-      return { ok: false, tier, reason: 'trial canary lacks a live immutable commercial-trial window' };
-    }
-    if (nonBlank(data?.stripe_customer_id) || nonBlank(data?.stripe_subscription_id)) {
-      return { ok: false, tier, reason: 'trial canary unexpectedly has paid billing identity' };
-    }
+    if (!nonBlank(data.commercial_trial_granted_at)) return { ok: false, tier, reason: 'trial missing immutable commercial marker' };
+    if (!nonBlank(data.trial_started_at) || !nonBlank(data.trial_expires_at)) return { ok: false, tier, reason: 'trial missing start/expiry' };
+    const start = Date.parse(data.trial_started_at), expiry = Date.parse(data.trial_expires_at), marker = Date.parse(data.commercial_trial_granted_at);
+    if (![start, expiry, marker].every(Number.isFinite)) return { ok: false, tier, reason: 'trial timestamps unparseable' };
+    if (expiry <= start) return { ok: false, tier, reason: 'trial window inverted' };
+    // EXACTLY 30*24h (UTC) — allow only a few seconds of serialization noise, never hours (rejects 29d23h/30d1h).
+    if (Math.abs((expiry - start) - 30 * 86400_000) > 5000) return { ok: false, tier, reason: 'trial window is not exactly the 30-day foundation' };
+    if (Math.abs(marker - start) > 3600_000) return { ok: false, tier, reason: 'trial marker/start inconsistent' };
+    if (String(tier).toLowerCase() === 'pro') return { ok: false, tier, reason: 'trial stored state is paid' };
+    if (nonBlank(data.stripe_customer_id) || nonBlank(data.stripe_subscription_id)) return { ok: false, tier, reason: 'trial canary has billing identity' };
+    if (effTier !== 'pro') return { ok: false, tier, reason: 'trial not active at server time' };
     return { ok: true, tier, localProfileBound: true, lane };
   }
   if (lane !== 'paid-continuation') return { ok: false, tier, reason: 'unknown canary access lane' };
-  if (tier !== 'pro') return { ok: false, tier, reason: `unexpected tier '${tier}' (expected paid pro)` };
-  if (!nonBlank(data?.stripe_customer_id) || !nonBlank(data?.stripe_subscription_id)) {
-    return { ok: false, tier, reason: 'paid canary local profile is missing customer/subscription identifiers' };
+  // Paid: server-authoritative effective pro + genuine (non-synthetic) customer+subscription binding. The
+  // exact-$10 Stripe readback remains the separately-authorized Phase B authority.
+  if (effTier !== 'pro') return { ok: false, tier, reason: `not effective pro at server time (effective='${effTier}')` };
+  if (String(tier).toLowerCase() !== 'pro') return { ok: false, tier, reason: `unexpected stored tier '${tier}' (expected paid pro)` };
+  if (!nonBlank(data.stripe_customer_id) || !nonBlank(data.stripe_subscription_id)) {
+    return { ok: false, tier, reason: 'paid canary missing customer/subscription identifiers' };
   }
   return { ok: true, tier, localProfileBound: true, lane };
 }
@@ -135,77 +157,66 @@ export async function findCanaryUserId(admin, email) {
   return { status: 'not_found' };
 }
 
-/** Recovery: existence-first, then update-only (existing, stale password) or create-only (missing). Canary-only. */
-export async function recoverCanaryAccount(admin, { email, password }) {
-  const found = await findCanaryUserId(admin, email);
-  if (found.status === 'config_error' || found.status === 'failed') return found;
-  if (found.status === 'ok') {
-    const { error } = await admin.auth.admin.updateUserById(found.userId, { password, email_confirm: true });
-    if (error) { const c = classifyError(error); return c.category === 'auth_config' ? { status: 'config_error', scope: 'service_role_key', status_code: c.status } : { status: 'failed', message: 'password sync failed' }; }
-    return { status: 'ok', action: 'synced' };
-  }
-  // not_found → create exactly this canary account
-  const { error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
-  if (error && !(error.message || '').includes('already been registered')) {
-    const c = classifyError(error);
-    return c.category === 'auth_config' ? { status: 'config_error', scope: 'service_role_key', status_code: c.status } : { status: 'failed', message: `createUser failed [${c.category}]` };
-  }
-  return { status: 'ok', action: 'created' };
-}
+// NOTE: the previous canary "recovery" path (admin createUser / updateUserById password sync) was REMOVED
+// for #1294 — the canary is strictly read-only. Account creation/reuse is the separately-authorized
+// Admin - Test Users operation (scripts/lib/canaryAccountAdmin.mjs). No mutation code exists in this path.
 
-/** BEST-EFFORT ceiling (used by a SEPARATE hygiene step): 'ok' | 'warn' | 'exceeded' | 'skipped'. */
-export async function enforceCeiling(admin, { max = 1, enforce = false, allowedEmails = [] } = {}) {
+// Domain-independent canary COHORT: any account whose local-part contains the token "canary" (delimited),
+// so a retired/stray canary that is NOT one of the configured allowed identities is still counted.
+const CANARY_COHORT_LOCAL = /(^|[^a-z0-9])canary([^a-z0-9]|$)/i;
+
+/**
+ * BEST-EFFORT canary cohort ceiling (SEPARATE read-only hygiene step): 'ok' | 'warn' | 'exceeded' |
+ * 'skipped'. Counts the AUTHORITATIVE canary cohort = the configured allowed identities UNION every account
+ * whose local-part matches the canary token — so two configured identities plus one stray/retired canary
+ * account exceeds `max`. This DETECTS strays; it never deletes (disposition is a separate authorized op).
+ */
+export async function enforceCeiling(admin, { max = 1, enforce = false, allowedEmails = [], cohortMatch = CANARY_COHORT_LOCAL } = {}) {
   const identities = new Set(allowedEmails.map((email) => email?.trim().toLowerCase()).filter(Boolean));
   if (identities.size === 0) return { status: 'skipped', reason: 'configured_canary_identities_missing' };
-  if (identities.size > max) return { status: enforce ? 'exceeded' : 'warn', count: identities.size, max };
-  const emails = [];
+  if (identities.size > max) return { status: enforce ? 'exceeded' : 'warn', count: identities.size, max, reason: 'more_configured_identities_than_max' };
+  const cohort = new Set();
   for (let page = 1; page <= 25; page++) {
     const { data, error } = await withRetry(() => admin.auth.admin.listUsers({ page, perPage: 200 }));
     if (error) return { status: 'skipped', reason: classifyError(error).category };
     const users = data?.users || [];
-    for (const u of users) if (u.email && identities.has(u.email.toLowerCase())) emails.push(u.email.toLowerCase());
+    for (const u of users) {
+      const email = (u.email || '').toLowerCase();
+      if (!email) continue;
+      // A configured allowed identity OR any canary-token account (a stray/retired canary not in the set).
+      if (identities.has(email) || cohortMatch.test(email.split('@')[0] || '')) cohort.add(email);
+    }
     if (users.length < 200) break;
   }
-  if (emails.length > max) return { status: enforce ? 'exceeded' : 'warn', count: emails.length, max };
-  return { status: 'ok', count: emails.length, max };
+  if (cohort.size > max) return { status: enforce ? 'exceeded' : 'warn', count: cohort.size, max };
+  return { status: 'ok', count: cohort.size, max };
 }
 
 /**
- * Provisioning/HEALTH only (no ceiling — that is a separate hygiene step). RETURNS a result.
- * Statuses: 'healthy' | 'recovered' | 'config_error' | 'entitlement_error' | 'failed'.
+ * Canary HEALTH — strictly READ-ONLY. Authenticates via the public anon flow and verifies server-
+ * authoritative profile binding. ANY sign-in failure FAILS CLOSED: the canary never creates an account,
+ * resets a password, or grants/extends/repairs a trial or entitlement — there is no recovery path and no
+ * service-role client. RETURNS a result. Statuses: 'healthy' | 'entitlement_error' | 'failed'.
+ * (Account ceiling is a separate hygiene step; account creation is a separate Admin operation.)
  */
-export async function provisionCanary({ anon, admin, config }) {
+export async function provisionCanary({ anon, config }) {
   const { email, password, lane = 'paid-continuation' } = config;
 
-  let signIn = await signInWithBoundedRetry(anon, { email, password });
-  let recovered = false;
-
+  const signIn = await signInWithBoundedRetry(anon, { email, password });
   if (!signIn.ok) {
-    const sc = signIn.classification;
-    // Auth/config (anon key, 401/403, invalid-JWT) → STOP, never mutate an account.
-    if (sc.category === 'auth_config') return { status: 'config_error', scope: 'anon_auth', status_code: sc.status, message: 'Anon sign-in rejected on auth/config (verify anon key / canary creds). No account mutation attempted.' };
-    // Transient exhausted after bounded retry → fail WITHOUT mutation.
-    if (sc.category === 'retryable') return { status: 'failed', scope: 'transient', status_code: sc.status, message: 'Anon sign-in failed after bounded retry (transient). No account mutation attempted.' };
-    // FAIL CLOSED: only an EXPLICITLY recognized invalid-credentials/account-unavailable response may
-    // authorize recovery. Any unknown 4xx, malformed/empty error, or unclassified non-retryable failure
-    // ('other') stops here with NO createUser/updateUserById.
-    if (sc.category !== 'recoverable_credentials') return { status: 'failed', scope: 'unclassified', status_code: sc.status, message: 'Anon sign-in failed with an unrecognized non-retryable error; NOT eligible for recovery (fail-closed). No account mutation attempted.' };
-    // A trial must be created/activated only in its separately authorized window; routine CI cannot
-    // manufacture or refresh it merely to become green.
-    if (lane === 'active-trial') {
-      return { status: 'failed', scope: 'trial_account_unavailable', message: 'Trial canary sign-in failed; CI does not create, grant, or extend trial state.' };
-    }
-    // Recognized invalid-credentials / account-unavailable → existence-first, canary-only recovery (admin).
-    if (!admin) return { status: 'config_error', scope: 'no_admin_for_recovery', message: 'Sign-in failed (recognized invalid credentials) and no service-role client available for recovery.' };
-    const rec = await recoverCanaryAccount(admin, { email, password });
-    if (rec.status !== 'ok') return rec;
-    signIn = await signInWithBoundedRetry(anon, { email, password });
-    if (!signIn.ok) return { status: 'failed', message: 'Recovery completed but a follow-up sign-in still failed.' };
-    recovered = true;
+    const sc = signIn.classification || {};
+    // Fail closed on EVERY sign-in failure (auth/config, transient-exhausted, invalid-credentials, or
+    // unclassified). No account is created, no password reset, no trial changed.
+    return {
+      status: 'failed',
+      scope: sc.category || 'sign_in',
+      status_code: sc.status,
+      message: 'Canary sign-in failed; the read-only canary never recovers or mutates an account.',
+    };
   }
 
   const tier = await verifyCanaryProfileBinding(anon, signIn.userId, lane);
   if (!tier.ok) return { status: 'entitlement_error', tier: tier.tier, message: tier.reason };
 
-  return { status: recovered ? 'recovered' : 'healthy', userId: signIn.userId, tier: tier.tier, lane, localProfileBound: true };
+  return { status: 'healthy', userId: signIn.userId, tier: tier.tier, lane, localProfileBound: true };
 }

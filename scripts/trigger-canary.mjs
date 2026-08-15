@@ -7,7 +7,7 @@
  * 
  * DESIGN RATIONALE:
  * 1. Logic Parity: Mirrored after ARCHITECTURE.md manual steps but automated for speed.
- * 2. Secret Awareness: Checks for CANARY_PASSWORD in .env.development to ensure
+ * 2. Secret Awareness: Checks for CANARY_LANE_PASSWORD in .env.development to ensure
  *    the user is prepared before triggering.
  * 3. Observability: Automatically fetches and returns the GitHub Actions run URL.
  * 
@@ -50,13 +50,13 @@ function checkSecrets() {
     }
 
     const content = readFileSync(ENV_PATH, 'utf8');
-    const hasPassword = content.includes('CANARY_PASSWORD=');
+    const hasPassword = content.includes('CANARY_LANE_PASSWORD=');
 
     if (!hasPassword) {
-        log("⚠️  Warning: CANARY_PASSWORD not found in .env.development.", COLORS.yellow);
+        log("⚠️  Warning: CANARY_LANE_PASSWORD not found in .env.development.", COLORS.yellow);
         log("   Canary tests depend on this secret being synced in the remote DB.", COLORS.cyan);
     } else {
-        log("✅ CANARY_PASSWORD detected in .env.development.", COLORS.green);
+        log("✅ CANARY_LANE_PASSWORD detected in .env.development.", COLORS.green);
     }
     return true;
 }

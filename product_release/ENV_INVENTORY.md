@@ -107,7 +107,7 @@ Rotate per `SECRET_ROTATION_RUNBOOK.md`. **Never commit real values.**
 | `STRIPE_WEBHOOK_SECRET` | C — **Ops-managed in Supabase; NOT synced from GitHub** | stripe-webhook | product-ops |
 | `STRIPE_PRO_PRICE_ID` | C — **Ops-managed in Supabase; NOT synced from GitHub** | checkout | product-ops |
 | `STRIPE_PRICE_CURRENCY` | optional (default `usd`) | checkout | product-ops | **#1282 price verification.** `stripe-checkout` retrieves `STRIPE_PRO_PRICE_ID` and refuses (`CONFIG_INVALID_PRICE`, 500, no session created) unless the resolved Stripe Price is active, recurring **monthly**, exactly **1000 cents**, in **this** currency. The amount is server-owned and never caller-supplied. Set only if the Pro price is not USD. |
-| `ASSEMBLYAI_API_KEY` | C — **Ops-managed in Supabase; NOT synced from GitHub** | assemblyai-token (Cloud STT) | product-ops |
+| `ASSEMBLYAI_API_KEY` | C — **Ops-managed in Supabase; NOT synced from GitHub** | **REVIEW (2026-08-14): the deployed `assemblyai-token` no longer reads the key or calls AssemblyAI — the Supabase runtime copy appears stale.** Any GitHub benchmark key is a separate scope. | product-ops |
 | `GEMINI_API_KEY` | C (+D sync) | get-ai-suggestions (NOT format-transcript — that was removed) | product-ops |
 | `ALLOWED_ORIGIN` | C (+D sync) | `_shared/cors.ts` (`getAllowedOrigins`/`parseConfiguredOrigins`) | product-ops. **APPENDS extra exact origins only.** `cors.ts` ships a frozen `BUILTIN_ALLOWED_ORIGINS` exact allowlist (`https://speaksharp-public.vercel.app`, plus `http://localhost:5173/5174` + `http://127.0.0.1:5173/5174`); `ALLOWED_ORIGIN` adds comma-separated **exact** origins (e.g. explicit preview hosts). Every entry is parsed to canonical `URL.origin` — no wildcard/suffix/substring; malformed entries are logged and ignored. Fail-closed: a disallowed origin gets a 403 with NO `Access-Control-Allow-Origin`. |
 | `AGENT_SECRET` | C (+D sync) | agent/internal auth | product-ops |
@@ -151,7 +151,7 @@ Names are referenced as `secrets.*` across `.github/workflows`; a **small number
 | `PROMO_GEN_ADMIN_SECRET` | admin promo auth |
 | `GH_PAT` | GitHub PAT |
 | `VERCEL_ACCESS_TOKEN` | Vercel deploy token |
-| `FREE_TEST_PASSWORD` · `PRO_TEST_PASSWORD` · `BASIC_TEST_PASSWORD` · `CANARY_PASSWORD` · `CANARY_TRIAL_PASSWORD` · `SOAK_TEST_PASSWORD` | real test-account credentials |
+| `FREE_TEST_PASSWORD` · `PRO_TEST_PASSWORD` · `CANARY_TRIAL_PASSWORD` · `CANARY_PAID_PASSWORD` · `SOAK_TEST_PASSWORD` | real test-account credentials (Basic account creds and the ambiguous single canary password retired in #1294) |
 | `CANARY_PAID_EMAIL` · `CANARY_TRIAL_EMAIL` | protected, operator-controlled recoverable canary identities; never hard-code or infer a domain |
 
 ### 3b. Over-classified → should be GitHub **Variables** (non-secret config)
@@ -168,16 +168,19 @@ Names are referenced as `secrets.*` across `.github/workflows`; a **small number
 | `POSTHOG_PROJECT_ID` · `POSTHOG_API_HOST` · `POSTHOG_INGEST_HOST` | public id / hosts |
 | `EDGE_FN_URL` | public function base URL |
 | `VERCEL_PROJECT_ID` | non-secret platform ID (`VERCEL_ORG_ID`/`VERCEL_TEAM_ID` are referenced by workflows but NOT set as GitHub secrets) |
-| `BASIC_TEST_EMAIL` · `PRO_TEST_EMAIL` | test-account emails — **DECIDED 2026-06-08: move to Variables** (the matching passwords stay Secrets in 3a). |
+| `PRO_TEST_EMAIL` | test-account email — **DECIDED 2026-06-08: move to Variables** (the matching password stays a Secret in 3a). The Basic test-account email/password were retired in #1294 (no Basic product). |
 
 > **✅ FINAL (live-verified, 2026-06-08): 18 → Variable / 18 keep Secret = 36 total.** The 18-move set
 > is exactly what `scripts/ops/reclassify-github-env.sh` creates. Same-name `secrets.X → vars.X` is
 > allowed (probe-verified — secret + variable can coexist), so no rename. (`FREE_TEST_EMAIL`/
 > `FREE_TEST_PASSWORD` are not set as GitHub secrets → out of scope.)
 
-#### Migration status — 2026-06-08
-**8 Variables CREATED** (values public/derivable; same-named Secrets still present + still used by CI —
-this is the safe intermediate state, nothing flipped yet):
+#### Migration status — 2026-06-08 (cutover COMPLETE; corrected 2026-08-14 / #1294)
+**8 Variables CREATED and all consumers FLIPPED to `vars.*`.** The same-named duplicate **Secrets still
+exist but are now UNUSED** by any workflow (`SUPABASE_PROJECT_ID`'s last two `secrets.*` consumers —
+`db-grant-check.yml`, `no-unaffiliated-domain.yml` — were flipped in #1294). This is the safe intermediate
+state: the duplicate Secret copies are deletable via the PO Variable-resolution cutover, NOT "nothing flipped
+yet." See `SECRETS_ATTACK_SURFACE_AUDIT.md` for the names-only consumer matrix and deletion sequence.
 `SUPABASE_URL` · `SUPABASE_PROJECT_ID` · `EDGE_FN_URL` · `SENTRY_DSN` · `POSTHOG_PROJECT_API_KEY` ·
 `POSTHOG_INGEST_HOST` · `POSTHOG_API_HOST` · `VERCEL_PROJECT_ID`
 

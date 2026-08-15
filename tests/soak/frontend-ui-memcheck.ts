@@ -61,11 +61,11 @@ type BrowserEnduranceEvidence = {
     functionalJourneyPassed: boolean;
     invalidEvidenceReasons: string[];
     concurrency: number;
-    mode: 'native' | 'configured-default';
+    mode: 'private';
     durationMs: number;
     startedAt: string;
     completedAt: string;
-    consoleIssues: Array<{ userIndex: number; type: string; text: string }>;
+    consoleIssues: Array<{ userIndex: number; type: string; text: string; phase?: EndurancePhase; ts?: number }>;
     requestFailures: CriticalRequestFailure[];
     criticalFailures: CriticalRequestFailure[];
     ignoredRequestFailures: IgnoredRequestFailure[];
@@ -89,8 +89,91 @@ const READ_ABORT_ENDPOINTS = [
         methods: ['GET', 'HEAD'],
         pattern: /\/rest\/v1\/user_filler_words\?select=/,
     },
+    {
+        // Fire-and-forget idempotent preference RPC fired at load; the app never awaits it and re-sends it,
+        // so a navigation abort during setup is benign (never during active recording — see the phase gate).
+        category: 'timezone_preference',
+        methods: ['POST'],
+        pattern: /\/rest\/v1\/rpc\/set_user_timezone/,
+    },
 ] as const;
 
+// Console error logs that are benign ONLY as the exact setup/navigation abort noise: each pattern is the app's
+// abort log for a specific fire-and-forget endpoint, paired with the request-failure `category` that endpoint
+// produces when it is genuinely ERR_ABORTED. Suppression is correlated PER-EVENT (see filterFailingConsoleErrors):
+// a console error is suppressed ONLY by a specific ERR_ABORTED event for the SAME user, SAME category, a
+// non-active phase, and within a small time window — and each abort is consumed once. A genuine HTTP error (a 5xx
+// is `requestfinished`, never `requestfailed`, so it produces NO abort event) or a runtime error — even one whose
+// text contains `set_user_timezone`/`getRecentReviewable` — always fails.
+type ConsoleIssue = { userIndex?: number; type: string; text: string; phase?: EndurancePhase; ts?: number };
+export type BenignAbortEvent = { userIndex: number; category: string; phase: EndurancePhase; ts: number };
+const BENIGN_NAVIGATION_CONSOLE_ERRORS: readonly { re: RegExp; category: string }[] = [
+    { re: /Error calling set_user_timezone/, category: 'timezone_preference' },
+    { re: /sessionService\.getRecentReviewable|Unable to load your session history|Error fetching session history/, category: 'session_history_read' },
+] as const;
+
+const ABORT_CORRELATION_WINDOW_MS = 5000;
+// A single aborted fetch is logged by the app as BOTH a raw-fetch line and a caught-error line (observed ~same
+// millisecond). Same-user + same-category benign logs within this tight window are that ONE event double-logged
+// — one abort excuses them together. It is far smaller than the gap between two genuinely distinct events.
+const SAME_EVENT_DOUBLE_LOG_WINDOW_MS = 250;
+const OUTSIDE_ACTIVE = (phase: EndurancePhase | undefined): boolean =>
+    phase === 'setup' || phase === 'navigation' || phase === 'teardown';
+
+/**
+ * The console errors that must FAIL the run. A benign navigation-abort console log is suppressed ONLY when it
+ * correlates to a distinct, still-unconsumed ERR_ABORTED event for the SAME user, the SAME endpoint category, the
+ * EXACT SAME (non-active) phase, and within ±ABORT_CORRELATION_WINDOW_MS — and each abort is consumed AT MOST
+ * ONCE. Phase must match exactly: a setup abort can never excuse a navigation error, and vice versa. A single
+ * aborted fetch that the app double-logs (both lines within SAME_EVENT_DOUBLE_LOG_WINDOW_MS of an already-
+ * suppressed same-user/category/PHASE log) is that one event and is excused WITHOUT consuming a second abort; two
+ * genuinely distinct benign errors each still require their own abort. Consequences: one user's abort can never
+ * excuse another user's error; a cross-phase abort can never excuse an error in a different phase; one abort can
+ * never excuse a second DISTINCT error; a stale abort can never excuse a later out-of-window error; and any
+ * genuine HTTP/runtime error (no abort), active-phase error, or unrelated error is returned as failing.
+ * `consoleIssues` is never mutated (raw evidence is preserved by the caller). Pure + exported so the correlation
+ * is unit-tested, incl. all negative cases.
+ */
+export function filterFailingConsoleErrors(
+    consoleIssues: readonly ConsoleIssue[],
+    abortEvents: readonly BenignAbortEvent[],
+): ConsoleIssue[] {
+    const pool = abortEvents.map((a) => ({ event: a, used: false }));
+    const lastSuppressedTsByKey = new Map<string, number>(); // `${userIndex}|${category}|${phase}` -> ts last suppressed
+    const failing: ConsoleIssue[] = [];
+    for (const issue of consoleIssues) {
+        if (issue.type !== 'error') continue;
+        const pattern = OUTSIDE_ACTIVE(issue.phase)
+            ? BENIGN_NAVIGATION_CONSOLE_ERRORS.find((p) => p.re.test(issue.text))
+            : undefined;
+        if (pattern) {
+            const key = `${issue.userIndex}|${pattern.category}|${issue.phase}`;
+            const lastTs = lastSuppressedTsByKey.get(key);
+            if (lastTs !== undefined && issue.ts !== undefined && Math.abs(issue.ts - lastTs) <= SAME_EVENT_DOUBLE_LOG_WINDOW_MS) {
+                continue; // duplicate line of an already-suppressed aborted event (same user/category/PHASE) — no new abort
+            }
+            const slot = pool.find((s) => !s.used
+                && s.event.userIndex === issue.userIndex
+                && s.event.category === pattern.category
+                && s.event.phase === issue.phase // EXACT phase equality — no setup↔navigation cross-suppression
+                && (issue.ts === undefined || Math.abs(issue.ts - s.event.ts) <= ABORT_CORRELATION_WINDOW_MS));
+            if (slot) {
+                slot.used = true;
+                if (issue.ts !== undefined) lastSuppressedTsByKey.set(key, issue.ts);
+                continue; // suppressed by exactly one correlated, now-consumed abort
+            }
+        }
+        failing.push(issue);
+    }
+    return failing;
+}
+
+// #1294 Option 1: the endurance journey runs the REAL customer Private policy. This bridge mirrors the
+// PROVEN local-e2e Private mock mechanism (tests/e2e/helpers/setupE2EManifest.ts, engineType 'mock') that
+// drives the Private start FSM to RECORDING — but ENGINE-ONLY. It installs NO mock profile and NO route
+// mocks, so the live active-trial account (real entitlement) and live DB are untouched. The deterministic
+// double lives BEHIND the Private adapter (the mock private engines below). Only Private-adapter engine
+// keys are registered — off-Private engines are never registered, selected, or instantiated here.
 const installSoakSttBridgeScript = () => {
         type SttOptions = {
             onReady?: () => void;
@@ -106,10 +189,13 @@ const installSoakSttBridgeScript = () => {
             __SS_E2E__?: {
                 isActive: boolean;
                 engineType?: 'mock';
-                forceNativeMode?: boolean;
+                enableRealEngine?: boolean;
+                MOCK_STT_AVAILABILITY?: boolean;
+                isEngineInitialized?: boolean;
                 registry?: Record<string, (options?: SttOptions) => unknown>;
                 _activeCallbacks?: SttOptions;
             };
+            __SS_E2E_BRIDGE__?: { emitTranscript: (text: string, isFinal?: boolean) => void };
             __SS_E2E_ENGINE_CACHE__?: Record<string, unknown>;
             TEST_MODE?: boolean;
         };
@@ -118,18 +204,18 @@ const installSoakSttBridgeScript = () => {
         win.TEST_MODE = true;
         win.__SS_E2E_ENGINE_CACHE__ = win.__SS_E2E_ENGINE_CACHE__ || {};
 
-        const minimalStubFactory = (mode: string) => (options?: SttOptions) => {
+        // A working deterministic Private-adapter double: matches the setupE2EManifest mock engine so the
+        // start FSM initializes and transitions to RECORDING (init sets isEngineInitialized).
+        const mockEngineFactory = (mode: string) => (options?: SttOptions) => {
             const cache = win.__SS_E2E_ENGINE_CACHE__ || {};
             win.__SS_E2E_ENGINE_CACHE__ = cache;
-            const cacheKey = `soak-${mode}`;
-            if (cache[cacheKey]) return cache[cacheKey];
-
+            if (cache[mode]) return cache[mode];
             const instance = {
                 instanceId: `soak-${mode}-${Math.random().toString(36).slice(2)}`,
                 checkAvailability: async () => ({ isAvailable: true }),
-                init: async () => {
-                    win.__SS_E2E__ = win.__SS_E2E__ || { isActive: true };
-                    options?.onReady?.();
+                init: async (io?: { onReady?: () => void }) => {
+                    if (win.__SS_E2E__) win.__SS_E2E__.isEngineInitialized = true;
+                    (io?.onReady ?? options?.onReady)?.();
                     return { isOk: true };
                 },
                 start: async () => {},
@@ -140,19 +226,15 @@ const installSoakSttBridgeScript = () => {
                 terminate: async () => {},
                 getEngineType: () => mode,
                 getLastHeartbeatTimestamp: () => Date.now(),
-                getTranscript: async () => '',
+                getTranscript: async () => '[E2E_MOCK]',
+                transcribe: async () => ({ isOk: true, value: '[E2E_MOCK]', data: '[E2E_MOCK]' }),
                 emitTranscript: (text: string, isFinal: boolean = true) => {
-                    const update = {
-                        transcript: isFinal ? { final: text } : { partial: text },
-                        isFinal,
-                        isPartial: !isFinal,
-                        timestamp: Date.now(),
-                    };
+                    const update = { transcript: isFinal ? { final: text } : { partial: text }, isFinal, isPartial: !isFinal, timestamp: Date.now() };
                     options?.onTranscriptUpdate?.(update);
                     win.__SS_E2E__?._activeCallbacks?.onTranscriptUpdate?.(update);
                 },
             };
-            cache[cacheKey] = instance;
+            cache[mode] = instance;
             return instance;
         };
 
@@ -160,15 +242,24 @@ const installSoakSttBridgeScript = () => {
             ...(win.__SS_E2E__ || {}),
             isActive: true,
             engineType: 'mock',
-            forceNativeMode: true,
+            enableRealEngine: false,
+            MOCK_STT_AVAILABILITY: true,
+            isEngineInitialized: false,
             registry: {
                 ...(win.__SS_E2E__?.registry || {}),
-                'native-browser': minimalStubFactory('native-browser'),
-                'transformers-js': minimalStubFactory('transformers-js'),
-                'transformers-js-v4': minimalStubFactory('transformers-js-v4'),
-                'whisper-turbo': minimalStubFactory('whisper-turbo'),
-                assemblyai: minimalStubFactory('assemblyai'),
-                mock: minimalStubFactory('mock'),
+                // Private-adapter engines only → working deterministic double. No off-Private engine is registered.
+                'transformers-js': mockEngineFactory('transformers-js'),
+                'transformers-js-v4': mockEngineFactory('transformers-js-v4'),
+                'whisper-turbo': mockEngineFactory('whisper-turbo'),
+                mock: mockEngineFactory('mock'),
+            },
+        };
+
+        win.__SS_E2E_BRIDGE__ = {
+            emitTranscript: (text: string, isFinal: boolean = true) => {
+                win.__SS_E2E__?._activeCallbacks?.onTranscriptUpdate?.({
+                    transcript: isFinal ? { final: text } : { partial: text }, isFinal, isPartial: !isFinal, timestamp: Date.now(),
+                });
             },
         };
 };
@@ -215,11 +306,26 @@ function writeBrowserEnduranceEvidence(report: Omit<BrowserEnduranceEvidence, 's
     console.log(`📄 Browser endurance evidence written to ${ENDURANCE_EVIDENCE_PATH}`);
 }
 
+// Vite dev-server module/asset fetches — the soak runs against `pnpm dev:test` on localhost, so a route
+// navigation that unmounts a page cancels its in-flight module/HMR fetch. This is a dev-harness artifact
+// (it does not exist in a production build), never a product signal, and only ever ABORTED (never a real
+// status/connection error). Matches the app's own served modules/assets, not third-party hosts.
+const DEV_ASSET_ABORT = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/(?:src\/|@vite\/|@id\/|@react-refresh|node_modules\/\.vite\/|assets\/|@fs\/)/;
+
 export function classifyRequestFailure(failure: RequestFailureEvent): RequestFailureClassification {
     if (failure.errorText !== 'net::ERR_ABORTED') {
         return {
             kind: 'critical',
             reason: `Unexpected request failure: ${failure.errorText ?? 'unknown error'}`,
+        };
+    }
+
+    // A dev-server module/asset load cancelled by navigation is a harness artifact, not a product failure.
+    if (DEV_ASSET_ABORT.test(failure.url)) {
+        return {
+            kind: 'ignored_teardown_read',
+            reason: 'Vite dev-server module/asset fetch aborted by navigation (dev harness only).',
+            category: 'dev_asset_navigation_abort',
         };
     }
 
@@ -240,17 +346,20 @@ export function classifyRequestFailure(failure: RequestFailureEvent): RequestFai
         };
     }
 
-    const safePhase = failure.phase === 'navigation' || failure.phase === 'teardown' || failure.functionalJourneyPassed;
-    if (!safePhase) {
+    // A client-aborted read to a KNOWN read-only endpoint is benign in every phase EXCEPT active recording:
+    // an abort mid-journey (before the functional proof) could mask an unexpected teardown, so only the
+    // 'active' phase stays critical. Setup/navigation/teardown aborts of these polls are expected churn.
+    const abortDuringActiveJourney = failure.phase === 'active' && !failure.functionalJourneyPassed;
+    if (abortDuringActiveJourney) {
         return {
             kind: 'critical',
-            reason: 'Read aborted before the functional journey passed',
+            reason: 'Read aborted during active recording before the functional journey passed',
         };
     }
 
     return {
         kind: 'ignored_teardown_read',
-        reason: 'Known read-only polling endpoint aborted during teardown/navigation after functional proof.',
+        reason: 'Known read-only polling endpoint aborted outside active recording (setup/navigation/teardown).',
         category: match.category,
     };
 }
@@ -310,8 +419,9 @@ export async function setupAuthenticatedUser(page: Page, userIndex: number): Pro
     // Verify application auth state
     await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible({ timeout: 30000 });
 
-    // Verify session page readiness
-    await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 30000 });
+    // Verify session page readiness. Current session shell: the readied recorder control is `mic-start`
+    // (or the one-time `mic-download` model gate) — the combined start/stop selector was retired.
+    await expect(page.getByTestId('mic-download').or(page.getByTestId('mic-start')).first()).toBeVisible({ timeout: 30000 });
 }
 
 /**
@@ -325,6 +435,9 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
     const consoleIssues: BrowserEnduranceEvidence['consoleIssues'] = [];
     const criticalFailures: BrowserEnduranceEvidence['criticalFailures'] = [];
     const ignoredRequestFailures: BrowserEnduranceEvidence['ignoredRequestFailures'] = [];
+    // Individual benign ERR_ABORTED events (per user / category / phase / time). Each may correlate-and-consume
+    // AT MOST ONE console-abort log (see filterFailingConsoleErrors). A genuine 5xx never lands here.
+    const benignAbortEvents: BenignAbortEvent[] = [];
     const userResults: BrowserEnduranceUserResult[] = [];
     const userPhases: EndurancePhase[] = Array.from({ length: SOAK_CONFIG.CONCURRENT_USERS }, () => 'setup');
     const functionalJourneyPassedByUser: boolean[] = Array.from({ length: SOAK_CONFIG.CONCURRENT_USERS }, () => false);
@@ -352,7 +465,7 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
         userPages.forEach((page, userIndex) => {
             page.on('console', (message) => {
                 if (message.type() === 'error' || message.type() === 'warning') {
-                    consoleIssues.push({ userIndex, type: message.type(), text: message.text().slice(0, 500) });
+                    consoleIssues.push({ userIndex, type: message.type(), text: message.text().slice(0, 500), phase: userPhases[userIndex] ?? 'setup', ts: Date.now() });
                 }
             });
             page.on('requestfailed', (request) => {
@@ -366,6 +479,7 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
                 };
                 const classification = classifyRequestFailure(failure);
                 if (classification.kind === 'ignored_teardown_read') {
+                    benignAbortEvents.push({ userIndex, category: classification.category, phase: failure.phase, ts: Date.now() });
                     ignoredRequestFailures.push({
                         ...failure,
                         classification: classification.kind,
@@ -407,41 +521,47 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             userPhases[userIndex] = 'navigation';
             await page.goto(ROUTES.SESSION);
             await installSoakSttBridge(page);
-            await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 30000 });
 
-            // 2. Force Browser/Native STT before recording. This endurance
-            // proof tracks browser stability; Private model download/cache
-            // behavior belongs to dedicated Private proofs.
-            const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-            if (SOAK_CONFIG.USE_NATIVE_MODE) {
-                const modeSelect = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
-                await expect(modeSelect).toBeVisible({ timeout: 15000 });
-                await modeSelect.click();
-                await page.getByTestId(TEST_IDS.STT_MODE_NATIVE).click();
-                await expect(modeSelect).toHaveAttribute('data-state', 'native', { timeout: 10000 });
+            // 2. Engine resolution is the NORMAL customer Private policy — there is NO Native / Browser /
+            // Cloud path and no customer mode selector. The soak STT bridge supplies a deterministic
+            // transcription double BEHIND the Private adapter boundary (a mock engine in the __SS_E2E__
+            // registry), so no model is downloaded or run. This endurance path exercises the REAL Private
+            // start/stop/finalize lifecycle with active-trial accounts (no retired private-sample allowance).
+
+            // 3. Ready the Private engine, then Start. The shipped session shell renders the recorder control
+            // as `mic-download` (one-time on-device model gate) until the model is loaded, then `mic-start`.
+            // Clicking the gate drives the (mocked) Private engine to ready — never a Browser/Cloud path.
+            const downloadBtn = page.getByTestId('mic-download');
+            const startButton = page.getByTestId('mic-start');
+            await expect(downloadBtn.or(startButton).first()).toBeVisible({ timeout: 30000 });
+            if (await downloadBtn.count() > 0) {
+                await downloadBtn.first().click();
             }
-
-            // 3. Start Recording. If this is disabled, fail with the selected
-            // mode so stale Private/download gating is obvious in logs.
-            await expect(startButton).toBeEnabled({ timeout: 10000 });
+            await expect(startButton).toBeEnabled({ timeout: 60000 });
             await startButton.click();
-            await page.waitForSelector(`[data-testid="${TEST_IDS.SESSION_STATUS_INDICATOR}"]`, { timeout: 10000 });
-            await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 10000 });
+            // Runtime-state seam: the shell must reach RECORDING resolved to PRIVATE. If Private cannot start,
+            // FAIL with the exact runtime reason — engines are never silently changed to Browser/Cloud.
+            try {
+                await expect(page.locator('html[data-runtime-state="RECORDING"][data-stt-resolved-mode="private"]')).toBeVisible({ timeout: 20000 });
+            } catch {
+                const runtime = await page.getAttribute('html', 'data-runtime-state').catch(() => null);
+                const resolved = await page.getAttribute('html', 'data-stt-resolved-mode').catch(() => null);
+                throw new Error(`[Browser Endurance] User ${userIndex}: Private recording did not start (runtime-state=${runtime}, resolved-mode=${resolved}). Endurance requires the customer Private engine and never silently changes engines.`);
+            }
+            await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({ timeout: 10000 });
             userPhases[userIndex] = 'active';
 
-            // 4. Endurance wait. Native transcript output is browser-owned,
-            // so this path validates sustained recording stability rather
-            // than mocked transcript accuracy.
+            // 4. Endurance wait — sustained Private recording; memory growth is measured start→end.
             const checkInterval = 10000;
             const iterations = Math.floor(SOAK_CONFIG.SESSION_DURATION_MS / checkInterval);
             for (let j = 0; j < iterations; j++) {
                 await page.waitForTimeout(checkInterval);
             }
 
-            // 5. Stop Recording
-            const buttonText = await startButton.textContent();
-            if (!buttonText?.includes('Start')) {
-                await startButton.click();
+            // 5. Stop Recording via the during-state RecorderBar `recorder-stop` control.
+            const stopButton = page.getByTestId('recorder-stop');
+            if (await stopButton.isVisible().catch(() => false)) {
+                await stopButton.click();
                 const sessionEndLocator = page.locator('div[role="alertdialog"]').or(page.getByText('No speech was detected'));
                 await sessionEndLocator.first().waitFor({ timeout: 10000 }).catch(() => { });
             }
@@ -475,7 +595,10 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
         // Wait for all journeys to complete
         await Promise.all(userJourneys);
 
-        const consoleErrors = consoleIssues.filter((issue) => issue.type === 'error');
+        // Release-failing console errors EXCLUDE only the exact setup/navigation abort noise (a benign log whose
+        // correlated endpoint actually recorded a benign ERR_ABORTED this run, outside active recording). All
+        // are still recorded in the evidence. Any genuine HTTP/runtime error, or any active-phase error, fails.
+        const consoleErrors = filterFailingConsoleErrors(consoleIssues, benignAbortEvents);
         if (consoleErrors.length > 0 || criticalFailures.length > 0) {
             throw new Error(`[Browser Endurance] Browser emitted ${consoleErrors.length} console errors and ${criticalFailures.length} critical failed requests.`);
         }
@@ -486,7 +609,7 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             functionalJourneyPassed: functionalJourneyPassedByUser.every(Boolean),
             invalidEvidenceReasons: [],
             concurrency: SOAK_CONFIG.CONCURRENT_USERS,
-            mode: SOAK_CONFIG.USE_NATIVE_MODE ? 'native' : 'configured-default',
+            mode: 'private',
             durationMs: Date.now() - startTime,
             startedAt,
             completedAt: new Date().toISOString(),
@@ -505,7 +628,7 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             functionalJourneyPassed: functionalJourneyPassedByUser.every(Boolean),
             invalidEvidenceReasons,
             concurrency: SOAK_CONFIG.CONCURRENT_USERS,
-            mode: SOAK_CONFIG.USE_NATIVE_MODE ? 'native' : 'configured-default',
+            mode: 'private',
             durationMs: Date.now() - startTime,
             startedAt,
             completedAt: new Date().toISOString(),

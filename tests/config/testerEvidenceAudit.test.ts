@@ -9,7 +9,7 @@ const script = read('../../scripts/tester-evidence-audit.mjs');
 const workflow = read('../../.github/workflows/tester-evidence-audit.yml');
 
 const FULL_MANIFEST = {
-  owner_admin: ['owner@x.io'], synthetic: ['basic@x.io'], checkout: ['co@x.io'], canary: ['canary@x.io'], qa: ['qa@x.io'],
+  owner_admin: ['owner@x.io'], synthetic: ['synthetic@x.io'], checkout: ['co@x.io'], canary: ['canary@x.io'], qa: ['qa@x.io'],
 };
 const NOW = Date.parse('2026-07-24T12:00:00Z');
 const BASE_ENV = {
@@ -124,9 +124,9 @@ describe('add-mask registration + no address anywhere', () => {
       emitMask: (a: string) => masked.push(a), errlog: (m: string) => errs.push(m),
     });
     expect(code).toBe(0);
-    expect(masked.sort()).toEqual(['basic@x.io', 'canary@x.io', 'co@x.io', 'owner@x.io', 'qa@x.io']);
+    expect(masked.sort()).toEqual(['canary@x.io', 'co@x.io', 'owner@x.io', 'qa@x.io', 'synthetic@x.io']);
     const surfaces = (report ?? '') + '\n' + errs.join('\n');
-    for (const addr of ['owner@x.io', 'basic@x.io', 'co@x.io', 'canary@x.io', 'qa@x.io', 'candidate@person.com']) {
+    for (const addr of ['owner@x.io', 'synthetic@x.io', 'co@x.io', 'canary@x.io', 'qa@x.io', 'candidate@person.com']) {
       expect(surfaces, `${addr} must not appear in report/stderr`).not.toContain(addr);
     }
   });
@@ -193,7 +193,7 @@ describe('behavior — pagination, candidate terminology, sanitized errors', () 
 describe('source — no sign-in / anon / password / individual-email reads; narrow Auth-Admin; guarded PostgREST', () => {
   it('never signs in and reads no anon key / password / individual email from env', () => {
     expect(script).not.toMatch(/signInWithPassword|signInWithOtp|setSession|signOut/);
-    for (const f of ['SUPABASE_ANON_KEY', 'OWNER_EMAIL', 'BASIC_TEST_EMAIL', 'FREE_TEST_EMAIL', 'PRO_TEST_EMAIL', 'CHECKOUT_TEST_EMAIL', 'BASIC_TEST_PASSWORD', 'PRO_TEST_PASSWORD']) {
+    for (const f of ['SUPABASE_ANON_KEY', 'OWNER_EMAIL', 'FREE_TEST_EMAIL', 'PRO_TEST_EMAIL', 'CHECKOUT_TEST_EMAIL', 'PRO_TEST_PASSWORD']) {
       expect(script, `${f} must not be read from env`).not.toMatch(new RegExp(`(env|process\\.env)\\.${f}\\b`));
     }
   });
@@ -225,7 +225,7 @@ describe('session-duration threshold — contract with product config (no drift)
 
 describe('workflow — allowlisted inputs, no individual-account secrets, no preflight script, fail-safe output', () => {
   it('references no individual email/password/anon-key/verify-test-users anywhere', () => {
-    for (const f of ['OWNER_EMAIL', 'BASIC_TEST_EMAIL', 'FREE_TEST_EMAIL', 'PRO_TEST_EMAIL', 'CHECKOUT_TEST_EMAIL', '_PASSWORD', 'SUPABASE_ANON_KEY', 'verify-test-users', 'setup-test-users', 'provision-canary']) {
+    for (const f of ['OWNER_EMAIL', 'FREE_TEST_EMAIL', 'PRO_TEST_EMAIL', 'CHECKOUT_TEST_EMAIL', '_PASSWORD', 'SUPABASE_ANON_KEY', 'verify-test-users', 'setup-test-users', 'provision-canary']) {
       expect(workflow, `${f} must not appear in the audit workflow`).not.toContain(f);
     }
   });

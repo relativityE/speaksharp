@@ -19,8 +19,8 @@ import { test, expect } from './helpers/deployedLiveTest';
 const BASE = (process.env.BASE_URL || '').replace(/\/$/, '');
 const EXPECTED_SHA = (process.env.EXPECTED_RELEASE || process.env.GITHUB_SHA || '').trim();
 const BYPASS = process.env.VERCEL_AUTOMATION_BYPASS_SECRET || '';
-const FREE_EMAIL = process.env.FREE_TEST_EMAIL || process.env.BASIC_TEST_EMAIL || '';
-const FREE_PASSWORD = process.env.FREE_TEST_PASSWORD || process.env.BASIC_TEST_PASSWORD || '';
+const FREE_EMAIL = process.env.FREE_TEST_EMAIL || '';
+const FREE_PASSWORD = process.env.FREE_TEST_PASSWORD || '';
 
 const H: Record<string, string> = BYPASS ? { 'x-vercel-protection-bypass': BYPASS } : {};
 const edge = (page: Page, path: string) => page.request.get(`${BASE}${path}`, { headers: H });

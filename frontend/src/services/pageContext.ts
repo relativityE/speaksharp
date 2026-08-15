@@ -30,14 +30,14 @@ export type PageKey =
  * distinguish them WITHOUT a route change and WITHOUT trusting arbitrary strings. Only these two tokens
  * are ever accepted; anything else fails closed to `practice_home`.
  */
-export type PracticeSurface = 'practice_home' | 'objective_unavailable';
+export type PracticeSurface = 'practice_home' | 'objective_setup';
 
 const PRACTICE_SURFACES: Record<PracticeSurface, { pageLabel: string; journeyStep: string }> = {
   practice_home: { pageLabel: 'SpeakSharp Practice', journeyStep: 'chooser' },
-  // Objective is planned, not a working product. The tester-facing LABEL is exactly "Focus Points"
-  // (availability is conveyed by the internal token `objective_unavailable` + issue-area, NOT the
-  // label). Prod Owner decision: the label must NOT read "(unavailable)".
-  objective_unavailable: { pageLabel: PRODUCT_NAMES.objective, journeyStep: 'objective_unavailable' },
+  // Focus Points is an ACTIVATED product (optional guidance). This surface is the points-setup state on
+  // /practice — the tester had the Focus Points setup modal open. The tester-facing LABEL is exactly
+  // "Focus Points"; the internal token `objective_setup` carries only the journey step, never availability.
+  objective_setup: { pageLabel: PRODUCT_NAMES.objective, journeyStep: 'objective_setup' },
 };
 
 export function isPracticeSurface(x: unknown): x is PracticeSurface {
@@ -173,8 +173,9 @@ const PRACTICE_SURFACE_AREAS: Record<PracticeSurface, IssueAreaOption[]> = {
     { value: 'visual_layout', label: 'Visual / layout' },
     { value: 'other', label: 'Other' },
   ],
-  objective_unavailable: [
-    { value: 'availability', label: 'Availability' },
+  // Focus Points setup surface: NO "Availability" area — Focus Points is available. The areas describe the
+  // real setup UI (clarity of the points step, navigation, layout), ending in `other`.
+  objective_setup: [
     { value: 'product_clarity', label: 'Product clarity' },
     { value: 'navigation', label: 'Navigation' },
     { value: 'visual_layout', label: 'Visual / layout' },

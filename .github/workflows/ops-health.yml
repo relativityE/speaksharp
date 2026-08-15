@@ -64,7 +64,6 @@ jobs:
           PROMO_GEN_ADMIN_SECRET: ${{ secrets.PROMO_GEN_ADMIN_SECRET }}
           OBSERVABILITY_SMOKE_SECRET: ${{ secrets.OBSERVABILITY_SMOKE_SECRET }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
-          CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
         run: pnpm ops:health
 
       - name: Publish summary

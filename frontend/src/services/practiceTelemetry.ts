@@ -52,10 +52,6 @@ export const trackPracticeOverviewExpanded = (mode: PracticeMode): void =>
 export const trackFreeformPracticeStarted = (source: PracticeEntrySource): void =>
   emit('freeform_practice_started', { mode: 'quick', entry_source: normalizeSource(source) });
 
-/**
- * Focus Points was selected while UNAVAILABLE (stays on /practice; shows the unavailable toast). This
- * does NOT claim a preview was shown — `available: false` is a bounded, content-free flag. The toast text
- * itself is never sent.
- */
-export const trackObjectiveUnavailable = (): void =>
-  emit('objective_unavailable_selected', { mode: 'objective', available: false });
+// NOTE: the retired `objective_unavailable_selected` event was removed with #1294 — Focus Points is an
+// ACTIVATED product, so no "unavailable" event exists. Focus Points selection is captured by the funnel's
+// `practice_mode_selected` (mode='objective') emitted when the setup flow opens; no separate event is needed.

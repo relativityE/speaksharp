@@ -34,14 +34,14 @@
  */
 import { createClient as defaultCreateClient } from '@supabase/supabase-js';
 import { pathToFileURL } from 'node:url';
+// ONE strict shared manifest parser used by BOTH audits (evidence + cohort). Re-exported for existing tests.
+import { parseExclusionManifest } from './lib/auditManifest.mjs';
+export { parseExclusionManifest };
 
 const MIN_SESSION_DURATION_SECONDS = 5; // == frontend/src/config/env.ts (contract-tested for no drift)
 const SYNTHETIC_TITLE = /(^|\s)(rpc-smoke-|e2e|playwright|synthetic|smoke|canary|qa-)/i;
 const SECRETISH = /(sk_live|sk_test|whsec_|eyJ[A-Za-z0-9_-]{10,}|bearer\s+[A-Za-z0-9._-]{12,}|api[_-]?key)/i;
 const PAGE = 1000;
-// EXACTLY these five categories are required in the manifest.
-const MANIFEST_CATEGORIES = ['owner_admin', 'synthetic', 'checkout', 'canary', 'qa'];
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Narrow, unmistakable automation/reserved patterns only. Operational accounts live in the manifest.
 const CODE_PATTERNS = [
   [/@example\.(com|org)$/i, 'reserved example domain'],
@@ -52,40 +52,6 @@ const CODE_PATTERNS = [
 /** Allowlisted error shape — never the raw message (which can carry emails/tokens/URLs/UUIDs/fragments). */
 const errShape = (op, e) =>
   `[audit] ${op} failed (sanitized): status=${e?.status ?? 'n/a'} code=${e?.code ?? 'n/a'} name=${e?.name ?? 'n/a'}`;
-
-/**
- * Parse + validate the exclusion manifest. Category NAMES may appear in errors (not secret); addresses
- * never do. @returns {{ ok: true, byEmail: Map<string,string> } | { ok: false, error: string }}
- */
-export function parseExclusionManifest(raw) {
-  if (!raw || !raw.trim()) return { ok: false, error: 'AUDIT_EXCLUDED_EMAILS_JSON is absent/empty' };
-  let obj;
-  try { obj = JSON.parse(raw); } catch { return { ok: false, error: 'AUDIT_EXCLUDED_EMAILS_JSON is not valid JSON' }; }
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, error: 'manifest must be a JSON object of categorized arrays' };
-  const keys = Object.keys(obj);
-  const unknown = keys.filter((k) => !MANIFEST_CATEGORIES.includes(k));
-  if (unknown.length) return { ok: false, error: `manifest has unknown category name(s): ${unknown.join(', ')}` };
-  const missing = MANIFEST_CATEGORIES.filter((c) => !keys.includes(c));
-  if (missing.length) return { ok: false, error: `manifest is missing required category name(s): ${missing.join(', ')}` };
-  const byEmail = new Map(); // normalized email -> category
-  for (const cat of MANIFEST_CATEGORIES) {
-    const arr = obj[cat];
-    if (!Array.isArray(arr)) return { ok: false, error: `category '${cat}' must be an array` };
-    const seenInCat = new Set();
-    for (const entry of arr) {
-      if (typeof entry !== 'string' || !entry.trim()) return { ok: false, error: `category '${cat}' has a blank or non-string entry` };
-      const norm = entry.trim().toLowerCase();
-      if (!EMAIL_RE.test(norm)) return { ok: false, error: `category '${cat}' has an entry that is not a syntactically valid email` };
-      if (seenInCat.has(norm)) continue; // same-category duplicates dedupe
-      seenInCat.add(norm);
-      const prior = byEmail.get(norm);
-      if (prior && prior !== cat) return { ok: false, error: `an address appears in two categories ('${prior}' and '${cat}') — ambiguous; failing closed` };
-      byEmail.set(norm, cat);
-    }
-  }
-  if (byEmail.size === 0) return { ok: false, error: 'manifest contains no addresses' };
-  return { ok: true, byEmail };
-}
 
 /**
  * @param {object} deps

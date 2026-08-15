@@ -25,7 +25,7 @@ VARS=(
   SENTRY_DSN SENTRY_API_BASE SENTRY_ORG SENTRY_PROJECT
   POSTHOG_PROJECT_API_KEY POSTHOG_PROJECT_ID POSTHOG_API_HOST POSTHOG_INGEST_HOST
   EDGE_FN_URL VERCEL_PROJECT_ID
-  BASIC_TEST_EMAIL PRO_TEST_EMAIL   # emails: owner may instead keep as Secrets to limit enumeration
+  PRO_TEST_EMAIL   # emails: owner may instead keep as Secrets to limit enumeration
 )
 
 if [ ! -f "$VALUES" ]; then

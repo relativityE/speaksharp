@@ -44,9 +44,10 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
-          BASIC_TEST_PASSWORD: ${{ secrets.BASIC_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
+          # Canonical Free-account credentials (the spec authenticates as an ordinary Free-fixture user).
+          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL }}
+          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
         run: pnpm exec playwright test tests/live/user-filler-words-persistence.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
       - name: Upload Custom Words Artifacts

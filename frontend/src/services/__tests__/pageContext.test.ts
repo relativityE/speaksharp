@@ -73,13 +73,14 @@ describe('pageContext — resolvePageContext', () => {
 
 describe('pageContext — /practice surfaces (closed contract)', () => {
   // #1042 PR3: the full-page overview was removed, so the `freeform_practice_overview` surface no longer
-  // exists — /practice now has exactly TWO surfaces (chooser + Objective-unavailable).
+  // exists — /practice now has exactly TWO surfaces (chooser + Focus Points setup).
   it('distinguishes the two surfaces by label + journeyStep, all keeping /practice as the route', () => {
     const home = resolvePageContext('/practice', 'practice_home');
-    const objective = resolvePageContext('/practice', 'objective_unavailable');
+    const objective = resolvePageContext('/practice', 'objective_setup');
     expect(home).toMatchObject({ pageLabel: 'SpeakSharp Practice', journeyStep: 'chooser', practiceSurface: 'practice_home' });
-    // Tester-facing label is exactly "Focus Points"; availability lives in the token, not the label.
-    expect(objective).toMatchObject({ pageLabel: 'Focus Points', journeyStep: 'objective_unavailable', practiceSurface: 'objective_unavailable' });
+    // #1294: Focus Points is ACTIVATED — the surface token is `objective_setup`, never `*_unavailable`.
+    expect(objective).toMatchObject({ pageLabel: 'Focus Points', journeyStep: 'objective_setup', practiceSurface: 'objective_setup' });
+    expect(objective.journeyStep).not.toContain('unavailable');
     expect(objective.pageLabel).not.toContain('unavailable');
     for (const c of [home, objective]) { expect(c.pageKey).toBe('practice'); expect(c.canonicalRoute).toBe('/practice'); }
     // The removed overview surface now fails closed to the chooser.
@@ -102,8 +103,8 @@ describe('pageContext — /practice surfaces (closed contract)', () => {
   it('issueAreasForContext returns SURFACE-specific areas on /practice, page areas elsewhere', () => {
     expect(issueAreasForContext(resolvePageContext('/practice', 'practice_home')).map((a) => a.value))
       .toEqual(['understanding_choices', 'navigation', 'visual_layout', 'other']);
-    expect(issueAreasForContext(resolvePageContext('/practice', 'objective_unavailable')).map((a) => a.value))
-      .toEqual(['availability', 'product_clarity', 'navigation', 'visual_layout', 'other']);
+    expect(issueAreasForContext(resolvePageContext('/practice', 'objective_setup')).map((a) => a.value))
+      .toEqual(['product_clarity', 'navigation', 'visual_layout', 'other']);
     expect(issueAreasForContext(resolvePageContext('/session')).map((a) => a.value)).toContain('transcription');
   });
 });

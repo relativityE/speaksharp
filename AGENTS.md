@@ -323,14 +323,14 @@ workflows without learning or copying their credential values.
 
 | Account variables | Intended use |
 |---|---|
-| `BASIC_TEST_EMAIL` / `BASIC_TEST_PASSWORD` | Reusable Free/Basic authentication and ordinary Free-path live checks |
-| `PRO_TEST_EMAIL` / `PRO_TEST_PASSWORD` | Reusable Pro authentication, Cloud/Pro checks, and authenticated STT live checks |
+| `FREE_TEST_EMAIL` / `FREE_TEST_PASSWORD` | Reusable Free authentication and ordinary Free-path live checks (SpeakSharp has no Basic product) |
+| `PRO_TEST_EMAIL` / `PRO_TEST_PASSWORD` | Reusable Pro authentication and authenticated STT live checks |
 | `CHECKOUT_TEST_EMAIL` / `CHECKOUT_TEST_PASSWORD` | Dedicated paid-checkout proof only; do not substitute a general account when clean checkout state matters |
 | `SOAK_TEST_PASSWORD` with the soak registry | Stress/endurance workflows only; not the default account for feature verification |
 
-`FREE_TEST_*` and legacy `E2E_*` names remain compatibility aliases in some scripts.
-Current workflows commonly fall back from `FREE_TEST_*` to `BASIC_TEST_*`; inspect the
-specific spec's resolution order instead of guessing. Do not report authenticated testing
+`FREE_TEST_*` and legacy `E2E_FREE_*` names remain compatibility aliases in some scripts.
+Workflows resolve `FREE_TEST_*` directly — the legacy `BASIC_TEST_*` fallback was retired in
+#1294 (SpeakSharp has no Basic product); inspect the specific spec's resolution order instead of guessing. Do not report authenticated testing
 as blocked merely because credentials are not present in the local shell or cannot be
 revealed from GitHub Secrets.
 
@@ -355,7 +355,7 @@ Reusable accounts are shared fixtures:
 
 - do not delete them, rotate their passwords, change durable entitlement/billing state,
   or consume one-time state unless the owning test explicitly restores it;
-- do not assume the Basic account has an unused Private sample or another clean state;
+- do not assume a reusable account has a clean or unconsumed state;
 - tests requiring fresh signup, unused sample, clean checkout, or another stateful
   precondition must use the dedicated account/workflow for that contract or a marked
   disposable synthetic account;
@@ -381,9 +381,9 @@ Choose the account path from the test's state contract:
    synthetic identifiers. `Promise.allSettled`, a cleanup attempt, or an overall green
    test does not by itself prove that no orphan remains.
 
-The maintained production proof for a Free user with an unused Private sample is
-`tests/live/stt-switching-contract.live.spec.ts`. Its exact Free-path case creates and
-seeds a new account using `SUPABASE_SERVICE_ROLE_KEY`; it must not use the shared Basic
+The maintained production Free-path STT-switching proof is
+`tests/live/stt-switching-contract.live.spec.ts`. Its Free-path case creates and seeds a
+fresh account using `SUPABASE_SERVICE_ROLE_KEY`; it must not reuse a shared reviewer
 account. Run the single case in GitHub Actions with:
 
 ```bash

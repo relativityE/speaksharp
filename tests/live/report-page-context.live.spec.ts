@@ -5,7 +5,7 @@ import { ROUTES, TEST_IDS } from '../constants';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 // LIVE production proof for #1018 (page-aware Issue Report) against the DEPLOYED build. Content-free,
-// assertion-only: signs in as BASIC (free), submits four uniquely-marked synthetic reports from four
+// assertion-only: signs in as the free fixture, submits four uniquely-marked synthetic reports from four
 // pages, verifies the stored page-context server-side, and deletes ONLY this run's fixtures.
 //
 // Proves, in production:
@@ -19,8 +19,8 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const BASIC_EMAIL = (process.env.BASIC_TEST_EMAIL ?? process.env.E2E_BASIC_EMAIL ?? '').trim();
-const BASIC_PASSWORD = (process.env.BASIC_TEST_PASSWORD ?? process.env.E2E_BASIC_PASSWORD ?? '').trim();
+const FREE_EMAIL = (process.env.FREE_TEST_EMAIL ?? '').trim();
+const FREE_PASSWORD = (process.env.FREE_TEST_PASSWORD ?? '').trim();
 const RUN_ID = process.env.GITHUB_RUN_ID ?? `local-${Date.now()}`;
 const MARK = `rpc-smoke-${RUN_ID}`; // unique current-run marker embedded in each report title
 
@@ -50,29 +50,29 @@ interface StoredReport {
   metadata: Record<string, unknown>;
 }
 
-test.describe('Live page-aware Issue Report context (#1018, BASIC free account)', () => {
+test.describe('Live page-aware Issue Report context (#1018, free account)', () => {
   let admin: SupabaseClient;
-  let basicUserId = '';
+  let freeUserId = '';
   let ownedSessionId = '';
   let createdSessionId: string | null = null;
 
   test.beforeAll(async () => {
     test.skip(process.env.VITE_USE_LIVE_DB !== 'true', 'Live DB run only.');
     test.skip(
-      !SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY || !BASIC_EMAIL || !BASIC_PASSWORD,
-      'Requires SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, BASIC_TEST_EMAIL, BASIC_TEST_PASSWORD.',
+      !SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY || !FREE_EMAIL || !FREE_PASSWORD,
+      'Requires SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, FREE_TEST_EMAIL, FREE_TEST_PASSWORD.',
     );
 
-    // Resolve the BASIC user id through the NORMAL authenticated path (anon sign-in) — NOT admin.listUsers
+    // Resolve the free user id through the NORMAL authenticated path (anon sign-in) — NOT admin.listUsers
     // (that Auth-admin enumeration is the exact operation the canary incident showed to be fragile, and a
     // per-account lookup does not need to scan every user). The id comes straight from the returned session.
     const anon = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
-    const { data: signInData, error: signInErr } = await anon.auth.signInWithPassword({ email: BASIC_EMAIL, password: BASIC_PASSWORD });
-    expect(signInErr, 'BASIC sign-in must succeed via the normal auth path').toBeFalsy();
-    basicUserId = signInData.user?.id ?? '';
-    expect(basicUserId, 'BASIC authenticated session yields a user id').toBeTruthy();
+    const { data: signInData, error: signInErr } = await anon.auth.signInWithPassword({ email: FREE_EMAIL, password: FREE_PASSWORD });
+    expect(signInErr, 'free sign-in must succeed via the normal auth path').toBeFalsy();
+    freeUserId = signInData.user?.id ?? '';
+    expect(freeUserId, 'free authenticated session yields a user id').toBeTruthy();
     await anon.auth.signOut();
 
     // Service-role is used ONLY for narrowly-scoped, owner-filtered fixture setup + cleanup below.
@@ -80,12 +80,12 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    const { data: sess } = await admin.from('sessions').select('id').eq('user_id', basicUserId).limit(1);
+    const { data: sess } = await admin.from('sessions').select('id').eq('user_id', freeUserId).limit(1);
     if (sess && sess.length > 0) {
       ownedSessionId = sess[0].id;
     } else {
       const { data: created, error: cErr } = await admin
-        .from('sessions').insert({ user_id: basicUserId, title: `${MARK} synthetic session` }).select('id').single();
+        .from('sessions').insert({ user_id: freeUserId, title: `${MARK} synthetic session` }).select('id').single();
       expect(cErr, 'synthetic session insert must succeed').toBeFalsy();
       ownedSessionId = created!.id;
       createdSessionId = created!.id;
@@ -94,20 +94,20 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
   });
 
   test.afterAll(async () => {
-    if (!admin || !basicUserId) return;
-    await admin.from('user_issue_reports').delete().eq('user_id', basicUserId).ilike('title', `${MARK}%`);
+    if (!admin || !freeUserId) return;
+    await admin.from('user_issue_reports').delete().eq('user_id', freeUserId).ilike('title', `${MARK}%`);
     const { data: left } = await admin
-      .from('user_issue_reports').select('id').eq('user_id', basicUserId).ilike('title', `${MARK}%`);
+      .from('user_issue_reports').select('id').eq('user_id', freeUserId).ilike('title', `${MARK}%`);
     expect(left?.length ?? 0, 'zero current-run reports remain after cleanup').toBe(0);
     if (createdSessionId) {
-      await admin.from('sessions').delete().eq('id', createdSessionId).eq('user_id', basicUserId);
+      await admin.from('sessions').delete().eq('id', createdSessionId).eq('user_id', freeUserId);
     }
   });
 
   async function signIn(page: Page) {
     await goToPublicRoute(page, ROUTES.SIGN_IN);
-    await page.getByTestId(TEST_IDS.EMAIL_INPUT).fill(BASIC_EMAIL);
-    await page.getByTestId(TEST_IDS.PASSWORD_INPUT).fill(BASIC_PASSWORD);
+    await page.getByTestId(TEST_IDS.EMAIL_INPUT).fill(FREE_EMAIL);
+    await page.getByTestId(TEST_IDS.PASSWORD_INPUT).fill(FREE_PASSWORD);
     await page.getByTestId(TEST_IDS.SIGN_IN_SUBMIT).click();
     await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible({ timeout: 20000 });
   }
@@ -148,13 +148,13 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
 
     // All four persisted.
     await expect.poll(async () => {
-      const { data } = await admin.from('user_issue_reports').select('id').eq('user_id', basicUserId).ilike('title', `${MARK}%`);
+      const { data } = await admin.from('user_issue_reports').select('id').eq('user_id', freeUserId).ilike('title', `${MARK}%`);
       return data?.length ?? 0;
     }, { timeout: 20000, message: 'all four current-run reports persisted' }).toBe(4);
 
     const { data } = await admin
       .from('user_issue_reports').select('title, session_id, page_url, metadata')
-      .eq('user_id', basicUserId).ilike('title', `${MARK}%`);
+      .eq('user_id', freeUserId).ilike('title', `${MARK}%`);
     const rows = (data ?? []) as StoredReport[];
     const by = (suffix: string) => rows.find((r) => r.title === `${MARK} ${suffix}`)!;
 
@@ -245,13 +245,13 @@ test.describe('Live page-aware Issue Report context (#1018, BASIC free account)'
 
     // ── D. REPORT PERSISTENCE — verify stored context server-side for all four journey surfaces ──
     await expect.poll(async () => {
-      const { data } = await admin.from('user_issue_reports').select('id').eq('user_id', basicUserId).ilike('title', `${MARK} j-%`);
+      const { data } = await admin.from('user_issue_reports').select('id').eq('user_id', freeUserId).ilike('title', `${MARK} j-%`);
       return data?.length ?? 0;
     }, { timeout: 20000, message: 'all three journey reports persisted' }).toBe(3);
 
     const { data } = await admin
       .from('user_issue_reports').select('title, session_id, page_url, metadata')
-      .eq('user_id', basicUserId).ilike('title', `${MARK} j-%`);
+      .eq('user_id', freeUserId).ilike('title', `${MARK} j-%`);
     const rows = (data ?? []) as StoredReport[];
     const bySuffix = (suffix: string) => rows.find((r) => r.title === `${MARK} ${suffix}`)!;
 

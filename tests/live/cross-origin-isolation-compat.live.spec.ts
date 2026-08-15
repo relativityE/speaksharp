@@ -22,7 +22,7 @@ import { test, expect } from './helpers/deployedLiveTest';
 
 const BASE_URL = process.env.BASE_URL;
 /**
- * Strict per-account-class credentials. NO fallback between FREE/PRO/BASIC/LIVE: one account cannot
+ * Strict per-account-class credentials. NO fallback between FREE/PRO/LIVE: one account cannot
  * stand in for another, or whichever billing entry point it is not offered would never be exercised.
  * Values are NEVER logged, attached, or echoed — only the account CLASS ('free' | 'pro') is reported.
  */

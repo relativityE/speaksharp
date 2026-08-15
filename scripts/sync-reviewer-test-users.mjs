@@ -46,7 +46,7 @@ function profilePatchForTier(tier, email) {
 function configuredCandidates() {
   const candidates = [];
 
-  const free = firstEnv(['FREE_TEST_EMAIL', 'E2E_FREE_EMAIL', 'BASIC_TEST_EMAIL', 'E2E_BASIC_EMAIL']);
+  const free = firstEnv(['FREE_TEST_EMAIL', 'E2E_FREE_EMAIL']);
   if (free) {
     candidates.push({
       label: 'free reviewer',

@@ -9,7 +9,6 @@ import { randomUUID } from 'crypto';
  * 
  * Note: This test assumes the environment variables FREE_TEST_EMAIL and FREE_TEST_PASSWORD
  * are set if running against a real backend, or appropriate mocks are in place.
- * BASIC_TEST_EMAIL and BASIC_TEST_PASSWORD remain supported as legacy local aliases.
  * 
  * IMPORTANT: This test is intended for RELEASE TESTING against a real backend (Staging/Prod).
  * It validates that the application correctly integrates with the actual Supabase service.
@@ -66,10 +65,10 @@ test.describe('Supabase Integration: Auth Flows', () => {
     // Test 2: Login with existing credentials
     test('should allow an existing user to sign in', async ({ page }) => {
         // These should be loaded from .env.test
-        const email = process.env.FREE_TEST_EMAIL || process.env.E2E_FREE_EMAIL || process.env.BASIC_TEST_EMAIL || process.env.E2E_BASIC_EMAIL || 'test@example.com';
-        const password = process.env.FREE_TEST_PASSWORD || process.env.E2E_FREE_PASSWORD || process.env.BASIC_TEST_PASSWORD || process.env.E2E_BASIC_PASSWORD || 'password';
+        const email = process.env.FREE_TEST_EMAIL || process.env.E2E_FREE_EMAIL || 'test@example.com';
+        const password = process.env.FREE_TEST_PASSWORD || process.env.E2E_FREE_PASSWORD || 'password';
 
-        if (!process.env.FREE_TEST_EMAIL && !process.env.E2E_FREE_EMAIL && !process.env.BASIC_TEST_EMAIL && !process.env.E2E_BASIC_EMAIL && !process.env.CI) {
+        if (!process.env.FREE_TEST_EMAIL && !process.env.E2E_FREE_EMAIL && !process.env.CI) {
             console.warn('⚠️ FREE_TEST_EMAIL not set, defaulting to test@example.com. Test might fail if user does not exist.');
         }
 

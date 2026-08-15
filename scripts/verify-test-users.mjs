@@ -28,9 +28,8 @@ function firstEnv(names) {
 
 function normalizeTier(value, fallback = 'free') {
   const tier = String(value || fallback).trim().toLowerCase();
-  if (tier === 'basic') return 'basic';
   if (tier === 'pro') return 'pro';
-  return 'free';
+  return 'free'; // SpeakSharp has no Basic product — only free/pro
 }
 
 function maskEmail(email) {
@@ -56,7 +55,7 @@ function addCandidate(candidates, { label, email, expectedTier, source }) {
 function configuredCandidates() {
   const candidates = [];
 
-  const free = firstEnv(['FREE_TEST_EMAIL', 'E2E_FREE_EMAIL', 'BASIC_TEST_EMAIL', 'E2E_BASIC_EMAIL']);
+  const free = firstEnv(['FREE_TEST_EMAIL', 'E2E_FREE_EMAIL']);
   if (free) {
     addCandidate(candidates, {
       label: 'free reviewer',
@@ -131,7 +130,7 @@ async function main() {
   const candidates = configuredCandidates();
   if (candidates.length === 0) {
     console.error('FAIL verifier config: no test-user email env vars configured');
-    console.error('Set FREE_TEST_EMAIL/E2E_FREE_EMAIL/BASIC_TEST_EMAIL or PRO_TEST_EMAIL/E2E_PRO_EMAIL.');
+    console.error('Set FREE_TEST_EMAIL/E2E_FREE_EMAIL or PRO_TEST_EMAIL/E2E_PRO_EMAIL.');
     process.exit(1);
   }
 

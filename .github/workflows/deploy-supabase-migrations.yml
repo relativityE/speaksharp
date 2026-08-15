@@ -115,7 +115,13 @@ jobs:
 
   verify-edge-functions:
     needs: [validate-edge-configuration, deploy-edge-functions]
-    if: ${{ needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' && needs.deploy-edge-functions.result == 'success' }}
+    # Hosted readback MUST run after a successful Edge deployment even when an unrelated upstream job is
+    # intentionally skipped. deploy-edge-functions depends on deploy-production-db, which is skipped for
+    # operation=edge-functions; without a leading always() that skip propagates and silently skips this
+    # required verification (the post-#1290 defect: deployment succeeded but readback was skipped). The
+    # always() forces GitHub to evaluate the condition regardless, and it still runs ONLY when the Edge
+    # deploy itself succeeded — mirroring the deploy-edge-functions gate above.
+    if: ${{ always() && needs.validate-edge-configuration.outputs.deploy_edge_functions == 'true' && needs.deploy-edge-functions.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
