@@ -26,7 +26,7 @@ const trialProfile = (over = {}) => ({
 });
 
 function makeAdmin({ pages = [[]], full = false, fullMatchFirst = null, profile, createId = 'created-id', createError = null, effTier = 'pro' } = {}) {
-  const calls = { listUsers: 0, createUser: [], updateUserById: [], from: [] };
+  const calls = { listUsers: 0, createUser: [], updateUserById: [], from: [], rpc: [] };
   return {
     calls,
     auth: {
@@ -45,7 +45,7 @@ function makeAdmin({ pages = [[]], full = false, fullMatchFirst = null, profile,
       },
     },
     from: (t) => { calls.from.push(t); return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: profile ?? null, error: null }) }) }) }; },
-    rpc: async () => ({ data: effTier, error: null }),
+    rpc: async (fn, args) => { calls.rpc.push([fn, args]); return { data: effTier, error: null }; },
   };
 }
 const makeSignIn = ({ ok = true, userId = 'created-id', error = null } = {}) =>
@@ -142,6 +142,19 @@ describe('#1294 Admin - Test Users canary credential seam', () => {
     expect((await run(found({ profile: { trial_expires_at: iso(START + 10 * DAY) } }))).facts.reason).toBe('trial_window_not_exactly_30d');
     expect((await run(found({ profile: { commercial_trial_granted_at: null } }))).facts.reason).toBe('trial_missing_commercial_marker');
     expect((await run(found({ effTier: 'free' }))).facts.reason).toBe('trial_not_active_server_time');
+  });
+
+  it('#1294: active-trial SUCCESS goes through the CANONICAL 5-arg overload (passes the commercial marker)', async () => {
+    // A found, authenticating trial account with a valid immutable-marker + exact-30-day window resolves to
+    // REUSED (effTier 'pro' from the marker+window). Lock that the marker KEY was passed to the tier RPC so
+    // this can never silently regress to the legacy 4-arg overload that fails closed for trials.
+    const admin = makeAdmin({ pages: [[{ email: 'operator+trial@example.test', id: 'found-id' }]], profile: trialProfile({ id: 'found-id' }), effTier: 'pro' });
+    const r = await provisionCanaryCredential({ adminClient: admin, makeSignInClient: makeSignIn({ userId: 'found-id' }), secrets: SECRETS, purpose: 'canary_trial' });
+    expect(r.result).toBe('REUSED');
+    expect(r.facts.trial_active_server_time).toBe(true);
+    const tierCall = admin.calls.rpc.find((c) => c[0] === 'effective_subscription_tier');
+    expect(tierCall, 'tier RPC was called').toBeTruthy();
+    expect(tierCall[1]).toHaveProperty('p_commercial_trial_granted_at');
   });
 
   it('paid create establishes credentials only; rejects partial/synthetic billing shapes', async () => {

@@ -45,15 +45,9 @@ describe('flawless-launch product-contract guard (#1290)', () => {
     expect(workflow).toContain('node scripts/canary-identity-config.mjs');
     expect(workflow).toContain('needs.migration-readiness.outputs.ready');
     expect(workflow).toContain('HOLD — migration pending; canary not executed');
-    // Routine runs prove the complete product through active trial. Paid continuation remains strict,
-    // but is selected only by an explicit manual billing-qualification dispatch.
-    expect(workflow).toContain('include_paid_billing:');
-    expect(workflow).toContain('"active-trial","paid-continuation"');
-    expect(workflow).toContain('"active-trial"');
-    expect(workflow).toContain('Paid billing qualification: not requested.');
-    expect(workflow).toContain('explicitly requested paid-continuation billing qualification');
-    expect(workflow).not.toContain('Both active-trial and paid-continuation journeys completed.');
     expect(workflow).not.toMatch(/@speaksharp\.app\b/i);
+    // The routine-vs-paid CADENCE, summary, failure, migration-HOLD, and concurrency behaviours are covered
+    // by the EXECUTABLE contract in tests/canary/canaryStrategyContract.test.js (not token-presence here).
   });
 
   it('rejects every retired launch proposition', () => {
