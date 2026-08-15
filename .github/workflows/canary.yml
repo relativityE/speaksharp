@@ -146,6 +146,12 @@ jobs:
       #    continuation on a Stripe TEST CLOCK. It does NOT sign in as, or depend on, the canary-paid account or
       #    its password. The strict production paid verifier (provision-canary paid lane) is PRESERVED for a
       #    future, separately-authorized live commercial-readiness proof — it is NOT this scheduled lane. ──
+      - name: Setup Deno (billing qualification)
+        if: matrix.lane == 'billing-qualification'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Stripe Test-Mode/Test-Clock Billing Qualification (billing-qualification)
         if: matrix.lane == 'billing-qualification'
         env:
@@ -162,7 +168,9 @@ jobs:
             sk_test_*) : ;;
             *) echo '::error::Billing qualification requires a Stripe TEST secret key (sk_test_...).'; exit 1 ;;
           esac
-          node scripts/paid-billing-qualification.mjs
+          # Deno runs the REAL stripe-webhook handler against an ephemeral migrated PGlite DB (no prod Supabase).
+          deno run --node-modules-dir=auto --allow-read --allow-write --allow-env --allow-net --allow-ffi --allow-sys \
+            scripts/billing-qualification/qualify.ts
 
       # Admin hygiene is SEPARATE from the tester-equivalent product smoke above and runs regardless of
       # its result (if: always()), so a hygiene problem never masks the product result — and with

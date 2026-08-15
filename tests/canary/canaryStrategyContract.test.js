@@ -76,11 +76,14 @@ describe('canary concurrency — daily and weekly cadences cannot cancel each ot
 
 describe('canary billing lane — test-mode wiring (structural)', () => {
   const steps = wf.jobs['canary-check'].steps;
-  const billingStep = steps.find((s) => s.if === "matrix.lane == 'billing-qualification'");
+  const billingStep = steps.find((s) => s.if === "matrix.lane == 'billing-qualification'" && typeof s.run === 'string');
 
   it('the billing lane runs the guarded test-mode/test-clock runner and refuses a live key', () => {
     expect(billingStep, 'billing-qualification step exists').toBeTruthy();
-    expect(billingStep.run).toContain('node scripts/paid-billing-qualification.mjs');
+    // The billing lane runs the Deno qualification (real handler + migrated PGlite), not the removed Node runner.
+    expect(billingStep.run).toContain('scripts/billing-qualification/qualify.ts');
+    expect(billingStep.run).toContain('deno run');
+    expect(billingStep.run).not.toContain('paid-billing-qualification.mjs');
     expect(billingStep.run).toContain('sk_live_'); // explicit live-key refusal branch
     // It uses TEST-scoped Stripe secrets only.
     expect(billingStep.env.STRIPE_SECRET_KEY).toContain('STRIPE_TEST_SECRET_KEY');
