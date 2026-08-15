@@ -68,6 +68,8 @@ RC gate status is the ship/no-ship signal. Quality score, coverage, Lighthouse, 
 
 Any commit considered a release candidate must pass full CI, production canary, and Service-Level Evidence on the same commit SHA before it can be called release-ready. CI optimizations may reduce wasted runs while iterating, but they do not lower the final release bar. A Vercel canary must test the deployed production URL because users receive Vercel's deployed artifact, not CI's internal build artifact.
 
+**Canary cadence — daily active-trial ≠ complete release qualification (#1294).** The production canary runs on two automated cadences: a **daily active-trial** lane proving the complete Pro product path, and a **weekly Stripe test-mode/test-clock billing qualification** (checkout → webhook → renewal → payment failure → cancellation → continuation) that never charges a live card. A green **daily active-trial** result proves the product path only; it must **not** be consumed as complete release qualification. Release-readiness requires **both** a green daily active-trial result **and** a current (most-recent-weekly, not stale) green billing qualification. Neither cadence may be reported as the other, and neither may cancel the other. The strict production paid verifier (real Stripe-backed entitlement) is reserved for a separately authorized live commercial-readiness proof and is **not** the scheduled no-charge qualification.
+
 ### Raw Artifact Source Rule
 
 When generated summaries disagree with raw CI/browser artifacts, the raw artifact wins. Coverage JSON, Playwright reports, Vitest output, Lighthouse JSON, workflow logs, stress/endurance JSON, and browser trace files are the source of truth until the aggregator is fixed and rerun on the same commit.

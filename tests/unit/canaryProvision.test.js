@@ -81,7 +81,11 @@ describe('verifyCanaryProfileBinding — paid lane (server-authoritative, non-sy
     const anon = makeAnon();
     expect((await verifyCanaryProfileBinding(anon, 'exact-id')).ok).toBe(true);
     expect(anon._profile.eq).toHaveBeenCalledWith('id', 'exact-id');
-    expect(anon._profile.rpc).toHaveBeenCalledWith('effective_subscription_tier', expect.any(Object));
+    // #1294: must call the CANONICAL 5-arg overload — the marker KEY must be passed (its value is null for a
+    // paid account, which is fine), NOT the legacy 4-arg overload that fails closed for trials. Lock the key
+    // so this can never silently regress to the 4-arg form.
+    const [, rpcArgs] = anon._profile.rpc.mock.calls.find((c) => c[0] === 'effective_subscription_tier');
+    expect(rpcArgs).toHaveProperty('p_commercial_trial_granted_at');
     expect(anon._profile.update).not.toHaveBeenCalled();
   });
   it('rejects synthetic sub_test_, non-pro effective tier, free stored tier, blank/absent ids, missing profile', async () => {
@@ -96,8 +100,13 @@ describe('verifyCanaryProfileBinding — paid lane (server-authoritative, non-sy
 });
 
 describe('verifyCanaryProfileBinding — active trial lane (immutable marker, exact 30-day, server-time)', () => {
-  it('accepts an unbilled, marked, exactly-30-day, server-time-active trial', async () => {
-    expect((await verifyCanaryProfileBinding(makeAnon({ profileResult: { data: TRIAL_PROFILE } }), 'u1', 'active-trial')).ok).toBe(true);
+  it('accepts an unbilled, marked, exactly-30-day, server-time-active trial via the 5-arg overload', async () => {
+    const anon = makeAnon({ profileResult: { data: TRIAL_PROFILE } });
+    expect((await verifyCanaryProfileBinding(anon, 'u1', 'active-trial')).ok).toBe(true);
+    // #1294: locks that the trial success path passed the commercial marker to the CANONICAL 5-arg overload
+    // (the legacy 4-arg overload would fail closed for trials).
+    const [, rpcArgs] = anon._profile.rpc.mock.calls.find((c) => c[0] === 'effective_subscription_tier');
+    expect(rpcArgs).toHaveProperty('p_commercial_trial_granted_at');
   });
   it.each([
     ['29 days', TRIAL_START + 29 * DAY, false],
