@@ -21,13 +21,6 @@ be treated as compromised unless product-ops proves it was fake.
 - Stripe webhook secret
 - AssemblyAI API key
 - Any committed test account passwords that map to real accounts
-- Canary account **passwords** only: `CANARY_TRIAL_PASSWORD`, `CANARY_PAID_PASSWORD` (GitHub **Secrets**)
-
-> **#1294 — canary EMAILS are NOT rotated.** `CANARY_TRIAL_EMAIL` / `CANARY_PAID_EMAIL` are operator-owned
-> **identifiers stored as GitHub Variables**, not credentials. Changing them is a **configuration update**
-> (edit the Variable), never a secret rotation. This runbook rotates the **password Secrets** only; a canary
-> email change is a config edit that must be mirrored in `AUDIT_EXCLUDED_EMAILS_JSON` and re-verified against
-> `LAUNCH_ENV_CHECKLIST.md` §6a.
 
 ## Automation Reality
 

@@ -119,9 +119,9 @@ jobs:
           CANARY_PAID_EMAIL: ${{ vars.CANARY_PAID_EMAIL }}
           CANARY_PAID_PASSWORD: ${{ secrets.CANARY_PAID_PASSWORD }}
           # free_test purpose: a genuine standard Free account, resolved from Secrets (password never an input).
-          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL }}
+          FREE_TEST_EMAIL: ${{ vars.FREE_TEST_EMAIL }}
           FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
         run: |
           if [ "$ACTION" = "setup" ] && [ -z "$SOAK_TEST_PASSWORD" ]; then
             echo "❌ Error: SOAK_TEST_PASSWORD is not set."

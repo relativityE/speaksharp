@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import {
   HISTORICAL_EXCLUSIONS,
   isExcluded,
@@ -8,6 +8,27 @@ import {
 } from '../../scripts/lib/product-contract-guard.mjs';
 
 describe('flawless-launch product-contract guard (#1290)', () => {
+  // #1294 sourcing split, repo-wide: every test-account EMAIL is an identifier (GitHub Variable) and every
+  // PASSWORD is a credential (Secret). The email Secret copies were deleted, so ANY active workflow that
+  // still reads `secrets.<name>_EMAIL` would resolve empty at runtime — fail closed here at static time.
+  it('no active workflow reads a test-account email from Secrets, or the retired canary password', () => {
+    const WF_DIR = '.github/workflows';
+    const forbidden = [
+      'secrets.CANARY_TRIAL_EMAIL',
+      'secrets.CANARY_PAID_EMAIL',
+      'secrets.FREE_TEST_EMAIL',
+      'secrets.PRO_TEST_EMAIL',
+      'secrets.CANARY_PASSWORD',
+      'CANARY_PASSWORD:',
+    ];
+    const hits: string[] = [];
+    for (const f of readdirSync(WF_DIR).filter((n) => n.endsWith('.yml') || n.endsWith('.yaml'))) {
+      const text = readFileSync(`${WF_DIR}/${f}`, 'utf8');
+      for (const token of forbidden) if (text.includes(token)) hits.push(`${f}: ${token}`);
+    }
+    expect(hits, `forbidden email-Secret / retired-token refs in workflows:\n${hits.join('\n')}`).toEqual([]);
+  });
+
   it('keeps both canary identities protected and fail-closed behind migration readiness', () => {
     const workflow = readFileSync('.github/workflows/canary.yml', 'utf8');
 

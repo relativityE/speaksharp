@@ -92,15 +92,6 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 - [ ] **Private Sample Policy**: Fresh Free profile gets one server-backed Private sample (`private_sample_limit_seconds = 300`) while Browser transcription remains available before and after the sample.
 - [ ] **Cloud Policy**: Private sample access does not grant Cloud STT. Cloud requires paid Pro entitlement evidence.
 
-### 6a. Canary identity configuration (#1294 sourcing split)
-Canary **emails are identifiers → GitHub Variables**; canary **passwords are credentials → GitHub Secrets**. Verify **names only** (`gh secret list` / `gh variable list`; never print a value):
-- [ ] **Email Variables present**: `CANARY_TRIAL_EMAIL`, `CANARY_PAID_EMAIL` exist as repository **Variables** (configured `canary-trial@example.test` / `canary-paid@example.test`).
-- [ ] **Password Secrets present**: `CANARY_TRIAL_PASSWORD`, `CANARY_PAID_PASSWORD` exist as repository **Secrets**.
-- [ ] **No email Secrets**: no `CANARY_TRIAL_EMAIL` / `CANARY_PAID_EMAIL` **Secret** copy remains.
-- [ ] **No retired single-password secret**: the retired ambiguous single canary-password secret (superseded by the two per-lane password Secrets) does not exist — see `SECRETS_ATTACK_SURFACE_AUDIT.md`.
-- [ ] **Workflows resolve from Variables**: `canary.yml` and `setup-test-users.yml` read `vars.CANARY_*_EMAIL` and `secrets.CANARY_*_PASSWORD` (zero active `secrets.CANARY_*_EMAIL`).
-- [ ] **Exclusion manifest**: `AUDIT_EXCLUDED_EMAILS_JSON` `canary` category is exactly `["canary-trial@example.test","canary-paid@example.test"]` (no `canary@speaksharp.app`).
-
 ## 7. Security & Rate Limiting
 - [ ] **Rate Limits**: `rate-limiter` config set to production values (e.g., 100/min per IP).
 - [ ] **SSL/TLS**: Production domain has a valid, active certificate.

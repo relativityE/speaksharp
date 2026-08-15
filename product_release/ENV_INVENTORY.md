@@ -1,6 +1,6 @@
 # Environment Variable Inventory (Single Source of Truth)
 
-**Owner:** relativityE · **Last updated:** 2026-08-15 · integrated `main@4b9db4a2` · reconciled to private-first `main` (billing fail-closed, exact-origin CORS deployed, Private v4 disabled) · **#1294 canary email cutover:** canary emails are GitHub **Variables**, canary passwords are **Secrets**; the retired ambiguous single canary-password secret and both canary email **Secret** copies were deleted 2026-08-15 (per-lane `CANARY_TRIAL_PASSWORD` / `CANARY_PAID_PASSWORD` remain)
+**Owner:** relativityE · **Last updated:** 2026-08-15 · integrated `main@4b9db4a2` · reconciled to private-first `main` (billing fail-closed, exact-origin CORS deployed, Private v4 disabled) · **#1294 test-account email cutover:** all four test-account emails — `CANARY_TRIAL_EMAIL`, `CANARY_PAID_EMAIL`, `FREE_TEST_EMAIL`, `PRO_TEST_EMAIL` — are GitHub **Variables**; their passwords stay **Secrets**. The four same-named email **Secret** copies and the retired ambiguous single canary-password secret were deleted 2026-08-15
 
 This is the **canonical catalog** of every environment variable SpeakSharp uses, **where each
 one is stored**, who consumes it, and its scope. Use it to **add new vars, migrate/replicate
@@ -167,27 +167,34 @@ Names are referenced as `secrets.*` across `.github/workflows`; a **small number
 | `POSTHOG_PROJECT_ID` · `POSTHOG_API_HOST` · `POSTHOG_INGEST_HOST` | public id / hosts |
 | `EDGE_FN_URL` | public function base URL |
 | `VERCEL_PROJECT_ID` | non-secret platform ID (`VERCEL_ORG_ID`/`VERCEL_TEAM_ID` are referenced by workflows but NOT set as GitHub secrets) |
-| `PRO_TEST_EMAIL` | test-account email — **DECIDED 2026-06-08: move to Variables** (the matching password stays a Secret in 3a). The Basic test-account email/password were retired in #1294 (no Basic product). |
+| `FREE_TEST_EMAIL` · `PRO_TEST_EMAIL` | test-account emails — **#1294: cut over to Variables** (configured 2026-08-15 as `test-free@example.test` / `test-pro@example.test`; matching `FREE_TEST_PASSWORD` / `PRO_TEST_PASSWORD` stay Secrets in 3a). Same-named email **Secret** copies deleted 2026-08-15. Use the reserved `.test` namespace — never an unaffiliated domain (`test.com`, `speaksharp.app`). |
 | `CANARY_TRIAL_EMAIL` · `CANARY_PAID_EMAIL` | protected, operator-controlled canary identities — **#1294: cut over to Variables** (configured 2026-08-15 as `canary-trial@example.test` / `canary-paid@example.test`; matching `CANARY_TRIAL_PASSWORD` / `CANARY_PAID_PASSWORD` stay Secrets in 3a). Same-named email **Secret** copies deleted 2026-08-15. Emails are identifiers, not credentials; never hard-code or infer a domain. |
 
-> **Current canary configuration snapshot — names only, `gh` read-only, 2026-08-15 (`main@4b9db4a2`):**
-> Variables: `CANARY_TRIAL_EMAIL`, `CANARY_PAID_EMAIL` (2). Secrets: `CANARY_TRIAL_PASSWORD`,
-> `CANARY_PAID_PASSWORD` (2). **No** canary email Secrets. **No** retired ambiguous single canary-password
-> secret (deleted 2026-08-15). The stale `canary@speaksharp.app` Auth identity was deleted (operator, 2026-08-15) and must
-> not appear in `AUDIT_EXCLUDED_EMAILS_JSON` — the `canary` category is exactly
+> **Current test-account configuration snapshot — names only, `gh` read-only, 2026-08-15:**
+> Email **Variables** (4): `CANARY_TRIAL_EMAIL`=`canary-trial@example.test`, `CANARY_PAID_EMAIL`=`canary-paid@example.test`,
+> `FREE_TEST_EMAIL`=`test-free@example.test`, `PRO_TEST_EMAIL`=`test-pro@example.test`. Password **Secrets** (4):
+> `CANARY_TRIAL_PASSWORD`, `CANARY_PAID_PASSWORD`, `FREE_TEST_PASSWORD`, `PRO_TEST_PASSWORD`. **No** test-account
+> email Secrets. **No** retired ambiguous single canary-password secret (deleted 2026-08-15). The stale
+> `canary@speaksharp.app` Auth identity was deleted (operator, 2026-08-15) and must not appear in
+> `AUDIT_EXCLUDED_EMAILS_JSON` — the `canary` category is exactly
 > `["canary-trial@example.test", "canary-paid@example.test"]`.
+>
+> ⚠️ Setting a Variable does NOT rename the Supabase Auth account. The free/pro Auth identities
+> (`test-free-…@test.com` / `test-pro-…@test.com`) must be separately renamed/replaced to match — preserving
+> user IDs, passwords, profile/history, and any paid binding — as a distinct authorized account operation.
 
 > **HISTORICAL PLAN (2026-06-08): 18 → Variable / 18 keep Secret = 36 total** — the target of
 > `scripts/ops/reclassify-github-env.sh`. Same-name `secrets.X → vars.X` is allowed (probe-verified —
 > secret + variable can coexist), so no rename.
 >
-> **✅ CURRENT (names-only, `gh` read-only, 2026-08-15 · `main@4b9db4a2`): 50 repo Secrets / 12 repo
-> Variables.** The totals grew past the June plan as more names moved to Variables (`SUPABASE_PROJECT_ID`,
-> the 8-name set, and the #1294 canary emails) and retired names were deleted. Re-run `gh secret list` /
-> `gh variable list` (names only) to refresh; do not trust the pinned count once env usage changes.
-> **`FREE_TEST_EMAIL` / `FREE_TEST_PASSWORD` — reverified 2026-08-15: BOTH are GitHub Secrets** (the earlier
-> "not set / out of scope" note was stale). `PRO_TEST_EMAIL` / `PRO_TEST_PASSWORD` are likewise Secrets today
-> (the 2026-06-08 "move `PRO_TEST_EMAIL` to a Variable" decision is not yet executed).
+> **✅ CURRENT (names-only, `gh` read-only, 2026-08-15): 48 repo Secrets / 14 repo Variables.** The totals
+> moved off the June plan as more names became Variables (`SUPABASE_PROJECT_ID`, the 8-name set, and the four
+> #1294 test-account emails) and retired names were deleted (the ambiguous single canary-password secret, the
+> four email Secret copies, the Basic set). Re-run `gh secret list` / `gh variable list` (names only) to refresh; do not trust the
+> pinned count once env usage changes. **Test-account split (reverified 2026-08-15):** all four emails
+> (`CANARY_*_EMAIL`, `FREE_TEST_EMAIL`, `PRO_TEST_EMAIL`) are **Variables**; all four passwords
+> (`CANARY_*_PASSWORD`, `FREE_TEST_PASSWORD`, `PRO_TEST_PASSWORD`) are **Secrets**. (Supersedes the earlier
+> stale "FREE/PRO are Secrets / PRO move not yet executed" note.)
 
 #### Migration status — 2026-06-08 (cutover COMPLETE; corrected 2026-08-14 / #1294)
 **8 Variables CREATED and all consumers FLIPPED to `vars.*`.** The same-named duplicate **Secrets still
