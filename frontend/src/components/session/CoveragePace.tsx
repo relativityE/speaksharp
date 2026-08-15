@@ -7,26 +7,30 @@ import { computePaceStats, fmtDuration } from '@/utils/focusPace';
  * One card answering FP's question at a glance (the number a user catches in peripheral vision) plus the
  * pace context: the running average PER POINT (the dial) and the projected total (its consequence) against
  * the guide. Hard rules enforced here:
- *   - **Never renders in `before`** — the parent must not mount it there (a `0/total` scoreboard says only
- *     "you haven't started").
+ *   - **`before` is guide-only** (#1255): the same card mounts in the before-state's fixed Slot C. It shows
+ *     `0/total points covered` plus, if a guide is configured, the guide value (`x /point`, captioned **pace
+ *     guide**, never "current pace") and the planned total (`x guide`). It NEVER shows a measured/current/
+ *     actual pace, an "at this pace" projection, a countdown, an over-guide state, or a nudge — no measured
+ *     pace exists yet. No guide → the count alone.
  *   - **Never a countdown / remaining time.** Only the guide total, the projection, the per-point average.
  *   - No guide → the pace half vanishes entirely; the card is the count alone.
- *   - Zero points covered → `— /point`, no bar fill, no projection line. Never `∞`.
+ *   - Zero points covered (during/after) → `— /point`, no bar fill, no projection line. Never `∞`.
  *   - The nudge lives INSIDE this card (during only), silent unless the parent passes one.
  */
 export interface CoveragePaceProps {
     covered: number;
     total: number;
-    /** Elapsed while recording (during) or the final duration (after). */
+    /** Elapsed while recording (during) or the final duration (after). Ignored in `before` (guide-only). */
     elapsedSec: number;
     /** Guide seconds/point; null = skipped → the whole pace half is absent. */
     guideSecPerPoint: number | null;
-    sessionState: 'during' | 'after';
+    sessionState: 'before' | 'during' | 'after';
     /** The live nudge from the parent's nudge engine; null = silent (during only). */
     nudge?: string | null;
 }
 
 export const CoveragePace: React.FC<CoveragePaceProps> = ({ covered, total, elapsedSec, guideSecPerPoint, sessionState, nudge }) => {
+    const isBefore = sessionState === 'before';
     const { pacePerPointSec, guideTotalSec, projectionSec, overGuide, barFraction } =
         computePaceStats({ elapsedSec, coveredCount: covered, totalPoints: total, guideSecPerPoint });
     const hasGuide = guideTotalSec != null;
@@ -42,28 +46,46 @@ export const CoveragePace: React.FC<CoveragePaceProps> = ({ covered, total, elap
             <p className="text-[12px] font-extrabold uppercase tracking-wide text-[#414b5c]">Coverage &amp; pace</p>
 
             <div className="mt-3 flex items-end justify-between gap-3.5">
-                {/* Left — the glanceable count. */}
+                {/* Left — the glanceable count. The numerator is the dominant element; the total is smaller. */}
                 <div className="flex items-baseline gap-2.5" data-testid="coverage-pace-count">
-                    <span className="text-[40px] font-extrabold leading-none tracking-[-0.035em]" style={{ color: countColor }}>
-                        {covered}<span className="text-[26px] text-[#86a597]">/{total}</span>
+                    <span className="font-extrabold leading-none tracking-[-0.035em]" style={{ color: countColor }}>
+                        <span data-testid="coverage-pace-covered" className="text-[40px]">{covered}</span><span data-testid="coverage-pace-total" className="text-[26px] text-[#86a597]">/{total}</span>
                     </span>
                     <span className="text-[14px] font-bold leading-tight text-[#414b5c]">points<br />covered</span>
                 </div>
 
-                {/* Right — pace per point (the dial). Absent entirely when no guide is set. */}
-                {hasGuide && (
-                    <div className="text-right" data-testid="coverage-pace-perpoint">
-                        <div className="text-[24px] font-extrabold leading-none tracking-[-0.028em] tabular-nums" style={{ color: overGuide ? '#8a5510' : '#2b3446' }}>
-                            {pacePerPointSec != null ? fmtDuration(pacePerPointSec) : '—'}
-                            <span className="text-[15px] font-bold" style={{ color: overGuide ? '#b1946a' : '#8b95a5' }}> /point</span>
+                {/* Right — before: the configured GUIDE per point (never "current pace"). during/after: the
+                    measured per-point dial. Absent entirely when no guide is set. */}
+                {isBefore
+                    ? (hasGuide && (
+                        <div className="text-right" data-testid="coverage-pace-guide">
+                            <div className="text-[24px] font-extrabold leading-none tracking-[-0.028em] tabular-nums text-[#2b3446]">
+                                {fmtDuration(guideSecPerPoint!)}
+                                <span className="text-[15px] font-bold text-[#8b95a5]"> /point</span>
+                            </div>
+                            <div className="mt-[5px] text-[12px] font-bold text-[#8b95a5]">pace guide</div>
                         </div>
-                        <div className="mt-[5px] text-[12px] font-bold text-[#8b95a5]">current pace</div>
-                    </div>
-                )}
+                    ))
+                    : (hasGuide && (
+                        <div className="text-right" data-testid="coverage-pace-perpoint">
+                            <div className="text-[24px] font-extrabold leading-none tracking-[-0.028em] tabular-nums" style={{ color: overGuide ? '#8a5510' : '#2b3446' }}>
+                                {pacePerPointSec != null ? fmtDuration(pacePerPointSec) : '—'}
+                                <span className="text-[15px] font-bold" style={{ color: overGuide ? '#b1946a' : '#8b95a5' }}> /point</span>
+                            </div>
+                            <div className="mt-[5px] text-[12px] font-bold text-[#8b95a5]">current pace</div>
+                        </div>
+                    ))}
             </div>
 
-            {/* Pace bar + projection line — only when a guide is set. */}
-            {hasGuide && (
+            {/* before: the planned total from the guide only — no bar, no projection, no measured pace. */}
+            {isBefore && hasGuide && (
+                <div className="mt-4 text-[12px] font-bold text-[#8b95a5]" data-testid="coverage-pace-planned">
+                    {fmtDuration(guideTotalSec!)} guide
+                </div>
+            )}
+
+            {/* Pace bar + projection line — during/after only, when a guide is set. */}
+            {!isBefore && hasGuide && (
                 <div className="mt-4">
                     <div className="h-1.5 overflow-hidden rounded-full bg-[#eef1f6]" data-testid="coverage-pace-bar">
                         <div
