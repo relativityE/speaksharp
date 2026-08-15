@@ -29,7 +29,7 @@ These have **zero** `secrets.*`/`vars.*` consumers on this branch (verified) and
 
 | Name | Kind | Consumers | Disposition |
 |---|---|---|---|
-| `CANARY_PASSWORD` | Secret | none | DELETE post-merge |
+| `CANARY_PASSWORD` | Secret | none | ✅ **DELETED (#1294)** — retired ambiguous single canary password; zero real consumers (only the negative-guard token list references it) |
 | `BASIC_TEST_EMAIL` | Secret | none | DELETE post-merge |
 | `BASIC_TEST_PASSWORD` | Secret | none | DELETE post-merge |
 | `STRIPE_BASIC_PRICE_ID` | Secret | none | DELETE post-merge |
@@ -59,6 +59,32 @@ all nine consumers now read the Variable and zero read the Secret. Per the PO cu
 Secret is deletable only **after** merge + a Variable-resolution proof (run `db-grant-check` and
 `no-unaffiliated-domain` on integrated `main`, terminal-green, proving the Variable path) + explicit deletion
 authorization.
+
+**Test-account email cutover completed in source (#1294):** all four test-account emails —
+`CANARY_TRIAL_EMAIL`, `CANARY_PAID_EMAIL`, `FREE_TEST_EMAIL`, `PRO_TEST_EMAIL` — are identifiers, not
+credentials, and are cut over from Secrets to repository **Variables**. Every active consumer reads
+`vars.*_EMAIL`; **zero** read `secrets.*_EMAIL`: `canary.yml`, `setup-test-users.yml`, `rc-gates.yml`,
+`live-release-matrix.yml`, `benchmarks.yml`, `billing-freeze-check.yml`, `v4-app-path-proof.yml`,
+`v4-benchmark-gpu.yml`, `v4-auto-fallback-proof.yml`. The matching **passwords** (`CANARY_TRIAL_PASSWORD`,
+`CANARY_PAID_PASSWORD`, `FREE_TEST_PASSWORD`, `PRO_TEST_PASSWORD`) remain **Secrets**. The
+`canary-identity-config` guard fails closed unless both canary email Variables are valid/distinct/
+non-prohibited **and** both canary password Secrets are present (value never logged); the flawless-launch
+guard statically fails on any active `secrets.*_EMAIL` for these four names or the retired `CANARY_PASSWORD`.
+Operator state (verified): the four email **Secrets are deleted**, the four email **Variables are
+configured**, and all four password Secrets are present. Admin, canary, RC gates, benchmarks, and
+live-release workflows must not be dispatched on a `main` that still reads the deleted email Secrets —
+dispatch only after this cutover merges.
+
+**✅ Completed deletions (operator, 2026-08-15) — verified names-only via `gh secret list`:**
+1. `CANARY_PASSWORD` (retired ambiguous single canary password);
+2. `CANARY_TRIAL_EMAIL` **Secret** copy (identifier now a Variable);
+3. `CANARY_PAID_EMAIL` **Secret** copy (identifier now a Variable);
+4. `FREE_TEST_EMAIL` **Secret** copy (identifier now a Variable);
+5. `PRO_TEST_EMAIL` **Secret** copy (identifier now a Variable).
+
+Retained: the four email **Variables** (`CANARY_TRIAL_EMAIL`, `CANARY_PAID_EMAIL`, `FREE_TEST_EMAIL`,
+`PRO_TEST_EMAIL`) and the four password **Secrets** (`CANARY_TRIAL_PASSWORD`, `CANARY_PAID_PASSWORD`,
+`FREE_TEST_PASSWORD`, `PRO_TEST_PASSWORD`).
 
 ## C. `VITE_DEV_PREMIUM_ACCESS`
 

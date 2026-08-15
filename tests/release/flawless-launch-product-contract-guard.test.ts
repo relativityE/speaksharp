@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import {
   HISTORICAL_EXCLUSIONS,
   isExcluded,
@@ -8,12 +8,40 @@ import {
 } from '../../scripts/lib/product-contract-guard.mjs';
 
 describe('flawless-launch product-contract guard (#1290)', () => {
+  // #1294 sourcing split, repo-wide: every test-account EMAIL is an identifier (GitHub Variable) and every
+  // PASSWORD is a credential (Secret). The email Secret copies were deleted, so ANY active workflow that
+  // still reads `secrets.<name>_EMAIL` would resolve empty at runtime — fail closed here at static time.
+  it('no active workflow reads a test-account email from Secrets, or the retired canary password', () => {
+    const WF_DIR = '.github/workflows';
+    const forbidden = [
+      'secrets.CANARY_TRIAL_EMAIL',
+      'secrets.CANARY_PAID_EMAIL',
+      'secrets.FREE_TEST_EMAIL',
+      'secrets.PRO_TEST_EMAIL',
+      'secrets.CANARY_PASSWORD',
+      'CANARY_PASSWORD:',
+    ];
+    const hits: string[] = [];
+    for (const f of readdirSync(WF_DIR).filter((n) => n.endsWith('.yml') || n.endsWith('.yaml'))) {
+      const text = readFileSync(`${WF_DIR}/${f}`, 'utf8');
+      for (const token of forbidden) if (text.includes(token)) hits.push(`${f}: ${token}`);
+    }
+    expect(hits, `forbidden email-Secret / retired-token refs in workflows:\n${hits.join('\n')}`).toEqual([]);
+  });
+
   it('keeps both canary identities protected and fail-closed behind migration readiness', () => {
     const workflow = readFileSync('.github/workflows/canary.yml', 'utf8');
 
-    expect(workflow).toContain('secrets.CANARY_TRIAL_EMAIL');
-    expect(workflow).toContain('secrets.CANARY_PAID_EMAIL');
+    // #1294 sourcing split: canary EMAILS resolve from repository Variables, PASSWORDS from Secrets.
+    expect(workflow).toContain('vars.CANARY_TRIAL_EMAIL');
+    expect(workflow).toContain('vars.CANARY_PAID_EMAIL');
+    expect(workflow).not.toContain('secrets.CANARY_TRIAL_EMAIL');
+    expect(workflow).not.toContain('secrets.CANARY_PAID_EMAIL');
     expect(workflow).toContain('secrets.CANARY_TRIAL_PASSWORD');
+    expect(workflow).toContain('secrets.CANARY_PAID_PASSWORD');
+    // The retired ambiguous single canary password must never reappear in the workflow.
+    expect(workflow).not.toContain('CANARY_PASSWORD:');
+    expect(workflow).not.toContain('secrets.CANARY_PASSWORD');
     expect(workflow).toContain('node scripts/canary-identity-config.mjs');
     expect(workflow).toContain('needs.migration-readiness.outputs.ready');
     expect(workflow).toContain('HOLD — migration pending; canary not executed');
@@ -49,7 +77,7 @@ describe('flawless-launch product-contract guard (#1290)', () => {
       ['product_release/PRODUCT_REQUIREMENTS.md', 'Daily and monthly accumulated-minute quotas are retired.'],
       ['product_release/PRODUCT_REQUIREMENTS.md', 'The former $9.99 price is rejected; launch pricing is exactly $10.'],
       ['.github/workflows/release.yml', "EXPECTED_STRIPE_PRO_AMOUNT: '1000'"],
-      ['.github/workflows/canary.yml', 'CANARY_EMAIL: ${{ secrets.CANARY_PAID_EMAIL }}'],
+      ['.github/workflows/canary.yml', 'CANARY_EMAIL: ${{ vars.CANARY_PAID_EMAIL }}'],
     ] as const;
 
     for (const [path, source] of fixtures) {

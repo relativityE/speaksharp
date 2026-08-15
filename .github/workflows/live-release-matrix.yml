@@ -46,7 +46,7 @@ jobs:
           VITE_SKIP_MSW: 'true'
           BASE_URL: https://speaksharp-public.vercel.app/
           # Canonical Free-account credentials (the spec authenticates as an ordinary Free-fixture user).
-          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL }}
+          FREE_TEST_EMAIL: ${{ vars.FREE_TEST_EMAIL }}
           FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
         run: pnpm exec playwright test tests/live/user-filler-words-persistence.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
@@ -78,7 +78,7 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
           ZERO_HF_AUDIT_REQUIRED: ${{ github.event.inputs.zero_hf_audit || 'false' }}
@@ -141,7 +141,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
         run: pnpm exec playwright test tests/live/stripe-checkout-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
@@ -174,7 +174,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           # TEST proof (PRO_TEST is a test-mode customer) → explicit test-scoped key.
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
         run: pnpm exec playwright test tests/live/stripe-billing-portal-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 

@@ -103,7 +103,7 @@ jobs:
           VITE_SKIP_MSW: 'true'
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
@@ -133,8 +133,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL }}
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          FREE_TEST_EMAIL: ${{ vars.FREE_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
         run: pnpm verify:test-users
       - name: Run DAST Live Gate
         if: ${{ github.event.inputs.diagnostic_dast_spec == '' }}
@@ -153,9 +153,9 @@ jobs:
           VITE_SKIP_MSW: 'true'
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
-          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL }}
+          FREE_TEST_EMAIL: ${{ vars.FREE_TEST_EMAIL }}
           FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
@@ -186,9 +186,9 @@ jobs:
           # signature matches the deployed Supabase live verifier; the spec fails fast if it's absent.
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
           STRIPE_LIVE_WEBHOOK_SECRET: ${{ secrets.STRIPE_LIVE_WEBHOOK_SECRET }}
-          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL }}
+          FREE_TEST_EMAIL: ${{ vars.FREE_TEST_EMAIL }}
           FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           # stripe-checkout-readiness resolves CHECKOUT_TEST_EMAIL FIRST (then FREE/PRO).
           # Expose it so the paid checkout proof authenticates as the dedicated checkout-live-proof
@@ -215,9 +215,9 @@ jobs:
           VITE_SKIP_MSW: 'true'
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
-          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL }}
+          FREE_TEST_EMAIL: ${{ vars.FREE_TEST_EMAIL }}
           FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           EDGE_FN_URL: ${{ vars.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
