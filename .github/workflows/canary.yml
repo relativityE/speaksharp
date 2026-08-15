@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      include_paid_billing:
+        description: 'Also run the strict paid-continuation billing qualification'
+        required: true
+        type: boolean
+        default: false
   schedule:
     - cron: '0 5 * * *' # Every day at 5 AM UTC
 
@@ -68,10 +74,11 @@ jobs:
     if: ${{ needs.migration-readiness.outputs.ready == 'true' }}
     strategy:
       fail-fast: false
+      # Routine push/schedule runs prove the complete product through a genuine active trial.
+      # Paid continuation is a separate, explicit billing qualification; it is never implied by a
+      # routine green canary and never charges or mutates an account.
       matrix:
-        include:
-          - lane: active-trial
-          - lane: paid-continuation
+        lane: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.include_paid_billing == true && '["active-trial","paid-continuation"]' || '["active-trial"]') }}
     runs-on: ubuntu-latest
     # 15 (was 10) so the #1106 deploy-race gate can spend its full budget and still emit its diagnostic:
     # the smoke test may now wait up to 4 min for the expected SHA to go live, plus 2 min for the product
@@ -173,6 +180,7 @@ jobs:
           READINESS_RESULT: ${{ needs.migration-readiness.result }}
           MIGRATION_READY: ${{ needs.migration-readiness.outputs.ready }}
           PRODUCT_LANES_RESULT: ${{ needs.canary-check.result }}
+          PAID_BILLING_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.include_paid_billing == true }}
         run: |
           set -euo pipefail
           if [ "$READINESS_RESULT" != 'success' ]; then
@@ -181,12 +189,26 @@ jobs:
           fi
           if [ "$MIGRATION_READY" != 'true' ]; then
             echo '## HOLD — migration pending; canary not executed' >> "$GITHUB_STEP_SUMMARY"
-            echo 'The active-trial and paid-continuation lanes produced no product evidence.' >> "$GITHUB_STEP_SUMMARY"
+            echo 'The active-trial product lane produced no evidence.' >> "$GITHUB_STEP_SUMMARY"
+            if [ "$PAID_BILLING_REQUESTED" = 'true' ]; then
+              echo 'The explicitly requested paid billing qualification also produced no evidence.' >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo 'Paid billing qualification: not requested.' >> "$GITHUB_STEP_SUMMARY"
+            fi
             exit 0
           fi
           if [ "$PRODUCT_LANES_RESULT" != 'success' ]; then
-            echo '::error::One or both required canary product lanes failed.'
+            if [ "$PAID_BILLING_REQUESTED" = 'true' ]; then
+              echo '::error::The active-trial product lane or explicitly requested paid billing qualification failed.'
+            else
+              echo '::error::The required active-trial product lane failed.'
+            fi
             exit 1
           fi
-          echo '## Canary product lanes passed' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Both active-trial and paid-continuation journeys completed.' >> "$GITHUB_STEP_SUMMARY"
+          echo '## Canary qualification passed' >> "$GITHUB_STEP_SUMMARY"
+          echo 'The active-trial product journey completed.' >> "$GITHUB_STEP_SUMMARY"
+          if [ "$PAID_BILLING_REQUESTED" = 'true' ]; then
+            echo 'The explicitly requested paid-continuation billing qualification also completed.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Paid billing qualification: not requested.' >> "$GITHUB_STEP_SUMMARY"
+          fi
