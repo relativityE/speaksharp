@@ -169,7 +169,7 @@ jobs:
             *) echo '::error::Billing qualification requires a Stripe TEST secret key (sk_test_...).'; exit 1 ;;
           esac
           # Deno runs the REAL stripe-webhook handler against an ephemeral migrated PGlite DB (no prod Supabase).
-          deno run --node-modules-dir=auto --allow-read --allow-write --allow-env --allow-net --allow-ffi --allow-sys \
+          deno run --config scripts/billing-qualification/deno.json --node-modules-dir=auto --allow-read --allow-write --allow-env --allow-net --allow-ffi --allow-sys \
             scripts/billing-qualification/qualify.ts
 
       # Admin hygiene is SEPARATE from the tester-equivalent product smoke above and runs regardless of

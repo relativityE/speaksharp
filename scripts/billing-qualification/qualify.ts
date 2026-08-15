@@ -4,7 +4,7 @@
 // Emits only sanitized evidence (no secrets/PII). Run by canary.yml on the weekly schedule.
 import Stripe from "npm:stripe@16";
 import { handler } from "../../backend/supabase/functions/stripe-webhook/index.ts";
-import { runBillingQualification } from "./runner.ts";
+import { runBillingQualification, type StripeLike } from "./runner.ts";
 
 const env = (k: string) => Deno.env.get(k);
 const secretKey = env("STRIPE_SECRET_KEY") ?? "";
@@ -21,7 +21,9 @@ async function main() {
 
   const stripe = new Stripe(secretKey, { apiVersion: "2024-06-20" as Stripe.LatestApiVersion });
   const out = await runBillingQualification({
-    stripe,
+    // The runner speaks to a deliberately minimal StripeLike surface (the handful of calls the lifecycle uses);
+    // the full SDK is a structural superset, so narrow it to that contract at this single boundary.
+    stripe: stripe as unknown as StripeLike,
     handler,
     secretKey,
     webhookSecret,

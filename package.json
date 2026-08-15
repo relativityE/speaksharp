@@ -33,7 +33,7 @@
     "test:full": "pnpm quality && pnpm test:unit && pnpm build:test && pnpm test:e2e",
     "test:unit": "cross-env CI=true vitest run --config frontend/vitest.config.mjs",
     "test:edge": "deno test --config backend/supabase/functions/deno.json --allow-env --allow-net backend/supabase/functions",
-    "test:billing-qualification": "deno test --node-modules-dir=auto --allow-read --allow-write --allow-env --allow-net --allow-ffi --allow-sys scripts/billing-qualification/",
+    "test:billing-qualification": "deno test --config scripts/billing-qualification/deno.json --node-modules-dir=auto --allow-read --allow-write --allow-env --allow-net --allow-ffi --allow-sys scripts/billing-qualification/",
     "test:e2e": "pnpm build:test && playwright test",
     "test:int:local": "node scripts/pnpm-only.mjs && cross-env VITE_USE_LIVE_DB=true playwright test tests/live/auth.live.spec.ts tests/live/upgrade.live.spec.ts tests/live/analytics-journey.live.spec.ts --config=playwright.live.config.ts",
     "test:system:local:headed": "cross-env VITE_USE_LIVE_DB=true playwright test tests/live --config=playwright.live.config.ts",
