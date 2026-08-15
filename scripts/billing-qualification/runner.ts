@@ -48,12 +48,16 @@ export interface RunnerDeps {
   secretKey: string;
   webhookSecret: string;
   priceId: string;
-  frozenTime: number; // unix seconds; injected (Date.now() is unavailable / non-deterministic in tests)
+  frozenTime: number; // the test CLOCK's simulated unix seconds (drives frozen_time + event.created), NOT signing time
   okPaymentMethod?: string;
   failPaymentMethod?: string;
   log?: (m: string) => void;
   clockTimeoutMs?: number;
   makeDb?: typeof migratedDb;
+  // REAL wall-clock seconds used to stamp each webhook SIGNATURE. Stripe's verifier rejects a signature whose
+  // timestamp is outside its tolerance (~5 min) of now, so this MUST be the current time at each POST — never the
+  // test clock's frozen time. Injectable only so a test can force a stale stamp and prove the verifier rejects it.
+  signingNowSeconds?: () => number;
 }
 
 /** Fail closed unless Stripe is PROVABLY in test mode before any object is created. Throws on any live signal.
@@ -115,7 +119,9 @@ async function applyEvent(
   deps: RunnerDeps, supabase: SupabaseLike, event: Record<string, unknown>, phase: string,
 ): Promise<void> {
   const body = JSON.stringify(event);
-  const ts = deps.frozenTime;
+  // Sign with a FRESH real-wall-clock timestamp at POST time — Stripe's verifier rejects anything outside its
+  // ~5-min tolerance, and the test clock's frozen_time (spanning +32/64/96 days) would always be rejected.
+  const ts = (deps.signingNowSeconds ?? (() => Math.floor(Date.now() / 1000)))();
   const req = new Request("https://webhook.local/stripe-webhook", {
     method: "POST",
     headers: { "Stripe-Signature": signature(body, deps.webhookSecret, ts), "Content-Type": "application/json" },

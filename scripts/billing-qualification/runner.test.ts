@@ -5,8 +5,14 @@
 // livemode comes from Balance (not Account), and the subscription only becomes active again once the failed
 // invoice is genuinely paid.
 import { assert, assertEquals, assertRejects, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import Stripe from "npm:stripe@16";
 import { handler } from "../../backend/supabase/functions/stripe-webhook/index.ts";
 import { runBillingQualification, assertStripeTestMode, REQUIRED_PHASES } from "./runner.ts";
+
+// The REAL Stripe SDK signature verifier (pure crypto, no network). The fake Stripe delegates webhook
+// verification to this, so every event's signature scheme AND ~5-min timestamp tolerance are genuinely
+// enforced — a stale or forged signature is rejected exactly as Stripe would reject it in production.
+const REAL_VERIFIER = new Stripe("sk_test_verifieronly", { apiVersion: "2024-06-20" as Stripe.LatestApiVersion });
 
 const PRICE = "price_test_pro";
 const OK_PM = "pm_card_visa";
@@ -59,7 +65,8 @@ function fakeStripe(opts: { livemode?: boolean; failCleanup?: boolean; badCustom
         del: (id: string) => { rec("testClocks.del", id); if (!opts.failCleanup) deleted.add(id); return Promise.resolve({ id, deleted: !opts.failCleanup }); },
       },
     },
-    webhooks: { constructEventAsync: (body: string) => JSON.parse(body) },
+    // Delegate to the REAL Stripe verifier so the runner's signature (scheme + fresh timestamp) is truly proven.
+    webhooks: { constructEventAsync: (body: string, sig: string, secret: string) => REAL_VERIFIER.webhooks.constructEventAsync(body, sig, secret) },
   };
 }
 
@@ -90,6 +97,22 @@ Deno.test("full lifecycle proves every phase, with a REAL failed-invoice recover
   assert(payIdx > 0 && payIdx < cancelIdx, "the failed invoice is paid before scheduling cancellation");
   for (let i = 0; i < order.length; i++) if (order[i] === "testClocks.advance") assertEquals(order[i + 1], "testClocks.retrieve", "every advance is followed by a clock-ready poll");
   assert(order.includes("testClocks.del"), "the run-owned clock is deleted");
+});
+
+Deno.test("each webhook is signed with a FRESH timestamp; a stale one is rejected by the real verifier", async () => {
+  // Sanity: the default (fresh) path is accepted end-to-end by the REAL verifier — the full lifecycle passes.
+  assertEquals((await runBillingQualification(baseDeps(fakeStripe()))).result, "PASSED");
+
+  // Force every signature ~10 min in the past — beyond Stripe's ~5-min tolerance. The real verifier must reject
+  // the FIRST event, so the run fails at checkout and never advances into the subscription lifecycle. This is
+  // exactly the production failure mode of reusing the job's original timestamp across a multi-day test clock.
+  const stripe = fakeStripe();
+  await assertRejects(
+    () => runBillingQualification({ ...baseDeps(stripe), signingNowSeconds: () => Math.floor(Date.now() / 1000) - 600 }),
+    Error,
+    "handler returned HTTP",
+  );
+  assert(!stripe.calls.some((c) => c.m === "invoices.pay"), "a rejected signature must not advance to invoice recovery");
 });
 
 Deno.test("preflight uses Balance.livemode and fails closed on any live/misaligned signal", () => {
