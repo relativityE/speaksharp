@@ -109,39 +109,58 @@ type ConsoleIssue = { userIndex?: number; type: string; text: string; phase?: En
 export type BenignAbortEvent = { userIndex: number; category: string; phase: EndurancePhase; ts: number };
 const BENIGN_NAVIGATION_CONSOLE_ERRORS: readonly { re: RegExp; category: string }[] = [
     { re: /Error calling set_user_timezone/, category: 'timezone_preference' },
-    { re: /sessionService\.getRecentReviewable|Unable to load your session history/, category: 'session_history_read' },
+    { re: /sessionService\.getRecentReviewable|Unable to load your session history|Error fetching session history/, category: 'session_history_read' },
 ] as const;
 
 const ABORT_CORRELATION_WINDOW_MS = 5000;
+// A single aborted fetch is logged by the app as BOTH a raw-fetch line and a caught-error line (observed ~same
+// millisecond). Same-user + same-category benign logs within this tight window are that ONE event double-logged
+// — one abort excuses them together. It is far smaller than the gap between two genuinely distinct events.
+const SAME_EVENT_DOUBLE_LOG_WINDOW_MS = 250;
 const OUTSIDE_ACTIVE = (phase: EndurancePhase | undefined): boolean =>
     phase === 'setup' || phase === 'navigation' || phase === 'teardown';
 
 /**
- * The console errors that must FAIL the run. Each benign navigation-abort console log is suppressed ONLY when it
- * can be correlated to a distinct, still-unconsumed ERR_ABORTED event for the SAME user, the SAME endpoint
- * category, a non-active phase, and within ±ABORT_CORRELATION_WINDOW_MS. Each abort is consumed at most once, so
- * one abort can never excuse a second error, one user's abort can never excuse another user's error, and a stale
- * abort can never excuse a later out-of-window error. Everything else — genuine HTTP/runtime errors (no abort),
- * any active-phase error, unrelated errors — is returned as failing. `consoleIssues` is never mutated (raw
- * evidence is preserved by the caller). Pure + exported so the correlation is unit-tested, incl. negative cases.
+ * The console errors that must FAIL the run. A benign navigation-abort console log is suppressed ONLY when it
+ * correlates to a distinct, still-unconsumed ERR_ABORTED event for the SAME user, the SAME endpoint category, a
+ * non-active phase, and within ±ABORT_CORRELATION_WINDOW_MS — and each abort is consumed AT MOST ONCE. A single
+ * aborted fetch that the app double-logs (both lines within SAME_EVENT_DOUBLE_LOG_WINDOW_MS of an already-
+ * suppressed same-user/category log) is that one event and is excused WITHOUT consuming a second abort; two
+ * genuinely distinct benign errors each still require their own abort. Consequences: one user's abort can never
+ * excuse another user's error; one abort can never excuse a second DISTINCT error; a stale abort can never excuse
+ * a later out-of-window error; and any genuine HTTP/runtime error (no abort), active-phase error, or unrelated
+ * error is returned as failing. `consoleIssues` is never mutated (raw evidence is preserved by the caller).
+ * Pure + exported so the correlation is unit-tested, incl. all negative cases.
  */
 export function filterFailingConsoleErrors(
     consoleIssues: readonly ConsoleIssue[],
     abortEvents: readonly BenignAbortEvent[],
 ): ConsoleIssue[] {
     const pool = abortEvents.map((a) => ({ event: a, used: false }));
+    const lastSuppressedTsByKey = new Map<string, number>(); // `${userIndex}|${category}` -> ts last suppressed
     const failing: ConsoleIssue[] = [];
     for (const issue of consoleIssues) {
         if (issue.type !== 'error') continue;
         const pattern = OUTSIDE_ACTIVE(issue.phase)
             ? BENIGN_NAVIGATION_CONSOLE_ERRORS.find((p) => p.re.test(issue.text))
             : undefined;
-        const slot = pattern && pool.find((s) => !s.used
-            && s.event.userIndex === issue.userIndex
-            && s.event.category === pattern.category
-            && OUTSIDE_ACTIVE(s.event.phase)
-            && (issue.ts === undefined || Math.abs(issue.ts - s.event.ts) <= ABORT_CORRELATION_WINDOW_MS));
-        if (slot) { slot.used = true; continue; } // suppressed by exactly one correlated, now-consumed abort
+        if (pattern) {
+            const key = `${issue.userIndex}|${pattern.category}`;
+            const lastTs = lastSuppressedTsByKey.get(key);
+            if (lastTs !== undefined && issue.ts !== undefined && Math.abs(issue.ts - lastTs) <= SAME_EVENT_DOUBLE_LOG_WINDOW_MS) {
+                continue; // duplicate line of an already-suppressed aborted event — no new abort consumed
+            }
+            const slot = pool.find((s) => !s.used
+                && s.event.userIndex === issue.userIndex
+                && s.event.category === pattern.category
+                && OUTSIDE_ACTIVE(s.event.phase)
+                && (issue.ts === undefined || Math.abs(issue.ts - s.event.ts) <= ABORT_CORRELATION_WINDOW_MS));
+            if (slot) {
+                slot.used = true;
+                if (issue.ts !== undefined) lastSuppressedTsByKey.set(key, issue.ts);
+                continue; // suppressed by exactly one correlated, now-consumed abort
+            }
+        }
         failing.push(issue);
     }
     return failing;

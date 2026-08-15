@@ -213,12 +213,22 @@ describe('filterFailingConsoleErrors — per-event abort correlation, consumed o
         expect(out[0].userIndex).toBe(1);
     });
 
-    // NEGATIVE (RETURN #4b): one abort cannot suppress two errors — it is consumed once.
-    it('FAILS: one abort cannot suppress two errors (consumed once)', () => {
+    // NEGATIVE (RETURN #4b): one abort cannot suppress two DISTINCT errors (>double-log window apart).
+    it('FAILS: one abort cannot suppress two distinct errors (consumed once)', () => {
         const out = filterFailingConsoleErrors(
-            [err(0, TZ, 'setup', 1000), err(0, TZ, 'setup', 1200)],
+            [err(0, TZ, 'setup', 1000), err(0, TZ, 'setup', 2000)], // 1s apart → distinct events, not a double-log
             [abort(0, 'timezone_preference', 'setup', 1050)]);
-        expect(out).toHaveLength(1); // the first is suppressed; the second has no unconsumed abort → fails
+        expect(out).toHaveLength(1); // the first is suppressed; the second (distinct) has no unconsumed abort → fails
+    });
+
+    // A single aborted fetch double-logged by the app (both lines ~same instant) is ONE event: one abort excuses
+    // both, without consuming a second abort. This is what user 1 hit in the deployed run (1 abort, 2 lines).
+    it('SUPPRESSES both lines of a single aborted event double-log with ONE abort', () => {
+        const out = filterFailingConsoleErrors(
+            [err(1, 'Error fetching session history from https://x', 'setup', 1000),
+             err(1, 'Unable to load your session history', 'setup', 1000)], // same-ms double-log of ONE abort
+            [abort(1, 'session_history_read', 'setup', 1010)]);
+        expect(out).toHaveLength(0);
     });
 
     // NEGATIVE (RETURN #4c): a stale abort cannot suppress a later error outside the correlation window.
@@ -248,10 +258,10 @@ describe('filterFailingConsoleErrors — per-event abort correlation, consumed o
         expect(out).toHaveLength(0);
     });
 
-    it('two distinct aborts (same user/category) suppress exactly two matching errors, no more', () => {
+    it('two distinct aborts (same user/category) suppress exactly two DISTINCT errors, no more', () => {
         const out = filterFailingConsoleErrors(
-            [err(0, TZ, 'setup', 1000), err(0, TZ, 'setup', 1100), err(0, TZ, 'setup', 1200)],
-            [abort(0, 'timezone_preference', 'setup', 1000), abort(0, 'timezone_preference', 'setup', 1100)]);
-        expect(out).toHaveLength(1); // 2 suppressed, the 3rd fails
+            [err(0, TZ, 'setup', 1000), err(0, TZ, 'setup', 1400), err(0, TZ, 'setup', 1800)], // 400ms apart → distinct
+            [abort(0, 'timezone_preference', 'setup', 1000), abort(0, 'timezone_preference', 'setup', 1400)]);
+        expect(out).toHaveLength(1); // 2 distinct suppressed by 2 aborts; the 3rd distinct fails
     });
 });
