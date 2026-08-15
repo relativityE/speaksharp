@@ -18,6 +18,9 @@ describe('flawless-launch product-contract guard (#1290)', () => {
     expect(workflow).not.toContain('secrets.CANARY_PAID_EMAIL');
     expect(workflow).toContain('secrets.CANARY_TRIAL_PASSWORD');
     expect(workflow).toContain('secrets.CANARY_PAID_PASSWORD');
+    // The retired ambiguous single canary password must never reappear in the workflow.
+    expect(workflow).not.toContain('CANARY_PASSWORD:');
+    expect(workflow).not.toContain('secrets.CANARY_PASSWORD');
     expect(workflow).toContain('node scripts/canary-identity-config.mjs');
     expect(workflow).toContain('needs.migration-readiness.outputs.ready');
     expect(workflow).toContain('HOLD — migration pending; canary not executed');

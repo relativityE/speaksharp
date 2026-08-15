@@ -19,6 +19,8 @@ const EXCLUDED_PATHS = [
   // attack-surface audit (to schedule the post-merge deletion of those exact Secret names).
   'tests/deps/no-legacy-basic-canary-tokens.test.js',
   'tests/unit/adminTestUsersWorkflowContract.test.js',
+  // #1294: this guard asserts the workflow does NOT contain the retired token — it must name it to do so.
+  'tests/release/flawless-launch-product-contract-guard.test.ts',
   'product_release/SECRETS_ATTACK_SURFACE_AUDIT.md',
 ];
 const SCANNED_EXT = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.yml', '.yaml', '.md', '.json', '.example', '.sh', '.toml']);

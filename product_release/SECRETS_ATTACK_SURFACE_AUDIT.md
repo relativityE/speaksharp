@@ -70,6 +70,14 @@ present (value never logged). Operator state (verified): the email **Secrets are
 **Variables are configured**, and both password Secrets are present. Admin/canary must not be dispatched on a
 `main` that still reads the deleted email Secrets — dispatch only after this cutover merges.
 
+**✅ Completed deletions (operator, 2026-08-15) — verified names-only via `gh secret list`:**
+1. `CANARY_PASSWORD` (retired ambiguous single canary password);
+2. `CANARY_TRIAL_EMAIL` **Secret** copy (identifier now a Variable);
+3. `CANARY_PAID_EMAIL` **Secret** copy (identifier now a Variable).
+
+Retained: the two email **Variables** (`CANARY_TRIAL_EMAIL`, `CANARY_PAID_EMAIL`) and the two password
+**Secrets** (`CANARY_TRIAL_PASSWORD`, `CANARY_PAID_PASSWORD`).
+
 ## C. `VITE_DEV_PREMIUM_ACCESS`
 
 Not present in repository Secrets or Variables, and not consumed by shipping `frontend/src` or any workflow.
