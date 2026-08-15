@@ -71,16 +71,43 @@ describe('SessionOverhaulView (#1222 S11)', () => {
 describe('SessionOverhaulView Focus Points (#1046)', () => {
     const POINTS = ['Name the price', 'State the guarantee'];
 
-    it('objective before → NO coverage/pace card (slot C absent), points rail present; no prompt offer', () => {
+    // #1255: Focus Points `before` renders the fixed Slot C (guide-only Coverage & pace), like Open Mic.
+    it('objective before (no guide) → Slot C Coverage & pace = 0/N points covered, NO pace half; rail present', () => {
         render(<SessionOverhaulView {...base} objectivePoints={POINTS} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
-        // §2: Slot C does not render in `before` — the rail begins with Slot D (the one intentional break).
-        expect(screen.queryByTestId('coverage-pace')).toBeNull();
-        expect(screen.queryByTestId('session-slot-c')).toBeNull();
+        expect(screen.getByTestId('session-slot-c')).toContainElement(screen.getByTestId('coverage-pace'));
+        // Dominant numerator 0, smaller denominator /2 as SEPARATE elements.
+        expect(screen.getByTestId('coverage-pace-covered')).toHaveTextContent('0');
+        expect(screen.getByTestId('coverage-pace-total')).toHaveTextContent('/2');
+        expect(screen.getByTestId('coverage-pace-covered').className).toContain('text-[40px]');
+        expect(screen.getByTestId('coverage-pace-total').className).toContain('text-[26px]');
+        // No guide → no pace half at all; and NEVER a measured/current pace, projection, bar, or nudge.
+        for (const id of ['coverage-pace-guide', 'coverage-pace-planned', 'coverage-pace-perpoint', 'coverage-pace-projection', 'coverage-pace-bar', 'coverage-pace-nudge']) {
+            expect(screen.queryByTestId(id)).toBeNull();
+        }
+        expect(screen.queryByText(/current pace|at this pace/i)).toBeNull();
         expect(screen.getByTestId('focus-points-rail')).toBeInTheDocument();
         expect(screen.getByTestId('focus-point-0')).toHaveTextContent('Name the price');
-        // The Open-Mic prompt offer does not belong on Focus Points.
         expect(screen.queryByTestId('prompt-offer')).toBeNull();
+        // Slot D owns the ordered list; it must NOT repeat the aggregate fraction.
+        expect(screen.queryByText(/of 2 points covered/i)).toBeNull();
+    });
+
+    it('objective before WITH a pace guide → guide value + "pace guide" + planned total; never a measured pace/projection', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={POINTS} objectivePaceGuideSecPerPoint={60} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        const guide = screen.getByTestId('coverage-pace-guide');
+        expect(guide).toHaveTextContent('1:00');
+        expect(guide).toHaveTextContent('/point');
+        expect(guide).toHaveTextContent(/pace guide/i);
+        expect(guide).not.toHaveTextContent(/current pace/i);
+        expect(screen.getByTestId('coverage-pace-planned')).toHaveTextContent('2:00 guide'); // 60s guide × 2 points
+        expect(screen.getByTestId('coverage-pace-covered')).toHaveTextContent('0');
+        // No measured pace, projection, progress bar, countdown, over-guide, or nudge before recording.
+        for (const id of ['coverage-pace-perpoint', 'coverage-pace-projection', 'coverage-pace-bar', 'coverage-pace-nudge']) {
+            expect(screen.queryByTestId(id)).toBeNull();
+        }
+        expect(screen.queryByText(/current pace|at this pace|actual|remaining|left\b/i)).toBeNull();
     });
 
     it('objective during → Coverage & pace shows the count and a covered point ticks in slot D', () => {

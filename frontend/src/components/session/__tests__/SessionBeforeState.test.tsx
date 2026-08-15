@@ -40,4 +40,18 @@ describe('SessionBeforeState (#1222 before)', () => {
             expect(screen.queryByRole('combobox', { name: label })).toBeNull();
         }
     });
+
+    // #1255 — Focus Points supplies its own Slot C (the guide-only Coverage & pace card). Slot C is never
+    // omitted: the shell renders whatever slotCContent is passed, replacing the default Progress vs baseline.
+    it('renders a supplied slotCContent in the fixed Slot C, replacing the default progress card', () => {
+        render(
+            <SessionBeforeState
+                {...props}
+                slotCContent={<div data-testid="fp-slot-c">Coverage &amp; pace</div>}
+            />,
+        );
+        expect(screen.getByTestId('session-slot-c')).toContainElement(screen.getByTestId('fp-slot-c'));
+        // The Focus Points card supersedes Open Mic's default; the two never render together.
+        expect(screen.queryByTestId('progress-vs-baseline')).toBeNull();
+    });
 });

@@ -290,8 +290,12 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         guideSecPerPoint,
         nextPointNumber: coverage && coverage.nextIndex != null ? coverage.nextIndex + 1 : null,
     });
-    // §2 Slot C — Coverage & pace. NOT rendered in `before` (the rail begins with Slot D). during carries the
-    // live nudge; after freezes the bar and shows `actual`.
+    // §2 Slot C — Coverage & pace, in the fixed Slot C across all three states (#1255). before is guide-only
+    // (`0/N points covered` + the configured guide, no measured pace); during carries the live nudge; after
+    // freezes the bar and shows `actual`.
+    const objectiveBeforeSlotC = coverage
+        ? <CoveragePace covered={0} total={coverage.total} elapsedSec={0} guideSecPerPoint={guideSecPerPoint} sessionState="before" />
+        : undefined;
     const objectiveDuringSlotC = coverage
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={elapsedTime} guideSecPerPoint={guideSecPerPoint} sessionState="during" nudge={nudge} />
         : undefined;
@@ -312,7 +316,6 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         return (
             <>
                 <SessionBeforeState
-                    hideSlotC={isObjective}
                     slotDContent={objectivePlanSlotD}
                     // #1264 — the Practice Focus chooser is Open Mic only; Focus Points owns slot D (the rail).
                     practiceFocus={isObjective ? null : practiceFocus}
@@ -341,7 +344,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                         hidePromptOffer: isObjective,
                     }}
                     progress={progress}
-                    slotCContent={!isObjective ? <ComparableProgressNotice sessionState="before" /> : undefined}
+                    slotCContent={isObjective ? objectiveBeforeSlotC : <ComparableProgressNotice sessionState="before" />}
                 />
                 {/* #1222 G1: the custom filler-word manager is a full-width bar BELOW the 2-col shell in the
                     before-state — "Tracking N filler words" left, "Add your filler words" right.

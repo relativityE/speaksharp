@@ -46,9 +46,9 @@ export const SessionShell: React.FC<SessionShellProps> = ({ sessionState, slotA,
             </div>
             {/* Rail: C sizes to content, D fills. */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
-                {/* Slot C sizes to content; when it has no content (Focus Points `before` — §2's one
-                    intentional break, "this one card arrives late") the section is omitted entirely so the
-                    rail begins cleanly with Slot D rather than leaving a gap. */}
+                {/* Slot C sizes to content. #1255: Focus Points before/during/after all render Slot C, as does
+                    Open Mic — the fixed-slot contract has no per-product exception. The generic null guard
+                    remains only so a genuinely content-less slot degrades cleanly rather than leaving a gap. */}
                 {slotC != null && slotC !== false && (
                     <section data-slot="C" data-testid="session-slot-c" aria-label="Progress" style={{ flex: '0 0 auto' }}>
                         {slotC}

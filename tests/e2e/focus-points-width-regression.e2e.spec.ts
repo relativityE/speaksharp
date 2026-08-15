@@ -13,9 +13,9 @@ import {
  * #1046 G6/G7 §7.9 — the regression pass. The four slots must hold position across before/during/after at
  * 1280 / 1440 / 1024, and no card may stretch past its content or overflow the page horizontally.
  *
- * Focus Points has one intentional break from the shared slot map: Slot C (Coverage & pace) does NOT render
- * in `before` — the rail begins with Slot D — so `before` asserts A/B/D present and C absent, while
- * during/after assert all four.
+ * #1255 — Focus Points has NO per-product break from the shared slot map: Slot C (Coverage & pace) renders
+ * in every state, before included (guide-only in before). All three states assert all four slots present and
+ * the coverage-pace card visible.
  *
  * The AFTER sweep also guards a real regression this test caught: on save the LIVE brief is cleared (the
  * Open-Mic isolation invariant), which used to strip the whole FP review screen. The finished-brief SNAPSHOT
@@ -32,23 +32,19 @@ async function assertNoHorizontalOverflow(page: Page, label: string) {
   expect(overflow, `horizontal overflow at ${label}`).toBeLessThanOrEqual(1);
 }
 
-async function assertSlots(page: Page, state: 'before' | 'during' | 'after') {
+async function assertSlots(page: Page) {
+  // #1255 — all four slots present in every state, Coverage & pace included (guide-only in before).
   await expect(page.getByTestId('session-slot-a')).toBeVisible();
   await expect(page.getByTestId('session-slot-b')).toBeVisible();
+  await expect(page.getByTestId('session-slot-c')).toBeVisible();
   await expect(page.getByTestId('session-slot-d')).toBeVisible();
-  if (state === 'before') {
-    // §2 one intentional break: no Slot C in before; the rail begins with Slot D.
-    await expect(page.getByTestId('session-slot-c')).toHaveCount(0);
-  } else {
-    await expect(page.getByTestId('session-slot-c')).toBeVisible();
-    await expect(page.getByTestId('coverage-pace')).toBeVisible();
-  }
+  await expect(page.getByTestId('coverage-pace')).toBeVisible();
 }
 
 async function sweepWidths(page: Page, state: 'before' | 'during' | 'after') {
   for (const w of WIDTHS) {
     await page.setViewportSize({ width: w, height: HEIGHT });
-    await assertSlots(page, state);
+    await assertSlots(page);
     await assertNoHorizontalOverflow(page, `${state}@${w}`);
     await page.screenshot({ path: `${DIR}/fp-${state}-${w}.png`, fullPage: true });
   }

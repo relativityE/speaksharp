@@ -9,7 +9,11 @@ import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 
 /**
  * #1222 — the **before** (Prepare) state composed through the fixed 4-slot shell (spec §3):
- *   A = mic card · B = transcript + prompt offer · C = progress vs baseline · D = coaching placeholder.
+ *   A = mic card · B = transcript + prompt offer · C = Slot C card · D = coaching / points rail.
+ *
+ * #1255 — the fixed-slot contract applies to Focus Points before/during/after just as to Open Mic: Slot C is
+ * always present. Open Mic before shows Progress vs baseline (default); Focus Points before supplies its own
+ * `slotCContent` (the guide-only Coverage & pace card).
  *
  * Presentational only: every interaction is a prop the container (a later integration slice) wires to
  * `useSessionLifecycle`. Keeping the composition here lets the whole before-state render + be tested
@@ -26,20 +30,18 @@ export interface SessionBeforeStateProps {
     /** #1264 — optional Open Mic Practice Focus + its setter (Open Mic only; drives the before chooser). */
     practiceFocus?: PracticeFocus | null;
     onSelectFocus?: (focus: PracticeFocus) => void;
-    /** #1046 — Focus Points renders NO slot C in `before` (hideSlotC); Coverage & pace arrives in during/after. */
+    /** #1222/#1255 — Slot C content; defaults to Progress vs baseline (Open Mic). Focus Points passes its
+     *  guide-only Coverage & pace card here. Slot C is never omitted. */
     slotCContent?: React.ReactNode;
-    /** #1046 G6/G7 §2 — Focus Points renders NO slot C in `before` (nothing has happened yet; a `0/N`
-     *  scoreboard only says "you haven't started"). The rail begins with slot D. */
-    hideSlotC?: boolean;
 }
 
-export const SessionBeforeState: React.FC<SessionBeforeStateProps> = ({ mic, transcript, progress, progressMode, slotDContent, slotCContent, hideSlotC, practiceFocus, onSelectFocus }) => {
+export const SessionBeforeState: React.FC<SessionBeforeStateProps> = ({ mic, transcript, progress, progressMode, slotDContent, slotCContent, practiceFocus, onSelectFocus }) => {
     return (
         <SessionShell
             sessionState="before"
             slotA={<MicCard {...mic} />}
             slotB={<TranscriptCard {...transcript} />}
-            slotC={hideSlotC ? null : (slotCContent ?? <ProgressVsBaseline result={progress} sessionState="before" mode={progressMode} />)}
+            slotC={slotCContent ?? <ProgressVsBaseline result={progress} sessionState="before" mode={progressMode} />}
             slotD={slotDContent ?? <CoachingCard sessionState="before" practiceFocus={practiceFocus} onSelectFocus={onSelectFocus} />}
         />
     );

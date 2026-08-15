@@ -21,8 +21,12 @@ import {
  *     transcript uses the readable full width (not a crushed 1fr column);
  *   - on desktop the rail sits BESIDE the left column (two-column), not below it.
  *
- * The Open Mic (freeform) session renders all four slots (Focus Points intentionally hides slot C), so it
- * is the right journey to assert the full mic → transcript → progress → coaching order.
+ * The Open Mic (freeform) session renders all four slots, so it is the right journey to assert the full
+ * mic → transcript → progress → coaching order.
+ *
+ * #1255 — the fixed-slot contract has no per-product exception: Focus Points renders Slot C in the before-
+ * state too (the guide-only Coverage & pace card), not just during/after. The second test below proves the
+ * Focus Points before-state carries `coverage-pace` in Slot C and stays responsive at every width.
  */
 
 const PHONE_WIDTHS = [320, 375, 390] as const;
@@ -147,5 +151,48 @@ test.describe('#1255 — SessionShell is responsive across phone and desktop wid
     expect(first!.x, 'first bar within track (left)').toBeGreaterThanOrEqual(track!.x - 1);
     // …and the right edge of the last bar (a late filler position) is inside the track's right edge.
     expect(last!.x + last!.width, 'last bar within track (right)').toBeLessThanOrEqual(track!.x + track!.width + 1);
+  });
+
+  // #1255 — Focus Points before-state now fills the SAME fixed Slot C as Open Mic (the guide-only Coverage &
+  // pace card), not a per-product gap. Prove it renders in Slot C, stacks in reading order on phones, sits
+  // beside the left column on desktop, and never overflows — at every supported width.
+  test('Focus Points before: Slot C renders coverage-pace, responsive at 320/375/390 + 1024/1280/1440', async ({ page }) => {
+    test.setTimeout(120_000);
+    mkdirSync(DIR, { recursive: true });
+
+    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    await page.setViewportSize({ width: 375, height: 844 });
+    await navigateToRoute(page, '/practice');
+
+    // Enter a genuine Focus Points before-state (the plan rail proves it is objective, not Open Mic).
+    await page.getByTestId('practice-card-objective').click();
+    await expect(page.getByTestId('objective-setup-dialog')).toBeVisible();
+    await page.getByTestId('objective-goal-select').selectOption('Sales or product pitch');
+    await page.getByTestId('objective-point-label-0').fill('Name the price');
+    await page.getByTestId('objective-point-label-1').fill('State the guarantee');
+    await page.getByTestId('objective-setup-submit').click();
+    await page.waitForURL('**/session');
+    await expect(page.locator('[data-testid="session-shell"][data-session-state="before"]')).toBeVisible();
+    await expect(page.getByTestId('focus-points-rail')).toBeVisible();
+
+    // The core #1255 contract: Slot C is PRESENT in the before-state and holds the Coverage & pace card
+    // (guide-only — no measured/current pace, no projection, no bar exist before the first run).
+    const slotC = page.getByTestId('session-slot-c');
+    await expect(slotC).toBeVisible();
+    await expect(slotC.getByTestId('coverage-pace')).toBeVisible();
+    await expect(slotC.getByTestId('coverage-pace-count')).toContainText('/2');
+    await expect(page.getByTestId('coverage-pace-perpoint'), 'no measured pace before a run').toHaveCount(0);
+    await expect(page.getByTestId('coverage-pace-bar'), 'no pace bar before a run').toHaveCount(0);
+
+    // Responsive: no width overflows, and the four slots keep reading order (phone) / two-column (desktop).
+    for (const w of ALL_WIDTHS) {
+      await assertLayout(page, w);
+    }
+
+    // Sanitized proof screenshots at one phone (390) and one desktop (1440) width, vs the G5 mockup.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: `${DIR}/focus-before-phone-390.png`, fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.screenshot({ path: `${DIR}/focus-before-desktop-1440.png`, fullPage: true });
   });
 });
