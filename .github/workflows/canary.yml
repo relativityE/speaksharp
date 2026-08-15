@@ -89,8 +89,12 @@ jobs:
 
       - name: Validate protected canary identities
         env:
-          CANARY_TRIAL_EMAIL: ${{ secrets.CANARY_TRIAL_EMAIL }}
-          CANARY_PAID_EMAIL: ${{ secrets.CANARY_PAID_EMAIL }}
+          # #1294 email cutover: canary EMAILS resolve from repository Variables (non-secret, operator-owned);
+          # canary PASSWORDS remain Secrets. Emails are identifiers, not credentials.
+          CANARY_TRIAL_EMAIL: ${{ vars.CANARY_TRIAL_EMAIL }}
+          CANARY_PAID_EMAIL: ${{ vars.CANARY_PAID_EMAIL }}
+          CANARY_TRIAL_PASSWORD: ${{ secrets.CANARY_TRIAL_PASSWORD }}
+          CANARY_PAID_PASSWORD: ${{ secrets.CANARY_PAID_PASSWORD }}
         run: node scripts/canary-identity-config.mjs
 
       - name: Provision Canary User
@@ -106,7 +110,7 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           CANARY_LANE_PASSWORD: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_PASSWORD || secrets.CANARY_PAID_PASSWORD }}
           # Protected, operator-controlled identities only. Never hard-code or infer an email domain.
-          CANARY_EMAIL: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_EMAIL || secrets.CANARY_PAID_EMAIL }}
+          CANARY_EMAIL: ${{ matrix.lane == 'active-trial' && vars.CANARY_TRIAL_EMAIL || vars.CANARY_PAID_EMAIL }}
           CANARY_EXPECTED_ACCESS: ${{ matrix.lane }}
           # Ceiling guard: at most CANARY_MAX canary-like accounts may exist (reuse, never accumulate).
           # Two identities are allowed: primary active trial and secondary paid continuation.
@@ -119,7 +123,7 @@ jobs:
           VITE_TEST_MODE: "true"
           VITE_USE_LIVE_DB: "true"
           CANARY_LANE_PASSWORD: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_PASSWORD || secrets.CANARY_PAID_PASSWORD }}
-          CANARY_EMAIL: ${{ matrix.lane == 'active-trial' && secrets.CANARY_TRIAL_EMAIL || secrets.CANARY_PAID_EMAIL }}
+          CANARY_EMAIL: ${{ matrix.lane == 'active-trial' && vars.CANARY_TRIAL_EMAIL || vars.CANARY_PAID_EMAIL }}
           CANARY_EXPECTED_ACCESS: ${{ matrix.lane }}
           BASE_URL: https://speaksharp-public.vercel.app/
           # #1106 deploy-race gate: the commit this run was triggered from. The canary must confirm the
@@ -138,8 +142,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          CANARY_TRIAL_EMAIL: ${{ secrets.CANARY_TRIAL_EMAIL }}
-          CANARY_PAID_EMAIL: ${{ secrets.CANARY_PAID_EMAIL }}
+          CANARY_TRIAL_EMAIL: ${{ vars.CANARY_TRIAL_EMAIL }}
+          CANARY_PAID_EMAIL: ${{ vars.CANARY_PAID_EMAIL }}
           CANARY_MAX: '2'
           CANARY_ENFORCE: fail
         run: node scripts/canary-ceiling.mjs

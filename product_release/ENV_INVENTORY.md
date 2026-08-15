@@ -152,7 +152,6 @@ Names are referenced as `secrets.*` across `.github/workflows`; a **small number
 | `GH_PAT` | GitHub PAT |
 | `VERCEL_ACCESS_TOKEN` | Vercel deploy token |
 | `FREE_TEST_PASSWORD` · `PRO_TEST_PASSWORD` · `CANARY_TRIAL_PASSWORD` · `CANARY_PAID_PASSWORD` · `SOAK_TEST_PASSWORD` | real test-account credentials (Basic account creds and the ambiguous single canary password retired in #1294) |
-| `CANARY_PAID_EMAIL` · `CANARY_TRIAL_EMAIL` | protected, operator-controlled recoverable canary identities; never hard-code or infer a domain |
 
 ### 3b. Over-classified → should be GitHub **Variables** (non-secret config)
 | Variable | Why it is NOT a secret |
@@ -169,6 +168,7 @@ Names are referenced as `secrets.*` across `.github/workflows`; a **small number
 | `EDGE_FN_URL` | public function base URL |
 | `VERCEL_PROJECT_ID` | non-secret platform ID (`VERCEL_ORG_ID`/`VERCEL_TEAM_ID` are referenced by workflows but NOT set as GitHub secrets) |
 | `PRO_TEST_EMAIL` | test-account email — **DECIDED 2026-06-08: move to Variables** (the matching password stays a Secret in 3a). The Basic test-account email/password were retired in #1294 (no Basic product). |
+| `CANARY_TRIAL_EMAIL` · `CANARY_PAID_EMAIL` | protected, operator-controlled canary identities — **#1294: cut over to Variables** (the matching `CANARY_TRIAL_PASSWORD` / `CANARY_PAID_PASSWORD` stay Secrets in 3a). Emails are identifiers, not credentials; never hard-code or infer a domain. |
 
 > **✅ FINAL (live-verified, 2026-06-08): 18 → Variable / 18 keep Secret = 36 total.** The 18-move set
 > is exactly what `scripts/ops/reclassify-github-env.sh` creates. Same-name `secrets.X → vars.X` is

@@ -29,7 +29,7 @@ These have **zero** `secrets.*`/`vars.*` consumers on this branch (verified) and
 
 | Name | Kind | Consumers | Disposition |
 |---|---|---|---|
-| `CANARY_PASSWORD` | Secret | none | DELETE post-merge |
+| `CANARY_PASSWORD` | Secret | none | ✅ **DELETED (#1294)** — retired ambiguous single canary password; zero real consumers (only the negative-guard token list references it) |
 | `BASIC_TEST_EMAIL` | Secret | none | DELETE post-merge |
 | `BASIC_TEST_PASSWORD` | Secret | none | DELETE post-merge |
 | `STRIPE_BASIC_PRICE_ID` | Secret | none | DELETE post-merge |
@@ -59,6 +59,16 @@ all nine consumers now read the Variable and zero read the Secret. Per the PO cu
 Secret is deletable only **after** merge + a Variable-resolution proof (run `db-grant-check` and
 `no-unaffiliated-domain` on integrated `main`, terminal-green, proving the Variable path) + explicit deletion
 authorization.
+
+**Canary email cutover completed in source (#1294):** `CANARY_TRIAL_EMAIL` and `CANARY_PAID_EMAIL` are
+identifiers, not credentials, and are cut over from Secrets to repository **Variables**. All consumers —
+`canary.yml` (identity guard, provision, smoke, ceiling) and `setup-test-users.yml` (Admin provisioning) —
+read `vars.CANARY_*_EMAIL`; zero read `secrets.CANARY_*_EMAIL`. The matching **passwords**
+(`CANARY_TRIAL_PASSWORD`, `CANARY_PAID_PASSWORD`) remain **Secrets**. The `canary-identity-config` guard now
+fails closed unless both email Variables are valid/distinct/non-prohibited **and** both password Secrets are
+present (value never logged). Operator state (verified): the email **Secrets are deleted**, the email
+**Variables are configured**, and both password Secrets are present. Admin/canary must not be dispatched on a
+`main` that still reads the deleted email Secrets — dispatch only after this cutover merges.
 
 ## C. `VITE_DEV_PREMIUM_ACCESS`
 

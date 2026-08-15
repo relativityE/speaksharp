@@ -39,8 +39,14 @@ describe('Admin - Test Users workflow contract', () => {
     }
   });
 
-  it('wires the canary + free_test secrets from GitHub Secrets at the provisioning step', () => {
-    for (const s of ['CANARY_TRIAL_EMAIL', 'CANARY_TRIAL_PASSWORD', 'CANARY_PAID_EMAIL', 'CANARY_PAID_PASSWORD', 'FREE_TEST_EMAIL', 'FREE_TEST_PASSWORD']) {
+  it('wires canary EMAILS from Variables and PASSWORDS from Secrets at the provisioning step (#1294 split)', () => {
+    // #1294 sourcing split: canary emails are operator-owned identifiers (Variables); canary passwords are
+    // credentials (Secrets). free_test remains fully Secret-backed (out of the canary email cutover).
+    for (const s of ['CANARY_TRIAL_EMAIL', 'CANARY_PAID_EMAIL']) {
+      expect(raw).toContain(`${s}: \${{ vars.${s} }}`);
+      expect(raw, `${s} must not resolve from a Secret`).not.toContain(`${s}: \${{ secrets.${s} }}`);
+    }
+    for (const s of ['CANARY_TRIAL_PASSWORD', 'CANARY_PAID_PASSWORD', 'FREE_TEST_EMAIL', 'FREE_TEST_PASSWORD']) {
       expect(raw).toContain(`${s}: \${{ secrets.${s} }}`);
     }
   });

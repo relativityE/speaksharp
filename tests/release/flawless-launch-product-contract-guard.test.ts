@@ -11,9 +11,13 @@ describe('flawless-launch product-contract guard (#1290)', () => {
   it('keeps both canary identities protected and fail-closed behind migration readiness', () => {
     const workflow = readFileSync('.github/workflows/canary.yml', 'utf8');
 
-    expect(workflow).toContain('secrets.CANARY_TRIAL_EMAIL');
-    expect(workflow).toContain('secrets.CANARY_PAID_EMAIL');
+    // #1294 sourcing split: canary EMAILS resolve from repository Variables, PASSWORDS from Secrets.
+    expect(workflow).toContain('vars.CANARY_TRIAL_EMAIL');
+    expect(workflow).toContain('vars.CANARY_PAID_EMAIL');
+    expect(workflow).not.toContain('secrets.CANARY_TRIAL_EMAIL');
+    expect(workflow).not.toContain('secrets.CANARY_PAID_EMAIL');
     expect(workflow).toContain('secrets.CANARY_TRIAL_PASSWORD');
+    expect(workflow).toContain('secrets.CANARY_PAID_PASSWORD');
     expect(workflow).toContain('node scripts/canary-identity-config.mjs');
     expect(workflow).toContain('needs.migration-readiness.outputs.ready');
     expect(workflow).toContain('HOLD — migration pending; canary not executed');
@@ -49,7 +53,7 @@ describe('flawless-launch product-contract guard (#1290)', () => {
       ['product_release/PRODUCT_REQUIREMENTS.md', 'Daily and monthly accumulated-minute quotas are retired.'],
       ['product_release/PRODUCT_REQUIREMENTS.md', 'The former $9.99 price is rejected; launch pricing is exactly $10.'],
       ['.github/workflows/release.yml', "EXPECTED_STRIPE_PRO_AMOUNT: '1000'"],
-      ['.github/workflows/canary.yml', 'CANARY_EMAIL: ${{ secrets.CANARY_PAID_EMAIL }}'],
+      ['.github/workflows/canary.yml', 'CANARY_EMAIL: ${{ vars.CANARY_PAID_EMAIL }}'],
     ] as const;
 
     for (const [path, source] of fixtures) {
