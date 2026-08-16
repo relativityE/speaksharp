@@ -64,7 +64,9 @@ vi.mock('@/services/SpeechRuntimeController', () => ({
             duration: 0 
         } as TranscriptStats)),
         reset: vi.fn(),
-        warmUp: vi.fn(),
+        warmUp: vi.fn().mockResolvedValue(undefined), // real warmUp is async — the return-reload does `.catch()` on it
+        getState: vi.fn(() => 'IDLE'),
+        getIdleReclamationGeneration: vi.fn(() => 0),
         requestModeChange: vi.fn(() => ({ accepted: true })),
         updatePolicy: vi.fn(),
         syncForensicState: vi.fn(),
@@ -1263,5 +1265,114 @@ describe('useSessionLifecycle - engine-selection lock delegation (#1033 A)', () 
         act(() => { result.current.setMode('native'); });
         expect(speechRuntimeController.requestModeChange).toHaveBeenCalled();
         expect(speechRuntimeController.syncForensicState).toHaveBeenCalled();
+    });
+});
+
+// #1258 EFFECT-LEVEL regression for the foreground-return reload (not just the predicate): drives the real
+// visibilitychange handler mounted by the hook. Reproduces the production condition (store sttMode === null →
+// effective 'private') and proves the reload is tied to an ACTUAL controller-owned reclamation TOKEN — a mere
+// tab switch (token unchanged) never reloads, and each real reclamation reloads exactly once.
+describe('useSessionLifecycle - foreground-return reload after reclamation (#1258)', () => {
+    const setVisibility = (state: 'visible' | 'hidden') => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+        act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    };
+    // Simulate the controller-owned reclamation token advancing because a real idle reclamation happened.
+    const setReclamationGen = (n: number) => {
+        vi.mocked(speechRuntimeController.getIdleReclamationGeneration as Mock).mockReturnValue(n);
+    };
+
+    let mockStore: ReturnType<typeof createTestSessionStore>;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        setVisibility('visible');
+        // The exact production condition: the store leaves sttMode UNSET (null).
+        mockStore = createTestSessionStore(); // sttMode defaults to null
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        vi.mocked(useProfile).mockReturnValue({
+            profile: { id: 'u', subscription_status: 'free', email: 'e@e.com' } as UserProfile,
+            isVerified: true,
+        });
+        setReclamationGen(0); // no reclamation has happened yet at mount
+        vi.mocked(speechRuntimeController.warmUp).mockResolvedValue(undefined); // reset any prior rejection impl
+    });
+
+    afterEach(() => setVisibility('visible'));
+
+    const renderIt = () => renderHook(() => useSessionLifecycle(), {
+        wrapper: ({ children }) => (<TranscriptionProvider>{children}</TranscriptionProvider>),
+    });
+
+    it('reloads with effective private mode after a REAL reclamation, even though the store sttMode is null', () => {
+        renderIt(); // mount observes token=0
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
+
+        setReclamationGen(1); // a genuine idle reclamation occurred while the tab was away
+        setVisibility('visible'); // user returns
+
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(1);
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledWith('private');
+    });
+
+    it('does NOT reload on a quick tab switch that reclaimed nothing (token unchanged)', () => {
+        renderIt();
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
+
+        // Token stays 0 — no reclamation. A hide→show tab switch must not reload.
+        setVisibility('hidden');
+        setVisibility('visible');
+
+        expect(speechRuntimeController.warmUp).not.toHaveBeenCalled();
+    });
+
+    it('issues EXACTLY ONE reload per reclamation across repeated visible events', () => {
+        renderIt();
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
+
+        setReclamationGen(1);
+        setVisibility('visible'); // consumes token 1 → 1 reload
+        setVisibility('visible'); // same token → no re-issue
+        setVisibility('visible');
+
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(1);
+    });
+
+    it('reloads again only when a NEW reclamation advances the token', () => {
+        renderIt();
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
+
+        setReclamationGen(1);
+        setVisibility('visible'); // reload for reclamation #1
+        setReclamationGen(2);      // a second genuine reclamation
+        setVisibility('visible'); // reload for reclamation #2
+
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(2);
+    });
+
+    it('surfaces the Private setup retry UI when the reload FAILS, and does not loop', async () => {
+        vi.mocked(speechRuntimeController.warmUp).mockRejectedValueOnce(new Error('reload boom'));
+        renderIt();
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
+        vi.mocked(speechRuntimeController.warmUp).mockRejectedValue(new Error('reload boom'));
+
+        setReclamationGen(1);
+        await act(async () => {
+            setVisibility('visible');   // triggers the (failing) reload
+            await Promise.resolve();    // let the rejection .catch run
+        });
+
+        // Exactly one reload attempt (the consumed token prevents auto-looping)…
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(1);
+        // …and the failure surfaces the existing Private retry UI instead of being swallowed.
+        expect(mockStore.getState().setSTTStatus).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'init-failed' }),
+        );
+
+        // A repeat visible event with the SAME token must not retry automatically.
+        setVisibility('visible');
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(1);
     });
 });
