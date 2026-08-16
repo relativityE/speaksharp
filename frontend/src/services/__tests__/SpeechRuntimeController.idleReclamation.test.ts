@@ -74,11 +74,14 @@ describe('#1258 idle reclamation — a READY Private engine is never reclaimed/r
         // The exact failing condition: Private-only session leaves the store mode unset (null), while the
         // running engine is a ready Private engine, and the page is foreground.
         useSessionStore.setState({ sttMode: null });
+        const genBefore = controller.getIdleReclamationGeneration();
 
         priv.startIdleTimer();
         await vi.advanceTimersByTimeAsync(IDLE_RECLAMATION_MS + 1000);
 
         expect(resetSpy).not.toHaveBeenCalledWith('idle_reclamation');
+        // A foreground preserve is NOT a reclamation — the token must not advance (so no spurious return reload).
+        expect(controller.getIdleReclamationGeneration()).toBe(genBefore);
     });
 
     it('FOREGROUND: preserves a ready Private engine when sttMode is explicitly private', async () => {
@@ -93,17 +96,20 @@ describe('#1258 idle reclamation — a READY Private engine is never reclaimed/r
         expect(resetSpy).not.toHaveBeenCalledWith('idle_reclamation');
     });
 
-    it('BACKGROUND: reclaims a ready Private engine after the idle window (frees resident memory)', async () => {
+    it('BACKGROUND: reclaims a ready Private engine after the idle window and BUMPS the reclamation token', async () => {
         priv.state = 'READY';
         priv.isEngineReady = true;
         priv.service = { getMode: () => 'private' };
         useSessionStore.setState({ sttMode: 'private' });
         setPageVisibility('hidden'); // the page is backgrounded — not in front of a waiting user
+        const genBefore = controller.getIdleReclamationGeneration();
 
         priv.startIdleTimer();
         await vi.advanceTimersByTimeAsync(IDLE_RECLAMATION_MS + 1000);
 
         expect(resetSpy).toHaveBeenCalledWith('idle_reclamation');
+        // The token that authorizes a foreground-return reload advances ONLY on a real reclamation.
+        expect(controller.getIdleReclamationGeneration()).toBe(genBefore + 1);
     });
 
     it('NO reclaim→reload loop: a preserved foreground engine is reclaimed ONLY once it is later backgrounded', async () => {

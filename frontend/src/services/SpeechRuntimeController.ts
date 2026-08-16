@@ -392,6 +392,10 @@ export class SpeechRuntimeController {
     private heartbeatVersion = 0;
     private idleTimeout: NodeJS.Timeout | null = null;
     private readonly IDLE_RECLAMATION_MS = 5 * 60 * 1000;
+    // #1258: monotonically increments ONLY when an actual idle reclamation tears the engine down. Consumers
+    // (the foreground-return reload) key their one-shot reload off a CHANGE in this token, so a tab switch or a
+    // generic IDLE state never triggers a reload — only a real reclamation does.
+    private idleReclamationGeneration = 0;
     private readonly WATCHDOG_PERIOD_MS = 5000;
 
     private readonly FAILURE_HOLD_DURATION_MS = STT_CONFIG.FAILURE_HOLD_DURATION_MS;
@@ -1624,6 +1628,12 @@ export class SpeechRuntimeController {
 
     public getState(): RuntimeState {
         return this.state;
+    }
+
+    /** #1258: token that increments on each actual idle reclamation. A change since a consumer last observed it
+     *  means the engine was genuinely reclaimed (not merely idle / not a tab switch). */
+    public getIdleReclamationGeneration(): number {
+        return this.idleReclamationGeneration;
     }
 
     private updateSessionPersisted(
@@ -4091,6 +4101,9 @@ export class SpeechRuntimeController {
                     this.startIdleTimer(); // re-arm: reclaim later if the page is backgrounded
                     return;
                 }
+                // A real reclamation is happening — bump the token so a foreground return performs exactly one
+                // explicit reload, tied to THIS reclamation (never to a generic idle state or a tab switch).
+                this.idleReclamationGeneration += 1;
                 void this.reset('idle_reclamation');
             }
         }, this.IDLE_RECLAMATION_MS);

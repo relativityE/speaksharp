@@ -66,6 +66,7 @@ vi.mock('@/services/SpeechRuntimeController', () => ({
         reset: vi.fn(),
         warmUp: vi.fn(),
         getState: vi.fn(() => 'IDLE'),
+        getIdleReclamationGeneration: vi.fn(() => 0),
         requestModeChange: vi.fn(() => ({ accepted: true })),
         updatePolicy: vi.fn(),
         syncForensicState: vi.fn(),
@@ -1269,18 +1270,22 @@ describe('useSessionLifecycle - engine-selection lock delegation (#1033 A)', () 
 
 // #1258 EFFECT-LEVEL regression for the foreground-return reload (not just the predicate): drives the real
 // visibilitychange handler mounted by the hook. Reproduces the production condition (store sttMode === null →
-// effective 'private') and asserts (a) it DOES reload after a background reclamation, and (b) it reloads
-// EXACTLY ONCE across repeated visible events, only re-reloading after a genuine hide→show cycle.
+// effective 'private') and proves the reload is tied to an ACTUAL controller-owned reclamation TOKEN — a mere
+// tab switch (token unchanged) never reloads, and each real reclamation reloads exactly once.
 describe('useSessionLifecycle - foreground-return reload after reclamation (#1258)', () => {
     const setVisibility = (state: 'visible' | 'hidden') => {
         Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
         act(() => { document.dispatchEvent(new Event('visibilitychange')); });
     };
+    // Simulate the controller-owned reclamation token advancing because a real idle reclamation happened.
+    const setReclamationGen = (n: number) => {
+        vi.mocked(speechRuntimeController.getIdleReclamationGeneration as Mock).mockReturnValue(n);
+    };
 
     beforeEach(() => {
         vi.clearAllMocks();
         setVisibility('visible');
-        // The exact production condition: the store leaves sttMode UNSET (null); the engine is reclaimed to IDLE.
+        // The exact production condition: the store leaves sttMode UNSET (null).
         const mockStore = createTestSessionStore(); // sttMode defaults to null
         (useSessionStore as unknown as Mock).mockImplementation(mockStore);
         (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
@@ -1289,7 +1294,7 @@ describe('useSessionLifecycle - foreground-return reload after reclamation (#125
             profile: { id: 'u', subscription_status: 'free', email: 'e@e.com' } as UserProfile,
             isVerified: true,
         });
-        vi.mocked(speechRuntimeController.getState as Mock).mockReturnValue('IDLE');
+        setReclamationGen(0); // no reclamation has happened yet at mount
     });
 
     afterEach(() => setVisibility('visible'));
@@ -1298,47 +1303,49 @@ describe('useSessionLifecycle - foreground-return reload after reclamation (#125
         wrapper: ({ children }) => (<TranscriptionProvider>{children}</TranscriptionProvider>),
     });
 
-    it('reloads with effective private mode after returning, even though the store sttMode is null', () => {
-        renderIt();
-        vi.mocked(speechRuntimeController.warmUp).mockClear(); // ignore any mount-time warm-up
+    it('reloads with effective private mode after a REAL reclamation, even though the store sttMode is null', () => {
+        renderIt(); // mount observes token=0
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
 
-        setVisibility('hidden'); // background (reclamation happens here in production; engine now IDLE)
+        setReclamationGen(1); // a genuine idle reclamation occurred while the tab was away
         setVisibility('visible'); // user returns
 
         expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(1);
         expect(speechRuntimeController.warmUp).toHaveBeenCalledWith('private');
     });
 
-    it('issues EXACTLY ONE reload across repeated visible events (no reclaim→reload loop)', () => {
+    it('does NOT reload on a quick tab switch that reclaimed nothing (token unchanged)', () => {
         renderIt();
         vi.mocked(speechRuntimeController.warmUp).mockClear();
 
-        setVisibility('visible'); // returns → 1 reload
-        setVisibility('visible'); // repeated visible events must NOT re-issue
+        // Token stays 0 — no reclamation. A hide→show tab switch must not reload.
+        setVisibility('hidden');
+        setVisibility('visible');
+
+        expect(speechRuntimeController.warmUp).not.toHaveBeenCalled();
+    });
+
+    it('issues EXACTLY ONE reload per reclamation across repeated visible events', () => {
+        renderIt();
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
+
+        setReclamationGen(1);
+        setVisibility('visible'); // consumes token 1 → 1 reload
+        setVisibility('visible'); // same token → no re-issue
         setVisibility('visible');
 
         expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(1);
     });
 
-    it('re-reloads on a genuine new hide→show cycle (latch resets on hide)', () => {
+    it('reloads again only when a NEW reclamation advances the token', () => {
         renderIt();
         vi.mocked(speechRuntimeController.warmUp).mockClear();
 
-        setVisibility('visible'); // cycle 1 → 1 reload
-        setVisibility('hidden');  // reclaimed again, latch resets
-        setVisibility('visible'); // cycle 2 → 1 more reload
+        setReclamationGen(1);
+        setVisibility('visible'); // reload for reclamation #1
+        setReclamationGen(2);      // a second genuine reclamation
+        setVisibility('visible'); // reload for reclamation #2
 
         expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(2);
-    });
-
-    it('does NOT reload a still-ready foreground-preserved engine (no needless reload)', () => {
-        vi.mocked(speechRuntimeController.getState as Mock).mockReturnValue('READY');
-        renderIt();
-        vi.mocked(speechRuntimeController.warmUp).mockClear();
-
-        setVisibility('hidden');
-        setVisibility('visible');
-
-        expect(speechRuntimeController.warmUp).not.toHaveBeenCalled();
     });
 });

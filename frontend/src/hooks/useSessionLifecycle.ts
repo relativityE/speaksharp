@@ -60,16 +60,19 @@ export function shouldReloadSttOnForegroundReturn(params: {
     effectiveMode: TranscriptionMode | null;
     isListening: boolean;
     shouldPromoteNativeDefaultToPrivate: boolean;
-    runtimeState: string;
+    hasPendingReclamation: boolean;
 }): boolean {
-    const { visibilityState, profileReadyForStt, effectiveMode, isListening, shouldPromoteNativeDefaultToPrivate, runtimeState } = params;
+    const { visibilityState, profileReadyForStt, effectiveMode, isListening, shouldPromoteNativeDefaultToPrivate, hasPendingReclamation } = params;
     if (visibilityState !== 'visible') return false;
+    // Reload ONLY in response to an ACTUAL controller-owned idle reclamation (a change in its reclamation
+    // token) — never on a generic IDLE state, a fresh mount, or a quick tab switch that reclaimed nothing.
+    if (!hasPendingReclamation) return false;
     // Key off the EFFECTIVE mode (Private-only resolves `sttMode ?? 'private'`), NOT the raw store `sttMode`:
     // the real production condition is `sttMode === null`, so gating on it would refuse to reload exactly when
     // the canary needs it after a background reclamation.
     if (!profileReadyForStt || !effectiveMode || isListening) return false;
     if (shouldPromoteNativeDefaultToPrivate) return false;
-    return runtimeState === 'IDLE' || runtimeState === 'DOWNLOAD_REQUIRED';
+    return true;
 }
 
 export const useSessionLifecycle = () => {
@@ -634,27 +637,30 @@ export const useSessionLifecycle = () => {
     // RETURNS (page becomes visible) and the engine was reclaimed to idle, perform exactly ONE explicit reload
     // so the mic becomes usable again, with the normal truthful download/loading UI. A still-ready (foreground-
     // preserved) or actively-recording engine is left untouched.
-    const foregroundReloadPending = useRef(false);
+    // Tracks the reclamation token we have already reloaded for. Initialized (lazily, on first visibility
+    // handling) to the controller's current token so we only ever react to reclamations that happen AFTER mount.
+    const handledReclamationGen = useRef<number | null>(null);
     useEffect(() => {
+        if (handledReclamationGen.current === null) {
+            handledReclamationGen.current = speechRuntimeController.getIdleReclamationGeneration();
+        }
         const onVisibilityChange = () => {
-            // Reset the exactly-once latch whenever the page is hidden, so a fresh background→foreground cycle
-            // can reload again — but repeated 'visible' events within a single return issue AT MOST ONE reload.
-            if (document.visibilityState !== 'visible') {
-                foregroundReloadPending.current = false;
-                return;
-            }
-            if (foregroundReloadPending.current) return;
+            if (document.visibilityState !== 'visible') return;
+            const gen = speechRuntimeController.getIdleReclamationGeneration();
+            // A CHANGE in the controller-owned token is the only thing that authorizes a reload — this is what
+            // distinguishes "the engine was actually reclaimed while I was away" from "I just switched tabs".
+            const hasPendingReclamation = gen !== (handledReclamationGen.current ?? gen);
             if (!shouldReloadSttOnForegroundReturn({
                 visibilityState: document.visibilityState,
                 profileReadyForStt,
                 effectiveMode,
                 isListening,
                 shouldPromoteNativeDefaultToPrivate,
-                runtimeState: speechRuntimeController.getState(),
+                hasPendingReclamation,
             })) return;
-            foregroundReloadPending.current = true;
+            handledReclamationGen.current = gen; // consume this reclamation → exactly one reload per reclamation
             warmUpTriggered.current = effectiveMode;
-            logger.info('[useSessionLifecycle] Page returned to foreground after reclamation — one explicit reload');
+            logger.info('[useSessionLifecycle] Page returned to foreground after a real reclamation — one explicit reload');
             void speechRuntimeController.warmUp(effectiveMode);
         };
         document.addEventListener('visibilitychange', onVisibilityChange);
