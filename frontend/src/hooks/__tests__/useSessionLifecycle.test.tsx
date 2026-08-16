@@ -64,7 +64,7 @@ vi.mock('@/services/SpeechRuntimeController', () => ({
             duration: 0 
         } as TranscriptStats)),
         reset: vi.fn(),
-        warmUp: vi.fn(),
+        warmUp: vi.fn().mockResolvedValue(undefined), // real warmUp is async — the return-reload does `.catch()` on it
         getState: vi.fn(() => 'IDLE'),
         getIdleReclamationGeneration: vi.fn(() => 0),
         requestModeChange: vi.fn(() => ({ accepted: true })),
@@ -1282,11 +1282,13 @@ describe('useSessionLifecycle - foreground-return reload after reclamation (#125
         vi.mocked(speechRuntimeController.getIdleReclamationGeneration as Mock).mockReturnValue(n);
     };
 
+    let mockStore: ReturnType<typeof createTestSessionStore>;
+
     beforeEach(() => {
         vi.clearAllMocks();
         setVisibility('visible');
         // The exact production condition: the store leaves sttMode UNSET (null).
-        const mockStore = createTestSessionStore(); // sttMode defaults to null
+        mockStore = createTestSessionStore(); // sttMode defaults to null
         (useSessionStore as unknown as Mock).mockImplementation(mockStore);
         (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
         (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
@@ -1295,6 +1297,7 @@ describe('useSessionLifecycle - foreground-return reload after reclamation (#125
             isVerified: true,
         });
         setReclamationGen(0); // no reclamation has happened yet at mount
+        vi.mocked(speechRuntimeController.warmUp).mockResolvedValue(undefined); // reset any prior rejection impl
     });
 
     afterEach(() => setVisibility('visible'));
@@ -1347,5 +1350,29 @@ describe('useSessionLifecycle - foreground-return reload after reclamation (#125
         setVisibility('visible'); // reload for reclamation #2
 
         expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(2);
+    });
+
+    it('surfaces the Private setup retry UI when the reload FAILS, and does not loop', async () => {
+        vi.mocked(speechRuntimeController.warmUp).mockRejectedValueOnce(new Error('reload boom'));
+        renderIt();
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
+        vi.mocked(speechRuntimeController.warmUp).mockRejectedValue(new Error('reload boom'));
+
+        setReclamationGen(1);
+        await act(async () => {
+            setVisibility('visible');   // triggers the (failing) reload
+            await Promise.resolve();    // let the rejection .catch run
+        });
+
+        // Exactly one reload attempt (the consumed token prevents auto-looping)…
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(1);
+        // …and the failure surfaces the existing Private retry UI instead of being swallowed.
+        expect(mockStore.getState().setSTTStatus).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'init-failed' }),
+        );
+
+        // A repeat visible event with the SAME token must not retry automatically.
+        setVisibility('visible');
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(1);
     });
 });

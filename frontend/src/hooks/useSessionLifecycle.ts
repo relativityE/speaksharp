@@ -658,14 +658,22 @@ export const useSessionLifecycle = () => {
                 shouldPromoteNativeDefaultToPrivate,
                 hasPendingReclamation,
             })) return;
-            handledReclamationGen.current = gen; // consume this reclamation → exactly one reload per reclamation
+            // Consume this reclamation BEFORE issuing the reload → exactly one reload per reclamation and no
+            // automatic looping even if the reload fails (the token will not re-authorize until a NEW reclamation).
+            handledReclamationGen.current = gen;
             warmUpTriggered.current = effectiveMode;
             logger.info('[useSessionLifecycle] Page returned to foreground after a real reclamation — one explicit reload');
-            void speechRuntimeController.warmUp(effectiveMode);
+            speechRuntimeController.warmUp(effectiveMode).catch((err) => {
+                // A failed reload must NOT be swallowed. Surface the existing Private setup retry UI (init-failed
+                // → MicCard's "needs another try" retry control) so the user can re-initiate the local model;
+                // the consumed token guarantees we do not silently loop.
+                logger.warn({ err }, '[useSessionLifecycle] foreground-return reload failed — surfacing Private setup retry');
+                setSTTStatus({ type: 'init-failed', message: 'Private transcription setup did not complete.', detail: 'Retry the local model setup. Your audio stays on your machine.' });
+            });
         };
         document.addEventListener('visibilitychange', onVisibilityChange);
         return () => document.removeEventListener('visibilitychange', onVisibilityChange);
-    }, [profileReadyForStt, effectiveMode, isListening, shouldPromoteNativeDefaultToPrivate]);
+    }, [profileReadyForStt, effectiveMode, isListening, shouldPromoteNativeDefaultToPrivate, setSTTStatus]);
 
     // UI Cleanup on unmount
     // We ONLY detach listeners (subscriber_unmount) to handle React remounts.

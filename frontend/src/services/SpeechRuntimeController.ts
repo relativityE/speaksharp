@@ -4101,10 +4101,16 @@ export class SpeechRuntimeController {
                     this.startIdleTimer(); // re-arm: reclaim later if the page is backgrounded
                     return;
                 }
-                // A real reclamation is happening — bump the token so a foreground return performs exactly one
-                // explicit reload, tied to THIS reclamation (never to a generic idle state or a tab switch).
-                this.idleReclamationGeneration += 1;
-                void this.reset('idle_reclamation');
+                // Reclaim the engine, then advance the reload token ONLY AFTER the (synchronous) reset completes.
+                // A reset that throws must NOT mint a reload token — otherwise a foreground return would reload
+                // against a reclamation that never completed. The token is the authorization for exactly one
+                // foreground-return reload tied to THIS reclamation.
+                try {
+                    this.reset('idle_reclamation');
+                    this.idleReclamationGeneration += 1;
+                } catch (err) {
+                    logger.warn({ err }, '[SpeechRuntimeController] idle reclamation reset failed; reload token not advanced');
+                }
             }
         }, this.IDLE_RECLAMATION_MS);
     }

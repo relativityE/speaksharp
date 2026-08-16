@@ -41,13 +41,13 @@ type Priv = {
     isEngineReady: boolean;
     service: unknown;
     startIdleTimer: () => void;
-    reset: (reason: string) => Promise<void>;
+    reset: (reason: string) => void;
 };
 
 describe('#1258 idle reclamation — a READY Private engine is never reclaimed/reloaded', () => {
     let controller: SpeechRuntimeController;
     let priv: Priv;
-    let resetSpy: MockInstance<(reason: string) => Promise<void>>;
+    let resetSpy: MockInstance<(reason: string) => void>;
 
     beforeEach(() => {
         vi.useFakeTimers();
@@ -57,7 +57,7 @@ describe('#1258 idle reclamation — a READY Private engine is never reclaimed/r
         (controller as unknown as { initialized: boolean }).initialized = true;
         // reset() is what tears the engine down and triggers the model re-download/reload — stub it so we can
         // assert whether idle reclamation invoked it, without running the real teardown.
-        resetSpy = vi.spyOn(priv, 'reset').mockResolvedValue(undefined);
+        resetSpy = vi.spyOn(priv, 'reset').mockReturnValue(undefined);
     });
 
     afterEach(() => {
@@ -110,6 +110,23 @@ describe('#1258 idle reclamation — a READY Private engine is never reclaimed/r
         expect(resetSpy).toHaveBeenCalledWith('idle_reclamation');
         // The token that authorizes a foreground-return reload advances ONLY on a real reclamation.
         expect(controller.getIdleReclamationGeneration()).toBe(genBefore + 1);
+    });
+
+    it('does NOT advance the token when the reset itself FAILS (no reload for a reclamation that never completed)', async () => {
+        priv.state = 'READY';
+        priv.isEngineReady = true;
+        priv.service = { getMode: () => 'private' };
+        useSessionStore.setState({ sttMode: 'private' });
+        setPageVisibility('hidden');
+        resetSpy.mockImplementationOnce(() => { throw new Error('reset boom'); }); // reset is synchronous (returns void)
+        const genBefore = controller.getIdleReclamationGeneration();
+
+        priv.startIdleTimer();
+        await vi.advanceTimersByTimeAsync(IDLE_RECLAMATION_MS + 1000);
+
+        expect(resetSpy).toHaveBeenCalledWith('idle_reclamation');
+        // A thrown reset must mint NO reload token.
+        expect(controller.getIdleReclamationGeneration()).toBe(genBefore);
     });
 
     it('NO reclaim→reload loop: a preserved foreground engine is reclaimed ONLY once it is later backgrounded', async () => {
