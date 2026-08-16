@@ -16,10 +16,10 @@ const wf = load(readFileSync(WF_PATH, 'utf8'));
 
 const DAILY = '0 5 * * *';
 const WEEKLY = '0 6 * * 1';
-// Mirror of the workflow's cadence decision: the WEEKLY schedule (or an OPTIONAL opt-in dispatch) runs the
-// billing qualification; everything else is daily active-trial. No manual dispatch is required.
-const isBillingCadence = (ctx) =>
-  ctx.schedule === WEEKLY || (ctx.eventName === 'workflow_dispatch' && ctx.includePaidBilling === true);
+// Mirror of the workflow's cadence decision: ONLY the WEEKLY schedule runs the billing qualification. There
+// is NO manual route — no dispatch input can select or count as the paid qualification. Everything else
+// (daily schedule, push, dispatch diagnostic) is active-trial only.
+const isBillingCadence = (ctx) => ctx.schedule === WEEKLY;
 const lanesFor = (ctx) => (isBillingCadence(ctx) ? ['active-trial', 'billing-qualification'] : ['active-trial']);
 const groupSuffix = (ctx) => (isBillingCadence(ctx) ? 'billing' : 'active-trial');
 
@@ -32,17 +32,18 @@ describe('canary cadence — automated daily active-trial + weekly billing (exec
     expect(lanesFor({ eventName: 'schedule', schedule: WEEKLY })).toEqual(['active-trial', 'billing-qualification']);
   });
 
-  it('NO manual dispatch is required: the weekly SCHEDULE alone runs the billing qualification', () => {
-    // Proven purely from the schedule context (no workflow_dispatch, no human input).
+  it('NO manual dispatch: the weekly SCHEDULE alone runs billing, and NO dispatch can select it', () => {
+    // Weekly schedule runs it automatically…
     expect(lanesFor({ eventName: 'schedule', schedule: WEEKLY })).toContain('billing-qualification');
-  });
-
-  it('push and non-opt-in dispatch run active-trial only; opt-in dispatch is an OPTIONAL extra path', () => {
+    // …and there is NO dispatch route to billing (push and any dispatch are active-trial only).
     expect(lanesFor({ eventName: 'push' })).toEqual(['active-trial']);
-    expect(lanesFor({ eventName: 'workflow_dispatch', includePaidBilling: false })).toEqual(['active-trial']);
-    expect(lanesFor({ eventName: 'workflow_dispatch', includePaidBilling: true })).toEqual(['active-trial', 'billing-qualification']);
-    // The opt-in input is OPTIONAL (not required) — it is only a convenience, never the sole path.
-    expect(wf.on.workflow_dispatch.inputs.include_paid_billing.required).toBe(false);
+    expect(lanesFor({ eventName: 'workflow_dispatch' })).toEqual(['active-trial']);
+    // The manual billing input is GONE entirely.
+    const inputs = wf.on.workflow_dispatch?.inputs ?? {};
+    expect(inputs.include_paid_billing).toBeUndefined();
+    const laneExpr = wf.jobs['canary-check'].strategy.matrix.lane;
+    expect(laneExpr).not.toContain('include_paid_billing');
+    expect(wf.concurrency.group).not.toContain('include_paid_billing');
   });
 
   it('the workflow declares BOTH the daily and weekly schedules, and the matrix mirrors the cadence', () => {
@@ -75,11 +76,14 @@ describe('canary concurrency — daily and weekly cadences cannot cancel each ot
 
 describe('canary billing lane — test-mode wiring (structural)', () => {
   const steps = wf.jobs['canary-check'].steps;
-  const billingStep = steps.find((s) => s.if === "matrix.lane == 'billing-qualification'");
+  const billingStep = steps.find((s) => s.if === "matrix.lane == 'billing-qualification'" && typeof s.run === 'string');
 
   it('the billing lane runs the guarded test-mode/test-clock runner and refuses a live key', () => {
     expect(billingStep, 'billing-qualification step exists').toBeTruthy();
-    expect(billingStep.run).toContain('node scripts/paid-billing-qualification.mjs');
+    // The billing lane runs the Deno qualification (real handler + migrated PGlite), not the removed Node runner.
+    expect(billingStep.run).toContain('scripts/billing-qualification/qualify.ts');
+    expect(billingStep.run).toContain('deno run');
+    expect(billingStep.run).not.toContain('paid-billing-qualification.mjs');
     expect(billingStep.run).toContain('sk_live_'); // explicit live-key refusal branch
     // It uses TEST-scoped Stripe secrets only.
     expect(billingStep.env.STRIPE_SECRET_KEY).toContain('STRIPE_TEST_SECRET_KEY');

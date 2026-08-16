@@ -3,15 +3,9 @@ name: Production Canary Smoke Test
 on:
   push:
     branches: [main]
-  workflow_dispatch:
-    inputs:
-      include_paid_billing:
-        # OPTIONAL on-demand convenience only. The billing qualification runs AUTOMATICALLY every week; no
-        # release qualification depends on a human dispatching it.
-        description: 'Optional: also run the weekly Stripe test-mode/test-clock billing qualification now (it also runs automatically every Monday)'
-        required: false
-        type: boolean
-        default: false
+  # workflow_dispatch stays ONLY as an active-trial diagnostic. It has NO billing input and can NEVER select
+  # or count as the paid billing qualification — that runs strictly on the weekly schedule (no manual route).
+  workflow_dispatch: {}
   schedule:
     # DAILY — the genuine active-trial product canary (complete Pro product path).
     - cron: '0 5 * * *'
@@ -20,10 +14,9 @@ on:
 
 # Partition concurrency so the DAILY active-trial cadence and the WEEKLY billing-qualification cadence NEVER
 # cancel or replace each other: they live in separate groups. Within a group a newer run supersedes an older
-# one of the SAME kind. The `billing` group is the weekly schedule (or an optional opt-in dispatch); every
-# other trigger is `active-trial`.
+# one of the SAME kind. Only the WEEKLY schedule is the `billing` group; every other trigger is `active-trial`.
 concurrency:
-  group: canary-${{ github.ref }}-${{ (github.event.schedule == '0 6 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.include_paid_billing == true)) && 'billing' || 'active-trial' }}
+  group: canary-${{ github.ref }}-${{ github.event.schedule == '0 6 * * 1' && 'billing' || 'active-trial' }}
   cancel-in-progress: true
 
 jobs:
@@ -87,7 +80,7 @@ jobs:
       # WEEKLY (Mondays, or an optional opt-in dispatch): ALSO run the automated Stripe test-mode/test-clock
       # billing-qualification lane. It never charges a real card and is never implied by a daily green canary.
       matrix:
-        lane: ${{ fromJSON((github.event.schedule == '0 6 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.include_paid_billing == true)) && '["active-trial","billing-qualification"]' || '["active-trial"]') }}
+        lane: ${{ fromJSON(github.event.schedule == '0 6 * * 1' && '["active-trial","billing-qualification"]' || '["active-trial"]') }}
     runs-on: ubuntu-latest
     # 15 (was 10) so the #1106 deploy-race gate can spend its full budget and still emit its diagnostic:
     # the smoke test may now wait up to 4 min for the expected SHA to go live, plus 2 min for the product
@@ -153,6 +146,12 @@ jobs:
       #    continuation on a Stripe TEST CLOCK. It does NOT sign in as, or depend on, the canary-paid account or
       #    its password. The strict production paid verifier (provision-canary paid lane) is PRESERVED for a
       #    future, separately-authorized live commercial-readiness proof — it is NOT this scheduled lane. ──
+      - name: Setup Deno (billing qualification)
+        if: matrix.lane == 'billing-qualification'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Stripe Test-Mode/Test-Clock Billing Qualification (billing-qualification)
         if: matrix.lane == 'billing-qualification'
         env:
@@ -169,7 +168,9 @@ jobs:
             sk_test_*) : ;;
             *) echo '::error::Billing qualification requires a Stripe TEST secret key (sk_test_...).'; exit 1 ;;
           esac
-          node scripts/paid-billing-qualification.mjs
+          # Deno runs the REAL stripe-webhook handler against an ephemeral migrated PGlite DB (no prod Supabase).
+          deno run --config scripts/billing-qualification/deno.json --node-modules-dir=auto --allow-read --allow-write --allow-env --allow-net --allow-ffi --allow-sys \
+            scripts/billing-qualification/qualify.ts
 
       # Admin hygiene is SEPARATE from the tester-equivalent product smoke above and runs regardless of
       # its result (if: always()), so a hygiene problem never masks the product result — and with
@@ -211,7 +212,8 @@ jobs:
           MIGRATION_READY: ${{ needs.migration-readiness.outputs.ready }}
           PRODUCT_LANES_RESULT: ${{ needs.canary-check.result }}
           # This run INCLUDED the billing-qualification lane iff it is the weekly schedule or an opt-in dispatch.
-          BILLING_QUALIFICATION_RAN: ${{ github.event.schedule == '0 6 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.include_paid_billing == true) }}
+          # The billing-qualification lane runs ONLY on the weekly schedule — there is no manual route.
+          BILLING_QUALIFICATION_RAN: ${{ github.event.schedule == '0 6 * * 1' }}
         run: |
           set -euo pipefail
           if [ "$READINESS_RESULT" != 'success' ]; then
