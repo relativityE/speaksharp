@@ -57,14 +57,17 @@ const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string
 export function shouldReloadSttOnForegroundReturn(params: {
     visibilityState: DocumentVisibilityState;
     profileReadyForStt: boolean;
-    sttMode: TranscriptionMode | null;
+    effectiveMode: TranscriptionMode | null;
     isListening: boolean;
     shouldPromoteNativeDefaultToPrivate: boolean;
     runtimeState: string;
 }): boolean {
-    const { visibilityState, profileReadyForStt, sttMode, isListening, shouldPromoteNativeDefaultToPrivate, runtimeState } = params;
+    const { visibilityState, profileReadyForStt, effectiveMode, isListening, shouldPromoteNativeDefaultToPrivate, runtimeState } = params;
     if (visibilityState !== 'visible') return false;
-    if (!profileReadyForStt || !sttMode || isListening) return false;
+    // Key off the EFFECTIVE mode (Private-only resolves `sttMode ?? 'private'`), NOT the raw store `sttMode`:
+    // the real production condition is `sttMode === null`, so gating on it would refuse to reload exactly when
+    // the canary needs it after a background reclamation.
+    if (!profileReadyForStt || !effectiveMode || isListening) return false;
     if (shouldPromoteNativeDefaultToPrivate) return false;
     return runtimeState === 'IDLE' || runtimeState === 'DOWNLOAD_REQUIRED';
 }
@@ -631,23 +634,32 @@ export const useSessionLifecycle = () => {
     // RETURNS (page becomes visible) and the engine was reclaimed to idle, perform exactly ONE explicit reload
     // so the mic becomes usable again, with the normal truthful download/loading UI. A still-ready (foreground-
     // preserved) or actively-recording engine is left untouched.
+    const foregroundReloadPending = useRef(false);
     useEffect(() => {
-        const onVisibilityReturn = () => {
+        const onVisibilityChange = () => {
+            // Reset the exactly-once latch whenever the page is hidden, so a fresh background→foreground cycle
+            // can reload again — but repeated 'visible' events within a single return issue AT MOST ONE reload.
+            if (document.visibilityState !== 'visible') {
+                foregroundReloadPending.current = false;
+                return;
+            }
+            if (foregroundReloadPending.current) return;
             if (!shouldReloadSttOnForegroundReturn({
                 visibilityState: document.visibilityState,
                 profileReadyForStt,
-                sttMode,
+                effectiveMode,
                 isListening,
                 shouldPromoteNativeDefaultToPrivate,
                 runtimeState: speechRuntimeController.getState(),
             })) return;
-            warmUpTriggered.current = sttMode;
+            foregroundReloadPending.current = true;
+            warmUpTriggered.current = effectiveMode;
             logger.info('[useSessionLifecycle] Page returned to foreground after reclamation — one explicit reload');
-            void speechRuntimeController.warmUp(sttMode as TranscriptionMode);
+            void speechRuntimeController.warmUp(effectiveMode);
         };
-        document.addEventListener('visibilitychange', onVisibilityReturn);
-        return () => document.removeEventListener('visibilitychange', onVisibilityReturn);
-    }, [profileReadyForStt, sttMode, isListening, shouldPromoteNativeDefaultToPrivate]);
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+    }, [profileReadyForStt, effectiveMode, isListening, shouldPromoteNativeDefaultToPrivate]);
 
     // UI Cleanup on unmount
     // We ONLY detach listeners (subscriber_unmount) to handle React remounts.

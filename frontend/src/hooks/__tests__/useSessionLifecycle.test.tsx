@@ -1266,3 +1266,79 @@ describe('useSessionLifecycle - engine-selection lock delegation (#1033 A)', () 
         expect(speechRuntimeController.syncForensicState).toHaveBeenCalled();
     });
 });
+
+// #1258 EFFECT-LEVEL regression for the foreground-return reload (not just the predicate): drives the real
+// visibilitychange handler mounted by the hook. Reproduces the production condition (store sttMode === null →
+// effective 'private') and asserts (a) it DOES reload after a background reclamation, and (b) it reloads
+// EXACTLY ONCE across repeated visible events, only re-reloading after a genuine hide→show cycle.
+describe('useSessionLifecycle - foreground-return reload after reclamation (#1258)', () => {
+    const setVisibility = (state: 'visible' | 'hidden') => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+        act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    };
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        setVisibility('visible');
+        // The exact production condition: the store leaves sttMode UNSET (null); the engine is reclaimed to IDLE.
+        const mockStore = createTestSessionStore(); // sttMode defaults to null
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        vi.mocked(useProfile).mockReturnValue({
+            profile: { id: 'u', subscription_status: 'free', email: 'e@e.com' } as UserProfile,
+            isVerified: true,
+        });
+        vi.mocked(speechRuntimeController.getState as Mock).mockReturnValue('IDLE');
+    });
+
+    afterEach(() => setVisibility('visible'));
+
+    const renderIt = () => renderHook(() => useSessionLifecycle(), {
+        wrapper: ({ children }) => (<TranscriptionProvider>{children}</TranscriptionProvider>),
+    });
+
+    it('reloads with effective private mode after returning, even though the store sttMode is null', () => {
+        renderIt();
+        vi.mocked(speechRuntimeController.warmUp).mockClear(); // ignore any mount-time warm-up
+
+        setVisibility('hidden'); // background (reclamation happens here in production; engine now IDLE)
+        setVisibility('visible'); // user returns
+
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(1);
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledWith('private');
+    });
+
+    it('issues EXACTLY ONE reload across repeated visible events (no reclaim→reload loop)', () => {
+        renderIt();
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
+
+        setVisibility('visible'); // returns → 1 reload
+        setVisibility('visible'); // repeated visible events must NOT re-issue
+        setVisibility('visible');
+
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-reloads on a genuine new hide→show cycle (latch resets on hide)', () => {
+        renderIt();
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
+
+        setVisibility('visible'); // cycle 1 → 1 reload
+        setVisibility('hidden');  // reclaimed again, latch resets
+        setVisibility('visible'); // cycle 2 → 1 more reload
+
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(2);
+    });
+
+    it('does NOT reload a still-ready foreground-preserved engine (no needless reload)', () => {
+        vi.mocked(speechRuntimeController.getState as Mock).mockReturnValue('READY');
+        renderIt();
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
+
+        setVisibility('hidden');
+        setVisibility('visible');
+
+        expect(speechRuntimeController.warmUp).not.toHaveBeenCalled();
+    });
+});

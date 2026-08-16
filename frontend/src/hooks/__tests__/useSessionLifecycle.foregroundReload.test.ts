@@ -8,7 +8,9 @@ import { shouldReloadSttOnForegroundReturn } from '../useSessionLifecycle';
 const base = {
     visibilityState: 'visible' as DocumentVisibilityState,
     profileReadyForStt: true,
-    sttMode: 'private' as const,
+    // The EFFECTIVE mode — Private-only resolves `sttMode ?? 'private'`, so this is 'private' even when the
+    // store `sttMode` is null (the real production condition).
+    effectiveMode: 'private' as const,
     isListening: false,
     shouldPromoteNativeDefaultToPrivate: false,
     runtimeState: 'IDLE',
@@ -17,6 +19,11 @@ const base = {
 describe('#1258 shouldReloadSttOnForegroundReturn', () => {
     it('RELOADS once when the user returns to a visible page and the engine was reclaimed to IDLE', () => {
         expect(shouldReloadSttOnForegroundReturn(base)).toBe(true);
+    });
+
+    it('RELOADS with the effective private mode even though the raw store sttMode is null (canary condition)', () => {
+        // effectiveMode is what the handler passes: `sttMode ?? 'private'`. Null store mode must NOT block it.
+        expect(shouldReloadSttOnForegroundReturn({ ...base, effectiveMode: 'private' })).toBe(true);
     });
 
     it('RELOADS from a DOWNLOAD_REQUIRED (needs-load) state too', () => {
@@ -35,9 +42,9 @@ describe('#1258 shouldReloadSttOnForegroundReturn', () => {
         expect(shouldReloadSttOnForegroundReturn({ ...base, isListening: true, runtimeState: 'RECORDING' })).toBe(false);
     });
 
-    it('does NOT reload before the profile is STT-ready or when no mode is selected', () => {
+    it('does NOT reload before the profile is STT-ready or when no effective mode resolves', () => {
         expect(shouldReloadSttOnForegroundReturn({ ...base, profileReadyForStt: false })).toBe(false);
-        expect(shouldReloadSttOnForegroundReturn({ ...base, sttMode: null })).toBe(false);
+        expect(shouldReloadSttOnForegroundReturn({ ...base, effectiveMode: null })).toBe(false);
     });
 
     it('does NOT reload while the native→private promotion is pending', () => {

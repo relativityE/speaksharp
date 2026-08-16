@@ -16,6 +16,13 @@ on:
       - 'frontend/src/services/transcription/modes/types.ts'
       - 'frontend/src/contracts/STTEngine.ts'
       - 'frontend/src/contracts/IPrivateSTTEngine.ts'
+      # #1258: the STT runtime lifecycle/orchestration also gates the deployed Private worker path — the
+      # idle-reclamation and warm-up/reload logic that stranded `mic-start` lives here, so changes to it MUST
+      # re-run this evidence gate.
+      - 'frontend/src/services/transcription/TranscriptionService.ts'
+      - 'frontend/src/services/SpeechRuntimeController.ts'
+      - 'frontend/src/hooks/useSessionLifecycle.ts'
+      - 'frontend/src/hooks/useSpeechRecognition/**'
       - 'frontend/src/config/TestFlags.ts'
       - 'frontend/vite.config.mjs'
       - 'frontend/public/models/whisper-base.en/**'
