@@ -1,42 +1,38 @@
 // @vitest-environment node
 //
-// #1306 — EXECUTED privacy-falsification proof. Applies migration 20260816221054 on a real PostgreSQL (PGlite)
-// over a production-shaped `sessions` + `user_issue_reports` schema, then ATTEMPTS to persist content and
-// asserts the database REJECTS it fail-closed. Content-free: synthetic strings only, never returned/logged.
+// #1306 — EXECUTED privacy-falsification proof of the FINAL metrics-only schema. Applies Stage A (additive)
+// then Stage B (enforcement) on a real PostgreSQL (PGlite) over a production-shaped schema, and asserts the
+// content-bearing columns are GONE, the strict recommendation column/constraint stands, and a completed
+// session requires a structured next action. Content-free: synthetic strings only, never returned/logged.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const MIGRATION = readFileSync(
-  resolve(process.cwd(), 'backend', 'supabase', 'migrations', '20260816221054_metrics_only_persistence_1306.sql'),
-  'utf8',
-);
+const M = (f: string) => readFileSync(resolve(process.cwd(), 'backend', 'supabase', 'migrations', f), 'utf8');
+const STAGE_A = M('20260816223606_metrics_only_additive_1306.sql');
+const STAGE_B = M('20260816223607_metrics_only_enforcement_1306.sql');
 
-// Production-shaped subset: every column the #1306 enforcement references, plus representative metrics.
+// Production-shaped BEFORE state: the content columns exist; Stage B drops them.
 const BOOTSTRAP = `
   DO $r$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role; END IF;
   END $r$;
   CREATE TABLE public.sessions (
-    id uuid PRIMARY KEY, user_id uuid, created_at timestamptz DEFAULT now(),
+    id uuid PRIMARY KEY, user_id uuid, created_at timestamptz DEFAULT now(), updated_at timestamptz,
     transcript text, ai_suggestions jsonb, ground_truth text, accuracy double precision,
-    transcript_state text DEFAULT 'not_captured', recommendation_signals jsonb,
+    transcript_state text DEFAULT 'not_captured',
     total_words int, duration int, clarity_score double precision, wpm double precision,
-    pause_metrics jsonb, filler_words jsonb, custom_words jsonb,
-    engine text, engine_version text, model_name text, device_type text,
-    status text, status_reason text, attribution_status text
+    pause_metrics jsonb, filler_words jsonb,
+    status text, status_reason text
   );
-  CREATE TABLE public.user_issue_reports (
-    id uuid PRIMARY KEY, user_id uuid, transcript_excerpt text, created_at timestamptz DEFAULT now()
-  );
+  CREATE TABLE public.user_issue_reports (id uuid PRIMARY KEY, user_id uuid, transcript_excerpt text, note text);
 `;
 
 const U = '11111111-1111-4111-8111-111111111111';
 let seq = 0;
 const sid = () => `aaaaaaaa-aaaa-4aaa-8aaa-${String(++seq).padStart(12, '0')}`;
-
 const VALID_REC = JSON.stringify({
   reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate',
   value: 0.08, comparator: 'above_baseline', templateVersion: 'rec_v1',
@@ -45,82 +41,62 @@ const VALID_REC = JSON.stringify({
 async function freshDb(): Promise<PGlite> {
   const db = new PGlite();
   await db.exec(BOOTSTRAP);
-  await db.exec(MIGRATION);
+  await db.exec(STAGE_A);
+  await db.exec(STAGE_B);
   return db;
 }
-const insertSession = (db: PGlite, cols: string, vals: unknown[]) =>
-  db.query(`INSERT INTO public.sessions (id, user_id, total_words, duration, ${cols}) VALUES ($1,$2,100,60,${vals.map((_, i) => `$${i + 3}`).join(',')})`, [sid(), U, ...vals]);
+const columnCount = (db: PGlite, table: string, cols: string[]) =>
+  db.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 AND column_name = ANY($2)`,
+    [table, cols]);
 
-describe('#1306 metrics-only persistence — the database refuses content (fail-closed)', () => {
+describe('#1306 FINAL metrics-only schema — content columns removed, recommendation enforced', () => {
   let db: PGlite;
   beforeEach(async () => { db = await freshDb(); });
 
-  it('ACCEPTS a metrics-only session (no content) and forces transcript_state=not_captured', async () => {
-    await db.query(
-      `INSERT INTO public.sessions (id, user_id, total_words, duration, clarity_score, wpm, transcript_state)
-       VALUES ($1,$2,120,65,0.9,140,'available')`, [sid(), U]);
-    const r = await db.query<{ transcript_state: string }>(`SELECT transcript_state FROM public.sessions LIMIT 1`);
-    expect(r.rows[0].transcript_state).toBe('not_captured'); // coerced by the trigger
+  it('the content-bearing columns are GONE (transcript/ai_suggestions/ground_truth/accuracy + excerpt)', async () => {
+    expect((await columnCount(db, 'sessions', ['transcript', 'ai_suggestions', 'ground_truth', 'accuracy'])).rows[0].n).toBe(0);
+    expect((await columnCount(db, 'user_issue_reports', ['transcript_excerpt'])).rows[0].n).toBe(0);
+    // …and the metrics-only fields plus the structured recommendation remain.
+    expect((await columnCount(db, 'sessions', ['recommendation_signals', 'total_words', 'clarity_score', 'wpm', 'pause_metrics'])).rows[0].n).toBe(5);
   });
 
-  it('REJECTS a transcript write', async () => {
-    await expect(insertSession(db, 'transcript', ['So, um, I think we should review the plan today.']))
-      .rejects.toThrow(/transcript text must not be persisted/);
-  });
-
-  it('REJECTS ai_suggestions prose, customer ground_truth, and customer accuracy', async () => {
-    await expect(insertSession(db, 'ai_suggestions', [JSON.stringify({ what_to_try_next: 'Slow down and breathe.' })]))
-      .rejects.toThrow(/ai_suggestions prose must not be persisted/);
-    await expect(insertSession(db, 'ground_truth', ['the quick brown fox']))
-      .rejects.toThrow(/ground_truth is benchmark-only/);
-    await expect(insertSession(db, 'accuracy', [95.5]))
-      .rejects.toThrow(/accuracy has no ground truth/);
-  });
-
-  it('cannot smuggle content via UPDATE either (trigger covers INSERT and UPDATE)', async () => {
-    await db.query(`INSERT INTO public.sessions (id, user_id, total_words, duration) VALUES ($1,$2,10,10)`, [sid(), U]);
-    await expect(db.query(`UPDATE public.sessions SET transcript = 'late-bound transcript' WHERE user_id = $1`, [U]))
-      .rejects.toThrow(/transcript text must not be persisted/);
-  });
-
-  it('ACCEPTS a valid structured recommendation signal', async () => {
-    await expect(insertSession(db, 'recommendation_signals', [VALID_REC])).resolves.toBeDefined();
+  it('a write naming a removed content column fails (the field no longer exists)', async () => {
+    await expect(db.query(
+      `INSERT INTO public.sessions (id, user_id, transcript) VALUES ($1,$2,'um so I think')`, [sid(), U]))
+      .rejects.toThrow(/column "transcript" .* does not exist/i);
+    await expect(db.query(
+      `INSERT INTO public.user_issue_reports (id, user_id, transcript_excerpt) VALUES ($1,$2,'mic did not start')`, [sid(), U]))
+      .rejects.toThrow(/column "transcript_excerpt" .* does not exist/i);
   });
 
   it('a COMPLETED session REQUIRES one structured next action; incomplete/failed may be null', async () => {
-    // completed + valid recommendation → OK
     await expect(db.query(
       `INSERT INTO public.sessions (id, user_id, total_words, duration, status, recommendation_signals) VALUES ($1,$2,100,60,'completed',$3)`,
       [sid(), U, VALID_REC])).resolves.toBeDefined();
-    // completed + NULL recommendation → REJECTED
     await expect(db.query(
       `INSERT INTO public.sessions (id, user_id, total_words, duration, status) VALUES ($1,$2,100,60,'completed')`,
       [sid(), U])).rejects.toThrow(/completed session requires exactly one structured recommendation/);
-    // failed / incomplete + NULL recommendation → OK
     await expect(db.query(
       `INSERT INTO public.sessions (id, user_id, total_words, duration, status) VALUES ($1,$2,0,0,'failed')`,
       [sid(), U])).resolves.toBeDefined();
   });
 
-  it('REJECTS a recommendation with an UNKNOWN key (prose cannot be smuggled)', async () => {
-    const withProse = JSON.stringify({ ...JSON.parse(VALID_REC), what_to_try_next: 'You spoke a little fast today.' });
-    await expect(insertSession(db, 'recommendation_signals', [withProse]))
-      .rejects.toThrow(/sessions_recommendation_signals_shape/);
+  it('the recommendation CHECK rejects unknown keys and free-form enum values (prose-proof)', async () => {
+    const withProse = JSON.stringify({ ...JSON.parse(VALID_REC), what_to_try_next: 'Slow down a touch.' });
+    await expect(db.query(
+      `INSERT INTO public.sessions (id, user_id, status, recommendation_signals) VALUES ($1,$2,'completed',$3)`,
+      [sid(), U, withProse])).rejects.toThrow(/sessions_recommendation_signals_shape/);
+    const badEnum = JSON.stringify({ ...JSON.parse(VALID_REC), reasonCode: 'You were a bit unclear' });
+    await expect(db.query(
+      `INSERT INTO public.sessions (id, user_id, status, recommendation_signals) VALUES ($1,$2,'completed',$3)`,
+      [sid(), U, badEnum])).rejects.toThrow(/sessions_recommendation_signals_shape/);
   });
 
-  it('REJECTS a recommendation with a free-form value in an enum field', async () => {
-    const badEnum = JSON.stringify({ ...JSON.parse(VALID_REC), reasonCode: 'You were a bit unclear this time' });
-    await expect(insertSession(db, 'recommendation_signals', [badEnum]))
-      .rejects.toThrow(/sessions_recommendation_signals_shape/);
-  });
-
-  it('REJECTS an issue-report transcript excerpt; ACCEPTS an excerpt-free report', async () => {
-    await expect(db.query(
-      `INSERT INTO public.user_issue_reports (id, user_id, transcript_excerpt) VALUES ($1,$2,$3)`,
-      [sid(), U, 'um so the mic did not start'],
-    )).rejects.toThrow(/transcript_excerpt must not be persisted/);
-    await expect(db.query(
-      `INSERT INTO public.user_issue_reports (id, user_id) VALUES ($1,$2)`, [sid(), U],
-    )).resolves.toBeDefined();
+  it('the legacy transcript-accepting complete_session overload is gone; only the transcript-free one remains', async () => {
+    const r = await db.query<{ args: string }>(
+      `SELECT pg_get_function_identity_arguments(oid) AS args FROM pg_proc WHERE proname='complete_session'`);
+    expect(r.rows.length).toBe(1);
+    expect(r.rows[0].args).not.toMatch(/transcript/i);
   });
 });
