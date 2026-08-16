@@ -31,17 +31,24 @@ ALTER TABLE public.sessions ADD CONSTRAINT sessions_recommendation_signals_shape
   )
 );
 
--- New transcript-free RPC. Self-enforcing: completing requires a recommendation; completion writes final
--- metrics + the one recommendation ATOMICALLY (one transaction); an invalid recommendation is rejected by the
--- CHECK on the UPDATE (rolling the whole completion back). STRICT idempotency: an already-completed session
--- accepts an IDENTICAL replay as a no-op, and RAISES an idempotency-conflict on ANY changed
--- status/duration/reason/recommendation — never a partial update.
+-- New transcript-free RPC. Self-enforcing: completing requires a recommendation; completion writes EVERY
+-- retained final metric (duration, total_words, clarity_score, wpm, filler_words, pause_metrics) + the one
+-- recommendation ATOMICALLY (one transaction); an invalid recommendation is rejected by the CHECK on the
+-- UPDATE (rolling the whole completion back). STRICT idempotency: an already-completed session accepts an
+-- IDENTICAL replay (same status/duration/reason/recommendation AND every metric) as a no-op, and RAISES an
+-- idempotency-conflict on ANY mismatch — never a partial update. A NULL metric param means "unchanged" (so a
+-- retry that omits metrics still matches), while a differing non-null metric conflicts.
 CREATE OR REPLACE FUNCTION public.complete_session(
     p_session_id UUID,
     p_status TEXT DEFAULT 'completed',
     p_final_duration INT DEFAULT NULL,
     p_reason TEXT DEFAULT NULL,
-    p_recommendation JSONB DEFAULT NULL
+    p_recommendation JSONB DEFAULT NULL,
+    p_total_words INT DEFAULT NULL,
+    p_clarity_score DOUBLE PRECISION DEFAULT NULL,
+    p_wpm DOUBLE PRECISION DEFAULT NULL,
+    p_filler_words JSONB DEFAULT NULL,
+    p_pause_metrics JSONB DEFAULT NULL
 ) RETURNS JSONB
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
@@ -66,16 +73,22 @@ BEGIN
     v_final_duration := LEAST(600, GREATEST(0, COALESCE(p_final_duration, v_session.duration, 0)));
 
     IF v_session.status = 'completed' THEN
-        -- Idempotent replay: identical completion -> no-op success; ANY difference -> conflict (no partial write).
+        -- Idempotent replay: identical completion (incl. EVERY retained metric) -> no-op; ANY mismatch ->
+        -- conflict (no partial write). A NULL param means "unchanged", so it never conflicts.
         IF p_status = v_session.status
            AND v_final_duration IS NOT DISTINCT FROM v_session.duration
            AND COALESCE(p_reason, v_session.status_reason) IS NOT DISTINCT FROM v_session.status_reason
            AND p_recommendation IS NOT DISTINCT FROM v_session.recommendation_signals
+           AND COALESCE(p_total_words, v_session.total_words)      IS NOT DISTINCT FROM v_session.total_words
+           AND COALESCE(p_clarity_score, v_session.clarity_score)  IS NOT DISTINCT FROM v_session.clarity_score
+           AND COALESCE(p_wpm, v_session.wpm)                      IS NOT DISTINCT FROM v_session.wpm
+           AND COALESCE(p_filler_words, v_session.filler_words)    IS NOT DISTINCT FROM v_session.filler_words
+           AND COALESCE(p_pause_metrics, v_session.pause_metrics)  IS NOT DISTINCT FROM v_session.pause_metrics
         THEN
             RETURN jsonb_build_object('success', true, 'final_status', 'completed', 'idempotent', true,
                                       'recommendation_signals', v_session.recommendation_signals);
         END IF;
-        RAISE EXCEPTION '#1306: idempotency conflict — a completed session cannot be re-completed with different metrics/duration/status/reason/recommendation'
+        RAISE EXCEPTION '#1306: idempotency conflict — a completed session cannot be re-completed with different final metrics/duration/status/reason/recommendation'
             USING ERRCODE = '40003';
     END IF;
 
@@ -87,6 +100,11 @@ BEGIN
     SET status = p_status,
         status_reason = COALESCE(p_reason, status_reason),
         duration = v_final_duration,
+        total_words   = COALESCE(p_total_words, total_words),
+        clarity_score = COALESCE(p_clarity_score, clarity_score),
+        wpm           = COALESCE(p_wpm, wpm),
+        filler_words  = COALESCE(p_filler_words, filler_words),
+        pause_metrics = COALESCE(p_pause_metrics, pause_metrics),
         recommendation_signals = CASE WHEN p_status = 'completed' THEN p_recommendation ELSE recommendation_signals END,
         updated_at = now()
     WHERE id = p_session_id AND user_id = auth.uid();
@@ -96,6 +114,6 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.complete_session(UUID, TEXT, INT, TEXT, JSONB) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.complete_session(UUID, TEXT, INT, TEXT, JSONB) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.complete_session(UUID, TEXT, INT, TEXT, JSONB) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.complete_session(UUID, TEXT, INT, TEXT, JSONB, INT, DOUBLE PRECISION, DOUBLE PRECISION, JSONB, JSONB) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.complete_session(UUID, TEXT, INT, TEXT, JSONB, INT, DOUBLE PRECISION, DOUBLE PRECISION, JSONB, JSONB) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.complete_session(UUID, TEXT, INT, TEXT, JSONB, INT, DOUBLE PRECISION, DOUBLE PRECISION, JSONB, JSONB) TO service_role;

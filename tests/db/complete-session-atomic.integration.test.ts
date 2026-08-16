@@ -1,19 +1,16 @@
 // @vitest-environment node
 //
-// #1306 — RPC-LEVEL proof that `complete_session` (a) never accepts transcript content, (b) writes final
-// metrics + exactly ONE structured recommendation ATOMICALLY, (c) rolls the ENTIRE completion back on a
-// missing/invalid recommendation, and (d) is idempotent on retry (never creates/changes a second
-// recommendation). Real PostgreSQL (PGlite) with a minimal auth.uid()/tier bootstrap + the #1306 migration.
+// #1306 — RPC-LEVEL proof that `complete_session` (Stage A): never accepts transcript; writes EVERY retained
+// final metric + exactly one structured recommendation ATOMICALLY; rolls the WHOLE completion back on a
+// missing/invalid recommendation; is STRICTLY idempotent (identical replay incl. every metric = no-op; any
+// mismatch = conflict, no partial update). Real PostgreSQL (PGlite).
 import { describe, it, expect, beforeEach } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-// Stage A (additive) is what the metrics-only frontend calls; the RPC contract is fully testable from A alone.
-const MIGRATION = readFileSync(
-  resolve(process.cwd(), 'backend', 'supabase', 'migrations', '20260816223606_metrics_only_additive_1306.sql'),
-  'utf8',
-);
+const STAGE_A = readFileSync(
+  resolve(process.cwd(), 'backend', 'supabase', 'migrations', '20260816223606_metrics_only_additive_1306.sql'), 'utf8');
 const U = '11111111-1111-4111-8111-111111111111';
 
 const BOOTSTRAP = `
@@ -26,24 +23,21 @@ const BOOTSTRAP = `
   CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $fn$ SELECT '${U}'::uuid $fn$;
   CREATE TABLE public.user_profiles (
     id uuid PRIMARY KEY, subscription_status text, trial_expires_at timestamptz,
-    stripe_subscription_id text, subscription_id text, commercial_trial_granted_at timestamptz
-  );
-  -- Stub the entitlement resolver to 'pro' so completion proceeds (tier logic is tested elsewhere).
+    stripe_subscription_id text, subscription_id text, commercial_trial_granted_at timestamptz);
   CREATE OR REPLACE FUNCTION public.effective_subscription_tier(text, timestamptz, text, text, timestamptz)
     RETURNS text LANGUAGE sql IMMUTABLE AS $fn$ SELECT 'pro'::text $fn$;
   CREATE TABLE public.sessions (
     id uuid PRIMARY KEY, user_id uuid, created_at timestamptz DEFAULT now(), updated_at timestamptz,
     transcript text, ai_suggestions jsonb, ground_truth text, accuracy double precision,
-    transcript_state text DEFAULT 'not_captured',
+    transcript_state text DEFAULT 'not_captured', recommendation_signals jsonb,
     total_words int, duration int, clarity_score double precision, wpm double precision,
-    status text, status_reason text
-  );
-  CREATE TABLE public.user_issue_reports (id uuid PRIMARY KEY, user_id uuid, transcript_excerpt text);
+    filler_words jsonb, pause_metrics jsonb, status text, status_reason text);
 `;
 
-const VALID_A = { reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate', value: 0.08, comparator: 'above_baseline', templateVersion: 'rec_v1' };
-const VALID_B = { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' };
-const INVALID = { ...VALID_A, what_to_try_next: 'Slow down a touch next time.' };
+const REC_A = { reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate', value: 0.08, comparator: 'above_baseline', templateVersion: 'rec_v1' };
+const REC_B = { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' };
+const DEFAULT_METRICS = { totalWords: 120, clarity: 0.9, wpm: 140, filler: { total: { count: 2 } }, pause: { totalPauses: 1, averagePauseDuration: 0.4 } };
+const INVALID = { ...REC_A, what_to_try_next: 'Slow down a touch.' };
 
 let seq = 0;
 const sid = () => `bbbbbbbb-bbbb-4bbb-8bbb-${String(++seq).padStart(12, '0')}`;
@@ -51,7 +45,7 @@ const sid = () => `bbbbbbbb-bbbb-4bbb-8bbb-${String(++seq).padStart(12, '0')}`;
 async function freshDb(): Promise<PGlite> {
   const db = new PGlite();
   await db.exec(BOOTSTRAP);
-  await db.exec(MIGRATION);
+  await db.exec(STAGE_A);
   await db.query('INSERT INTO auth.users (id) VALUES ($1)', [U]);
   await db.query(`INSERT INTO public.user_profiles (id, subscription_status) VALUES ($1,'pro')`, [U]);
   return db;
@@ -61,67 +55,73 @@ async function seedActive(db: PGlite): Promise<string> {
   await db.query(`INSERT INTO public.sessions (id, user_id, status, duration, total_words) VALUES ($1,$2,'active',30,50)`, [id, U]);
   return id;
 }
-const complete = (db: PGlite, id: string, rec: unknown, duration = 60, reason = 'done') =>
-  db.query<{ r: { success: boolean; final_status?: string; idempotent?: boolean; recommendation_signals?: unknown } }>(
-    `SELECT public.complete_session($1,'completed',$2,$3,$4::jsonb) AS r`,
-    [id, duration, reason, rec === undefined ? null : JSON.stringify(rec)]);
-const statusOf = async (db: PGlite, id: string) =>
-  (await db.query<{ status: string; recommendation_signals: unknown }>(`SELECT status, recommendation_signals FROM public.sessions WHERE id=$1`, [id])).rows[0];
+type Opts = Partial<typeof DEFAULT_METRICS & { duration: number; reason: string }>;
+const complete = (db: PGlite, id: string, rec: unknown, opts: Opts = {}) => {
+  const o = { duration: 60, reason: 'done', ...DEFAULT_METRICS, ...opts };
+  return db.query<{ r: { success: boolean; idempotent?: boolean; recommendation_signals?: unknown } }>(
+    `SELECT public.complete_session($1,'completed',$2,$3,$4::jsonb,$5,$6,$7,$8::jsonb,$9::jsonb) AS r`,
+    [id, o.duration, o.reason, rec === undefined ? null : JSON.stringify(rec), o.totalWords, o.clarity, o.wpm, JSON.stringify(o.filler), JSON.stringify(o.pause)]);
+};
+const rowOf = async (db: PGlite, id: string) =>
+  (await db.query<{ status: string; recommendation_signals: unknown; total_words: number; clarity_score: number; wpm: number }>(
+    `SELECT status, recommendation_signals, total_words, clarity_score, wpm FROM public.sessions WHERE id=$1`, [id])).rows[0];
 
-describe('#1306 complete_session — atomic completion + recommendation, fail-closed, idempotent', () => {
+describe('#1306 complete_session — atomic completion (metrics + recommendation), fail-closed, strictly idempotent', () => {
   let db: PGlite;
   beforeEach(async () => { db = await freshDb(); });
 
-  it('writes final metrics + exactly one recommendation atomically on success', async () => {
+  it('writes EVERY retained final metric + the recommendation atomically on success', async () => {
     const id = await seedActive(db);
-    const r = (await complete(db, id, VALID_A)).rows[0].r;
-    expect(r.success).toBe(true);
-    const row = await statusOf(db, id);
+    expect((await complete(db, id, REC_A)).rows[0].r.success).toBe(true);
+    const row = await rowOf(db, id);
     expect(row.status).toBe('completed');
-    expect(row.recommendation_signals).toEqual(VALID_A);
+    expect(row.recommendation_signals).toEqual(REC_A);
+    expect(row.total_words).toBe(120);
+    expect(row.clarity_score).toBe(0.9);
+    expect(row.wpm).toBe(140);
   });
 
-  it('ROLLS BACK the entire completion when the recommendation is MISSING', async () => {
+  it('ROLLS BACK the whole completion when the recommendation is MISSING', async () => {
     const id = await seedActive(db);
     await expect(complete(db, id, undefined)).rejects.toThrow(/completed session requires exactly one structured recommendation/);
-    const row = await statusOf(db, id);
-    expect(row.status).toBe('active');            // not marked completed
-    expect(row.recommendation_signals).toBeNull(); // nothing attached
+    const row = await rowOf(db, id);
+    expect(row.status).toBe('active');
+    expect(row.total_words).toBe(50); // metrics NOT partially written
   });
 
-  it('ROLLS BACK the entire completion when the recommendation is INVALID (prose smuggled)', async () => {
+  it('ROLLS BACK the whole completion when the recommendation is INVALID (prose)', async () => {
     const id = await seedActive(db);
     await expect(complete(db, id, INVALID)).rejects.toThrow(/sessions_recommendation_signals_shape/);
-    const row = await statusOf(db, id);
-    expect(row.status).toBe('active');
-    expect(row.recommendation_signals).toBeNull();
+    expect((await rowOf(db, id)).status).toBe('active');
   });
 
-  it('IDENTICAL replay is a no-op success (idempotent)', async () => {
+  it('IDENTICAL replay (same metrics + recommendation) is a no-op success', async () => {
     const id = await seedActive(db);
-    await complete(db, id, VALID_A);
-    const replay = (await complete(db, id, VALID_A)).rows[0].r; // same status/duration/reason/recommendation
-    expect(replay.success).toBe(true);
+    await complete(db, id, REC_A);
+    const replay = (await complete(db, id, REC_A)).rows[0].r;
     expect(replay.idempotent).toBe(true);
-    expect(replay.recommendation_signals).toEqual(VALID_A);
+    expect(replay.recommendation_signals).toEqual(REC_A);
   });
 
-  it('MISMATCHED replay RAISES an idempotency conflict and changes nothing (no partial update)', async () => {
+  it('MISMATCHED replay (any metric, duration, reason, or recommendation) conflicts with no partial update', async () => {
     const id = await seedActive(db);
-    await complete(db, id, VALID_A);
-    await expect(complete(db, id, VALID_B)).rejects.toThrow(/idempotency conflict/);        // different recommendation
-    await expect(complete(db, id, VALID_A, 90)).rejects.toThrow(/idempotency conflict/);     // different duration
-    await expect(complete(db, id, VALID_A, 60, 'other')).rejects.toThrow(/idempotency conflict/); // different reason
-    const row = await statusOf(db, id);
-    expect(row.status).toBe('completed');
-    expect(row.recommendation_signals).toEqual(VALID_A); // first completion is untouched
+    await complete(db, id, REC_A);
+    await expect(complete(db, id, REC_B)).rejects.toThrow(/idempotency conflict/);                 // recommendation
+    await expect(complete(db, id, REC_A, { duration: 90 })).rejects.toThrow(/idempotency conflict/); // duration
+    await expect(complete(db, id, REC_A, { reason: 'other' })).rejects.toThrow(/idempotency conflict/); // reason
+    await expect(complete(db, id, REC_A, { totalWords: 999 })).rejects.toThrow(/idempotency conflict/); // METRIC
+    await expect(complete(db, id, REC_A, { clarity: 0.1 })).rejects.toThrow(/idempotency conflict/);    // METRIC
+    const row = await rowOf(db, id);
+    expect(row.recommendation_signals).toEqual(REC_A);
+    expect(row.total_words).toBe(120); // first completion untouched
   });
 
-  it('has no transcript parameter — exactly one complete_session with identity args (uuid,text,integer,text,jsonb)', async () => {
+  it('has no transcript parameter on the RPC (identity args, transcript-free)', async () => {
     const r = await db.query<{ args: string }>(
       `SELECT pg_get_function_identity_arguments(oid) AS args FROM pg_proc WHERE proname='complete_session'`);
-    expect(r.rows.length).toBe(1); // no lingering transcript-accepting overload
-    expect(r.rows[0].args).not.toMatch(/transcript/i); // no transcript parameter of any kind
-    expect(r.rows[0].args).toMatch(/p_recommendation jsonb$/); // completion takes the structured recommendation
+    expect(r.rows.length).toBe(1);
+    expect(r.rows[0].args).not.toMatch(/transcript/i);
+    expect(r.rows[0].args).toMatch(/p_recommendation jsonb/);
+    expect(r.rows[0].args).toMatch(/p_pause_metrics jsonb$/);
   });
 });
