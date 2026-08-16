@@ -32,6 +32,10 @@ vi.mock('../progress/recordProgress', () => ({
 
 const IDLE_RECLAMATION_MS = 5 * 60 * 1000;
 
+function setPageVisibility(state: 'visible' | 'hidden') {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+}
+
 type Priv = {
     state: string;
     isEngineReady: boolean;
@@ -47,6 +51,7 @@ describe('#1258 idle reclamation — a READY Private engine is never reclaimed/r
 
     beforeEach(() => {
         vi.useFakeTimers();
+        setPageVisibility('visible'); // default: the session page is foreground
         controller = SpeechRuntimeController.getInstance();
         priv = controller as unknown as Priv;
         (controller as unknown as { initialized: boolean }).initialized = true;
@@ -59,14 +64,15 @@ describe('#1258 idle reclamation — a READY Private engine is never reclaimed/r
         vi.clearAllTimers();
         vi.useRealTimers();
         vi.restoreAllMocks();
+        setPageVisibility('visible');
     });
 
-    it('preserves a ready Private engine even when the store sttMode is null (the canary flow)', async () => {
+    it('FOREGROUND: preserves a ready Private engine even when the store sttMode is null (the canary flow)', async () => {
         priv.state = 'READY';
         priv.isEngineReady = true;
         priv.service = { getMode: () => 'private' };
         // The exact failing condition: Private-only session leaves the store mode unset (null), while the
-        // running engine is a ready Private engine.
+        // running engine is a ready Private engine, and the page is foreground.
         useSessionStore.setState({ sttMode: null });
 
         priv.startIdleTimer();
@@ -75,7 +81,7 @@ describe('#1258 idle reclamation — a READY Private engine is never reclaimed/r
         expect(resetSpy).not.toHaveBeenCalledWith('idle_reclamation');
     });
 
-    it('preserves a ready Private engine when sttMode is explicitly private', async () => {
+    it('FOREGROUND: preserves a ready Private engine when sttMode is explicitly private', async () => {
         priv.state = 'READY';
         priv.isEngineReady = true;
         priv.service = { getMode: () => 'private' };
@@ -85,6 +91,36 @@ describe('#1258 idle reclamation — a READY Private engine is never reclaimed/r
         await vi.advanceTimersByTimeAsync(IDLE_RECLAMATION_MS + 1000);
 
         expect(resetSpy).not.toHaveBeenCalledWith('idle_reclamation');
+    });
+
+    it('BACKGROUND: reclaims a ready Private engine after the idle window (frees resident memory)', async () => {
+        priv.state = 'READY';
+        priv.isEngineReady = true;
+        priv.service = { getMode: () => 'private' };
+        useSessionStore.setState({ sttMode: 'private' });
+        setPageVisibility('hidden'); // the page is backgrounded — not in front of a waiting user
+
+        priv.startIdleTimer();
+        await vi.advanceTimersByTimeAsync(IDLE_RECLAMATION_MS + 1000);
+
+        expect(resetSpy).toHaveBeenCalledWith('idle_reclamation');
+    });
+
+    it('NO reclaim→reload loop: a preserved foreground engine is reclaimed ONLY once it is later backgrounded', async () => {
+        priv.state = 'READY';
+        priv.isEngineReady = true;
+        priv.service = { getMode: () => 'private' };
+        useSessionStore.setState({ sttMode: 'private' });
+
+        // First idle window, foreground → preserved (no reset, i.e. no reload loop).
+        priv.startIdleTimer();
+        await vi.advanceTimersByTimeAsync(IDLE_RECLAMATION_MS + 1000);
+        expect(resetSpy).not.toHaveBeenCalledWith('idle_reclamation');
+
+        // The guard re-arms itself; once the page is backgrounded, the next window reclaims.
+        setPageVisibility('hidden');
+        await vi.advanceTimersByTimeAsync(IDLE_RECLAMATION_MS + 1000);
+        expect(resetSpy).toHaveBeenCalledWith('idle_reclamation');
     });
 
     it('still reclaims a non-Private idle engine (reclamation is not disabled wholesale)', async () => {

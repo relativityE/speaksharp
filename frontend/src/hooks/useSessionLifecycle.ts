@@ -48,6 +48,27 @@ const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string
     return rawMessage || 'Recording could not start. Try again.';
 };
 
+/**
+ * #1258: decide whether a foreground return should trigger exactly one explicit STT reload. Pure so the
+ * reclaim→return→reload contract is unit-testable without mounting the whole hook. Reload ONLY when the page
+ * is visible, the profile is STT-ready, a mode is selected, we are not recording, and the engine was reclaimed
+ * to a clean idle/needs-load state (never mid-record, never for a still-ready foreground-preserved engine).
+ */
+export function shouldReloadSttOnForegroundReturn(params: {
+    visibilityState: DocumentVisibilityState;
+    profileReadyForStt: boolean;
+    sttMode: TranscriptionMode | null;
+    isListening: boolean;
+    shouldPromoteNativeDefaultToPrivate: boolean;
+    runtimeState: string;
+}): boolean {
+    const { visibilityState, profileReadyForStt, sttMode, isListening, shouldPromoteNativeDefaultToPrivate, runtimeState } = params;
+    if (visibilityState !== 'visible') return false;
+    if (!profileReadyForStt || !sttMode || isListening) return false;
+    if (shouldPromoteNativeDefaultToPrivate) return false;
+    return runtimeState === 'IDLE' || runtimeState === 'DOWNLOAD_REQUIRED';
+}
+
 export const useSessionLifecycle = () => {
     const { session } = useAuthProvider();
     const { profile, isVerified } = useProfile();
@@ -604,6 +625,29 @@ export const useSessionLifecycle = () => {
             warmUpTriggered.current = null;
         };
     }, []);
+
+    // #1258: after a BACKGROUND idle reclamation the engine is torn down to a clean idle state and is NOT
+    // auto-reloaded (the `warmUpTriggered` guard above stays set, so no reclaim→reload loop). When the user
+    // RETURNS (page becomes visible) and the engine was reclaimed to idle, perform exactly ONE explicit reload
+    // so the mic becomes usable again, with the normal truthful download/loading UI. A still-ready (foreground-
+    // preserved) or actively-recording engine is left untouched.
+    useEffect(() => {
+        const onVisibilityReturn = () => {
+            if (!shouldReloadSttOnForegroundReturn({
+                visibilityState: document.visibilityState,
+                profileReadyForStt,
+                sttMode,
+                isListening,
+                shouldPromoteNativeDefaultToPrivate,
+                runtimeState: speechRuntimeController.getState(),
+            })) return;
+            warmUpTriggered.current = sttMode;
+            logger.info('[useSessionLifecycle] Page returned to foreground after reclamation — one explicit reload');
+            void speechRuntimeController.warmUp(sttMode as TranscriptionMode);
+        };
+        document.addEventListener('visibilitychange', onVisibilityReturn);
+        return () => document.removeEventListener('visibilitychange', onVisibilityReturn);
+    }, [profileReadyForStt, sttMode, isListening, shouldPromoteNativeDefaultToPrivate]);
 
     // UI Cleanup on unmount
     // We ONLY detach listeners (subscriber_unmount) to handle React remounts.

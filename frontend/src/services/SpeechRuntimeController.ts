@@ -4064,25 +4064,31 @@ export class SpeechRuntimeController {
         this.stopIdleTimer();
         this.idleTimeout = setTimeout(() => {
             if (this.state === 'IDLE' || this.state === 'READY') {
-                // #1258: a READY Private engine must NEVER be reclaimed out from under a user who is waiting to
-                // record. Reclaiming it forces a full model re-download/re-init; on a cold device that reload
-                // cannot finish before the next idle tick, so the recorder returns to "loading" and `mic-start`
-                // never stabilizes to enabled (the deployed active-trial canary's exact failure).
-                // Preserve based on the ACTUAL running engine — service mode + engine-ready — NOT the nullable
-                // store `sttMode`. Post-#1184 (Private-only) the store mode is frequently `null` while the
-                // running engine is a ready Private engine (effective mode falls back to 'private'); the old
-                // `sttMode === 'private'` check therefore failed open and reclaimed the ready engine.
+                // #1258: while the session page is FOREGROUND, a READY Private engine must NEVER be reclaimed
+                // out from under a user who is waiting to record. Reclaiming it forces a full model
+                // re-download/re-init; on a cold device that reload cannot finish before the next idle tick, so
+                // the recorder returns to "loading" and `mic-start` never stabilizes to enabled (the deployed
+                // active-trial canary's exact failure). Preserve based on the ACTUAL running engine — service
+                // mode + engine-ready — NOT the nullable store `sttMode` (post-#1184 the store mode is
+                // frequently `null` while the running engine is a ready Private engine; the old
+                // `sttMode === 'private'` check failed open and reclaimed it).
+                // BUT still reclaim after genuine long BACKGROUND inactivity: when the page is hidden, the model
+                // is not in front of a waiting user, so freeing its memory is correct. Re-arm on preserve so a
+                // later background transition is still reclaimed.
                 const serviceMode = this.service?.getMode();
+                const pageForeground = typeof document === 'undefined' || document.visibilityState !== 'hidden';
                 const shouldPreserveReadyPrivateEngine =
                     this.state === 'READY' &&
                     this.isEngineReady &&
-                    serviceMode === 'private';
+                    serviceMode === 'private' &&
+                    pageForeground;
 
                 if (shouldPreserveReadyPrivateEngine) {
                     logger.info({
                         state: this.state,
                         serviceMode,
-                    }, '[SpeechRuntimeController] Skipping idle reclamation for ready Private engine');
+                    }, '[SpeechRuntimeController] Skipping idle reclamation for ready foreground Private engine');
+                    this.startIdleTimer(); // re-arm: reclaim later if the page is backgrounded
                     return;
                 }
                 void this.reset('idle_reclamation');

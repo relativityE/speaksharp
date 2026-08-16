@@ -345,12 +345,17 @@ describe('useSpeechRecognition Integration', () => {
         });
     });
 
-    it('should reclaim resources after 5 minutes of inactivity', async () => {
+    it('should reclaim resources after 5 minutes of BACKGROUND inactivity (#1258)', async () => {
         vi.useFakeTimers();
         const resetSpy = vi.spyOn(speechRuntimeController, 'reset');
 
         speechRuntimeController.reset();
         expect(speechRuntimeController.getState()).toBe('IDLE');
+
+        // #1258: a ready Private engine is PRESERVED while the session page is foreground (so `mic-start` is
+        // never reclaimed out from under a waiting user — the deployed-canary hang). Resource reclamation is
+        // retained, but only after genuine BACKGROUND inactivity, so background the page for this assertion.
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
 
         await act(async () => {
             await speechRuntimeController.warmUp();
@@ -360,6 +365,7 @@ describe('useSpeechRecognition Integration', () => {
 
         expect(resetSpy).toHaveBeenCalled();
 
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
         vi.useRealTimers();
     });
 });

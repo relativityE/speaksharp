@@ -65,6 +65,7 @@ vi.mock('@/services/SpeechRuntimeController', () => ({
         } as TranscriptStats)),
         reset: vi.fn(),
         warmUp: vi.fn(),
+        getState: vi.fn(() => 'IDLE'),
         requestModeChange: vi.fn(() => ({ accepted: true })),
         updatePolicy: vi.fn(),
         syncForensicState: vi.fn(),
