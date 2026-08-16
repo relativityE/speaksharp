@@ -64,6 +64,11 @@ BEGIN
   IF NEW.accuracy IS NOT NULL THEN
     RAISE EXCEPTION '#1306 metrics-only: customer-session accuracy has no ground truth and must not be persisted' USING ERRCODE = '22000';
   END IF;
+  -- A COMPLETED session carries exactly ONE structured next action; incomplete/failed sessions may be null.
+  -- (Validity of the object is enforced by the sessions_recommendation_signals_shape CHECK.)
+  IF NEW.status = 'completed' AND NEW.recommendation_signals IS NULL THEN
+    RAISE EXCEPTION '#1306: a completed session requires exactly one structured recommendation_signals next action' USING ERRCODE = '23514';
+  END IF;
   NEW.transcript_state := 'not_captured';
   RETURN NEW;
 END;

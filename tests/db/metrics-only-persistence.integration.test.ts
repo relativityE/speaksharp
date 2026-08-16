@@ -1,6 +1,6 @@
 // @vitest-environment node
 //
-// #1306 — EXECUTED privacy-falsification proof. Applies migration 20260817000000 on a real PostgreSQL (PGlite)
+// #1306 — EXECUTED privacy-falsification proof. Applies migration 20260816221054 on a real PostgreSQL (PGlite)
 // over a production-shaped `sessions` + `user_issue_reports` schema, then ATTEMPTS to persist content and
 // asserts the database REJECTS it fail-closed. Content-free: synthetic strings only, never returned/logged.
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const MIGRATION = readFileSync(
-  resolve(process.cwd(), 'backend', 'supabase', 'migrations', '20260817000000_metrics_only_persistence_1306.sql'),
+  resolve(process.cwd(), 'backend', 'supabase', 'migrations', '20260816221054_metrics_only_persistence_1306.sql'),
   'utf8',
 );
 
@@ -81,6 +81,21 @@ describe('#1306 metrics-only persistence — the database refuses content (fail-
 
   it('ACCEPTS a valid structured recommendation signal', async () => {
     await expect(insertSession(db, 'recommendation_signals', [VALID_REC])).resolves.toBeDefined();
+  });
+
+  it('a COMPLETED session REQUIRES one structured next action; incomplete/failed may be null', async () => {
+    // completed + valid recommendation → OK
+    await expect(db.query(
+      `INSERT INTO public.sessions (id, user_id, total_words, duration, status, recommendation_signals) VALUES ($1,$2,100,60,'completed',$3)`,
+      [sid(), U, VALID_REC])).resolves.toBeDefined();
+    // completed + NULL recommendation → REJECTED
+    await expect(db.query(
+      `INSERT INTO public.sessions (id, user_id, total_words, duration, status) VALUES ($1,$2,100,60,'completed')`,
+      [sid(), U])).rejects.toThrow(/completed session requires exactly one structured recommendation/);
+    // failed / incomplete + NULL recommendation → OK
+    await expect(db.query(
+      `INSERT INTO public.sessions (id, user_id, total_words, duration, status) VALUES ($1,$2,0,0,'failed')`,
+      [sid(), U])).resolves.toBeDefined();
   });
 
   it('REJECTS a recommendation with an UNKNOWN key (prose cannot be smuggled)', async () => {
