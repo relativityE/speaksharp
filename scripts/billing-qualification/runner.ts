@@ -1,23 +1,27 @@
 // #1294 — WEEKLY, automated, NO-live-charge Stripe billing lifecycle qualification.
 //
 // It fails closed BEFORE creating anything unless Stripe proves livemode=false with an sk_test_ key and a
-// test-mode Price. It then drives a full lifecycle on a Stripe TEST CLOCK with test payment methods —
-// checkout binding, renewal, payment failure, scheduled cancellation with continued access, and terminal
-// revocation — and feeds each event to the REAL stripe-webhook handler, backed by an ephemeral migrated
-// PGlite database (no production Supabase, no mocks). Entitlement is read from the DB via
-// effective_subscription_tier after each phase. Run-owned Stripe fixtures are torn down in `finally`, with
-// deletion errors inspected and verified. The `stripe` client is injected so the same runner is driven by a
-// fake in tests (asserting exact request shapes + ordering) and by the real SDK on the weekly schedule.
+// test-mode Price. It then drives the PRODUCT'S REAL ENTRY PATH on a Stripe TEST CLOCK with test payment
+// methods: a 30-DAY FREE TRIAL (fully entitled, no charge) → the trial expiring into the FIRST $10 invoice
+// (the "first month free → first monthly payment" transition) → monthly renewal → payment failure →
+// recovery → scheduled cancellation with continued access → terminal revocation. Each event is fed to the
+// REAL stripe-webhook handler, backed by an ephemeral migrated PGlite database (no production Supabase, no
+// mocks). Entitlement is read from the DB via effective_subscription_tier after each phase, and the trial /
+// conversion / renewal charges are verified against the real Stripe invoices (amount_paid). Run-owned Stripe
+// fixtures are torn down in `finally`, with deletion errors inspected and verified. The `stripe` client is
+// injected so the same runner is driven by a fake in tests (asserting exact request shapes + ordering) and by
+// the real SDK on the weekly schedule.
 import { createHmac } from "node:crypto";
 import { migratedDb, effectiveTier } from "./pglite_supabase.ts";
 
 export const REQUIRED_PHASES = Object.freeze([
-  "checkout", "webhook", "renewal", "payment_failure", "cancellation", "continuation",
+  "trial_start", "trial_active", "conversion", "renewal", "payment_failure", "continuation", "cancellation",
 ] as const);
 export type Phase = (typeof REQUIRED_PHASES)[number];
 
 const PRO_UNIT_AMOUNT = 1000;
 const DAY = 24 * 60 * 60;
+const TRIAL_DAYS = 30; // the promised 30-day free trial before the first $10 charge
 
 // The dynamic Stripe objects are read structurally at each use site (no `any`, no lint suppressions).
 type StripeObj = Record<string, unknown>;
@@ -27,7 +31,7 @@ export interface StripeLike {
   prices: { retrieve(id: string): Promise<unknown> };
   customers: { create(p: StripeObj): Promise<unknown>; update(id: string, p: StripeObj): Promise<unknown> };
   paymentMethods: { attach(pm: string, p: StripeObj): Promise<unknown> };
-  invoices: { pay(id: string, p: StripeObj): Promise<unknown> };
+  invoices: { pay(id: string, p: StripeObj): Promise<unknown>; retrieve(id: string): Promise<unknown> };
   subscriptions: { create(p: StripeObj): Promise<unknown>; update(id: string, p: StripeObj): Promise<unknown>; retrieve(id: string): Promise<unknown> };
   testHelpers: { testClocks: { create(p: StripeObj): Promise<unknown>; advance(id: string, p: StripeObj): Promise<unknown>; retrieve(id: string): Promise<unknown>; del(id: string): Promise<unknown> } };
   webhooks: { constructEventAsync(...a: unknown[]): unknown };
@@ -114,6 +118,39 @@ async function pollSubscriptionStatus(stripe: StripeLike, subId: string, want: s
   }
 }
 
+/** Advance the test clock to an absolute frozen time, then block until it settles ready. */
+async function advanceClock(stripe: StripeLike, clockId: string, toSeconds: number, timeoutMs: number): Promise<void> {
+  await stripe.testHelpers.testClocks.advance(clockId, { frozen_time: toSeconds });
+  await pollClockReady(stripe, clockId, timeoutMs);
+}
+
+/** Assert the subscription is currently in the expected Stripe status (read fresh from Stripe). */
+async function assertSubStatus(stripe: StripeLike, subId: string, want: string, phase: string): Promise<void> {
+  const status = String(asObj(await stripe.subscriptions.retrieve(subId)).status);
+  if (status !== want) throw new Error(`billing qualification failed: expected subscription status '${want}' at ${phase}, got '${status}'`);
+}
+
+/** During the free trial NOTHING may be charged: the latest invoice must show amount_paid = 0. */
+async function assertNoChargeYet(stripe: StripeLike, subId: string, phase: string): Promise<void> {
+  const ref = asObj(await stripe.subscriptions.retrieve(subId)).latest_invoice;
+  if (ref === null || ref === undefined) return; // no invoice at all is also "nothing charged"
+  const invoice = typeof ref === "string" ? asObj(await stripe.invoices.retrieve(ref)) : asObj(ref);
+  const paid = Number(invoice.amount_paid ?? 0);
+  if (paid !== 0) throw new Error(`billing qualification failed: expected NO charge during the free trial at ${phase}, but an invoice already paid ${paid}`);
+}
+
+/** Prove a real invoice for the expected amount was PAID (the conversion/renewal charge actually settled). */
+async function assertInvoicePaid(stripe: StripeLike, invoiceRef: unknown, expectedAmount: number, phase: string): Promise<void> {
+  const id = typeof invoiceRef === "string" ? invoiceRef : String(asObj(invoiceRef).id ?? "");
+  if (!id) throw new Error(`billing qualification failed: no invoice to verify at ${phase}`);
+  // Always read the invoice fresh from Stripe by id — the expanded reference on the subscription may be stale.
+  const invoice = asObj(await stripe.invoices.retrieve(id));
+  const paid = Number(invoice.amount_paid ?? 0);
+  const status = String(invoice.status ?? "");
+  if (paid !== expectedAmount) throw new Error(`billing qualification failed: expected a paid $${expectedAmount / 100} invoice at ${phase}, got amount_paid=${paid}`);
+  if (status !== "paid") throw new Error(`billing qualification failed: expected invoice status 'paid' at ${phase}, got '${status}'`);
+}
+
 /** Post a signed synthetic event to the REAL handler; reject the phase at the response boundary on non-2xx. */
 async function applyEvent(
   deps: RunnerDeps, supabase: SupabaseLike, event: Record<string, unknown>, phase: string,
@@ -175,8 +212,11 @@ export async function runBillingQualification(deps: RunnerDeps): Promise<{ resul
     const customerId = String(asObj(await deps.stripe.customers.create({ test_clock: cid, description: "canary weekly billing qualification (test-mode)" })).id);
     await deps.stripe.paymentMethods.attach(okPm, { customer: customerId });
     await deps.stripe.customers.update(customerId, { invoice_settings: { default_payment_method: okPm } });
+    // The product entry path is a 30-DAY FREE TRIAL, not an immediate charge: create the subscription WITH a
+    // trial so the first real $10 invoice is only issued when the trial expires.
     const subId = String(asObj(await deps.stripe.subscriptions.create({
-      customer: customerId, items: [{ price: deps.priceId }], expand: ["latest_invoice.payment_intent"],
+      customer: customerId, items: [{ price: deps.priceId }], trial_period_days: TRIAL_DAYS,
+      expand: ["latest_invoice.payment_intent"],
     })).id);
 
     const tierNow = () => effectiveTier(db, userId);
@@ -185,36 +225,58 @@ export async function runBillingQualification(deps: RunnerDeps): Promise<{ resul
       if (t !== want) throw new Error(`billing qualification failed: expected effective tier '${want}' after ${phase}, got '${t}'`);
     };
 
-    // checkout + webhook: first binding grants Pro.
+    // trial_start: bind the fresh profile to the TRIALING subscription — the 30-day free trial grants full Pro
+    // access with NO charge yet.
     await applyEvent(deps, supabase, {
-      id: "evt_checkout", type: "checkout.session.completed", created: deps.frozenTime,
+      id: "evt_trial_start", type: "checkout.session.completed", created: deps.frozenTime,
       data: { object: { metadata: { userId }, client_reference_id: userId, subscription: subId, customer: customerId } },
-    }, "checkout");
-    await require("pro", "checkout");
-    evidence.checkout = true; evidence.webhook = true;
-    log("checkout+webhook: fresh profile bound to Pro");
+    }, "trial_start");
+    await require("pro", "trial_start");
+    await assertSubStatus(deps.stripe, subId, "trialing", "trial_start");
+    await assertNoChargeYet(deps.stripe, subId, "trial_start");
+    evidence.trial_start = true;
+    log("trial_start: 30-day free trial bound to Pro; no invoice charged");
 
-    // renewal: advance one period; still active → Pro continues.
-    await deps.stripe.testHelpers.testClocks.advance(cid, { frozen_time: deps.frozenTime + 32 * DAY });
-    await pollClockReady(deps.stripe, cid, clockTimeout);
-    await applyEvent(deps, supabase, { id: "evt_renew", type: "customer.subscription.updated", created: deps.frozenTime + 32 * DAY, data: { object: { id: subId } } }, "renewal");
+    // trial_active: advance to MID-trial (day 15) — access must persist and STILL nothing is charged.
+    await advanceClock(deps.stripe, cid, deps.frozenTime + 15 * DAY, clockTimeout);
+    await assertSubStatus(deps.stripe, subId, "trialing", "trial_active");
+    await applyEvent(deps, supabase, { id: "evt_trial_mid", type: "customer.subscription.updated", created: deps.frozenTime + 15 * DAY, data: { object: { id: subId } } }, "trial_active");
+    await require("pro", "trial_active");
+    await assertNoChargeYet(deps.stripe, subId, "trial_active");
+    evidence.trial_active = true;
+    log("trial_active: mid-trial still Pro; still no charge");
+
+    // conversion: advance PAST trial_end (day 31) — Stripe issues the FIRST $10 invoice, paid by the default
+    // card, and the subscription becomes active. This is the "first month free → first monthly payment" step.
+    await advanceClock(deps.stripe, cid, deps.frozenTime + (TRIAL_DAYS + 1) * DAY, clockTimeout);
+    const converted = await pollSubscriptionStatus(deps.stripe, subId, "active", clockTimeout);
+    await assertInvoicePaid(deps.stripe, converted.latest_invoice, PRO_UNIT_AMOUNT, "conversion");
+    await applyEvent(deps, supabase, { id: "evt_convert", type: "customer.subscription.updated", created: deps.frozenTime + (TRIAL_DAYS + 1) * DAY, data: { object: { id: subId } } }, "conversion");
+    await require("pro", "conversion");
+    evidence.conversion = true;
+    log("conversion: trial expired → first $10 invoice paid → active; Pro continuous across the transition");
+
+    // renewal: advance one more month → the second $10 invoice settles → Pro continues.
+    await advanceClock(deps.stripe, cid, deps.frozenTime + (TRIAL_DAYS + 32) * DAY, clockTimeout);
+    const renewed = await pollSubscriptionStatus(deps.stripe, subId, "active", clockTimeout);
+    await assertInvoicePaid(deps.stripe, renewed.latest_invoice, PRO_UNIT_AMOUNT, "renewal");
+    await applyEvent(deps, supabase, { id: "evt_renew", type: "customer.subscription.updated", created: deps.frozenTime + (TRIAL_DAYS + 32) * DAY, data: { object: { id: subId } } }, "renewal");
     await require("pro", "renewal");
     evidence.renewal = true;
-    log("renewal: renewal settled; Pro continues");
+    log("renewal: second $10 invoice settled; Pro continues");
 
-    // payment_failure: failing card → advance → the renewal invoice fails → past_due → Free (recoverable).
+    // payment_failure: failing card → advance → the next renewal invoice fails → past_due → Free (recoverable).
     await deps.stripe.paymentMethods.attach(failPm, { customer: customerId });
     await deps.stripe.customers.update(customerId, { invoice_settings: { default_payment_method: failPm } });
-    await deps.stripe.testHelpers.testClocks.advance(cid, { frozen_time: deps.frozenTime + 64 * DAY });
-    await pollClockReady(deps.stripe, cid, clockTimeout);
+    await advanceClock(deps.stripe, cid, deps.frozenTime + (TRIAL_DAYS + 64) * DAY, clockTimeout);
     const pastDue = await pollSubscriptionStatus(deps.stripe, subId, "past_due", clockTimeout);
-    await applyEvent(deps, supabase, { id: "evt_fail", type: "customer.subscription.updated", created: deps.frozenTime + 64 * DAY, data: { object: { id: subId } } }, "payment_failure");
+    await applyEvent(deps, supabase, { id: "evt_fail", type: "customer.subscription.updated", created: deps.frozenTime + (TRIAL_DAYS + 64) * DAY, data: { object: { id: subId } } }, "payment_failure");
     await require("free", "payment_failure");
     evidence.payment_failure = true;
     log("payment_failure: renewal invoice failed → past_due → access revoked (recoverable)");
 
-    // recovery: swap to a good card AND actually PAY the failed open invoice — changing the default alone does
-    // not settle it. Poll fail-closed until the subscription is genuinely active before proceeding.
+    // continuation: RECOVER by actually paying the failed open invoice (changing the default alone never settles
+    // it), then schedule cancel_at_period_end on the ACTIVE subscription — access must PERSIST through the period.
     const latestInvoice = pastDue.latest_invoice;
     const failedInvoice = typeof latestInvoice === "string" ? latestInvoice : String(asObj(latestInvoice).id ?? "");
     if (!failedInvoice) throw new Error("billing qualification failed: no failed invoice to recover in the payment_failure phase");
@@ -222,20 +284,15 @@ export async function runBillingQualification(deps: RunnerDeps): Promise<{ resul
     await deps.stripe.customers.update(customerId, { invoice_settings: { default_payment_method: okPm } });
     await deps.stripe.invoices.pay(failedInvoice, { payment_method: okPm });
     await pollSubscriptionStatus(deps.stripe, subId, "active", clockTimeout);
-    log("recovery: paid the failed invoice with the good card; subscription active again");
-
-    // continuation: schedule cancel_at_period_end on the ACTIVE subscription — access must PERSIST through the
-    // remainder of the paid period.
     await deps.stripe.subscriptions.update(subId, { cancel_at_period_end: true });
-    await applyEvent(deps, supabase, { id: "evt_scheduled", type: "customer.subscription.updated", created: deps.frozenTime + 65 * DAY, data: { object: { id: subId } } }, "continuation");
+    await applyEvent(deps, supabase, { id: "evt_scheduled", type: "customer.subscription.updated", created: deps.frozenTime + (TRIAL_DAYS + 65) * DAY, data: { object: { id: subId } } }, "continuation");
     await require("pro", "continuation");
     evidence.continuation = true;
-    log("continuation: scheduled cancellation keeps Pro through the paid period");
+    log("continuation: recovered the failed invoice, then scheduled cancellation keeps Pro through the paid period");
 
     // cancellation: advance to period end → terminal canceled → revocation.
-    await deps.stripe.testHelpers.testClocks.advance(cid, { frozen_time: deps.frozenTime + 96 * DAY });
-    await pollClockReady(deps.stripe, cid, clockTimeout);
-    await applyEvent(deps, supabase, { id: "evt_cancel", type: "customer.subscription.deleted", created: deps.frozenTime + 96 * DAY, data: { object: { id: subId } } }, "cancellation");
+    await advanceClock(deps.stripe, cid, deps.frozenTime + (TRIAL_DAYS + 96) * DAY, clockTimeout);
+    await applyEvent(deps, supabase, { id: "evt_cancel", type: "customer.subscription.deleted", created: deps.frozenTime + (TRIAL_DAYS + 96) * DAY, data: { object: { id: subId } } }, "cancellation");
     await require("free", "cancellation");
     evidence.cancellation = true;
     log("cancellation: terminal cancellation revoked access");
