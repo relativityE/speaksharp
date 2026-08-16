@@ -15,6 +15,10 @@ const MIGRATION = readFileSync(
 
 // Production-shaped subset: every column the #1306 enforcement references, plus representative metrics.
 const BOOTSTRAP = `
+  DO $r$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role; END IF;
+  END $r$;
   CREATE TABLE public.sessions (
     id uuid PRIMARY KEY, user_id uuid, created_at timestamptz DEFAULT now(),
     transcript text, ai_suggestions jsonb, ground_truth text, accuracy double precision,

@@ -96,3 +96,70 @@ DROP TRIGGER IF EXISTS trg_issue_reports_metrics_only ON public.user_issue_repor
 CREATE TRIGGER trg_issue_reports_metrics_only
   BEFORE INSERT OR UPDATE ON public.user_issue_reports
   FOR EACH ROW EXECUTE FUNCTION public.reject_issue_report_content_1306();
+
+-- 4) `complete_session` rewritten for metrics-only + ATOMIC completion.
+--    - The transcript parameter is REMOVED (transcript content never crosses the interface; the trigger above
+--      is the backstop). The final metrics AND exactly one structured recommendation are written in the SAME
+--      statement/transaction.
+--    - Fail-closed: completing with a NULL/invalid recommendation is rejected by the trigger + shape CHECK,
+--      which rolls back the ENTIRE completion (the function's single implicit transaction).
+--    - Idempotent: a session already 'completed' keeps its FIRST recommendation; a retry neither creates nor
+--      changes a second.
+--    Legacy retention convergence is dropped (transcripts are no longer persisted).
+DROP FUNCTION IF EXISTS public.complete_session(UUID, TEXT, TEXT, INT, TEXT);
+CREATE OR REPLACE FUNCTION public.complete_session(
+    p_session_id UUID,
+    p_status TEXT DEFAULT 'completed',
+    p_final_duration INT DEFAULT NULL,
+    p_reason TEXT DEFAULT NULL,
+    p_recommendation JSONB DEFAULT NULL
+) RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_session public.sessions%ROWTYPE;
+    v_effective_tier TEXT;
+    v_final_duration INT;
+BEGIN
+    SELECT public.effective_subscription_tier(
+        subscription_status, trial_expires_at, stripe_subscription_id, subscription_id, commercial_trial_granted_at
+    ) INTO v_effective_tier
+    FROM public.user_profiles WHERE id = auth.uid() FOR UPDATE;
+    IF NOT FOUND THEN RETURN jsonb_build_object('success', false, 'error', 'profile_not_found'); END IF;
+
+    SELECT * INTO v_session FROM public.sessions
+    WHERE id = p_session_id AND user_id = auth.uid() FOR UPDATE;
+    IF NOT FOUND THEN RETURN jsonb_build_object('success', false, 'error', 'session_not_found'); END IF;
+
+    IF COALESCE(v_effective_tier, 'free') <> 'pro' THEN
+        RETURN jsonb_build_object('success', false, 'error', 'trial_expired');
+    END IF;
+
+    -- IDEMPOTENT retry: an already-completed session returns its existing (first) recommendation unchanged.
+    IF v_session.status = 'completed' THEN
+        RETURN jsonb_build_object('success', true, 'final_status', 'completed', 'idempotent', true,
+                                  'recommendation_signals', v_session.recommendation_signals);
+    END IF;
+
+    v_final_duration := LEAST(600, GREATEST(0, COALESCE(p_final_duration, v_session.duration, 0)));
+
+    -- ATOMIC: status + duration + the one structured recommendation in a single UPDATE. A completing session
+    -- with a NULL/invalid recommendation trips the trigger/shape-CHECK and rolls the whole completion back.
+    UPDATE public.sessions
+    SET status = p_status,
+        status_reason = COALESCE(p_reason, status_reason),
+        duration = v_final_duration,
+        recommendation_signals = CASE WHEN p_status = 'completed' THEN p_recommendation ELSE recommendation_signals END,
+        updated_at = now()
+    WHERE id = p_session_id AND user_id = auth.uid();
+
+    RETURN jsonb_build_object('success', true, 'final_status', p_status,
+        'recommendation_signals', CASE WHEN p_status = 'completed' THEN p_recommendation ELSE v_session.recommendation_signals END);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.complete_session(UUID, TEXT, INT, TEXT, JSONB) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.complete_session(UUID, TEXT, INT, TEXT, JSONB) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.complete_session(UUID, TEXT, INT, TEXT, JSONB) TO service_role;
