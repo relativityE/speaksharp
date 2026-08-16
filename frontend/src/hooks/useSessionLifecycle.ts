@@ -664,10 +664,13 @@ export const useSessionLifecycle = () => {
             warmUpTriggered.current = effectiveMode;
             logger.info('[useSessionLifecycle] Page returned to foreground after a real reclamation — one explicit reload');
             speechRuntimeController.warmUp(effectiveMode).catch((err) => {
-                // A failed reload must NOT be swallowed. Surface the existing Private setup retry UI (init-failed
-                // → MicCard's "needs another try" retry control) so the user can re-initiate the local model;
-                // the consumed token guarantees we do not silently loop.
+                // A failed reload must NOT be swallowed. Drive the DOM-derived model status to `init-failed` so
+                // the recording controls (MicCard / MobileActionBar) render an ENABLED "Retry Private setup"
+                // action routed to the setup entry point — the consumed token guarantees we do not silently loop.
                 logger.warn({ err }, '[useSessionLifecycle] foreground-return reload failed — surfacing Private setup retry');
+                if (typeof document !== 'undefined') {
+                    document.documentElement.setAttribute('data-model-status', 'init-failed');
+                }
                 setSTTStatus({ type: 'init-failed', message: 'Private transcription setup did not complete.', detail: 'Retry the local model setup. Your audio stays on your machine.' });
             });
         };

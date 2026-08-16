@@ -60,15 +60,17 @@ import { SpeechRuntimeController } from '@/services/SpeechRuntimeController';
 
 const IDLE_RECLAMATION_MS = 5 * 60 * 1000;
 type Priv = { state: string; isEngineReady: boolean; service: unknown; startIdleTimer: () => void };
+type FakeService = { getMode: () => string; destroy: ReturnType<typeof vi.fn> };
 
 const setVisibility = (state: 'visible' | 'hidden') => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
     act(() => { document.dispatchEvent(new Event('visibilitychange')); });
 };
 
-describe('#1258 INTEGRATED — real timer → reclamation → token → foreground → one reload', () => {
+describe('#1258 INTEGRATED — real timer → real reset/teardown → token → foreground → one reload', () => {
     let controller: SpeechRuntimeController;
     let priv: Priv;
+    let fakeService: FakeService;
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -83,14 +85,14 @@ describe('#1258 INTEGRATED — real timer → reclamation → token → foregrou
         controller = SpeechRuntimeController.getInstance();
         priv = controller as unknown as Priv;
         (controller as unknown as { initialized: boolean }).initialized = true;
-        // Stub the heavy teardown/reload so the REAL timer→guard→token path runs without real IO. The token
-        // increment itself is REAL (fires in the controller's own `.then` after reset resolves).
-        vi.spyOn(controller, 'reset').mockReturnValue(undefined); // reset() is synchronous (void)
+        // Only the RELOAD is stubbed. reset() runs FOR REAL and tears down a lightweight fake service via
+        // destroy() — so this proves the real timer → real reset/teardown → token chain, not just timer→branch.
         vi.spyOn(controller, 'warmUp').mockResolvedValue(undefined);
-        // A ready Private engine.
+        fakeService = { getMode: () => 'private', destroy: vi.fn().mockResolvedValue(undefined) };
+        // A ready Private engine backed by the fake service.
         priv.state = 'READY';
         priv.isEngineReady = true;
-        priv.service = { getMode: () => 'private' } as never;
+        priv.service = fakeService as never;
     });
 
     afterEach(() => {
@@ -100,17 +102,24 @@ describe('#1258 INTEGRATED — real timer → reclamation → token → foregrou
         setVisibility('visible');
     });
 
-    it('advances the real token via a background reclamation and reloads exactly once on return', async () => {
+    it('real reset reclaims the engine to idle, THEN the token advances, and one reload fires on return', async () => {
         setVisibility('hidden'); // backgrounded before mount
 
         renderHook(() => useSessionLifecycle(), { wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider> });
         vi.mocked(controller.warmUp).mockClear();
         const genBefore = controller.getIdleReclamationGeneration();
 
-        // Drive the REAL five-minute idle timer to a real reclamation while backgrounded.
+        // Drive the REAL five-minute idle timer → the REAL reset/teardown while backgrounded.
         priv.startIdleTimer();
         await vi.advanceTimersByTimeAsync(IDLE_RECLAMATION_MS + 1000);
-        expect(controller.getIdleReclamationGeneration()).toBe(genBefore + 1); // real token advanced
+
+        // The real reset ran: the fake service was destroyed and the controller reached the reclaimed idle
+        // state…
+        expect(fakeService.destroy).toHaveBeenCalledTimes(1);
+        expect(controller.getState()).toBe('IDLE');
+        expect(priv.isEngineReady).toBe(false);
+        // …and only AFTER a successful reset did the reload token advance.
+        expect(controller.getIdleReclamationGeneration()).toBe(genBefore + 1);
 
         // Return to the foreground → exactly one explicit reload, tied to that real reclamation.
         setVisibility('visible');

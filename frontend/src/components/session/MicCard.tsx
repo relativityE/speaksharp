@@ -71,15 +71,21 @@ export const MicCard: React.FC<MicCardProps> = ({
                 ? { dot: '#a8321f', text: '#a8321f', label: 'Private transcription needs another try' }
                 : { dot: '#146b4a', text: '#146b4a', label: 'Mic ready on this device' };
 
-    // Primary action: download when required, otherwise start. The mic is GREYED OUT + disabled for the
-    // whole download (loading), then re-enabled to record once the model is ready.
-    const primaryHandler = downloadRequired ? (onDownloadModel ?? onStart) : onStart;
-    const primaryDisabled = !!disabled || loading;
+    // Primary action: download when required, RETRY after a setup failure, otherwise start. The mic is GREYED
+    // OUT + disabled for the whole download (loading), then re-enabled to record once the model is ready.
+    // #1258: a setup/retry action (download-required OR init-failed/error) is ALWAYS enabled and routes to the
+    // Private setup entry point — a failed model setup must leave the user a clickable "Retry Private setup",
+    // never a permanently-disabled control.
+    const isSetupAction = downloadRequired || modelError;
+    const primaryHandler = isSetupAction ? (onDownloadModel ?? onStart) : onStart;
+    const primaryDisabled = isSetupAction ? false : (!!disabled || loading);
     const primaryTitle = downloadRequired
         ? 'Download to start speaking'
+        : modelError ? 'Retry Private setup'
         : loading ? 'Downloading…' : 'Press to start speaking';
     const primarySub = downloadRequired
         ? 'One-time · downloads to this device, then stays local'
+        : modelError ? 'Setup didn’t finish — retry. Your audio stays on your machine.'
         : loading ? (pct != null ? `${pct}% downloaded — the mic unlocks when it’s ready` : 'the mic unlocks when it’s ready') : 'Space bar works too · aim for 60 seconds';
 
     return (
@@ -108,8 +114,8 @@ export const MicCard: React.FC<MicCardProps> = ({
                 type="button"
                 onClick={primaryHandler}
                 disabled={primaryDisabled}
-                aria-label={downloadRequired ? 'Download to start speaking' : 'Start speaking'}
-                data-testid={downloadRequired ? 'mic-download' : 'mic-start'}
+                aria-label={downloadRequired ? 'Download to start speaking' : modelError ? 'Retry Private setup' : 'Start speaking'}
+                data-testid={downloadRequired ? 'mic-download' : modelError ? 'mic-retry' : 'mic-start'}
                 className="mt-3 flex w-full items-center gap-4 rounded-lg text-left disabled:opacity-60"
             >
                 <span
