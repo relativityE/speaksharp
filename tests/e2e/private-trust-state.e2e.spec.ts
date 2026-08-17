@@ -64,7 +64,10 @@ test.describe('Private mode trust-state + save/detail', () => {
     await latest.getByTestId(/session-detail-link-/).click();
     await page.waitForURL('**/analytics/session-*');
 
-    // Detail view renders the saved Private transcript.
-    await expect(page.getByText(/private on device transcript/i)).toBeVisible();
+    // #1306 metrics-only: the live transcript above was ephemeral working memory; the saved detail view renders
+    // metrics + the one next action and NEVER the transcript (the trust signal is the Private engine metadata).
+    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
+    await expect(page.getByText(/private on device transcript/i)).toHaveCount(0);
+    await expect(page.getByTestId('session-engine-metadata')).toContainText(/private/i);
   });
 });
