@@ -1,3 +1,12 @@
+import type { NextActionSignal } from '@/contracts/nextActionSignal';
+import type { PersistedFillerCounts } from '@/contracts/fillerCounts';
+
+/**
+ * #1306 METRICS-ONLY. A persisted practice session carries content-free metrics + one structured next action.
+ * NO transcript, transcript excerpt, raw STT output, quoted speech, coaching prose, ground truth, per-session
+ * accuracy, or custom words ever appears here — post-session code CANNOT receive transcript text at compile time
+ * (the fields simply do not exist on the type).
+ */
 export interface PracticeSession {
   id: string;
   user_id: string;
@@ -6,36 +15,29 @@ export interface PracticeSession {
   duration: number;
   title?: string;
   total_words?: number;
-  // #1047 PR-U1: SQL NULL is a real, meaningful value here (#1117 retention persists NULL on expiry). The
-  // optional `?` covers legacy/partial reads that omit the column; `| null` models the retention state.
-  transcript?: string | null;
-  filler_words?: {
-    [key: string]: {
-      count: number;
-    };
-  };
-  accuracy?: number;
-  ground_truth?: string;
+  /** Strict flat filler tally — APPROVED standard keys only ({ um: 3, uh: 1 }); `{}` = measured zero. Never a
+   *  nested/free-form/prose-keyed map. Runtime-validated at the persistence boundary + read path. */
+  filler_counts?: PersistedFillerCounts;
   engine?: string;
   engine_version?: string;
   model_name?: string;
   device_type?: string;
   /** #1033 STT attribution lifecycle: legacy_unknown | pending | verified | unverified. */
   attribution_status?: import('@/constants/attributionStatus').AttributionStatus;
-  /** #1047 PR-U1 server-owned transcript state: available | expired | not_captured. */
+  /** Vestigial server-owned state (transcript retention retired); metrics-only rows are effectively not_captured. */
   transcript_state?: import('@/constants/transcriptState').TranscriptState;
-  custom_words?: Record<string, unknown>;
   clarity_score?: number;
   wpm?: number;
-  ai_suggestions?: {
-    version: 'gemini_coaching_v1';
-    what_worked: string;
-    what_to_try_next: string;
-  } | null;
+  /** The ONE metrics-derived next action for a successfully completed session; null for incomplete/failed. */
+  next_action_signal?: NextActionSignal | null;
+  /** Aggregate pause metrics only (no raw timestamps). */
   pause_metrics?: {
-    silencePercentage: number;
-    transitionPauses: number;
-    extendedPauses: number;
-    longestPause: number;
+    totalPauses?: number;
+    averagePauseDuration?: number;
+    longestPause?: number;
+    pausesPerMinute?: number;
+    silencePercentage?: number;
+    transitionPauses?: number;
+    extendedPauses?: number;
   };
 }

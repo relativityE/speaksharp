@@ -65,13 +65,13 @@ describe('signalsFromSession (#1206)', () => {
     });
 
     it('derives filler rate from validated filler evidence; null when absent', () => {
-        expect(signalsFromSession(base({ filler_words: { um: { count: 30 } } })).fillerRate).toBeCloseTo(3, 5);
+        expect(signalsFromSession(base({ filler_counts: { um: 30 } })).fillerRate).toBeCloseTo(3, 5);
         expect(signalsFromSession(base({})).fillerRate).toBeNull();
     });
 
     it('carries clarity only when scorable, and silence only with valid pause evidence', () => {
         const s = signalsFromSession(base({
-            filler_words: { um: { count: 6 } }, total_words: 200, clarity_score: 72,
+            filler_counts: { um: 6 }, total_words: 200, clarity_score: 72,
             pause_metrics: { silencePercentage: 12, transitionPauses: 3, extendedPauses: 1, longestPause: 2 },
         }));
         expect(s.silencePct).toBe(12);

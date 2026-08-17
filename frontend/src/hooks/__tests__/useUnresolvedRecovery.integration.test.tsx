@@ -23,32 +23,31 @@ vi.mock('@/services/SpeechRuntimeController', () => ({
 
 const USER_A = 'user-A';
 const USER_B = 'user-B';
+// #1306: content-free finalized draft (metrics + next action, NO transcript).
 const seed = (userId: string | undefined, sessionId: string) =>
-    saveSessionRecoveryDraft({ sessionId, userId, transcript: 'words before a save failure', durationSeconds: 30, mode: 'private' });
+    saveSessionRecoveryDraft({ sessionId, userId, recoveryState: 'finalized_pending_save', durationSeconds: 30, mode: 'private', metrics: { totalWords: 40 } });
 const fullDraft = (userId: string, sessionId: string): SessionRecoveryDraft =>
-    ({ sessionId, userId, transcript: 'x', durationSeconds: 1, mode: 'private', savedAt: new Date(0).toISOString() });
+    ({ sessionId, userId, recoveryState: 'finalized_pending_save', durationSeconds: 1, mode: 'private', metrics: { totalWords: 1 }, nextActionSignal: null, savedAt: new Date(0).toISOString() });
 
 const args = (over: Partial<Parameters<typeof useUnresolvedRecovery>[0]>) => ({
     authUserId: null, isListening: false, sessionSaved: false, transcriptContent: '', ...over,
 });
 
-let updateSpy: ReturnType<typeof vi.spyOn>;
-let chunksSpy: ReturnType<typeof vi.spyOn>;
+// #1306: recovery is content-free — restore surfaces a STATUS (never rehydrates transcript). Spy on setSTTStatus.
+let statusSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
     window.localStorage.clear();
     rehydrate.mockClear();
-    updateSpy = vi.spyOn(useSessionStore.getState(), 'updateTranscript');
-    chunksSpy = vi.spyOn(useSessionStore.getState(), 'setChunks');
+    statusSpy = vi.spyOn(useSessionStore.getState(), 'setSTTStatus');
 });
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('#1033 A5/A6 — same-user recovery + cross-account isolation (integration)', () => {
-    it('1. same-user reload AUTO-RESTORES the owned draft (empty transcript) and rehydrates the controller', async () => {
+    it('1. same-user reload AUTO-RESTORES the owned draft (content-free status, no transcript) and rehydrates', async () => {
         seed(USER_A, 'sess-A');
         renderHook(() => useUnresolvedRecovery(args({ authUserId: USER_A })));
-        expect(updateSpy).toHaveBeenCalledWith('words before a save failure', '');
-        expect(chunksSpy).toHaveBeenCalled();
+        expect(statusSpy).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/Recovered an unsaved session/) }));
         await waitFor(() => expect(rehydrate).toHaveBeenCalledWith(USER_A));
     });
 
@@ -56,7 +55,7 @@ describe('#1033 A5/A6 — same-user recovery + cross-account isolation (integrat
         seed(USER_A, 'sess-A');
         const { result } = renderHook(() => useUnresolvedRecovery(args({ authUserId: USER_A, transcriptContent: 'on screen' })));
         expect(result.current.recoveryDraft?.sessionId).toBe('sess-A');
-        expect(updateSpy).not.toHaveBeenCalled(); // not auto-restored while visible text exists
+        expect(statusSpy).not.toHaveBeenCalled(); // not auto-restored while visible text exists
     });
 
     it('2. React Strict Mode / re-renders rehydrate EXACTLY ONCE', async () => {
@@ -77,8 +76,7 @@ describe('#1033 A5/A6 — same-user recovery + cross-account isolation (integrat
         seed(USER_A, 'sess-A'); // owned by A
         const { result } = renderHook(() => useUnresolvedRecovery(args({ authUserId: USER_B, transcriptContent: 'on screen' })));
         expect(result.current.recoveryDraft).toBeNull();
-        expect(updateSpy).not.toHaveBeenCalled();
-        expect(chunksSpy).not.toHaveBeenCalled();
+        expect(statusSpy).not.toHaveBeenCalled();
         // rehydrate is scoped to B (who has no draft); the controller primitive is a no-op for B, and it
         // is NEVER called with A's identity.
         await waitFor(() => expect(rehydrate).toHaveBeenCalledWith(USER_B));
@@ -98,7 +96,7 @@ describe('#1033 A5/A6 — same-user recovery + cross-account isolation (integrat
             { initialProps: args({ authUserId: USER_A, transcriptContent: 'on screen' }) },
         );
         expect(result.current.recoveryDraft).toBeNull();
-        expect(updateSpy).not.toHaveBeenCalled();
+        expect(statusSpy).not.toHaveBeenCalled();
         rerender(args({ authUserId: USER_A, sessionSaved: true }));
         expect(getSessionRecoveryDraft()?.sessionId).toBe('sess-legacy');
     });
@@ -111,7 +109,7 @@ describe('#1033 A5/A6 — same-user recovery + cross-account isolation (integrat
         );
         expect(result.current.recoveryDraft).toBeNull();
         expect(rehydrate).not.toHaveBeenCalled();
-        expect(updateSpy).not.toHaveBeenCalled();
+        expect(statusSpy).not.toHaveBeenCalled();
         rerender(args({ authUserId: null, sessionSaved: true }));
         expect(getSessionRecoveryDraft()?.sessionId).toBe('sess-A');
     });

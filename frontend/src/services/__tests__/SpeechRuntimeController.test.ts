@@ -506,7 +506,11 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
                 .replace(/[^\p{L}\p{N}\s']/gu, '')
                 .replace(/\s+/g, ' ')
                 .trim();
-            expect(normalizeForAssertion(completionPayload?.transcript)).toContain('today i expect live transcript text');
+            // #1306: the completion payload is CONTENT-FREE — metrics + one next action, NEVER a transcript.
+            expect(completionPayload).not.toHaveProperty('transcript');
+            expect(completionPayload?.metrics).toBeDefined();
+            expect(completionPayload?.nextActionSignal).toBeTruthy();
+            // The transcript stays in the live in-memory store only (ephemeral working memory).
             expect(normalizeForAssertion(useSessionStore.getState().transcript.transcript)).toContain('today i expect live transcript text');
             expect(useSessionStore.getState().transcript.partial).toBe('');
         }
@@ -884,20 +888,25 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         { from: 'RECORDING', term: 'FAILED_VISIBLE' },
         { from: 'STOPPING', term: 'FAILED' },
         { from: 'STOPPING', term: 'TERMINATED' },
-    ])('#1033 (B): POST-start failure ($from → $term) with RECOVERABLE work STAYS locked + arms a full-save retry', async ({ from, term }) => {
+    ])('#1033 (B)/#1306: POST-start failure ($from → $term) with a FINALIZED draft STAYS locked + arms a full-save retry', async ({ from, term }) => {
         clearDraft();
+        // #1306: recoverable work = a FINALIZED draft (exact metrics + next action from a clean stop). A live
+        // transcript alone is NOT recoverable — it can never become a completed session.
+        const draft = await import('../sessionRecoveryDraft');
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-postfail', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 8 }, durationSeconds: 12, mode: 'private' });
         setLock(false, from, null);
         setUnresolved(true); // recording had begun and is not durably resolved
         (controller as unknown as { sessionId: string | null }).sessionId = 'sess-postfail';
+        (controller as unknown as { capturedUserId: string | null }).capturedUserId = 'user-1';
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
-        useSessionStore.getState().updateTranscript('recoverable words captured before the failure', '');
+        useSessionStore.getState().updateTranscript('', '');
         await doTransition(term);
-        expect(controller.isEngineSelectionLocked()).toBe(true); // locked because there IS unsaved work
+        expect(controller.isEngineSelectionLocked()).toBe(true); // locked because there IS a finalized draft
         expect(controller.pendingResolutionKind()).toBe('full_save'); // ...and an actionable recovery exists (B4)
         setUnresolved(false);
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
-        useSessionStore.getState().updateTranscript('', '');
+        clearDraft();
     });
 
     it.each([
@@ -921,7 +930,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033 (B): a heartbeat/engine failure with a RECOVERY DRAFT arms a full-save retry (unverified identity, never fabricated)', async () => {
         clearDraft();
         const draft = await import('../sessionRecoveryDraft');
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-hb', userId: 'user-1', transcript: 'words spoken before the engine died', durationSeconds: 42, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-hb', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 42, mode: 'private' });
         setLock(false, 'RECORDING', null);
         setUnresolved(true);
         (controller as unknown as { sessionId: string | null }).sessionId = 'sess-hb';
@@ -932,9 +941,12 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
         await doTransition('FAILED'); // heartbeat/engine failure lands here
-        const pending = (controller as unknown as { pendingFullSaveRetry: { sessionId: string; completeArgs: { transcript: string; duration: number }; attributionEvidence: unknown } | null }).pendingFullSaveRetry;
+        const pending = (controller as unknown as { pendingFullSaveRetry: { sessionId: string; completeArgs: { status: string; duration: number; metrics?: { totalWords?: number } }; attributionEvidence: unknown } | null }).pendingFullSaveRetry;
         expect(pending).toMatchObject({ sessionId: 'sess-hb' });
-        expect(pending?.completeArgs.transcript).toContain('engine died');
+        // #1306: recovery is CONTENT-FREE — the retry replays the finalized draft's metrics, never a transcript.
+        expect(pending?.completeArgs).not.toHaveProperty('transcript');
+        expect(pending?.completeArgs.status).toBe('completed');
+        expect(pending?.completeArgs.metrics?.totalWords).toBe(5);
         expect(pending?.attributionEvidence).toBeNull(); // #1161: a dead engine has no trusted identity → no authority
         expect(controller.isEngineSelectionLocked()).toBe(true);
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
@@ -947,7 +959,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         const draft = await import('../sessionRecoveryDraft');
         vi.mocked(storage.completeSession).mockClear();
         vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-disc', userId: 'user-1', transcript: 'unsaved words', durationSeconds: 10, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-disc', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 10, mode: 'private' });
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-disc', completeArgs: { status: 'completed', transcript: 'unsaved words', duration: 10 }, attributionEvidence: null };
         setUnresolved(true);
         expect(controller.isEngineSelectionLocked()).toBe(true);
@@ -996,7 +1008,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033 (2): a STALE FOREIGN draft is never consumed by a post-start failure (fails closed)', async () => {
         clearDraft();
         const draft = await import('../sessionRecoveryDraft');
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-otherA', userId: 'user-OTHER', transcript: 'another accounts private words', durationSeconds: 30, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-otherA', userId: 'user-OTHER', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 30, mode: 'private' });
         resetLifecycle();
         setLock(false, 'RECORDING', null);
         setUnresolved(true);
@@ -1016,7 +1028,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it.each([
         { label: 'partial-only', arrange: () => { useSessionStore.getState().updateTranscript('', 'only an in progress partial utterance'); } },
         { label: 'chunks-only', arrange: () => { useSessionStore.getState().updateTranscript('', ''); useSessionStore.getState().setChunks([{ transcript: 'only chunked words were captured', timestamp: Date.now(), isFinal: true }]); } },
-    ])('#1033 (3): $label recording is recoverable — never classified as empty', async ({ arrange }) => {
+    ])('#1033 (3)/#1306: $label recording (live partial/chunks only) is INTERRUPTED — not completable, resolves by discard', async ({ arrange }) => {
         clearDraft();
         resetLifecycle();
         setLock(false, 'RECORDING', null);
@@ -1026,8 +1038,10 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         useSessionStore.getState().setChunks([]);
         arrange();
         await doTransition('FAILED');
-        expect(controller.pendingResolutionKind()).toBe('full_save'); // recoverable → actionable, still locked
-        expect(controller.isEngineSelectionLocked()).toBe(true);
+        // #1306: a mid-recording interruption has only live/partial state and NO final metrics, so it can never
+        // become a completed session — it resolves by discard (unlock) rather than arming a completed retry.
+        expect(controller.pendingResolutionKind()).toBeNull();
+        expect(controller.isEngineSelectionLocked()).toBe(false);
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
         setUnresolved(false);
         useSessionStore.getState().setChunks([]);
@@ -1059,14 +1073,16 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         useSessionStore.getState().setChunks([]);
         useSessionStore.getState().updateTranscript('speech captured before the session row existed', '');
         await doTransition('FAILED');
-        expect(controller.pendingResolutionKind()).toBe('initial_save');
-        expect(controller.isEngineSelectionLocked()).toBe(true); // early speech is NOT lost
+        // #1306: pre-session live speech with no clean stop has NO final metrics → interrupted, not completable.
+        // It resolves by discard rather than arming an initial_save completion from partial state.
+        expect(controller.pendingResolutionKind()).toBeNull();
+        expect(controller.isEngineSelectionLocked()).toBe(false);
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
         setUnresolved(false); setInitialCtx(null);
         useSessionStore.getState().updateTranscript('', '');
     });
 
-    it('#1033 (1): PARTIAL-ONLY speech in the pre-session window is still recoverable', async () => {
+    it('#1033 (1)/#1306: PARTIAL-ONLY pre-session speech is INTERRUPTED — not completable from partial state', async () => {
         clearDraft(); resetLifecycle();
         setLock(false, 'RECORDING', null); setUnresolved(true);
         (controller as unknown as { sessionId: string | null }).sessionId = null;
@@ -1074,8 +1090,8 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         useSessionStore.getState().setChunks([]);
         useSessionStore.getState().updateTranscript('', 'only a partial utterance so far');
         await doTransition('FAILED');
-        expect(controller.pendingResolutionKind()).toBe('initial_save');
-        expect(controller.isEngineSelectionLocked()).toBe(true);
+        expect(controller.pendingResolutionKind()).toBeNull();
+        expect(controller.isEngineSelectionLocked()).toBe(false);
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
         setUnresolved(false); setInitialCtx(null);
         useSessionStore.getState().updateTranscript('', '');
@@ -1155,6 +1171,9 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         { latched: 'native', reported: 'private' },
     ] as const)('#1033 (2): $latched → $reported callback terminates the recording and forces unverified', async ({ latched, reported }) => {
         clearDraft(); resetLifecycle();
+        // #1306: recovery armed = a FINALIZED draft. Seed one so the mixed-engine teardown stays locked +
+        // recoverable (the live transcript alone is not recoverable under metrics-only).
+        (await import('../sessionRecoveryDraft')).saveSessionRecoveryDraft({ sessionId: 'sess-mix', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 6 }, durationSeconds: 10, mode: latched });
         const stop = vi.fn().mockResolvedValue(undefined);
         (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, stopTranscription: stop, getMode: () => latched };
         (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = latched;
@@ -1312,6 +1331,8 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     // (2) Duplicate/concurrent mismatched callbacks must reuse ONE teardown — no second stop/transition/DB op.
     it('#1033 (2-final): concurrent + post-completion duplicate mismatch callbacks perform exactly ONE teardown', async () => {
         clearDraft(); resetLifecycle();
+        // #1306: seed a FINALIZED draft so the teardown stays locked + recoverable under metrics-only.
+        (await import('../sessionRecoveryDraft')).saveSessionRecoveryDraft({ sessionId: 'sess-dupe', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 4 }, durationSeconds: 9, mode: 'private' });
         const stop = vi.fn().mockResolvedValue(undefined);
         (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, stopTranscription: stop, getMode: () => 'private' };
         (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = 'private';
@@ -1421,7 +1442,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         clearDraft();
         const storage = await import('../../lib/storage');
         const draft = await import('../sessionRecoveryDraft');
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-dbdown', userId: 'user-1', transcript: 'the only copy of my words', durationSeconds: 12, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-dbdown', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 12, mode: 'private' });
         vi.mocked(storage.completeSession).mockRejectedValueOnce(new Error('DB unavailable'));
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-dbdown', completeArgs: { status: 'completed', transcript: 'the only copy of my words', duration: 12 }, attributionEvidence: null };
         setUnresolved(true);
@@ -1467,7 +1488,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         clearDraft();
         const storage = await import('../../lib/storage');
         const draft = await import('../sessionRecoveryDraft');
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-retryd', userId: 'user-1', transcript: 'words', durationSeconds: 9, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-retryd', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 9, mode: 'private' });
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-retryd', completeArgs: { status: 'completed', transcript: 'words', duration: 9 }, attributionEvidence: null };
         setUnresolved(true);
         vi.mocked(storage.completeSession).mockRejectedValueOnce(new Error('DB unavailable'));
@@ -1771,7 +1792,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033 (C1): soft subscriber_unmount preserves BOTH in-memory recovery AND the durable draft', async () => {
         clearDraft();
         const draft = await import('../sessionRecoveryDraft');
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-soft', userId: 'user-1', transcript: 'unsaved', durationSeconds: 8, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-soft', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 8, mode: 'private' });
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-soft', completeArgs: { status: 'completed', transcript: 'unsaved', duration: 8 }, attributionEvidence: null };
         controller.reset('subscriber_unmount');
@@ -1785,7 +1806,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033 (C2/C4): a hard reset preserves the durable draft; same-user reload rehydrates the lock + full-save retry', async () => {
         clearDraft();
         const draft = await import('../sessionRecoveryDraft');
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-reload', userId: 'user-1', transcript: 'work that survived the reload', durationSeconds: 30, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-reload', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 30, mode: 'private' });
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-reload', completeArgs: { status: 'completed', transcript: 'work that survived the reload', duration: 30 }, attributionEvidence: null };
         controller.reset('logout'); // hard reset clears in-memory state (simulating a reload)
@@ -1804,7 +1825,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033 (C3): a DIFFERENT user cannot rehydrate another user\'s recovery draft (no cross-account exposure)', async () => {
         clearDraft();
         const draft = await import('../sessionRecoveryDraft');
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-userA', userId: 'user-A', transcript: 'user A private words', durationSeconds: 20, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-userA', userId: 'user-A', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 20, mode: 'private' });
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = false;
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
         const rehydrated = (controller as unknown as { rehydrateUnresolvedRecording: (u: string | null) => boolean }).rehydrateUnresolvedRecording('user-B');
@@ -2067,26 +2088,30 @@ describe('SpeechRuntimeController.persistActiveRecoveryDraft (UX-NAV-1)', () => 
         store.updateTranscript(transcript, partial);
     };
 
-    it('writes a recovery draft from the live transcript while RECORDING', () => {
+    it('writes a CONTENT-FREE interrupted draft (partial word count, no transcript) while RECORDING', () => {
         arrangeRecording('sess-nav-1', 'the quick brown fox');
 
         controller.persistActiveRecoveryDraft();
 
         const draft = getSessionRecoveryDraft();
         expect(draft?.sessionId).toBe('sess-nav-1');
-        expect((draft?.transcript ?? '').toLowerCase()).toContain('the quick brown fox');
+        expect(draft).not.toHaveProperty('transcript');
+        expect(draft?.recoveryState).toBe('active_interrupted');
+        expect(draft?.nextActionSignal ?? null).toBeNull(); // interrupted → never completable
+        expect(draft?.metrics.totalWords).toBe(4); // "the quick brown fox"
         expect(draft?.mode).toBe('private');
         expect(draft?.durationSeconds).toBeGreaterThanOrEqual(4);
     });
 
-    it('includes the partial tail so an in-progress utterance is not lost', () => {
+    it('counts the partial tail into the word count so in-progress work is reflected (still no transcript)', () => {
         arrangeRecording('sess-nav-2', 'committed words', 'and the partial tail');
 
         controller.persistActiveRecoveryDraft();
 
-        const text = (getSessionRecoveryDraft()?.transcript ?? '').toLowerCase();
-        expect(text).toContain('committed words');
-        expect(text).toContain('and the partial tail');
+        const draft = getSessionRecoveryDraft();
+        expect(draft).not.toHaveProperty('transcript');
+        // "committed words and the partial tail" → 6 words counted, no words persisted.
+        expect(draft?.metrics.totalWords).toBeGreaterThanOrEqual(5);
     });
 
     it('is a no-op when not actively RECORDING', () => {

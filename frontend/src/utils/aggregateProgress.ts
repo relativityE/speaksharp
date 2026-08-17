@@ -1,5 +1,6 @@
 import type { PracticeSession } from '@/types/session';
-import { validatedFillerTotal, getSessionAnalysisMetrics, ANALYTICS_THRESHOLDS } from './sessionAnalysis';
+import { getSessionAnalysisMetrics, ANALYTICS_THRESHOLDS } from './sessionAnalysis';
+import { persistedFillerTotal } from '@/contracts/fillerCounts';
 import { hasValidPauseEvidence } from './metricValidity';
 
 /**
@@ -157,7 +158,7 @@ export function computeAggregateProgress(sessionsOldestFirst: SessionSignals[]):
 /** Extract the v1 signal set from a persisted session, honouring existing provenance gates (never fabricate). */
 export function signalsFromSession(s: PracticeSession): SessionSignals {
     const duration = s.duration || 0;
-    const fillerTotal = validatedFillerTotal(s.filler_words);
+    const fillerTotal = persistedFillerTotal(s.filler_counts);
     const m = getSessionAnalysisMetrics(s);
     const pauseOk = hasValidPauseEvidence(s.pause_metrics);
     return {

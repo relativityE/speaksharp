@@ -7,9 +7,11 @@ import { calculateSpeakingScore } from '@/utils/speakingScore';
 /**
  * Phase 5.8 PRECURSOR (C-then-A) — filler-source divergence measurement.
  *
- * Compares the LIVE filler counter (`useFillerWords` → store.fillerData) against the deterministic
- * transcript RECOUNT (`countFillerWords(transcript, userWords)`) — the value Analytics/PDF/save already
- * use and the candidate SSOT — and reports the downstream clarity/score impact.
+ * Compares the LIVE filler counter (`useFillerWords` → store.fillerData) — which is CANONICAL for the saved
+ * metrics — against a deterministic recount of the in-memory transcript (`countFillerWords(transcript,
+ * userWords)`), purely to quantify how far the two would differ. #1306: the transcript recount is NOT an SSOT
+ * and is NEVER persisted — the live filler count is what the metrics-only session stores. This runs over
+ * ephemeral working memory at stop-entry only.
  *
  * DIAGNOSTIC ONLY: nothing here is consumed by a product surface, no writer is changed, no cutover.
  * PRIVACY: reports are NUMBERS ONLY (counts + deltas + a category tag). No transcript text.

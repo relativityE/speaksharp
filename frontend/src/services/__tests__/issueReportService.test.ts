@@ -153,7 +153,7 @@ describe('issueReportService', () => {
     clearPrivateRecordingIdentity();
   });
 
-  it('stores metadata while excluding transcript and audio unless opted in', async () => {
+  it('#1306: the persisted payload NEVER carries a transcript field, and the audio note is excluded unless opted in', async () => {
     await issueReportService.submit({
       userId: 'user-1',
       category: 'recording_transcription',
@@ -162,43 +162,42 @@ describe('issueReportService', () => {
       description: 'The microphone button did not start recording.',
       pageUrl: 'http://localhost:5174/session',
       metadata: { route: '/session', sttMode: 'private' },
-      includeTranscript: false,
-      transcriptExcerpt: 'Sensitive transcript must not be sent',
       includeAudio: false,
       audioAttachmentNote: 'Sensitive audio note must not be sent',
     });
 
     expect(insert).toHaveBeenCalledWith(expect.objectContaining({
       metadata: { route: '/session', sttMode: 'private' },
-      include_transcript: false,
-      transcript_excerpt: null,
       include_audio: false,
       audio_attachment_note: null,
     }));
+    // No transcript field exists on the payload at all — not as a key, not as null.
+    const payload = insert.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('transcript_excerpt');
+    expect(payload).not.toHaveProperty('include_transcript');
     expect(select).not.toHaveBeenCalled();
   });
 
-  it('stores optional transcript and audio note only when opted in', async () => {
+  it('#1306: stores the optional audio note when opted in — and still never a transcript field', async () => {
     await issueReportService.submit({
       userId: 'user-1',
       category: 'recording_transcription',
       severity: 'medium',
-      title: 'Transcript wrong',
-      description: 'The final transcript replaced a phrase.',
+      title: 'Audio issue',
+      description: 'The recording level seemed off.',
       pageUrl: 'http://localhost:5174/session',
       metadata: { route: '/session', sttMode: 'private' },
-      includeTranscript: true,
-      transcriptExcerpt: 'User explicitly included this transcript.',
       includeAudio: true,
       audioAttachmentNote: 'User can provide audio separately.',
     });
 
     expect(insert).toHaveBeenCalledWith(expect.objectContaining({
-      include_transcript: true,
-      transcript_excerpt: 'User explicitly included this transcript.',
       include_audio: true,
       audio_attachment_note: 'User can provide audio separately.',
     }));
+    const payload = insert.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('transcript_excerpt');
+    expect(payload).not.toHaveProperty('include_transcript');
     expect(select).not.toHaveBeenCalled();
   });
 
@@ -211,7 +210,6 @@ describe('issueReportService', () => {
       description: 'A label on the analytics page reads awkwardly.',
       pageUrl: 'http://localhost:5174/analytics',
       metadata: { route: '/analytics' },
-      includeTranscript: false,
       includeAudio: false,
     });
 
@@ -232,7 +230,6 @@ describe('issueReportService', () => {
       description: 'The session detail page shows an unexpected WPM value.',
       pageUrl: `http://localhost:5174/analytics/${SESSION}`,
       metadata: { route: `/analytics/${SESSION}` },
-      includeTranscript: false,
       includeAudio: false,
     });
 
@@ -251,7 +248,6 @@ describe('issueReportService', () => {
       description: 'The new recording has not persisted yet.',
       pageUrl: 'http://localhost:5174/session',
       metadata: { route: '/session' },
-      includeTranscript: false,
       includeAudio: false,
     });
 
@@ -274,7 +270,6 @@ describe('issueReportService', () => {
       description: 'The current recording needs correlation.',
       pageUrl: 'http://localhost:5174/session',
       metadata: { route: '/session' },
-      includeTranscript: false,
       includeAudio: false,
     });
 
@@ -298,7 +293,6 @@ describe('issueReportService', () => {
         description: 'Persistence failure should surface to the caller.',
         pageUrl: 'http://localhost:5174/session',
         metadata: { route: '/session' },
-        includeTranscript: false,
         includeAudio: false,
       }),
     ).rejects.toBeTruthy();

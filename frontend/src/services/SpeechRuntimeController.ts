@@ -23,7 +23,8 @@ import {
 } from '@/services/transcription/privateTelemetry';
 import { ATTRIBUTION_STATUS, type AttributionStatus } from '@/constants/attributionStatus';
 import { useReadinessStore } from '@/stores/useReadinessStore';
-import { saveSession, completeSession, heartbeatSession } from '@/lib/storage';
+import { saveSession, completeSession, heartbeatSession, type CompleteSessionOptions } from '@/lib/storage';
+import { flattenToFillerCounts, deriveNextActionSignal } from '@/utils/nextAction';
 import { PRIV_STT } from './transcription/sttConstants';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { getSupabaseClient } from '../lib/supabaseClient';
@@ -392,10 +393,6 @@ export class SpeechRuntimeController {
     private heartbeatVersion = 0;
     private idleTimeout: NodeJS.Timeout | null = null;
     private readonly IDLE_RECLAMATION_MS = 5 * 60 * 1000;
-    // #1258: monotonically increments ONLY when an actual idle reclamation tears the engine down. Consumers
-    // (the foreground-return reload) key their one-shot reload off a CHANGE in this token, so a tab switch or a
-    // generic IDLE state never triggers a reload — only a real reclamation does.
-    private idleReclamationGeneration = 0;
     private readonly WATCHDOG_PERIOD_MS = 5000;
 
     private readonly FAILURE_HOLD_DURATION_MS = STT_CONFIG.FAILURE_HOLD_DURATION_MS;
@@ -614,7 +611,8 @@ export class SpeechRuntimeController {
         /** #1033 (1): present when the placeholder row was never created. Retry must CREATE the row first,
          *  using this recording's idempotency identity so a retry can never produce a duplicate session. */
         initialSave?: { userId: string; recordingId: string; mode: string; engineVersion?: string; modelName?: string; deviceType?: string };
-        completeArgs: { status: 'completed'; transcript: string; duration: number };
+        // #1306: transcript-free. A finalized retry replays the exact content-free metrics + one next action.
+        completeArgs: CompleteSessionOptions & { status: 'completed' };
         attributionEvidence: RuntimeEvidence | null;
         progressContext: ProgressCompletionContext;
         progressMetrics: ProgressMetricsState;
@@ -744,9 +742,8 @@ export class SpeechRuntimeController {
                     const created = await saveSession(
                         {
                             user_id: ctx.userId,
-                            title: `Session ${new Date().toLocaleString()}`,
+                            title: `Session ${new Date().toISOString()}`,
                             duration: 0,
-                            transcript: ' ',
                             total_words: 0,
                             engine: ctx.mode,
                         },
@@ -946,34 +943,40 @@ export class SpeechRuntimeController {
         const userId = this.capturedUserId;
         const ownedDraft = sessionId && userId ? getRecoverableDraftForUser(userId) : null;
         const draftForThisSession = ownedDraft && ownedDraft.sessionId === sessionId ? ownedDraft : null;
-        // Canonical recoverable text (committed / chunks / frozen / partial), plus the owned draft.
-        const liveTranscript = this.collectRecoverableTranscript();
-        const transcript = (liveTranscript || draftForThisSession?.transcript || '').trim();
 
-        if (transcript.length > 0 && (sessionId || this.pendingInitialSaveContext)) {
-            const startTime = useSessionStore.getState().startTime;
-            const liveDuration = startTime ? Math.max(0, Math.round((Date.now() - startTime) / 1000)) : 0;
-            // #1033 (1): if the placeholder row does not exist yet (failure inside the pre-session window),
-            // arm an INITIAL-SAVE retry carrying the owner + this recording's idempotency identity, so the
-            // first persistence can still happen later without ever creating a duplicate session.
+        // #1306: ONLY a FINALIZED draft (exact final metrics + the next action already derived at a clean stop)
+        // can complete on retry. A post-start failure with only live/partial state must NEVER be turned into a
+        // completed session from fabricated metrics — it resolves by discard instead.
+        if (draftForThisSession?.recoveryState === 'finalized_pending_save' && (sessionId || this.pendingInitialSaveContext)) {
+            const dur = Math.round(draftForThisSession.durationSeconds || 0);
             const initialSave = sessionId ? undefined : (this.pendingInitialSaveContext ?? undefined);
             this.pendingFullSaveRetry = {
                 sessionId,
                 ...(initialSave ? { initialSave } : {}),
-                completeArgs: { status: 'completed', transcript, duration: Math.round(draftForThisSession?.durationSeconds || liveDuration) },
+                completeArgs: {
+                    status: 'completed',
+                    duration: dur,
+                    nextActionSignal: draftForThisSession.nextActionSignal ?? null,
+                    metrics: {
+                        totalWords: draftForThisSession.metrics.totalWords ?? null,
+                        clarityScore: draftForThisSession.metrics.clarityScore ?? null,
+                        wpm: draftForThisSession.metrics.wpm ?? null,
+                        fillerCounts: draftForThisSession.metrics.fillerCounts ?? null,
+                        pauseMetrics: draftForThisSession.metrics.pauseMetrics ?? null,
+                    },
+                },
                 attributionEvidence: null,  // #1161: mid-recording failure has no trusted identity → no authority
-                progressContext: this.buildProgressCompletionContext(
-                    Math.round(draftForThisSession?.durationSeconds || liveDuration),
-                ),
+                progressContext: this.buildProgressCompletionContext(dur),
                 progressMetrics: { payload: null, persisted: false },
             };
-            logger.warn({ sessionId, kind: this.pendingResolutionKind(), state: this.state }, '[controller] post-start failure with recoverable transcript → save retry armed (#1033 1/B)');
+            logger.warn({ sessionId, kind: this.pendingResolutionKind(), state: this.state }, '[controller] post-start failure with a FINALIZED draft → save retry armed (#1306/#1033 1/B)');
             this.publishLockState();
             return;
         }
-        // Nothing recoverable for THIS session/owner → resolved by discard; do not leave it locked.
+        // No finalized metrics to save (only partial/interrupted state) → resolve by discard; never fabricate a
+        // completion. The interrupted snapshot (if any) remains an explicitly incomplete, non-Progress record.
         this.markRecordingResolved();
-        logger.info({ state: this.state, hasSession: Boolean(sessionId), hasOwner: Boolean(userId) }, '[controller] post-start failure with no recoverable work → resolved (unlocked) (#1033 B)');
+        logger.info({ state: this.state, hasSession: Boolean(sessionId), hasOwner: Boolean(userId), interrupted: draftForThisSession?.recoveryState === 'active_interrupted' }, '[controller] post-start failure with no finalized work → resolved (unlocked) (#1306/#1033 B)');
     }
 
     /**
@@ -1030,22 +1033,34 @@ export class SpeechRuntimeController {
      */
     public rehydrateUnresolvedRecording(userId: string | null | undefined): boolean {
         const draft = getRecoverableDraftForUser(userId);
-        if (!draft || !draft.transcript.trim()) return false;
+        // #1306: only a FINALIZED draft can be re-armed for completion. An active_interrupted draft has no final
+        // metrics and must never rehydrate into a completable save.
+        if (!draft || draft.recoveryState !== 'finalized_pending_save') return false;
         this.sessionId = draft.sessionId;
         this.recordingStartedUnresolved = true;
         this.pendingFullSaveRetry = {
             sessionId: draft.sessionId,
-            completeArgs: { status: 'completed', transcript: draft.transcript, duration: Math.round(draft.durationSeconds) },
+            completeArgs: {
+                status: 'completed',
+                duration: Math.round(draft.durationSeconds),
+                nextActionSignal: draft.nextActionSignal ?? null,
+                metrics: {
+                    totalWords: draft.metrics.totalWords ?? null,
+                    clarityScore: draft.metrics.clarityScore ?? null,
+                    wpm: draft.metrics.wpm ?? null,
+                    fillerCounts: draft.metrics.fillerCounts ?? null,
+                    pauseMetrics: draft.metrics.pauseMetrics ?? null,
+                },
+            },
             attributionEvidence: null,  // #1161: rehydrated recording has no trusted identity → no authority
-            // The recovery draft intentionally carries no objective brief/transcript linkage. Missing mode
-            // context therefore fails closed instead of being guessed as Open Mic after reload.
+            // The recovery draft carries no objective brief linkage. Missing mode context fails closed instead
+            // of being guessed as Open Mic after reload.
             progressContext: { mode: 'unknown' },
-            // Recovery drafts do not contain a trustworthy rich-metrics payload. Saving may complete, but
             // Progress must remain unavailable rather than writing an immutable partial evaluation.
             progressMetrics: { payload: null, persisted: false },
         };
         this.publishLockState();
-        logger.info({ sessionId: draft.sessionId }, '[controller] rehydrated unresolved recording for same user (#1033 C)');
+        logger.info({ sessionId: draft.sessionId }, '[controller] rehydrated FINALIZED unresolved recording for same user (#1306/#1033 C)');
         return true;
     }
 
@@ -1223,18 +1238,24 @@ export class SpeechRuntimeController {
         }
 
         const store = useSessionStore.getState();
-        const transcript = this.collectRecoverableTranscript();
-        if (!transcript) return;
+        // #1306: read the live transcript TRANSIENTLY only to decide whether anything was said — NEVER persist
+        // it. The snapshot itself is content-free.
+        const liveTranscript = this.collectRecoverableTranscript();
+        if (!liveTranscript) return;
+        const partialWordCount = liveTranscript.split(/\s+/).filter(Boolean).length;
 
         const startTime = store.startTime;
         const durationSeconds = startTime ? Math.max(0, Math.round((Date.now() - startTime) / 1000)) : 0;
 
+        // CONTENT-FREE, INTERRUPTED snapshot: partial synchronous counters only. It can NEVER become a completed
+        // session or enter Progress comparisons — it carries no final metrics and no next action.
         saveSessionRecoveryDraft({
             sessionId,
             userId,
-            transcript,
+            recoveryState: 'active_interrupted',
             durationSeconds,
             mode: this.service?.getMode?.() ?? store.sttMode ?? 'unknown',
+            metrics: { totalWords: partialWordCount },
         });
     }
 
@@ -1628,12 +1649,6 @@ export class SpeechRuntimeController {
 
     public getState(): RuntimeState {
         return this.state;
-    }
-
-    /** #1258: token that increments on each actual idle reclamation. A change since a consumer last observed it
-     *  means the engine was genuinely reclaimed (not merely idle / not a tab switch). */
-    public getIdleReclamationGeneration(): number {
-        return this.idleReclamationGeneration;
     }
 
     private updateSessionPersisted(
@@ -2842,7 +2857,7 @@ export class SpeechRuntimeController {
                     this.updateSessionPersisted(false);
                     pushNativeRuntimeTrace('controller_placeholder_save_start', { mode: negMode });
                     const saveResult = await saveSession(
-                        { user_id: userId, title: `Session ${new Date().toLocaleString()}`, duration: 0, transcript: ' ', total_words: 0, engine: negMode },
+                        { user_id: userId, title: `Session ${new Date().toISOString()}`, duration: 0, total_words: 0, engine: negMode },
                         { id: userId } as UserProfile, negMode, idempotencyKey, metadata);
                     pushNativeRuntimeTrace('controller_placeholder_save_done', {
                         hasDbSession: Boolean(saveResult?.session), usageExceeded: Boolean(saveResult?.usageExceeded),
@@ -3186,7 +3201,7 @@ export class SpeechRuntimeController {
                                 ' ';
                             const fallbackSessionData = {
                                 user_id: userId,
-                                title: `Session ${new Date().toLocaleString()}`,
+                                title: `Session ${new Date().toISOString()}`,
                                 duration: Math.round(duration),
                                 transcript: fallbackTranscript,
                                 total_words: 0,
@@ -3510,35 +3525,64 @@ export class SpeechRuntimeController {
                                 clarityScore,
                                 accuracy,
                             }, '[DEBUG-STOP] completeSession completed-status starting');
+                            // #1306 metrics-only: derive the CONTENT-FREE final payload from the in-memory
+                            // transcript, then never persist the transcript itself. filler_counts is the strict
+                            // flat standard-key map; next_action_signal is the one structured action.
+                            const finalFillerCounts = flattenToFillerCounts(fillerWords);
+                            const PAUSE_KEYS = ['totalPauses', 'averagePauseDuration', 'longestPause', 'pausesPerMinute', 'silencePercentage', 'transitionPauses', 'extendedPauses'] as const;
+                            const finalPauseMetrics = store.pauseMetrics
+                                ? PAUSE_KEYS.reduce<Record<string, number>>((acc, k) => {
+                                    const v = (store.pauseMetrics as unknown as Record<string, unknown>)[k];
+                                    if (typeof v === 'number' && Number.isFinite(v)) acc[k] = v;
+                                    return acc;
+                                }, {})
+                                : {};
+                            const finalMetrics = {
+                                totalWords: wordCount,
+                                clarityScore,
+                                wpm,
+                                fillerCounts: finalFillerCounts,
+                                pauseMetrics: finalPauseMetrics,
+                            };
+                            const finalNextAction = deriveNextActionSignal({
+                                durationSeconds: Math.round(duration),
+                                wordCount,
+                                wpm,
+                                fillerCounts: finalFillerCounts,
+                                clarityScore,
+                            });
+
+                            // CONTENT-FREE recovery draft: exact final metrics + the next action, NO transcript.
                             saveSessionRecoveryDraft({
                                 sessionId,
                                 userId,
-                                transcript: finalTranscript,
+                                recoveryState: 'finalized_pending_save',
                                 durationSeconds: Math.round(duration),
                                 mode: modeForFinalization ?? 'unknown',
+                                metrics: finalMetrics,
+                                nextActionSignal: finalNextAction,
                             });
 
-                            const completeArgs = {
-                                status: 'completed' as const,
-                                transcript: finalTranscript,
-                                duration: Math.round(duration)
+                            const completeArgs: CompleteSessionOptions & { status: 'completed' } = {
+                                status: 'completed',
+                                duration: Math.round(duration),
+                                nextActionSignal: finalNextAction,
+                                metrics: finalMetrics,
                             };
                             const progressContext = this.buildProgressCompletionContext(Math.round(duration));
                             // Capture the exact rich-metrics write before either persistence step can fail.
                             // A full-save retry replays this immutable payload; an attribution retry carries
                             // the actual result of the original write. Recovery paths without this payload
                             // fail closed and never create an immutable incomplete Progress evaluation.
+                            // #1306 metrics-only: the rich-metrics write is content-free — flat filler_counts, no
+                            // custom_words, no per-session accuracy. Reuses the same derived values sent to the RPC.
                             const richMetricsPayload: RichMetricsPayload = {
                                 total_words: wordCount,
-                                filler_words: fillerWords as unknown as FillerCounts,
-                                custom_words: this.userWords.reduce<Record<string, { count: number }>>((acc, word) => {
-                                    acc[word] = { count: fillerWords[word]?.count || 0 };
-                                    return acc;
-                                }, {}),
-                                pause_metrics: store.pauseMetrics,
+                                filler_counts: finalFillerCounts,
+                                pause_metrics: finalPauseMetrics,
                                 wpm,
                                 clarity_score: clarityScore,
-                                accuracy,
+                                next_action_signal: finalNextAction,
                             };
                             const completion = await completeSession(sessionId, completeArgs);
                             if (!completion.success) {
@@ -4074,43 +4118,23 @@ export class SpeechRuntimeController {
         this.stopIdleTimer();
         this.idleTimeout = setTimeout(() => {
             if (this.state === 'IDLE' || this.state === 'READY') {
-                // #1258: while the session page is FOREGROUND, a READY Private engine must NEVER be reclaimed
-                // out from under a user who is waiting to record. Reclaiming it forces a full model
-                // re-download/re-init; on a cold device that reload cannot finish before the next idle tick, so
-                // the recorder returns to "loading" and `mic-start` never stabilizes to enabled (the deployed
-                // active-trial canary's exact failure). Preserve based on the ACTUAL running engine — service
-                // mode + engine-ready — NOT the nullable store `sttMode` (post-#1184 the store mode is
-                // frequently `null` while the running engine is a ready Private engine; the old
-                // `sttMode === 'private'` check failed open and reclaimed it).
-                // BUT still reclaim after genuine long BACKGROUND inactivity: when the page is hidden, the model
-                // is not in front of a waiting user, so freeing its memory is correct. Re-arm on preserve so a
-                // later background transition is still reclaimed.
                 const serviceMode = this.service?.getMode();
-                const pageForeground = typeof document === 'undefined' || document.visibilityState !== 'hidden';
+                const selectedMode = useSessionStore.getState().sttMode;
                 const shouldPreserveReadyPrivateEngine =
                     this.state === 'READY' &&
                     this.isEngineReady &&
                     serviceMode === 'private' &&
-                    pageForeground;
+                    selectedMode === 'private';
 
                 if (shouldPreserveReadyPrivateEngine) {
                     logger.info({
                         state: this.state,
                         serviceMode,
-                    }, '[SpeechRuntimeController] Skipping idle reclamation for ready foreground Private engine');
-                    this.startIdleTimer(); // re-arm: reclaim later if the page is backgrounded
+                        selectedMode,
+                    }, '[SpeechRuntimeController] Skipping idle reclamation for ready Private engine');
                     return;
                 }
-                // Reclaim the engine, then advance the reload token ONLY AFTER the (synchronous) reset completes.
-                // A reset that throws must NOT mint a reload token — otherwise a foreground return would reload
-                // against a reclamation that never completed. The token is the authorization for exactly one
-                // foreground-return reload tied to THIS reclamation.
-                try {
-                    this.reset('idle_reclamation');
-                    this.idleReclamationGeneration += 1;
-                } catch (err) {
-                    logger.warn({ err }, '[SpeechRuntimeController] idle reclamation reset failed; reload token not advanced');
-                }
+                void this.reset('idle_reclamation');
             }
         }, this.IDLE_RECLAMATION_MS);
     }

@@ -548,8 +548,11 @@ export default class TranscriptionService {
       heartbeatSession: async (sessionId) => {
         await heartbeatSession(sessionId);
       },
-      completeSession: async (sessionId, transcript, duration) => {
-        await completeSession(sessionId, { transcript, duration });
+      completeSession: async (sessionId, _transcript, duration) => {
+        // #1306: the persistence interface is transcript-free. This legacy adapter carries no derived metrics
+        // or next action, so it can only finalize duration — never fabricate a completed metrics-only session.
+        void _transcript;
+        await completeSession(sessionId, { duration });
       }
     };
   }

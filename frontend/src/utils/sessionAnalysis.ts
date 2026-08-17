@@ -1,6 +1,7 @@
 import type { PracticeSession } from '@/types/session';
 import { countFillerWords, type FillerCounts } from './fillerWordUtils';
 import { countedFillerTotal } from './fillerTiers';
+import { readPersistedFillerCounts, persistedFillerTotal } from '@/contracts/fillerCounts';
 
 export interface CoreSessionMetrics {
     wordCount: number;
@@ -17,10 +18,18 @@ export interface CoreSessionMetrics {
     errorCount: number;
 }
 
+/**
+ * #1306 READ-path metrics. Identical to CoreSessionMetrics EXCEPT the filler headline is NULLABLE: `null` means
+ * the filler metric is UNAVAILABLE (not measured, or invalid/malformed persisted data — never collapsed into a
+ * flattering 0). A number (0 for a measured `{}`) means measured. Consumers must render `null` as N/A, and 0 as
+ * "no fillers detected". The live path (CoreSessionMetrics) always carries a real number.
+ */
+export type SessionReadMetrics = Omit<CoreSessionMetrics, 'fillerCount'> & { fillerCount: number | null };
+
 interface CoreSessionMetricsInput {
     transcript: string;
     durationSeconds: number;
-    fillerData?: FillerCounts | PracticeSession['filler_words'] | null;
+    fillerData?: FillerCounts | Record<string, number> | null;
     userWords?: string[];
     // #1231 slice 2: count discourse markers toward the headline too (the user's opt-in preference).
     // Default false — the headline is true fillers (um/uh/ah) + the user's own words.
@@ -59,6 +68,11 @@ const MAX_FILLER_COUNT = 999_999_999;
 export const isValidFillerCount = (v: unknown): v is number =>
     typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= MAX_FILLER_COUNT;
 
+// #1306: read one filler entry's count from EITHER the stored flat shape (a number) or the live nested
+// `{ count }` shape, so the filler helpers work on both a persisted session and an in-flight recording.
+const fillerEntryCount = (raw: unknown): unknown =>
+    typeof raw === 'number' ? raw : (raw && typeof raw === 'object' ? (raw as { count?: unknown }).count : undefined);
+
 /**
  * #1131 corrections 3 + 4: the AUTHORITATIVE total filler count for a session, honoring a total-only snapshot.
  * A valid `total.count` wins (including a genuine 0, and a `{ total: { count: N } }` with no per-word breakdown).
@@ -67,36 +81,41 @@ export const isValidFillerCount = (v: unknown): v is number =>
  * rather than fabricate a flattering 0. Mirrors the RPC helper `_ss_valid_filler_total`.
  */
 export const validatedFillerTotal = (
-    fillerWords?: PracticeSession['filler_words'] | FillerCounts | null,
+    fillerWords?: Record<string, number> | FillerCounts | null,
 ): number | null => {
     // #1131 round-4 (#3): fail closed on non-plain-objects. `typeof [] === 'object'`, so an ARRAY would
     // otherwise be iterated by index and treated as a filler map; a scalar/null carries no counts either.
-    if (!fillerWords || typeof fillerWords !== 'object' || Array.isArray(fillerWords)) return null;
+    // #1306 zero-vs-missing (three cases): NULL / non-object → null (NOT measured, excluded). EMPTY `{}` → 0
+    // (a genuine MEASURED zero — must count, never excluded). A NON-EMPTY object with no valid count (malformed
+    // — e.g. `{um:'x'}` or an invalid total-only snapshot) → null (fail closed, never a flattering 0). A valid
+    // total or valid per-key counts → their number.
+    if (fillerWords == null || typeof fillerWords !== 'object' || Array.isArray(fillerWords)) return null;
+    if (Object.keys(fillerWords).length === 0) return 0; // {} = measured zero
     const total = (fillerWords as { total?: { count?: unknown } }).total?.count;
-    if (isValidFillerCount(total)) return total; // total-authoritative
+    if (isValidFillerCount(total)) return total; // total-authoritative (legacy nested snapshot)
     let sum = 0;
     let sawValid = false;
     for (const word in fillerWords) {
         if (word === 'total') continue;
-        const c = (fillerWords as Record<string, { count?: unknown }>)[word]?.count;
+        const c = fillerEntryCount((fillerWords as Record<string, unknown>)[word]);
         if (isValidFillerCount(c)) { sum += c; sawValid = true; }
     }
-    return sawValid ? sum : null;
+    return sawValid ? sum : null; // non-empty but no valid count = malformed → excluded
 };
 
-export const sumFillerCounts = (fillerWords?: PracticeSession['filler_words'] | FillerCounts | null): number => {
+export const sumFillerCounts = (fillerWords?: Record<string, number> | FillerCounts | null): number => {
     if (!fillerWords) return 0;
 
     let sum = 0;
     for (const word in fillerWords) {
         if (word === 'total') continue;
-        const c = fillerWords[word]?.count;
+        const c = fillerEntryCount((fillerWords as Record<string, unknown>)[word]);
         if (isValidFillerCount(c)) sum += c; // #1131 correction 4: ignore malformed/fractional/negative counts
     }
     return sum;
 };
 
-export const getFillerTotal = (fillerWords?: PracticeSession['filler_words'] | FillerCounts | null): number =>
+export const getFillerTotal = (fillerWords?: Record<string, number> | FillerCounts | null): number =>
     // #1131 corrections 3 + 4: total-authoritative + validated; 0 when there is no valid evidence.
     validatedFillerTotal(fillerWords) ?? 0;
 
@@ -109,22 +128,40 @@ export const getFillerTotal = (fillerWords?: PracticeSession['filler_words'] | F
  * confident zero by getFillerTotal. Aligning the predicate keeps malformed evidence UNAVAILABLE, never a 0.
  */
 export const isUsableFillerCounts = (
-    fillerWords?: PracticeSession['filler_words'] | FillerCounts | null,
+    fillerWords?: Record<string, number> | FillerCounts | null,
 ): boolean => validatedFillerTotal(fillerWords) !== null;
 
 /**
- * #SSOT: normalize an accepted canonical filler-counts object so it ALWAYS exposes a numeric `total.count`.
- * `isUsableFillerCounts` accepts a detail-only object (e.g. `{ um: { count: 1 } }`), but downstream readers
- * (controller ANALYSIS_COMPLETE) read `fillerWords.total.count` directly. Normalizing here guarantees a
- * `total` so those reads never crash. If a numeric total already exists it is returned unchanged (identity
- * preserved); otherwise `total.count` = sum of the non-total entries.
+ * #SSOT / #1306: normalize a filler map to a CONSISTENT nested `{ word: { count } }` shape with a numeric
+ * `total.count`, accepting EITHER the stored flat shape (`{ um: 3 }`) or the live nested shape
+ * (`{ um: { count: 3 } }`). Downstream readers (dashboard chips, top-filler list, controller ANALYSIS_COMPLETE)
+ * read `entry.count`, so emitting nested uniformly means a stored flat `filler_counts` renders identically to a
+ * live snapshot. Only valid non-negative-integer counts survive; `total.count` is their sum.
  */
-export const normalizeFillerCounts = (fillerWords: FillerCounts): FillerCounts => {
-    const existingTotal = fillerWords?.total?.count;
-    // #1131 review (#31): only a VALID total is preserved as-is; an invalid finite total (2.5 / -1) is
-    // replaced by the validated sum of per-word counts rather than trusted.
-    if (isValidFillerCount(existingTotal)) return fillerWords;
-    return { ...fillerWords, total: { count: sumFillerCounts(fillerWords), color: fillerWords?.total?.color ?? '' } };
+export const normalizeFillerCounts = (fillerWords: FillerCounts | Record<string, number>): FillerCounts => {
+    const out: FillerCounts = {};
+    let total = 0;
+    let sawPerKey = false;
+    for (const key in fillerWords) {
+        if (key === 'total') continue;
+        const c = fillerEntryCount((fillerWords as Record<string, unknown>)[key]);
+        if (isValidFillerCount(c)) {
+            const color = (fillerWords as Record<string, { color?: string }>)[key]?.color ?? '';
+            out[key] = { count: c, color };
+            total += c;
+            sawPerKey = true;
+        }
+    }
+    // When NO per-key entries exist, preserve a valid legacy total-only snapshot (`{ total: { count: N } }`)
+    // rather than fabricating a zero. The live path (fillerDivergence, controller ANALYSIS_COMPLETE) can emit a
+    // total-only snapshot, and its comprehensive total must survive normalization. (A persisted flat `{}` has no
+    // total key, so this correctly stays 0 = measured zero.)
+    if (!sawPerKey) {
+        const existingTotal = (fillerWords as { total?: { count?: unknown } })?.total?.count;
+        if (isValidFillerCount(existingTotal)) total = existingTotal;
+    }
+    out.total = { count: total, color: (fillerWords as { total?: { color?: string } })?.total?.color ?? '' };
+    return out;
 };
 
 export const calculateWpm = (wordCount: number, durationSeconds: number): number =>
@@ -329,34 +366,24 @@ export const calculateCoreSessionMetrics = ({
     };
 };
 
-export const getCustomWordList = (customWords: PracticeSession['custom_words']): string[] => {
-    if (!customWords) return [];
-    if (Array.isArray(customWords)) {
-        return customWords
-            .map((item) => typeof item === 'string' ? item : '')
-            .filter(Boolean);
-    }
-    return Object.keys(customWords);
-};
-
 export const getSessionAnalysisMetrics = (
     session: PracticeSession,
     // #1231 slice 2: the reader's discourse-marker preference. Default false so any util/test caller gets
     // the true-filler headline; component callers pass the user's DB-backed pref.
     { includeDiscourseMarkers = false }: { includeDiscourseMarkers?: boolean } = {},
-): CoreSessionMetrics => {
-    // #SSOT: persisted canonical (live) filler data is authoritative. Recount the transcript ONLY when the
-    // persisted filler data is missing/malformed — NEVER merely because a recount is larger. A valid
-    // persisted zero stays zero (previous behavior wrongly took max(persisted, recount) and inflated it).
-    const customWordsList = getCustomWordList(session.custom_words);
-    const fillerData = isUsableFillerCounts(session.filler_words)
-        ? session.filler_words
-        : countFillerWords(session.transcript || '', customWordsList);
+): SessionReadMetrics => {
+    // #1306 metrics-only: read STORED metrics — there is NO transcript to recount and no per-session custom
+    // words. The persisted filler map is RUNTIME-VALIDATED here (strict reader): approved keys only, `{}` = a
+    // measured zero, and any unknown/prose key / nested / bad number fails closed to `null` (excluded).
+    const fillerData = readPersistedFillerCounts(session.filler_counts);
+    // The NULLABLE filler headline: null = UNAVAILABLE (absent/invalid), 0 = a measured `{}`, N = measured
+    // counts. Never collapse unavailable/invalid into 0 (that would fabricate "zero fillers").
+    const fillerHeadline = persistedFillerTotal(session.filler_counts);
     const metrics = calculateCoreSessionMetrics({
-        transcript: session.transcript || '',
+        transcript: '',
         durationSeconds: session.duration || 0,
         fillerData,
-        userWords: customWordsList,
+        userWords: [],
         includeDiscourseMarkers,
     });
     const wordCount = Math.max(metrics.wordCount, session.total_words ?? 0);
@@ -377,6 +404,8 @@ export const getSessionAnalysisMetrics = (
 
     return {
         ...metrics,
+        // #1306: nullable filler headline — UNAVAILABLE (null) is never shown as 0. A measured `{}` is 0.
+        fillerCount: fillerHeadline,
         wordCount,
         wpm,
         wpmLabel: getWpmLabel(wpm),
@@ -389,7 +418,7 @@ export const getSessionAnalysisMetrics = (
             errorCount: metrics.errorCount,
             wpm,
         }),
-        fillerExplanation: getFillerExplanation(metrics.fillerCount, wordCount),
+        fillerExplanation: getFillerExplanation(fillerHeadline ?? 0, wordCount),
         isClarityScorable: wordCount >= MIN_RELIABLE_SCORING_WORDS,
     };
 };
