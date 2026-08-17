@@ -97,3 +97,58 @@ describe('#1306 Stage A — additive, backward-compatible DB contract', () => {
     ).rejects.toThrow();
   });
 });
+
+// #1306 P1: Stage A must STRICTLY validate filler_counts NOW (not defer to Stage B), or the Stage-A window can
+// persist a prose key through the new complete_session RPC. NULL stays allowed (backward compatible). Errors are
+// GENERIC and must NEVER echo the rejected key/value.
+describe('#1306 Stage A — filler_counts firewall (prose-proof, fail-closed, non-echoing)', () => {
+  const PROSE = 'confidential project phrase';
+  const insFiller = async (db: PGlite, raw: string | null) =>
+    db.query(
+      `INSERT INTO public.sessions (id, user_id, status, filler_counts) VALUES ($1,$2,'active',$3::jsonb)`,
+      [sid(), U, raw],
+    );
+
+  it('ACCEPTS backward-compatible NULL, measured {} and valid approved keys', async () => {
+    const db = await withA();
+    await expect(insFiller(db, null)).resolves.toBeDefined();
+    await expect(insFiller(db, '{}')).resolves.toBeDefined();
+    await expect(insFiller(db, JSON.stringify({ um: 3, uh: 0, like: 2 }))).resolves.toBeDefined();
+  });
+
+  it('REJECTS unknown/prose keys, nested/array/string, negative, non-integer, and oversized values', async () => {
+    const db = await withA();
+    await expect(insFiller(db, JSON.stringify({ [PROSE]: 1 }))).rejects.toThrow(/unknown\/custom keys/);
+    await expect(insFiller(db, JSON.stringify({ um: { count: 2 } }))).rejects.toThrow(/non-negative finite integers/);
+    await expect(insFiller(db, JSON.stringify([1, 2, 3]))).rejects.toThrow(/numeric-keyed object/);
+    await expect(insFiller(db, JSON.stringify('um so'))).rejects.toThrow(/numeric-keyed object/);
+    await expect(insFiller(db, JSON.stringify({ um: -1 }))).rejects.toThrow(/non-negative finite integers/);
+    await expect(insFiller(db, JSON.stringify({ um: 2.5 }))).rejects.toThrow(/non-negative finite integers/);
+    await expect(insFiller(db, JSON.stringify({ um: 1000001 }))).rejects.toThrow(/non-negative finite integers/);
+  });
+
+  it('the rejection error NEVER echoes the offending prose key or value', async () => {
+    const db = await withA();
+    let message = '';
+    try {
+      await insFiller(db, JSON.stringify({ [PROSE]: 1 }));
+    } catch (e) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    expect(message).toMatch(/unknown\/custom keys/);
+    expect(message).not.toContain(PROSE);
+    expect(message).not.toMatch(/confidential/i);
+  });
+
+  it('the completion RPC cannot smuggle a prose key either (the trigger fires on the RPC UPDATE)', async () => {
+    const db = await withA(); // bootstrap already seeds the pro user_profiles row for U
+    const s = sid();
+    await db.query(`INSERT INTO public.sessions (id, user_id, status) VALUES ($1,$2,'active')`, [s, U]);
+    await expect(
+      db.query(
+        `SELECT public.complete_session(p_session_id => $1::uuid, p_status => 'completed', p_next_action => $2::jsonb, p_total_words => 100, p_filler_counts => $3::jsonb) AS r`,
+        [s, VALID_REC, JSON.stringify({ [PROSE]: 1 })],
+      ),
+    ).rejects.toThrow(/unknown\/custom keys/);
+  });
+});

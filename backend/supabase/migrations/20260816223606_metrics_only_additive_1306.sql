@@ -16,9 +16,44 @@
 -- The ONE structured next action. Strictly enum/numeric; the CHECK rejects unknown keys and free-form strings
 -- (mirrors the frontend validateNextActionSignal contract), so prose cannot be stored here.
 ALTER TABLE public.sessions ADD COLUMN IF NOT EXISTS next_action_signal JSONB;
--- Standard-key numeric filler tally (replaces the loosely-typed filler_words). Strict validation is installed
--- in Stage B (after the metrics-only frontend, which writes the strict shape, is live).
+-- Standard-key numeric filler tally (replaces the loosely-typed filler_words). #1306 P1: STRICT validation is
+-- installed HERE in Stage A (NOT deferred to Stage B) — otherwise the new callable complete_session RPC could
+-- persist a prose key (e.g. {"confidential phrase": 1}) during the Stage-A window, reopening the exact
+-- prose-smuggling surface #1306 closes. NULL is allowed (backward compatible). Enforced by a BEFORE trigger
+-- rather than a CHECK because a CHECK constraint violation echoes the WHOLE failing row (including the offending
+-- value) in its DETAIL ("Failing row contains ..."); the trigger raises a GENERIC error that NEVER echoes the
+-- rejected key/value. Stage B reasserts the same rule idempotently.
 ALTER TABLE public.sessions ADD COLUMN IF NOT EXISTS filler_counts JSONB;
+
+CREATE OR REPLACE FUNCTION public.validate_filler_counts_1306()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $fc$
+DECLARE r record;
+BEGIN
+    IF NEW.filler_counts IS NULL THEN RETURN NEW; END IF;
+    IF jsonb_typeof(NEW.filler_counts) <> 'object' THEN
+        RAISE EXCEPTION '#1306: filler_counts must be a numeric-keyed object' USING ERRCODE = '23514';
+    END IF;
+    FOR r IN SELECT key, value FROM jsonb_each(NEW.filler_counts) LOOP
+        IF r.key <> ALL (ARRAY['um','uh','ah','like','you_know','so','actually','oh','i_mean','basically','literally','kind_of','sort_of']) THEN
+            RAISE EXCEPTION '#1306: filler_counts has unknown/custom keys (standard filler identifiers only)' USING ERRCODE = '23514';
+        END IF;
+        IF jsonb_typeof(r.value) <> 'number'
+           OR (r.value#>>'{}')::numeric < 0
+           OR (r.value#>>'{}')::numeric <> trunc((r.value#>>'{}')::numeric)
+           OR (r.value#>>'{}')::numeric > 1000000 THEN
+            RAISE EXCEPTION '#1306: filler_counts values must be non-negative finite integers within range' USING ERRCODE = '23514';
+        END IF;
+    END LOOP;
+    RETURN NEW;
+END;
+$fc$;
+DROP TRIGGER IF EXISTS validate_filler_counts_1306 ON public.sessions;
+CREATE TRIGGER validate_filler_counts_1306
+    BEFORE INSERT OR UPDATE OF filler_counts ON public.sessions
+    FOR EACH ROW EXECUTE FUNCTION public.validate_filler_counts_1306();
 ALTER TABLE public.sessions DROP CONSTRAINT IF EXISTS sessions_next_action_signal_shape;
 ALTER TABLE public.sessions ADD CONSTRAINT sessions_next_action_signal_shape CHECK (
   next_action_signal IS NULL OR (

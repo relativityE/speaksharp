@@ -21,6 +21,9 @@ AS $$
     ELSE COALESCE((
       SELECT sum((e.value#>>'{}')::bigint) FROM jsonb_each(fw) e
       WHERE jsonb_typeof(e.value) = 'number' AND (e.value#>>'{}') ~ '^[0-9]{1,9}$'
+        -- #1306 P1 defense-in-depth: count only APPROVED standard keys, so a prose key (even with a numeric
+        -- value) never enters a total, rate, or top-word — even if a pre-firewall row somehow persisted one.
+        AND e.key = ANY (ARRAY['um','uh','ah','like','you_know','so','actually','oh','i_mean','basically','literally','kind_of','sort_of'])
     ), 0)
   END
 $$;
@@ -124,6 +127,8 @@ BEGIN
         WHERE s.user_id = p_user_id
           AND jsonb_typeof(v.value) = 'number'
           AND (v.value#>>'{}') ~ '^[0-9]{1,9}$'
+          -- #1306 P1: approved keys only — a prose key can never surface as a "top filler word".
+          AND v.key = ANY (ARRAY['um','uh','ah','like','you_know','so','actually','oh','i_mean','basically','literally','kind_of','sort_of'])
         GROUP BY v.key
         ORDER BY count DESC
         LIMIT 2
@@ -201,6 +206,8 @@ BEGIN
             CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(s.filler_counts) = 'object' THEN s.filler_counts ELSE '{}'::jsonb END) AS v(key, value)
             WHERE jsonb_typeof(v.value) = 'number'
               AND (v.value#>>'{}') ~ '^[0-9]{1,9}$'
+              -- #1306 P1: approved keys only — a prose key can never enter a filler trend.
+              AND v.key = ANY (ARRAY['um','uh','ah','like','you_know','so','actually','oh','i_mean','basically','literally','kind_of','sort_of'])
         ),
         sums AS (
             SELECT word,

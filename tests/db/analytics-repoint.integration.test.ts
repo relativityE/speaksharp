@@ -119,3 +119,22 @@ describe('#1306 get_analytics_summary repoint — authorization preserved', () =
     expect(g).not.toContain('PUBLIC');
   });
 });
+
+// #1306 P1 defense-in-depth: even if a prose key somehow slipped into the table (before the firewall, or via a
+// privileged path), the repointed analytics must NEVER surface it — not in the total/rate, not as a top word.
+describe('#1306 get_analytics_summary repoint — approved-key defense in depth (prose never surfaces)', () => {
+  it('a prose key persisted with the trigger disabled is EXCLUDED from total, rate, and topFillerWords', async () => {
+    const db = await freshDb();
+    const PROSE = 'confidential project phrase';
+    // Bypass the Stage-A firewall to simulate a pre-firewall / privileged row.
+    await db.exec(`ALTER TABLE public.sessions DISABLE TRIGGER validate_filler_counts_1306;`);
+    await db.query(`INSERT INTO public.sessions (id,user_id,status,duration,total_words,filler_counts) VALUES ($1,$2,'active',60,120,$3)`,
+      [sid(), U, JSON.stringify({ um: 2, [PROSE]: 5 })]);
+    await db.exec(`ALTER TABLE public.sessions ENABLE TRIGGER validate_filler_counts_1306;`);
+    const r = await summaryFor(db, U);
+    // Only um(2) counts — the prose key contributes nothing and never appears.
+    expect(r.overallStats.avgFillerWordsPerMin).toBe('2.0');
+    expect(r.topFillerWords.map(t => t.word)).toEqual(['um']);
+    expect(JSON.stringify(r)).not.toContain(PROSE);
+  });
+});
