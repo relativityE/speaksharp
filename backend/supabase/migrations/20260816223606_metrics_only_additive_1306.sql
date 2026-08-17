@@ -63,6 +63,10 @@ CREATE TRIGGER validate_filler_counts_1306
     FOR EACH ROW EXECUTE FUNCTION public.validate_filler_counts_1306();
 ALTER TABLE public.sessions DROP CONSTRAINT IF EXISTS sessions_next_action_signal_shape;
 ALTER TABLE public.sessions ADD CONSTRAINT sessions_next_action_signal_shape CHECK (
+  -- #1306 P1: COALESCE(..., false) closes a three-valued-logic hole. A JSON-null enum field (e.g.
+  -- {"reasonCode": null, ...}) makes `->>'reasonCode'` SQL NULL, so the whole AND chain evaluates to NULL — and
+  -- a CHECK PASSES on NULL/unknown (it only fails on FALSE). Forcing NULL→false makes an invalid action fail closed.
+  COALESCE(
   next_action_signal IS NULL OR (
     jsonb_typeof(next_action_signal) = 'object'
     AND next_action_signal ?& array['reasonCode','actionCode','metric','value','comparator','templateVersion']
@@ -74,6 +78,7 @@ ALTER TABLE public.sessions ADD CONSTRAINT sessions_next_action_signal_shape CHE
     AND next_action_signal->>'templateVersion' = 'rec_v1'
     AND jsonb_typeof(next_action_signal->'value') = 'number'
   )
+  , false)
 );
 
 -- #1306 P1: the CHECK above is redundant SCHEMA protection, but a CHECK-constraint violation echoes the whole
@@ -86,7 +91,9 @@ LANGUAGE plpgsql
 SET search_path = public, pg_temp
 AS $na$
 BEGIN
-    IF NOT (
+    -- #1306 P1: COALESCE(..., false) closes the three-valued-logic hole (a JSON-null enum field → `->>` SQL NULL
+    -- → whole expression NULL → `IF NOT (NULL)` would NOT raise). NULL→false makes an invalid action fail closed.
+    IF NOT COALESCE( (
         NEW.next_action_signal IS NULL OR (
             jsonb_typeof(NEW.next_action_signal) = 'object'
             AND NEW.next_action_signal ?& array['reasonCode','actionCode','metric','value','comparator','templateVersion']
@@ -98,7 +105,7 @@ BEGIN
             AND NEW.next_action_signal->>'templateVersion' = 'rec_v1'
             AND jsonb_typeof(NEW.next_action_signal->'value') = 'number'
         )
-    ) THEN
+    ), false) THEN
         RAISE EXCEPTION '#1306: next_action_signal must be the strict enum/numeric shape (no free-form recommendation text)' USING ERRCODE = '23514';
     END IF;
     RETURN NEW;

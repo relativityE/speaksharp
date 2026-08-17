@@ -197,3 +197,47 @@ describe('#1306 Stage A — next_action_signal firewall (generic, non-echoing; t
     expect(m).not.toContain(PROSE_REC);
   });
 });
+
+// #1306 P1: PostgreSQL three-valued logic — a JSON-null enum field (e.g. {"reasonCode": null, ...}) makes
+// `->>'reasonCode'` SQL NULL, so the whole validity expression is NULL; `IF NOT (NULL)` does not raise and a
+// CHECK passes on NULL. COALESCE(..., false) in BOTH the trigger and CHECK closes this. Also adds the direct
+// UPDATE path (the prior tests covered insert + RPC-update only).
+describe('#1306 P1 — next_action_signal JSON-null enum hole closed + direct-UPDATE coverage', () => {
+  const NA_NULL_ENUM = JSON.stringify({ reasonCode: null, actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' });
+
+  it('direct INSERT of a JSON-null enum field is REJECTED (generic, no echo)', async () => {
+    const db = await withA();
+    let m = '';
+    try { await db.query(`INSERT INTO public.sessions (id,user_id,status,next_action_signal) VALUES ($1,$2,'active',$3::jsonb)`, [sid(), U, NA_NULL_ENUM]); }
+    catch (e) { m = e instanceof Error ? e.message : String(e); }
+    expect(m).toMatch(/strict enum\/numeric shape/);
+    expect(m).not.toMatch(/reasonCode/); // generic: does not name the offending field/value
+  });
+
+  it('direct UPDATE to a JSON-null enum field is REJECTED (the trigger fires on UPDATE OF next_action_signal)', async () => {
+    const db = await withA();
+    const s = sid();
+    await db.query(`INSERT INTO public.sessions (id,user_id,status) VALUES ($1,$2,'active')`, [s, U]);
+    await expect(
+      db.query(`UPDATE public.sessions SET next_action_signal = $2::jsonb WHERE id = $1`, [s, NA_NULL_ENUM]),
+    ).rejects.toThrow(/strict enum\/numeric shape/);
+  });
+
+  it('direct UPDATE to a VALID next action SUCCEEDS (positive direct-update control)', async () => {
+    const db = await withA();
+    const s = sid();
+    await db.query(`INSERT INTO public.sessions (id,user_id,status) VALUES ($1,$2,'active')`, [s, U]);
+    await expect(
+      db.query(`UPDATE public.sessions SET next_action_signal = $2::jsonb WHERE id = $1`, [s, VALID_REC]),
+    ).resolves.toBeDefined();
+  });
+
+  it('the completion RPC with a JSON-null enum field is REJECTED (no invalid completed-session action can persist)', async () => {
+    const db = await withA();
+    const s = sid();
+    await db.query(`INSERT INTO public.sessions (id,user_id,status) VALUES ($1,$2,'active')`, [s, U]);
+    await expect(
+      db.query(`SELECT public.complete_session(p_session_id => $1::uuid, p_status => 'completed', p_next_action => $2::jsonb, p_total_words => 100, p_filler_counts => '{}'::jsonb) AS r`, [s, NA_NULL_ENUM]),
+    ).rejects.toThrow(/strict enum\/numeric shape/);
+  });
+});
