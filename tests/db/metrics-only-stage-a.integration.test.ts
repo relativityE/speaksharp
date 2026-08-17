@@ -152,3 +152,48 @@ describe('#1306 Stage A — filler_counts firewall (prose-proof, fail-closed, no
     ).rejects.toThrow(/unknown\/custom keys/);
   });
 });
+
+// #1306 P1: next_action_signal is protected by a CHECK, but a CHECK violation echoes the failing row (incl. any
+// free-form recommendation prose) in its DETAIL. A generic, non-echoing BEFORE trigger must intercept FIRST.
+describe('#1306 Stage A — next_action_signal firewall (generic, non-echoing; trigger intercepts before the CHECK)', () => {
+  const PROSE_REC = 'You spoke a bit too fast today — try to slow down and breathe before each point.';
+  const insNA = async (db: PGlite, raw: string | null) =>
+    db.query(`INSERT INTO public.sessions (id, user_id, status, next_action_signal) VALUES ($1,$2,'active',$3::jsonb)`, [sid(), U, raw]);
+
+  it('ACCEPTS NULL and a well-formed enum/numeric signal', async () => {
+    const db = await withA();
+    await expect(insNA(db, null)).resolves.toBeDefined();
+    await expect(insNA(db, VALID_REC)).resolves.toBeDefined();
+  });
+
+  it('REJECTS a free-form reasonCode and an unknown/prose key — GENERICALLY (never echoes the prose)', async () => {
+    const db = await withA();
+    let m1 = '';
+    try { await insNA(db, JSON.stringify({ reasonCode: PROSE_REC, actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' })); }
+    catch (e) { m1 = e instanceof Error ? e.message : String(e); }
+    expect(m1).toMatch(/strict enum\/numeric shape/);
+    expect(m1).not.toContain(PROSE_REC);
+    expect(m1).not.toMatch(/breathe/i);
+
+    let m2 = '';
+    try { await insNA(db, JSON.stringify({ reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1', what_to_try_next: PROSE_REC })); }
+    catch (e) { m2 = e instanceof Error ? e.message : String(e); }
+    expect(m2).toMatch(/strict enum\/numeric shape/);
+    expect(m2).not.toContain(PROSE_REC);
+  });
+
+  it('the completion RPC cannot smuggle a free-form next action either (generic, non-echoing)', async () => {
+    const db = await withA(); // bootstrap seeds the pro user_profiles row for U
+    const s = sid();
+    await db.query(`INSERT INTO public.sessions (id, user_id, status) VALUES ($1,$2,'active')`, [s, U]);
+    let m = '';
+    try {
+      await db.query(
+        `SELECT public.complete_session(p_session_id => $1::uuid, p_status => 'completed', p_next_action => $2::jsonb, p_total_words => 100, p_filler_counts => '{}'::jsonb) AS r`,
+        [s, JSON.stringify({ reasonCode: PROSE_REC, actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' })],
+      );
+    } catch (e) { m = e instanceof Error ? e.message : String(e); }
+    expect(m).toMatch(/strict enum\/numeric shape/);
+    expect(m).not.toContain(PROSE_REC);
+  });
+});

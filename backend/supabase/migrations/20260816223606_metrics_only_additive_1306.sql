@@ -1,17 +1,24 @@
 -- #1306 STAGE A — PRE-DEPLOY, ADDITIVE ONLY. Safe to apply BEFORE the metrics-only frontend deploys.
 --
--- It ADDS the nullable structured next action column + its strict validation, and ADDS the new
--- transcript-free `complete_session(uuid,text,int,text,jsonb)` overload ALONGSIDE the existing
--- `complete_session(uuid,text,text,int,text)`. It does NOT drop the old RPC, does NOT block/drop content
--- columns, and does NOT install DB-wide content triggers — so the currently-live frontend keeps working while
--- the compatible frontend rolls out. Enforcement/removal happens only in STAGE B (post-deploy).
+-- It ADDS the nullable next_action_signal + filler_counts columns with STRICT, prose-proof validation on BOTH
+-- (approved-key/enum/numeric only; NULL allowed for backward compatibility), and ADDS the new transcript-free
+-- `complete_session(uuid,text,int,text,jsonb)` overload ALONGSIDE the existing `complete_session(uuid,text,
+-- text,int,text)`. It does NOT drop the old RPC and does NOT drop/block the legacy content columns — so the
+-- currently-live frontend keeps working while the compatible frontend rolls out. The new-column validators are
+-- installed HERE (not deferred) so the Stage-A window cannot persist prose through the new RPC; they raise
+-- GENERIC, non-echoing errors. Content-column removal happens only in STAGE B (post-deploy).
 --
 -- Authorized sequence: [A here] -> deploy metrics-only frontend (uses the new RPC exclusively) -> [Stage B].
 --
--- PAIRED SOURCE ROLLBACK:
---   DROP FUNCTION IF EXISTS public.complete_session(uuid, text, integer, text, jsonb);
+-- PAIRED SOURCE ROLLBACK (undo everything this migration adds):
+--   DROP TRIGGER IF EXISTS validate_filler_counts_1306 ON public.sessions;
+--   DROP FUNCTION IF EXISTS public.validate_filler_counts_1306();
+--   DROP TRIGGER IF EXISTS validate_next_action_signal_1306 ON public.sessions;
+--   DROP FUNCTION IF EXISTS public.validate_next_action_signal_1306();
+--   DROP FUNCTION IF EXISTS public.complete_session(uuid, text, integer, text, jsonb, integer, double precision, double precision, jsonb, jsonb);
 --   ALTER TABLE public.sessions DROP CONSTRAINT IF EXISTS sessions_next_action_signal_shape;
 --   ALTER TABLE public.sessions DROP COLUMN IF EXISTS next_action_signal;
+--   ALTER TABLE public.sessions DROP COLUMN IF EXISTS filler_counts;
 
 -- The ONE structured next action. Strictly enum/numeric; the CHECK rejects unknown keys and free-form strings
 -- (mirrors the frontend validateNextActionSignal contract), so prose cannot be stored here.
@@ -68,6 +75,39 @@ ALTER TABLE public.sessions ADD CONSTRAINT sessions_next_action_signal_shape CHE
     AND jsonb_typeof(next_action_signal->'value') = 'number'
   )
 );
+
+-- #1306 P1: the CHECK above is redundant SCHEMA protection, but a CHECK-constraint violation echoes the whole
+-- failing row (incl. a free-form recommendation string) in its DETAIL. A BEFORE trigger intercepts an invalid
+-- next_action_signal FIRST and RAISEs a GENERIC error that never echoes the rejected prose. Same validation as
+-- the CHECK (kept in sync). Stage B reasserts this idempotently.
+CREATE OR REPLACE FUNCTION public.validate_next_action_signal_1306()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $na$
+BEGIN
+    IF NOT (
+        NEW.next_action_signal IS NULL OR (
+            jsonb_typeof(NEW.next_action_signal) = 'object'
+            AND NEW.next_action_signal ?& array['reasonCode','actionCode','metric','value','comparator','templateVersion']
+            AND (NEW.next_action_signal - array['reasonCode','actionCode','metric','value','comparator','templateVersion']) = '{}'::jsonb
+            AND NEW.next_action_signal->>'reasonCode' = ANY (ARRAY['HIGH_FILLER_RATE','PACE_TOO_FAST','PACE_TOO_SLOW','EXTENDED_PAUSES','CLARITY_BELOW_BASELINE','ESTABLISH_BASELINE','ON_TRACK'])
+            AND NEW.next_action_signal->>'actionCode' = ANY (ARRAY['REDUCE_FILLERS','SLOW_DOWN','SPEED_UP','TIGHTEN_PAUSES','IMPROVE_CLARITY','RECORD_BASELINE','MAINTAIN'])
+            AND NEW.next_action_signal->>'metric' = ANY (ARRAY['filler_rate','wpm','extended_pauses','clarity_score','none'])
+            AND NEW.next_action_signal->>'comparator' = ANY (ARRAY['above_baseline','below_baseline','above_target','below_target','within_target','no_baseline'])
+            AND NEW.next_action_signal->>'templateVersion' = 'rec_v1'
+            AND jsonb_typeof(NEW.next_action_signal->'value') = 'number'
+        )
+    ) THEN
+        RAISE EXCEPTION '#1306: next_action_signal must be the strict enum/numeric shape (no free-form recommendation text)' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$na$;
+DROP TRIGGER IF EXISTS validate_next_action_signal_1306 ON public.sessions;
+CREATE TRIGGER validate_next_action_signal_1306
+    BEFORE INSERT OR UPDATE OF next_action_signal ON public.sessions
+    FOR EACH ROW EXECUTE FUNCTION public.validate_next_action_signal_1306();
 
 -- New transcript-free RPC. Self-enforcing: completing requires a next action; completion writes EVERY
 -- retained final metric (duration, total_words, clarity_score, wpm, filler_counts, pause_metrics) + the one

@@ -122,19 +122,28 @@ describe('#1306 get_analytics_summary repoint — authorization preserved', () =
 
 // #1306 P1 defense-in-depth: even if a prose key somehow slipped into the table (before the firewall, or via a
 // privileged path), the repointed analytics must NEVER surface it — not in the total/rate, not as a top word.
-describe('#1306 get_analytics_summary repoint — approved-key defense in depth (prose never surfaces)', () => {
-  it('a prose key persisted with the trigger disabled is EXCLUDED from total, rate, and topFillerWords', async () => {
+describe('#1306 get_analytics_summary repoint — fail-closed defense in depth (a malformed row is EXCLUDED WHOLESALE)', () => {
+  it('a prose-only OR mixed valid+prose row (trigger-bypassed) never affects total, denominator, rate, trend, or top words', async () => {
     const db = await freshDb();
     const PROSE = 'confidential project phrase';
-    // Bypass the Stage-A firewall to simulate a pre-firewall / privileged row.
+    // A genuinely-valid measured row.
+    await db.query(`INSERT INTO public.sessions (id,user_id,status,duration,total_words,filler_counts) VALUES ($1,$2,'active',60,120,$3)`,
+      [sid(), U, JSON.stringify({ um: 6 })]);
+    // Bypass the Stage-A firewall to simulate pre-firewall / privileged malformed rows.
     await db.exec(`ALTER TABLE public.sessions DISABLE TRIGGER validate_filler_counts_1306;`);
     await db.query(`INSERT INTO public.sessions (id,user_id,status,duration,total_words,filler_counts) VALUES ($1,$2,'active',60,120,$3)`,
-      [sid(), U, JSON.stringify({ um: 2, [PROSE]: 5 })]);
+      [sid(), U, JSON.stringify({ um: 2, [PROSE]: 5 })]);  // MIXED valid+prose → malformed → NULL (excluded)
+    await db.query(`INSERT INTO public.sessions (id,user_id,status,duration,total_words,filler_counts) VALUES ($1,$2,'active',60,120,$3)`,
+      [sid(), U, JSON.stringify({ [PROSE]: 9 })]);           // PROSE-ONLY → malformed → NULL (excluded)
     await db.exec(`ALTER TABLE public.sessions ENABLE TRIGGER validate_filler_counts_1306;`);
+
     const r = await summaryFor(db, U);
-    // Only um(2) counts — the prose key contributes nothing and never appears.
-    expect(r.overallStats.avgFillerWordsPerMin).toBe('2.0');
+    // ONLY the valid row measures: 6 fillers over 1.0 min → 6.0/min; exactly ONE contributor (the malformed
+    // rows are unavailable, not partial). The mixed row's um(2) is NOT partially counted.
+    expect(r.overallStats.avgFillerWordsPerMin).toBe('6.0');
+    expect(r.overallStats.fillerRateContributorCount).toBe(1);
     expect(r.topFillerWords.map(t => t.word)).toEqual(['um']);
+    expect(Number(r.topFillerWords[0].count)).toBe(6); // only the valid row's um, never the mixed row's um(2)
     expect(JSON.stringify(r)).not.toContain(PROSE);
   });
 });

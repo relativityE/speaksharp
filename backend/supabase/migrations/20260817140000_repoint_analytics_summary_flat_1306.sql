@@ -13,18 +13,20 @@ LANGUAGE sql
 IMMUTABLE
 SET search_path = pg_catalog, pg_temp
 AS $$
-  -- #1306 zero-vs-missing: NULL / non-object → NULL (not measured, excluded). An OBJECT (including `{}`) is a
-  -- measured session → its total is the sum of valid counts, or 0 for `{}` (a genuine measured zero that MUST
-  -- count in denominators). Never conflate "not measured" (NULL) with "measured zero" (`{}`).
+  -- #1306 zero-vs-missing + fail-closed: NULL / non-object → NULL (not measured, excluded). An OBJECT is a
+  -- measured session ONLY IF THE ENTIRE MAP IS VALID (every key is an approved standard identifier AND every
+  -- value is a non-negative finite integer). If ANY entry is invalid (an unknown/prose key, a nested/string
+  -- value, a negative/fractional/oversized number), the WHOLE row is malformed → NULL (unavailable/excluded) —
+  -- never a partial sum. `{}` → 0 (a genuine measured zero that MUST count in denominators).
   SELECT CASE
     WHEN fw IS NULL OR jsonb_typeof(fw) <> 'object' THEN NULL
-    ELSE COALESCE((
-      SELECT sum((e.value#>>'{}')::bigint) FROM jsonb_each(fw) e
-      WHERE jsonb_typeof(e.value) = 'number' AND (e.value#>>'{}') ~ '^[0-9]{1,9}$'
-        -- #1306 P1 defense-in-depth: count only APPROVED standard keys, so a prose key (even with a numeric
-        -- value) never enters a total, rate, or top-word — even if a pre-firewall row somehow persisted one.
-        AND e.key = ANY (ARRAY['um','uh','ah','like','you_know','so','actually','oh','i_mean','basically','literally','kind_of','sort_of'])
-    ), 0)
+    WHEN EXISTS (
+      SELECT 1 FROM jsonb_each(fw) e
+      WHERE e.key <> ALL (ARRAY['um','uh','ah','like','you_know','so','actually','oh','i_mean','basically','literally','kind_of','sort_of'])
+         OR jsonb_typeof(e.value) <> 'number'
+         OR (e.value#>>'{}') !~ '^[0-9]{1,9}$'
+    ) THEN NULL
+    ELSE COALESCE((SELECT sum((e.value#>>'{}')::bigint) FROM jsonb_each(fw) e), 0)
   END
 $$;
 
@@ -125,10 +127,10 @@ BEGIN
         FROM sessions s,
              jsonb_each(CASE WHEN jsonb_typeof(s.filler_counts) = 'object' THEN s.filler_counts ELSE '{}'::jsonb END) AS v(key, value)
         WHERE s.user_id = p_user_id
-          AND jsonb_typeof(v.value) = 'number'
-          AND (v.value#>>'{}') ~ '^[0-9]{1,9}$'
-          -- #1306 P1: approved keys only — a prose key can never surface as a "top filler word".
-          AND v.key = ANY (ARRAY['um','uh','ah','like','you_know','so','actually','oh','i_mean','basically','literally','kind_of','sort_of'])
+          -- #1306 fail-closed: ONLY rows whose ENTIRE filler map is valid contribute (a prose/mixed row is
+          -- excluded wholesale, matching _ss_valid_filler_total). Within a valid row every key/value is already
+          -- an approved standard identifier + non-negative integer, so a prose key can never be a "top word".
+          AND public._ss_valid_filler_total(s.filler_counts) IS NOT NULL
         GROUP BY v.key
         ORDER BY count DESC
         LIMIT 2
@@ -204,10 +206,8 @@ BEGIN
             FROM last_10_sessions l
             JOIN sessions s ON s.id = l.id
             CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(s.filler_counts) = 'object' THEN s.filler_counts ELSE '{}'::jsonb END) AS v(key, value)
-            WHERE jsonb_typeof(v.value) = 'number'
-              AND (v.value#>>'{}') ~ '^[0-9]{1,9}$'
-              -- #1306 P1: approved keys only — a prose key can never enter a filler trend.
-              AND v.key = ANY (ARRAY['um','uh','ah','like','you_know','so','actually','oh','i_mean','basically','literally','kind_of','sort_of'])
+            -- #1306 fail-closed: only whole-map-valid rows enter a trend (a prose/mixed row is excluded wholesale).
+            WHERE public._ss_valid_filler_total(s.filler_counts) IS NOT NULL
         ),
         sums AS (
             SELECT word,
