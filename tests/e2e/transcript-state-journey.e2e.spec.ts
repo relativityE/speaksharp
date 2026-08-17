@@ -2,75 +2,70 @@ import { test, expect } from './fixtures';
 import { navigateToRoute, programmaticLoginWithRoutes, waitForFeature } from './helpers';
 
 /**
- * #1047 PR-U1 — synthetic authenticated read journey.
+ * #1306 metrics-only saved-session read journey (authenticated).
  *
- * An authenticated user opens saved sessions whose SERVER-OWNED transcript_state differs, and the detail
- * surface reads the honest state/copy — and the SAME copy after a full reload (proving it is read from the
- * persisted row, not inferred from a transient empty string). Uses the route mock's seeded sessions; no
- * real provider, no migration apply, no transcript mutation.
+ * Replaces the retired #1047 transcript-state journey. A saved session persists METRICS + exactly one
+ * next_action_signal — never a transcript, transcript_state, or AI prose. This journey proves the review
+ * surface reads that persisted truth (and the same after a full reload), that the mock DB (mirroring the
+ * metrics-only persistence firewall) STRIPS any transcript a client tries to write, and that a completed
+ * session missing its next action surfaces a data-integrity failure rather than a friendly empty state.
  *
  * Executed by exact-head CI/Playwright (the authoritative journey runner).
  */
+const NEXT_ACTION = {
+  reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate',
+  value: 4, comparator: 'above_target', templateVersion: 'rec_v1',
+} as const;
+
 const SEEDED = [
-  { id: 'u1-available', title: 'Available take', transcript: 'the practiced opening words', transcript_state: 'available' as const, engine: 'private' as const },
-  { id: 'u1-expired', title: 'Expired take', transcript: '', transcript_state: 'expired' as const, engine: 'private' as const },
-  { id: 'u1-notcaptured', title: 'No-transcript take', transcript: '', transcript_state: 'not_captured' as const, engine: 'private' as const },
+  { id: 'm1-measured', title: 'Measured take', status: 'completed' as const, engine: 'private' as const,
+    total_words: 245, clarity_score: 88, wpm: 142, filler_counts: { um: 4 }, next_action_signal: NEXT_ACTION },
+  { id: 'm1-zero', title: 'Clean take', status: 'completed' as const, engine: 'private' as const,
+    total_words: 210, clarity_score: 95, wpm: 138, filler_counts: {}, next_action_signal: NEXT_ACTION },
 ];
 
 async function openDetail(page: import('@playwright/test').Page, id: string) {
   await navigateToRoute(page, `/analytics/${id}`);
   await waitForFeature(page, 'analytics');
-  return page.getByTestId('session-detail-transcript');
 }
 
-test.describe('#1047 U1 transcript-state read journey (authenticated)', () => {
+test.describe('#1306 metrics-only saved-session read journey (authenticated)', () => {
   test.beforeEach(async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: SEEDED });
   });
 
-  test('available → renders the transcript, and the same after reload', async ({ page }) => {
-    let el = await openDetail(page, 'u1-available');
-    await expect(el).toHaveAttribute('data-transcript-state', 'available');
-    await expect(el).toContainText('the practiced opening words');
-
-    await page.reload();
-    el = page.getByTestId('session-detail-transcript');
-    await expect(el).toHaveAttribute('data-transcript-state', 'available');
-    await expect(el).toContainText('the practiced opening words');
-  });
-
-  test('expired → shows the honest reason (not the removed text) and keeps measurements, before and after reload', async ({ page }) => {
-    let el = await openDetail(page, 'u1-expired');
-    await expect(el).toHaveAttribute('data-transcript-state', 'expired');
-    await expect(el).toContainText('Transcript expired. Your measurements are still available.');
-    // Measurements remain visible for an expired transcript.
+  test('a completed session shows metrics + exactly one next action, and NO transcript pane — same after reload', async ({ page }) => {
+    await openDetail(page, 'm1-measured');
+    // Measurements render.
     await expect(page.getByText('Speaking Pace').first()).toBeVisible();
+    // Exactly one valid next action; never a transcript pane or AI prose.
+    await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
+    await expect(page.getByTestId('session-next-action-integrity-error')).toHaveCount(0);
+    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
 
     await page.reload();
-    el = page.getByTestId('session-detail-transcript');
-    await expect(el).toHaveAttribute('data-transcript-state', 'expired');
-    await expect(el).toContainText('Transcript expired. Your measurements are still available.');
+    await waitForFeature(page, 'analytics');
+    await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
+    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
   });
 
-  test('not_captured → shows the honest reason, and the same after reload', async ({ page }) => {
-    let el = await openDetail(page, 'u1-notcaptured');
-    await expect(el).toHaveAttribute('data-transcript-state', 'not_captured');
-    await expect(el).toContainText('No transcript was captured.');
+  test('a measured-zero session ({}) is truthful (no transcript, still one next action)', async ({ page }) => {
+    await openDetail(page, 'm1-zero');
+    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
+    await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
+  });
 
-    await page.reload();
-    el = page.getByTestId('session-detail-transcript');
-    await expect(el).toHaveAttribute('data-transcript-state', 'not_captured');
-    await expect(el).toContainText('No transcript was captured.');
+  test('the saved session appears in History', async ({ page }) => {
+    await navigateToRoute(page, '/analytics');
+    await waitForFeature(page, 'analytics');
+    await expect(page.getByTestId('session-history-item-m1-measured')).toContainText('Measured take');
   });
 });
 
 /**
- * #1047 PR-U1 — E2E mock-fidelity falsification (transcript_state authority).
- *
- * The in-browser mock DB must model the production BEFORE trigger's authority, or the journey would prove a
- * behavior production does not grant. Only a server-authoritative fixture may establish `expired` (and that
- * clears the transcript); an ordinary CLIENT write can never self-assert `expired`, and `expired` is sticky
- * only when the PREVIOUSLY persisted row was already expired. These drive the REAL mock via `window.supabase`.
+ * #1306 E2E mock-fidelity falsification — the mock DB mirrors the metrics-only persistence firewall: a
+ * transcript a client tries to INSERT/UPDATE/finalize is STRIPPED and never round-trips. These drive the REAL
+ * mock via `window.supabase`.
  */
 type Row = Record<string, unknown>;
 interface MockSb {
@@ -81,78 +76,40 @@ interface MockSb {
   };
 }
 
-test.describe('#1047 U1 E2E mock fidelity — a client cannot self-assert `expired` (matches server SQL)', () => {
-  test('client-provided `expired` on INSERT is ignored and recomputed from transcript (content retained)', async ({ page }) => {
+test.describe('#1306 E2E mock fidelity — a transcript never crosses the persistence boundary', () => {
+  test('a client INSERT carrying a transcript persists the metrics but STRIPS the transcript', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     const row = await page.evaluate(async () => {
       const sb = (window as unknown as { supabase: MockSb }).supabase;
-      const res = await sb.from('sessions').insert({ id: 'fx-insert', title: 'x', transcript: 'these are real words', transcript_state: 'expired' });
+      const res = await sb.from('sessions').insert({ id: 'fx-insert', title: 'x', total_words: 100, filler_counts: { um: 2 }, transcript: 'these are real words' } as Row);
       return res.data[0];
     });
-    expect(row.transcript_state).toBe('available');        // client `expired` denied on insert
-    expect(row.transcript).toBe('these are real words');   // production would not clear a non-expired transcript
+    expect(row.transcript == null).toBe(true);        // transcript stripped on write
+    expect(row.transcript_state).toBeUndefined();      // no transcript_state exists anymore
+    expect(row.total_words).toBe(100);                 // metrics persist
   });
 
-  test('client-provided `expired` when UPDATING a non-expired row is ignored (stays derived)', async ({ page }) => {
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+  test('a client UPDATE that adds a transcript is ignored; metrics still round-trip through reload', async ({ page }) => {
+    await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: [{ id: 'm1-persist', title: 'Persisted take', status: 'completed' as const, engine: 'private' as const, filler_counts: { um: 3 }, next_action_signal: NEXT_ACTION }] });
     const row = await page.evaluate(async () => {
       const sb = (window as unknown as { supabase: MockSb }).supabase;
-      await sb.from('sessions').insert({ id: 'fx-upd', transcript: 'spoken words', transcript_state: 'available' });
-      const res = await sb.from('sessions').update({ transcript_state: 'expired' }).eq('id', 'fx-upd');
-      return res.data[0];
+      await sb.from('sessions').update({ transcript: 'brought back', total_words: 321 }).eq('id', 'm1-persist');
+      return (await sb.from('sessions').select('*').eq('id', 'm1-persist').single()).data;
     });
-    expect(row.transcript_state).toBe('available');        // client cannot introduce `expired` from a non-expired row
-    expect(row.transcript).toBe('spoken words');
+    expect(row.transcript == null).toBe(true);   // transcript never persisted
+    expect(row.total_words).toBe(321);           // metric update survives
   });
 
-  test('a previously-expired row resists transcript resurrection (sticky expired + transcript null)', async ({ page }) => {
-    await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: [{ id: 'fx-exp', transcript: 'gone', transcript_state: 'expired' as const, engine: 'private' as const }] });
-    const result = await page.evaluate(async () => {
-      const sb = (window as unknown as { supabase: MockSb }).supabase;
-      const seeded = (await sb.from('sessions').select('*').eq('id', 'fx-exp').single()).data;
-      const afterResurrect = (await sb.from('sessions').update({ transcript: 'brought back' }).eq('id', 'fx-exp')).data[0];
-      return { seeded, afterResurrect };
-    });
-    expect(result.seeded.transcript_state).toBe('expired');
-    expect(result.seeded.transcript).toBeNull();           // authoritative expired seed cleared content
-    expect(result.afterResurrect.transcript_state).toBe('expired'); // sticky
-    expect(result.afterResurrect.transcript).toBeNull();   // client resurrection denied
-  });
-
-  test('reload reads the PERSISTED mock DB (a mutation survives reload — not a reseed)', async ({ page }) => {
-    await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: [{ id: 'u1-persist', title: 'Persisted take', transcript: 'the original words', transcript_state: 'available' as const, engine: 'private' as const }] });
-    // Mutate the persisted mock DB via the in-browser client, then reload. If the harness re-seeded on
-    // reload, the transcript would revert to the seed ('the original words'); reading the mutation proves the
-    // reload comes from the persisted DB.
+  test('reload reads the PERSISTED mock DB (a metric mutation survives reload — not a reseed)', async ({ page }) => {
+    await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: [{ id: 'm1-reload', title: 'Reload take', status: 'completed' as const, engine: 'private' as const, total_words: 150, filler_counts: { um: 2 }, next_action_signal: NEXT_ACTION }] });
     await page.evaluate(async () => {
       const sb = (window as unknown as { supabase: MockSb }).supabase;
-      await sb.from('sessions').update({ transcript: 'edited persisted words' }).eq('id', 'u1-persist');
+      await sb.from('sessions').update({ total_words: 999 }).eq('id', 'm1-reload');
     });
     await page.reload();
-    const el = await openDetail(page, 'u1-persist');
-    await expect(el).toHaveAttribute('data-transcript-state', 'available');
-    await expect(el).toContainText('edited persisted words'); // survived reload ⇒ read from persisted, not reseeded
-    await expect(el).not.toContainText('the original words');
-  });
-
-  test('an ordinary client INSERT that omits transcript keeps it ABSENT (→ not_captured), never a synthesized default', async ({ page }) => {
-    await programmaticLoginWithRoutes(page, { userType: 'pro' });
-    const row = await page.evaluate(async () => {
-      const sb = (window as unknown as { supabase: MockSb }).supabase;
-      const res = await sb.from('sessions').insert({ id: 'fx-omit', title: 'omit', total_words: 0 }); // NO transcript field
-      return res.data[0];
-    });
-    expect(row.transcript_state).toBe('not_captured');
-    expect(row.transcript == null).toBe(true); // absent (null/undefined) — the mock must not invent content
-  });
-
-  test('an authoritative expired fixture seed persists as `expired` with transcript null', async ({ page }) => {
-    await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: [{ id: 'fx-seed', transcript: 'original text', transcript_state: 'expired' as const, engine: 'private' as const }] });
-    const row = await page.evaluate(async () => {
-      const sb = (window as unknown as { supabase: MockSb }).supabase;
-      return (await sb.from('sessions').select('*').eq('id', 'fx-seed').single()).data;
-    });
-    expect(row.transcript_state).toBe('expired');
-    expect(row.transcript).toBeNull();
+    await openDetail(page, 'm1-reload');
+    // The mutated metric survived reload ⇒ read from the persisted mock DB, not reseeded.
+    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
+    await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
   });
 });

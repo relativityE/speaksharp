@@ -202,69 +202,56 @@ export async function setupE2EManifest(
     };
 
     const nowIso = () => new Date().toISOString();
-    // #1047 PR-U1: the mock DB mirrors the server's BEFORE trigger, which owns transcript_state. Authority
-    // differs by writer:
-    //   • AUTHORITATIVE writes (server-established fixtures — the seed set + the default history) may set any
-    //     state, exactly as a real prior server write would; an authoritative `expired` is honoured.
-    //   • ORDINARY CLIENT writes (INSERT, UPDATE, finalize RPC) can NEVER self-assert a state. State is
-    //     recomputed from transcript presence, EXCEPT that `expired` is sticky: it is preserved ONLY when the
-    //     PREVIOUSLY PERSISTED row was already `expired` (a client cannot introduce `expired`, and cannot
-    //     resurrect a transcript once expired).
-    // Whenever the resolved state is `expired`, the transcript content is forced to null — the trigger clears
-    // it and a CHECK backstops `expired ⟹ transcript IS NULL`.
-    const deriveStateFromTranscript = (row: Record<string, unknown>) => {
-      const t = row.transcript;
-      return typeof t === 'string' && t.trim().length > 0 ? 'available' : 'not_captured';
-    };
-    const reconcileTranscriptState = (
-      row: Record<string, unknown>,
-      opts: { authoritative?: boolean; previousState?: unknown } = {}
-    ) => {
-      const { authoritative = false, previousState } = opts;
-      let state: string;
-      if (authoritative) {
-        // Server-established fixture: honour an explicit valid state, else derive from the transcript.
-        state = (row.transcript_state === 'available' || row.transcript_state === 'expired' || row.transcript_state === 'not_captured')
-          ? (row.transcript_state as string)
-          : deriveStateFromTranscript(row);
-      } else {
-        // Client write: sticky `expired` ONLY when the prior persisted row was already expired; a client can
-        // never introduce `expired` itself. Otherwise recompute from transcript presence (ignoring any
-        // client-provided transcript_state).
-        state = previousState === 'expired' ? 'expired' : deriveStateFromTranscript(row);
+    // #1306 metrics-only: the mock DB mirrors the metrics-only persistence boundary. It NEVER stores a
+    // transcript, transcript_state, ai_suggestions, per-session custom_words, accuracy, or the legacy nested
+    // filler_words — any such field on a write is STRIPPED before it is persisted (exactly as the production
+    // writer + Stage B firewall do). A row carries flat filler_counts + one next_action_signal.
+    const DEFAULT_NEXT_ACTION = {
+      reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate',
+      value: 5, comparator: 'above_target', templateVersion: 'rec_v1',
+    } as const;
+    const CONTENT_FIELDS = ['transcript', 'transcript_state', 'ai_suggestions', 'ground_truth', 'accuracy', 'custom_words', 'filler_words'];
+    // Accept a legacy nested { um: { count } } OR a flat { um: 3 } and emit a flat approved-key map.
+    const toFlatFillerCounts = (fw: unknown): Record<string, number> => {
+      if (!fw || typeof fw !== 'object') return {};
+      const out: Record<string, number> = {};
+      for (const [k, v] of Object.entries(fw as Record<string, unknown>)) {
+        if (k === 'total') continue;
+        const n = typeof v === 'number' ? v : (v && typeof v === 'object' ? (v as { count?: unknown }).count : undefined);
+        if (typeof n === 'number' && Number.isFinite(n) && n >= 0) out[k] = Math.trunc(n);
       }
-      row.transcript_state = state;
-      if (state === 'expired') row.transcript = null; // sticky/seeded expired clears content (trigger + CHECK)
-      return row;
+      return out;
     };
-    const makeSession = (overrides: Record<string, unknown> = {}, opts: { authoritative?: boolean } = {}) => {
+    // Strip every content-bearing field from a write, mirroring the metrics-only persistence firewall.
+    const stripContent = (row: Record<string, unknown>): Record<string, unknown> => {
+      const out = { ...row };
+      const legacyFillers = out.filler_words;
+      for (const f of CONTENT_FIELDS) delete out[f];
+      if (out.filler_counts == null && legacyFillers != null) out.filler_counts = toFlatFillerCounts(legacyFillers);
+      return out;
+    };
+    const makeSession = (overrides: Record<string, unknown> = {}, _opts: { authoritative?: boolean } = {}) => {
+      const clean = stripContent(overrides);
+      const status = (clean.status as string) ?? 'completed';
       const row: Record<string, unknown> = {
         id: `session-${Math.random().toString(36).slice(2)}`,
         user_id: e2eProfile.id,
         title: 'Test Session',
         duration: 300,
         total_words: 150,
-        filler_words: { um: { count: 2 }, uh: { count: 3 } },
-        accuracy: 0.92,
+        filler_counts: { um: 2, uh: 3 },
         clarity_score: 88,
         wpm: 145,
         engine: 'private',
-        status: 'completed',
+        status,
+        // A completed session MUST carry exactly one next action; incomplete/failed carry none.
+        next_action_signal: status === 'completed' ? DEFAULT_NEXT_ACTION : null,
+        pause_metrics: null,
         created_at: nowIso(),
         updated_at: nowIso(),
-        // Coaching is never fabricated by the generic session factory. Tests that need it must seed
-        // an exact persisted provider result for that specific session.
-        ai_suggestions: null,
-        pause_metrics: null,
-        ...overrides,
+        ...clean,
       };
-      // #1047: preserve an OMITTED transcript as absent for ordinary CLIENT writes — the mock must not
-      // synthesize content the client never supplied. Only AUTHORITATIVE fixtures (seed + default history)
-      // get the canned transcript, and only when they didn't specify one themselves.
-      if (opts.authoritative && !('transcript' in overrides)) {
-        row.transcript = 'the birch canoe slid on the smooth planks';
-      }
-      return reconcileTranscriptState(row, { authoritative: opts.authoritative });
+      return row;
     };
 
     const e2eDbStorageKey = '__SS_E2E_SESSION_DB__';
@@ -426,10 +413,9 @@ export async function setupE2EManifest(
         );
         if (pendingMutation.type === 'update') {
           for (const row of matching) {
-            const previousState = row.transcript_state; // capture BEFORE the client payload overwrites it
-            Object.assign(row, pendingMutation.payload || {}, { updated_at: nowIso() });
-            // Ordinary client UPDATE: sticky `expired` only if the prior row was expired; never client-asserted.
-            reconcileTranscriptState(row, { authoritative: false, previousState });
+            // #1306 metrics-only: STRIP any content-bearing field from the client payload before it can be
+            // persisted (mirrors the production writer + Stage B firewall — a transcript never round-trips).
+            Object.assign(row, stripContent((pendingMutation.payload || {}) as Record<string, unknown>), { updated_at: nowIso() });
           }
           persistSessions();
           return { data: matching, error: null, count: matching.length };
@@ -612,15 +598,19 @@ export async function setupE2EManifest(
           const sessionId = args?.p_session_id;
           const session = sessionState.sessions.find((row) => row.id === sessionId);
           if (session) {
-            const previousState = (session as Record<string, unknown>).transcript_state; // before overwrite
+            // #1306 metrics-only: transcript-free completion — persist metrics + the ONE next action; a
+            // transcript is never accepted or stored.
             Object.assign(session, {
               status: args?.p_status || 'completed',
-              transcript: args?.p_final_transcript ?? session.transcript,
               duration: args?.p_final_duration ?? session.duration,
+              next_action_signal: args?.p_next_action ?? session.next_action_signal,
+              total_words: args?.p_total_words ?? session.total_words,
+              clarity_score: args?.p_clarity_score ?? session.clarity_score,
+              wpm: args?.p_wpm ?? session.wpm,
+              filler_counts: args?.p_filler_counts ?? session.filler_counts,
+              pause_metrics: args?.p_pause_metrics ?? session.pause_metrics,
               updated_at: nowIso(),
             });
-            // Client finalize RPC: sticky `expired` only if already expired; the client cannot assert it.
-            reconcileTranscriptState(session as Record<string, unknown>, { authoritative: false, previousState });
             persistSessions();
           }
           return { data: { success: true, final_status: args?.p_status || 'completed' }, error: null };

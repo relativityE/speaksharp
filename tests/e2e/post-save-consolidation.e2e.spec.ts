@@ -163,17 +163,18 @@ test.describe('Post-save consolidation', () => {
     // Let the native formatter reach terminal (the displayed final text is settled).
     await expect(page.getByTestId('post-save-review-session-link')).toBeVisible({ timeout: 15000 });
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
-    // #1222: the session-page transcript surface is the live-transcript card (was transcript-container).
+    // #1222: the session-page transcript surface is the live-transcript card — ephemeral working memory only.
     const sessionText = norm(await page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT).innerText());
     expect(sessionText.length).toBeGreaterThan(0);
 
     await navigateToRoute(page, '/analytics');
     const latest = page.getByTestId(/session-history-item-/).first();
     await openSessionDetailFromHistoryItem(page, latest);
-    const detailText = norm(await page.getByTestId('session-detail-transcript').innerText());
 
-    // The persisted detail transcript must match what SessionPage displayed as final.
-    expect(detailText).toContain(sessionText);
+    // #1306 metrics-only: the review detail persists metrics + one next action, and NEVER a transcript. The
+    // live transcript above stayed in working memory and did not cross into the saved review surface.
+    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
+    await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
   });
 
   test('Reduced motion: the Analytics cue never pulses — it shows the persistent static green emphasis immediately', async ({ page }) => {
