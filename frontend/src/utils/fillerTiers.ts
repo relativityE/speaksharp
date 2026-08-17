@@ -1,6 +1,5 @@
 import { TRUE_FILLER_WORDS, DISCOURSE_MARKER_WORDS } from '../config';
 import type { FillerCounts } from './fillerWordUtils';
-import type { PracticeSession } from '@/types/session';
 
 /**
  * #1231 filler slice 2 — the DEFAULT filler headline is the TRUE-filler tier (um/uh/ah) plus the user's

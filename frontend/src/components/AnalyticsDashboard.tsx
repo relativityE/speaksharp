@@ -32,7 +32,6 @@ import {
     getNarrativeSummary,
     type CoachingMetric,
 } from '@/utils/coachingNarrative';
-import { getTranscriptQualityCaveat } from '@/utils/speakingScore';
 
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';

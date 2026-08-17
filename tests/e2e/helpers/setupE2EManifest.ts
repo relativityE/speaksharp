@@ -230,7 +230,7 @@ export async function setupE2EManifest(
       }
       return null;
     };
-    const makeSession = (overrides: Record<string, unknown> = {}, _opts: { authoritative?: boolean } = {}) => {
+    const makeSession = (overrides: Record<string, unknown> = {}) => {
       const status = (overrides.status as string) ?? 'completed';
       const row: Record<string, unknown> = {
         id: `session-${Math.random().toString(36).slice(2)}`,
@@ -257,7 +257,7 @@ export async function setupE2EManifest(
     // #1047: an explicit seed (transcript_state variants) replaces the generic history. Each seeded row is
     // stamped with the authenticated user's id so the app's `.eq('user_id', …)` query returns it.
     const seededSessions = Array.isArray(seed) && seed.length > 0
-      ? seed.map((row) => makeSession({ ...row, user_id: e2eProfile.id }, { authoritative: true }))
+      ? seed.map((row) => makeSession({ ...row, user_id: e2eProfile.id }))
       : null;
     const defaultSessions = es
       ? []
@@ -265,7 +265,7 @@ export async function setupE2EManifest(
           id: `session-${index + 1}`,
           title: `Practice Session ${index + 1}`,
           created_at: new Date(Date.now() - index * 86400000).toISOString(),
-        }, { authoritative: true })));
+        })));
     const loadPersistedSessions = () => {
       try {
         const raw = window.sessionStorage.getItem(e2eDbStorageKey);

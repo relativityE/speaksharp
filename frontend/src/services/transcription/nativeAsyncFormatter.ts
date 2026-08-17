@@ -61,7 +61,6 @@ export async function formatNativeSessionInBackground(
   params: FormatNativeSessionParams,
 ): Promise<NativeFormattingState> {
   const { sessionId, onUpdated } = params;
-  const updateSession = params.updateSessionFn ?? updateSessionDefault;
   const raw = (params.rawTranscript ?? '').trim();
 
   const done = (partial: Partial<NativeFormattingState>): NativeFormattingState => {
