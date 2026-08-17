@@ -601,6 +601,11 @@ export async function setupE2EManifest(
           return { data: { new_session: newSession, usage_exceeded: false }, error: null };
         }
         if (fn === 'complete_session') {
+          // #1306: the transcript-free overload is the ONLY accepted completion. A legacy call carrying
+          // p_final_transcript is REJECTED fail-closed (the old transcript-accepting overload is absent).
+          if (args && 'p_final_transcript' in args) {
+            return { data: null, error: { message: '#1306 metrics-only firewall: forbidden argument "p_final_transcript" rejected', code: '23514' } };
+          }
           const sessionId = args?.p_session_id;
           const session = sessionState.sessions.find((row) => row.id === sessionId);
           if (session) {

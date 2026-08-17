@@ -63,19 +63,23 @@ test.describe('#1306 metrics-only saved-session read journey (authenticated)', (
 });
 
 /**
- * #1306 E2E mock-fidelity falsification — the mock DB mirrors the metrics-only persistence firewall: a
- * transcript a client tries to INSERT/UPDATE is REJECTED fail-closed (never silently stripped — silent
- * sanitizing would HIDE a client privacy regression), matching the Stage B DB firewall. These drive the REAL
- * mock via `window.supabase`.
+ * #1306 E2E mock-fidelity falsification — the mock DB mirrors the metrics-only persistence firewall across
+ * EVERY write route: `sessions.insert`, `sessions.update`, the `create_session` RPC (p_session_data), and a
+ * legacy `complete_session` carrying `p_final_transcript`. A forbidden content field is REJECTED fail-closed
+ * (never silently stripped — silent sanitizing would HIDE a client privacy regression), matching the Stage B DB
+ * firewall; and the positive path proves the new writer finalizes via the transcript-FREE overload. These drive
+ * the REAL mock via `window.supabase`.
  */
 type Row = Record<string, unknown>;
 type WriteResult = { data: Row[] | null; error: { message: string } | null };
+type RpcResult = { data: unknown; error: { message: string } | null };
 interface MockSb {
   from: (t: string) => {
     insert: (p: Row) => Promise<WriteResult>;
     update: (p: Row) => { eq: (c: string, v: unknown) => Promise<WriteResult> };
     select: (c?: string) => { eq: (c: string, v: unknown) => { single: () => Promise<{ data: Row }> } };
   };
+  rpc: (fn: string, args?: Record<string, unknown>) => Promise<RpcResult>;
 }
 
 test.describe('#1306 E2E mock fidelity — a forbidden content field is REJECTED, not silently stripped', () => {
@@ -114,6 +118,41 @@ test.describe('#1306 E2E mock fidelity — a forbidden content field is REJECTED
     expect(out.error).not.toBeNull();          // transcript-bearing update rejected
     expect(out.transcript == null).toBe(true); // transcript never persisted
     expect(out.total_words).toBe(245);         // the whole write was rejected — metric unchanged
+  });
+
+  test('NEGATIVE: a create_session RPC whose payload smuggles a transcript is REJECTED', async ({ page }) => {
+    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    const out = await page.evaluate(async () => {
+      const sb = (window as unknown as { supabase: MockSb }).supabase;
+      return sb.rpc('create_session_and_update_usage', { p_session_data: { total_words: 10, filler_counts: { um: 1 }, transcript: 'smuggled words' }, p_engine_type: 'private' });
+    });
+    expect(out.error).not.toBeNull();
+    expect(out.error?.message).toMatch(/forbidden content field/i);
+  });
+
+  test('NEGATIVE: a legacy complete_session carrying p_final_transcript is REJECTED (old overload absent)', async ({ page }) => {
+    await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: [{ id: 'm1-final', title: 'Finalize take', status: 'active' as const, engine: 'private' as const, filler_counts: { um: 2 } }] });
+    const out = await page.evaluate(async () => {
+      const sb = (window as unknown as { supabase: MockSb }).supabase;
+      return sb.rpc('complete_session', { p_session_id: 'm1-final', p_status: 'completed', p_final_transcript: 'legacy transcript payload' });
+    });
+    expect(out.error).not.toBeNull();
+    expect(out.error?.message).toMatch(/p_final_transcript/i);
+  });
+
+  test('POSITIVE: the new writer finalizes via the transcript-FREE complete_session overload', async ({ page }) => {
+    await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: [{ id: 'm1-ok', title: 'Finalize ok', status: 'active' as const, engine: 'private' as const, filler_counts: { um: 2 } }] });
+    const out = await page.evaluate(async () => {
+      const sb = (window as unknown as { supabase: MockSb }).supabase;
+      // Exactly the metrics-only overload the production writer uses — no p_final_transcript argument.
+      const res = await sb.rpc('complete_session', { p_session_id: 'm1-ok', p_status: 'completed', p_next_action: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' }, p_total_words: 200, p_filler_counts: {} });
+      const got = (await sb.from('sessions').select('*').eq('id', 'm1-ok').single()).data;
+      return { error: res.error, status: got.status, total_words: got.total_words, transcript: got.transcript };
+    });
+    expect(out.error).toBeNull();               // transcript-free completion accepted
+    expect(out.status).toBe('completed');
+    expect(out.total_words).toBe(200);
+    expect(out.transcript == null).toBe(true);  // no transcript ever stored
   });
 
   test('POSITIVE: a clean metric UPDATE succeeds and survives reload (persisted, not reseeded)', async ({ page }) => {
