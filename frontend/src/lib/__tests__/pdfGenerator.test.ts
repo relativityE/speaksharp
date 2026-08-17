@@ -101,8 +101,9 @@ describe('generateSessionPdf', () => {
         // The read model classifies this session `insufficient`, so the PDF must NOT claim "Available for
         // comparable Progress" — it uses neutral wording derived from eligibility.
         ['Clear-delivery evidence', 'Recorded — not yet comparable'],
-        // #1306: the persisted flat filler_counts total is the headline ({ um:5, like:3 } → 8).
-        ['Total Filler Words', '8'],
+        // #1306 + #1231: the headline is the TRUE-filler tier — um(5). "like"(3) is a discourse marker, shown
+        // in the per-word breakdown below but excluded from the headline.
+        ['Total Filler Words', '5'],
         ['Transcription Mode', 'Not recorded'],
         ['Engine Details', 'Not recorded'],
       ])

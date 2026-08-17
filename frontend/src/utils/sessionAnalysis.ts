@@ -1,7 +1,7 @@
 import type { PracticeSession } from '@/types/session';
 import { countFillerWords, type FillerCounts } from './fillerWordUtils';
 import { countedFillerTotal } from './fillerTiers';
-import { readPersistedFillerCounts, persistedFillerTotal } from '@/contracts/fillerCounts';
+import { readPersistedFillerCounts } from '@/contracts/fillerCounts';
 
 export interface CoreSessionMetrics {
     wordCount: number;
@@ -376,9 +376,6 @@ export const getSessionAnalysisMetrics = (
     // words. The persisted filler map is RUNTIME-VALIDATED here (strict reader): approved keys only, `{}` = a
     // measured zero, and any unknown/prose key / nested / bad number fails closed to `null` (excluded).
     const fillerData = readPersistedFillerCounts(session.filler_counts);
-    // The NULLABLE filler headline: null = UNAVAILABLE (absent/invalid), 0 = a measured `{}`, N = measured
-    // counts. Never collapse unavailable/invalid into 0 (that would fabricate "zero fillers").
-    const fillerHeadline = persistedFillerTotal(session.filler_counts);
     const metrics = calculateCoreSessionMetrics({
         transcript: '',
         durationSeconds: session.duration || 0,
@@ -386,6 +383,12 @@ export const getSessionAnalysisMetrics = (
         userWords: [],
         includeDiscourseMarkers,
     });
+    // #1306 + #1231: the per-session filler HEADLINE is the TRUE-filler tier (um/uh/ah + user words; discourse
+    // markers such as "like"/"so" appear in the per-word breakdown but are NOT counted in the headline), and it
+    // is NULLABLE: null = UNAVAILABLE (absent/invalid filler_counts), 0 = a measured `{}` (or discourse-only),
+    // N = measured true fillers. This is DISTINCT from the aggregate avgFillerWordsPerMin, which sums all
+    // approved keys. Never collapse unavailable/invalid into 0 (that would fabricate "zero fillers").
+    const fillerHeadline = fillerData === null ? null : metrics.fillerCount;
     const wordCount = Math.max(metrics.wordCount, session.total_words ?? 0);
     const wpm = session.wpm ?? calculateWpm(wordCount, session.duration || 0);
     // #1131 (preserved): the PERSISTED clarity score is authoritative when present — an expired session
