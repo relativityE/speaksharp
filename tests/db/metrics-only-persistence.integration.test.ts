@@ -50,6 +50,14 @@ const BOOTSTRAP = `
   CREATE FUNCTION public.keep_fn() RETURNS int LANGUAGE sql AS $fn$ SELECT 42 $fn$;
   ALTER TABLE public.keep_me ENABLE ROW LEVEL SECURITY;
   CREATE POLICY keep_policy ON public.keep_me FOR SELECT USING (true);
+  -- The account-level custom-filler DEFINITIONS store (pre-#1306: custom_vocabulary -> user_filler_words).
+  -- It is the REPLACEMENT for per-session custom_words and MUST survive Stage B (dropping sessions.custom_words
+  -- must never CASCADE into this owner-scoped store), so the dependency ordering (store precedes enforcement)
+  -- holds.
+  CREATE TABLE public.user_filler_words (id uuid PRIMARY KEY, user_id uuid NOT NULL, word text NOT NULL,
+    created_at timestamptz DEFAULT now(), UNIQUE (user_id, word));
+  ALTER TABLE public.user_filler_words ENABLE ROW LEVEL SECURITY;
+  CREATE POLICY user_filler_words_owner ON public.user_filler_words USING (auth.uid() = user_id);
 `;
 
 let seq = 0;
@@ -96,6 +104,18 @@ describe('#1306 FINAL metrics-only schema (Stage A + B)', () => {
     expect(await objExists(db, `SELECT count(*)::int AS n FROM information_schema.views WHERE table_schema='public' AND table_name='keep_view'`)).toBe(1);
     expect(await objExists(db, `SELECT count(*)::int AS n FROM pg_proc WHERE proname='keep_fn'`)).toBe(1);
     expect(await objExists(db, `SELECT count(*)::int AS n FROM pg_policies WHERE schemaname='public' AND tablename='keep_me' AND policyname='keep_policy'`)).toBe(1);
+  });
+
+  it('the account-level custom-filler store (the custom_words REPLACEMENT) SURVIVES Stage B, while per-session custom_words is dropped', async () => {
+    // Dependency-ordering proof: dropping sessions.custom_words must NOT touch the owner-scoped account store
+    // (RLS + rows intact), so account-level custom fillers legitimately precede this enforcement.
+    const db = await withAB();
+    await db.query(`INSERT INTO public.user_filler_words (id, user_id, word) VALUES ($1,$2,'gonna')`, [sid(), U]);
+    expect(await objExists(db, `SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public' AND table_name='user_filler_words'`)).toBe(1);
+    expect(await objExists(db, `SELECT count(*)::int AS n FROM pg_policies WHERE schemaname='public' AND tablename='user_filler_words'`)).toBe(1);
+    expect(await objExists(db, `SELECT count(*)::int AS n FROM public.user_filler_words`)).toBe(1); // the row survived
+    // ...and the per-session custom_words column is gone (its replacement above is authoritative).
+    expect((await colN(db, 'sessions', ['custom_words'])).rows[0].n).toBe(0);
   });
 });
 
