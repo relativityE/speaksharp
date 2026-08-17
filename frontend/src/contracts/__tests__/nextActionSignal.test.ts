@@ -18,28 +18,30 @@ const valid: NextActionSignal = {
 };
 
 describe('#1306 next-action contract — fail-closed, prose-proof', () => {
+  // Non-conditional error accessor (avoids `expect` inside an `if` — vitest/no-conditional-expect).
+  const errorsOf = (r: ReturnType<typeof validateNextActionSignal>): string =>
+    (r as { ok: false; errors: string[] }).errors?.join(' ') ?? '';
+
   it('accepts a well-formed enum/numeric signal', () => {
-    const r = validateNextActionSignal(valid);
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value).toEqual(valid);
+    expect(validateNextActionSignal(valid)).toEqual({ ok: true, value: valid });
   });
 
   it('REJECTS an unknown key (a prose field cannot be smuggled in)', () => {
     const r = validateNextActionSignal({ ...valid, what_to_try_next: 'Try to slow down and breathe.' });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors.join(' ')).toMatch(/unknown key 'what_to_try_next'/);
+    expect(errorsOf(r)).toMatch(/unknown key 'what_to_try_next'/);
   });
 
   it('REJECTS a free-form string in an enum field', () => {
     const r = validateNextActionSignal({ ...valid, reasonCode: 'You spoke a bit too fast today' });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors.join(' ')).toMatch(/reasonCode must be one of/);
+    expect(errorsOf(r)).toMatch(/reasonCode must be one of/);
   });
 
   it('REJECTS a non-numeric value', () => {
     const r = validateNextActionSignal({ ...valid, value: '0.08' });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors.join(' ')).toMatch(/value must be a finite number/);
+    expect(errorsOf(r)).toMatch(/value must be a finite number/);
   });
 
   it('REJECTS a non-finite value', () => {

@@ -7,26 +7,19 @@ const PROSE = 'confidential project phrase';
 
 describe('#1306 persisted filler_counts contract — approved keys only, fail closed', () => {
   it('accepts {} as a genuine MEASURED zero', () => {
-    const r = validatePersistedFillerCounts({});
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value).toEqual({});
+    expect(validatePersistedFillerCounts({})).toEqual({ ok: true, value: {} });
   });
 
   it('accepts approved standard keys with non-negative finite numbers', () => {
-    const r = validatePersistedFillerCounts({ um: 3, uh: 0, like: 2 });
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value).toEqual({ um: 3, uh: 0, like: 2 });
+    expect(validatePersistedFillerCounts({ um: 3, uh: 0, like: 2 })).toEqual({ ok: true, value: { um: 3, uh: 0, like: 2 } });
   });
 
   it('REJECTS an unknown PROSE key with a CODE ONLY — the phrase is never echoed', () => {
     const r = validatePersistedFillerCounts({ [PROSE]: 1 });
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.code).toBe('invalid_filler_counts_key');
-      // No-leak: the offending phrase must not appear anywhere in the serialized result.
-      expect(JSON.stringify(r)).not.toContain(PROSE);
-      expect(JSON.stringify(r)).not.toMatch(/confidential/i);
-    }
+    expect(r).toEqual({ ok: false, code: 'invalid_filler_counts_key' });
+    // No-leak: the offending phrase must not appear anywhere in the serialized result.
+    expect(JSON.stringify(r)).not.toContain(PROSE);
+    expect(JSON.stringify(r)).not.toMatch(/confidential/i);
   });
 
   it('REJECTS nested/array/string/negative/non-finite with sanitized codes (fail closed)', () => {
