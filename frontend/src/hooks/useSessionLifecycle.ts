@@ -48,6 +48,33 @@ const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string
     return rawMessage || 'Recording could not start. Try again.';
 };
 
+/**
+ * #1258: decide whether a foreground return should trigger exactly one explicit STT reload. Pure so the
+ * reclaim→return→reload contract is unit-testable without mounting the whole hook. Reload ONLY when the page
+ * is visible, the profile is STT-ready, a mode is selected, we are not recording, and the engine was reclaimed
+ * to a clean idle/needs-load state (never mid-record, never for a still-ready foreground-preserved engine).
+ */
+export function shouldReloadSttOnForegroundReturn(params: {
+    visibilityState: DocumentVisibilityState;
+    profileReadyForStt: boolean;
+    effectiveMode: TranscriptionMode | null;
+    isListening: boolean;
+    shouldPromoteNativeDefaultToPrivate: boolean;
+    hasPendingReclamation: boolean;
+}): boolean {
+    const { visibilityState, profileReadyForStt, effectiveMode, isListening, shouldPromoteNativeDefaultToPrivate, hasPendingReclamation } = params;
+    if (visibilityState !== 'visible') return false;
+    // Reload ONLY in response to an ACTUAL controller-owned idle reclamation (a change in its reclamation
+    // token) — never on a generic IDLE state, a fresh mount, or a quick tab switch that reclaimed nothing.
+    if (!hasPendingReclamation) return false;
+    // Key off the EFFECTIVE mode (Private-only resolves `sttMode ?? 'private'`), NOT the raw store `sttMode`:
+    // the real production condition is `sttMode === null`, so gating on it would refuse to reload exactly when
+    // the canary needs it after a background reclamation.
+    if (!profileReadyForStt || !effectiveMode || isListening) return false;
+    if (shouldPromoteNativeDefaultToPrivate) return false;
+    return true;
+}
+
 export const useSessionLifecycle = () => {
     const { session } = useAuthProvider();
     const { profile, isVerified } = useProfile();
@@ -604,6 +631,52 @@ export const useSessionLifecycle = () => {
             warmUpTriggered.current = null;
         };
     }, []);
+
+    // #1258: after a BACKGROUND idle reclamation the engine is torn down to a clean idle state and is NOT
+    // auto-reloaded (the `warmUpTriggered` guard above stays set, so no reclaim→reload loop). When the user
+    // RETURNS (page becomes visible) and the engine was reclaimed to idle, perform exactly ONE explicit reload
+    // so the mic becomes usable again, with the normal truthful download/loading UI. A still-ready (foreground-
+    // preserved) or actively-recording engine is left untouched.
+    // Tracks the reclamation token we have already reloaded for. Initialized (lazily, on first visibility
+    // handling) to the controller's current token so we only ever react to reclamations that happen AFTER mount.
+    const handledReclamationGen = useRef<number | null>(null);
+    useEffect(() => {
+        if (handledReclamationGen.current === null) {
+            handledReclamationGen.current = speechRuntimeController.getIdleReclamationGeneration();
+        }
+        const onVisibilityChange = () => {
+            if (document.visibilityState !== 'visible') return;
+            const gen = speechRuntimeController.getIdleReclamationGeneration();
+            // A CHANGE in the controller-owned token is the only thing that authorizes a reload — this is what
+            // distinguishes "the engine was actually reclaimed while I was away" from "I just switched tabs".
+            const hasPendingReclamation = gen !== (handledReclamationGen.current ?? gen);
+            if (!shouldReloadSttOnForegroundReturn({
+                visibilityState: document.visibilityState,
+                profileReadyForStt,
+                effectiveMode,
+                isListening,
+                shouldPromoteNativeDefaultToPrivate,
+                hasPendingReclamation,
+            })) return;
+            // Consume this reclamation BEFORE issuing the reload → exactly one reload per reclamation and no
+            // automatic looping even if the reload fails (the token will not re-authorize until a NEW reclamation).
+            handledReclamationGen.current = gen;
+            warmUpTriggered.current = effectiveMode;
+            logger.info('[useSessionLifecycle] Page returned to foreground after a real reclamation — one explicit reload');
+            speechRuntimeController.warmUp(effectiveMode).catch((err) => {
+                // A failed reload must NOT be swallowed. Drive the DOM-derived model status to `init-failed` so
+                // the recording controls (MicCard / MobileActionBar) render an ENABLED "Retry Private setup"
+                // action routed to the setup entry point — the consumed token guarantees we do not silently loop.
+                logger.warn({ err }, '[useSessionLifecycle] foreground-return reload failed — surfacing Private setup retry');
+                if (typeof document !== 'undefined') {
+                    document.documentElement.setAttribute('data-model-status', 'init-failed');
+                }
+                setSTTStatus({ type: 'init-failed', message: 'Private transcription setup did not complete.', detail: 'Retry the local model setup. Your audio stays on your machine.' });
+            });
+        };
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+    }, [profileReadyForStt, effectiveMode, isListening, shouldPromoteNativeDefaultToPrivate, setSTTStatus]);
 
     // UI Cleanup on unmount
     // We ONLY detach listeners (subscriber_unmount) to handle React remounts.
