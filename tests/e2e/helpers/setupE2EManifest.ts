@@ -202,37 +202,36 @@ export async function setupE2EManifest(
     };
 
     const nowIso = () => new Date().toISOString();
-    // #1306 metrics-only: the mock DB mirrors the metrics-only persistence boundary. It NEVER stores a
-    // transcript, transcript_state, ai_suggestions, per-session custom_words, accuracy, or the legacy nested
-    // filler_words — any such field on a write is STRIPPED before it is persisted (exactly as the production
-    // writer + Stage B firewall do). A row carries flat filler_counts + one next_action_signal.
+    // #1306 metrics-only: the mock DB mirrors the metrics-only persistence FIREWALL. A transcript,
+    // transcript_state, ai_suggestions, per-session custom_words, accuracy, or the legacy nested filler_words is
+    // FORBIDDEN. The mock REJECTS such a write fail-closed (exactly as the Stage B DB firewall RAISEs) — it does
+    // NOT silently sanitize it, because silently dropping a forbidden field would HIDE a real client privacy
+    // regression. A valid row carries flat filler_counts + one next_action_signal.
     const DEFAULT_NEXT_ACTION = {
       reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate',
       value: 5, comparator: 'above_target', templateVersion: 'rec_v1',
     } as const;
-    const CONTENT_FIELDS = ['transcript', 'transcript_state', 'ai_suggestions', 'ground_truth', 'accuracy', 'custom_words', 'filler_words'];
-    // Accept a legacy nested { um: { count } } OR a flat { um: 3 } and emit a flat approved-key map.
-    const toFlatFillerCounts = (fw: unknown): Record<string, number> => {
-      if (!fw || typeof fw !== 'object') return {};
-      const out: Record<string, number> = {};
-      for (const [k, v] of Object.entries(fw as Record<string, unknown>)) {
-        if (k === 'total') continue;
-        const n = typeof v === 'number' ? v : (v && typeof v === 'object' ? (v as { count?: unknown }).count : undefined);
-        if (typeof n === 'number' && Number.isFinite(n) && n >= 0) out[k] = Math.trunc(n);
-      }
-      return out;
+    const FORBIDDEN_CONTENT_FIELDS = ['transcript', 'transcript_state', 'ai_suggestions', 'ground_truth', 'accuracy', 'custom_words', 'filler_words'];
+    const forbiddenKeyIn = (payload: unknown): string | null => {
+      if (!payload || typeof payload !== 'object') return null;
+      for (const k of FORBIDDEN_CONTENT_FIELDS) if (k in (payload as Record<string, unknown>)) return k;
+      return null;
     };
-    // Strip every content-bearing field from a write, mirroring the metrics-only persistence firewall.
-    const stripContent = (row: Record<string, unknown>): Record<string, unknown> => {
-      const out = { ...row };
-      const legacyFillers = out.filler_words;
-      for (const f of CONTENT_FIELDS) delete out[f];
-      if (out.filler_counts == null && legacyFillers != null) out.filler_counts = toFlatFillerCounts(legacyFillers);
-      return out;
+    // Fail-closed guard for a `sessions` write. Returns a Supabase-shaped error result when a forbidden content
+    // field is present (single payload or array), else null. The field NAME is a fixed schema identifier (never
+    // user prose), so naming it is safe and diagnostic.
+    const rejectForbiddenSessionWrite = (payload: unknown): { data: null; error: { message: string; code: string }; count: number } | null => {
+      const rows = Array.isArray(payload) ? payload : [payload];
+      for (const row of rows) {
+        const bad = forbiddenKeyIn(row);
+        if (bad) {
+          return { data: null, error: { message: `#1306 metrics-only firewall: forbidden content field "${bad}" rejected`, code: '23514' }, count: 0 };
+        }
+      }
+      return null;
     };
     const makeSession = (overrides: Record<string, unknown> = {}, _opts: { authoritative?: boolean } = {}) => {
-      const clean = stripContent(overrides);
-      const status = (clean.status as string) ?? 'completed';
+      const status = (overrides.status as string) ?? 'completed';
       const row: Record<string, unknown> = {
         id: `session-${Math.random().toString(36).slice(2)}`,
         user_id: e2eProfile.id,
@@ -249,7 +248,7 @@ export async function setupE2EManifest(
         pause_metrics: null,
         created_at: nowIso(),
         updated_at: nowIso(),
-        ...clean,
+        ...overrides,
       };
       return row;
     };
@@ -402,6 +401,10 @@ export async function setupE2EManifest(
         }
         if (table !== 'sessions') return null;
         if (pendingMutation.type === 'insert') {
+          // #1306 metrics-only firewall: REJECT a forbidden content field fail-closed (never silently drop it,
+          // which would hide a client privacy regression). Mirrors the Stage B DB CHECK/trigger.
+          const rejected = rejectForbiddenSessionWrite(pendingMutation.payload);
+          if (rejected) return rejected;
           const payloads = Array.isArray(pendingMutation.payload) ? pendingMutation.payload : [pendingMutation.payload || {}];
           const inserted = payloads.map((payload) => makeSession(payload as Record<string, unknown>));
           sessionState.sessions.unshift(...inserted);
@@ -412,10 +415,10 @@ export async function setupE2EManifest(
           filters.every((filter) => String((row as Record<string, unknown>)[filter.column]) === String(filter.value))
         );
         if (pendingMutation.type === 'update') {
+          const rejected = rejectForbiddenSessionWrite(pendingMutation.payload);
+          if (rejected) return rejected;
           for (const row of matching) {
-            // #1306 metrics-only: STRIP any content-bearing field from the client payload before it can be
-            // persisted (mirrors the production writer + Stage B firewall — a transcript never round-trips).
-            Object.assign(row, stripContent((pendingMutation.payload || {}) as Record<string, unknown>), { updated_at: nowIso() });
+            Object.assign(row, (pendingMutation.payload || {}) as Record<string, unknown>, { updated_at: nowIso() });
           }
           persistSessions();
           return { data: matching, error: null, count: matching.length };
@@ -582,6 +585,9 @@ export async function setupE2EManifest(
       rpc: async (fn: string, args?: Record<string, unknown>) => {
         if (fn === 'create_session_and_update_usage') {
           const sessionData = (args?.p_session_data || {}) as Record<string, unknown>;
+          // #1306 firewall: a create RPC whose session payload smuggles a forbidden content field is REJECTED.
+          const rejected = rejectForbiddenSessionWrite(sessionData);
+          if (rejected) return { data: null, error: rejected.error };
           const newSession = makeSession({
             ...sessionData,
             engine: (args?.p_engine_type as string) || sessionData.engine || 'native',

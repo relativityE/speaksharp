@@ -64,43 +64,59 @@ test.describe('#1306 metrics-only saved-session read journey (authenticated)', (
 
 /**
  * #1306 E2E mock-fidelity falsification — the mock DB mirrors the metrics-only persistence firewall: a
- * transcript a client tries to INSERT/UPDATE/finalize is STRIPPED and never round-trips. These drive the REAL
+ * transcript a client tries to INSERT/UPDATE is REJECTED fail-closed (never silently stripped — silent
+ * sanitizing would HIDE a client privacy regression), matching the Stage B DB firewall. These drive the REAL
  * mock via `window.supabase`.
  */
 type Row = Record<string, unknown>;
+type WriteResult = { data: Row[] | null; error: { message: string } | null };
 interface MockSb {
   from: (t: string) => {
-    insert: (p: Row) => Promise<{ data: Row[] }>;
-    update: (p: Row) => { eq: (c: string, v: unknown) => Promise<{ data: Row[] }> };
+    insert: (p: Row) => Promise<WriteResult>;
+    update: (p: Row) => { eq: (c: string, v: unknown) => Promise<WriteResult> };
     select: (c?: string) => { eq: (c: string, v: unknown) => { single: () => Promise<{ data: Row }> } };
   };
 }
 
-test.describe('#1306 E2E mock fidelity — a transcript never crosses the persistence boundary', () => {
-  test('a client INSERT carrying a transcript persists the metrics but STRIPS the transcript', async ({ page }) => {
+test.describe('#1306 E2E mock fidelity — a forbidden content field is REJECTED, not silently stripped', () => {
+  test('POSITIVE: a clean metrics-only INSERT (no forbidden field) succeeds', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
-    const row = await page.evaluate(async () => {
+    const res = await page.evaluate(async () => {
+      const sb = (window as unknown as { supabase: MockSb }).supabase;
+      return sb.from('sessions').insert({ id: 'fx-clean', title: 'x', total_words: 100, filler_counts: { um: 2 } } as Row);
+    });
+    expect(res.error).toBeNull();
+    expect(res.data?.[0]?.total_words).toBe(100);
+  });
+
+  test('NEGATIVE: a client INSERT carrying a transcript is REJECTED and persists NOTHING', async ({ page }) => {
+    await programmaticLoginWithRoutes(page, { userType: 'pro' });
+    const out = await page.evaluate(async () => {
       const sb = (window as unknown as { supabase: MockSb }).supabase;
       const res = await sb.from('sessions').insert({ id: 'fx-insert', title: 'x', total_words: 100, filler_counts: { um: 2 }, transcript: 'these are real words' } as Row);
-      return res.data[0];
+      let persisted = false;
+      try { const got = await sb.from('sessions').select('*').eq('id', 'fx-insert').single(); persisted = got.data != null; } catch { persisted = false; }
+      return { error: res.error, persisted };
     });
-    expect(row.transcript == null).toBe(true);        // transcript stripped on write
-    expect(row.transcript_state).toBeUndefined();      // no transcript_state exists anymore
-    expect(row.total_words).toBe(100);                 // metrics persist
+    expect(out.error).not.toBeNull();                 // rejected fail-closed
+    expect(out.error?.message).toMatch(/forbidden content field/i);
+    expect(out.persisted).toBe(false);                 // no row written
   });
 
-  test('a client UPDATE that adds a transcript is ignored; metrics still round-trip through reload', async ({ page }) => {
-    await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: [{ id: 'm1-persist', title: 'Persisted take', status: 'completed' as const, engine: 'private' as const, filler_counts: { um: 3 }, next_action_signal: NEXT_ACTION }] });
-    const row = await page.evaluate(async () => {
+  test('NEGATIVE: a client UPDATE that adds a transcript is REJECTED (the metric change does not apply)', async ({ page }) => {
+    await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: [{ id: 'm1-persist', title: 'Persisted take', status: 'completed' as const, engine: 'private' as const, total_words: 245, filler_counts: { um: 3 }, next_action_signal: NEXT_ACTION }] });
+    const out = await page.evaluate(async () => {
       const sb = (window as unknown as { supabase: MockSb }).supabase;
-      await sb.from('sessions').update({ transcript: 'brought back', total_words: 321 }).eq('id', 'm1-persist');
-      return (await sb.from('sessions').select('*').eq('id', 'm1-persist').single()).data;
+      const res = await sb.from('sessions').update({ transcript: 'brought back', total_words: 321 }).eq('id', 'm1-persist');
+      const got = (await sb.from('sessions').select('*').eq('id', 'm1-persist').single()).data;
+      return { error: res.error, total_words: got.total_words, transcript: got.transcript };
     });
-    expect(row.transcript == null).toBe(true);   // transcript never persisted
-    expect(row.total_words).toBe(321);           // metric update survives
+    expect(out.error).not.toBeNull();          // transcript-bearing update rejected
+    expect(out.transcript == null).toBe(true); // transcript never persisted
+    expect(out.total_words).toBe(245);         // the whole write was rejected — metric unchanged
   });
 
-  test('reload reads the PERSISTED mock DB (a metric mutation survives reload — not a reseed)', async ({ page }) => {
+  test('POSITIVE: a clean metric UPDATE succeeds and survives reload (persisted, not reseeded)', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: [{ id: 'm1-reload', title: 'Reload take', status: 'completed' as const, engine: 'private' as const, total_words: 150, filler_counts: { um: 2 }, next_action_signal: NEXT_ACTION }] });
     await page.evaluate(async () => {
       const sb = (window as unknown as { supabase: MockSb }).supabase;
