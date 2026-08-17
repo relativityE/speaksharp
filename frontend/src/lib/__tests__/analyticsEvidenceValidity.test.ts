@@ -22,8 +22,7 @@ const session = (over: Partial<PracticeSession> = {}): PracticeSession => ({
     created_at: '2026-07-20T10:00:00Z',
     duration: 300,
     total_words: 600,
-    transcript: Array.from({ length: 600 }, (_, i) => `word${i}`).join(' '),
-    filler_words: {},
+    filler_counts: {},
     ...over,
 } as PracticeSession);
 
@@ -33,9 +32,9 @@ describe('#1045 aggregate evidence validity', () => {
         // The old average divided the single real score by 4 and reported a near-zero clarity.
         const history = [
             session({ id: 'real', clarity_score: 88 }),
-            session({ id: 'blip-1', duration: 4, total_words: 0, transcript: '' }),
-            session({ id: 'blip-2', duration: 3, total_words: 0, transcript: '' }),
-            session({ id: 'blip-3', duration: 2, total_words: 0, transcript: '' }),
+            session({ id: 'blip-1', duration: 4, total_words: 0, }),
+            session({ id: 'blip-2', duration: 3, total_words: 0, }),
+            session({ id: 'blip-3', duration: 2, total_words: 0, }),
         ];
 
         const stats = calculateOverallStats(history);
@@ -46,15 +45,15 @@ describe('#1045 aggregate evidence validity', () => {
 
     it('reports Clear Delivery as unknown — not 0% — when NO session is scorable', () => {
         const stats = calculateOverallStats([
-            session({ duration: 4, total_words: 0, transcript: '' }),
-            session({ duration: 3, total_words: 0, transcript: '' }),
+            session({ duration: 4, total_words: 0, }),
+            session({ duration: 3, total_words: 0, }),
         ]);
 
         expect(stats.avgClarity).toBeNull();
     });
 
     it('reports pace as unknown rather than 0 WPM when nothing was transcribed', () => {
-        const stats = calculateOverallStats([session({ duration: 30, total_words: 0, transcript: '' })]);
+        const stats = calculateOverallStats([session({ duration: 30, total_words: 0, })]);
         expect(stats.averageWPM).toBeNull();
     });
 
@@ -65,36 +64,35 @@ describe('#1045 aggregate evidence validity', () => {
         expect(stats.avgPausesPerMin).toBeNull();
     });
 
-    it('does not praise SILENCE as clean delivery — a filler rate needs GENUINE filler evidence, not just time', () => {
-        // #1131 correction 1: the guard is filler-intrinsic, NOT word-count. A silent take captures no genuine
-        // filler data (filler_words is the empty `{}` default here), so it is excluded from the filler
-        // denominator and cannot report a flattering "0.0/min" (which decodes to the POSITIVE label "Low").
-        const stats = calculateOverallStats([session({ duration: 6, total_words: 0, transcript: '', filler_words: {} })]);
+    it('#1306: a NOT-MEASURED (null) filler session is excluded — absence is never praised as 0.0/min', () => {
+        // "Not measured" (null filler_counts) carries no filler evidence, so it drops out of the filler
+        // denominator entirely — it can never report a flattering "0.0/min" from mere elapsed time.
+        const stats = calculateOverallStats([session({ duration: 6, total_words: 0, filler_counts: undefined } as never)]);
         expect(stats.avgFillerWordsPerMin).toBeNull();
     });
 
-    it('keeps a GENUINE zero when the evidence is real', () => {
-        // #1131 correction 2: a genuine zero is an EXPLICIT zero count ({ total: { count: 0 } }), not an empty
-        // `{}` object. Real speech, real duration, a genuinely-counted zero fillers — a true, valuable 0.0/min.
-        const stats = calculateOverallStats([session({ filler_words: { total: { count: 0 } } })]);
+    it('#1306: keeps a GENUINE MEASURED zero ({}) as a real 0.0/min — never excluded', () => {
+        // A measured `{}` (real speech, genuinely-counted zero fillers) is a true, valuable 0.0/min — included
+        // in the denominator as a genuine zero, not treated as "no evidence".
+        const stats = calculateOverallStats([session({ filler_counts: {} })]);
         expect(stats.avgFillerWordsPerMin).not.toBeNull();
         expect(Number(stats.avgFillerWordsPerMin)).toBe(0);
     });
 
-    it('does NOT let an empty or MALFORMED filler map become a flattering 0.0/min', () => {
-        // #1131 correction 2: an available take with a non-empty but MALFORMED filler map (a key with no
-        // numeric count) is missing data, not a measurement. It must be excluded, never reported as 0.0.
-        expect(calculateOverallStats([session({ filler_words: {} })]).avgFillerWordsPerMin).toBeNull();
-        expect(calculateOverallStats([session({ filler_words: { um: {} } as never })]).avgFillerWordsPerMin).toBeNull();
-        expect(calculateOverallStats([session({ filler_words: { um: { count: null } } as never })]).avgFillerWordsPerMin).toBeNull();
+    it('#1306: a MALFORMED filler map is excluded (null), while a measured {} is a genuine 0.0/min', () => {
+        // Measured zero → a real 0.0/min (included). Malformed/invalid data (nested / non-numeric) is NOT a
+        // measurement → excluded (never a fabricated 0.0).
+        expect(Number(calculateOverallStats([session({ filler_counts: {} })]).avgFillerWordsPerMin)).toBe(0);
+        expect(calculateOverallStats([session({ filler_counts: { um: {} } as never })]).avgFillerWordsPerMin).toBeNull();
+        expect(calculateOverallStats([session({ filler_counts: { um: { count: null } } as never })]).avgFillerWordsPerMin).toBeNull();
     });
 
     it('reports a filler rate from GENUINE filler evidence even when the word count was not persisted', () => {
         // #1131 correction 1: the filler rate is independent of word count. An (expired) take whose word count
         // did not persist but whose filler measurement did still reports its rate — 3 fillers / 1 min = 3.0.
         const stats = calculateOverallStats([session({
-            duration: 60, total_words: undefined, transcript: null, transcript_state: 'expired',
-            filler_words: { um: { count: 3 }, total: { count: 3 } },
+            duration: 60, total_words: undefined,
+            filler_counts: { um: 3 },
         } as never)]);
         expect(stats.avgFillerWordsPerMin).toBe('3.0');
     });
@@ -233,7 +231,8 @@ describe('#1045 pause evidence is structural, not truthiness', () => {
 describe('#1045 missing evidence never becomes coaching', () => {
     it('does not prescribe a pace/filler/pause/clarity action for a wordless session', () => {
         const allUnknown = calculateOverallStats([
-            session({ duration: 6, total_words: 0, transcript: '' }),
+            // #1306: a genuinely UNMEASURED wordless session — null (not `{}`) filler so nothing is measured.
+            session({ duration: 6, total_words: 0, filler_counts: undefined, clarity_score: undefined } as never),
         ]);
 
         const result = getTryThisNext({

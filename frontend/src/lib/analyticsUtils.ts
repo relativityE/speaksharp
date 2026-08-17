@@ -1,15 +1,13 @@
 import { hasValidPauseEvidence } from '@/utils/metricValidity';
 import type { PracticeSession } from '@/types/session';
-import { calculateWordErrorRate } from './wer';
 import {
     calculateAverageSessionLengthMinutes,
     calculateRatePerMinute,
     calculateRoundedMinutes,
     getSessionAnalysisMetrics,
-    validatedFillerTotal,
     isValidFillerCount,
 } from '@/utils/sessionAnalysis';
-import { resolveTranscriptState, transcriptDerivedMetricShowable } from '@/constants/transcriptState';
+import { persistedFillerTotal } from '@/contracts/fillerCounts';
 
 const isRealNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
@@ -20,7 +18,7 @@ const isRealNumber = (v: unknown): v is number => typeof v === 'number' && Numbe
  * and fractional/negative counts are NOT evidence. Mirrors the RPC helper `_ss_valid_filler_total IS NOT NULL`
  * so client and server agree on which rows may contribute the filler metric.
  */
-const hasRealFillerData = (s: PracticeSession): boolean => validatedFillerTotal(s.filler_words) !== null;
+const hasRealFillerData = (s: PracticeSession): boolean => persistedFillerTotal(s.filler_counts) !== null;
 
 /**
  * #1047 U1 (review correction): provenance is METRIC-SPECIFIC, not all-or-nothing. `available` shows every
@@ -29,8 +27,9 @@ const hasRealFillerData = (s: PracticeSession): boolean => validatedFillerTotal(
  * longer authorizes a reconstructed clarity/filler/accuracy/WPM, and cannot dilute valid history. Total
  * practice TIME is deliberately NOT gated — it still spans every session.
  */
-const metricEligible = (s: PracticeSession, persistedIsReal: boolean): boolean =>
-    transcriptDerivedMetricShowable(resolveTranscriptState(s.transcript_state, s.transcript), persistedIsReal);
+// #1306 metrics-only: provenance is METRIC PRESENCE. A row contributes a metric iff that metric's own value
+// is genuinely persisted — the retired transcript_state/not_captured sentinel no longer gates aggregates.
+const metricEligible = (_s: PracticeSession, persistedIsReal: boolean): boolean => persistedIsReal;
 
 // #1131 review correction 2: a metric is eligible only when BOTH its provenance is showable AND its own
 // value is GENUINELY persisted. `transcriptDerivedMetricShowable(available, …)` answers provenance only and
@@ -47,11 +46,8 @@ const fillerMetricEligible = (s: PracticeSession): boolean => {
     const hasFiller = hasRealFillerData(s);
     return metricEligible(s, hasFiller) && hasFiller;
 };
-// Accuracy is RECOMPUTED from ground_truth vs transcript (calculateWordErrorRate), not read from the
-// persisted `accuracy` column, and calculateAccuracyData already gates on `ground_truth && transcript &&
-// engine`. So accuracy eligibility is provenance-only here — an `expired` row (transcript removed) is
-// naturally excluded downstream by the transcript check, and the persisted `accuracy` value is not the gate.
-const accuracyMetricEligible = (s: PracticeSession): boolean => metricEligible(s, isRealNumber(s.accuracy));
+// #1306: the per-session STT-accuracy series is RETIRED (accuracy has no customer ground truth and is
+// benchmark-only). `calculateAccuracyData` now returns an empty series; no accuracy eligibility gate remains.
 
 /**
  * P1 TECH DEBT: Client-side Aggregation
@@ -140,7 +136,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
             fillerDurationSeconds += duration;
             // #1131 correction 3: the filler NUMERATOR is the validated, total-authoritative count (honors a
             // total-only snapshot); a row is only eligible when this is a real value, so it is never null here.
-            totalFillerWords += validatedFillerTotal(s.filler_words) ?? 0;
+            totalFillerWords += persistedFillerTotal(s.filler_counts) ?? 0;
         }
         // #1045 finding 1: object truthiness is not evidence — `pause_metrics: {}` is truthy and
         // carries no measurement. Only a structurally complete snapshot contributes. (Pause rhythm is
@@ -209,7 +205,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         const duration = s.duration || 0;
         const sessionMetrics = getSessionAnalysisMetrics(s);
         // #1131 correction 3: the plotted filler count is the validated, total-authoritative value.
-        const totalFillerCount = validatedFillerTotal(s.filler_words) ?? 0;
+        const totalFillerCount = persistedFillerTotal(s.filler_counts) ?? 0;
 
         return {
             date: new Date(s.created_at).toLocaleDateString(),
@@ -317,17 +313,6 @@ export const calculateTopFillerWords = (sessionHistory: PracticeSession[]) => {
         .sort((a, b) => b.count - a.count);
 };
 
-export const calculateAccuracyData = (sessionHistory: PracticeSession[]) => {
-    return sessionHistory
-        // #1047: exclude not_captured rows — their retained accuracy/transcript is a sentinel, not evidence.
-        .filter(s => accuracyMetricEligible(s) && s.ground_truth && s.transcript && s.engine)
-        .map(s => {
-            const wer = calculateWordErrorRate(s.ground_truth!, s.transcript!);
-            return {
-                date: new Date(s.created_at).toLocaleDateString(),
-                accuracy: Math.max(0, Math.round((1 - wer) * 100)),
-                engine: s.engine!,
-            };
-        })
-        .reverse();
-};
+// #1306: `calculateAccuracyData` is REMOVED (not stubbed). Per-session STT accuracy requires ground truth +
+// transcript, which the metrics-only policy never persists — accuracy is benchmark-only (#1304), never a
+// customer row or UI field. No customer-facing accuracy series exists.

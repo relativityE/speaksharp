@@ -16,6 +16,8 @@ import logger from './logger';
 import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
 import type { AnalyticsSummary } from '../types/analytics';
+import type { NextActionSignal } from '../contracts/nextActionSignal';
+import { validatePersistedFillerCounts, type PersistedFillerCounts } from '../contracts/fillerCounts';
 
 /**
  * Pagination options for session history queries.
@@ -25,7 +27,9 @@ export interface PaginationOptions {
   offset?: number;
 }
 
-const MAX_TRANSCRIPT_LENGTH = 500000; // ~500KB limit for transcript text
+// #1306 metrics-only: content columns (transcript, ai_suggestions, ground_truth, accuracy, filler_words,
+// custom_words) are no longer persisted or selected. Reads use only content-free metrics + the structured
+// next action.
 const SESSION_ANALYSIS_COLUMNS = [
   'id',
   'user_id',
@@ -34,13 +38,9 @@ const SESSION_ANALYSIS_COLUMNS = [
   'total_words',
   'wpm',
   'clarity_score',
-  'accuracy',
-  'filler_words',
-  'custom_words',
+  'filler_counts',
   'pause_metrics',
-  'ai_suggestions',
-  'ground_truth',
-  'transcript',
+  'next_action_signal',
   'created_at',
   'engine',
   'engine_version',
@@ -186,15 +186,16 @@ export const saveSession = async (
     return { session: null, usageExceeded: false };
   }
 
-  // Security: Enforce input length limits
-  if (sessionData.transcript && sessionData.transcript.length > MAX_TRANSCRIPT_LENGTH) {
-    logger.warn({ userId: sessionData.user_id, length: sessionData.transcript.length }, 'Session save blocked: Transcript exceeds max length.');
-    throw new Error(`Transcript too long (Max ${MAX_TRANSCRIPT_LENGTH} chars). Please contact support.`);
-  }
+  // #1306 metrics-only: the persistence interface is transcript-free. Strip any content-bearing field before it
+  // can reach the DB, so a stray transcript/prose write is impossible even if a caller passes one (these fields
+  // no longer exist on PracticeSession, but a runtime caller could still smuggle one via an untyped object).
+  const CONTENT_FIELDS = ['transcript', 'ai_suggestions', 'ground_truth', 'accuracy', 'custom_words', 'filler_words'] as const;
+  const contentFreeSessionData = { ...(sessionData as Record<string, unknown>) };
+  for (const field of CONTENT_FIELDS) delete contentFreeSessionData[field];
 
   logger.info({ userId: sessionData.user_id, duration: sessionData.duration, engineType, idempotencyKey }, '[Supabase DB] 💾 Saving session via RPC');
   const { data, error } = await supabase.rpc('create_session_and_update_usage', {
-    p_session_data: sessionData,
+    p_session_data: contentFreeSessionData,
     p_engine_type: engineType,
     p_idempotency_key: idempotencyKey,
     p_engine_version: metadata?.engineVersion,
@@ -236,28 +237,61 @@ export const heartbeatSession = async (
   return { success: !!result?.success };
 };
 
+/** Content-free FINAL metrics written atomically at completion. Numbers only — never transcript/prose. */
+export interface SessionFinalMetrics {
+  totalWords?: number | null;
+  clarityScore?: number | null;
+  wpm?: number | null;
+  fillerCounts?: PersistedFillerCounts | null;
+  pauseMetrics?: Record<string, number> | null;
+}
+
+/** Options for `completeSession`. #1306: transcript-free — a completed session carries metrics + one next action. */
+export interface CompleteSessionOptions {
+  status?: 'completed' | 'failed';
+  duration?: number;
+  reason?: string;
+  /** REQUIRED for a `completed` session (the DB rejects a completion without one); omit for `failed`. */
+  nextActionSignal?: NextActionSignal | null;
+  metrics?: SessionFinalMetrics;
+}
+
 /**
- * Marks a session as completed or failed with final metrics.
+ * Marks a session completed or failed with final metrics. #1306: the RPC no longer receives or derives from a
+ * transcript — the client passes the already-derived content-free metrics + the one structured next action.
+ * Completion is atomic and strictly idempotent server-side (identical replay = no-op; any mismatch conflicts).
  */
 export const completeSession = async (
   sessionId: string,
-  options: {
-    status?: 'completed' | 'failed';
-    transcript?: string;
-    duration?: number;
-    reason?: string;
-  } = {}
+  options: CompleteSessionOptions = {}
 ): Promise<{ success: boolean }> => {
   const supabase = getSupabaseClient();
-  const { status = 'completed', transcript, duration } = options;
+  const { status = 'completed', duration, reason, nextActionSignal, metrics } = options;
 
-  // 1. Run the existing finalization logic via RPC (Finalizes durations/usage)
+  // #1306 client persistence boundary: fail CLOSED on an invalid filler map before it can reach the DB. Only
+  // approved standard keys with non-negative finite counts are permitted — an unknown/prose key, nested object,
+  // array, string, or bad number is rejected here (never silently dropped, never persisted).
+  if (metrics?.fillerCounts != null) {
+    const v = validatePersistedFillerCounts(metrics.fillerCounts);
+    if (!v.ok) {
+      // Log only the SANITIZED code — never the offending key/value (which could be smuggled prose).
+      logger.error({ sessionId, code: v.code }, '[Supabase DB] 🏁 rejected invalid filler_counts at the persistence boundary');
+      return { success: false };
+    }
+  }
+
+  // 1. Atomic, transcript-free finalization via RPC (writes every retained metric + the next action).
   const { data, error } = await supabase.rpc('complete_session', {
     p_session_id: sessionId,
     p_status: status,
-    p_final_transcript: transcript,
     p_final_duration: duration,
-    p_reason: options.reason
+    p_reason: reason,
+    p_next_action: nextActionSignal ?? null,
+    p_total_words: metrics?.totalWords ?? null,
+    p_clarity_score: metrics?.clarityScore ?? null,
+    p_wpm: metrics?.wpm ?? null,
+    p_filler_counts: metrics?.fillerCounts ?? null,
+    p_pause_metrics: metrics?.pauseMetrics ?? null,
   });
 
   if (error) {

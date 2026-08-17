@@ -323,16 +323,21 @@ describe('STT Safeguards Unit Tests', () => {
         await controller.stopRecording();
         await controller.whenStable();
 
+        // #1306 metrics-only: completion is CONTENT-FREE — status + metrics + one next action, NEVER a transcript.
         expect(storageMocks.completeSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
             status: 'completed',
-            transcript: 'Yes, I agree.'
         }));
+        const completeCalls = storageMocks.completeSession.mock.calls;
+        const completeArg = completeCalls[completeCalls.length - 1]?.[1];
+        expect(completeArg).not.toHaveProperty('transcript');
+        expect(completeArg?.metrics?.totalWords).toBe(3);
+        expect(completeArg?.nextActionSignal).toBeTruthy();
         expect(storageMocks.updateSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
             total_words: 3
         }));
     });
 
-    it('should persist the full analysis snapshot when transcription stops', async () => {
+    it('#1306: persists the CONTENT-FREE metrics snapshot when transcription stops (flat filler_counts, one next action, no content)', async () => {
         storageMocks.saveSession.mockResolvedValue({
             session: { id: 'sess-123' },
             usageExceeded: false
@@ -357,18 +362,21 @@ describe('STT Safeguards Unit Tests', () => {
         await controller.stopRecording();
         await controller.whenStable();
 
+        // The rich-metrics write is metrics-only: flat filler_counts + one next_action_signal, numbers only.
         expect(storageMocks.updateSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
             total_words: 9,
             wpm: 90,
-            accuracy: 0.92,
-            filler_words: expect.objectContaining({
-                um: expect.objectContaining({ count: 1 }),
-                total: expect.objectContaining({ count: 1 })
-            }),
-            custom_words: expect.any(Object),
+            filler_counts: expect.objectContaining({ um: 1 }),
             pause_metrics: expect.any(Object),
-            clarity_score: expect.any(Number)
+            clarity_score: expect.any(Number),
+            next_action_signal: expect.any(Object),
         }));
+        // No transcript, no per-session accuracy/custom words, no nested filler shape ever crosses the boundary.
+        const updateCalls = storageMocks.updateSession.mock.calls;
+        const updateArg = updateCalls[updateCalls.length - 1]?.[1] ?? {};
+        for (const banned of ['transcript', 'accuracy', 'filler_words', 'custom_words', 'ground_truth', 'ai_suggestions']) {
+            expect(updateArg).not.toHaveProperty(banned);
+        }
     });
 
     it('keeps a completed transcript saved when the later metrics update fails', async () => {
@@ -401,11 +409,16 @@ describe('STT Safeguards Unit Tests', () => {
         await controller.stopRecording();
         await controller.whenStable();
 
+        // #1306 metrics-only: the completed session is persisted as content-free metrics + one next action; the
+        // metrics-update failure must NOT flip it to 'failed' or lose the completion.
         expect(storageMocks.completeSession).toHaveBeenCalledTimes(1);
         expect(storageMocks.completeSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
             status: 'completed',
-            transcript: 'Um hello world this transcript should stay saved.'
         }));
+        const completeArg = storageMocks.completeSession.mock.calls[0][1];
+        expect(completeArg).not.toHaveProperty('transcript');
+        // The client derives the word count itself ("um hello world this transcript should stay saved" = 8).
+        expect(completeArg?.metrics?.totalWords).toBe(8);
         expect(storageMocks.completeSession).not.toHaveBeenCalledWith('sess-123', expect.objectContaining({
             status: 'failed'
         }));

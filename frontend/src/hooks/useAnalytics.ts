@@ -10,7 +10,6 @@ import {
     calculateOverallStats,
     calculateFillerWordTrends,
     calculateTopFillerWords,
-    calculateAccuracyData
 } from '../lib/analyticsUtils';
 import type { PracticeSession } from '../types/session';
 import { DASHBOARD_PAGINATION_LIMIT } from '../config/env';
@@ -202,7 +201,6 @@ export const useAnalytics = () => {
                 },
                 fillerWordTrends: {},
                 topFillerWords: [],
-                accuracyData: [],
                 weeklySessionsCount: 0,
                 weeklyActivity: []
             };
@@ -212,7 +210,6 @@ export const useAnalytics = () => {
         const overallStats = calculateOverallStats(sessionHistory);
         const fillerWordTrends = calculateFillerWordTrends(sessionHistory);
         const topFillerWords = calculateTopFillerWords(sessionHistory);
-        const accuracyData = calculateAccuracyData(sessionHistory);
 
         // Client-side fallback for weekly metrics
         const now = new Date();
@@ -236,7 +233,6 @@ export const useAnalytics = () => {
             overallStats,
             fillerWordTrends,
             topFillerWords,
-            accuracyData,
             weeklySessionsCount,
             weeklyActivity
         };

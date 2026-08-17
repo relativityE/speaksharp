@@ -56,21 +56,15 @@ describe('useAnalytics', () => {
                 created_at: now.toISOString(),
                 duration: 60,
                 total_words: 100,
-                accuracy: 0.9,
-                filler_words: { um: { count: 5 }, uh: { count: 3 }, total: { count: 8 } },
-                transcript: 'um uh hello world',
-                ground_truth: 'hello world',
-                engine: 'Cloud AI',
+                filler_counts: { um: 5, uh: 3 },
+                engine: 'Private',
             },
             {
                 id: 's2',
                 created_at: yesterday.toISOString(),
                 duration: 120,
                 total_words: 200,
-                accuracy: 0.8,
-                filler_words: { um: { count: 10 }, like: { count: 5 }, total: { count: 15 } },
-                transcript: 'um like hi there',
-                ground_truth: 'hi there',
+                filler_counts: { um: 10, like: 5 },
                 engine: 'Private',
             },
         ];
@@ -103,8 +97,8 @@ describe('useAnalytics', () => {
 
     it('should filter sessions when sessionId is present in URL', async () => {
         const mockSessions = [
-            { id: 's1', duration: 60, filler_words: {} },
-            { id: 's2', duration: 120, filler_words: {} }
+            { id: 's1', duration: 60, filler_counts: {} },
+            { id: 's2', duration: 120, filler_counts: {} }
         ];
 
         (usePracticeHistory as Mock).mockReturnValue({

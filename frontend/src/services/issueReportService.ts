@@ -63,8 +63,8 @@ export interface SubmitIssueReportInput {
   description: string;
   pageUrl: string;
   metadata: IssueReportMetadata;
-  includeTranscript: boolean;
-  transcriptExcerpt?: string | null;
+  // #1306 metrics-only: a report NEVER carries a transcript excerpt or any session speech. Only the user's
+  // own typed title/description + an optional audio-debug note cross the boundary.
   includeAudio: boolean;
   audioAttachmentNote?: string | null;
 }
@@ -122,9 +122,11 @@ export const buildIssueReportMetadata = (input: {
 export const issueReportService = {
   async submit(input: SubmitIssueReportInput): Promise<{ id: string | null }> {
     const supabase = getSupabaseClient();
-    const transcriptExcerpt = input.includeTranscript ? sanitizeOptionalText(input.transcriptExcerpt) : null;
     const audioAttachmentNote = input.includeAudio ? sanitizeOptionalText(input.audioAttachmentNote) : null;
 
+    // #1306 metrics-only: the insert is transcript-free — no include_transcript / transcript_excerpt columns
+    // are written (the column is dropped by the Stage B enforcement migration). Only the user's typed fields +
+    // sanitized operational metadata + an optional audio-debug note are persisted.
     const { error } = await supabase
       .from('user_issue_reports')
       .insert({
@@ -136,8 +138,6 @@ export const issueReportService = {
         description: input.description.trim(),
         page_url: input.pageUrl,
         metadata: input.metadata,
-        include_transcript: input.includeTranscript,
-        transcript_excerpt: transcriptExcerpt,
         include_audio: input.includeAudio,
         audio_attachment_note: audioAttachmentNote,
       });

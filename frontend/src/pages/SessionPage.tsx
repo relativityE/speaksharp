@@ -287,7 +287,9 @@ export const SessionPage: React.FC = () => {
                 <UnresolvedRecoveryBanner
                     pendingResolutionKind={pendingResolutionKind}
                     hasRecoverableWords={Boolean(
-                        (recoveryDraft?.transcript ?? '').trim() || (transcriptContent ?? '').trim()
+                        // #1306 content-free: gauge recoverable work by the draft's word COUNT (never a transcript)
+                        // or the live in-memory transcript still on the page.
+                        (recoveryDraft?.metrics?.totalWords ?? 0) > 0 || (transcriptContent ?? '').trim()
                     )}
                     onRetry={() => import('@/services/SpeechRuntimeController')
                         .then(m => m.speechRuntimeController.retryRecordingSave())}
@@ -353,7 +355,7 @@ export const SessionPage: React.FC = () => {
                     isButtonDisabled={isButtonDisabled}
                     fillerData={metrics.fillerData}
                     wpm={metrics.wpm}
-                    aiSuggestions={practiceHistory?.[0]?.ai_suggestions ?? undefined}
+                    aiSuggestions={undefined} /* #1306: coaching prose retired; next action replaces it */
                     onSeeAllSessions={() => navigate('/analytics')}
                     interimTranscript={interimTranscript}
                     isFinalizing={isTranscriptFinalizing}

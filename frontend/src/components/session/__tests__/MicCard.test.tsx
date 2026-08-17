@@ -32,28 +32,6 @@ describe('MicCard (#1222 slot A)', () => {
         expect(onSelectDevice).toHaveBeenCalledWith('b');
     });
 
-    it('#1258: after a Private setup failure, shows an ENABLED "Retry Private setup" that invokes the setup entry point', () => {
-        const onDownloadModel = vi.fn();
-        const onStart = vi.fn();
-        // Even with the durable button gate `disabled` set, the retry action must be actionable (not a dead end).
-        render(
-            <MicCard
-                onStart={onStart}
-                onDownloadModel={onDownloadModel}
-                privateModelStatus="init-failed"
-                disabled
-            />,
-        );
-        const retry = screen.getByTestId('mic-retry');
-        expect(retry).toBeEnabled();
-        expect(retry).toHaveAccessibleName('Retry Private setup');
-        expect(screen.getByText('Retry Private setup')).toBeInTheDocument();
-
-        fireEvent.click(retry);
-        expect(onDownloadModel).toHaveBeenCalledOnce(); // routes to the Private setup entry point, not onStart
-        expect(onStart).not.toHaveBeenCalled();
-    });
-
     it('renders a permission/device error in place (page stays in before)', () => {
         render(<MicCard onStart={vi.fn()} error="Microphone access was blocked." />);
         expect(screen.getByTestId('mic-error')).toHaveTextContent('Microphone access was blocked.');

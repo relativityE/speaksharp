@@ -43,7 +43,6 @@ export interface AnalyticsSummary {
   overallStats: OverallStats;
   fillerWordTrends: FillerWordTrends;
   topFillerWords: { word: string; count: number }[];
-  accuracyData: { date: string; accuracy: number; engine: string }[];
   weeklySessionsCount: number;
   weeklyActivity: { day: string; sessions: number }[];
 }

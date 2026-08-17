@@ -126,10 +126,7 @@ describe('sessionAnalysis metric truth', () => {
         const metrics = calculateCoreSessionMetrics({
             transcript: 'This final transcript dropped the filler words',
             durationSeconds: 30,
-            fillerData: {
-                um: { count: 2 },
-                total: { count: 2 },
-            },
+            fillerData: { um: 2 },
         });
 
         expect(metrics.fillerCount).toBe(2);
@@ -137,51 +134,33 @@ describe('sessionAnalysis metric truth', () => {
         expect(metrics.clarityScore).toBeLessThan(100);
     });
 
-    it('SSOT: uses the persisted canonical filler total and does NOT inflate a valid persisted zero from transcript', () => {
-        // Live counter recorded ZERO; the committed transcript text happens to contain "um"/"uh". Per the
-        // live-canonical SSOT, the persisted zero is authoritative and must NOT be repaired up from the
-        // transcript (previous behavior wrongly took max(persisted, recount) = 2).
+    it('#1306: a MEASURED zero ({}) filler map reads as 0 (never inflated — there is no transcript to recount)', () => {
+        // A measured `{}` is a genuine zero. There is no transcript, so it can never be "repaired up" from text.
         const session = {
-            id: 'session-1',
-            user_id: 'user-1',
-            created_at: '2026-05-21T12:00:00.000Z',
-            updated_at: '2026-05-21T12:00:00.000Z',
-            title: 'Truth check',
-            duration: 60,
-            total_words: 8,
-            transcript: 'um this transcript has uh two fillers',
-            filler_words: { total: { count: 0 } }, // valid persisted (live) zero
-            clarity_score: null,
-            wpm: null,
+            id: 'session-1', user_id: 'user-1', created_at: '2026-05-21T12:00:00.000Z',
+            title: 'Truth check', duration: 60, total_words: 8,
+            filler_counts: {}, // measured zero
+            clarity_score: null, wpm: null,
         } as unknown as PracticeSession;
 
         const metrics = getSessionAnalysisMetrics(session);
 
-        expect(metrics.fillerCount).toBe(0);
+        expect(metrics.fillerCount).toBe(0);           // measured zero, not unavailable, not inflated
         expect(metrics.fillerData.total.count).toBe(0);
-        expect(metrics.wpm).toBe(8); // word count/WPM still derive from the transcript
+        expect(metrics.wpm).toBe(8);                   // wpm from stored total_words (8 words / 1 min)
     });
 
-    it('SSOT: recounts custom filler words from transcript ONLY as fallback when persisted filler data is absent', () => {
+    it('#1306: NO transcript recount — an absent (NULL) filler map is UNAVAILABLE (null), never re-derived or shown as 0', () => {
+        // There is no transcript to recount. An unmeasured (null) filler map yields an UNAVAILABLE headline —
+        // never a fabricated "0 fillers".
         const session = {
-            id: 'session-2',
-            user_id: 'user-1',
-            created_at: '2026-05-21T12:00:00.000Z',
-            updated_at: '2026-05-21T12:00:00.000Z',
-            title: 'Custom filler truth check',
-            duration: 60,
-            transcript: 'basically this basically needs to count',
-            custom_words: { basically: { count: 0 } },
-            filler_words: null, // absent → fallback recount (diagnostic), which honors custom words
-            clarity_score: null,
-            wpm: null,
+            id: 'session-2', user_id: 'user-1', created_at: '2026-05-21T12:00:00.000Z',
+            title: 'No recount', duration: 60,
+            filler_counts: undefined, // not measured
+            clarity_score: null, wpm: null,
         } as unknown as PracticeSession;
 
-        const metrics = getSessionAnalysisMetrics(session);
-
-        expect(metrics.fillerData.basically.count).toBe(2);
-        expect(metrics.fillerData.total.count).toBe(2);
-        expect(metrics.fillerCount).toBe(2);
+        expect(getSessionAnalysisMetrics(session).fillerCount).toBeNull();
     });
 
     it('turns Cloud-quality transcript evidence into plain-language coaching (#1231: discourse-only is not penalised by default)', () => {
@@ -251,26 +230,30 @@ describe('Live filler SSOT — live count is canonical, recount is diagnostic/fa
         expect(zeroWithFillersInText.clarityScore).toBeGreaterThanOrEqual(recountBaseline.clarityScore);
     });
 
-    // #3: analytics uses persisted canonical, NOT max(persisted, recount).
-    it('analytics: persisted canonical is used even when a transcript recount would be larger', () => {
+    // #1306: the stored flat filler_counts is the ONLY source — there is no transcript to recount from.
+    it('analytics: the stored filler_counts is authoritative (no transcript recount can inflate it)', () => {
         const session = {
-            id: 's', user_id: 'u', created_at: '', updated_at: '', title: 't', duration: 60,
-            transcript: 'um um um um um lots of ums in the text here',
-            filler_words: { total: { count: 1, color: '' }, um: { count: 1, color: '' } }, // canonical 1
+            id: 's', user_id: 'u', created_at: '', title: 't', duration: 60,
+            filler_counts: { um: 1 }, // measured: one um
             clarity_score: null, wpm: null,
         } as unknown as PracticeSession;
         const metrics = getSessionAnalysisMetrics(session);
-        expect(metrics.fillerCount).toBe(1); // NOT 5
+        expect(metrics.fillerCount).toBe(1);
     });
 
-    // #6: recount fallback ONLY when persisted is missing/malformed.
-    it('analytics: recounts the transcript when persisted filler data is absent/malformed', () => {
-        const base = { id: 's', user_id: 'u', created_at: '', updated_at: '', title: 't', duration: 60,
-            transcript: 'um and uh appear here', clarity_score: null, wpm: null };
-        for (const badPersisted of [null, {}, { total: { count: 'x' } }]) {
-            const metrics = getSessionAnalysisMetrics({ ...base, filler_words: badPersisted } as unknown as PracticeSession);
-            expect(metrics.fillerCount).toBeGreaterThan(0); // fell back to recount
-        }
+    // #1306: the FOUR filler evidence states are honestly distinguished at the READ boundary — NEVER collapsed
+    // into 0, and NEVER recounted from a (non-existent) transcript.
+    it('analytics: null/invalid = UNAVAILABLE (null); {} = measured zero (0); nonempty = measured total', () => {
+        const base = { id: 's', user_id: 'u', created_at: '', title: 't', duration: 60, clarity_score: null, wpm: null };
+        const read = (persisted: unknown) => getSessionAnalysisMetrics({ ...base, filler_counts: persisted } as unknown as PracticeSession).fillerCount;
+        // NOT measured / invalid → null (unavailable), never a fabricated 0 "zero fillers".
+        expect(read(null)).toBeNull();
+        expect(read(undefined)).toBeNull();
+        expect(read({ um: -1 })).toBeNull();          // invalid value → unavailable
+        expect(read({ 'a prose key': 3 })).toBeNull(); // invalid key → unavailable
+        // Measured → a number (0 for `{}`), never a recount.
+        expect(read({})).toBe(0);                      // measured zero
+        expect(read({ um: 4 })).toBe(4);               // measured counts
     });
 
     // #8: no transcript/raw-custom text is embedded in the canonical filler data structure.
@@ -290,10 +273,10 @@ describe('isUsableFillerCounts — valid-zero is usable; only absent/malformed i
     it('valid zero (total:0) is usable', () => { expect(isUsableFillerCounts({ total: { count: 0, color: '' } })).toBe(true); });
     it('zero entry without total is usable', () => { expect(isUsableFillerCounts({ um: { count: 0, color: '' } } as never)).toBe(true); });
     it('nonzero counts are usable', () => { expect(isUsableFillerCounts({ total: { count: 3, color: '' } })).toBe(true); });
-    it('null / undefined / empty are NOT usable', () => {
-        expect(isUsableFillerCounts(null)).toBe(false);
-        expect(isUsableFillerCounts(undefined)).toBe(false);
-        expect(isUsableFillerCounts({})).toBe(false);
+    it('#1306: null / undefined are NOT usable (not measured); but {} IS usable (a measured zero)', () => {
+        expect(isUsableFillerCounts(null)).toBe(false);      // not measured
+        expect(isUsableFillerCounts(undefined)).toBe(false); // not measured
+        expect(isUsableFillerCounts({})).toBe(true);         // measured zero — must count, not excluded
     });
     it('malformed (non-numeric total, no numeric entry) is NOT usable', () => {
         expect(isUsableFillerCounts({ total: { count: 'x' } } as never)).toBe(false);
@@ -329,10 +312,12 @@ describe('normalizeFillerCounts — accepted canonical filler data ALWAYS expose
         const out = normalizeFillerCounts({ um: { count: 3, color: '' }, so: { count: 2, color: '' } } as FillerCounts);
         expect(out.total.count).toBe(5);
     });
-    it('preserves an existing numeric total (identity — no re-sum)', () => {
+    it('#1306: total.count is ALWAYS the validated sum of entries (an inconsistent stored total is not trusted)', () => {
+        // Input claims total 4 but its only entry is um:9. The normalized total is the recomputed sum (9),
+        // never a blindly-trusted, inconsistent stored total.
         const input = { total: { count: 4, color: '' }, um: { count: 9, color: '' } } as FillerCounts;
-        expect(normalizeFillerCounts(input)).toBe(input); // same object, total not overwritten
-        expect(normalizeFillerCounts(input).total.count).toBe(4);
+        expect(normalizeFillerCounts(input).total.count).toBe(9);
+        expect(normalizeFillerCounts(input).um.count).toBe(9);
     });
     it('empty object gets total.count 0', () => {
         expect(normalizeFillerCounts({} as FillerCounts).total.count).toBe(0);
