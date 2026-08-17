@@ -368,3 +368,83 @@ describe('metrics-duration: pace uses the persisted RECORDING duration, not fina
         expect(buggy).toBeLessThan(130);
     });
 });
+
+// #1306 P1-4: UNAVAILABLE filler evidence (null) must produce NEUTRAL N/A copy — never a fabricated
+// "no filler words were detected". A MEASURED empty map ({}) is a genuine zero and keeps the zero copy.
+describe('#1306 P1-4 — unavailable vs measured-zero filler copy', () => {
+    const PLENTY = 50; // comfortably above MIN_RELIABLE_SCORING_WORDS
+
+    it('getFillerExplanation(null): N/A copy, NEVER "No filler words were detected"', () => {
+        const copy = getFillerExplanation(null, PLENTY);
+        expect(copy).toMatch(/wasn.t available|not available/i);
+        expect(copy).not.toMatch(/no filler words were detected/i);
+    });
+
+    it('getFillerExplanation(0): genuine measured-zero copy', () => {
+        expect(getFillerExplanation(0, PLENTY)).toMatch(/no filler words were detected/i);
+    });
+
+    it('getClarityExplanation with null fillers does NOT assert "no filler words ... were detected"', () => {
+        const copy = getClarityExplanation({ wordCount: PLENTY, fillerCount: null, errorCount: 0, wpm: 130 });
+        expect(copy).not.toMatch(/no filler words or transcript errors were detected/i);
+        expect(copy).toMatch(/wasn.t available|pacing/i);
+    });
+
+    it('getClarityExplanation with measured-zero fillers keeps the "no filler words ..." wording', () => {
+        const copy = getClarityExplanation({ wordCount: PLENTY, fillerCount: 0, errorCount: 0, wpm: 130 });
+        expect(copy).toMatch(/no filler words or transcript errors were detected/i);
+    });
+
+    it('reader: a NULL persisted filler_counts → fillerCount null + N/A explanation (no fabricated zero)', () => {
+        const metrics = getSessionAnalysisMetrics({
+            id: 's', user_id: 'u', created_at: '2025-01-01T00:00:00Z',
+            duration: 60, total_words: PLENTY, filler_counts: null,
+        } as unknown as PracticeSession);
+        expect(metrics.fillerCount).toBeNull();
+        expect(metrics.fillerExplanation).not.toMatch(/no filler words were detected/i);
+        expect(metrics.fillerExplanation).toMatch(/wasn.t available|not available/i);
+        expect(metrics.clarityExplanation).not.toMatch(/no filler words or transcript errors were detected/i);
+    });
+
+    it('reader: a MEASURED empty map ({}) → fillerCount 0 + genuine measured-zero copy', () => {
+        const metrics = getSessionAnalysisMetrics({
+            id: 's', user_id: 'u', created_at: '2025-01-01T00:00:00Z',
+            duration: 60, total_words: PLENTY, filler_counts: {},
+        } as unknown as PracticeSession);
+        expect(metrics.fillerCount).toBe(0);
+        expect(metrics.fillerExplanation).toMatch(/no filler words were detected/i);
+    });
+
+    it('reader: clarity_score=NULL → NOT reconstructed; not scorable + neutral N/A copy (no performance claim)', () => {
+        const metrics = getSessionAnalysisMetrics({
+            id: 's', user_id: 'u', created_at: '2025-01-01T00:00:00Z',
+            duration: 60, total_words: PLENTY, wpm: 200, filler_counts: {}, clarity_score: null,
+        } as unknown as PracticeSession);
+        expect(metrics.isClarityScorable).toBe(false);            // unavailable → not scorable
+        expect(metrics.clarityLabel).toBe('Not scored');
+        expect(metrics.clarityExplanation).toMatch(/wasn.t scored/i);
+        // No fabricated performance claim (e.g. "fast pacing is lowering the score") from an absent score.
+        expect(metrics.clarityExplanation).not.toMatch(/lowering the score|pacing is/i);
+    });
+
+    it('reader: valid stored clarity + UNAVAILABLE fillers → keeps stored score, invents no filler/transcript-error evidence', () => {
+        const metrics = getSessionAnalysisMetrics({
+            id: 's', user_id: 'u', created_at: '2025-01-01T00:00:00Z',
+            duration: 60, total_words: PLENTY, wpm: 130, filler_counts: null, clarity_score: 82,
+        } as unknown as PracticeSession);
+        expect(metrics.clarityScore).toBe(82);                    // stored value preserved
+        expect(metrics.isClarityScorable).toBe(true);
+        // Must not claim "no filler words ... detected" nor "no transcript errors" (no transcript exists).
+        expect(metrics.clarityExplanation).not.toMatch(/no filler words/i);
+        expect(metrics.clarityExplanation).not.toMatch(/transcript errors/i);
+    });
+
+    it('reader: valid stored clarity + MEASURED-zero fillers → no "transcript errors" claim (reader has no transcript)', () => {
+        const metrics = getSessionAnalysisMetrics({
+            id: 's', user_id: 'u', created_at: '2025-01-01T00:00:00Z',
+            duration: 60, total_words: PLENTY, wpm: 130, filler_counts: {}, clarity_score: 88,
+        } as unknown as PracticeSession);
+        expect(metrics.clarityScore).toBe(88);
+        expect(metrics.clarityExplanation).not.toMatch(/transcript errors/i);
+    });
+});

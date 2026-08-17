@@ -83,16 +83,25 @@ const pushNativeRuntimeTrace = (event: string, payload: Record<string, unknown> 
     });
 };
 
+// #1306 P1: transcript-text keys that must NEVER appear in a PRODUCTION diagnostic trace (lengths only there).
+const TRANSCRIPT_TRACE_TEXT_KEYS = ['preview', 'text', 'transcript', 'partial', 'final', 'finalTranscript', 'currentTranscript', 'newFullText', 'frozenAtStop'];
 const pushTranscriptLifecycleTrace = (stage: string, payload: Record<string, unknown> = {}) => {
     if (typeof window === 'undefined') return;
     window.__SS_TRANSCRIPT_TRACE__ = window.__SS_TRANSCRIPT_TRACE__ ?? [];
     window.__SS_TRANSCRIPT_TRACE_SEQ__ = (window.__SS_TRANSCRIPT_TRACE_SEQ__ ?? 0) + 1;
+    // #1306 P1: diagnostics retain only codes/numbers/lengths/timestamps in production. A payload may carry a
+    // text `preview` (etc.) for the test/dev proof harness (ENV.isTest); those keys are stripped in production.
+    let safePayload = payload;
+    if (!ENV.isTest) {
+        safePayload = { ...payload };
+        for (const k of TRANSCRIPT_TRACE_TEXT_KEYS) if (k in safePayload) delete safePayload[k];
+    }
     window.__SS_TRANSCRIPT_TRACE__.push({
         sequence: window.__SS_TRANSCRIPT_TRACE_SEQ__,
         t: Number(performance.now().toFixed(1)),
         stage,
         timestamp: Date.now(),
-        ...payload,
+        ...safePayload,
     });
     if (window.__SS_TRANSCRIPT_TRACE__.length > 1000) {
         window.__SS_TRANSCRIPT_TRACE__.shift();
@@ -473,7 +482,10 @@ export class SpeechRuntimeController {
                 // Authoritative save-candidate decision from the last Stop, so proofs
                 // can distinguish a real empty save from DOM-banner extraction noise.
                 saveCandidate: this.lastSaveCandidateDebug,
-                selectedTranscriptForSave: this.transcriptLifecycle.selectedTranscriptForSave ?? null,
+                // #1306 P1: expose only the LENGTH in production; the actual selected transcript text is a
+                // test/dev-only diagnostic (proof/WER/repetition harnesses), never a production read surface.
+                selectedTranscriptForSaveLength: (this.transcriptLifecycle.selectedTranscriptForSave ?? '').length,
+                ...(ENV.isTest ? { selectedTranscriptForSave: this.transcriptLifecycle.selectedTranscriptForSave ?? null } : {}),
                 selectedTranscriptSource: this.transcriptLifecycle.selectedTranscriptSource ?? null,
                 // #891 Phase 5.8 Step 1: DEV/TEST-ONLY numbers-only filler artifact for the known-script take.
                 // The getter self-gates (null in production); custom words anonymized; no transcript text.
@@ -2215,6 +2227,24 @@ export class SpeechRuntimeController {
         this.transcriptLifecycle = createEmptyTranscriptLifecycleState();
     }
 
+    /**
+     * #1306 P1: purge the ephemeral live transcript from working-memory surfaces once metrics have been derived
+     * and the session finalized. The live transcript is working memory ONLY; after finalization it must not
+     * linger in the session store or the controller's transcript lifecycle (incl. selectedTranscriptForSave).
+     * Metrics (fillerCounts / next_action / clarity) are held separately (finalizedAnalysis + the metrics-only
+     * save payload), so clearing the raw text here never affects the save, a Retry Save, or the review reader.
+     * Production diagnostics already carry lengths only (see pushNativeStoreTrace + the debug object), so the
+     * dev/proof trace ring is intentionally left intact for test harnesses.
+     */
+    private purgeTranscriptWorkingMemory(): void {
+        try {
+            const store = useSessionStore.getState();
+            store.updateTranscript('', '');
+            store.setChunks([]);
+        } catch { /* store may be torn down mid-teardown; best-effort */ }
+        this.resetTranscriptLifecycle();
+    }
+
     private freezeTranscriptLifecycleAtStop(): string {
         this.syncTranscriptLifecycleFromStore();
         const frozen =
@@ -2236,15 +2266,29 @@ export class SpeechRuntimeController {
 
         const pushNativeStoreTrace = (event: string, payload: Record<string, unknown> = {}) => {
             if (typeof window === 'undefined' || !window.__NATIVE_BROWSER_TRACE__) return;
-            window.__NATIVE_BROWSER_TRACE__.push({
+            // #1306 P1: diagnostics retain only codes/numbers/LENGTHS in production. The ephemeral working-memory
+            // transcript text is included ONLY in test/dev builds (ENV.isTest) for the proof/WER/repetition
+            // harnesses; in production every transcript-bearing key (base + any passed in `payload`) is stripped
+            // so no spoken prose ever lands in the retained trace ring.
+            const entry: Record<string, unknown> = {
                 t: Number(performance.now().toFixed(1)),
                 event,
-                currentTranscript,
-                partial: data.transcript.partial ?? '',
-                final: data.transcript.final ?? '',
+                currentTranscriptLength: currentTranscript.length,
+                partialLength: (data.transcript.partial ?? '').length,
+                finalLength: (data.transcript.final ?? '').length,
                 chunkCount: store.chunks.length,
                 ...payload,
-            });
+            };
+            if (ENV.isTest) {
+                entry.currentTranscript = currentTranscript;
+                entry.partial = data.transcript.partial ?? '';
+                entry.final = data.transcript.final ?? '';
+            } else {
+                for (const k of ['currentTranscript', 'partial', 'final', 'preview', 'finalTranscript', 'newFullText', 'text', 'frozenAtStop']) {
+                    if (k in entry) delete entry[k];
+                }
+            }
+            window.__NATIVE_BROWSER_TRACE__.push(entry);
         };
 
         // 🛡️ USER_ID EMISSION GUARD: Ensure transcripts belong to the session starter
@@ -3358,7 +3402,9 @@ export class SpeechRuntimeController {
                         this.lastSaveCandidateDebug = {
                             sessionId,
                             saveCandidateReason,
-                            selectedForSave: finalTranscript,
+                            // #1306 P1: length is the production-safe diagnostic; the selected transcript text is
+                            // retained ONLY in test/dev builds for the repetition/WER proof harnesses.
+                            ...(ENV.isTest ? { selectedForSave: finalTranscript } : {}),
                             selectedForSaveLength: finalTranscript.length,
                             finalWordCount: finalTranscript.split(/\s+/).filter(Boolean).length,
                             meaningfulWordCount,
@@ -3840,6 +3886,11 @@ export class SpeechRuntimeController {
                 this.service = null;
                 useSessionStore.getState().setTranscriptFinalizing(false);
                 useSessionStore.getState().freezeTranscriptAtStop(null);
+                // #1306 P1: metrics are derived and the session is finalized here — purge the ephemeral live
+                // transcript from working memory (store + lifecycle) so no spoken text survives finalization. A
+                // still-pending Native background formatter can't re-populate it: its writeback is guarded on the
+                // store still holding this session's raw final, which is now cleared.
+                this.purgeTranscriptWorkingMemory();
 
                 logger.info('[DEBUG-STOP] transition READY starting');
                 await this.transition('READY');
@@ -3897,6 +3948,11 @@ export class SpeechRuntimeController {
                         detail: 'A local recovery draft was kept in this browser after a save issue.',
                     });
                 }
+                // #1306 P1: the FAILED terminal is also a terminal stop — transcript-derived processing is done
+                // (the content-free recovery draft, if any, was already written by persistActiveRecoveryDraft and
+                // the recovery-signal length was captured above). Purge the ephemeral transcript so no spoken
+                // text survives a failed finalization either.
+                this.purgeTranscriptWorkingMemory();
                 throw err;
             }
         });

@@ -55,4 +55,23 @@ describe('#1306 persisted filler_counts contract — approved keys only, fail cl
     expect(persistedFillerTotal({})).toBe(0);
     expect(persistedFillerTotal({ um: 3, uh: 2 })).toBe(5);
   });
+
+  // #1306 P1: the client value constraint MUST match the DB firewall — a non-negative INTEGER within range.
+  // A client that accepted fractional/over-limit values would build a map the DB then rejects at the boundary.
+  it('REJECTS a FRACTIONAL count (DB requires integer) — whole map fails closed', () => {
+    expect(validatePersistedFillerCounts({ um: 2.5 })).toEqual({ ok: false, code: 'invalid_filler_counts_value' });
+    // a mixed valid+fractional map is rejected WHOLESALE (never partially kept)
+    expect(validatePersistedFillerCounts({ um: 3, uh: 0.1 })).toEqual({ ok: false, code: 'invalid_filler_counts_value' });
+    expect(readPersistedFillerCounts({ um: 3, uh: 0.1 })).toBeNull();
+  });
+
+  it('REJECTS an OVER-LIMIT count (> 1_000_000) but ACCEPTS the boundary value', () => {
+    expect(validatePersistedFillerCounts({ um: 1_000_001 })).toEqual({ ok: false, code: 'invalid_filler_counts_value' });
+    expect(validatePersistedFillerCounts({ um: 1_000_000 })).toEqual({ ok: true, value: { um: 1_000_000 } });
+    expect(readPersistedFillerCounts({ um: 1_000_001 })).toBeNull(); // over-limit → unavailable wholesale
+  });
+
+  it('REJECTS Infinity (excluded by the integer check)', () => {
+    expect(validatePersistedFillerCounts({ um: Number.POSITIVE_INFINITY })).toEqual({ ok: false, code: 'invalid_filler_counts_value' });
+  });
 });

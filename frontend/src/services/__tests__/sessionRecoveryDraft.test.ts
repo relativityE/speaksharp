@@ -119,4 +119,109 @@ describe('sessionRecoveryDraft (content-free, #1306)', () => {
     saveSessionRecoveryDraft({ sessionId: 's-owned', userId: 'user-A', recoveryState: 'active_interrupted', durationSeconds: 5, mode: 'private', metrics: { totalWords: 3 } });
     expect(getLegacyOwnerlessDraft()).toBeNull();
   });
+
+  // #1306 P1: structured metric fields in a draft must satisfy the SAME approved-key / fixed-key / strict-shape
+  // contracts as the persistence boundary — at BOTH write and read — so no prose can enter localStorage or a
+  // retry payload through filler keys, pause keys, or an unvalidated next-action object.
+  describe('#1306 P1 — approved filler keys / fixed pause keys / strict next-action at write AND read', () => {
+    it('drops the WHOLE filler map when any key is unknown/prose (fail closed at write)', () => {
+      saveSessionRecoveryDraft({
+        sessionId: 's-fk', userId: 'u1', recoveryState: 'finalized_pending_save', durationSeconds: 30, mode: 'private',
+        metrics: { totalWords: 10, fillerCounts: { um: 3, 'confidential phrase': 1 } as unknown as Record<string, number> },
+      });
+      const raw = window.localStorage.getItem(RECOVERY_DRAFT_KEY) ?? '';
+      expect(raw).not.toMatch(/confidential/i);
+      expect(getSessionRecoveryDraft()?.metrics.fillerCounts).toBeUndefined(); // whole map dropped, not partial
+    });
+
+    it('drops filler counts that are fractional or over-limit (match the DB integer/range firewall)', () => {
+      saveSessionRecoveryDraft({
+        sessionId: 's-fk2', userId: 'u1', recoveryState: 'finalized_pending_save', durationSeconds: 30, mode: 'private',
+        metrics: { totalWords: 10, fillerCounts: { um: 2.5 } },
+      });
+      expect(getSessionRecoveryDraft()?.metrics.fillerCounts).toBeUndefined();
+      // a clean approved-integer map still survives
+      window.localStorage.clear();
+      saveSessionRecoveryDraft({
+        sessionId: 's-fk3', userId: 'u1', recoveryState: 'finalized_pending_save', durationSeconds: 30, mode: 'private',
+        metrics: { totalWords: 10, fillerCounts: { um: 3, like: 1 } },
+      });
+      expect(getSessionRecoveryDraft()?.metrics.fillerCounts).toEqual({ um: 3, like: 1 });
+    });
+
+    it('drops the WHOLE pause map when any key is not an approved aggregate field', () => {
+      saveSessionRecoveryDraft({
+        sessionId: 's-pk', userId: 'u1', recoveryState: 'finalized_pending_save', durationSeconds: 30, mode: 'private',
+        metrics: { totalWords: 10, pauseMetrics: { totalPauses: 2, 'a whole sentence i said': 1 } as unknown as Record<string, number> },
+      });
+      const raw = window.localStorage.getItem(RECOVERY_DRAFT_KEY) ?? '';
+      expect(raw).not.toMatch(/sentence i said/i);
+      expect(getSessionRecoveryDraft()?.metrics.pauseMetrics).toBeUndefined();
+      // a clean fixed-key pause map (floats allowed) survives
+      window.localStorage.clear();
+      saveSessionRecoveryDraft({
+        sessionId: 's-pk2', userId: 'u1', recoveryState: 'finalized_pending_save', durationSeconds: 30, mode: 'private',
+        metrics: { totalWords: 10, pauseMetrics: { totalPauses: 2, averagePauseDuration: 1.5 } },
+      });
+      expect(getSessionRecoveryDraft()?.metrics.pauseMetrics).toEqual({ totalPauses: 2, averagePauseDuration: 1.5 });
+    });
+
+    it('forces an invalid / prose-bearing next-action object to null at the WRITE boundary', () => {
+      saveSessionRecoveryDraft({
+        sessionId: 's-na', userId: 'u1', recoveryState: 'finalized_pending_save', durationSeconds: 30, mode: 'private',
+        metrics: { totalWords: 10 },
+        // reasonCode is free-form prose, not an enum — must be rejected, and never written.
+        nextActionSignal: { reasonCode: 'You rambled about the merger for too long', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' } as unknown as Parameters<typeof saveSessionRecoveryDraft>[0]['nextActionSignal'],
+      });
+      const raw = window.localStorage.getItem(RECOVERY_DRAFT_KEY) ?? '';
+      expect(raw).not.toMatch(/merger/i);
+      expect(getSessionRecoveryDraft()?.nextActionSignal ?? null).toBeNull();
+    });
+
+    it('forces an invalid next-action object to null at the READ boundary (rogue/hand-edited localStorage)', () => {
+      // A draft written by an older/rogue build with an unvalidated next action sitting in storage.
+      window.localStorage.setItem(RECOVERY_DRAFT_KEY, JSON.stringify({
+        sessionId: 's-na2', userId: 'u1', recoveryState: 'finalized_pending_save', durationSeconds: 30, mode: 'private',
+        metrics: { totalWords: 10 },
+        nextActionSignal: { reasonCode: 'HIGH_FILLER_RATE', freeform: 'slow down on the part about layoffs' },
+        savedAt: new Date(0).toISOString(),
+      }));
+      const draft = getSessionRecoveryDraft();
+      expect(draft?.nextActionSignal ?? null).toBeNull();               // invalid shape → dropped on read
+      expect(JSON.stringify(draft)).not.toMatch(/layoffs/i);
+    });
+
+    it('a VALID strict next action still round-trips for a finalized draft', () => {
+      const good = { reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate', value: 8, comparator: 'above_target', templateVersion: 'rec_v1' } as const;
+      saveSessionRecoveryDraft({
+        sessionId: 's-na3', userId: 'u1', recoveryState: 'finalized_pending_save', durationSeconds: 30, mode: 'private',
+        metrics: { totalWords: 10 }, nextActionSignal: good,
+      });
+      expect(getSessionRecoveryDraft()?.nextActionSignal).toEqual(good);
+      expect(getSessionRecoveryDraft()?.recoveryState).toBe('finalized_pending_save'); // stays replayable
+    });
+
+    it('DOWNGRADES a finalized draft with NO valid next action to active_interrupted (never replayed as completed)', () => {
+      // WRITE boundary: a "finalized" draft with a missing next action is not a completed session.
+      saveSessionRecoveryDraft({
+        sessionId: 's-dg1', userId: 'u1', recoveryState: 'finalized_pending_save', durationSeconds: 30, mode: 'private',
+        metrics: { totalWords: 10 }, // no nextActionSignal
+      });
+      let draft = getSessionRecoveryDraft();
+      expect(draft?.recoveryState).toBe('active_interrupted');
+      expect(draft?.nextActionSignal ?? null).toBeNull();
+
+      // READ boundary: a rogue finalized draft with an INVALID next action in raw storage is also downgraded.
+      window.localStorage.clear();
+      window.localStorage.setItem(RECOVERY_DRAFT_KEY, JSON.stringify({
+        sessionId: 's-dg2', userId: 'u1', recoveryState: 'finalized_pending_save', durationSeconds: 30, mode: 'private',
+        metrics: { totalWords: 10 },
+        nextActionSignal: { reasonCode: 'not-an-enum', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
+        savedAt: new Date(0).toISOString(),
+      }));
+      draft = getSessionRecoveryDraft();
+      expect(draft?.recoveryState).toBe('active_interrupted'); // not replayable as completed
+      expect(draft?.nextActionSignal ?? null).toBeNull();
+    });
+  });
 });

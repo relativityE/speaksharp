@@ -279,11 +279,17 @@ export const getClarityExplanation = ({
     fillerCount,
     errorCount,
     wpm,
+    transcriptAvailable = true,
 }: {
     wordCount: number;
-    fillerCount: number;
+    // #1306 P1-4: `null` = filler evidence UNAVAILABLE. The clarity copy must NOT reconstruct a favorable
+    // "no filler words were detected" statement from absent filler data.
+    fillerCount: number | null;
     errorCount: number;
     wpm: number;
+    // #1306 P1-4: the saved-review reader has NO transcript. When false, the copy must never claim "no transcript
+    // errors were detected" (there is no transcript to inspect) or imply the transcript was examined.
+    transcriptAvailable?: boolean;
 }): string => {
     if (wordCount <= 0) {
         return 'No transcript was captured, so clarity cannot be scored yet.';
@@ -291,10 +297,10 @@ export const getClarityExplanation = ({
     if (wordCount < MIN_RELIABLE_SCORING_WORDS) {
         return 'There is too little captured speech to score clarity reliably.';
     }
-    if (errorCount > 0) {
+    if (transcriptAvailable && errorCount > 0) {
         return 'Some speech was unclear enough to be marked as inaudible. Move closer to the mic or reduce background noise before judging delivery.';
     }
-    if (fillerCount > 0) {
+    if (fillerCount !== null && fillerCount > 0) {
         return `${fillerCount} filler ${fillerCount === 1 ? 'word is' : 'words are'} pulling attention away from the message. Replace the next one with a brief pause. ${FILLER_TRANSCRIPT_DISCLOSURE}`;
     }
     if (wordCount < 12) {
@@ -306,10 +312,22 @@ export const getClarityExplanation = ({
     if (wpm > 0 && wpm < ANALYTICS_THRESHOLDS.VERY_SLOW_WPM) {
         return 'Slow pacing is lowering the score because long gaps can make the delivery feel fragmented.';
     }
-    return `No filler words or transcript errors were detected. Focus the next run on pacing and emphasis. ${FILLER_TRANSCRIPT_DISCLOSURE}`;
+    // #1306 P1-4: filler evidence is UNAVAILABLE — do not assert "no filler words were detected". Speak only to
+    // the evidence we have (pacing) and stay neutral about fillers.
+    if (fillerCount === null) {
+        return 'Filler-word data wasn’t available for this session, so focus the next run on pacing and emphasis.';
+    }
+    // #1306 P1-4: measured-zero fillers. Only claim "no transcript errors" when a transcript was actually
+    // inspected (live) — the saved-review reader has none, so it must not fabricate that clause.
+    return transcriptAvailable
+        ? `No filler words or transcript errors were detected. Focus the next run on pacing and emphasis. ${FILLER_TRANSCRIPT_DISCLOSURE}`
+        : 'No filler words were counted for this session. Focus the next run on pacing and emphasis.';
 };
 
-export const getFillerExplanation = (fillerCount: number, wordCount: number): string => {
+export const getFillerExplanation = (fillerCount: number | null, wordCount: number): string => {
+    // #1306 P1-4: UNAVAILABLE (null) filler data must read as N/A — NEVER as a measured "no filler words".
+    // A measured empty map (`{}`) arrives here as 0 and keeps the genuine measured-zero copy below.
+    if (fillerCount === null) return 'Filler-word data wasn’t available for this session.';
     if (wordCount <= 0) return 'No transcript was captured, so filler words cannot be verified yet.';
     if (wordCount < MIN_RELIABLE_SCORING_WORDS) return 'There is too little captured speech to verify filler words reliably.';
     if (fillerCount === 0) return `No filler words were detected. Keep using silence as your reset instead of filling the space. ${FILLER_TRANSCRIPT_DISCLOSURE}`;
@@ -398,12 +416,12 @@ export const getSessionAnalysisMetrics = (
     // metric (that is the filler RATE, re-tiered uniformly by the server-authoritative Progress read model
     // in loadSessionProgress), so a stored-vs-recomputed clarity mix does not manufacture a progress trend.
     // clarity_v1 remains provisional.
-    const clarityScore = session.clarity_score ?? calculateClarityScore({
-        wordCount,
-        fillerCount: metrics.fillerCount,
-        errorCount: metrics.errorCount,
-        wpm,
-    });
+    // #1306 P1-4: NEVER reconstruct a clarity score from absent evidence. A saved session's clarity is the
+    // STORED value only; when there is no stored score it is UNAVAILABLE (N/A) — the reader has no transcript to
+    // recompute from, so fabricating one would be a false performance claim. (The live scoring path in
+    // calculateCoreSessionMetrics still computes clarity from a real transcript at record time.)
+    const clarityAvailable = typeof session.clarity_score === 'number';
+    const clarityScore = clarityAvailable ? (session.clarity_score as number) : 0; // placeholder; never shown when unavailable (display + isClarityScorable gate on availability)
 
     return {
         ...metrics,
@@ -414,14 +432,23 @@ export const getSessionAnalysisMetrics = (
         wpmLabel: getWpmLabel(wpm),
         wpmExplanation: getWpmExplanation(wpm, wordCount),
         clarityScore,
-        clarityLabel: wordCount >= MIN_RELIABLE_SCORING_WORDS ? getClarityLabel(clarityScore) : 'Not enough reliable speech to score',
-        clarityExplanation: getClarityExplanation({
-            wordCount,
-            fillerCount: metrics.fillerCount,
-            errorCount: metrics.errorCount,
-            wpm,
-        }),
-        fillerExplanation: getFillerExplanation(fillerHeadline ?? 0, wordCount),
-        isClarityScorable: wordCount >= MIN_RELIABLE_SCORING_WORDS,
+        clarityLabel: !clarityAvailable
+            ? 'Not scored'
+            : (wordCount >= MIN_RELIABLE_SCORING_WORDS ? getClarityLabel(clarityScore) : 'Not enough reliable speech to score'),
+        // #1306 P1-4: when clarity was not scored, the explanation is neutral N/A — never a performance claim.
+        // When it IS scored, pass the NULLABLE filler headline + transcriptAvailable:false so the copy never
+        // reconstructs "no filler words were detected" from absent filler evidence nor claims transcript-error
+        // absence (the reader has no transcript). A measured `{}` arrives as 0 and keeps genuine measured-zero copy.
+        clarityExplanation: clarityAvailable
+            ? getClarityExplanation({
+                wordCount,
+                fillerCount: fillerHeadline,
+                errorCount: metrics.errorCount,
+                wpm,
+                transcriptAvailable: false,
+            })
+            : 'Clarity wasn’t scored for this session.',
+        fillerExplanation: getFillerExplanation(fillerHeadline, wordCount),
+        isClarityScorable: clarityAvailable && wordCount >= MIN_RELIABLE_SCORING_WORDS,
     };
 };

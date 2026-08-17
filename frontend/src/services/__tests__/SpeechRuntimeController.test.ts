@@ -448,7 +448,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     });
 
     it.each(['native', 'private', 'cloud'] as const)(
-        'preserves visible partial transcript through stop/save for %s',
+        'consumes the visible partial for a content-free save, then PURGES the transcript from the store after stop for %s',
         async (mode) => {
             const storage = await import('../../lib/storage');
             const visiblePartial = 'today i expect live transcript text to remain after stop';
@@ -510,8 +510,10 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             expect(completionPayload).not.toHaveProperty('transcript');
             expect(completionPayload?.metrics).toBeDefined();
             expect(completionPayload?.nextActionSignal).toBeTruthy();
-            // The transcript stays in the live in-memory store only (ephemeral working memory).
-            expect(normalizeForAssertion(useSessionStore.getState().transcript.transcript)).toContain('today i expect live transcript text');
+            // #1306 P1: the live transcript is ephemeral working memory — it feeds the content-free metrics/save
+            // candidate above, then is PURGED from the store once metrics are derived and the session finalized.
+            // Nothing (final or partial) survives the finalized boundary.
+            expect(normalizeForAssertion(useSessionStore.getState().transcript.transcript)).toBe('');
             expect(useSessionStore.getState().transcript.partial).toBe('');
         }
     );
@@ -893,7 +895,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         // #1306: recoverable work = a FINALIZED draft (exact metrics + next action from a clean stop). A live
         // transcript alone is NOT recoverable — it can never become a completed session.
         const draft = await import('../sessionRecoveryDraft');
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-postfail', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 8 }, durationSeconds: 12, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-postfail', userId: 'user-1', recoveryState: 'finalized_pending_save', nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' }, metrics: { totalWords: 8 }, durationSeconds: 12, mode: 'private' });
         setLock(false, from, null);
         setUnresolved(true); // recording had begun and is not durably resolved
         (controller as unknown as { sessionId: string | null }).sessionId = 'sess-postfail';
@@ -930,7 +932,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033 (B): a heartbeat/engine failure with a RECOVERY DRAFT arms a full-save retry (unverified identity, never fabricated)', async () => {
         clearDraft();
         const draft = await import('../sessionRecoveryDraft');
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-hb', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 42, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-hb', userId: 'user-1', recoveryState: 'finalized_pending_save', nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' }, metrics: { totalWords: 5 }, durationSeconds: 42, mode: 'private' });
         setLock(false, 'RECORDING', null);
         setUnresolved(true);
         (controller as unknown as { sessionId: string | null }).sessionId = 'sess-hb';
@@ -959,7 +961,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         const draft = await import('../sessionRecoveryDraft');
         vi.mocked(storage.completeSession).mockClear();
         vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-disc', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 10, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-disc', userId: 'user-1', recoveryState: 'finalized_pending_save', nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' }, metrics: { totalWords: 5 }, durationSeconds: 10, mode: 'private' });
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-disc', completeArgs: { status: 'completed', transcript: 'unsaved words', duration: 10 }, attributionEvidence: null };
         setUnresolved(true);
         expect(controller.isEngineSelectionLocked()).toBe(true);
@@ -1008,7 +1010,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033 (2): a STALE FOREIGN draft is never consumed by a post-start failure (fails closed)', async () => {
         clearDraft();
         const draft = await import('../sessionRecoveryDraft');
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-otherA', userId: 'user-OTHER', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 30, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-otherA', userId: 'user-OTHER', recoveryState: 'finalized_pending_save', nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' }, metrics: { totalWords: 5 }, durationSeconds: 30, mode: 'private' });
         resetLifecycle();
         setLock(false, 'RECORDING', null);
         setUnresolved(true);
@@ -1173,7 +1175,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         clearDraft(); resetLifecycle();
         // #1306: recovery armed = a FINALIZED draft. Seed one so the mixed-engine teardown stays locked +
         // recoverable (the live transcript alone is not recoverable under metrics-only).
-        (await import('../sessionRecoveryDraft')).saveSessionRecoveryDraft({ sessionId: 'sess-mix', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 6 }, durationSeconds: 10, mode: latched });
+        (await import('../sessionRecoveryDraft')).saveSessionRecoveryDraft({ sessionId: 'sess-mix', userId: 'user-1', recoveryState: 'finalized_pending_save', nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' }, metrics: { totalWords: 6 }, durationSeconds: 10, mode: latched });
         const stop = vi.fn().mockResolvedValue(undefined);
         (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, stopTranscription: stop, getMode: () => latched };
         (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = latched;
@@ -1332,7 +1334,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033 (2-final): concurrent + post-completion duplicate mismatch callbacks perform exactly ONE teardown', async () => {
         clearDraft(); resetLifecycle();
         // #1306: seed a FINALIZED draft so the teardown stays locked + recoverable under metrics-only.
-        (await import('../sessionRecoveryDraft')).saveSessionRecoveryDraft({ sessionId: 'sess-dupe', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 4 }, durationSeconds: 9, mode: 'private' });
+        (await import('../sessionRecoveryDraft')).saveSessionRecoveryDraft({ sessionId: 'sess-dupe', userId: 'user-1', recoveryState: 'finalized_pending_save', nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' }, metrics: { totalWords: 4 }, durationSeconds: 9, mode: 'private' });
         const stop = vi.fn().mockResolvedValue(undefined);
         (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, stopTranscription: stop, getMode: () => 'private' };
         (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = 'private';
@@ -1442,7 +1444,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         clearDraft();
         const storage = await import('../../lib/storage');
         const draft = await import('../sessionRecoveryDraft');
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-dbdown', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 12, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-dbdown', userId: 'user-1', recoveryState: 'finalized_pending_save', nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' }, metrics: { totalWords: 5 }, durationSeconds: 12, mode: 'private' });
         vi.mocked(storage.completeSession).mockRejectedValueOnce(new Error('DB unavailable'));
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-dbdown', completeArgs: { status: 'completed', transcript: 'the only copy of my words', duration: 12 }, attributionEvidence: null };
         setUnresolved(true);
@@ -1488,7 +1490,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         clearDraft();
         const storage = await import('../../lib/storage');
         const draft = await import('../sessionRecoveryDraft');
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-retryd', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 9, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-retryd', userId: 'user-1', recoveryState: 'finalized_pending_save', nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' }, metrics: { totalWords: 5 }, durationSeconds: 9, mode: 'private' });
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-retryd', completeArgs: { status: 'completed', transcript: 'words', duration: 9 }, attributionEvidence: null };
         setUnresolved(true);
         vi.mocked(storage.completeSession).mockRejectedValueOnce(new Error('DB unavailable'));
@@ -1792,7 +1794,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033 (C1): soft subscriber_unmount preserves BOTH in-memory recovery AND the durable draft', async () => {
         clearDraft();
         const draft = await import('../sessionRecoveryDraft');
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-soft', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 8, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-soft', userId: 'user-1', recoveryState: 'finalized_pending_save', nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' }, metrics: { totalWords: 5 }, durationSeconds: 8, mode: 'private' });
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-soft', completeArgs: { status: 'completed', transcript: 'unsaved', duration: 8 }, attributionEvidence: null };
         controller.reset('subscriber_unmount');
@@ -1806,7 +1808,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033 (C2/C4): a hard reset preserves the durable draft; same-user reload rehydrates the lock + full-save retry', async () => {
         clearDraft();
         const draft = await import('../sessionRecoveryDraft');
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-reload', userId: 'user-1', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 30, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-reload', userId: 'user-1', recoveryState: 'finalized_pending_save', nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' }, metrics: { totalWords: 5 }, durationSeconds: 30, mode: 'private' });
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'sess-reload', completeArgs: { status: 'completed', transcript: 'work that survived the reload', duration: 30 }, attributionEvidence: null };
         controller.reset('logout'); // hard reset clears in-memory state (simulating a reload)
@@ -1825,7 +1827,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033 (C3): a DIFFERENT user cannot rehydrate another user\'s recovery draft (no cross-account exposure)', async () => {
         clearDraft();
         const draft = await import('../sessionRecoveryDraft');
-        draft.saveSessionRecoveryDraft({ sessionId: 'sess-userA', userId: 'user-A', recoveryState: 'finalized_pending_save', metrics: { totalWords: 5 }, durationSeconds: 20, mode: 'private' });
+        draft.saveSessionRecoveryDraft({ sessionId: 'sess-userA', userId: 'user-A', recoveryState: 'finalized_pending_save', nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' }, metrics: { totalWords: 5 }, durationSeconds: 20, mode: 'private' });
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = false;
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
         const rehydrated = (controller as unknown as { rehydrateUnresolvedRecording: (u: string | null) => boolean }).rehydrateUnresolvedRecording('user-B');

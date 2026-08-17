@@ -29,7 +29,13 @@ export type FillerCountsValidation =
   | { ok: true; value: PersistedFillerCounts }
   | { ok: false; code: FillerCountsRejectionCode };
 
-const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+// #1306 P1: the client value constraint MUST match the DB firewall (validate_filler_counts_1306):
+// a non-negative INTEGER within range. Fractional (`2.5`) and over-limit (`> 1_000_000`) values are
+// rejected by the DB trigger, so the client must reject them too — otherwise a client-"valid" map would
+// be silently refused at the persistence boundary. `Number.isInteger` also excludes NaN/Infinity.
+export const MAX_FILLER_COUNT = 1_000_000;
+const isCount = (v: unknown): v is number =>
+  typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= MAX_FILLER_COUNT;
 
 /**
  * Fail-closed RUNTIME validation (TypeScript alone is insufficient at the persistence boundary). Rejects

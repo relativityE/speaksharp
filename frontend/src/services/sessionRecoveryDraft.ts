@@ -1,7 +1,16 @@
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import type { NextActionSignal } from '@/contracts/nextActionSignal';
+import { validateNextActionSignal } from '@/contracts/nextActionSignal';
+import { readPersistedFillerCounts } from '@/contracts/fillerCounts';
 
 const RECOVERY_DRAFT_KEY = 'speaksharp_unsaved_session_draft';
+
+// #1306 P1: the ONLY pause-metric keys a content-free draft may carry (mirrors the aggregate pause_metrics
+// shape — no raw timestamps, no prose). Any other key fails the whole pause map closed (see sanitizePauseMetrics).
+const APPROVED_PAUSE_KEYS: readonly string[] = [
+  'totalPauses', 'averagePauseDuration', 'longestPause', 'pausesPerMinute',
+  'silencePercentage', 'transitionPauses', 'extendedPauses',
+];
 
 /**
  * #1306 — the recovery draft is CONTENT-FREE. Live transcript is ephemeral working memory and must NEVER be
@@ -39,6 +48,44 @@ export interface SessionRecoveryDraft {
 const isRecoveryState = (v: unknown): v is RecoveryState =>
   v === 'finalized_pending_save' || v === 'active_interrupted';
 
+/**
+ * #1306 P1: pause metrics are content-free ONLY when every key is an approved aggregate field and every value is
+ * a finite number. Any unknown key (a prose smuggling vector) or bad value fails the WHOLE map closed → undefined
+ * (unavailable), never a partially-kept map. Pause values are floats (durations/percentages), so no integer bound.
+ */
+function sanitizePauseMetrics(obj: unknown): Record<string, number> | undefined {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return undefined;
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+    if (!APPROVED_PAUSE_KEYS.includes(k)) return undefined;               // unknown key → whole map unavailable
+    if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;   // bad value → fail closed
+    out[k] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * #1306 P1: a draft may only carry a STRICT next-action signal, and only for a finalized draft. An
+ * `active_interrupted` draft never gets one. Any prose/unknown-key/invalid object fails closed to null at BOTH
+ * the write and read boundary (never cast-through) — so unvalidated structured prose can't enter localStorage
+ * or a retry payload.
+ */
+function sanitizeNextAction(state: RecoveryState, raw: unknown): NextActionSignal | null {
+  if (state !== 'finalized_pending_save' || raw == null) return null;
+  const v = validateNextActionSignal(raw);
+  return v.ok ? v.value : null; // invalid / prose-bearing → dropped
+}
+
+/**
+ * #1306 P1: a `finalized_pending_save` draft is only a valid REPLAYABLE completed session when it carries a
+ * strictly-valid next action. If the next action is missing/invalid, the draft is NOT a completed session and
+ * must never be replayed as one — downgrade it to `active_interrupted` (which carries no next action). Applied
+ * at BOTH the write and read boundary so a rogue/legacy finalized-without-action draft can never complete.
+ */
+function resolveDraftState(requested: RecoveryState, nextAction: NextActionSignal | null): RecoveryState {
+  return requested === 'finalized_pending_save' && !nextAction ? 'active_interrupted' : requested;
+}
+
 /** Copy ONLY numeric metric fields — never spread arbitrary input, so no stray transcript/prose can ride along. */
 function sanitizeMetrics(m: RecoveryMetrics | null | undefined): RecoveryMetrics {
   const out: RecoveryMetrics = {};
@@ -47,17 +94,12 @@ function sanitizeMetrics(m: RecoveryMetrics | null | undefined): RecoveryMetrics
   if (num(m.totalWords) !== undefined) out.totalWords = num(m.totalWords);
   if (num(m.clarityScore) !== undefined) out.clarityScore = num(m.clarityScore);
   if (num(m.wpm) !== undefined) out.wpm = num(m.wpm);
-  const numMap = (obj: unknown): Record<string, number> | undefined => {
-    if (!obj || typeof obj !== 'object') return undefined;
-    const r: Record<string, number> = {};
-    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-      if (typeof v === 'number' && Number.isFinite(v)) r[k] = v;
-    }
-    return Object.keys(r).length ? r : undefined;
-  };
-  const fillers = numMap(m.fillerCounts);
-  if (fillers) out.fillerCounts = fillers;
-  const pauses = numMap(m.pauseMetrics);
+  // #1306 P1: filler counts must satisfy the APPROVED-key / non-negative-integer / whole-map-fail-closed
+  // contract (identical to the DB firewall + persisted reader). An unknown/prose key or bad value drops the
+  // entire map (readPersistedFillerCounts → null), never a partial map. `{}` (measured zero) is omitted here.
+  const fillers = readPersistedFillerCounts(m.fillerCounts);
+  if (fillers && Object.keys(fillers).length) out.fillerCounts = fillers;
+  const pauses = sanitizePauseMetrics(m.pauseMetrics);
   if (pauses) out.pauseMetrics = pauses;
   return out;
 }
@@ -72,15 +114,21 @@ export function saveSessionRecoveryDraft(draft: Omit<SessionRecoveryDraft, 'save
   if (!draft.sessionId) return;
   if (!(Number(draft.durationSeconds) > 0)) return; // nothing recoverable
 
+  const requestedState: RecoveryState = isRecoveryState(draft.recoveryState) ? draft.recoveryState : 'active_interrupted';
+  // A next action is only valid for a fully-finalized draft AND must pass strict enum/numeric validation; an
+  // interrupted draft or an invalid/prose object is forced to null (fail closed at the write boundary).
+  const nextAction = sanitizeNextAction(requestedState, draft.nextActionSignal);
+  // #1306 P1: a finalized draft with no valid next action is not a completed session — downgrade it.
+  const recoveryState = resolveDraftState(requestedState, nextAction);
+
   const payload: SessionRecoveryDraft = {
     sessionId: draft.sessionId,
     userId: draft.userId ?? null,
-    recoveryState: isRecoveryState(draft.recoveryState) ? draft.recoveryState : 'active_interrupted',
+    recoveryState,
     durationSeconds: Math.max(0, Math.round(Number(draft.durationSeconds) || 0)),
     mode: draft.mode ?? 'unknown',
     metrics: sanitizeMetrics(draft.metrics),
-    // A next action is only valid for a fully-finalized draft; never attach one to a partial/interrupted draft.
-    nextActionSignal: draft.recoveryState === 'finalized_pending_save' ? (draft.nextActionSignal ?? null) : null,
+    nextActionSignal: recoveryState === 'finalized_pending_save' ? nextAction : null,
     savedAt: new Date().toISOString(),
   };
 
@@ -111,17 +159,19 @@ export function getSessionRecoveryDraft(): SessionRecoveryDraft | null {
     }
     if (!parsed.sessionId || typeof parsed.sessionId !== 'string') return null;
     if (!isRecoveryState(parsed.recoveryState)) return null;
+    // #1306 P1: re-validate on READ too — a draft written by an older/rogue build (or hand-edited localStorage)
+    // must not surface an unvalidated next-action object (invalid/prose → null), AND a finalized draft with no
+    // valid next action is downgraded so it is never replayed as a completed session.
+    const nextAction = sanitizeNextAction(parsed.recoveryState, parsed.nextActionSignal);
+    const recoveryState = resolveDraftState(parsed.recoveryState, nextAction);
     return {
       sessionId: parsed.sessionId,
       userId: (parsed.userId as string | null | undefined) ?? null,
-      recoveryState: parsed.recoveryState,
+      recoveryState,
       durationSeconds: Number(parsed.durationSeconds) || 0,
       mode: (parsed.mode as SessionRecoveryDraft['mode']) ?? 'unknown',
       metrics: sanitizeMetrics(parsed.metrics as RecoveryMetrics | undefined),
-      nextActionSignal:
-        parsed.recoveryState === 'finalized_pending_save'
-          ? ((parsed.nextActionSignal as NextActionSignal | null | undefined) ?? null)
-          : null,
+      nextActionSignal: recoveryState === 'finalized_pending_save' ? nextAction : null,
       savedAt: (parsed.savedAt as string | undefined) ?? new Date(0).toISOString(),
     };
   } catch {
