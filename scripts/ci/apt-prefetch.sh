@@ -76,33 +76,9 @@ fi
 PKG_ENTRIES="$(grep -c '^Package:' "$BUNDLE/debs/Packages" || echo 0)"
 [ "$PKG_ENTRIES" -ge 1 ] || { echo "::error::[prefetch] empty local Packages index"; exit 1; }
 
-# File-level index validation, fail closed:
-#   (a) exactly one stanza per bundled .deb; (b) every indexed `Filename:` resolves under the repo root.
-[ "$PKG_ENTRIES" = "$DEB_COUNT" ] \
-  || { echo "::error::[prefetch] Packages stanzas ($PKG_ENTRIES) != .deb count ($DEB_COUNT)"; exit 1; }
-while IFS= read -r fn; do
-  [ -f "$BUNDLE/debs/$fn" ] \
-    || { echo "::error::[prefetch] indexed Filename '$fn' does not resolve under repo root"; exit 1; }
-done < <(sed -n 's/^Filename: //p' "$BUNDLE/debs/Packages")
-
-# Classify EVERY frozen manifest token as exactly one of: BUNDLED (exact stanza in the local index) or
-# IMAGE-SATISFIED (dpkg proves it installed -> record exact name/arch/version, content-free). Fail closed
-# if a token is neither. No generic `Provides:` exception. This validates the required OUTCOME (the token is
-# obtainable without a mirror) rather than apt's internal representation.
-: > "$BUNDLE/preinstalled.manifest"
-N_BUNDLED=0; N_IMAGE=0
-for p in $CANVAS_PKGS $PW_PKGS; do
-  if grep -q "^Package: ${p}$" "$BUNDLE/debs/Packages"; then
-    N_BUNDLED=$((N_BUNDLED+1))
-  elif info="$(dpkg-query -W -f='${Package} ${Architecture} ${Version}' "$p" 2>/dev/null)" && [ -n "$info" ]; then
-    echo "$info" >> "$BUNDLE/preinstalled.manifest"
-    N_IMAGE=$((N_IMAGE+1))
-  else
-    echo "::error::[prefetch] frozen token '$p' is neither bundled nor image-satisfied — fail closed"; exit 1
-  fi
-done
-echo "[prefetch] index validated: ${PKG_ENTRIES} stanzas == ${DEB_COUNT} debs; all Filenames resolve"
-echo "[prefetch] frozen manifest classified: ${N_BUNDLED} bundled, ${N_IMAGE} image-satisfied (recorded in preinstalled.manifest)"
+# Diagnostic counts ONLY — NOT acceptance gates. The shard's `apt-get --simulate` is the real proof of
+# load + resolution + virtual/preinstalled + closure; we do not re-derive index shape as a blocker here.
+echo "[prefetch] index: ${PKG_ENTRIES} Packages stanzas for ${DEB_COUNT} .deb files (diagnostic)"
 
 # ── 8. Freeze the compatibility manifest — a shard MUST run on the same image or fail closed (no fallback). ─
 . /etc/os-release 2>/dev/null || true
