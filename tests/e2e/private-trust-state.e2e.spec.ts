@@ -48,12 +48,10 @@ test.describe('Private mode trust-state + save/detail', () => {
     await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
 
-    // #1306 Option A: after terminal finalization the ephemeral transcript is PURGED. The metrics-only review
-    // shows NO transcript text and no live indicator (it was visible + cumulative WHILE recording, above), and
-    // the completed review still presents the one structured next action.
+    // #1306 Option A: after terminal finalization the ephemeral transcript is PURGED. The metrics-only session
+    // review shows NO transcript text and no live indicator (it was visible + cumulative WHILE recording, above).
     await expect(page.getByText(/private on device transcript/i)).toHaveCount(0);
     await expect(page.getByTestId('transcript-live-indicator')).toHaveCount(0);
-    await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
 
     // save -> history -> detail.
     await page.getByTestId(TEST_IDS.NAV_ANALYTICS_LINK).click();
@@ -70,5 +68,7 @@ test.describe('Private mode trust-state + save/detail', () => {
     await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
     await expect(page.getByText(/private on device transcript/i)).toHaveCount(0);
     await expect(page.getByTestId('session-engine-metadata')).toContainText(/private/i);
+    // #1306 metrics-only: the saved review presents exactly ONE structured next action (metrics-only contract).
+    await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
   });
 });
