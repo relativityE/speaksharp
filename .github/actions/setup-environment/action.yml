@@ -32,6 +32,27 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    # #1306 CI-HARDENING (root fix) — MUST be the FIRST step, before ANY apt call.
+    # unit-shard-3 (install-playwright:false) stalled ~6h on the Canvas/Sharp `apt-get`, with no Playwright
+    # involved — proving the defect is UN-TIMED `apt` in setup, not a Playwright problem. A per-step timeout
+    # wrapper would have missed that step entirely. A global apt.conf drop-in bounds EVERY apt invocation
+    # (Canvas/Sharp AND Playwright) in one place, natively, with NO SIGKILL — killing apt mid-transaction
+    # corrupts dpkg (-> `exit 100`). Trigger unidentified (one Azure-mirror `Ign:` is a thin reed); exposure
+    # removed regardless. `http[s]::Timeout 30` caps a stalled fetch; `Retries 3` re-attempts; `DPkg::Lock::
+    # Timeout 120` waits instead of failing if a boot-time upgrader still holds the lock. The job-level
+    # `timeout-minutes` (ci.yml) stays as the outer backstop for a stalled TCP socket that ignores the timeout.
+    - name: Bound apt network operations (global, pre-apt)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null <<'EOF'
+        Acquire::http::Timeout "30";
+        Acquire::https::Timeout "30";
+        Acquire::Retries "3";
+        DPkg::Lock::Timeout "120";
+        EOF
+        echo "apt bounded (pre-apt): http/https timeout=30s, retries=3, dpkg lock wait=120s"
+
     - name: Setup Node.js
       uses: actions/setup-node@v6
       with:
@@ -118,17 +139,15 @@ runs:
         key: ${{ runner.os }}-ms-playwright-${{ steps.pw.outputs.version }}
 
     # #1306 CI-HARDENING step 1: split `playwright install --with-deps chromium` into its TWO operations —
-    # OS-library apt install (`install-deps`) and browser-binary download (`install`) — so the next hang
-    # NAMES ITSELF (apt vs CDN) instead of hiding inside one merged command. Each is timeout+retry-wrapped.
+    # OS-library apt install (`install-deps`) and browser-binary download (`install`) — so a future hang
+    # NAMES ITSELF (apt vs CDN) instead of hiding inside one merged command.
+    # This apt half is NOT timeout-wrapped: apt is bounded natively by the pre-apt `99ci-timeouts` drop-in,
+    # and a `timeout ... kill` here would SIGKILL apt mid-transaction and corrupt dpkg (CI-proven `exit 100`).
+    # The CDN half below IS timeout+retry-wrapped — a browser download is safe to kill and restart.
     - name: Install Playwright system deps (apt)
       if: inputs.install-playwright == 'true'
       shell: bash
-      run: |
-        n=0; until [ "$n" -ge 3 ]; do
-          timeout 300 pnpm exec playwright install-deps chromium && break
-          n=$((n+1)); echo "::warning::playwright install-deps attempt $n failed/timed out; retrying"; sleep 5
-        done
-        [ "$n" -lt 3 ]
+      run: pnpm exec playwright install-deps chromium
 
     - name: Install Playwright browser (chromium)
       if: inputs.install-playwright == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
