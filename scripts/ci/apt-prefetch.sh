@@ -76,6 +76,21 @@ fi
 PKG_ENTRIES="$(grep -c '^Package:' "$BUNDLE/debs/Packages" || echo 0)"
 [ "$PKG_ENTRIES" -ge 1 ] || { echo "::error::[prefetch] empty local Packages index"; exit 1; }
 
+# Validate the index is COMPLETE and consistent, fail closed:
+#   (a) exactly one stanza per bundled .deb; (b) every frozen top-level package is present as `Package: <name>`;
+#   (c) every indexed `Filename:` resolves to an existing file under the repository root.
+[ "$PKG_ENTRIES" = "$DEB_COUNT" ] \
+  || { echo "::error::[prefetch] Packages stanzas ($PKG_ENTRIES) != .deb count ($DEB_COUNT)"; exit 1; }
+for p in $CANVAS_PKGS $PW_PKGS; do
+  grep -q "^Package: ${p}$" "$BUNDLE/debs/Packages" \
+    || { echo "::error::[prefetch] frozen top-level package '$p' missing from local index"; exit 1; }
+done
+while IFS= read -r fn; do
+  [ -f "$BUNDLE/debs/$fn" ] \
+    || { echo "::error::[prefetch] indexed Filename '$fn' does not resolve under repo root"; exit 1; }
+done < <(sed -n 's/^Filename: //p' "$BUNDLE/debs/Packages")
+echo "[prefetch] index validated: ${PKG_ENTRIES} stanzas == ${DEB_COUNT} debs; all frozen top-level packages present; all Filenames resolve"
+
 # ── 8. Freeze the compatibility manifest — a shard MUST run on the same image or fail closed (no fallback). ─
 . /etc/os-release 2>/dev/null || true
 {

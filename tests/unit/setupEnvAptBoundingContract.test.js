@@ -90,6 +90,12 @@ describe('prefetch script: retry ONLY around --download-only; never dpkg install
     expect(prefetch).toContain('image.manifest');
     expect(prefetch).toMatch(/ImageOS|ImageVersion/);
   });
+  it('validates the index fail-closed: one stanza per .deb, every frozen package present, every Filename resolves', () => {
+    expect(prefetch).toMatch(/stanzas.*!=.*\.deb count|!= "\$DEB_COUNT"|= "\$DEB_COUNT"/);
+    expect(prefetch).toMatch(/Package: \$\{p\}\$/);
+    expect(prefetch).toMatch(/Filename:/);
+    expect(prefetch).toMatch(/does not resolve|missing from local index/);
+  });
 });
 
 describe('local-repository install: file:-only, image/checksum gated, no retry/repair (#1311)', () => {
@@ -98,7 +104,18 @@ describe('local-repository install: file:-only, image/checksum gated, no retry/r
     expect(offline).toContain('Dir::Etc::sourcelist');
     expect(offline).toContain('Dir::Etc::sourceparts');
     expect(offline).toContain('apt-get');
-    expect(offline).toMatch(/-o "?Dir::Etc::sourceparts=\/dev\/null/);
+  });
+  it('isolates ALL apt paths absolutely: sourcelist/sourceparts/lists are dedicated (no relative path, no runner /var/lib/apt/lists)', () => {
+    // absolute base (no relative path passed to Dir::Etc::sourcelist -> apt would resolve it against /etc/apt)
+    expect(offline).toMatch(/BUNDLE_ABS="\$\(cd "\$BUNDLE" && pwd\)"/);
+    expect(offline).toContain('Dir::State::lists');           // dedicated lists dir isolation
+    expect(offline).not.toMatch(/Dir::Etc::sourceparts=\/dev\/null/); // must be a dedicated dir, not /dev/null
+    expect(offline).toMatch(/mkdir -p "\$SRCPARTS" "\$LISTS/); // dedicated empty dirs (+ partial child)
+  });
+  it('proves the file: repo loaded and every frozen package has a candidate BEFORE install (fail closed)', () => {
+    expect(offline).toMatch(/apt-cache .*policy/);
+    expect(offline).toMatch(/no candidate for frozen package/);
+    expect(offline).toMatch(/did not load|non-empty index/);
   });
   it('enforces network isolation: fails on any http/https or Azure/archive mirror in source or apt output', () => {
     expect(offline).toContain('https?://');

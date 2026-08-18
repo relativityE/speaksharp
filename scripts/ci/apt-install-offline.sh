@@ -29,20 +29,40 @@ echo "[offline] image compatible: $PREP_OS / $PREP_VER / $PREP_ARCH"
   || { echo "::error::[offline] SHA-256 verification FAILED — refusing to install"; exit 1; }
 echo "[offline] checksums verified: $(wc -l < "$BUNDLE/sha256sums.txt") .deb files ; manifest=$MANIFEST"
 
-# ── 3. Isolated apt configuration whose ONLY source is the local flat repository ──────────────────────────
-DEBS_ABS="$(cd "$BUNDLE/debs" && pwd)"
-SRC="$BUNDLE/local-only.list"
+# ── 3. Isolated apt configuration whose ONLY source is the local flat repository. ALL paths are ABSOLUTE
+#       and DEDICATED — sourcelist, an empty sourceparts dir, AND a dedicated empty lists dir — so apt cannot
+#       resolve a relative path against /etc/apt, and candidate checks cannot pass off the runner's
+#       pre-existing /var/lib/apt/lists indexes. The SAME OPTS are used for update, candidate check, install. ─
+BUNDLE_ABS="$(cd "$BUNDLE" && pwd)"
+DEBS_ABS="$BUNDLE_ABS/debs"
+SRC="$BUNDLE_ABS/local-only.list"
+SRCPARTS="$BUNDLE_ABS/empty-sourceparts"
+LISTS="$BUNDLE_ABS/apt-lists"
+mkdir -p "$SRCPARTS" "$LISTS/partial"
 # [trusted=yes] is acceptable ONLY because the same-run artifact was SHA-256 verified above.
 echo "deb [trusted=yes] file://$DEBS_ABS ./" > "$SRC"
-# Override the global source list AND disable sources.list.d for these commands: no Azure/archive/HTTP source
-# remains active while we update/install.
-OPTS=(-o "Dir::Etc::sourcelist=$SRC" -o "Dir::Etc::sourceparts=/dev/null" -o "APT::Get::List-Cleanup=0")
+OPTS=(-o "Dir::Etc::sourcelist=$SRC" -o "Dir::Etc::sourceparts=$SRCPARTS" -o "Dir::State::lists=$LISTS" -o "APT::Get::List-Cleanup=0")
 
-# ── 4/5. Update + install through apt's resolver using ONLY the local file: repository ────────────────────
-LOG="$BUNDLE/apt-local.log"
+# ── 4. Update from ONLY the local file: repository (populates the dedicated lists dir) ────────────────────
+LOG="$BUNDLE_ABS/apt-local.log"
 : > "$LOG"
 sudo apt-get "${OPTS[@]}" update 2>&1 | tee -a "$LOG"
+
+# ── 5. Pre-install PROOF (fail closed): the dedicated lists dir holds a non-empty index generated from the
+#       file: repo, AND every frozen package has a candidate under the SAME isolated configuration. ────────
+if ! find "$LISTS" -maxdepth 1 -type f -name '*Packages*' ! -empty | grep -q .; then
+  echo "::error::[offline] local file: repository did not load — no non-empty index in the dedicated lists dir"; exit 1
+fi
 PKGS="$(tr '\n' ' ' < "$BUNDLE/$MANIFEST.manifest")"
+for p in $PKGS; do
+  cand="$(sudo apt-cache "${OPTS[@]}" policy "$p" 2>/dev/null | sed -n 's/^  Candidate: //p')"
+  if [ -z "$cand" ] || [ "$cand" = "(none)" ]; then
+    echo "::error::[offline] no candidate for frozen package '$p' under the isolated local repo — fail closed"; exit 1
+  fi
+done
+echo "[offline] local file: repo loaded; candidates present for $(echo $PKGS | wc -w) frozen packages"
+
+# ── 6. Install the frozen names through the SAME isolated local configuration ─────────────────────────────
 echo "[offline] installing '$MANIFEST' via local repo: $(echo $PKGS | wc -w) frozen packages"
 sudo apt-get "${OPTS[@]}" --no-install-recommends -y install $PKGS 2>&1 | tee -a "$LOG"
 
