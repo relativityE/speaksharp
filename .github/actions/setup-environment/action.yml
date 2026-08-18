@@ -76,10 +76,20 @@ runs:
         sudo apt-get install -y --no-install-recommends \
           build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
 
+    # #1306 CI-HARDENING step 2: every fragile NETWORK step gets a step-level timeout INSIDE a bounded retry.
+    # A stalled socket (npm registry, apt mirror, Playwright CDN) is killed at 5m and retried on a fresh
+    # connection instead of hanging the whole job (previously → GitHub's 6h default). Bash `timeout` + loop
+    # keeps this self-contained (no new third-party action). The trailing `[ $n -lt 3 ]` fails the step if all
+    # attempts are exhausted.
     - name: Install Dependencies
       if: inputs.install-dependencies == 'true'
       shell: bash
-      run: pnpm install --frozen-lockfile --prefer-offline
+      run: |
+        n=0; until [ "$n" -ge 3 ]; do
+          timeout 300 pnpm install --frozen-lockfile --prefer-offline && break
+          n=$((n+1)); echo "::warning::pnpm install attempt $n failed/timed out; retrying"; sleep 5
+        done
+        [ "$n" -lt 3 ]
 
     - name: Remove Problematic Package Repositories
       if: inputs.install-playwright == 'true'
@@ -90,10 +100,45 @@ runs:
         sudo rm -f /etc/apt/sources.list.d/azure-cli.list
         echo "Removed problematic Microsoft package repositories"
 
-    - name: Install Playwright Browsers
+    # #1306 CI-HARDENING step 4: cache the Playwright browser binaries. `actions/cache` only cached the pnpm
+    # store, so EVERY e2e shard re-downloaded Chromium every run. Cache it keyed on the resolved Playwright
+    # version; the browser-download step below then skips on a cache hit (speed win — NOT the hang fix).
+    - name: Resolve Playwright version
+      id: pw
       if: inputs.install-playwright == 'true'
       shell: bash
-      run: pnpm exec playwright install --with-deps chromium
+      run: echo "version=$(pnpm exec playwright --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Playwright browsers
+      id: pw-cache
+      if: inputs.install-playwright == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-ms-playwright-${{ steps.pw.outputs.version }}
+
+    # #1306 CI-HARDENING step 1: split `playwright install --with-deps chromium` into its TWO operations —
+    # OS-library apt install (`install-deps`) and browser-binary download (`install`) — so the next hang
+    # NAMES ITSELF (apt vs CDN) instead of hiding inside one merged command. Each is timeout+retry-wrapped.
+    - name: Install Playwright system deps (apt)
+      if: inputs.install-playwright == 'true'
+      shell: bash
+      run: |
+        n=0; until [ "$n" -ge 3 ]; do
+          timeout 300 pnpm exec playwright install-deps chromium && break
+          n=$((n+1)); echo "::warning::playwright install-deps attempt $n failed/timed out; retrying"; sleep 5
+        done
+        [ "$n" -lt 3 ]
+
+    - name: Install Playwright browser (chromium)
+      if: inputs.install-playwright == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        n=0; until [ "$n" -ge 3 ]; do
+          timeout 300 pnpm exec playwright install chromium && break
+          n=$((n+1)); echo "::warning::playwright install chromium attempt $n failed/timed out; retrying"; sleep 5
+        done
+        [ "$n" -lt 3 ]
 
     - name: Setup Supabase CLI
       if: inputs.install-supabase-cli == 'true'
