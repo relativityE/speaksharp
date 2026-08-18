@@ -200,14 +200,21 @@ describe('useSpeechRecognition Integration', () => {
             service!.simulateTranscript('Final State', true);
         });
 
-        // 4. Stop — must capture the transcript emitted above, not a stale value
+        // #1306 Option A: while recording/finalizing, the LATEST emitted transcript is captured and visible
+        // (this is the no-stale-closure guarantee — a stale capture would show an earlier/empty value).
+        await waitForAsync(() => {
+            expect(result.current.transcript.transcript).toBe('Final State.');
+        });
+
+        // 4. Stop — captures the latest transcript for metrics, then purges the ephemeral working memory.
         await act(async () => {
             await result.current.stopListening();
         });
 
-        // 5. Assert — the stop handler must have captured 'Final State'
+        // 5. Assert — after terminal finalization the transcript is PURGED from the store (metrics-only review;
+        // no transcript text is retained). The capture above proves the stop consumed the latest, not a stale, value.
         await waitForAsync(() => {
-            expect(result.current.transcript.transcript).toBe('Final State.');
+            expect(result.current.transcript.transcript).toBe('');
         });
     });
 

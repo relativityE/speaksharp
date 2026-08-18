@@ -1969,16 +1969,18 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         await controller.whenStable();
 
         // Read the authoritative save-candidate debug directly (same object exposed via
-        // window.__SPEECH_RUNTIME_DEBUG__().saveCandidate), independent of any env gating.
+        // window.__SPEECH_RUNTIME_DEBUG__().saveCandidate). #1306 P1: this diagnostic is CONTENT-FREE — it
+        // carries the repetition flag + reason + a LENGTH, never the transcript text (no selectedForSave).
         const saveCandidate = (controller as unknown as { lastSaveCandidateDebug: Record<string, unknown> | null }).lastSaveCandidateDebug;
 
-        // (1) The detector FLAGS the loop on the saved candidate...
+        // (1) The detector FLAGS the loop on the saved candidate (content-free verdict)...
         expect(saveCandidate?.repetitionRisk, `saveCandidate=${JSON.stringify(saveCandidate)}`).toBe(true);
         expect(saveCandidate?.repetitionRiskReason).toBeTruthy();
 
-        // (2) ...but the saved transcript is NOT altered — the repeated content is preserved (never deleted).
-        const saved = String(saveCandidate?.selectedForSave ?? '').toLowerCase();
-        expect((saved.match(/literally/g) ?? []).length, `saved="${saved}"`).toBeGreaterThanOrEqual(2);
+        // (2) ...detection did NOT truncate the candidate (a length signal, not the text), and the diagnostic
+        // exposes NO transcript text (privacy boundary covers test/E2E/real-device artifacts too).
+        expect(Number(saveCandidate?.selectedForSaveLength ?? 0)).toBeGreaterThan(0);
+        expect(saveCandidate).not.toHaveProperty('selectedForSave');
     });
 
     it('coalesces a burst of model-load-progress events into one store update (no render flood)', () => {

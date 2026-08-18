@@ -134,6 +134,9 @@ export interface SessionState {
     nativeFormatting: NativeFormattingUiState;
     /** Post-persistence finalized reconciliation for the settled Session page; null until a save. */
     finalizedAnalysis: FinalizedAnalysisState | null;
+    /** #1306 Option A: the FINAL word count captured at the terminal transition, BEFORE the transcript is
+     *  purged, so the metrics-only review can show the true word count without retaining the transcript. */
+    finalizedWordCount: number | null;
     isBooting: boolean;
 }
 
@@ -173,6 +176,7 @@ interface SessionActions {
     setSessionSaved: (saved: boolean) => void;
     setNativeFormatting: (formatting: NativeFormattingUiState) => void;
     setFinalizedAnalysis: (analysis: FinalizedAnalysisState | null) => void;
+    setFinalizedWordCount: (wordCount: number | null) => void;
     setIsBooting: (isBooting: boolean) => void;
 }
 
@@ -238,6 +242,7 @@ const initialState: SessionState = {
     sessionSaved: false,
     nativeFormatting: { status: 'idle', startedAt: null },
     finalizedAnalysis: null,
+    finalizedWordCount: null,
     isBooting: false,
 };
 
@@ -476,6 +481,8 @@ export const useSessionStore = create<SessionStore>((set) => {
 
     setFinalizedAnalysis: (finalizedAnalysis) =>
         set({ finalizedAnalysis }),
+    setFinalizedWordCount: (finalizedWordCount) =>
+        set({ finalizedWordCount }),
 
     addChunk: (chunk) =>
         set((state) => ({

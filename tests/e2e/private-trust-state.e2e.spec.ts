@@ -48,11 +48,12 @@ test.describe('Private mode trust-state + save/detail', () => {
     await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
 
-    // Final state: the transcript is INTACT (cumulative, not blank/truncated) and no longer marked live.
-    await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toContainText(
-      /private on device transcript with enough words/i,
-    );
+    // #1306 Option A: after terminal finalization the ephemeral transcript is PURGED. The metrics-only review
+    // shows NO transcript text and no live indicator (it was visible + cumulative WHILE recording, above), and
+    // the completed review still presents the one structured next action.
+    await expect(page.getByText(/private on device transcript/i)).toHaveCount(0);
     await expect(page.getByTestId('transcript-live-indicator')).toHaveCount(0);
+    await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
 
     // save -> history -> detail.
     await page.getByTestId(TEST_IDS.NAV_ANALYTICS_LINK).click();

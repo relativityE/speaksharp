@@ -53,6 +53,8 @@ export interface SessionOverhaulViewProps {
     scoringElapsedSeconds?: number;
     micLevel: number;
     transcriptContent: string;
+    /** #1306 Option A: FINAL word-count snapshot for the terminal review (the transcript is purged there). */
+    finalizedWordCount?: number | null;
     showAnalyticsPrompt: boolean;
     metricsFillerCount: number;
     onStartStop: () => void;
@@ -117,6 +119,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     scoringElapsedSeconds,
     micLevel,
     transcriptContent,
+    finalizedWordCount,
     showAnalyticsPrompt,
     metricsFillerCount,
     onStartStop,
@@ -165,6 +168,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // #1256 P1 — the after-state scores the FINISHED take, whose duration lives in `scoringElapsedSeconds`
     // (live `elapsedTime` has already normalized to 0). Before/during keep the live timer.
     const effElapsed = inAfter ? (scoringElapsedSeconds ?? elapsedTime) : elapsedTime;
+    // #1306 Option A: in the terminal review the transcript has been purged, so the word count comes from the
+    // FINAL snapshot captured at the terminal transition; before/during still read the live transcript.
+    const reviewWordCount = inAfter && typeof finalizedWordCount === 'number' ? finalizedWordCount : wordCount(transcriptContent);
 
     const offer = usePromptOfferDismissed(authUserId);
 
@@ -413,9 +419,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     // §Duplication: the coverage FRACTION appears exactly once, in Slot C — never repeated
                     // here. The FP header speaks to the highlights, not a second `n of m` scoreboard.
                     headerMeta: isObjective
-                        ? `${wordCount(transcriptContent)} words · green marks where each point landed`
-                        : `${wordCount(transcriptContent)} words · orange marks fillers`,
-                    stats: `${metricsFillerCount} fillers · ${wordCount(transcriptContent)} words`,
+                        ? `${reviewWordCount} words · green marks where each point landed`
+                        : `${reviewWordCount} words · orange marks fillers`,
+                    stats: `${metricsFillerCount} fillers · ${reviewWordCount} words`,
                     coverageMode: isObjective ? 'after' : undefined,
                 }}
                 progress={progress}
@@ -426,7 +432,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 // the filler breakdown is deferred to the delivery strip below (spec §4/§5).
                 fillerFooter={isObjective
                     ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
-                    : <FillerBreakdown fillerData={fillerData} stats={`${metricsFillerCount} fillers · ${wordCount(transcriptContent)} words`} />}
+                    : <FillerBreakdown fillerData={fillerData} stats={`${metricsFillerCount} fillers · ${reviewWordCount} words`} />}
                 verdict={{ ...verdictFromSuggestions(aiSuggestions, fillerData, elapsedTime), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
                 slotDContent={objectiveAfterSlotD}
             />

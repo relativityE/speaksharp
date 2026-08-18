@@ -47,6 +47,9 @@ export const SessionPage: React.FC = () => {
     // (the snapshot is only published at stop); after a stop the live timer is 0 but this is not.
     const completedSessionDurationSeconds = useSessionStore(state => state.completedSessionDurationSeconds);
     const finalizedAnalysis = useSessionStore(state => state.finalizedAnalysis);
+    // #1306 Option A: the terminal review's word count comes from the FINAL snapshot (captured before the
+    // transcript was purged), never from the now-empty live transcript.
+    const finalizedWordCount = useSessionStore(state => state.finalizedWordCount);
     // #1046 slice 5a: per-point Focus Points coverage, published by the stop seam after an objective
     // session finalizes; null for Open Mic sessions (and cleared at the next recording start).
     const objectiveCoverageResult = useSessionStore(state => state.objectiveCoverageResult);
@@ -343,6 +346,7 @@ export const SessionPage: React.FC = () => {
                     scoringElapsedSeconds={scoringDurationSeconds}
                     micLevel={micLevel}
                     transcriptContent={transcriptContent}
+                    finalizedWordCount={finalizedWordCount}
                     showAnalyticsPrompt={showAnalyticsPrompt}
                     metricsFillerCount={metrics.fillerCount}
                     onStartStop={() => { void handleStartStop(); }}

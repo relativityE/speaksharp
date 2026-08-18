@@ -160,18 +160,23 @@ export function getSessionRecoveryDraft(): SessionRecoveryDraft | null {
     if (!parsed.sessionId || typeof parsed.sessionId !== 'string') return null;
     if (!isRecoveryState(parsed.recoveryState)) return null;
     // #1306 P1: re-validate on READ too — a draft written by an older/rogue build (or hand-edited localStorage)
-    // must not surface an unvalidated next-action object (invalid/prose → null), AND a finalized draft with no
-    // valid next action is downgraded so it is never replayed as a completed session.
+    // must not surface an unvalidated next-action object (invalid/prose → null).
     const nextAction = sanitizeNextAction(parsed.recoveryState, parsed.nextActionSignal);
-    const recoveryState = resolveDraftState(parsed.recoveryState, nextAction);
+    // A stored draft that CLAIMS finalized completion but has no strictly-valid next action is MALFORMED. It is
+    // DELETED and returns null (never reinterpreted as an interrupted draft) — refusing to load it is not enough,
+    // the malformed record must not be left sitting in localStorage.
+    if (parsed.recoveryState === 'finalized_pending_save' && !nextAction) {
+      try { window.localStorage.removeItem(RECOVERY_DRAFT_KEY); } catch { /* best-effort */ }
+      return null;
+    }
     return {
       sessionId: parsed.sessionId,
       userId: (parsed.userId as string | null | undefined) ?? null,
-      recoveryState,
+      recoveryState: parsed.recoveryState,
       durationSeconds: Number(parsed.durationSeconds) || 0,
       mode: (parsed.mode as SessionRecoveryDraft['mode']) ?? 'unknown',
       metrics: sanitizeMetrics(parsed.metrics as RecoveryMetrics | undefined),
-      nextActionSignal: recoveryState === 'finalized_pending_save' ? nextAction : null,
+      nextActionSignal: nextAction, // finalized → valid action here; interrupted → null
       savedAt: (parsed.savedAt as string | undefined) ?? new Date(0).toISOString(),
     };
   } catch {

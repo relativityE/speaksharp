@@ -89,13 +89,10 @@ const pushTranscriptLifecycleTrace = (stage: string, payload: Record<string, unk
     if (typeof window === 'undefined') return;
     window.__SS_TRANSCRIPT_TRACE__ = window.__SS_TRANSCRIPT_TRACE__ ?? [];
     window.__SS_TRANSCRIPT_TRACE_SEQ__ = (window.__SS_TRANSCRIPT_TRACE_SEQ__ ?? 0) + 1;
-    // #1306 P1: diagnostics retain only codes/numbers/lengths/timestamps in production. A payload may carry a
-    // text `preview` (etc.) for the test/dev proof harness (ENV.isTest); those keys are stripped in production.
-    let safePayload = payload;
-    if (!ENV.isTest) {
-        safePayload = { ...payload };
-        for (const k of TRANSCRIPT_TRACE_TEXT_KEYS) if (k in safePayload) delete safePayload[k];
-    }
+    // #1306 P1: diagnostics retain only codes/numbers/lengths/timestamps — NEVER transcript text, in any build
+    // (test/E2E/real-device artifacts are inside the privacy boundary too). Strip any text keys a caller passed.
+    const safePayload: Record<string, unknown> = { ...payload };
+    for (const k of TRANSCRIPT_TRACE_TEXT_KEYS) if (k in safePayload) delete safePayload[k];
     window.__SS_TRANSCRIPT_TRACE__.push({
         sequence: window.__SS_TRANSCRIPT_TRACE_SEQ__,
         t: Number(performance.now().toFixed(1)),
@@ -482,10 +479,9 @@ export class SpeechRuntimeController {
                 // Authoritative save-candidate decision from the last Stop, so proofs
                 // can distinguish a real empty save from DOM-banner extraction noise.
                 saveCandidate: this.lastSaveCandidateDebug,
-                // #1306 P1: expose only the LENGTH in production; the actual selected transcript text is a
-                // test/dev-only diagnostic (proof/WER/repetition harnesses), never a production read surface.
+                // #1306 P1: diagnostics expose only the LENGTH — NEVER the transcript text. Test/E2E/real-device
+                // artifacts are inside the privacy boundary too, so this is unconditional (no ENV.isTest escape).
                 selectedTranscriptForSaveLength: (this.transcriptLifecycle.selectedTranscriptForSave ?? '').length,
-                ...(ENV.isTest ? { selectedTranscriptForSave: this.transcriptLifecycle.selectedTranscriptForSave ?? null } : {}),
                 selectedTranscriptSource: this.transcriptLifecycle.selectedTranscriptSource ?? null,
                 // #891 Phase 5.8 Step 1: DEV/TEST-ONLY numbers-only filler artifact for the known-script take.
                 // The getter self-gates (null in production); custom words anonymized; no transcript text.
@@ -2176,6 +2172,7 @@ export class SpeechRuntimeController {
         store.freezeTranscriptAtStop(null);
         store.setTranscriptFinalizing(false);
         store.updateFillerData({});
+        store.setFinalizedWordCount(null); // #1306 Option A: drop the prior take's word-count snapshot
         store.setChunks([]);
         store.setPauseMetrics({
             totalPauses: 0,
@@ -2266,10 +2263,10 @@ export class SpeechRuntimeController {
 
         const pushNativeStoreTrace = (event: string, payload: Record<string, unknown> = {}) => {
             if (typeof window === 'undefined' || !window.__NATIVE_BROWSER_TRACE__) return;
-            // #1306 P1: diagnostics retain only codes/numbers/LENGTHS in production. The ephemeral working-memory
-            // transcript text is included ONLY in test/dev builds (ENV.isTest) for the proof/WER/repetition
-            // harnesses; in production every transcript-bearing key (base + any passed in `payload`) is stripped
-            // so no spoken prose ever lands in the retained trace ring.
+            // #1306 P1: diagnostics retain only codes/numbers/LENGTHS — NEVER transcript text, in ANY build
+            // (test/E2E/real-device artifacts are inside the privacy boundary too). The base carries lengths; any
+            // transcript-bearing key (base + any passed in `payload`) is stripped below so no spoken prose ever
+            // lands in the retained trace ring.
             const entry: Record<string, unknown> = {
                 t: Number(performance.now().toFixed(1)),
                 event,
@@ -2279,14 +2276,10 @@ export class SpeechRuntimeController {
                 chunkCount: store.chunks.length,
                 ...payload,
             };
-            if (ENV.isTest) {
-                entry.currentTranscript = currentTranscript;
-                entry.partial = data.transcript.partial ?? '';
-                entry.final = data.transcript.final ?? '';
-            } else {
-                for (const k of ['currentTranscript', 'partial', 'final', 'preview', 'finalTranscript', 'newFullText', 'text', 'frozenAtStop']) {
-                    if (k in entry) delete entry[k];
-                }
+            // #1306 P1: NEVER retain transcript text in a diagnostic trace, in any build — strip every
+            // transcript-bearing key (base + any passed in `payload`). Lengths above are the only text signal.
+            for (const k of ['currentTranscript', 'partial', 'final', 'preview', 'finalTranscript', 'newFullText', 'text', 'frozenAtStop']) {
+                if (k in entry) delete entry[k];
             }
             window.__NATIVE_BROWSER_TRACE__.push(entry);
         };
@@ -3402,9 +3395,8 @@ export class SpeechRuntimeController {
                         this.lastSaveCandidateDebug = {
                             sessionId,
                             saveCandidateReason,
-                            // #1306 P1: length is the production-safe diagnostic; the selected transcript text is
-                            // retained ONLY in test/dev builds for the repetition/WER proof harnesses.
-                            ...(ENV.isTest ? { selectedForSave: finalTranscript } : {}),
+                            // #1306 P1: length only — the transcript text is NEVER placed in a diagnostic, in any
+                            // build (test/E2E/real-device artifacts are inside the privacy boundary too).
                             selectedForSaveLength: finalTranscript.length,
                             finalWordCount: finalTranscript.split(/\s+/).filter(Boolean).length,
                             meaningfulWordCount,
@@ -3585,6 +3577,13 @@ export class SpeechRuntimeController {
                             // transcript, then never persist the transcript itself. filler_counts is the strict
                             // flat standard-key map; next_action_signal is the one structured action.
                             const finalFillerCounts = flattenToFillerCounts(fillerWords);
+                            // #1306 Option A: capture the FINAL validated metric snapshot (filler breakdown + word
+                            // count) into the store BEFORE the transcript is purged, so the terminal review reads
+                            // THIS snapshot and never recounts (or retains) the transcript. `fillerWords` is the
+                            // canonical nested per-key shape the review consumes; it mirrors the persisted flat
+                            // `filler_counts`. `wordCount` is the final derived word count for the review stats.
+                            useSessionStore.getState().updateFillerData(fillerWords);
+                            useSessionStore.getState().setFinalizedWordCount(wordCount);
                             const PAUSE_KEYS = ['totalPauses', 'averagePauseDuration', 'longestPause', 'pausesPerMinute', 'silencePercentage', 'transitionPauses', 'extendedPauses'] as const;
                             const finalPauseMetrics = store.pauseMetrics
                                 ? PAUSE_KEYS.reduce<Record<string, number>>((acc, k) => {

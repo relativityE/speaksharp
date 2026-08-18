@@ -201,27 +201,27 @@ describe('sessionRecoveryDraft (content-free, #1306)', () => {
       expect(getSessionRecoveryDraft()?.recoveryState).toBe('finalized_pending_save'); // stays replayable
     });
 
-    it('DOWNGRADES a finalized draft with NO valid next action to active_interrupted (never replayed as completed)', () => {
-      // WRITE boundary: a "finalized" draft with a missing next action is not a completed session.
+    it('WRITE downgrades a finalized draft with NO valid next action to active_interrupted (never a completed session)', () => {
       saveSessionRecoveryDraft({
         sessionId: 's-dg1', userId: 'u1', recoveryState: 'finalized_pending_save', durationSeconds: 30, mode: 'private',
         metrics: { totalWords: 10 }, // no nextActionSignal
       });
-      let draft = getSessionRecoveryDraft();
-      expect(draft?.recoveryState).toBe('active_interrupted');
+      const draft = getSessionRecoveryDraft();
+      expect(draft?.recoveryState).toBe('active_interrupted'); // write-time downgrade (safe)
       expect(draft?.nextActionSignal ?? null).toBeNull();
+    });
 
-      // READ boundary: a rogue finalized draft with an INVALID next action in raw storage is also downgraded.
-      window.localStorage.clear();
+    it('READ deletes + returns null for a MALFORMED finalized draft (never reinterpreted as interrupted)', () => {
+      // A rogue/legacy/hand-edited draft claiming finalized completion but with an INVALID next action in raw
+      // storage must be physically removed and read as null — not downgraded.
       window.localStorage.setItem(RECOVERY_DRAFT_KEY, JSON.stringify({
         sessionId: 's-dg2', userId: 'u1', recoveryState: 'finalized_pending_save', durationSeconds: 30, mode: 'private',
         metrics: { totalWords: 10 },
-        nextActionSignal: { reasonCode: 'not-an-enum', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
+        nextActionSignal: { reasonCode: 'ramble about the layoffs', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
         savedAt: new Date(0).toISOString(),
       }));
-      draft = getSessionRecoveryDraft();
-      expect(draft?.recoveryState).toBe('active_interrupted'); // not replayable as completed
-      expect(draft?.nextActionSignal ?? null).toBeNull();
+      expect(getSessionRecoveryDraft()).toBeNull();                       // not replayable, returns null
+      expect(window.localStorage.getItem(RECOVERY_DRAFT_KEY)).toBeNull(); // AND physically deleted
     });
   });
 });
