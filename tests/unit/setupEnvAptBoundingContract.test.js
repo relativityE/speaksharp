@@ -68,9 +68,10 @@ describe('prefetch: deps-prep job downloads the bundle once (#1311)', () => {
 });
 
 describe('prefetch script: retry ONLY around --download-only; never dpkg install (#1311)', () => {
-  it('pins away from the Azure primary to the standard archive', () => {
-    expect(prefetch).toContain('archive.ubuntu.com');
-    expect(prefetch).toMatch(/azure\.archive\.ubuntu\.com/); // the source it replaces
+  it('pins to the standard Ubuntu archive (intended rewrite target, not sed escape representation)', () => {
+    // Assert the INTENDED outcome — the prep rewrites the source to the standard archive — rather than
+    // coupling to how sed happens to escape the azure source token.
+    expect(prefetch).toMatch(/https?:\/\/archive\.ubuntu\.com\/ubuntu/);
   });
   it('derives the Playwright manifest from install-deps --dry-run (not a stale hard-coded list)', () => {
     expect(prefetch).toContain('playwright install-deps chromium --dry-run');
@@ -81,8 +82,19 @@ describe('prefetch script: retry ONLY around --download-only; never dpkg install
     // the retry helper wraps download-only exclusively
     expect(prefetch).toMatch(/download_only\(\)\s*\{[^}]*--download-only/);
   });
-  it('never runs a dpkg install/configure in the prep phase', () => {
-    expect(prefetch).not.toMatch(/dpkg\s+-i|dpkg\s+--configure|apt-get install(?!.*--download-only)/);
+  it('every REAL prep-phase apt-get install is download-only; no dpkg install/configure', () => {
+    // Inspect actual executable command lines — exclude manifest-parser text (grep/sed over --dry-run
+    // output that merely quotes the string "apt-get install"). A real invocation runs the command;
+    // parser lines pipe/rewrite a captured string.
+    const realAptInstall = prefetch
+      .split('\n')
+      .filter((l) => !/^\s*#/.test(l)) // drop comment lines
+      .filter((l) => /(^|[;&|]|\bsudo\b|\btimeout\b)[^'"]*\bapt-get install\b/.test(l))
+      .filter((l) => !/\bgrep\b|\bsed\b/.test(l)); // drop manifest-parser lines
+    expect(realAptInstall.length).toBeGreaterThan(0);
+    for (const line of realAptInstall) expect(line).toContain('--download-only');
+    // and no dpkg install/configure transaction in prep
+    expect(prefetch).not.toMatch(/dpkg\s+-i\b|dpkg\s+--configure/);
   });
   it('builds a local flat apt repository index (dpkg-scanpackages -> Packages) and an image manifest', () => {
     expect(prefetch).toContain('dpkg-scanpackages');
