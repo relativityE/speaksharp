@@ -72,13 +72,13 @@ const ci = yaml.load(
 );
 
 describe.each(['unit-shard', 'e2e'])(
-  'ci.yml "%s": controlled-contention throttle + job backstop (#1311)',
+  'ci.yml "%s": 4-wide default concurrency + job backstop (#1311)',
   (job) => {
-    it('max-parallel is capped at 2 (contention experiment)', () => {
-      expect(ci.jobs[job].strategy['max-parallel']).toBe(2);
+    it('has NO max-parallel throttle (restored 4-wide/default; the 2-wide trial was dropped as an unproven, permanent cost)', () => {
+      expect(ci.jobs[job].strategy['max-parallel']).toBeUndefined();
     });
 
-    it('has a job-level timeout-minutes backstop', () => {
+    it('keeps a job-level timeout-minutes backstop (the outer containment bound)', () => {
       expect(typeof ci.jobs[job]['timeout-minutes']).toBe('number');
     });
   },

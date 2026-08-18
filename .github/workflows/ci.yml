@@ -195,10 +195,9 @@ jobs:
     timeout-minutes: 20
     strategy:
       fail-fast: false
-      # #1311 controlled-contention experiment: cap concurrent shards to test whether the apt stalls are
-      # self-inflicted mirror contention. One green 2-wide run STRENGTHENS but does not PROVE the theory
-      # (the rebased #1309 exact-head CI is the second, real-world validation).
-      max-parallel: 2
+      # #1311: established 4-wide/default concurrency. Containment is the 300s fail-closed apt bounds +
+      # the 20-min job backstop above — NOT a throttle. (A 2-wide throttle was trialed and dropped: one
+      # green run neither proved contention nor justified a permanent ~60% CI-time cost.)
       matrix:
         shard: [1, 2, 3, 4]
     steps:
@@ -366,8 +365,7 @@ jobs:
     timeout-minutes: 20
     strategy:
       fail-fast: false
-      # #1311 controlled-contention experiment (see unit-shard).
-      max-parallel: 2
+      # #1311: established 4-wide/default concurrency (see unit-shard). Containment = bounds + backstop.
       matrix:
         shard: [1, 2, 3, 4]
     steps:
