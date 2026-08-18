@@ -2172,7 +2172,10 @@ export class SpeechRuntimeController {
         store.freezeTranscriptAtStop(null);
         store.setTranscriptFinalizing(false);
         store.updateFillerData({});
-        store.setFinalizedWordCount(null); // #1306 Option A: drop the prior take's word-count snapshot
+        // #1306 Option A: drop the prior take's terminal metric snapshot so it never lingers onto a new session.
+        store.setFinalizedWordCount(null);
+        store.setFinalizedFillerData(null);
+        store.setFinalizedFillerCount(null);
         store.setChunks([]);
         store.setPauseMetrics({
             totalPauses: 0,
@@ -3577,13 +3580,16 @@ export class SpeechRuntimeController {
                             // transcript, then never persist the transcript itself. filler_counts is the strict
                             // flat standard-key map; next_action_signal is the one structured action.
                             const finalFillerCounts = flattenToFillerCounts(fillerWords);
-                            // #1306 Option A: capture the FINAL validated metric snapshot (filler breakdown + word
-                            // count) into the store BEFORE the transcript is purged, so the terminal review reads
-                            // THIS snapshot and never recounts (or retains) the transcript. `fillerWords` is the
-                            // canonical nested per-key shape the review consumes; it mirrors the persisted flat
-                            // `filler_counts`. `wordCount` is the final derived word count for the review stats.
-                            useSessionStore.getState().updateFillerData(fillerWords);
+                            // #1306 Option A: capture the FINAL validated metric snapshot (filler breakdown +
+                            // headline count + word count) into DEDICATED store fields BEFORE the transcript is
+                            // purged, so the terminal review reads THIS snapshot and never recounts (or retains)
+                            // the transcript. These fields are separate from the live `fillerData` (which the live
+                            // useFillerWords→store sync overwrites to `{}` once the chunks are purged). `fillerWords`
+                            // (== sessionMetrics.fillerData) is the canonical nested per-key shape the review
+                            // consumes; `sessionMetrics.fillerCount` is the true-filler headline.
                             useSessionStore.getState().setFinalizedWordCount(wordCount);
+                            useSessionStore.getState().setFinalizedFillerData(fillerWords);
+                            useSessionStore.getState().setFinalizedFillerCount(sessionMetrics.fillerCount);
                             const PAUSE_KEYS = ['totalPauses', 'averagePauseDuration', 'longestPause', 'pausesPerMinute', 'silencePercentage', 'transitionPauses', 'extendedPauses'] as const;
                             const finalPauseMetrics = store.pauseMetrics
                                 ? PAUSE_KEYS.reduce<Record<string, number>>((acc, k) => {

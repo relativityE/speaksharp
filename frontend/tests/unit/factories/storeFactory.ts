@@ -43,6 +43,8 @@ const initialState: SessionState = {
     nativeFormatting: { status: 'idle', startedAt: null },
     finalizedAnalysis: null,
     finalizedWordCount: null,
+    finalizedFillerData: null,
+    finalizedFillerCount: null,
     isBooting: false,
     engineSelectionLocked: false,
     pendingResolutionKind: null,
@@ -173,6 +175,16 @@ export function createTestSessionStore(
         setFinalizedWordCount: vi.fn((finalizedWordCount) =>
             set({
                 finalizedWordCount,
+            })),
+
+        setFinalizedFillerData: vi.fn((finalizedFillerData) =>
+            set({
+                finalizedFillerData,
+            })),
+
+        setFinalizedFillerCount: vi.fn((finalizedFillerCount) =>
+            set({
+                finalizedFillerCount,
             })),
 
         resetSession: vi.fn(() =>

@@ -134,9 +134,13 @@ export interface SessionState {
     nativeFormatting: NativeFormattingUiState;
     /** Post-persistence finalized reconciliation for the settled Session page; null until a save. */
     finalizedAnalysis: FinalizedAnalysisState | null;
-    /** #1306 Option A: the FINAL word count captured at the terminal transition, BEFORE the transcript is
-     *  purged, so the metrics-only review can show the true word count without retaining the transcript. */
+    /** #1306 Option A: the FINAL metric snapshot captured at the terminal transition, BEFORE the transcript is
+     *  purged, so the metrics-only review shows the true word count + filler breakdown WITHOUT recounting or
+     *  retaining the transcript. `finalizedFillerData` is deliberately SEPARATE from the live `fillerData` (which
+     *  the live useFillerWords sync overwrites to `{}` once the chunks are purged). */
     finalizedWordCount: number | null;
+    finalizedFillerData: FillerCounts | null;
+    finalizedFillerCount: number | null;
     isBooting: boolean;
 }
 
@@ -177,6 +181,8 @@ interface SessionActions {
     setNativeFormatting: (formatting: NativeFormattingUiState) => void;
     setFinalizedAnalysis: (analysis: FinalizedAnalysisState | null) => void;
     setFinalizedWordCount: (wordCount: number | null) => void;
+    setFinalizedFillerData: (data: FillerCounts | null) => void;
+    setFinalizedFillerCount: (count: number | null) => void;
     setIsBooting: (isBooting: boolean) => void;
 }
 
@@ -243,6 +249,8 @@ const initialState: SessionState = {
     nativeFormatting: { status: 'idle', startedAt: null },
     finalizedAnalysis: null,
     finalizedWordCount: null,
+    finalizedFillerData: null,
+    finalizedFillerCount: null,
     isBooting: false,
 };
 
@@ -483,6 +491,10 @@ export const useSessionStore = create<SessionStore>((set) => {
         set({ finalizedAnalysis }),
     setFinalizedWordCount: (finalizedWordCount) =>
         set({ finalizedWordCount }),
+    setFinalizedFillerData: (finalizedFillerData) =>
+        set({ finalizedFillerData }),
+    setFinalizedFillerCount: (finalizedFillerCount) =>
+        set({ finalizedFillerCount }),
 
     addChunk: (chunk) =>
         set((state) => ({
