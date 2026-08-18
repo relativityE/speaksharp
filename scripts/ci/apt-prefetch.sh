@@ -62,4 +62,29 @@ if [ "$DEB_COUNT" -lt 1 ]; then
   exit 1
 fi
 ( cd "$BUNDLE/debs" && sha256sum *.deb | sort > ../sha256sums.txt )
-echo "[prefetch] bundle complete: ${DEB_COUNT} .deb files, $(wc -l < "$BUNDLE/sha256sums.txt") checksums"
+
+# ── 7. Build a valid FLAT apt repository index over the .debs, so a shard's apt resolver can compute the
+#       full closure LOCALLY (this is the fix for the earlier file-based `--no-download` "Unable to fetch").
+#       Prefer dpkg-scanpackages (dpkg-dev); fall back to apt-ftparchive (apt-utils) if it is not present. ──
+if command -v dpkg-scanpackages >/dev/null 2>&1; then
+  ( cd "$BUNDLE/debs" && dpkg-scanpackages . /dev/null > Packages )
+elif command -v apt-ftparchive >/dev/null 2>&1; then
+  ( cd "$BUNDLE/debs" && apt-ftparchive packages . > Packages )
+else
+  echo "::error::[prefetch] no local-index tool (dpkg-scanpackages/apt-ftparchive) available"; exit 1
+fi
+PKG_ENTRIES="$(grep -c '^Package:' "$BUNDLE/debs/Packages" || echo 0)"
+[ "$PKG_ENTRIES" -ge 1 ] || { echo "::error::[prefetch] empty local Packages index"; exit 1; }
+
+# ── 8. Freeze the compatibility manifest — a shard MUST run on the same image or fail closed (no fallback). ─
+. /etc/os-release 2>/dev/null || true
+{
+  echo "ImageOS=${ImageOS:-unknown}"
+  echo "ImageVersion=${ImageVersion:-unknown}"
+  echo "VERSION_CODENAME=${VERSION_CODENAME:-unknown}"
+  echo "ARCH=$(dpkg --print-architecture)"
+  echo "PLAYWRIGHT_VERSION=$(pnpm exec playwright --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+} > "$BUNDLE/image.manifest"
+
+echo "[prefetch] bundle complete: ${DEB_COUNT} .deb files, $(wc -l < "$BUNDLE/sha256sums.txt") checksums, ${PKG_ENTRIES} Packages entries"
+echo "[prefetch] image manifest:"; sed 's/^/[prefetch]   /' "$BUNDLE/image.manifest"

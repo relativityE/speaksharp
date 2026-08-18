@@ -75,22 +75,40 @@ describe('prefetch script: retry ONLY around --download-only; never dpkg install
   it('derives the Playwright manifest from install-deps --dry-run (not a stale hard-coded list)', () => {
     expect(prefetch).toContain('playwright install-deps chromium --dry-run');
   });
-  it('uses --download-only and bounds each attempt with timeout', () => {
+  it('uses --download-only, bounds each attempt with timeout, and the ONLY retry is the download-only phase', () => {
     expect(prefetch).toContain('--download-only');
     expect(prefetch).toMatch(/timeout -k 30 300/);
+    // the retry helper wraps download-only exclusively
+    expect(prefetch).toMatch(/download_only\(\)\s*\{[^}]*--download-only/);
   });
   it('never runs a dpkg install/configure in the prep phase', () => {
     expect(prefetch).not.toMatch(/dpkg\s+-i|dpkg\s+--configure|apt-get install(?!.*--download-only)/);
   });
+  it('builds a local flat apt repository index (dpkg-scanpackages -> Packages) and an image manifest', () => {
+    expect(prefetch).toContain('dpkg-scanpackages');
+    expect(prefetch).toContain('Packages');
+    expect(prefetch).toContain('image.manifest');
+    expect(prefetch).toMatch(/ImageOS|ImageVersion/);
+  });
 });
 
-describe('offline install: network-disabled, checksum-verified, no retry/repair (#1311)', () => {
-  it('installs with downloads DISABLED (--no-download) and never runs apt-get update / a mirror fetch', () => {
-    expect(offline).toContain('--no-download');
-    expect(offline).not.toContain('apt-get update');
-    expect(offline).not.toContain('--download-only');
+describe('local-repository install: file:-only, image/checksum gated, no retry/repair (#1311)', () => {
+  it('resolves via apt against a LOCAL flat file: repository (not raw --no-download file install)', () => {
+    expect(offline).toMatch(/deb \[trusted=yes\] file:\/\//);
+    expect(offline).toContain('Dir::Etc::sourcelist');
+    expect(offline).toContain('Dir::Etc::sourceparts');
+    expect(offline).toContain('apt-get');
+    expect(offline).toMatch(/-o "?Dir::Etc::sourceparts=\/dev\/null/);
   });
-  it('verifies SHA-256 and fails closed on any invalid/missing input', () => {
+  it('enforces network isolation: fails on any http/https or Azure/archive mirror in source or apt output', () => {
+    expect(offline).toContain('https?://');
+    expect(offline).toContain('archive.ubuntu.com');
+    expect(offline).toContain('NETWORK ISOLATION VIOLATED');
+    // must NOT use Debug::NoLocking as a network-isolation proof
+    expect(offline).not.toContain('Debug::NoLocking');
+  });
+  it('fails closed on image mismatch, missing packages/manifest, or checksum mismatch', () => {
+    expect(offline).toMatch(/image mismatch/i);
     expect(offline).toContain('sha256sum -c');
     expect(offline).toMatch(/::error::/);
     expect(offline).toMatch(/exit 1/);
