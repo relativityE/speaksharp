@@ -32,7 +32,6 @@ jobs:
   scope:
     name: scope
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # #1306 CI-HARDENING step 3: fail-fast backstop vs GitHub's 6h default (step-level timeouts in setup-environment catch real hangs much sooner)
     outputs:
       full_required: ${{ steps.classify.outputs.full_required }}
       docs_only: ${{ steps.classify.outputs.docs_only }}
@@ -68,7 +67,6 @@ jobs:
     needs: scope
     if: needs.scope.outputs.full_required != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # #1306 CI-HARDENING step 3: fail-fast backstop vs GitHub's 6h default (step-level timeouts in setup-environment catch real hangs much sooner)
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -192,9 +190,15 @@ jobs:
     needs: scope
     if: always() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # #1306 CI-HARDENING step 3: fail-fast backstop vs GitHub's 6h default (step-level timeouts in setup-environment catch real hangs much sooner)
+    # #1311 job-level backstop: bounds a stalled setup phase well above the 300s apt timeout but far
+    # below GitHub's 6h default, so a hang fast-fails instead of zombie-running.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
+      # #1311 controlled-contention experiment: cap concurrent shards to test whether the apt stalls are
+      # self-inflicted mirror contention. One green 2-wide run STRENGTHENS but does not PROVE the theory
+      # (the rebased #1309 exact-head CI is the second, real-world validation).
+      max-parallel: 2
       matrix:
         shard: [1, 2, 3, 4]
     steps:
@@ -230,7 +234,6 @@ jobs:
     needs: [scope, unit-shard]
     if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # #1306 CI-HARDENING step 3: fail-fast backstop vs GitHub's 6h default (step-level timeouts in setup-environment catch real hangs much sooner)
     steps:
       - name: Require Upstream Success
         env:
@@ -284,7 +287,6 @@ jobs:
     needs: scope
     if: needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # #1306 CI-HARDENING step 3: fail-fast backstop vs GitHub's 6h default (step-level timeouts in setup-environment catch real hangs much sooner)
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -307,7 +309,6 @@ jobs:
     needs: scope
     if: needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # #1306 CI-HARDENING step 3: fail-fast backstop vs GitHub's 6h default (step-level timeouts in setup-environment catch real hangs much sooner)
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -338,7 +339,6 @@ jobs:
     needs: [scope, e2e]
     if: always() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # #1306 CI-HARDENING step 3: fail-fast backstop vs GitHub's 6h default (step-level timeouts in setup-environment catch real hangs much sooner)
     steps:
       - name: Download Health Check Report
         uses: actions/download-artifact@v7
@@ -362,9 +362,12 @@ jobs:
     needs: [scope, build]
     if: success() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # #1306 CI-HARDENING step 3: fail-fast backstop vs GitHub's 6h default (step-level timeouts in setup-environment catch real hangs much sooner)
+    # #1311 job-level backstop (see unit-shard).
+    timeout-minutes: 20
     strategy:
       fail-fast: false
+      # #1311 controlled-contention experiment (see unit-shard).
+      max-parallel: 2
       matrix:
         shard: [1, 2, 3, 4]
     steps:
@@ -450,7 +453,6 @@ jobs:
     needs: [scope, build]
     if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # #1306 CI-HARDENING step 3: fail-fast backstop vs GitHub's 6h default (step-level timeouts in setup-environment catch real hangs much sooner)
     continue-on-error: true
     steps:
       - name: Checkout Code
@@ -498,7 +500,6 @@ jobs:
     needs: [scope, unit-coverage-merge, edge-tests, build, health-check, e2e, lighthouse-advisory]
     if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # #1306 CI-HARDENING step 3: fail-fast backstop vs GitHub's 6h default (step-level timeouts in setup-environment catch real hangs much sooner)
     steps:
       # Fail BEFORE expensive setup/aggregation when required upstream work already failed.
       - name: Require Upstream Success
@@ -655,7 +656,6 @@ jobs:
     needs: [scope, draft-checks, unit-coverage-merge, edge-tests, build, health-check, e2e, full-evidence]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
-    timeout-minutes: 25  # #1306 CI-HARDENING step 3: fail-fast backstop vs GitHub's 6h default (step-level timeouts in setup-environment catch real hangs much sooner)
     steps:
       - name: Enforce Selected Lane
         env:

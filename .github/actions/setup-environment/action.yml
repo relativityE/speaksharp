@@ -32,27 +32,6 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    # #1306 CI-HARDENING (root fix) — MUST be the FIRST step, before ANY apt call.
-    # unit-shard-3 (install-playwright:false) stalled ~6h on the Canvas/Sharp `apt-get`, with no Playwright
-    # involved — proving the defect is UN-TIMED `apt` in setup, not a Playwright problem. A per-step timeout
-    # wrapper would have missed that step entirely. A global apt.conf drop-in bounds EVERY apt invocation
-    # (Canvas/Sharp AND Playwright) in one place, natively, with NO SIGKILL — killing apt mid-transaction
-    # corrupts dpkg (-> `exit 100`). Trigger unidentified (one Azure-mirror `Ign:` is a thin reed); exposure
-    # removed regardless. `http[s]::Timeout 30` caps a stalled fetch; `Retries 3` re-attempts; `DPkg::Lock::
-    # Timeout 120` waits instead of failing if a boot-time upgrader still holds the lock. The job-level
-    # `timeout-minutes` (ci.yml) stays as the outer backstop for a stalled TCP socket that ignores the timeout.
-    - name: Bound apt network operations (global, pre-apt)
-      if: runner.os == 'Linux'
-      shell: bash
-      run: |
-        sudo tee /etc/apt/apt.conf.d/99ci-timeouts >/dev/null <<'EOF'
-        Acquire::http::Timeout "30";
-        Acquire::https::Timeout "30";
-        Acquire::Retries "3";
-        DPkg::Lock::Timeout "120";
-        EOF
-        echo "apt bounded (pre-apt): http/https timeout=30s, retries=3, dpkg lock wait=120s"
-
     - name: Setup Node.js
       uses: actions/setup-node@v6
       with:
@@ -80,6 +59,7 @@ runs:
         echo "store=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
     - name: Cache pnpm store
+      id: pnpm-cache
       uses: actions/cache@v4
       with:
         path: ${{ steps.pnpm.outputs.store }}
@@ -89,28 +69,38 @@ runs:
         restore-keys: |
           ${{ runner.os }}-pnpm-${{ steps.pnpm.outputs.version }}-
 
+    # #1311 Option A (bounded diagnostic head). BOTH observed apt hang paths — Canvas/Sharp native deps
+    # and Playwright `install-deps` — get a bounded, FAIL-CLOSED timeout. Safety contract (per PM
+    # authorization): Linux GitHub-hosted runner only; if the deadline expires the command may be
+    # terminated MID-INSTALL, so the step fails the job immediately — NO retry, NO `dpkg --configure -a`,
+    # NO further apt/dpkg on this disposable runner; the runner is discarded. A timeout (rc 124/137) is
+    # reported DISTINCTLY from a genuine apt/dpkg exit. We do NOT assert which apt sub-phase was killed.
+    # GNU `timeout` is Linux-only; every timeout-wrapped step here is `runner.os == 'Linux'`-gated so the
+    # macOS / self-hosted benchmark paths (#1304) never inherit it.
     - name: Install System Dependencies (Canvas/Sharp)
       if: runner.os == 'Linux' && inputs.install-native-deps == 'true'
       shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
-          build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+        echo "[phase] canvas-sharp-apt START $(date -u +%H:%M:%S)"
+        set +e
+        sudo timeout -k 30 300 bash -c 'apt-get update && apt-get install -y --no-install-recommends build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev'
+        rc=$?
+        echo "[phase] canvas-sharp-apt END rc=$rc $(date -u +%H:%M:%S)"
+        if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+          echo "::error::Canvas/Sharp apt hit the 300s deadline and was terminated (rc=$rc = TIMEOUT/CANCEL, not a genuine apt/dpkg exit). Failing job; runner discarded; no retry/repair."
+        elif [ "$rc" != 0 ]; then
+          echo "::error::Canvas/Sharp apt failed with a genuine apt/dpkg exit (rc=$rc)."
+        fi
+        exit $rc
 
-    # #1306 CI-HARDENING step 2: every fragile NETWORK step gets a step-level timeout INSIDE a bounded retry.
-    # A stalled socket (npm registry, apt mirror, Playwright CDN) is killed at 5m and retried on a fresh
-    # connection instead of hanging the whole job (previously → GitHub's 6h default). Bash `timeout` + loop
-    # keeps this self-contained (no new third-party action). The trailing `[ $n -lt 3 ]` fails the step if all
-    # attempts are exhausted.
     - name: Install Dependencies
       if: inputs.install-dependencies == 'true'
       shell: bash
       run: |
-        n=0; until [ "$n" -ge 3 ]; do
-          timeout 300 pnpm install --frozen-lockfile --prefer-offline && break
-          n=$((n+1)); echo "::warning::pnpm install attempt $n failed/timed out; retrying"; sleep 5
-        done
-        [ "$n" -lt 3 ]
+        echo "[cache] pnpm-store cache-hit=${{ steps.pnpm-cache.outputs.cache-hit }}"
+        echo "[phase] pnpm-install START $(date -u +%H:%M:%S)"
+        pnpm install --frozen-lockfile --prefer-offline
+        echo "[phase] pnpm-install END $(date -u +%H:%M:%S)"
 
     - name: Remove Problematic Package Repositories
       if: inputs.install-playwright == 'true'
@@ -121,43 +111,33 @@ runs:
         sudo rm -f /etc/apt/sources.list.d/azure-cli.list
         echo "Removed problematic Microsoft package repositories"
 
-    # #1306 CI-HARDENING step 4: cache the Playwright browser binaries. `actions/cache` only cached the pnpm
-    # store, so EVERY e2e shard re-downloaded Chromium every run. Cache it keyed on the resolved Playwright
-    # version; the browser-download step below then skips on a cache hit (speed win — NOT the hang fix).
-    - name: Resolve Playwright version
-      id: pw
-      if: inputs.install-playwright == 'true'
-      shell: bash
-      run: echo "version=$(pnpm exec playwright --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" >> "$GITHUB_OUTPUT"
-
-    - name: Cache Playwright browsers
-      id: pw-cache
-      if: inputs.install-playwright == 'true'
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/ms-playwright
-        key: ${{ runner.os }}-ms-playwright-${{ steps.pw.outputs.version }}
-
-    # #1306 CI-HARDENING step 1: split `playwright install --with-deps chromium` into its TWO operations —
-    # OS-library apt install (`install-deps`) and browser-binary download (`install`) — so a future hang
-    # NAMES ITSELF (apt vs CDN) instead of hiding inside one merged command.
-    # This apt half is NOT timeout-wrapped: apt is bounded natively by the pre-apt `99ci-timeouts` drop-in,
-    # and a `timeout ... kill` here would SIGKILL apt mid-transaction and corrupt dpkg (CI-proven `exit 100`).
-    # The CDN half below IS timeout+retry-wrapped — a browser download is safe to kill and restart.
+    # #1311 step-1 split: `install --with-deps` is separated into its apt half (bounded, below) and its
+    # CDN browser-binary half (plain, further below) so a future hang NAMES ITSELF (apt vs CDN).
     - name: Install Playwright system deps (apt)
-      if: inputs.install-playwright == 'true'
-      shell: bash
-      run: pnpm exec playwright install-deps chromium
-
-    - name: Install Playwright browser (chromium)
-      if: inputs.install-playwright == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
+      if: runner.os == 'Linux' && inputs.install-playwright == 'true'
       shell: bash
       run: |
-        n=0; until [ "$n" -ge 3 ]; do
-          timeout 300 pnpm exec playwright install chromium && break
-          n=$((n+1)); echo "::warning::playwright install chromium attempt $n failed/timed out; retrying"; sleep 5
-        done
-        [ "$n" -lt 3 ]
+        echo "[phase] playwright-install-deps START $(date -u +%H:%M:%S)"
+        set +e
+        timeout -k 30 300 pnpm exec playwright install-deps chromium
+        rc=$?
+        echo "[phase] playwright-install-deps END rc=$rc $(date -u +%H:%M:%S)"
+        if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+          echo "::error::Playwright install-deps hit the 300s deadline and was terminated (rc=$rc = TIMEOUT/CANCEL, not a genuine apt/dpkg exit). Failing job; runner discarded; no retry/repair."
+        elif [ "$rc" != 0 ]; then
+          echo "::error::Playwright install-deps failed with a genuine apt/dpkg exit (rc=$rc)."
+        fi
+        exit $rc
+
+    - name: Install Playwright browser (chromium)
+      if: inputs.install-playwright == 'true'
+      shell: bash
+      run: |
+        # CDN binary download (not apt). Plain call — no retry/cache in this diagnostic head; the
+        # job-level timeout-minutes is the outer backstop if the CDN itself stalls.
+        echo "[phase] playwright-browser START $(date -u +%H:%M:%S)"
+        pnpm exec playwright install chromium
+        echo "[phase] playwright-browser END $(date -u +%H:%M:%S)"
 
     - name: Setup Supabase CLI
       if: inputs.install-supabase-cli == 'true'
