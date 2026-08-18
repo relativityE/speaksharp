@@ -48,21 +48,36 @@ LOG="$BUNDLE_ABS/apt-local.log"
 : > "$LOG"
 sudo apt-get "${OPTS[@]}" update 2>&1 | tee -a "$LOG"
 
-# ── 5. Pre-install PROOF (fail closed): the dedicated lists dir holds a non-empty index generated from the
-#       file: repo, AND every frozen package has a candidate under the SAME isolated configuration. ────────
+# ── 5. Pre-install PROOF (fail closed), ALL under the SAME isolated local-only apt configuration:
+#       (a) the dedicated lists dir holds a non-empty index generated from the file: repo;
+#       (b) every IMAGE-SATISFIED token is installed with the EXACT recorded name/arch/version;
+#       (c) a candidate is required ONLY for BUNDLED tokens (image-satisfied ones are not);
+#       (d) OUTCOME check — apt --simulate resolves the COMPLETE frozen manifest with zero network. ────────
 if ! find "$LISTS" -maxdepth 1 -type f -name '*Packages*' ! -empty | grep -q .; then
   echo "::error::[offline] local file: repository did not load — no non-empty index in the dedicated lists dir"; exit 1
 fi
+# (b) image-satisfied entries must match the prep image EXACTLY (name + arch + version)
+if [ -f "$BUNDLE/preinstalled.manifest" ]; then
+  while read -r name arch ver; do
+    [ -n "$name" ] || continue
+    cur="$(dpkg-query -W -f='${Package} ${Architecture} ${Version}' "$name" 2>/dev/null || true)"
+    [ "$cur" = "$name $arch $ver" ] \
+      || { echo "::error::[offline] image-satisfied '$name' mismatch (want '$name $arch $ver', have '${cur:-<absent>}') — fail closed"; exit 1; }
+  done < "$BUNDLE/preinstalled.manifest"
+fi
 PKGS="$(tr '\n' ' ' < "$BUNDLE/$MANIFEST.manifest")"
+# (c) candidate required ONLY for bundled tokens (those present as a stanza in the local index)
 for p in $PKGS; do
+  grep -q "^Package: ${p}$" "$DEBS_ABS/Packages" || continue   # image-satisfied token -> not required to have a candidate
   cand="$(sudo apt-cache "${OPTS[@]}" policy "$p" 2>/dev/null | sed -n 's/^  Candidate: //p')"
-  if [ -z "$cand" ] || [ "$cand" = "(none)" ]; then
-    echo "::error::[offline] no candidate for frozen package '$p' under the isolated local repo — fail closed"; exit 1
-  fi
+  [ -n "$cand" ] && [ "$cand" != "(none)" ] \
+    || { echo "::error::[offline] bundled package '$p' has no local candidate — fail closed"; exit 1; }
 done
-echo "[offline] local file: repo loaded; candidates present for $(echo $PKGS | wc -w) frozen packages"
+# (d) resolve the COMPLETE manifest through apt's own resolver, local-only, no network
+echo "[offline] simulating full '$MANIFEST' transaction under the isolated local repo"
+sudo apt-get "${OPTS[@]}" --no-install-recommends -y --simulate install $PKGS 2>&1 | tee -a "$LOG"
 
-# ── 6. Install the frozen names through the SAME isolated local configuration ─────────────────────────────
+# ── 6. Real install through the SAME isolated local configuration (reached ONLY if the simulation resolved) ─
 echo "[offline] installing '$MANIFEST' via local repo: $(echo $PKGS | wc -w) frozen packages"
 sudo apt-get "${OPTS[@]}" --no-install-recommends -y install $PKGS 2>&1 | tee -a "$LOG"
 

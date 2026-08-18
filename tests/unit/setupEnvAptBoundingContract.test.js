@@ -90,11 +90,12 @@ describe('prefetch script: retry ONLY around --download-only; never dpkg install
     expect(prefetch).toContain('image.manifest');
     expect(prefetch).toMatch(/ImageOS|ImageVersion/);
   });
-  it('validates the index fail-closed: one stanza per .deb, every frozen package present, every Filename resolves', () => {
-    expect(prefetch).toMatch(/stanzas.*!=.*\.deb count|!= "\$DEB_COUNT"|= "\$DEB_COUNT"/);
-    expect(prefetch).toMatch(/Package: \$\{p\}\$/);
-    expect(prefetch).toMatch(/Filename:/);
-    expect(prefetch).toMatch(/does not resolve|missing from local index/);
+  it('validates the index and CLASSIFIES each frozen token as bundled or image-satisfied (dpkg), else fails', () => {
+    expect(prefetch).toMatch(/= "\$DEB_COUNT"/);              // one stanza per .deb
+    expect(prefetch).toMatch(/Filename:/);                    // every Filename resolves
+    expect(prefetch).toContain('preinstalled.manifest');      // image-satisfied recorded (name/arch/version)
+    expect(prefetch).toContain('dpkg-query -W');              // classification via dpkg, not shell grep of Provides
+    expect(prefetch).toMatch(/neither bundled nor image-satisfied/);
   });
 });
 
@@ -112,10 +113,14 @@ describe('local-repository install: file:-only, image/checksum gated, no retry/r
     expect(offline).not.toMatch(/Dir::Etc::sourceparts=\/dev\/null/); // must be a dedicated dir, not /dev/null
     expect(offline).toMatch(/mkdir -p "\$SRCPARTS" "\$LISTS/); // dedicated empty dirs (+ partial child)
   });
-  it('proves the file: repo loaded and every frozen package has a candidate BEFORE install (fail closed)', () => {
-    expect(offline).toMatch(/apt-cache .*policy/);
-    expect(offline).toMatch(/no candidate for frozen package/);
-    expect(offline).toMatch(/did not load|non-empty index/);
+  it('validates the OUTCOME before install: repo loaded, image-satisfied exact match, candidates only for bundled, apt --simulate resolves', () => {
+    expect(offline).toMatch(/did not load|non-empty index/);       // (a) local repo actually loaded
+    expect(offline).toContain('preinstalled.manifest');            // (b) image-satisfied verified...
+    expect(offline).toContain('dpkg-query -W');
+    expect(offline).toMatch(/image-satisfied .*mismatch/);         //     ...exact name/arch/version
+    expect(offline).toMatch(/apt-cache .*policy/);                 // (c) candidate for bundled tokens
+    expect(offline).toMatch(/no local candidate/);
+    expect(offline).toContain('--simulate');                       // (d) apt's own resolver decides the outcome
   });
   it('enforces network isolation: fails on any http/https or Azure/archive mirror in source or apt output', () => {
     expect(offline).toContain('https?://');
