@@ -3,82 +3,128 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import yaml from 'js-yaml';
 
-// #1311 Option A regression contract. Two independent apt paths in the shared setup action stalled for up
-// to 6h (Canvas/Sharp native deps in unit shards; Playwright `install-deps` in e2e shards). The authorized
-// fix is a bounded, FAIL-CLOSED timeout on BOTH apt phases — terminate at the deadline and fail the job
-// immediately, with NO retry/repair/further apt on the disposable runner — plus a controlled-contention
-// throttle and a job-level backstop. This test freezes that contract so a future edit cannot silently
-// reintroduce an unbounded apt phase, an apt retry-after-kill, or drop the throttle/backstop.
+// #1311 contract. TWO layers are frozen here:
+//  (A) the bounded, FAIL-CLOSED network apt steps (used only as the fallback when apt-bundle != 'true'), and
+//  (B) the prefetch experiment: download the COMPLETE apt bundle ONCE (retry only the safe download-only
+//      phase), then install on every shard OFFLINE with mirror downloads disabled, at restored 4-wide.
+// This test makes a future edit unable to silently reintroduce an unbounded apt phase, an apt retry-after-
+// kill, a shard mirror call, a broad cache restore-key, or a non-fail-closed bundle install.
 const root = process.cwd();
-const actionText = readFileSync(
-  resolve(root, '.github/actions/setup-environment/action.yml'),
-  'utf8',
-);
+const readText = (p) => readFileSync(resolve(root, p), 'utf8');
+const actionText = readText('.github/actions/setup-environment/action.yml');
 const actionDoc = yaml.load(actionText);
 const steps = actionDoc.runs.steps;
 const stepByName = (name) => steps.find((s) => s.name === name);
+const ci = yaml.load(readText('.github/workflows/ci.yml'));
+const prefetch = readText('scripts/ci/apt-prefetch.sh');
+const offline = readText('scripts/ci/apt-install-offline.sh');
 
+// ── (A) retained bounded, fail-closed NETWORK apt fallback ───────────────────────────────────────────────
 const APT_STEPS = [
   'Install System Dependencies (Canvas/Sharp)',
   'Install Playwright system deps (apt)',
 ];
-
 describe.each(APT_STEPS)(
-  'setup-environment apt step "%s": bounded + fail-closed (#1311 Option A)',
+  'network apt fallback "%s": bounded, fail-closed, bundle-gated (#1311)',
   (name) => {
     const step = stepByName(name);
-
-    it('exists and is Linux-gated (GNU timeout is Linux-only; macOS/self-hosted must not inherit it)', () => {
-      expect(step, `missing apt step: ${name}`).toBeTruthy();
+    it('is Linux-gated and SKIPS when the prefetch bundle is used (apt-bundle == true)', () => {
+      expect(step).toBeTruthy();
       expect(step.if).toContain("runner.os == 'Linux'");
+      expect(step.if).toContain("inputs.apt-bundle != 'true'");
     });
-
-    it('wraps the apt invocation in a bounded `timeout`', () => {
+    it('wraps apt in a bounded `timeout`, fail-closed, distinct 124/137, no retry loop, no dpkg repair', () => {
       expect(step.run).toMatch(/timeout(\s+-k\s+\d+)?\s+\d+\b/);
-    });
-
-    it('is FAIL-CLOSED: no retry loop, no dpkg repair, and it propagates the exit code', () => {
-      // No bash retry loop around apt (the pre-#1311 `until ... && break` / `for i in` pattern).
-      expect(step.run).not.toMatch(/\buntil\b|\bfor\s+i\b|&&\s*break/);
-      // No self-repair on a killed/corrupted dpkg on this runner.
-      expect(step.run).not.toMatch(/dpkg\s+--configure/);
-      // The step must exit with the command's status (fail the job), not swallow it.
       expect(step.run).toMatch(/exit\s+\$rc/);
-    });
-
-    it('reports a timeout (rc 124/137) distinctly from a genuine apt/dpkg exit', () => {
       expect(step.run).toMatch(/124/);
       expect(step.run).toMatch(/137/);
-      expect(step.run).toMatch(/::error::/);
+      expect(step.run).not.toMatch(/\buntil\b|\bfor\s+i\b|&&\s*break/);
+      expect(step.run).not.toMatch(/dpkg\s+--configure/);
     });
   },
 );
 
-describe('setup-environment: split + diagnostic timeline (#1311 Option A)', () => {
-  it('the combined `install --with-deps` is gone (split so a hang names itself: apt vs CDN)', () => {
-    expect(actionText).not.toContain('playwright install --with-deps');
-    // The CDN browser download is a separate, plainly-named step.
-    expect(stepByName('Install Playwright browser (chromium)')).toBeTruthy();
+// ── (B) prefetch experiment ──────────────────────────────────────────────────────────────────────────────
+describe('prefetch: deps-prep job downloads the bundle once (#1311)', () => {
+  const job = ci.jobs['deps-prep'];
+  it('exists and both shard families depend on it', () => {
+    expect(job).toBeTruthy();
+    expect(ci.jobs['unit-shard'].needs).toContain('deps-prep');
+    expect(ci.jobs['e2e'].needs).toContain('deps-prep');
   });
-
-  it('emits per-phase timestamp markers and pnpm cache hit/miss', () => {
-    expect(actionText).toContain('[phase]');
-    expect(actionText).toContain('cache-hit=');
+  it('cache key is EXACT with NO broad restore-key', () => {
+    const cacheStep = job.steps.find(
+      (s) => s.id === 'apt-bundle-cache' || (s.uses || '').includes('actions/cache'),
+    );
+    expect(cacheStep).toBeTruthy();
+    expect(cacheStep.with.key).toMatch(/noble/); // Ubuntu release pinned into the key
+    expect(cacheStep.with.key).toContain('runner.arch');
+    expect(cacheStep.with['restore-keys']).toBeUndefined();
+  });
+  it('uploads the bundle fail-closed (error if empty)', () => {
+    const up = job.steps.find((s) => (s.uses || '').includes('upload-artifact'));
+    expect(up.with['if-no-files-found']).toBe('error');
   });
 });
 
-const ci = yaml.load(
-  readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8'),
-);
+describe('prefetch script: retry ONLY around --download-only; never dpkg install (#1311)', () => {
+  it('pins away from the Azure primary to the standard archive', () => {
+    expect(prefetch).toContain('archive.ubuntu.com');
+    expect(prefetch).toMatch(/azure\.archive\.ubuntu\.com/); // the source it replaces
+  });
+  it('derives the Playwright manifest from install-deps --dry-run (not a stale hard-coded list)', () => {
+    expect(prefetch).toContain('playwright install-deps chromium --dry-run');
+  });
+  it('uses --download-only and bounds each attempt with timeout', () => {
+    expect(prefetch).toContain('--download-only');
+    expect(prefetch).toMatch(/timeout -k 30 300/);
+  });
+  it('never runs a dpkg install/configure in the prep phase', () => {
+    expect(prefetch).not.toMatch(/dpkg\s+-i|dpkg\s+--configure|apt-get install(?!.*--download-only)/);
+  });
+});
+
+describe('offline install: network-disabled, checksum-verified, no retry/repair (#1311)', () => {
+  it('installs with downloads DISABLED (--no-download) and never runs apt-get update / a mirror fetch', () => {
+    expect(offline).toContain('--no-download');
+    expect(offline).not.toContain('apt-get update');
+    expect(offline).not.toContain('--download-only');
+  });
+  it('verifies SHA-256 and fails closed on any invalid/missing input', () => {
+    expect(offline).toContain('sha256sum -c');
+    expect(offline).toMatch(/::error::/);
+    expect(offline).toMatch(/exit 1/);
+  });
+  it('never calls playwright install-deps, never retries, never repairs dpkg, never wraps install in timeout', () => {
+    expect(offline).not.toContain('playwright install-deps');
+    expect(offline).not.toMatch(/\buntil\b|\bfor\s+i\b|&&\s*break/);
+    expect(offline).not.toMatch(/dpkg\s+--configure/);
+    expect(offline).not.toMatch(/timeout\s+-k/);
+  });
+});
+
+describe('shards consume the bundle offline (#1311)', () => {
+  it('the action skips the network apt steps and runs the offline install under apt-bundle', () => {
+    expect(stepByName('Install apt deps from bundle (offline, no mirror)')).toBeTruthy();
+    expect(actionText).toContain('scripts/ci/apt-install-offline.sh');
+  });
+  it('unit shards request the canvas-sharp bundle; e2e shards request the playwright bundle', () => {
+    const unitSetup = ci.jobs['unit-shard'].steps.find((s) => s.name === 'Setup Environment');
+    const e2eSetup = ci.jobs['e2e'].steps.find((s) => s.name === 'Setup Environment');
+    expect(unitSetup.with['apt-bundle']).toBe('true');
+    expect(unitSetup.with['apt-bundle-manifest']).toBe('canvas-sharp');
+    expect(e2eSetup.with['apt-bundle']).toBe('true');
+    expect(e2eSetup.with['apt-bundle-manifest']).toBe('playwright');
+  });
+});
 
 describe.each(['unit-shard', 'e2e'])(
-  'ci.yml "%s": 4-wide default concurrency + job backstop (#1311)',
+  'ci.yml "%s": 4-wide default concurrency + job backstop retained (#1311)',
   (job) => {
-    it('has NO max-parallel throttle (restored 4-wide/default; the 2-wide trial was dropped as an unproven, permanent cost)', () => {
+    it('has NO max-parallel throttle (restored 4-wide/default)', () => {
       expect(ci.jobs[job].strategy['max-parallel']).toBeUndefined();
     });
-
-    it('keeps a job-level timeout-minutes backstop (the outer containment bound)', () => {
+    it('keeps a job-level timeout-minutes backstop', () => {
       expect(typeof ci.jobs[job]['timeout-minutes']).toBe('number');
     });
   },

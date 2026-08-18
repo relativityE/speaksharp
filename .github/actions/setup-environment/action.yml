@@ -29,6 +29,18 @@ inputs:
     description: 'Install the Supabase CLI. Only needed by jobs that actually invoke `supabase`.'
     required: false
     default: 'false'
+  apt-bundle:
+    description: '#1311 prefetch: install apt deps OFFLINE from the deps-prep bundle (no mirror), replacing the network Canvas/Sharp + Playwright install-deps steps.'
+    required: false
+    default: 'false'
+  apt-bundle-manifest:
+    description: 'Which manifest to install offline when apt-bundle=true: canvas-sharp | playwright.'
+    required: false
+    default: 'canvas-sharp'
+  apt-bundle-artifact:
+    description: 'Name of the same-run artifact holding the prefetched .deb bundle.'
+    required: false
+    default: 'apt-deps-bundle'
 runs:
   using: 'composite'
   steps:
@@ -69,16 +81,29 @@ runs:
         restore-keys: |
           ${{ runner.os }}-pnpm-${{ steps.pnpm.outputs.version }}-
 
-    # #1311 Option A (bounded diagnostic head). BOTH observed apt hang paths — Canvas/Sharp native deps
-    # and Playwright `install-deps` — get a bounded, FAIL-CLOSED timeout. Safety contract (per PM
-    # authorization): Linux GitHub-hosted runner only; if the deadline expires the command may be
-    # terminated MID-INSTALL, so the step fails the job immediately — NO retry, NO `dpkg --configure -a`,
-    # NO further apt/dpkg on this disposable runner; the runner is discarded. A timeout (rc 124/137) is
-    # reported DISTINCTLY from a genuine apt/dpkg exit. We do NOT assert which apt sub-phase was killed.
-    # GNU `timeout` is Linux-only; every timeout-wrapped step here is `runner.os == 'Linux'`-gated so the
-    # macOS / self-hosted benchmark paths (#1304) never inherit it.
+    # #1311 prefetch experiment: install apt deps OFFLINE from the deps-prep bundle (checksum-verified,
+    # network-disabled), replacing the network apt steps below. Runs BEFORE `pnpm install` so native
+    # modules (canvas) build against the installed libs. Fail-closed on any missing/invalid bundle input.
+    - name: Download prefetched apt bundle
+      if: runner.os == 'Linux' && inputs.apt-bundle == 'true'
+      uses: actions/download-artifact@v7
+      with:
+        name: ${{ inputs.apt-bundle-artifact }}
+        path: apt-bundle
+    - name: Install apt deps from bundle (offline, no mirror)
+      if: runner.os == 'Linux' && inputs.apt-bundle == 'true'
+      shell: bash
+      run: bash scripts/ci/apt-install-offline.sh apt-bundle "${{ inputs.apt-bundle-manifest }}"
+
+    # #1311 Option A (bounded diagnostic head) — NETWORK apt fallback, used only when apt-bundle != 'true'.
+    # BOTH observed apt hang paths — Canvas/Sharp native deps and Playwright `install-deps` — get a bounded,
+    # FAIL-CLOSED timeout. Safety contract: Linux GitHub-hosted runner only; if the deadline expires the
+    # command may be terminated MID-INSTALL, so the step fails the job immediately — NO retry, NO
+    # `dpkg --configure -a`, NO further apt/dpkg on this disposable runner; the runner is discarded. A
+    # timeout (rc 124/137) is reported DISTINCTLY from a genuine apt/dpkg exit. GNU `timeout` is Linux-only;
+    # every timeout-wrapped step here is `runner.os == 'Linux'`-gated so macOS/self-hosted (#1304) never inherit it.
     - name: Install System Dependencies (Canvas/Sharp)
-      if: runner.os == 'Linux' && inputs.install-native-deps == 'true'
+      if: runner.os == 'Linux' && inputs.install-native-deps == 'true' && inputs.apt-bundle != 'true'
       shell: bash
       run: |
         echo "[phase] canvas-sharp-apt START $(date -u +%H:%M:%S)"
@@ -114,7 +139,7 @@ runs:
     # #1311 step-1 split: `install --with-deps` is separated into its apt half (bounded, below) and its
     # CDN browser-binary half (plain, further below) so a future hang NAMES ITSELF (apt vs CDN).
     - name: Install Playwright system deps (apt)
-      if: runner.os == 'Linux' && inputs.install-playwright == 'true'
+      if: runner.os == 'Linux' && inputs.install-playwright == 'true' && inputs.apt-bundle != 'true'
       shell: bash
       run: |
         echo "[phase] playwright-install-deps START $(date -u +%H:%M:%S)"
