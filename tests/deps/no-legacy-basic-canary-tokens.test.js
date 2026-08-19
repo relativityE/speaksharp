@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve, extname } from 'node:path';
+// #1258 A1/A5: the retired Basic credential names are ASSEMBLED FROM FRAGMENTS so this guard stays
+// effective without the tree containing the forbidden literal anywhere (a repo-wide search returns zero).
+import { RETIRED_BASIC_CREDENTIAL_SECRETS, RETIRED_CANARY_SECRETS } from '../../scripts/retired-secret-names.mjs';
 
-// #1294 fail-closed guard: SpeakSharp has no Basic product and the ambiguous CANARY_PASSWORD secret is
+const BASIC_CRED_ALT = RETIRED_BASIC_CREDENTIAL_SECRETS.join('|');
+const [RETIRED_CANARY_PW] = RETIRED_CANARY_SECRETS;
+
+// #1294 fail-closed guard: SpeakSharp has no Basic product and the ambiguous single canary-password secret is
 // retired. This prevents any of the retired credential/secret/tier/input names — or a Stripe Basic price —
 // from returning to ACTIVE source, workflows, config, tests, or current documentation. Immutable pinned
 // archive/evidence provenance is intentionally excluded; nothing active may depend on it.
@@ -28,13 +34,13 @@ const SCANNED_ROOTS = ['.github', 'scripts', 'tests', 'frontend/src', 'frontend/
 const ROOT_FILES = ['.env.test.example', 'AGENTS.md', 'playwright.canary.config.ts', 'playwright.config.ts', 'package.json'];
 
 // Retired Basic credential/price/input/Secret/Variable identifiers (SpeakSharp has no Basic product) + the
-// account-admin `- basic` tier option + `basic-user` reusable account, plus the ambiguous CANARY_PASSWORD.
+// account-admin `- basic` tier option + `basic-user` reusable account, plus the ambiguous canary password.
 // These are intentionally PRECISE: they never match unrelated tokens such as the filler word "basically",
 // HTTP "Basic" auth, or the legacy `subscription_status: 'basic'` DB value (a separate, still-functional
 // backward-compat tier that maps to Free — out of this cleanup's scope).
 export const FORBIDDEN = [
-  { label: 'retired ambiguous CANARY_PASSWORD (use CANARY_TRIAL_PASSWORD / CANARY_PAID_PASSWORD / CANARY_LANE_PASSWORD)', re: /\bCANARY_PASSWORD\b/ },
-  { label: 'retired Basic credential/price/input identifier', re: /\b(?:BASIC_TEST_EMAIL|BASIC_TEST_PASSWORD|E2E_BASIC_EMAIL|E2E_BASIC_PASSWORD|STRIPE_BASIC_PRICE_ID|STRIPE_LIVE_BASIC_PRICE_ID|NEW_BASIC_COUNT|NUM_BASIC_USERS|BASIC_USER_COUNT|TEST_USER_BASIC)\b/ },
+  { label: 'retired ambiguous single canary password (use CANARY_TRIAL_PASSWORD / CANARY_PAID_PASSWORD / CANARY_LANE_PASSWORD)', re: new RegExp(`\\b${RETIRED_CANARY_PW}\\b`) },
+  { label: 'retired Basic credential/price/input identifier', re: new RegExp(`\\b(?:${BASIC_CRED_ALT}|E2E_BASIC_EMAIL|E2E_BASIC_PASSWORD|STRIPE_BASIC_PRICE_ID|STRIPE_LIVE_BASIC_PRICE_ID|NEW_BASIC_COUNT|NUM_BASIC_USERS|BASIC_USER_COUNT|TEST_USER_BASIC)\\b`) },
   { label: 'any secrets.*BASIC* / vars.*BASIC* Secret or Variable reference (case-insensitive)', re: /(?:secrets|vars)\.[A-Za-z0-9_]*BASIC[A-Za-z0-9_]*/i },
   { label: 'basic tier as a workflow-dispatch choice option (a `- basic` list item)', re: /^\s*-\s*basic\s*$/i },
   { label: 'basic-named reusable test account (basic-user / basic_user)', re: /\bbasic[-_]user\b/i },
@@ -71,7 +77,7 @@ function collectFiles() {
   return files;
 }
 
-describe('#1294 — no retired Basic / CANARY_PASSWORD tokens in active source', () => {
+describe('#1294 — no retired Basic / canary-password tokens in active source', () => {
   const files = collectFiles();
 
   it('scans a non-trivial set of active files (guard is not silently empty)', () => {
@@ -95,15 +101,15 @@ describe('#1294 guard positive fixture — catches Basic identifiers, ignores pr
   const anyMatch = (s) => FORBIDDEN.some(({ re }) => re.test(s));
 
   it.each([
-    "CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}",
-    'BASIC_TEST_EMAIL',
+    `${RETIRED_CANARY_PW}: \${{ secrets.${RETIRED_CANARY_PW} }}`,
+    RETIRED_BASIC_CREDENTIAL_SECRETS[0],
     'E2E_BASIC_PASSWORD',
     'STRIPE_LIVE_BASIC_PRICE_ID',
     'NEW_BASIC_COUNT',
     'TEST_USER_BASIC',
     'vars.STRIPE_BASIC_PRICE_ID',
     'vars.SomethingBasicThing',      // any *BASIC* Secret/Variable ref, case-insensitive
-    'secrets.BASIC_TEST_EMAIL',
+    `secrets.${RETIRED_BASIC_CREDENTIAL_SECRETS[0]}`,
     '  - basic',                     // the retired create_tier choice option
     'basic-user@test.com',
     'const x = "basic_user";',

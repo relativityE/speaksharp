@@ -6,6 +6,11 @@ import {
   isProminentlyHistoricalDocument,
   scanText,
 } from '../../scripts/lib/product-contract-guard.mjs';
+// #1258 A1/A5: the retired canary-password name is ASSEMBLED FROM FRAGMENTS so this guard stays effective
+// while the repo-wide retired-literal contract holds at zero.
+import { RETIRED_CANARY_SECRETS } from '../../scripts/retired-secret-names.mjs';
+
+const [RETIRED_CANARY_PW] = RETIRED_CANARY_SECRETS;
 
 describe('flawless-launch product-contract guard (#1290)', () => {
   // #1294 sourcing split, repo-wide: every test-account EMAIL is an identifier (GitHub Variable) and every
@@ -18,8 +23,8 @@ describe('flawless-launch product-contract guard (#1290)', () => {
       'secrets.CANARY_PAID_EMAIL',
       'secrets.FREE_TEST_EMAIL',
       'secrets.PRO_TEST_EMAIL',
-      'secrets.CANARY_PASSWORD',
-      'CANARY_PASSWORD:',
+      `secrets.${RETIRED_CANARY_PW}`,
+      `${RETIRED_CANARY_PW}:`,
     ];
     const hits: string[] = [];
     for (const f of readdirSync(WF_DIR).filter((n) => n.endsWith('.yml') || n.endsWith('.yaml'))) {
@@ -42,8 +47,8 @@ describe('flawless-launch product-contract guard (#1290)', () => {
     // proof, not the scheduled test-mode billing qualification).
     expect(workflow).toContain('secrets.CANARY_TRIAL_PASSWORD');
     // The retired ambiguous single canary password must never reappear in the workflow.
-    expect(workflow).not.toContain('CANARY_PASSWORD:');
-    expect(workflow).not.toContain('secrets.CANARY_PASSWORD');
+    expect(workflow).not.toContain(`${RETIRED_CANARY_PW}:`);
+    expect(workflow).not.toContain(`secrets.${RETIRED_CANARY_PW}`);
     expect(workflow).toContain('node scripts/canary-identity-config.mjs');
     expect(workflow).toContain('needs.migration-readiness.outputs.ready');
     expect(workflow).toContain('HOLD — migration pending; canary not executed');

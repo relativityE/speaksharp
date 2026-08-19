@@ -1,3 +1,9 @@
+<!-- #1258 A1 REDACTION (2026-08-19): this pinned archive originally spelled out the retired ambiguous
+     single canary-password Secret name. That literal is now forbidden repo-wide by the retired-literal
+     contract (tests/deps/retired-literal-zero.test.js), so every occurrence below reads
+     `[RETIRED_CANARY_PW]`. The exact original name is recoverable from
+     `node scripts/retired-secret-names.mjs`. Nothing else in this archive was altered. -->
+
 <!-- HISTORICAL / NON-AUTHORITATIVE — pinned copy of docs/ARCHITECTURE.md at commit d31102a8 (2026-05-17). Read-only migration source; not current product truth. Current authority: product_release/README.md. Do not edit. -->
 
 > ⚠️ **HISTORICAL / NON-AUTHORITATIVE.** Pinned copy of `docs/ARCHITECTURE.md` at commit `d31102a8` (2026-05-17). Read-only migration source for the doc-canonicalization effort — **not** current product truth. Current authority: `product_release/README.md`. Do not edit.
@@ -478,7 +484,7 @@ E2E tests must use the `waitForAppReady()`, `waitForRouteReady()`, and `waitForF
 |-------------|-----------------|
 | `mock` / `local` (unit/e2e) | None |
 | `local` (int/system) | `.env.development` with real Supabase credentials |
-| `prod` (deploy) | `CANARY_EMAIL`, `CANARY_PASSWORD` (GitHub Secrets) |
+| `prod` (deploy) | `CANARY_EMAIL`, `[RETIRED_CANARY_PW]` (GitHub Secrets) |
 | `cloud` (soak) | `SOAK_TEST_PASSWORD`, Supabase keys (GitHub Secrets) |
 
 #### 3.1 Test Tier Registry
@@ -1192,14 +1198,14 @@ expect(text).toBe('5');
 > [!CAUTION]
 > **Canary Credential Management**
 >
-> The `CANARY_PASSWORD` is **NOT** committed to the repo. It is injected dynamically into `.env.development` during the CI workflow (`canary.yml`) using the `secrets.CANARY_PASSWORD` GitHub Secret.
+> The `[RETIRED_CANARY_PW]` is **NOT** committed to the repo. It is injected dynamically into `.env.development` during the CI workflow (`canary.yml`) using the `secrets.[RETIRED_CANARY_PW]` GitHub Secret.
 >
-> **For Local Execution:** You must manually add `CANARY_PASSWORD=...` to your local `.env.development` file. Agents and developers should verify this file exists before attempting to run canary tests locally.
+> **For Local Execution:** You must manually add `[RETIRED_CANARY_PW]=...` to your local `.env.development` file. Agents and developers should verify this file exists before attempting to run canary tests locally.
 
 *   **Remote Execution (Technical Bridge):**
     *   Command: `node scripts/trigger-canary.mjs`
     *   Purpose: Dispatches the `canary.yml` workflow via GitHub Actions (`gh` CLI).
-    *   Benefit: Bypasses local `CANARY_PASSWORD` requirements by leveraging remote GitHub Secrets.
+    *   Benefit: Bypasses local `[RETIRED_CANARY_PW]` requirements by leveraging remote GitHub Secrets.
 
 ##### 6. Soak Tests (`pnpm test:soak`)
 
@@ -1423,23 +1429,23 @@ Canary tests (`tests/canary/*.spec.ts`) are specialized smoke tests that run aga
 1. **Trigger**: The process is triggered manually via `workflow_dispatch` in `canary.yml` or locally via `pnpm test:deploy:local`.
 2. **Environment Preparation**: 
    - In CI, the workflow dynamically generates a `.env.development` file using GitHub Secrets (`SUPABASE_URL`, `SUPABASE_ANON_KEY`).
-   - The `CANARY_PASSWORD` secret is mapped to a `CANARY_PASSWORD` environment variable.
+   - The `[RETIRED_CANARY_PW]` secret is mapped to a `[RETIRED_CANARY_PW]` environment variable.
 3. **Server Lifecycle**: 
    - `start-server-and-test` initiates `pnpm dev` (Vite on port 5173).
    - It polls the health endpoint until the server is ready.
 4. **Credential Propagation** (Critical CI Fix 2026-02-09):
-   - `tests/constants.ts` resolves `CANARY_USER.email` and `CANARY_USER.password` from `process.env.CANARY_EMAIL` and `process.env.CANARY_PASSWORD`.
-   - **CI Caveat:** `start-server-and-test` spawns a subprocess for the test command. The `env:` block in GitHub Actions only affects the outer shell, not the inner subprocess. Therefore, we use `cross-env` to explicitly propagate these variables: `cross-env CANARY_EMAIL=... CANARY_PASSWORD=... pnpm test:deploy:prod`.
+   - `tests/constants.ts` resolves `CANARY_USER.email` and `CANARY_USER.password` from `process.env.CANARY_EMAIL` and `process.env.[RETIRED_CANARY_PW]`.
+   - **CI Caveat:** `start-server-and-test` spawns a subprocess for the test command. The `env:` block in GitHub Actions only affects the outer shell, not the inner subprocess. Therefore, we use `cross-env` to explicitly propagate these variables: `cross-env CANARY_EMAIL=... [RETIRED_CANARY_PW]=... pnpm test:deploy:prod`.
    - The `canaryLogin` helper in `tests/canary/smoke.canary.spec.ts` uses these credentials to perform a real login against the live Supabase project.
 5. **Execution**: Playwright runs the tests using the `playwright.canary.config.ts`, which targets the local Vite server but communicates with the live backend.
-6. **Safety Mechanism**: If `CANARY_PASSWORD` is not detected in the environment, the tests will automatically skip using `test.skip()` to prevent false failures in local development environments where secrets aren't present.
+6. **Safety Mechanism**: If `[RETIRED_CANARY_PW]` is not detected in the environment, the tests will automatically skip using `test.skip()` to prevent false failures in local development environments where secrets aren't present.
 7. **Debuggable Users**: Automated cleanup (previously `cleanup-canary.mjs`) has been removed as of 2026-02-09. Instead, each run uses a unique email (`canary-${run_id}@speaksharp.app`) and persists the user in the database to allow for post-run forensic debugging.
 
 **Workflow Visualization:**
 ```mermaid
 graph TD
     A[GitHub Action / Local CLI] --> B[Generate .env.development]
-    B --> C[Inject CANARY_PASSWORD Variable]
+    B --> C[Inject [RETIRED_CANARY_PW] Variable]
     C --> D[start-server-and-test]
     D --> E[pnpm dev]
     E --> F[Vite Server @ 5173]
@@ -1455,7 +1461,7 @@ This section documents common CI failures and their root causes to prevent futur
 
 | Issue | Root Cause | Solution | Date Fixed |
 |-------|------------|----------|------------|
-| **Deploy: `undefined` email** | `start-server-and-test` spawns subprocess; `CANARY_EMAIL` not inherited (`CANARY_PASSWORD` worked via GitHub secret injection) | Use `cross-env CANARY_EMAIL=... CANARY_PASSWORD=... pnpm test:deploy:prod` | 2026-02-09 |
+| **Deploy: `undefined` email** | `start-server-and-test` spawns subprocess; `CANARY_EMAIL` not inherited (`[RETIRED_CANARY_PW]` worked via GitHub secret injection) | Use `cross-env CANARY_EMAIL=... [RETIRED_CANARY_PW]=... pnpm test:deploy:prod` | 2026-02-09 |
 | **LHCI: "No files found"** | Lighthouse crashes before writing reports; artifact upload step fails | Add `continue-on-error: true` and diagnostic `ls -la .lighthouseci/` | 2026-02-09 |
 | **LHCI: Server timeout** | Preview server doesn't print "ready/listen" pattern that LHCI expects | Increase timeout or use custom health check; warning is often benign | - |
 | **LHCI: Crash in CI only** | Build artifacts not restored properly before LHCI runs | Verify `frontend/dist/` exists via `ls -R artifacts/` step | 2026-02-09 |
@@ -1566,9 +1572,9 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 | `live-transcript.live.spec.ts` | Native STT transcription | `browserName !== 'chromium'` | Web Speech API only works in Chromium | ✅ None |
 | `private-stt.live.spec.ts` | TransformersJS real audio | **Conditionally skipped** | Requires serial execution and specific fixture setup; currently disabled to optimize CI parallel throughput. | ✅ None |
 | `stt-integration.live.spec.ts` | Real Whisper test | `!REAL_WHISPER_TEST` | Opt-in only; requires real hardware and model download | ✅ None |
-| `schema.canary.spec.ts` | Schema integrity | `!CANARY_PASSWORD` | Requires staging credentials from GitHub Secrets | ✅ None |
-| `smoke.canary.spec.ts` | Production smoke | `!CANARY_PASSWORD` | Requires staging credentials from GitHub Secrets | ✅ None |
-| `user-filler-words.canary.spec.ts` | Filler words canary | `!CANARY_PASSWORD` | Requires staging credentials from GitHub Secrets | ✅ None |
+| `schema.canary.spec.ts` | Schema integrity | `![RETIRED_CANARY_PW]` | Requires staging credentials from GitHub Secrets | ✅ None |
+| `smoke.canary.spec.ts` | Production smoke | `![RETIRED_CANARY_PW]` | Requires staging credentials from GitHub Secrets | ✅ None |
+| `user-filler-words.canary.spec.ts` | Filler words canary | `![RETIRED_CANARY_PW]` | Requires staging credentials from GitHub Secrets | ✅ None |
 
 > [!NOTE]
 > **Constrained Test: Private STT Real Audio**
@@ -1585,7 +1591,7 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 > [!CAUTION]
 > **CANARY TESTS REQUIRE CI ENVIRONMENT**
 > 
-> Canary tests (`tests/e2e/canary/*.canary.spec.ts`) **CANNOT** run locally without `CANARY_PASSWORD` from GitHub Secrets.
+> Canary tests (`tests/e2e/canary/*.canary.spec.ts`) **CANNOT** run locally without `[RETIRED_CANARY_PW]` from GitHub Secrets.
 > 
 > **DO NOT waste time debugging local canary failures** - they are designed for CI/staging only.
 > 
@@ -1992,7 +1998,7 @@ The [`vercel.json`](https://github.com/relativityE/speaksharp/blob/d31102a8/verc
 7. canary.yml
    ├─ Scripts: provision-canary.mjs
    ├─ Edge Functions: None (uses Admin API)
-   ├─ Requires: CANARY_PASSWORD
+   ├─ Requires: [RETIRED_CANARY_PW]
    └─ Runs: tests/canary/*.canary.spec.ts
 
 8. stripe-checkout-test.yml
@@ -2314,7 +2320,7 @@ gh secret list
 ```text
 NAME                    UPDATED
 AGENT_SECRET            about 13 days ago
-CANARY_PASSWORD         about 1 month ago
+[RETIRED_CANARY_PW]         about 1 month ago
 E2E_FREE_EMAIL          about 1 month ago
 ...
 ```
@@ -3109,7 +3115,7 @@ Maintainers should consult the ROADMAP.md Tech Debt sections before starting maj
      - Idempotently creates/updates `canary-user@speaksharp.app`
      - Enforces PRO tier (`subscription_status: 'pro'`)
      - Verifies login capability before test runs
-2. **Execution:** Runs `tests/e2e/canary/smoke.canary.spec.ts` using `CANARY_EMAIL`/`CANARY_PASSWORD` env vars.
+2. **Execution:** Runs `tests/e2e/canary/smoke.canary.spec.ts` using `CANARY_EMAIL`/`[RETIRED_CANARY_PW]` env vars.
 3. **Verification:**
    - **Navigation:** Uses `goToPublicRoute()` for sign-in, `navigateToRoute()` after auth
    - **Functionality:** Validates "Critical Path" (Login → Start Session → Record → Stop → Analytics)
@@ -3124,7 +3130,7 @@ Maintainers should consult the ROADMAP.md Tech Debt sections before starting maj
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY` (For provisioning)
-- `CANARY_PASSWORD` (**Required** - no default)
+- `[RETIRED_CANARY_PW]` (**Required** - no default)
 
 **Environment Variables (Hardcoded Defaults):**
 - `CANARY_EMAIL`: `canary-user@speaksharp.app` (default, not a secret)
@@ -3157,7 +3163,7 @@ gh run view $RUN_ID --log-failed
 ```
 
 **❌ Incorrect: Local `pnpm test:deploy:local`**
-- Will fail with "Missing CANARY_PASSWORD"
+- Will fail with "Missing [RETIRED_CANARY_PW]"
 - Even with credentials, `.env.test` has mock Supabase URLs
 - Use `gh` commands instead for canary validation
 
@@ -3179,13 +3185,13 @@ The canary test was architected by combining patterns from two proven systems:
 **Required GitHub Secret:**
 
 > [!CAUTION]
-> `CANARY_PASSWORD` is the **lynchpin secret** required for canary tests. Without it, both provisioning and testing will fail immediately.
+> `[RETIRED_CANARY_PW]` is the **lynchpin secret** required for canary tests. Without it, both provisioning and testing will fail immediately.
 
 The secret is used in two places:
 1. **Provisioning:** Sets/updates the password for `canary-user@speaksharp.app` in Supabase
 2. **Testing:** Logs in as the canary user to validate the critical path
 
-To add the secret: **Settings → Secrets and variables → Actions → New repository secret** → Name: `CANARY_PASSWORD`
+To add the secret: **Settings → Secrets and variables → Actions → New repository secret** → Name: `[RETIRED_CANARY_PW]`
 
 
 

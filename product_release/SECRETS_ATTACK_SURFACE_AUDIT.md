@@ -29,9 +29,19 @@ These have **zero** `secrets.*`/`vars.*` consumers on this branch (verified) and
 
 | Name | Kind | Consumers | Disposition |
 |---|---|---|---|
-| `CANARY_PASSWORD` | Secret | none | ✅ **DELETED (#1294)** — retired ambiguous single canary password; zero real consumers (only the negative-guard token list references it) |
-| `BASIC_TEST_EMAIL` | Secret | none | DELETE post-merge |
-| `BASIC_TEST_PASSWORD` | Secret | none | DELETE post-merge |
+| Retired ambiguous single canary password (name via `node scripts/retired-secret-names.mjs`) | Secret | none | ✅ **DELETED (#1294)** — confirmed absent from `gh secret list` 2026-08-19; zero real consumers |
+| Basic test-credential Secrets (2: email + password) — exact names via `node scripts/retired-secret-names.mjs` | Secret | none | DELETE post-merge |
+
+> **#1258 A1/A3:** the Basic test-credential identifier literal must not appear anywhere in the tree, so this
+> audit names those two Secrets indirectly. Print the exact deletion inventory with
+> `node scripts/retired-secret-names.mjs` (names only — never values, fingerprints, or presence probes), and
+> verify LIVE status with `node scripts/retired-secret-names.mjs --check`.
+>
+> **Verified live 2026-08-19** (`gh secret list` / `gh variable list`): the retired canary password is **confirmed
+> deleted**, but **all four** Basic names are **STILL PRESENT** — the 2 test-credential Secrets (last updated
+> 2026-05-16), `STRIPE_BASIC_PRICE_ID` (2026-05-27) and `STRIPE_LIVE_BASIC_PRICE_ID` (2026-06-20). The
+> "DELETE post-merge" disposition below is therefore still OUTSTANDING, not done. Deletion requires separate,
+> explicit authorization; do not infer it from this document.
 | `STRIPE_BASIC_PRICE_ID` | Secret | none | DELETE post-merge |
 | `STRIPE_LIVE_BASIC_PRICE_ID` | Secret | none | DELETE post-merge |
 
@@ -69,14 +79,14 @@ credentials, and are cut over from Secrets to repository **Variables**. Every ac
 `CANARY_PAID_PASSWORD`, `FREE_TEST_PASSWORD`, `PRO_TEST_PASSWORD`) remain **Secrets**. The
 `canary-identity-config` guard fails closed unless both canary email Variables are valid/distinct/
 non-prohibited **and** both canary password Secrets are present (value never logged); the flawless-launch
-guard statically fails on any active `secrets.*_EMAIL` for these four names or the retired `CANARY_PASSWORD`.
+guard statically fails on any active `secrets.*_EMAIL` for these four names or the retired canary password.
 Operator state (verified): the four email **Secrets are deleted**, the four email **Variables are
 configured**, and all four password Secrets are present. Admin, canary, RC gates, benchmarks, and
 live-release workflows must not be dispatched on a `main` that still reads the deleted email Secrets —
 dispatch only after this cutover merges.
 
 **✅ Completed deletions (operator, 2026-08-15) — verified names-only via `gh secret list`:**
-1. `CANARY_PASSWORD` (retired ambiguous single canary password);
+1. the retired ambiguous single canary password;
 2. `CANARY_TRIAL_EMAIL` **Secret** copy (identifier now a Variable);
 3. `CANARY_PAID_EMAIL` **Secret** copy (identifier now a Variable);
 4. `FREE_TEST_EMAIL` **Secret** copy (identifier now a Variable);
@@ -144,7 +154,7 @@ auto-rotate step) is flagged for the owner.
 
 | Name(s) | Scope | Disposition | Prerequisite |
 |---|---|---|---|
-| `CANARY_PASSWORD`, `BASIC_TEST_EMAIL`, `BASIC_TEST_PASSWORD`, `STRIPE_BASIC_PRICE_ID`, `STRIPE_LIVE_BASIC_PRICE_ID` | GitHub | **DELETE** (retired) | merged `main` zero-consumer proof + deletion authorization |
+| The retired set printed by `node scripts/retired-secret-names.mjs` (the canary password — already deleted — plus the 2 Basic test-credential Secrets and the 2 Basic Stripe price Secrets, all 4 still present) | GitHub | **DELETE** (retired) | merged `main` zero-consumer proof + deletion authorization |
 | `EDGE_FN_URL`, `POSTHOG_API_HOST`, `POSTHOG_INGEST_HOST`, `POSTHOG_PROJECT_API_KEY`, `SENTRY_DSN`, `SUPABASE_URL`, `VERCEL_PROJECT_ID`, `SUPABASE_PROJECT_ID` | GitHub | **MIGRATE→DELETE dup Secret** (retain Variable) | PO 8-step cutover: Variable-resolution proof on `main`, then authorized deletion |
 | `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`, `STRIPE_LIVE_*`, `VERCEL_*_TOKEN`, `GEMINI_API_KEY`, `AGENT_SECRET`, `PROMO_GEN_ADMIN_SECRET`, `OBSERVABILITY_SMOKE_SECRET`, `SENTRY_AUTH_TOKEN`, `POSTHOG_PERSONAL_API_KEY` | GitHub / runtime | **KEEP** | current consumer + least-privilege scope/trigger |
 | `ASSEMBLYAI_API_KEY` (Supabase runtime copy) | Supabase | **REVIEW** (appears stale — `assemblyai-token` no longer calls AssemblyAI) | confirm no runtime consumer; disposition separately from any GitHub key |
@@ -193,5 +203,5 @@ Operational sequence (post-accept, PO-authorized, names-only evidence — no add
 5. Delete the retirement-set Secrets (Section A) and the duplicate Secret copies (Section B); retain the Variables.
 6. Post-deletion readback + regression: re-inventory names/scopes, prove each deleted Secret absent and each retained Variable present, then rerun the affected workflow proof terminal green.
 7. Delete `VITE_DEV_PREMIUM_ACCESS` if found in any scope; decide `GH_PAT` (least-privilege vs. remove auto-rotate); REVIEW the Supabase `ASSEMBLYAI_API_KEY` copy.
-8. Re-inventory names/scopes and prove: four canonical canary secrets present; zero `CANARY_PASSWORD`; zero
+8. Re-inventory names/scopes and prove: four canonical canary secrets present; zero retired canary password; zero
    case-insensitive `*BASIC*`; each deleted stale-dup Variable still present.

@@ -327,10 +327,22 @@ workflows without learning or copying their credential values.
 | `PRO_TEST_EMAIL` / `PRO_TEST_PASSWORD` | Reusable Pro authentication and authenticated STT live checks |
 | `CHECKOUT_TEST_EMAIL` / `CHECKOUT_TEST_PASSWORD` | Dedicated paid-checkout proof only; do not substitute a general account when clean checkout state matters |
 | `SOAK_TEST_PASSWORD` with the soak registry | Stress/endurance workflows only; not the default account for feature verification |
+| `CANARY_TRIAL_EMAIL` / `CANARY_TRIAL_PASSWORD` | Daily active-trial product canary lane |
+| `CANARY_PAID_EMAIL` (+ `CANARY_PAID_PASSWORD`) | Paid canary identity; the password is reserved for a future separately-authorized live commercial-readiness proof, not the scheduled test-mode billing qualification |
+
+**Sourcing split (#1294), verified live 2026-08-19 against `gh secret list` / `gh variable list`:** every
+test-account **EMAIL is a repository Variable**; every **PASSWORD is a Secret**. So `vars.FREE_TEST_EMAIL` +
+`secrets.FREE_TEST_PASSWORD` — never `secrets.*_EMAIL`, which would resolve empty at runtime. A static guard
+(`tests/release/flawless-launch-product-contract-guard.test.ts`) fails closed on any active `secrets.*_EMAIL`.
 
 `FREE_TEST_*` and legacy `E2E_FREE_*` names remain compatibility aliases in some scripts.
-Workflows resolve `FREE_TEST_*` directly — the legacy `BASIC_TEST_*` fallback was retired in
-#1294 (SpeakSharp has no Basic product); inspect the specific spec's resolution order instead of guessing. Do not report authenticated testing
+Workflows resolve `FREE_TEST_*` directly — the legacy Basic test-credential fallback and the ambiguous single
+canary password were retired in #1294 (SpeakSharp has no Basic product). Their identifier literals must not
+reappear **anywhere in the tracked tree**, archives included: they are assembled from fragments by
+`scripts/retired-secret-names.mjs`, enforced repo-wide by `tests/deps/retired-literal-zero.test.js`, and kept out
+of active source by `tests/deps/no-legacy-basic-canary-tokens.test.js`. Print the retired inventory with
+`node scripts/retired-secret-names.mjs`, or check what is still configured with `--check` (names only, never
+values). Inspect the specific spec's resolution order instead of guessing. Do not report authenticated testing
 as blocked merely because credentials are not present in the local shell or cannot be
 revealed from GitHub Secrets.
 

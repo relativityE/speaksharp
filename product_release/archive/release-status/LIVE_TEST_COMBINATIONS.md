@@ -1,3 +1,9 @@
+<!-- #1258 A1 REDACTION (2026-08-19): this pinned archive originally spelled out the retired ambiguous
+     single canary-password Secret name. That literal is now forbidden repo-wide by the retired-literal
+     contract (tests/deps/retired-literal-zero.test.js), so every occurrence below reads
+     `[RETIRED_CANARY_PW]`. The exact original name is recoverable from
+     `node scripts/retired-secret-names.mjs`. Nothing else in this archive was altered. -->
+
 > Archived historical release matrix.
 > Current release status lives in `../../RELEASE_STATUS.md`.
 
@@ -153,7 +159,7 @@ A path is green only when all required checks pass:
 | Expired trial path | 🟡 Deployed / live seeded smoke pending | Dialog is simplified to two aligned choices; backend guards now cover expired trial-only Cloud token and DB session/heartbeat paths. Effective-tier migration is deployed, but live seeded expired-trial smoke remains pending. |
 | Toast/status/mobile UX | 🟡 Local fix / browser smoke pending | UI polish is pushed in `0d5f2cef`; production canary/CI are running. Manual visual pass still required after Vercel serves the new bundle. |
 | STT WER evidence | 🟡 Partial | Cloud/AssemblyAI is measured at 0.00% WER / 100.00% accuracy in GitHub run `25643746457`, job `75268546634`, using Harvard WAV + truth text. Private CPU Node baseline is measured at 4.11% WER / 95.89% accuracy. Native and WebGPU still lack valid WER because browser benchmark execution has not produced enough real transcript output. |
-| Custom words persistence | ✅ Live logout-login passed | Mocked E2E add/remove/detection passed 7/7. Production canary covers live Cloud keyterms with `CANARY_PASSWORD`. `Live Release Matrix` run `25634578516` passed `live-custom-words`, proving add -> logout/relogin -> visible -> cleanup against GitHub `E2E_BASIC_*` secrets on the latest live matrix. |
+| Custom words persistence | ✅ Live logout-login passed | Mocked E2E add/remove/detection passed 7/7. Production canary covers live Cloud keyterms with `[RETIRED_CANARY_PW]`. `Live Release Matrix` run `25634578516` passed `live-custom-words`, proving add -> logout/relogin -> visible -> cleanup against GitHub `E2E_BASIC_*` secrets on the latest live matrix. |
 | Observability evidence | 🟡 Frontend ingest + Stripe test smoke seen / dashboard checks pending | Prior live trial trace shows frontend Sentry ingest POST to `o4509834735190016.ingest.us.sentry.io` returning HTTP 200. Run `25634760761` re-proved Stripe test-mode checkout/webhook readiness. Signed Stripe webhook proof is patched to send raw bytes and needs rerun. Still pending: Sentry dashboard visibility, Edge Function ingest, and PostHog launch-event review. |
 
 ## Validation Harness Findings
