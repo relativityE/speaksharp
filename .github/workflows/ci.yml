@@ -206,14 +206,25 @@ jobs:
           install-native-deps: 'false'
           install-playwright: 'false'
           apt-bundle: 'false'
+      # #1311 durability: capture the runtime runner image version so the bundle cache is keyed by it.
+      # Without this, a GitHub image rollout leaves deps-prep restoring a stale-image bundle under an
+      # unchanged key -> the (retained) image-compatibility gate then fails every shard indefinitely.
+      - name: Capture runner image version
+        id: img
+        shell: bash
+        run: |
+          [ -n "${ImageVersion:-}" ] || { echo "::error::ImageVersion empty — cannot version the bundle cache"; exit 1; }
+          echo "version=${ImageOS:-unknown}-${ImageVersion}" >> "$GITHUB_OUTPUT"
       - name: Cache prefetched apt bundle
         id: apt-bundle-cache
         uses: actions/cache@v4
         with:
           path: apt-bundle
-          # Exact key: OS + arch + Ubuntu release + lockfile(Playwright version) + prefetch source(manifest).
-          # NO restore-keys — a partial/foreign bundle must never be restored (shards fail closed on checksum).
-          key: apt-deps-${{ runner.os }}-${{ runner.arch }}-noble-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('scripts/ci/apt-prefetch.sh') }}
+          # Exact key: OS + arch + RUNTIME IMAGE VERSION + Ubuntu release + lockfile(Playwright version) +
+          # prefetch source(manifest). An image bump changes the key -> cache miss -> fresh prefetch on the
+          # matching image. NO restore-keys — a partial/foreign/stale-image bundle must never be restored
+          # (shards additionally fail closed on checksum + exact image-compatibility).
+          key: apt-deps-${{ runner.os }}-${{ runner.arch }}-${{ steps.img.outputs.version }}-noble-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('scripts/ci/apt-prefetch.sh') }}
       - name: Prefetch apt dependency bundle (download-only, one retry)
         if: steps.apt-bundle-cache.outputs.cache-hit != 'true'
         shell: bash
