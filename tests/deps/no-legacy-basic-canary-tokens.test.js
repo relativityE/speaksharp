@@ -3,10 +3,15 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve, extname } from 'node:path';
 // #1258 A1/A5: the retired Basic credential names are ASSEMBLED FROM FRAGMENTS so this guard stays
 // effective without the tree containing the forbidden literal anywhere (a repo-wide search returns zero).
-import { RETIRED_BASIC_CREDENTIAL_SECRETS, RETIRED_CANARY_SECRETS } from '../../scripts/retired-secret-names.mjs';
+import {
+  RETIRED_BASIC_CREDENTIAL_SECRETS,
+  RETIRED_BASIC_PRICE_SECRETS,
+  RETIRED_CANARY_SECRETS,
+} from '../../scripts/retired-secret-names.mjs';
 
 const BASIC_CRED_ALT = RETIRED_BASIC_CREDENTIAL_SECRETS.join('|');
 const [RETIRED_CANARY_PW] = RETIRED_CANARY_SECRETS;
+const BASIC_PRICE_ALT = RETIRED_BASIC_PRICE_SECRETS.join('|');
 
 // #1294 fail-closed guard: SpeakSharp has no Basic product and the ambiguous single canary-password secret is
 // retired. This prevents any of the retired credential/secret/tier/input names — or a Stripe Basic price —
@@ -40,7 +45,7 @@ const ROOT_FILES = ['.env.test.example', 'AGENTS.md', 'playwright.canary.config.
 // backward-compat tier that maps to Free — out of this cleanup's scope).
 export const FORBIDDEN = [
   { label: 'retired ambiguous single canary password (use CANARY_TRIAL_PASSWORD / CANARY_PAID_PASSWORD / CANARY_LANE_PASSWORD)', re: new RegExp(`\\b${RETIRED_CANARY_PW}\\b`) },
-  { label: 'retired Basic credential/price/input identifier', re: new RegExp(`\\b(?:${BASIC_CRED_ALT}|E2E_BASIC_EMAIL|E2E_BASIC_PASSWORD|STRIPE_BASIC_PRICE_ID|STRIPE_LIVE_BASIC_PRICE_ID|NEW_BASIC_COUNT|NUM_BASIC_USERS|BASIC_USER_COUNT|TEST_USER_BASIC)\\b`) },
+  { label: 'retired Basic credential/price/input identifier', re: new RegExp(`\\b(?:${BASIC_CRED_ALT}|${BASIC_PRICE_ALT}|E2E_BASIC_EMAIL|E2E_BASIC_PASSWORD|NEW_BASIC_COUNT|NUM_BASIC_USERS|BASIC_USER_COUNT|TEST_USER_BASIC)\\b`) },
   { label: 'any secrets.*BASIC* / vars.*BASIC* Secret or Variable reference (case-insensitive)', re: /(?:secrets|vars)\.[A-Za-z0-9_]*BASIC[A-Za-z0-9_]*/i },
   { label: 'basic tier as a workflow-dispatch choice option (a `- basic` list item)', re: /^\s*-\s*basic\s*$/i },
   { label: 'basic-named reusable test account (basic-user / basic_user)', re: /\bbasic[-_]user\b/i },
@@ -104,10 +109,10 @@ describe('#1294 guard positive fixture — catches Basic identifiers, ignores pr
     `${RETIRED_CANARY_PW}: \${{ secrets.${RETIRED_CANARY_PW} }}`,
     RETIRED_BASIC_CREDENTIAL_SECRETS[0],
     'E2E_BASIC_PASSWORD',
-    'STRIPE_LIVE_BASIC_PRICE_ID',
+    RETIRED_BASIC_PRICE_SECRETS[1],
     'NEW_BASIC_COUNT',
     'TEST_USER_BASIC',
-    'vars.STRIPE_BASIC_PRICE_ID',
+    `vars.${RETIRED_BASIC_PRICE_SECRETS[0]}`,
     'vars.SomethingBasicThing',      // any *BASIC* Secret/Variable ref, case-insensitive
     `secrets.${RETIRED_BASIC_CREDENTIAL_SECRETS[0]}`,
     '  - basic',                     // the retired create_tier choice option

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { RETIRED_BASIC_CREDENTIAL_SECRETS, RETIRED_CANARY_SECRETS } from '../../scripts/retired-secret-names.mjs';
+import { RETIRED_SECRET_NAMES } from '../../scripts/retired-secret-names.mjs';
 
 // #1258 A1/A5 — REPOSITORY-WIDE retired-literal contract.
 //
@@ -15,10 +15,10 @@ import { RETIRED_BASIC_CREDENTIAL_SECRETS, RETIRED_CANARY_SECRETS } from '../../
 // be the thing that violates it. There are NO exemptions by design — an exemption list would reintroduce exactly
 // the "it's fine, it's only in a doc" drift this exists to stop.
 
-const FORBIDDEN_LITERALS = [
-  ...RETIRED_BASIC_CREDENTIAL_SECRETS,   // the retired Basic test-credential Secret names
-  ...RETIRED_CANARY_SECRETS,             // the retired ambiguous single canary password
-];
+// Every retired name: the Basic test-credential Secrets, the Basic Stripe price Secrets, and the ambiguous
+// single canary password. All five were deleted from GitHub on 2026-08-19; the literals stay forbidden so a
+// future edit cannot quietly resurrect a name that no longer resolves to anything.
+const FORBIDDEN_LITERALS = [...RETIRED_SECRET_NAMES];
 
 /** Every tracked file, from git itself — so an untracked scratch file can never mask or trip the contract. */
 function trackedFiles() {

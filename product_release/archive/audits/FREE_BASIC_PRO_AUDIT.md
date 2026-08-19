@@ -1,3 +1,8 @@
+<!-- #1258 A1 REDACTION (2026-08-19): the retired Basic Stripe price Secret name below was replaced with
+     `[RETIRED_BASIC_PRICE_ID]` to satisfy the repo-wide retired-literal contract
+     (tests/deps/retired-literal-zero.test.js). Recover the exact name via
+     `node scripts/retired-secret-names.mjs`. Nothing else in this archive was altered. -->
+
 **Last Updated:** 2026-05-27
 
 # Free / Basic / Pro Audit
@@ -54,7 +59,7 @@ These should remain or be renamed carefully:
 | Area | Why It May Stay |
 |---|---|
 | `stripe-webhook` `activate_basic` tests | Needed so future paid Basic does not accidentally grant Pro. |
-| `STRIPE_BASIC_PRICE_ID` in audits | Useful to monitor the future Basic placeholder, but it must not imply Basic checkout is active. |
+| `[RETIRED_BASIC_PRICE_ID]` in audits | Useful to monitor the future Basic placeholder, but it must not imply Basic checkout is active. |
 | Tests named "Basic feature matrix" | Should become "Free/baseline feature matrix" unless explicitly testing future paid Basic. |
 | `tier_configs.basic` | May remain for future paid Basic. `tier_configs.free` must also exist and match current baseline limits. |
 

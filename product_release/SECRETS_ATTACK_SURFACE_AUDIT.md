@@ -37,13 +37,13 @@ These have **zero** `secrets.*`/`vars.*` consumers on this branch (verified) and
 > `node scripts/retired-secret-names.mjs` (names only — never values, fingerprints, or presence probes), and
 > verify LIVE status with `node scripts/retired-secret-names.mjs --check`.
 >
-> **Verified live 2026-08-19** (`gh secret list` / `gh variable list`): the retired canary password is **confirmed
-> deleted**, but **all four** Basic names are **STILL PRESENT** — the 2 test-credential Secrets (last updated
-> 2026-05-16), `STRIPE_BASIC_PRICE_ID` (2026-05-27) and `STRIPE_LIVE_BASIC_PRICE_ID` (2026-06-20). The
-> "DELETE post-merge" disposition below is therefore still OUTSTANDING, not done. Deletion requires separate,
-> explicit authorization; do not infer it from this document.
-| `STRIPE_BASIC_PRICE_ID` | Secret | none | DELETE post-merge |
-| `STRIPE_LIVE_BASIC_PRICE_ID` | Secret | none | DELETE post-merge |
+> **RESOLVED 2026-08-19 (#1258 Phase 0).** A live `gh secret list` on that date found the retired canary password
+> already deleted and the **four Basic names still configured** (2 test-credential Secrets last updated 2026-05-16;
+> the 2 Stripe Basic price Secrets 2026-05-27 / 2026-06-20) — configured but consumer-less, which is not the same
+> as absent. Under explicit PO authorization all four were then **DELETED**. Re-verified after deletion: **zero**
+> `*BASIC*` Secrets or Variables remain, and `node scripts/retired-secret-names.mjs --check` reports 0 of 5 retired
+> names present. Secret VALUES are unrecoverable; the accounts they belonged to are unaffected.
+| The 2 retired Basic Stripe price Secrets (names via `node scripts/retired-secret-names.mjs`) | Secret | none | ✅ **DELETED (#1258 Phase 0, 2026-08-19)** |
 
 No other case-insensitive `*BASIC*` Secret or Variable exists in the repository inventory.
 
