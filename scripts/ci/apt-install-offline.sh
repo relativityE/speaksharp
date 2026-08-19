@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# #1311 local-repository install — install one manifest's apt packages on a shard from the prefetched,
+# checksum-verified bundle, resolving the FULL closure through apt against a LOCAL flat `file:` repository
+# only. Never contacts an apt mirror (no http/https). No `timeout` wrapper (deterministic, offline), no
+# install retry, no dpkg repair. Any missing/invalid input, distribution mismatch, or checksum failure fails CLOSED.
+set -euo pipefail
+
+BUNDLE="${1:?usage: apt-install-offline.sh <bundle-dir> <canvas-sharp|playwright>}"
+MANIFEST="${2:?usage: apt-install-offline.sh <bundle-dir> <canvas-sharp|playwright>}"
+
+# ── 0. Presence checks (fail closed) ──────────────────────────────────────────────────────────────────────
+for f in "$BUNDLE/debs" "$BUNDLE/sha256sums.txt" "$BUNDLE/$MANIFEST.manifest" "$BUNDLE/image.manifest" "$BUNDLE/debs/Packages"; do
+  [ -e "$f" ] || { echo "::error::[offline] missing bundle input: $f — fail closed"; exit 1; }
+done
+
+# ── 1. Distribution compatibility gate — prep and shard MUST match on Ubuntu FAMILY + CODENAME + ARCH +
+#       locked Playwright version, else fail closed (NO mirror fallback). ImageVersion is logged for
+#       PROVENANCE only and is NOT a blocking equality check (the local `apt --simulate` on the shard's real
+#       dpkg state is the functional compatibility proof — see below). ─────────────────────────────────────
+PREP_FAMILY="$(sed -n 's/^FAMILY=//p'      "$BUNDLE/image.manifest")"
+PREP_CODENAME="$(sed -n 's/^CODENAME=//p'  "$BUNDLE/image.manifest")"
+PREP_ARCH="$(sed -n 's/^ARCH=//p'          "$BUNDLE/image.manifest")"
+PREP_PW="$(sed -n 's/^PLAYWRIGHT_VERSION=//p' "$BUNDLE/image.manifest")"
+PREP_IMGVER="$(sed -n 's/^ImageVersion=//p'   "$BUNDLE/image.manifest")"
+. /etc/os-release 2>/dev/null || true
+CUR_FAMILY="${ID:-unknown}"; CUR_CODENAME="${VERSION_CODENAME:-unknown}"; CUR_ARCH="$(dpkg --print-architecture)"
+CUR_PW="$(grep -m1 -oE 'playwright-core@[0-9]+\.[0-9]+\.[0-9]+' pnpm-lock.yaml 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)"
+echo "[offline] provenance (NOT gated): prep ImageVersion=$PREP_IMGVER ; shard ImageVersion=${ImageVersion:-unknown}"
+if [ "$CUR_FAMILY" != "$PREP_FAMILY" ] || [ "$CUR_CODENAME" != "$PREP_CODENAME" ] || [ "$CUR_ARCH" != "$PREP_ARCH" ] || [ "$CUR_PW" != "$PREP_PW" ]; then
+  echo "::error::[offline] distribution mismatch (prep=$PREP_FAMILY/$PREP_CODENAME/$PREP_ARCH/pw$PREP_PW shard=$CUR_FAMILY/$CUR_CODENAME/$CUR_ARCH/pw$CUR_PW) — fail closed, NO mirror fallback"
+  exit 1
+fi
+echo "[offline] distribution compatible: $PREP_FAMILY/$PREP_CODENAME/$PREP_ARCH/playwright-$PREP_PW"
+
+# ── 2. Verify EVERY .deb against SHA-256 (fail closed) ────────────────────────────────────────────────────
+( cd "$BUNDLE/debs" && sha256sum -c ../sha256sums.txt ) \
+  || { echo "::error::[offline] SHA-256 verification FAILED — refusing to install"; exit 1; }
+echo "[offline] checksums verified: $(wc -l < "$BUNDLE/sha256sums.txt") .deb files ; manifest=$MANIFEST"
+
+# ── 3. Isolated apt configuration whose ONLY source is the local flat repository. ALL paths are ABSOLUTE
+#       and DEDICATED — sourcelist, an empty sourceparts dir, AND a dedicated empty lists dir — so apt cannot
+#       resolve a relative path against /etc/apt, and candidate checks cannot pass off the runner's
+#       pre-existing /var/lib/apt/lists indexes. The SAME OPTS are used for update, candidate check, install. ─
+BUNDLE_ABS="$(cd "$BUNDLE" && pwd)"
+DEBS_ABS="$BUNDLE_ABS/debs"
+SRC="$BUNDLE_ABS/local-only.list"
+SRCPARTS="$BUNDLE_ABS/empty-sourceparts"
+LISTS="$BUNDLE_ABS/apt-lists"
+mkdir -p "$SRCPARTS" "$LISTS/partial"
+# [trusted=yes] is acceptable ONLY because the same-run artifact was SHA-256 verified above.
+echo "deb [trusted=yes] file://$DEBS_ABS ./" > "$SRC"
+OPTS=(-o "Dir::Etc::sourcelist=$SRC" -o "Dir::Etc::sourceparts=$SRCPARTS" -o "Dir::State::lists=$LISTS" -o "APT::Get::List-Cleanup=0")
+
+# ── 4. Update from ONLY the local file: repository (populates the dedicated lists dir) ────────────────────
+LOG="$BUNDLE_ABS/apt-local.log"
+: > "$LOG"
+sudo apt-get "${OPTS[@]}" update 2>&1 | tee -a "$LOG"
+
+# ── 5. SOLE functional proof: resolve the COMPLETE frozen manifest through apt's OWN resolver against the
+#       isolated local file: repository, no network. A successful simulation IS the repository-load,
+#       dependency-resolution, virtual/transitional/preinstalled, and closure proof — we do NOT re-derive
+#       any of that with shell parsing (no lists-layout / candidate / classification blockers). ───────────
+PKGS="$(tr '\n' ' ' < "$BUNDLE/$MANIFEST.manifest")"
+echo "[offline] simulating full '$MANIFEST' transaction under the isolated local repo ($(echo $PKGS | wc -w) packages)"
+sudo apt-get "${OPTS[@]}" --no-install-recommends --no-remove -y --simulate install $PKGS 2>&1 | tee -a "$LOG"
+
+# ── 6. Real install through the SAME isolated configuration — reached ONLY if the simulation resolved ─────
+echo "[offline] installing '$MANIFEST' via local repo: $(echo $PKGS | wc -w) frozen packages"
+sudo apt-get "${OPTS[@]}" --no-install-recommends --no-remove -y install $PKGS 2>&1 | tee -a "$LOG"
+
+# ── 6. Network-isolation assertion — every transfer line must resolve to a file: URI. FORBIDDEN in any
+#       effective source or apt output: http://, https://, azure.archive.ubuntu.com, archive.ubuntu.com,
+#       or any non-file transport. (Get:/Ign:/Hit: lines for a file: repo are legitimate and allowed.) ────
+if grep -nE 'https?://|azure\.archive\.ubuntu\.com|archive\.ubuntu\.com' "$SRC" "$LOG"; then
+  echo "::error::[offline] NETWORK ISOLATION VIOLATED — a non-file source/transfer appeared above"; exit 1
+fi
+if grep -nE '^(Get|Hit|Ign):[0-9]* ' "$LOG" | grep -qvE '\bfile:'; then
+  echo "::error::[offline] NETWORK ISOLATION VIOLATED — a non-file transfer line appeared above"; exit 1
+fi
+echo "[offline] '$MANIFEST' installed from the local file: repository — zero HTTP/HTTPS/mirror access"

@@ -29,6 +29,18 @@ inputs:
     description: 'Install the Supabase CLI. Only needed by jobs that actually invoke `supabase`.'
     required: false
     default: 'false'
+  apt-bundle:
+    description: '#1311 prefetch: install apt deps OFFLINE from the deps-prep bundle (no mirror), replacing the network Canvas/Sharp + Playwright install-deps steps.'
+    required: false
+    default: 'false'
+  apt-bundle-manifest:
+    description: 'Which manifest to install offline when apt-bundle=true: canvas-sharp | playwright.'
+    required: false
+    default: 'canvas-sharp'
+  apt-bundle-artifact:
+    description: 'Name of the same-run artifact holding the prefetched .deb bundle.'
+    required: false
+    default: 'apt-deps-bundle'
 runs:
   using: 'composite'
   steps:
@@ -59,6 +71,7 @@ runs:
         echo "store=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
     - name: Cache pnpm store
+      id: pnpm-cache
       uses: actions/cache@v4
       with:
         path: ${{ steps.pnpm.outputs.store }}
@@ -68,18 +81,51 @@ runs:
         restore-keys: |
           ${{ runner.os }}-pnpm-${{ steps.pnpm.outputs.version }}-
 
+    # #1311 prefetch experiment: install apt deps OFFLINE from the deps-prep bundle (checksum-verified,
+    # network-disabled), replacing the network apt steps below. Runs BEFORE `pnpm install` so native
+    # modules (canvas) build against the installed libs. Fail-closed on any missing/invalid bundle input.
+    - name: Download prefetched apt bundle
+      if: runner.os == 'Linux' && inputs.apt-bundle == 'true'
+      uses: actions/download-artifact@v7
+      with:
+        name: ${{ inputs.apt-bundle-artifact }}
+        path: apt-bundle
+    - name: Install apt deps from bundle (offline, no mirror)
+      if: runner.os == 'Linux' && inputs.apt-bundle == 'true'
+      shell: bash
+      run: bash scripts/ci/apt-install-offline.sh apt-bundle "${{ inputs.apt-bundle-manifest }}"
+
+    # #1311 Option A (bounded diagnostic head) — NETWORK apt fallback, used only when apt-bundle != 'true'.
+    # BOTH observed apt hang paths — Canvas/Sharp native deps and Playwright `install-deps` — get a bounded,
+    # FAIL-CLOSED timeout. Safety contract: Linux GitHub-hosted runner only; if the deadline expires the
+    # command may be terminated MID-INSTALL, so the step fails the job immediately — NO retry, NO
+    # `dpkg --configure -a`, NO further apt/dpkg on this disposable runner; the runner is discarded. A
+    # timeout (rc 124/137) is reported DISTINCTLY from a genuine apt/dpkg exit. GNU `timeout` is Linux-only;
+    # every timeout-wrapped step here is `runner.os == 'Linux'`-gated so macOS/self-hosted (#1304) never inherit it.
     - name: Install System Dependencies (Canvas/Sharp)
-      if: runner.os == 'Linux' && inputs.install-native-deps == 'true'
+      if: runner.os == 'Linux' && inputs.install-native-deps == 'true' && inputs.apt-bundle != 'true'
       shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
-          build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+        echo "[phase] canvas-sharp-apt START $(date -u +%H:%M:%S)"
+        set +e
+        sudo timeout -k 30 300 bash -c 'apt-get update && apt-get install -y --no-install-recommends build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev'
+        rc=$?
+        echo "[phase] canvas-sharp-apt END rc=$rc $(date -u +%H:%M:%S)"
+        if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+          echo "::error::Canvas/Sharp apt hit the 300s deadline and was terminated (rc=$rc = TIMEOUT/CANCEL, not a genuine apt/dpkg exit). Failing job; runner discarded; no retry/repair."
+        elif [ "$rc" != 0 ]; then
+          echo "::error::Canvas/Sharp apt failed with a genuine apt/dpkg exit (rc=$rc)."
+        fi
+        exit $rc
 
     - name: Install Dependencies
       if: inputs.install-dependencies == 'true'
       shell: bash
-      run: pnpm install --frozen-lockfile --prefer-offline
+      run: |
+        echo "[cache] pnpm-store cache-hit=${{ steps.pnpm-cache.outputs.cache-hit }}"
+        echo "[phase] pnpm-install START $(date -u +%H:%M:%S)"
+        pnpm install --frozen-lockfile --prefer-offline
+        echo "[phase] pnpm-install END $(date -u +%H:%M:%S)"
 
     - name: Remove Problematic Package Repositories
       if: inputs.install-playwright == 'true'
@@ -90,10 +136,33 @@ runs:
         sudo rm -f /etc/apt/sources.list.d/azure-cli.list
         echo "Removed problematic Microsoft package repositories"
 
-    - name: Install Playwright Browsers
+    # #1311 step-1 split: `install --with-deps` is separated into its apt half (bounded, below) and its
+    # CDN browser-binary half (plain, further below) so a future hang NAMES ITSELF (apt vs CDN).
+    - name: Install Playwright system deps (apt)
+      if: runner.os == 'Linux' && inputs.install-playwright == 'true' && inputs.apt-bundle != 'true'
+      shell: bash
+      run: |
+        echo "[phase] playwright-install-deps START $(date -u +%H:%M:%S)"
+        set +e
+        timeout -k 30 300 pnpm exec playwright install-deps chromium
+        rc=$?
+        echo "[phase] playwright-install-deps END rc=$rc $(date -u +%H:%M:%S)"
+        if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+          echo "::error::Playwright install-deps hit the 300s deadline and was terminated (rc=$rc = TIMEOUT/CANCEL, not a genuine apt/dpkg exit). Failing job; runner discarded; no retry/repair."
+        elif [ "$rc" != 0 ]; then
+          echo "::error::Playwright install-deps failed with a genuine apt/dpkg exit (rc=$rc)."
+        fi
+        exit $rc
+
+    - name: Install Playwright browser (chromium)
       if: inputs.install-playwright == 'true'
       shell: bash
-      run: pnpm exec playwright install --with-deps chromium
+      run: |
+        # CDN binary download (not apt). Plain call — no retry/cache in this diagnostic head; the
+        # job-level timeout-minutes is the outer backstop if the CDN itself stalls.
+        echo "[phase] playwright-browser START $(date -u +%H:%M:%S)"
+        pnpm exec playwright install chromium
+        echo "[phase] playwright-browser END $(date -u +%H:%M:%S)"
 
     - name: Setup Supabase CLI
       if: inputs.install-supabase-cli == 'true'

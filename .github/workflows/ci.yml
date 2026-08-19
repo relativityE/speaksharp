@@ -185,13 +185,71 @@ jobs:
           STT_ENGINE: mock
         run: pnpm exec playwright test --config=playwright.config.ts --project=infra-probe
 
-  unit-shard:
-    name: unit-shard-${{ matrix.shard }}
+  # #1311 prefetch experiment: download the COMPLETE Canvas/Sharp + Playwright apt dependency bundle ONCE
+  # (from the standard Ubuntu archive, not the degraded Azure primary), so every unit/e2e shard installs
+  # locally with mirror downloads DISABLED — eliminating the per-shard apt stall at restored 4-wide.
+  deps-prep:
+    name: deps-prep
     needs: scope
     if: always() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          # node+pnpm only; the prefetch script installs the workspace with --ignore-scripts (Playwright CLI
+          # for the --dry-run manifest, WITHOUT building native canvas — whose apt deps we haven't installed).
+          install-dependencies: 'false'
+          install-native-deps: 'false'
+          install-playwright: 'false'
+          apt-bundle: 'false'
+      # #1311 durability: capture the runtime runner image version so the bundle cache is keyed by it.
+      # Without this, a GitHub image rollout leaves deps-prep restoring a stale-image bundle under an
+      # unchanged key -> the (retained) image-compatibility gate then fails every shard indefinitely.
+      - name: Capture runner image version
+        id: img
+        shell: bash
+        run: |
+          [ -n "${ImageVersion:-}" ] || { echo "::error::ImageVersion empty — cannot version the bundle cache"; exit 1; }
+          echo "version=${ImageOS:-unknown}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+      - name: Cache prefetched apt bundle
+        id: apt-bundle-cache
+        uses: actions/cache@v4
+        with:
+          path: apt-bundle
+          # Exact key: OS + arch + RUNTIME IMAGE VERSION + Ubuntu release + lockfile(Playwright version) +
+          # prefetch source(manifest). An image bump changes the key -> cache miss -> fresh prefetch on the
+          # matching image. NO restore-keys — a partial/foreign/stale-image bundle must never be restored
+          # (shards additionally fail closed on checksum + exact image-compatibility).
+          key: apt-deps-${{ runner.os }}-${{ runner.arch }}-${{ steps.img.outputs.version }}-noble-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('scripts/ci/apt-prefetch.sh') }}
+      - name: Prefetch apt dependency bundle (download-only, one retry)
+        if: steps.apt-bundle-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: bash scripts/ci/apt-prefetch.sh apt-bundle
+      - name: Upload apt dependency bundle
+        uses: actions/upload-artifact@v6
+        with:
+          name: apt-deps-bundle
+          path: apt-bundle
+          if-no-files-found: error
+          retention-days: 1
+
+  unit-shard:
+    name: unit-shard-${{ matrix.shard }}
+    needs: [scope, deps-prep]
+    if: always() && needs.scope.outputs.full_required == 'true'
+    runs-on: ubuntu-latest
+    # #1311 job-level backstop: bounds a stalled setup phase well above the 300s apt timeout but far
+    # below GitHub's 6h default, so a hang fast-fails instead of zombie-running.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
+      # #1311: established 4-wide/default concurrency. Containment is the 300s fail-closed apt bounds +
+      # the 20-min job backstop above — NOT a throttle. (A 2-wide throttle was trialed and dropped: one
+      # green run neither proved contention nor justified a permanent ~60% CI-time cost.)
       matrix:
         shard: [1, 2, 3, 4]
     steps:
@@ -203,6 +261,8 @@ jobs:
         with:
           install-native-deps: 'true'
           install-playwright: 'false'
+          apt-bundle: 'true'
+          apt-bundle-manifest: 'canvas-sharp'
 
       - name: Run Unit Shard Execution
         env:
@@ -352,11 +412,14 @@ jobs:
     name: e2e-shard-${{ matrix.shard }}
     # CI-PERF: E2E consumes only the build artifact, so it no longer waits on unit work,
     # edge tests or health-check. Those still gate the overall result via `report`.
-    needs: [scope, build]
+    needs: [scope, build, deps-prep]
     if: success() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
+    # #1311 job-level backstop (see unit-shard).
+    timeout-minutes: 20
     strategy:
       fail-fast: false
+      # #1311: established 4-wide/default concurrency (see unit-shard). Containment = bounds + backstop.
       matrix:
         shard: [1, 2, 3, 4]
     steps:
@@ -367,6 +430,8 @@ jobs:
         uses: ./.github/actions/setup-environment
         with:
           install-playwright: 'true'
+          apt-bundle: 'true'
+          apt-bundle-manifest: 'playwright'
 
       - name: Download Build Artifacts
         uses: actions/download-artifact@v7
