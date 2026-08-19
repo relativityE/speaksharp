@@ -1,9 +1,11 @@
-// #1294 — EXECUTED integration proof (Deno): the REAL stripe-webhook handler + an ephemeral migrated PGlite
-// database + a faithful, RECORDING fake Stripe. Proves the full test-clock lifecycle drives correct DB
-// entitlement, that failed payments are actually recovered (not scripted active), and asserts the exact Stripe
-// request shapes + ordering. No live Stripe, no production Supabase. It mirrors the real SDK surface:
-// livemode comes from Balance (not Account), and the subscription only becomes active again once the failed
-// invoice is genuinely paid.
+// #1302 — EXECUTED integration proof (Deno): the REAL stripe-webhook handler + an ephemeral migrated PGlite
+// database + a faithful, RECORDING fake Stripe. Proves the PRODUCT'S REAL ENTRY PATH — a 30-day free trial
+// (fully entitled, no charge) converting into the FIRST $10 invoice at expiration, then renewal, payment
+// failure, recovery, scheduled cancellation with continued access, and terminal revocation — drives correct
+// DB entitlement, and asserts the exact Stripe request shapes + ordering. No live Stripe, no production
+// Supabase. The fake mirrors the real SDK: livemode comes from Balance (not Account); the subscription
+// becomes active from a trial ONLY when the clock passes trial_end (issuing a real $10 invoice), and returns
+// to active after a failure ONLY once the failed invoice is genuinely paid — nothing is scripted to "active".
 import { assert, assertEquals, assertRejects, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import Stripe from "npm:stripe@16";
 import { handler } from "../../backend/supabase/functions/stripe-webhook/index.ts";
@@ -17,20 +19,36 @@ const REAL_VERIFIER = new Stripe("sk_test_verifieronly", { apiVersion: "2024-06-
 const PRICE = "price_test_pro";
 const OK_PM = "pm_card_visa";
 const FAIL_PM = "pm_card_chargeCustomerFail";
-const TEST_PRICE = { id: PRICE, livemode: false, active: true, recurring: { interval: "month", interval_count: 1 }, unit_amount: 1000, currency: "usd" };
+const AMT = 1000; // the $10 monthly charge, in cents
+const DAY = 24 * 60 * 60;
+const TEST_PRICE = { id: PRICE, livemode: false, active: true, recurring: { interval: "month", interval_count: 1 }, unit_amount: AMT, currency: "usd" };
 
-// A faithful fake Stripe driven as a state machine — subscription status changes only via the real operations
-// (failing card + advance → past_due; invoices.pay → active; scheduled cancel + advance → canceled).
-function fakeStripe(opts: { livemode?: boolean; failCleanup?: boolean; badCustomer?: boolean } = {}) {
+// A faithful fake Stripe driven as a state machine. Status + invoices change ONLY via real operations:
+// create-with-trial → trialing (+ a $0 trial invoice); advancing the clock PAST trial_end → active (+ the
+// first $10 invoice); advancing again while active → a renewal $10 invoice; failing card + advance → past_due
+// (+ an open, unpaid invoice); invoices.pay → active; scheduled cancel + advance → canceled. `earlyCharge`
+// and `conversionAmount` inject faults to prove the trial/amount assertions are load-bearing.
+function fakeStripe(opts: { livemode?: boolean; failCleanup?: boolean; badCustomer?: boolean; earlyCharge?: boolean; conversionAmount?: number } = {}) {
   const calls: Array<{ m: string; a?: unknown }> = [];
   const rec = (m: string, a?: unknown) => { calls.push({ m, a }); };
   const deleted = new Set<string>();
-  let status = "active";
+  const invoices = new Map<string, { id: string; amount_paid: number; status: string }>();
+  let invSeq = 0;
+  let latestInvoiceId = "";
+  const addInvoice = (amount_paid: number, status: string) => {
+    const id = `in_${++invSeq}`;
+    invoices.set(id, { id, amount_paid, status });
+    latestInvoiceId = id;
+    return id;
+  };
+  let status = "trialing";
+  let clockFrozen = 0;
+  let trialEnd = Number.POSITIVE_INFINITY;
   let cancelAPE = false;
   let pendingFailure = false;
   const subObj = () => ({
     id: "sub_1", status, customer: opts.badCustomer ? null : "cus_1", cancel_at_period_end: cancelAPE,
-    current_period_end: 4_100_000_000, latest_invoice: "in_1", items: { data: [{ price: TEST_PRICE }] },
+    current_period_end: 4_100_000_000, latest_invoice: latestInvoiceId, items: { data: [{ price: TEST_PRICE }] },
   });
   return {
     calls,
@@ -46,19 +64,35 @@ function fakeStripe(opts: { livemode?: boolean; failCleanup?: boolean; badCustom
       },
     },
     paymentMethods: { attach: (pm: string, p: unknown) => { rec("paymentMethods.attach", { pm, p }); return Promise.resolve({ id: pm }); } },
-    invoices: { pay: (id: string, p: unknown) => { rec("invoices.pay", { id, p }); status = "active"; return Promise.resolve({ id, status: "paid" }); } },
+    invoices: {
+      pay: (id: string, p: unknown) => { rec("invoices.pay", { id, p }); const inv = invoices.get(id); if (inv) { inv.amount_paid = AMT; inv.status = "paid"; } status = "active"; return Promise.resolve({ id, status: "paid" }); },
+      retrieve: (id: string) => { rec("invoices.retrieve", id); return Promise.resolve(invoices.get(id) ?? { id, amount_paid: 0, status: "open" }); },
+    },
     subscriptions: {
-      create: (p: unknown) => { rec("subscriptions.create", p); status = "active"; return Promise.resolve(subObj()); },
+      create: (p: unknown) => {
+        rec("subscriptions.create", p);
+        const days = Number((p as { trial_period_days?: unknown }).trial_period_days ?? 0);
+        status = "trialing";
+        trialEnd = clockFrozen + days * DAY;
+        // A trialing subscription issues a $0 invoice — no real charge. `earlyCharge` wrongly bills it now.
+        addInvoice(opts.earlyCharge ? AMT : 0, "paid");
+        return Promise.resolve(subObj());
+      },
       update: (id: string, p: Record<string, unknown>) => { rec("subscriptions.update", { id, p }); if (p.cancel_at_period_end === true) cancelAPE = true; return Promise.resolve(subObj()); },
       retrieve: (id: string) => { rec("subscriptions.retrieve", id); return Promise.resolve(subObj()); },
     },
     testHelpers: {
       testClocks: {
-        create: (p: unknown) => { rec("testClocks.create", p); return Promise.resolve({ id: "clock_1", status: "ready" }); },
+        create: (p: unknown) => { rec("testClocks.create", p); clockFrozen = Number((p as { frozen_time?: unknown }).frozen_time ?? 0); return Promise.resolve({ id: "clock_1", status: "ready" }); },
         advance: (id: string, p: unknown) => {
           rec("testClocks.advance", { id, p });
-          if (pendingFailure) { status = "past_due"; pendingFailure = false; }
+          const to = Number((p as { frozen_time?: unknown }).frozen_time ?? 0);
+          if (status === "trialing") {
+            // Only crossing trial_end converts the trial into the first paid invoice; a mid-trial advance holds.
+            if (to >= trialEnd) { status = "active"; addInvoice(opts.conversionAmount ?? AMT, "paid"); }
+          } else if (pendingFailure) { status = "past_due"; addInvoice(0, "open"); pendingFailure = false; }
           else if (cancelAPE && status === "active") { status = "canceled"; }
+          else if (status === "active") { addInvoice(AMT, "paid"); } // routine monthly renewal
           return Promise.resolve({ id, status: "advancing" });
         },
         retrieve: (id: string) => { rec("testClocks.retrieve", id); if (deleted.has(id)) return Promise.reject(Object.assign(new Error("No such test clock"), { code: "resource_missing" })); return Promise.resolve({ id, status: "ready", deleted: opts.failCleanup ? false : undefined }); },
@@ -75,18 +109,22 @@ const baseDeps = (stripe: ReturnType<typeof fakeStripe>) => ({
   frozenTime: 1_700_000_000, clockTimeoutMs: 5_000, okPaymentMethod: OK_PM, failPaymentMethod: FAIL_PM, log: () => {},
 });
 
-Deno.test("full lifecycle proves every phase, with a REAL failed-invoice recovery", async () => {
+Deno.test("full lifecycle proves every phase: trial → first $10 conversion → renewal → failure → recovery → cancel", async () => {
   const stripe = fakeStripe();
   const out = await runBillingQualification(baseDeps(stripe));
   assertEquals(out.result, "PASSED");
   assertEquals(out.phases, REQUIRED_PHASES);
 
-  // SHAPE: subscription created with a real nested items array (the old encoder produced items=[object Object]).
-  assertEquals((stripe.calls.find((c) => c.m === "subscriptions.create")!.a as { items: unknown[] }).items, [{ price: PRICE }]);
-  // SHAPE: the failed invoice is genuinely paid with the good card (not a scripted active state).
-  const pay = stripe.calls.find((c) => c.m === "invoices.pay")!;
-  assertEquals((pay.a as { id: string }).id, "in_1");
-  assertEquals((pay.a as { p: { payment_method: string } }).p.payment_method, OK_PM);
+  // SHAPE: the subscription is created WITH a 30-day trial and a real nested items array.
+  const create = stripe.calls.find((c) => c.m === "subscriptions.create")!.a as { items: unknown[]; trial_period_days: number };
+  assertEquals(create.items, [{ price: PRICE }]);
+  assertEquals(create.trial_period_days, 30);
+
+  // The conversion + renewal charges settle AUTOMATICALLY on the test clock — the ONLY manual invoices.pay is
+  // the failure recovery, and it uses the GOOD card (not a scripted active state).
+  const pays = stripe.calls.filter((c) => c.m === "invoices.pay");
+  assertEquals(pays.length, 1, "the only manual pay is the failure recovery");
+  assertEquals((pays[0].a as { p: { payment_method: string } }).p.payment_method, OK_PM);
 
   // ORDERING: preflight before creation; every clock advance is polled; recovery pay happens AFTER the failing
   // default is set and BEFORE the scheduled cancellation; cleanup verifies the clock is gone last.
@@ -99,12 +137,34 @@ Deno.test("full lifecycle proves every phase, with a REAL failed-invoice recover
   assert(order.includes("testClocks.del"), "the run-owned clock is deleted");
 });
 
+Deno.test("the 30-day free trial is fully entitled with NO charge, then converts to the first $10 payment", async () => {
+  const stripe = fakeStripe();
+  const out = await runBillingQualification(baseDeps(stripe));
+  assertEquals(out.result, "PASSED");
+  // The phase set explicitly includes the trial→paid transition the earlier qualification never proved.
+  assert(REQUIRED_PHASES.includes("trial_start"), "trial_start is a required phase");
+  assert(REQUIRED_PHASES.includes("conversion"), "conversion is a required phase");
+  // The subscription reaches active ONLY by the clock crossing trial_end — there is no manual pay to force it.
+  const order = stripe.calls.map((c) => c.m);
+  assert(order.indexOf("subscriptions.create") < order.indexOf("invoices.pay"), "conversion is automatic, not a forced pay");
+});
+
+Deno.test("a charge DURING the free trial fails the qualification (no early billing)", async () => {
+  const stripe = fakeStripe({ earlyCharge: true });
+  await assertRejects(() => runBillingQualification(baseDeps(stripe)), Error, "NO charge during the free trial");
+});
+
+Deno.test("a conversion invoice that is not exactly $10 fails the qualification", async () => {
+  const stripe = fakeStripe({ conversionAmount: 500 });
+  await assertRejects(() => runBillingQualification(baseDeps(stripe)), Error, "expected a paid $10 invoice");
+});
+
 Deno.test("each webhook is signed with a FRESH timestamp; a stale one is rejected by the real verifier", async () => {
   // Sanity: the default (fresh) path is accepted end-to-end by the REAL verifier — the full lifecycle passes.
   assertEquals((await runBillingQualification(baseDeps(fakeStripe()))).result, "PASSED");
 
   // Force every signature ~10 min in the past — beyond Stripe's ~5-min tolerance. The real verifier must reject
-  // the FIRST event, so the run fails at checkout and never advances into the subscription lifecycle. This is
+  // the FIRST event, so the run fails at trial_start and never advances into the subscription lifecycle. This is
   // exactly the production failure mode of reusing the job's original timestamp across a multi-day test clock.
   const stripe = fakeStripe();
   await assertRejects(
