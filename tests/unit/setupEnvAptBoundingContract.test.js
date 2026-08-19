@@ -140,9 +140,13 @@ describe('local-repository install: file:-only, image/checksum gated, no retry/r
     // must NOT use Debug::NoLocking as a network-isolation proof
     expect(offline).not.toContain('Debug::NoLocking');
   });
-  it('fails closed on image mismatch, missing packages/manifest, or checksum mismatch', () => {
-    expect(offline).toMatch(/image mismatch/i);
-    expect(offline).toContain('sha256sum -c');
+  it('gates on DISTRIBUTION (family/codename/arch/playwright), treats ImageVersion as provenance-only, uses --no-remove, fails closed', () => {
+    expect(offline).toMatch(/distribution mismatch/i);       // loosened gate replaces exact-ImageVersion equality
+    expect(offline).toContain('NOT gated');                  // ImageVersion is provenance only, not a blocking check
+    expect(offline).not.toContain('image mismatch');         // the exact-image-build proxy gate is gone
+    expect(offline).toContain('sha256sum -c');               // checksum integrity retained
+    // apt-native --no-remove on BOTH the simulation and the real install (no removals/downgrades to force a fit)
+    expect((offline.match(/--no-remove/g) || []).length).toBeGreaterThanOrEqual(2);
     expect(offline).toMatch(/::error::/);
     expect(offline).toMatch(/exit 1/);
   });

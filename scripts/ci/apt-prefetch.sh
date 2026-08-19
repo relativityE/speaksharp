@@ -80,14 +80,18 @@ PKG_ENTRIES="$(grep -c '^Package:' "$BUNDLE/debs/Packages" || echo 0)"
 # load + resolution + virtual/preinstalled + closure; we do not re-derive index shape as a blocker here.
 echo "[prefetch] index: ${PKG_ENTRIES} Packages stanzas for ${DEB_COUNT} .deb files (diagnostic)"
 
-# ── 8. Freeze the compatibility manifest — a shard MUST run on the same image or fail closed (no fallback). ─
+# ── 8. Freeze the compatibility manifest. The GATE is distribution-level (family + codename + arch + locked
+#       Playwright version) — NOT the exact runner ImageVersion, which is a build-patch proxy that blocks
+#       same-distribution shards during a rollout. ImageOS/ImageVersion are recorded for PROVENANCE only.
 . /etc/os-release 2>/dev/null || true
+PW_LOCKED="$(grep -m1 -oE 'playwright-core@[0-9]+\.[0-9]+\.[0-9]+' pnpm-lock.yaml 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)"
 {
-  echo "ImageOS=${ImageOS:-unknown}"
-  echo "ImageVersion=${ImageVersion:-unknown}"
-  echo "VERSION_CODENAME=${VERSION_CODENAME:-unknown}"
-  echo "ARCH=$(dpkg --print-architecture)"
-  echo "PLAYWRIGHT_VERSION=$(pnpm exec playwright --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  echo "FAMILY=${ID:-unknown}"                     # GATE: Ubuntu OS family
+  echo "CODENAME=${VERSION_CODENAME:-unknown}"     # GATE: distribution codename (e.g. noble)
+  echo "ARCH=$(dpkg --print-architecture)"         # GATE: dpkg architecture
+  echo "PLAYWRIGHT_VERSION=${PW_LOCKED:-unknown}"  # GATE: locked Playwright version (from the lockfile)
+  echo "ImageOS=${ImageOS:-unknown}"               # provenance only (NOT gated)
+  echo "ImageVersion=${ImageVersion:-unknown}"     # provenance + cache separation (NOT gated)
 } > "$BUNDLE/image.manifest"
 
 echo "[prefetch] bundle complete: ${DEB_COUNT} .deb files, $(wc -l < "$BUNDLE/sha256sums.txt") checksums, ${PKG_ENTRIES} Packages entries"

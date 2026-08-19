@@ -2,7 +2,7 @@
 # #1311 local-repository install — install one manifest's apt packages on a shard from the prefetched,
 # checksum-verified bundle, resolving the FULL closure through apt against a LOCAL flat `file:` repository
 # only. Never contacts an apt mirror (no http/https). No `timeout` wrapper (deterministic, offline), no
-# install retry, no dpkg repair. Any missing/invalid input, image mismatch, or checksum failure fails CLOSED.
+# install retry, no dpkg repair. Any missing/invalid input, distribution mismatch, or checksum failure fails CLOSED.
 set -euo pipefail
 
 BUNDLE="${1:?usage: apt-install-offline.sh <bundle-dir> <canvas-sharp|playwright>}"
@@ -13,16 +13,24 @@ for f in "$BUNDLE/debs" "$BUNDLE/sha256sums.txt" "$BUNDLE/$MANIFEST.manifest" "$
   [ -e "$f" ] || { echo "::error::[offline] missing bundle input: $f — fail closed"; exit 1; }
 done
 
-# ── 1. Image compatibility — a shard MUST match the preparation image, else fail closed (NO mirror fallback) ─
-PREP_OS="$(sed -n 's/^ImageOS=//p'      "$BUNDLE/image.manifest")"
-PREP_VER="$(sed -n 's/^ImageVersion=//p' "$BUNDLE/image.manifest")"
-PREP_ARCH="$(sed -n 's/^ARCH=//p'        "$BUNDLE/image.manifest")"
-CUR_ARCH="$(dpkg --print-architecture)"
-if [ "${ImageOS:-unknown}" != "$PREP_OS" ] || [ "${ImageVersion:-unknown}" != "$PREP_VER" ] || [ "$CUR_ARCH" != "$PREP_ARCH" ]; then
-  echo "::error::[offline] image mismatch (prep=$PREP_OS/$PREP_VER/$PREP_ARCH shard=${ImageOS:-unknown}/${ImageVersion:-unknown}/$CUR_ARCH) — fail closed, NO mirror fallback"
+# ── 1. Distribution compatibility gate — prep and shard MUST match on Ubuntu FAMILY + CODENAME + ARCH +
+#       locked Playwright version, else fail closed (NO mirror fallback). ImageVersion is logged for
+#       PROVENANCE only and is NOT a blocking equality check (the local `apt --simulate` on the shard's real
+#       dpkg state is the functional compatibility proof — see below). ─────────────────────────────────────
+PREP_FAMILY="$(sed -n 's/^FAMILY=//p'      "$BUNDLE/image.manifest")"
+PREP_CODENAME="$(sed -n 's/^CODENAME=//p'  "$BUNDLE/image.manifest")"
+PREP_ARCH="$(sed -n 's/^ARCH=//p'          "$BUNDLE/image.manifest")"
+PREP_PW="$(sed -n 's/^PLAYWRIGHT_VERSION=//p' "$BUNDLE/image.manifest")"
+PREP_IMGVER="$(sed -n 's/^ImageVersion=//p'   "$BUNDLE/image.manifest")"
+. /etc/os-release 2>/dev/null || true
+CUR_FAMILY="${ID:-unknown}"; CUR_CODENAME="${VERSION_CODENAME:-unknown}"; CUR_ARCH="$(dpkg --print-architecture)"
+CUR_PW="$(grep -m1 -oE 'playwright-core@[0-9]+\.[0-9]+\.[0-9]+' pnpm-lock.yaml 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)"
+echo "[offline] provenance (NOT gated): prep ImageVersion=$PREP_IMGVER ; shard ImageVersion=${ImageVersion:-unknown}"
+if [ "$CUR_FAMILY" != "$PREP_FAMILY" ] || [ "$CUR_CODENAME" != "$PREP_CODENAME" ] || [ "$CUR_ARCH" != "$PREP_ARCH" ] || [ "$CUR_PW" != "$PREP_PW" ]; then
+  echo "::error::[offline] distribution mismatch (prep=$PREP_FAMILY/$PREP_CODENAME/$PREP_ARCH/pw$PREP_PW shard=$CUR_FAMILY/$CUR_CODENAME/$CUR_ARCH/pw$CUR_PW) — fail closed, NO mirror fallback"
   exit 1
 fi
-echo "[offline] image compatible: $PREP_OS / $PREP_VER / $PREP_ARCH"
+echo "[offline] distribution compatible: $PREP_FAMILY/$PREP_CODENAME/$PREP_ARCH/playwright-$PREP_PW"
 
 # ── 2. Verify EVERY .deb against SHA-256 (fail closed) ────────────────────────────────────────────────────
 ( cd "$BUNDLE/debs" && sha256sum -c ../sha256sums.txt ) \
@@ -54,11 +62,11 @@ sudo apt-get "${OPTS[@]}" update 2>&1 | tee -a "$LOG"
 #       any of that with shell parsing (no lists-layout / candidate / classification blockers). ───────────
 PKGS="$(tr '\n' ' ' < "$BUNDLE/$MANIFEST.manifest")"
 echo "[offline] simulating full '$MANIFEST' transaction under the isolated local repo ($(echo $PKGS | wc -w) packages)"
-sudo apt-get "${OPTS[@]}" --no-install-recommends -y --simulate install $PKGS 2>&1 | tee -a "$LOG"
+sudo apt-get "${OPTS[@]}" --no-install-recommends --no-remove -y --simulate install $PKGS 2>&1 | tee -a "$LOG"
 
 # ── 6. Real install through the SAME isolated configuration — reached ONLY if the simulation resolved ─────
 echo "[offline] installing '$MANIFEST' via local repo: $(echo $PKGS | wc -w) frozen packages"
-sudo apt-get "${OPTS[@]}" --no-install-recommends -y install $PKGS 2>&1 | tee -a "$LOG"
+sudo apt-get "${OPTS[@]}" --no-install-recommends --no-remove -y install $PKGS 2>&1 | tee -a "$LOG"
 
 # ── 6. Network-isolation assertion — every transfer line must resolve to a file: URI. FORBIDDEN in any
 #       effective source or apt output: http://, https://, azure.archive.ubuntu.com, archive.ubuntu.com,
