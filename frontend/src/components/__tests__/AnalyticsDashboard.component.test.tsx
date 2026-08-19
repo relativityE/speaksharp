@@ -10,8 +10,8 @@ vi.mock('../../lib/pdfGenerator', () => ({
     generateSessionPdf: vi.fn(),
 }));
 
-// Mock sub-components explicitly to ensure isolation
-vi.mock('../analytics/STTAccuracyVsBenchmark', () => ({ STTAccuracyVsBenchmark: () => <div data-testid="accuracy-comparison" /> }));
+// Mock sub-components explicitly to ensure isolation.
+// #1306: the STTAccuracyVsBenchmark / by-engine comparison component is REMOVED — no mock, no surface.
 vi.mock('../analytics/WeeklyActivityChart', () => ({ WeeklyActivityChart: () => <div data-testid="weekly-activity-chart" /> }));
 vi.mock('../analytics/GoalsSection', () => ({ GoalsSection: () => <div data-testid="goals-section" /> }));
 vi.mock('../analytics/TopFillerWords', () => ({ TopFillerWords: () => <div data-testid="top-filler-words" /> }));
@@ -64,8 +64,9 @@ const mockSessionHistory = [
         created_at: '2023-01-01T10:00:00Z',
         duration: 600,
         total_words: 1200,
-        filler_words: { um: { count: 5 } },
-        accuracy: 0.9,
+        filler_counts: { um: 5 },
+        status: 'completed',
+        next_action_signal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
     },
 ];
 
@@ -173,10 +174,6 @@ describe('AnalyticsDashboard', () => {
             label: 'Speak Clearly',
             outcome: /sharper point and less repetition/i,
             statCards: ['stat-card-clarity_score', 'stat-card-avg_session_length', 'stat-card-filler_words_per_min', 'stat-card-total_sessions'],
-            // #G4 §3: speak_clearly lists the STT-accuracy tool (stt_comparison) among its analysis tools.
-            // The carousel used to mount only the active slide, hiding it; the stacked layout renders every
-            // tool, so the accuracy comparison is now genuinely on the page.
-            hasTranscriptQuality: true,
         },
         {
             id: 'sound_confident',
@@ -185,16 +182,14 @@ describe('AnalyticsDashboard', () => {
             // Sound Confident must surface Pause Rhythm so the cards match its "pace, pauses, fillers,
             // delivery" promise (regression guard against pauses being claimed but not shown).
             statCards: ['stat-card-speaking_pace', 'stat-card-pause_rhythm', 'stat-card-filler_words_per_min', 'stat-card-clarity_score'],
-            hasTranscriptQuality: false,
         },
         {
             id: 'track_progress',
             label: 'Track Progress',
             outcome: /proof of what changed/i,
             statCards: ['stat-card-total_sessions', 'stat-card-total_practice_time', 'stat-card-avg_session_length', 'stat-card-clarity_score'],
-            hasTranscriptQuality: false,
         },
-    ])('renders the $label analytics focus as a coherent user story', ({ id, label, statCards, hasTranscriptQuality }) => {
+    ])('renders the $label analytics focus as a coherent user story', ({ id, label, statCards }) => {
         localStorage.setItem('speaksharp_analytics_tool_group_v1', id);
 
         renderComponent({ sessionHistory: mockSessionHistory });
@@ -205,9 +200,8 @@ describe('AnalyticsDashboard', () => {
         for (const testId of statCards) {
             expect(screen.getByTestId(testId)).toBeInTheDocument();
         }
-
-        const accuracyComparison = screen.queryByTestId('accuracy-comparison');
-        expect(Boolean(accuracyComparison)).toBe(hasTranscriptQuality);
+        // #1306: the customer STT-accuracy / by-engine comparison surface no longer exists anywhere.
+        expect(screen.queryByTestId('accuracy-comparison')).not.toBeInTheDocument();
     });
 
     it('decodes Sound Confident tools into plain labels and shows one Try this next action', () => {
@@ -253,7 +247,7 @@ describe('AnalyticsDashboard', () => {
     it('supports custom measurement when users want specific tools outside predefined groups', () => {
         localStorage.setItem('speaksharp_analytics_tool_group_v1', 'custom');
         localStorage.setItem('speaksharp_custom_stat_cards_v1', JSON.stringify(['total_sessions', 'clarity_score']));
-        localStorage.setItem('speaksharp_custom_analysis_slides_v1', JSON.stringify(['stt_comparison']));
+        localStorage.setItem('speaksharp_custom_analysis_slides_v1', JSON.stringify(['clarity_trend', 'filler_words']));
 
         renderComponent({ sessionHistory: mockSessionHistory });
 
@@ -265,7 +259,8 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('stat-card-total_sessions')).toBeInTheDocument();
         expect(screen.getByTestId('stat-card-clarity_score')).toBeInTheDocument();
         expect(screen.queryByTestId('stat-card-speaking_pace')).not.toBeInTheDocument();
-        expect(screen.getByTestId('accuracy-comparison')).toBeInTheDocument();
+        // #1306: no customer STT-accuracy / by-engine comparison surface exists to select.
+        expect(screen.queryByTestId('accuracy-comparison')).not.toBeInTheDocument();
     });
 
     it('uses persisted WPM and clarity values for session comparison instead of recalculating legacy fields', () => {
@@ -279,12 +274,9 @@ describe('AnalyticsDashboard', () => {
                     total_words: 120,
                     wpm: 111,
                     clarity_score: 77,
-                    filler_words: { um: { count: 2 } },
-                    accuracy: 0.9,
-                    // #1047: an `available` transcript backs these persisted measurements so the comparison
-                    // legitimately shows real numbers (not_captured/expired would correctly gate to N/A).
-                    transcript: 'the practiced words for session one',
-                    transcript_state: 'available',
+                    filler_counts: { um: 2 },
+                    // #1306: persisted measurements are present, so the comparison legitimately shows real
+                    // numbers (an absent metric would correctly gate to N/A).
                 },
                 {
                     id: 'session-2',
@@ -294,10 +286,7 @@ describe('AnalyticsDashboard', () => {
                     total_words: 140,
                     wpm: 123,
                     clarity_score: 88,
-                    filler_words: { um: { count: 1 } },
-                    accuracy: 0.95,
-                    transcript: 'the practiced words for session two',
-                    transcript_state: 'available',
+                    filler_counts: { um: 1 },
                 },
             ],
         });
@@ -324,25 +313,19 @@ describe('AnalyticsDashboard', () => {
                     total_words: 120,
                     wpm: 120,
                     clarity_score: 90,
-                    filler_words: {
-                        um: { count: 2 },
-                        like: { count: 3 },
-                        total: { count: 5 },
-                    },
-                    transcript: 'um like like like words',
+                    filler_counts: { um: 2, like: 3 },
                 },
             ],
         });
 
-        // #1231: the headline is the TRUE-filler tier — um(2); "like"(3) is a discourse marker, excluded by
-        // default. The synthetic `total` row is still NOT double-counted (it is skipped, not summed in): a
-        // double-count bug would surface a wrong number here, never a clean 2.
+        // #1231/#1306: the headline is the TRUE-filler tier — um(2); "like"(3) is a discourse marker, excluded
+        // by default. The flat filler_counts carries no synthetic `total`, so there is nothing to double-count.
         expect(screen.getByTestId('filler-count-value')).toHaveTextContent('2');
     });
 
-    it('SSOT: shows the persisted canonical filler count and does not inflate it from the transcript', () => {
-        // Live-canonical SSOT: persisted total 2 is authoritative even though the transcript text contains
-        // 4 filler-ish words. Previous behavior wrongly recalculated to max(persisted, recount) = 4.
+    it('#1306: shows the stored filler count (no transcript exists to inflate it from)', () => {
+        // The stored flat filler_counts is authoritative — there is no transcript to recount, so the headline
+        // is exactly the stored true-filler count.
         renderComponent({
             sessionId: 'session-1',
             sessionHistory: [
@@ -354,10 +337,7 @@ describe('AnalyticsDashboard', () => {
                     total_words: 120,
                     wpm: 120,
                     clarity_score: 90,
-                    filler_words: {
-                        total: { count: 2 },
-                    },
-                    transcript: 'so this is like what I am testing so it should count like the live view',
+                    filler_counts: { um: 2 },
                 },
             ],
         });
@@ -377,8 +357,7 @@ describe('AnalyticsDashboard', () => {
                     total_words: 60,
                     wpm: 120,
                     clarity_score: 93,
-                    filler_words: { um: { count: 2 } },
-                    transcript: 'um this is a short practice sample with um enough words to explain the score',
+                    filler_counts: { um: 2 },
                 },
             ],
         });
@@ -400,8 +379,7 @@ describe('AnalyticsDashboard', () => {
                     total_words: 0,
                     wpm: 0,
                     clarity_score: 100,
-                    filler_words: {},
-                    transcript: '',
+                    filler_counts: {},
                 },
             ],
         });
@@ -411,32 +389,30 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('clarity-score-value-explanation')).toHaveTextContent(/cannot be scored/i);
     });
 
-    it('#1131 round-4 (#1): an EXPIRED session shows its persisted clarity score but WITHHOLDS the recomputed explanation', () => {
+    it('#1306: a session with persisted clarity + words shows BOTH the value AND its explanation (metric-presence)', () => {
+        // There is no transcript_state to "withhold" an explanation on — a persisted metric renders its value
+        // and its explanation together.
         renderComponent({
-            sessionId: 'expired-session',
+            sessionId: 'measured-session',
             sessionHistory: [
                 {
-                    id: 'expired-session',
+                    id: 'measured-session',
                     user_id: 'test-user',
                     created_at: '2023-01-01T10:00:00Z',
                     duration: 60,
                     total_words: 120,
                     wpm: 120,
                     clarity_score: 88,
-                    filler_words: { um: { count: 2 }, total: { count: 2 } },
-                    // server-owned: transcript removed by retention, measurements survive.
-                    transcript_state: 'expired',
-                    transcript: null,
+                    filler_counts: { um: 2 },
+                    status: 'completed',
+                    next_action_signal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
                 },
             ],
         });
 
-        // The persisted score still shows (measurements survive retention)…
         expect(screen.getByTestId('clarity-score-value')).toHaveTextContent(/88/);
-        // …but the transcript-recomputed explanation (errorCount=0 from absent text) is withheld entirely.
-        expect(screen.queryByTestId('clarity-score-value-explanation')).toBeNull();
-        expect(screen.queryByTestId('stat-card-speaking_pace-explanation')).toBeNull();
-        expect(screen.queryByTestId('filler-count-value-explanation')).toBeNull();
+        expect(screen.getByTestId('clarity-score-value-explanation')).toBeInTheDocument();
+        expect(screen.getByTestId('filler-count-value')).toHaveTextContent('2');
     });
 
     it('shows saved recording mode metadata in the session detail view', () => {
@@ -453,7 +429,6 @@ describe('AnalyticsDashboard', () => {
                     engine_version: 'transformers-js-2.17',
                     model_name: 'whisper-tiny.en',
                     device_type: 'cpu',
-                    transcript: 'hello world',
                 },
             ],
         });
@@ -489,94 +464,40 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('session-engine-metadata')).toHaveTextContent('Legacy recording');
     });
 
-    it('renders the saved Native transcript in the session detail view and exposes it for proofs', () => {
+    it('#1306: session detail renders NO transcript pane and NO transcript-quality caveat — and shows the next action', () => {
         renderComponent({
             sessionId: 'native-session',
             sessionHistory: [
                 {
-                    id: 'native-session',
-                    user_id: 'test-user',
-                    created_at: '2023-01-01T10:00:00Z',
-                    duration: 60,
-                    total_words: 6,
-                    engine: 'native',
-                    transcript: 'native browser microphone proof works',
+                    id: 'native-session', user_id: 'test-user', created_at: '2023-01-01T10:00:00Z',
+                    duration: 60, total_words: 6, engine: 'native', clarity_score: 80,
+                    filler_counts: { um: 1 }, status: 'completed',
+                    next_action_signal: { reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate', value: 0.08, comparator: 'above_baseline', templateVersion: 'rec_v1' },
                 },
             ],
         });
 
-        const detail = screen.getByTestId('session-detail-transcript');
-        expect(detail).toHaveTextContent('native browser microphone proof works');
-        expect(detail).toHaveAttribute('data-session-detail-transcript', 'native browser microphone proof works');
+        // Privacy: no transcript pane, no transcript-quality caveat anywhere in the detail view.
+        expect(screen.queryByTestId('session-detail-transcript')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('session-detail-quality-caveat')).not.toBeInTheDocument();
+        // The ONE structured next action is shown (content-free coaching), and metrics still render.
+        expect(screen.getByTestId('session-detail-next-action')).toBeInTheDocument();
+        expect(screen.getByTestId('session-next-action-title')).toHaveTextContent('Trim the filler words');
+        expect(screen.getByTestId('filler-count-value')).toHaveTextContent('1');
     });
 
-    it('REGRESSION: a whitespace-only placeholder transcript shows the empty fallback, not a blank panel', () => {
-        // A session that started (placeholder `transcript: " "`) but was never finalized
-        // must not render a silent blank panel that looks like a lost transcript.
+    it('#1306: an incomplete/empty session renders no transcript panel and no caveat (nothing to leak)', () => {
         renderComponent({
             sessionId: 'placeholder-session',
             sessionHistory: [
                 {
-                    id: 'placeholder-session',
-                    user_id: 'test-user',
-                    created_at: '2023-01-01T10:00:00Z',
-                    duration: 5,
-                    total_words: 0,
-                    engine: 'native',
-                    transcript: ' ',
+                    id: 'placeholder-session', user_id: 'test-user', created_at: '2023-01-01T10:00:00Z',
+                    duration: 5, total_words: 0, engine: 'native', status: 'failed',
                 },
             ],
         });
 
-        const detail = screen.getByTestId('session-detail-transcript');
-        // #1047 PR-U1: a placeholder-only transcript (no server transcript_state) derives not_captured and
-        // shows the honest reason, not the old ambiguous "No transcript available for this session." blank.
-        expect(detail).toHaveTextContent('No transcript was captured.');
-        expect(detail).toHaveAttribute('data-transcript-state', 'not_captured');
-        expect(detail).toHaveAttribute('data-session-detail-transcript', '');
-    });
-
-    it('shows a transcript-quality caveat in the detail view for a weak (Native) saved session', () => {
-        renderComponent({
-            sessionId: 'native-weak',
-            sessionHistory: [
-                {
-                    id: 'native-weak',
-                    user_id: 'test-user',
-                    created_at: '2023-01-01T10:00:00Z',
-                    duration: 60,
-                    total_words: 36,
-                    wpm: 110,
-                    clarity_score: 80,
-                    engine: 'native',
-                    transcript: 'This is a clear practice sentence. It has proper punctuation throughout. I am speaking about my project update today. There are several distinct sentences here. That should be more than enough words to score this sample.',
-                },
-            ],
-        });
-
-        const caveat = screen.getByTestId('session-detail-quality-caveat');
-        expect(caveat).toBeInTheDocument();
-        expect(caveat).toHaveTextContent(/directional|filler/i);
-    });
-
-    it('does NOT show the quality caveat for a clean, trusted (Private) saved session', () => {
-        renderComponent({
-            sessionId: 'private-clean',
-            sessionHistory: [
-                {
-                    id: 'private-clean',
-                    user_id: 'test-user',
-                    created_at: '2023-01-01T10:00:00Z',
-                    duration: 60,
-                    total_words: 16,
-                    wpm: 120,
-                    clarity_score: 90,
-                    engine: 'private',
-                    transcript: 'This is a clear sentence. Here is another one. And a third, just to be sure.',
-                },
-            ],
-        });
-
+        expect(screen.queryByTestId('session-detail-transcript')).not.toBeInTheDocument();
         expect(screen.queryByTestId('session-detail-quality-caveat')).not.toBeInTheDocument();
     });
 
@@ -593,8 +514,7 @@ describe('AnalyticsDashboard', () => {
                     total_words: 120,
                     wpm: 120,
                     clarity_score: 90,
-                    filler_words: { um: { count: 1 } },
-                    transcript: 'hello world',
+                    filler_counts: { um: 1 },
                 },
             ],
         });
@@ -641,48 +561,45 @@ describe('AnalyticsDashboard', () => {
         expect(openLink).toHaveAttribute('href', '/analytics/session-1');
     });
 
-    // #1047 PR-U1: the session-detail transcript honors the server-owned transcript_state — available text
-    // renders, expired/not_captured show their honest reason (never the removed text, never an ordinary
-    // empty transcript), measurements stay visible, and the AI/text action is disabled when unavailable.
-    describe('#1047 detail transcript-state matrix', () => {
+    // #1306 metrics-only: there is NO transcript pane and NO transcript_state to honor. The session detail
+    // renders persisted measurements and exactly one durable next action; nothing recomputes from text.
+    describe('#1306 session-detail is metrics-only (no transcript surface)', () => {
+        const completedSignal = { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' };
         const detailSession = (over: Record<string, unknown>) => ([{
             id: 'sx', user_id: 'test-user', created_at: '2023-01-01T10:00:00Z',
             duration: 600, total_words: 1200, wpm: 120, clarity_score: 85,
-            filler_words: { um: { count: 5 } }, accuracy: 0.9, ...over,
+            filler_counts: { um: 5 }, status: 'completed', next_action_signal: completedSignal, ...over,
         }]);
 
-        it('available → renders the transcript text and enables the AI action', () => {
-            renderComponent({ sessionId: 'sx', sessionHistory: detailSession({ transcript: 'the practiced words', transcript_state: 'available' }) });
-            const el = screen.getByTestId('session-detail-transcript');
-            expect(el).toHaveAttribute('data-transcript-state', 'available');
-            expect(el.textContent).toContain('the practiced words');
-            expect(screen.getByRole('button', { name: /Get Suggestions/i })).toBeEnabled();
+        it('renders persisted measurements and never a transcript pane or an AI/text action', () => {
+            renderComponent({ sessionId: 'sx', sessionHistory: detailSession({}) });
+            expect(screen.queryByTestId('session-detail-transcript')).not.toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: /Get Suggestions/i })).not.toBeInTheDocument();
+            // Measurements remain visible.
+            expect(screen.getAllByText('Speaking Pace').length).toBeGreaterThan(0);
+            expect(screen.getByTestId('clarity-score-value')).toHaveTextContent(/85/);
         });
 
-        it('expired → shows the reason, hides the removed text, keeps measurements, disables the AI action', () => {
-            renderComponent({ sessionId: 'sx', sessionHistory: detailSession({ transcript: 'removed words', transcript_state: 'expired' }) });
-            const el = screen.getByTestId('session-detail-transcript');
-            expect(el).toHaveAttribute('data-transcript-state', 'expired');
-            expect(el.textContent).toContain('Transcript expired. Your measurements are still available.');
-            expect(el.textContent).not.toContain('removed words');
-            expect(screen.getAllByText('Speaking Pace').length).toBeGreaterThan(0); // measurements remain visible
-            expect(screen.getByRole('button', { name: /Get Suggestions/i })).toBeDisabled();
+        it('a completed session renders exactly one valid next action', () => {
+            renderComponent({ sessionId: 'sx', sessionHistory: detailSession({}) });
+            expect(screen.getAllByTestId('session-next-action-title')).toHaveLength(1);
+            expect(screen.queryByTestId('session-next-action-integrity-error')).not.toBeInTheDocument();
+            expect(screen.queryByTestId('session-next-action-none')).not.toBeInTheDocument();
         });
 
-        it('not_captured → shows the reason and disables the AI action', () => {
-            renderComponent({ sessionId: 'sx', sessionHistory: detailSession({ transcript: '', transcript_state: 'not_captured' }) });
-            const el = screen.getByTestId('session-detail-transcript');
-            expect(el).toHaveAttribute('data-transcript-state', 'not_captured');
-            expect(el.textContent).toContain('No transcript was captured.');
-            expect(screen.getByRole('button', { name: /Get Suggestions/i })).toBeDisabled();
+        it('a completed session MISSING its next action renders a data-integrity failure, not a friendly empty state', () => {
+            renderComponent({ sessionId: 'sx', sessionHistory: detailSession({ next_action_signal: undefined }) });
+            expect(screen.getByTestId('session-next-action-integrity-error')).toBeInTheDocument();
+            expect(screen.queryByTestId('session-next-action-none')).not.toBeInTheDocument();
+            expect(screen.queryByTestId('session-next-action-title')).not.toBeInTheDocument();
         });
 
-        it('not_captured with sentinel metrics → detail tiles show Not enough data, never a measured zero', () => {
+        it('a measured-zero session ({} filler, no words) shows Not enough data, never a sentinel zero', () => {
             renderComponent({
                 sessionId: 'sx',
                 sessionHistory: [{
                     id: 'sx', user_id: 'test-user', created_at: '2023-01-01T10:00:00Z',
-                    duration: 600, total_words: 0, filler_words: {}, transcript: '', transcript_state: 'not_captured',
+                    duration: 600, total_words: 0, filler_counts: {},
                 }],
             });
             // The Speaking Pace tile reads "Not enough data", not a sentinel zero.
@@ -693,11 +610,11 @@ describe('AnalyticsDashboard', () => {
         });
     });
 
-    it('#1047 not_captured history item shows N/A for transcript-derived metrics (no sentinel zeros)', () => {
+    it('#1306 a history item with unmeasured pace (NULL total_words) shows N/A, never a sentinel zero', () => {
         renderComponent({
             sessionHistory: [{
                 id: 'nc-1', user_id: 'test-user', created_at: '2023-01-01T10:00:00Z',
-                duration: 600, total_words: 0, filler_words: {}, transcript: '', transcript_state: 'not_captured',
+                duration: 600, total_words: 0, filler_counts: {},
             }],
         });
         const row = screen.getByTestId(`${TEST_IDS.SESSION_HISTORY_ITEM}-nc-1`);

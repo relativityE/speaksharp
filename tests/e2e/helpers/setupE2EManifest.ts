@@ -202,76 +202,62 @@ export async function setupE2EManifest(
     };
 
     const nowIso = () => new Date().toISOString();
-    // #1047 PR-U1: the mock DB mirrors the server's BEFORE trigger, which owns transcript_state. Authority
-    // differs by writer:
-    //   • AUTHORITATIVE writes (server-established fixtures — the seed set + the default history) may set any
-    //     state, exactly as a real prior server write would; an authoritative `expired` is honoured.
-    //   • ORDINARY CLIENT writes (INSERT, UPDATE, finalize RPC) can NEVER self-assert a state. State is
-    //     recomputed from transcript presence, EXCEPT that `expired` is sticky: it is preserved ONLY when the
-    //     PREVIOUSLY PERSISTED row was already `expired` (a client cannot introduce `expired`, and cannot
-    //     resurrect a transcript once expired).
-    // Whenever the resolved state is `expired`, the transcript content is forced to null — the trigger clears
-    // it and a CHECK backstops `expired ⟹ transcript IS NULL`.
-    const deriveStateFromTranscript = (row: Record<string, unknown>) => {
-      const t = row.transcript;
-      return typeof t === 'string' && t.trim().length > 0 ? 'available' : 'not_captured';
+    // #1306 metrics-only: the mock DB mirrors the metrics-only persistence FIREWALL. A transcript,
+    // transcript_state, ai_suggestions, per-session custom_words, accuracy, or the legacy nested filler_words is
+    // FORBIDDEN. The mock REJECTS such a write fail-closed (exactly as the Stage B DB firewall RAISEs) — it does
+    // NOT silently sanitize it, because silently dropping a forbidden field would HIDE a real client privacy
+    // regression. A valid row carries flat filler_counts + one next_action_signal.
+    const DEFAULT_NEXT_ACTION = {
+      reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate',
+      value: 5, comparator: 'above_target', templateVersion: 'rec_v1',
+    } as const;
+    const FORBIDDEN_CONTENT_FIELDS = ['transcript', 'transcript_state', 'ai_suggestions', 'ground_truth', 'accuracy', 'custom_words', 'filler_words'];
+    const forbiddenKeyIn = (payload: unknown): string | null => {
+      if (!payload || typeof payload !== 'object') return null;
+      for (const k of FORBIDDEN_CONTENT_FIELDS) if (k in (payload as Record<string, unknown>)) return k;
+      return null;
     };
-    const reconcileTranscriptState = (
-      row: Record<string, unknown>,
-      opts: { authoritative?: boolean; previousState?: unknown } = {}
-    ) => {
-      const { authoritative = false, previousState } = opts;
-      let state: string;
-      if (authoritative) {
-        // Server-established fixture: honour an explicit valid state, else derive from the transcript.
-        state = (row.transcript_state === 'available' || row.transcript_state === 'expired' || row.transcript_state === 'not_captured')
-          ? (row.transcript_state as string)
-          : deriveStateFromTranscript(row);
-      } else {
-        // Client write: sticky `expired` ONLY when the prior persisted row was already expired; a client can
-        // never introduce `expired` itself. Otherwise recompute from transcript presence (ignoring any
-        // client-provided transcript_state).
-        state = previousState === 'expired' ? 'expired' : deriveStateFromTranscript(row);
+    // Fail-closed guard for a `sessions` write. Returns a Supabase-shaped error result when a forbidden content
+    // field is present (single payload or array), else null. The field NAME is a fixed schema identifier (never
+    // user prose), so naming it is safe and diagnostic.
+    const rejectForbiddenSessionWrite = (payload: unknown): { data: null; error: { message: string; code: string }; count: number } | null => {
+      const rows = Array.isArray(payload) ? payload : [payload];
+      for (const row of rows) {
+        const bad = forbiddenKeyIn(row);
+        if (bad) {
+          return { data: null, error: { message: `#1306 metrics-only firewall: forbidden content field "${bad}" rejected`, code: '23514' }, count: 0 };
+        }
       }
-      row.transcript_state = state;
-      if (state === 'expired') row.transcript = null; // sticky/seeded expired clears content (trigger + CHECK)
-      return row;
+      return null;
     };
-    const makeSession = (overrides: Record<string, unknown> = {}, opts: { authoritative?: boolean } = {}) => {
+    const makeSession = (overrides: Record<string, unknown> = {}) => {
+      const status = (overrides.status as string) ?? 'completed';
       const row: Record<string, unknown> = {
         id: `session-${Math.random().toString(36).slice(2)}`,
         user_id: e2eProfile.id,
         title: 'Test Session',
         duration: 300,
         total_words: 150,
-        filler_words: { um: { count: 2 }, uh: { count: 3 } },
-        accuracy: 0.92,
+        filler_counts: { um: 2, uh: 3 },
         clarity_score: 88,
         wpm: 145,
         engine: 'private',
-        status: 'completed',
+        status,
+        // A completed session MUST carry exactly one next action; incomplete/failed carry none.
+        next_action_signal: status === 'completed' ? DEFAULT_NEXT_ACTION : null,
+        pause_metrics: null,
         created_at: nowIso(),
         updated_at: nowIso(),
-        // Coaching is never fabricated by the generic session factory. Tests that need it must seed
-        // an exact persisted provider result for that specific session.
-        ai_suggestions: null,
-        pause_metrics: null,
         ...overrides,
       };
-      // #1047: preserve an OMITTED transcript as absent for ordinary CLIENT writes — the mock must not
-      // synthesize content the client never supplied. Only AUTHORITATIVE fixtures (seed + default history)
-      // get the canned transcript, and only when they didn't specify one themselves.
-      if (opts.authoritative && !('transcript' in overrides)) {
-        row.transcript = 'the birch canoe slid on the smooth planks';
-      }
-      return reconcileTranscriptState(row, { authoritative: opts.authoritative });
+      return row;
     };
 
     const e2eDbStorageKey = '__SS_E2E_SESSION_DB__';
     // #1047: an explicit seed (transcript_state variants) replaces the generic history. Each seeded row is
     // stamped with the authenticated user's id so the app's `.eq('user_id', …)` query returns it.
     const seededSessions = Array.isArray(seed) && seed.length > 0
-      ? seed.map((row) => makeSession({ ...row, user_id: e2eProfile.id }, { authoritative: true }))
+      ? seed.map((row) => makeSession({ ...row, user_id: e2eProfile.id }))
       : null;
     const defaultSessions = es
       ? []
@@ -279,7 +265,7 @@ export async function setupE2EManifest(
           id: `session-${index + 1}`,
           title: `Practice Session ${index + 1}`,
           created_at: new Date(Date.now() - index * 86400000).toISOString(),
-        }, { authoritative: true })));
+        })));
     const loadPersistedSessions = () => {
       try {
         const raw = window.sessionStorage.getItem(e2eDbStorageKey);
@@ -415,6 +401,10 @@ export async function setupE2EManifest(
         }
         if (table !== 'sessions') return null;
         if (pendingMutation.type === 'insert') {
+          // #1306 metrics-only firewall: REJECT a forbidden content field fail-closed (never silently drop it,
+          // which would hide a client privacy regression). Mirrors the Stage B DB CHECK/trigger.
+          const rejected = rejectForbiddenSessionWrite(pendingMutation.payload);
+          if (rejected) return rejected;
           const payloads = Array.isArray(pendingMutation.payload) ? pendingMutation.payload : [pendingMutation.payload || {}];
           const inserted = payloads.map((payload) => makeSession(payload as Record<string, unknown>));
           sessionState.sessions.unshift(...inserted);
@@ -425,11 +415,10 @@ export async function setupE2EManifest(
           filters.every((filter) => String((row as Record<string, unknown>)[filter.column]) === String(filter.value))
         );
         if (pendingMutation.type === 'update') {
+          const rejected = rejectForbiddenSessionWrite(pendingMutation.payload);
+          if (rejected) return rejected;
           for (const row of matching) {
-            const previousState = row.transcript_state; // capture BEFORE the client payload overwrites it
-            Object.assign(row, pendingMutation.payload || {}, { updated_at: nowIso() });
-            // Ordinary client UPDATE: sticky `expired` only if the prior row was expired; never client-asserted.
-            reconcileTranscriptState(row, { authoritative: false, previousState });
+            Object.assign(row, (pendingMutation.payload || {}) as Record<string, unknown>, { updated_at: nowIso() });
           }
           persistSessions();
           return { data: matching, error: null, count: matching.length };
@@ -596,6 +585,9 @@ export async function setupE2EManifest(
       rpc: async (fn: string, args?: Record<string, unknown>) => {
         if (fn === 'create_session_and_update_usage') {
           const sessionData = (args?.p_session_data || {}) as Record<string, unknown>;
+          // #1306 firewall: a create RPC whose session payload smuggles a forbidden content field is REJECTED.
+          const rejected = rejectForbiddenSessionWrite(sessionData);
+          if (rejected) return { data: null, error: rejected.error };
           const newSession = makeSession({
             ...sessionData,
             engine: (args?.p_engine_type as string) || sessionData.engine || 'native',
@@ -609,18 +601,27 @@ export async function setupE2EManifest(
           return { data: { new_session: newSession, usage_exceeded: false }, error: null };
         }
         if (fn === 'complete_session') {
+          // #1306: the transcript-free overload is the ONLY accepted completion. A legacy call carrying
+          // p_final_transcript is REJECTED fail-closed (the old transcript-accepting overload is absent).
+          if (args && 'p_final_transcript' in args) {
+            return { data: null, error: { message: '#1306 metrics-only firewall: forbidden argument "p_final_transcript" rejected', code: '23514' } };
+          }
           const sessionId = args?.p_session_id;
           const session = sessionState.sessions.find((row) => row.id === sessionId);
           if (session) {
-            const previousState = (session as Record<string, unknown>).transcript_state; // before overwrite
+            // #1306 metrics-only: transcript-free completion — persist metrics + the ONE next action; a
+            // transcript is never accepted or stored.
             Object.assign(session, {
               status: args?.p_status || 'completed',
-              transcript: args?.p_final_transcript ?? session.transcript,
               duration: args?.p_final_duration ?? session.duration,
+              next_action_signal: args?.p_next_action ?? session.next_action_signal,
+              total_words: args?.p_total_words ?? session.total_words,
+              clarity_score: args?.p_clarity_score ?? session.clarity_score,
+              wpm: args?.p_wpm ?? session.wpm,
+              filler_counts: args?.p_filler_counts ?? session.filler_counts,
+              pause_metrics: args?.p_pause_metrics ?? session.pause_metrics,
               updated_at: nowIso(),
             });
-            // Client finalize RPC: sticky `expired` only if already expired; the client cannot assert it.
-            reconcileTranscriptState(session as Record<string, unknown>, { authoritative: false, previousState });
             persistSessions();
           }
           return { data: { success: true, final_status: args?.p_status || 'completed' }, error: null };

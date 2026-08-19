@@ -3,6 +3,7 @@ import { fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
 import type { SttStatus } from '@/types/transcription';
+import type { FillerCounts } from '@/utils/fillerWordUtils';
 
 const base: SessionOverhaulViewProps = {
     authUserId: 'user-1',
@@ -61,6 +62,32 @@ describe('SessionOverhaulView (#1222 S11)', () => {
         render(<SessionOverhaulView {...base} sttStatus={{ type: 'error', message: 'Mic blocked' } as SttStatus} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
         expect(screen.getByTestId('mic-error')).toHaveTextContent('Mic blocked');
+    });
+
+    // #1306 Option A: at the terminal review the transcript/chunks are purged and the live fillerData is zeroed
+    // by the useFillerWords sync. The review MUST render the FINAL snapshot (breakdown + counts + words) instead
+    // of recounting the (empty) transcript — proving the metrics-only review needs no retained transcript.
+    it('renders the FINALIZED filler/word snapshot in the after-state with the transcript purged', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                showAnalyticsPrompt
+                transcriptContent=""                    /* transcript purged at terminal */
+                metricsFillerCount={0}                    /* live headline zeroed after purge */
+                fillerData={{} as unknown as FillerCounts} /* live fillerData zeroed by the useFillerWords sync */
+                finalizedWordCount={14}
+                finalizedFillerCount={3}
+                finalizedFillerData={{ um: { count: 3 }, like: { count: 2 }, total: { count: 5 } } as unknown as FillerCounts}
+            />,
+        );
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+        // Breakdown renders from the snapshot (NOT the empty live data / purged transcript).
+        expect(screen.getByTestId('filler-breakdown-list')).toBeInTheDocument();
+        expect(screen.queryByTestId('filler-breakdown-empty')).toBeNull();
+        const words = screen.getAllByTestId('filler-breakdown-word').map((w) => w.getAttribute('data-word'));
+        expect(words).toEqual(expect.arrayContaining(['um', 'like']));
+        // Stats use the snapshot headline (3) + word count (14), never the purged transcript (which is 0/0).
+        expect(screen.getByTestId('after-stats')).toHaveTextContent('3 fillers · 14 words');
     });
 });
 

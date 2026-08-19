@@ -191,18 +191,18 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
         user_id: 'test-user-123',
         created_at: '2025-01-17T14:00:00.000Z',
         duration: 420,
-        transcript_state: 'available',
-        transcript: 'Today I presented the same saved session truth with clear evidence.',
         title: 'U3 Cross-page Session',
         total_words: 245,
         engine: 'private',
         clarity_score: 88,
         wpm: 142,
-        filler_words: { um: { count: 4 }, total: { count: 4 } },
-        ai_suggestions: {
-          version: 'gemini_coaching_v1',
-          what_worked: 'The saved-session evidence made the recommendation concrete.',
-          what_to_try_next: 'Close the next attempt with the requested decision and owner.',
+        // #1306 metrics-only: flat filler_counts + one next_action_signal; NO transcript / transcript_state /
+        // ai_suggestions cross any persistence or review surface.
+        filler_counts: { um: 4 },
+        status: 'completed',
+        next_action_signal: {
+          reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate',
+          value: 4, comparator: 'above_target', templateVersion: 'rec_v1',
         },
       }],
     });
@@ -231,8 +231,11 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     await expect(page.getByTestId('progress-baseline-context')).toHaveText(/previous comparable session is also your first-session baseline/i);
     await expect(page.getByTestId('progress-accept')).toHaveText(/Practice this next/i);
     await expect(page.getByText(/SpeakSharp Score/i)).toHaveCount(0);
-    await expect(page.getByText(/same saved session truth with clear evidence/i)).toBeVisible();
-    await expect(page.getByText('The saved-session evidence made the recommendation concrete.')).toBeVisible();
+    // #1306 metrics-only: no transcript pane and no AI-coaching prose render on the review surface.
+    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
+    await expect(page.getByText(/same saved session truth with clear evidence/i)).toHaveCount(0);
+    await expect(page.getByText('The saved-session evidence made the recommendation concrete.')).toHaveCount(0);
+    // The ONE durable next action (from the server-owned Progress read model) still renders.
     await expect(page.getByTestId('progress-practice-next').getByText('Close the next attempt with the requested decision and owner.')).toBeVisible();
     await assertAxe(page);
     await screenshotMatrix(page, 'review-progress');
@@ -244,9 +247,10 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     await download.saveAs(pdfPath);
     const pdfText = await extractPdfText(pdfPath);
     expect(pdfText).toContain(SESSION_ID);
-    expect(pdfText).toContain('Today I presented the same saved session truth with clear evidence.');
+    // #1306 metrics-only: the exported PDF carries NO transcript and NO free-form AI coaching prose.
+    expect(pdfText).not.toContain('Today I presented the same saved session truth with clear evidence.');
     expect(pdfText).not.toContain('SpeakSharp Score');
-    expect(pdfText).toContain('The saved-session evidence made the recommendation concrete.');
+    expect(pdfText).not.toContain('The saved-session evidence made the recommendation concrete.');
     expect(pdfText).toContain('Close the next attempt with the requested decision and owner.');
     expect(pdfText).toContain('Comparable Progress');
     expect(pdfText).toContain('improved 7.3% vs your previous comparable session');

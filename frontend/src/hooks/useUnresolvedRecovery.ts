@@ -37,25 +37,22 @@ export function useUnresolvedRecovery({
     transcriptContent,
 }: UseUnresolvedRecoveryArgs) {
     const [recoveryDraft, setRecoveryDraft] = React.useState<SessionRecoveryDraft | null>(null);
-    const updateRecoveredTranscript = useSessionStore((s) => s.updateTranscript);
-    const setRecoveredChunks = useSessionStore((s) => s.setChunks);
     const setRecoveredStatus = useSessionStore((s) => s.setSTTStatus);
 
+    // #1306: recovery is CONTENT-FREE — there is no transcript to rehydrate into the UI. A finalized draft's
+    // metrics are re-armed for a save retry by the controller (rehydrateUnresolvedRecording); an interrupted
+    // draft carries only partial counters and cannot be completed. Here we just surface an honest status.
     const restoreRecoveryDraft = React.useCallback((draft: SessionRecoveryDraft) => {
         clearSessionRecoveryDraft(draft.sessionId);
-        updateRecoveredTranscript(draft.transcript, '');
-        setRecoveredChunks([{
-            transcript: draft.transcript,
-            timestamp: new Date(draft.savedAt).getTime() || Date.now(),
-            isFinal: true,
-        }]);
         setRecoveredStatus({
             type: 'warning',
-            message: 'Recovered unsaved session draft.',
-            detail: 'Your last transcript was kept on this device after a save issue.',
+            message: 'Recovered an unsaved session.',
+            detail: draft.recoveryState === 'finalized_pending_save'
+                ? 'Your last session’s measurements were kept on this device.'
+                : 'Your last session was interrupted; only partial measurements were available.',
         });
         setRecoveryDraft(null);
-    }, [setRecoveredChunks, setRecoveredStatus, updateRecoveredTranscript]);
+    }, [setRecoveredStatus]);
 
     // Owner-scoped read + auto-restore, with a scoped clear on save.
     React.useEffect(() => {

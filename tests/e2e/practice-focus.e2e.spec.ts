@@ -112,14 +112,18 @@ test.describe('#1264 — Open Mic Practice Focus, preserved through repeat', () 
         user_id: 'test-user-123',
         created_at: '2025-02-01T14:00:00.000Z',
         duration: 420,
-        transcript_state: 'available',
-        transcript: 'A saved Open Mic take used to reach the Practice this next repeat action.',
         title: 'Practice Focus Repeat Session',
         total_words: 245,
         engine: 'private',
         clarity_score: 88,
         wpm: 142,
-        filler_words: { um: { count: 4 }, total: { count: 4 } },
+        // #1306 metrics-only: flat filler_counts + one next action; no transcript / transcript_state.
+        filler_counts: { um: 4 },
+        status: 'completed',
+        next_action_signal: {
+          reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate',
+          value: 4, comparator: 'above_target', templateVersion: 'rec_v1',
+        },
       }],
     });
 

@@ -3,11 +3,11 @@ import autoTable from 'jspdf-autotable';
 import { saveAs } from 'file-saver';
 import { PracticeSession as Session } from '../types/session';
 import { format, parseISO } from 'date-fns';
-import { presentTranscript, transcriptDerivedMetricShowable } from '../constants/transcriptState';
+import { validateNextActionSignal, renderNextActionCopy } from '@/contracts/nextActionSignal';
 import logger from './logger';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
-import { countFillerWords } from '@/utils/fillerWordUtils';
-import { getSessionAnalysisMetrics, isUsableFillerCounts } from '@/utils/sessionAnalysis';
+import { getSessionAnalysisMetrics } from '@/utils/sessionAnalysis';
+import { readPersistedFillerCounts } from '@/contracts/fillerCounts';
 import { loadSessionProgress } from '@/services/progress/loadSessionProgress';
 
 // A more specific type for the internal, undocumented API
@@ -26,21 +26,12 @@ const PDF_WATERMARK_TEXT = 'SpeakSharp';
 const formatOptionalNumber = (value: number | null | undefined, formatter: (value: number) => string, fallback = 'N/A') =>
   typeof value === 'number' ? formatter(value) : fallback;
 
-const getFillerTableData = (fillerWords: Session['filler_words']) =>
-  Object.entries(fillerWords || {})
+// #1306 metrics-only: read the STORED flat filler_counts ({ um: 3 }); never a nested map or a transcript.
+const getFillerTableData = (fillerCounts?: Record<string, number> | null): Array<[string, number]> =>
+  Object.entries(fillerCounts || {})
     .filter(([word]) => word !== 'total')
-    .filter(([, data]) => data.count > 0)
-    .map(([word, data]) => [word, data.count]);
-
-const getCustomWordList = (customWords: Session['custom_words']): string[] => {
-  if (!customWords) return [];
-  if (Array.isArray(customWords)) {
-    return customWords
-      .map((item) => typeof item === 'string' ? item : '')
-      .filter(Boolean);
-  }
-  return Object.keys(customWords);
-};
+    .filter(([, count]) => typeof count === 'number' && count > 0)
+    .map(([word, count]) => [word, count as number]);
 
 const formatDuration = (seconds: number): string => {
   if (!Number.isFinite(seconds) || seconds <= 0) return '0 seconds';
@@ -55,24 +46,9 @@ const formatDuration = (seconds: number): string => {
 };
 
 export const getPdfFillerTableData = (session: Session): Array<[string, number]> => {
-  // #1047: transcript-state provenance gates the whole detailed filler table. A not_captured row (sentinel
-  // filler map) or an expired row without genuinely-persisted filler evidence yields NO table — never a
-  // fabricated zero-count table nor a transcript recount from absent text.
-  const state = presentTranscript(session.transcript_state, session.transcript).state;
-  if (!transcriptDerivedMetricShowable(state, isUsableFillerCounts(session.filler_words))) return [];
-  // #SSOT: persisted canonical filler data is authoritative. When it exists (even a valid ZERO), use it
-  // and DO NOT recount — a saved zero must render as no fillers. Recount the transcript ONLY when the
-  // saved filler data is absent/malformed.
-  if (isUsableFillerCounts(session.filler_words)) {
-    return getFillerTableData(session.filler_words) as Array<[string, number]>;
-  }
-
-  const transcript = session.transcript?.trim();
-  if (!transcript) return [];
-
-  const customWords = getCustomWordList(session.custom_words);
-  const derivedCounts = countFillerWords(transcript, customWords);
-  return getFillerTableData(derivedCounts) as Array<[string, number]>;
+  // #1306 metrics-only: the stored flat filler_counts is authoritative; there is no transcript to recount.
+  if (readPersistedFillerCounts(session.filler_counts) === null) return [];
+  return getFillerTableData(session.filler_counts);
 };
 
 const sanitizeFilenamePart = (value: string): string => {
@@ -152,12 +128,9 @@ export const generateSessionPdf = async (
     // authoritative read model actually classifies the session eligible.
     const progress = await loadSessionProgress(session.id).catch(() => null);
     const clarityComparable = progress?.status === 'eligible';
-    // #1047 PR-U1: show a transcript-DERIVED metric only when transcript-state PROVENANCE allows it — never
-    // from numeric presence (a not_captured row's `total_words: 0` / empty filler map are schema-default
-    // SENTINELS, not measurements). An expired row still shows its genuinely persisted measurements.
-    const transcriptState = presentTranscript(session.transcript_state, session.transcript).state;
+    // #1306 metrics-only: a metric shows iff its own value is persisted (metric-presence provenance).
     const derivedCell = (persistedIsRealNumber: boolean, render: () => string): string =>
-      transcriptDerivedMetricShowable(transcriptState, persistedIsRealNumber) ? render() : 'N/A';
+      persistedIsRealNumber ? render() : 'N/A';
     const wordsCell = derivedCell(typeof session.total_words === 'number', () => `${metrics.wordCount}`);
     const wpmCell = derivedCell(typeof session.wpm === 'number', () => `${metrics.wpm} (${metrics.wpmLabel})`);
     // `clarity_score` is an internal evidence input, not a user-facing universal score. Only claim it is
@@ -168,15 +141,7 @@ export const generateSessionPdf = async (
       typeof session.clarity_score === 'number',
       () => clarityComparable ? 'Available for comparable Progress' : 'Recorded — not yet comparable',
     );
-    const fillerCell = derivedCell(isUsableFillerCounts(session.filler_words), () => `${metrics.fillerCount}`);
-    const customWords = getCustomWordList(session.custom_words);
-    const customWordsDetected = customWords.reduce((sum, word) => {
-      const savedCount = session.custom_words?.[word];
-      if (savedCount && typeof savedCount === 'object' && 'count' in savedCount && typeof savedCount.count === 'number') {
-        return sum + savedCount.count;
-      }
-      return sum + (metrics.fillerData[word]?.count ?? 0);
-    }, 0);
+    const fillerCell = derivedCell(metrics.fillerCount !== null, () => `${metrics.fillerCount}`);
     const engineDetails = [
       session.model_name,
       session.engine_version,
@@ -211,10 +176,6 @@ export const generateSessionPdf = async (
       ['Speaking Pace (WPM)', wpmCell],
       ['Clear-delivery evidence', clarityCell],
       ['Total Filler Words', fillerCell],
-      ['Tracked Custom Words', customWords.length > 0 ? customWords.join(', ') : 'None'],
-      // #1047: "detected" is transcript-derived — gate on provenance so a not_captured/expired-unpersisted
-      // row shows N/A, never a fabricated 0 detected.
-      ['Custom Words Detected', transcriptDerivedMetricShowable(transcriptState, isUsableFillerCounts(session.filler_words)) ? `${customWordsDetected}` : 'N/A'],
       ['Transcription Mode', formatSessionRecordingMode(session)],
       ['Engine Details', engineDetails || 'Not recorded'],
       ['Silence Percentage', formatOptionalNumber(session.pause_metrics?.silencePercentage, value => `${value.toFixed(1)}%`)],
@@ -241,41 +202,27 @@ export const generateSessionPdf = async (
       });
     }
 
-    // --- Transcript ---
-    // #1047 PR-U1: honor the server-owned transcript_state. An expired/not-captured transcript prints its
-    // honest reason, never an ordinary empty transcript and never reconstructed from absent text.
-    doc.addPage();
-    doc.setFontSize(16);
-    doc.text('Transcript', 14, 22);
-    doc.setFontSize(10);
-    const pdfTranscript = presentTranscript(session.transcript_state, session.transcript);
-    writePaginatedText(
-      doc,
-      pdfTranscript.canRenderTranscript ? (session.transcript ?? "").trim() : pdfTranscript.unavailableMessage!,
-      14, 32, 180,
-    );
-
-    // #1047 review: when the transcript cannot be rendered (expired / not_captured), suppress the persisted
-    // AI summary and coaching too — not just the transcript text. Those conclusions were derived from a
-    // transcript we can no longer show; printing them would contradict the dashboard, which gates AISuggestions
-    // on the same `aiAvailable` (=== canRenderTranscript) provenance. Match that unavailable-evidence behavior.
-    // A valid persisted coaching result is a durable session artifact. Retention may remove the source
-    // transcript later, but reopening/exporting must preserve the same two stored strings.
-    if (session.ai_suggestions) {
+    // #1306 metrics-only: NO transcript page and NO free-form AI coaching page. The exported report contains
+    // metrics + the ONE structured next action (rendered from next_action_signal below / the Progress section).
+    const naSignal = session.next_action_signal;
+    const naValidated = naSignal ? validateNextActionSignal(naSignal) : null;
+    if (naValidated?.ok) {
+      const copy = renderNextActionCopy(naValidated.value);
       doc.addPage();
       doc.setFontSize(16);
-      doc.text('AI Coaching Suggestions', 14, 22);
-      doc.setFontSize(11);
-
-      let y = 34;
+      doc.text('Your Next Action', 14, 22);
       doc.setFontSize(12);
-      doc.text('What worked', 14, y);
+      doc.text(copy.title, 14, 34);
       doc.setFontSize(10);
-      y = writePaginatedText(doc, session.ai_suggestions.what_worked, 18, y + 7, 180, 5) + 8;
-      doc.setFontSize(12);
-      doc.text('What to try next', 14, y);
+      writePaginatedText(doc, copy.body, 14, 42, 180, 5);
+    } else if (session.status === 'completed') {
+      // #1306: a COMPLETED session MUST carry exactly one valid next action — its absence is a data-integrity
+      // failure that the export records honestly, never hides.
+      doc.addPage();
+      doc.setFontSize(16);
+      doc.text('Your Next Action', 14, 22);
       doc.setFontSize(10);
-      writePaginatedText(doc, session.ai_suggestions.what_to_try_next, 18, y + 7, 180, 5);
+      doc.text('Data integrity error: this completed session is missing its next action.', 14, 34);
     }
 
     // The Progress read model was loaded once above (reused here) — the PDF must never recompute its own

@@ -182,8 +182,6 @@ describe('Navigation', () => {
                 userId: 'test-user',
                 category: 'recording_transcription',
                 pageUrl: expect.any(String),
-                includeTranscript: false,
-                transcriptExcerpt: null,
                 includeAudio: false,
                 audioAttachmentNote: null,
                 metadata: expect.objectContaining({
@@ -191,14 +189,19 @@ describe('Navigation', () => {
                     sttMode: 'private',
                 }),
             }));
+            // #1306: a live transcript sits in the session store, but the report NEVER offers or carries it.
+            const submitArg = (issueReportService.submit as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0] as Record<string, unknown>;
+            expect(submitArg).not.toHaveProperty('includeTranscript');
+            expect(submitArg).not.toHaveProperty('transcriptExcerpt');
+            expect(JSON.stringify(submitArg)).not.toContain('Sensitive transcript should require opt-in');
         });
 
-        it('includes transcript only after explicit opt-in', async () => {
+        it('#1306: there is no transcript opt-in UI — the live transcript is never offered or sent', async () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user', email: 'user@example.com' } },
                 signOut: mockSignOut,
             } as unknown as AuthProvider.AuthContextType);
-            useSessionStore.getState().updateTranscript('User chose to include this transcript', '');
+            useSessionStore.getState().updateTranscript('This live transcript must never reach a report', '');
 
             renderNavigation('/session');
 
@@ -209,19 +212,18 @@ describe('Navigation', () => {
             fireEvent.change(screen.getByTestId('issue-report-description'), {
                 target: { value: 'The transcript changed after I clicked stop.' },
             });
-            fireEvent.click(screen.getByTestId('issue-report-include-transcript'));
-            fireEvent.change(screen.getByTestId('issue-report-transcript-snippet'), {
-                target: { value: 'User chose to include this transcript' },
-            });
+            // The transcript checkbox + snippet field no longer exist.
+            expect(screen.queryByTestId('issue-report-include-transcript')).not.toBeInTheDocument();
+            expect(screen.queryByTestId('issue-report-transcript-snippet')).not.toBeInTheDocument();
+
             fireEvent.click(screen.getByTestId('issue-report-submit'));
 
             await waitFor(() => {
                 expect(issueReportService.submit).toHaveBeenCalled();
             });
-            expect(issueReportService.submit).toHaveBeenCalledWith(expect.objectContaining({
-                includeTranscript: true,
-                transcriptExcerpt: 'User chose to include this transcript',
-            }));
+            const submitArg = (issueReportService.submit as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0] as Record<string, unknown>;
+            expect(submitArg).not.toHaveProperty('transcriptExcerpt');
+            expect(JSON.stringify(submitArg)).not.toContain('This live transcript must never reach a report');
         });
 
         it('attaches the account id and shows the internal-ID support disclosure for authenticated reports', async () => {

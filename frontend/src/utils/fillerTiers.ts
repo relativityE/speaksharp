@@ -1,6 +1,5 @@
 import { TRUE_FILLER_WORDS, DISCOURSE_MARKER_WORDS } from '../config';
 import type { FillerCounts } from './fillerWordUtils';
-import type { PracticeSession } from '@/types/session';
 
 /**
  * #1231 filler slice 2 — the DEFAULT filler headline is the TRUE-filler tier (um/uh/ah) plus the user's
@@ -60,7 +59,8 @@ export interface FillerTierOptions {
  * exactly as the #1131 filler-evidence contract requires.
  */
 export const fillerTierBreakdown = (
-    fillerWords?: PracticeSession['filler_words'] | FillerCounts | null,
+    // #1306: accepts the STORED flat map ({ um: 3 }) or a LIVE nested FillerCounts ({ um: { count: 3 } }).
+    fillerWords?: Record<string, number> | FillerCounts | null,
     { includeDiscourseMarkers = false, userWords = [] }: FillerTierOptions = {},
 ): FillerTierBreakdown | null => {
     // Fail closed on non-plain-objects (arrays/scalars/null carry no per-key map). Mirrors validatedFillerTotal.
@@ -78,7 +78,9 @@ export const fillerTierBreakdown = (
 
     for (const word in fillerWords) {
         if (word === 'total') continue; // the scalar total encodes the LEGACY definition — never trusted here
-        const c = (fillerWords as Record<string, { count?: unknown }>)[word]?.count;
+        // Accept both the stored flat number and the live nested { count } shape.
+        const raw: unknown = (fillerWords as Record<string, unknown>)[word];
+        const c = typeof raw === 'number' ? raw : (raw as { count?: unknown } | null)?.count;
         if (!isValidCount(c)) continue;
         sawValidPerKey = true;
         comprehensiveTotal += c;
@@ -111,6 +113,6 @@ export const fillerTierBreakdown = (
  * fallback is the legacy definition and should be reserved for rows that genuinely lack per-key detail.
  */
 export const countedFillerTotal = (
-    fillerWords?: PracticeSession['filler_words'] | FillerCounts | null,
+    fillerWords?: Record<string, number> | FillerCounts | null,
     options: FillerTierOptions = {},
 ): number | null => fillerTierBreakdown(fillerWords, options)?.countedTotal ?? null;

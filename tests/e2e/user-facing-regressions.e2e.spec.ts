@@ -74,15 +74,19 @@ test.describe('User-facing session and analytics regressions', () => {
     await expect(page.getByTestId('filler-breakdown')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('after-stats')).toContainText('1 fillers');
 
+    // #1306 Option A: diagnostics carry LENGTHS/codes only — the save-candidate NEVER exposes transcript text
+    // (the privacy boundary covers test/E2E artifacts too). Assert a real candidate was selected via its length,
+    // and that no transcript-text field is present.
     const saveCandidate = await page.evaluate(() => (
       window as Window & {
         __SPEECH_RUNTIME_DEBUG__?: () => {
-          saveCandidate?: { selectedForSave?: string; saveCandidateReason?: string };
+          saveCandidate?: { selectedForSave?: string; selectedForSaveLength?: number; saveCandidateReason?: string };
         };
       }
     ).__SPEECH_RUNTIME_DEBUG__?.().saveCandidate ?? null);
-    expect(saveCandidate?.selectedForSave).toContain('tester-facing transcript');
-    expect(saveCandidate?.selectedForSave).not.toContain('[E2E_MOCK]');
+    expect(saveCandidate).not.toBeNull();
+    expect(saveCandidate?.selectedForSaveLength ?? 0).toBeGreaterThan(0);
+    expect(saveCandidate?.selectedForSave).toBeUndefined();
 
     await page.getByTestId(TEST_IDS.NAV_ANALYTICS_LINK).click();
     await waitForFeature(page, 'analytics');
@@ -94,12 +98,15 @@ test.describe('User-facing session and analytics regressions', () => {
     // Analytics session-DETAIL page keeps its own filler-count metric surface (unchanged by the overhaul).
     await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('1');
     await expect(page.getByTestId(`${TEST_IDS.FILLER_COUNT_VALUE}-explanation`)).toContainText('captured words');
-    await expect(page.getByText(/tester-facing transcript/i)).toBeVisible();
+    // #1306 metrics-only: the filler METRIC reaches the detail unchanged, but the transcript that produced it is
+    // ephemeral and is NEVER persisted or shown on the saved detail (before OR after reload).
+    await expect(page.getByText(/tester-facing transcript/i)).toHaveCount(0);
+    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
 
     await page.reload();
     await waitForFeature(page, 'analytics');
     await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('1');
-    await expect(page.getByText(/tester-facing transcript/i)).toBeVisible();
+    await expect(page.getByText(/tester-facing transcript/i)).toHaveCount(0);
   });
 
   test('keeps mobile session controls and transcript visible without obstruction', async ({ page }) => {

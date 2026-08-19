@@ -156,24 +156,26 @@ test.describe('Post-save consolidation', () => {
     await assertSingleSavedSurface(page);
   });
 
-  test('SessionPage final transcript equals the persisted Analytics/detail transcript', async ({ page }) => {
+  test('SessionPage purges the transcript after terminal; saved review is metrics-only', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
     await recordAndStop(page);
-    // Let the native formatter reach terminal (the displayed final text is settled).
+    // Let finalization reach terminal (metrics captured, session persisted).
     await expect(page.getByTestId('post-save-review-session-link')).toBeVisible({ timeout: 15000 });
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
-    // #1222: the session-page transcript surface is the live-transcript card (was transcript-container).
-    const sessionText = norm(await page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT).innerText());
-    expect(sessionText.length).toBeGreaterThan(0);
+    // #1306 Option A: the session-page transcript is ephemeral working memory — PURGED after terminal
+    // finalization. The metrics-only review retains no transcript text.
+    const sessionText = norm(await page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT).innerText().catch(() => ''));
+    expect(sessionText.length).toBe(0);
 
     await navigateToRoute(page, '/analytics');
     const latest = page.getByTestId(/session-history-item-/).first();
     await openSessionDetailFromHistoryItem(page, latest);
-    const detailText = norm(await page.getByTestId('session-detail-transcript').innerText());
 
-    // The persisted detail transcript must match what SessionPage displayed as final.
-    expect(detailText).toContain(sessionText);
+    // #1306 metrics-only: the review detail persists metrics + one next action, and NEVER a transcript. The
+    // live transcript above stayed in working memory and did not cross into the saved review surface.
+    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
+    await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
   });
 
   test('Reduced motion: the Analytics cue never pulses — it shows the persistent static green emphasis immediately', async ({ page }) => {

@@ -23,7 +23,8 @@ import {
 } from '@/services/transcription/privateTelemetry';
 import { ATTRIBUTION_STATUS, type AttributionStatus } from '@/constants/attributionStatus';
 import { useReadinessStore } from '@/stores/useReadinessStore';
-import { saveSession, completeSession, heartbeatSession } from '@/lib/storage';
+import { saveSession, completeSession, heartbeatSession, type CompleteSessionOptions } from '@/lib/storage';
+import { flattenToFillerCounts, deriveNextActionSignal } from '@/utils/nextAction';
 import { PRIV_STT } from './transcription/sttConstants';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { getSupabaseClient } from '../lib/supabaseClient';
@@ -82,16 +83,22 @@ const pushNativeRuntimeTrace = (event: string, payload: Record<string, unknown> 
     });
 };
 
+// #1306 P1: transcript-text keys that must NEVER appear in a PRODUCTION diagnostic trace (lengths only there).
+const TRANSCRIPT_TRACE_TEXT_KEYS = ['preview', 'text', 'transcript', 'partial', 'final', 'finalTranscript', 'currentTranscript', 'newFullText', 'frozenAtStop'];
 const pushTranscriptLifecycleTrace = (stage: string, payload: Record<string, unknown> = {}) => {
     if (typeof window === 'undefined') return;
     window.__SS_TRANSCRIPT_TRACE__ = window.__SS_TRANSCRIPT_TRACE__ ?? [];
     window.__SS_TRANSCRIPT_TRACE_SEQ__ = (window.__SS_TRANSCRIPT_TRACE_SEQ__ ?? 0) + 1;
+    // #1306 P1: diagnostics retain only codes/numbers/lengths/timestamps — NEVER transcript text, in any build
+    // (test/E2E/real-device artifacts are inside the privacy boundary too). Strip any text keys a caller passed.
+    const safePayload: Record<string, unknown> = { ...payload };
+    for (const k of TRANSCRIPT_TRACE_TEXT_KEYS) if (k in safePayload) delete safePayload[k];
     window.__SS_TRANSCRIPT_TRACE__.push({
         sequence: window.__SS_TRANSCRIPT_TRACE_SEQ__,
         t: Number(performance.now().toFixed(1)),
         stage,
         timestamp: Date.now(),
-        ...payload,
+        ...safePayload,
     });
     if (window.__SS_TRANSCRIPT_TRACE__.length > 1000) {
         window.__SS_TRANSCRIPT_TRACE__.shift();
@@ -472,7 +479,9 @@ export class SpeechRuntimeController {
                 // Authoritative save-candidate decision from the last Stop, so proofs
                 // can distinguish a real empty save from DOM-banner extraction noise.
                 saveCandidate: this.lastSaveCandidateDebug,
-                selectedTranscriptForSave: this.transcriptLifecycle.selectedTranscriptForSave ?? null,
+                // #1306 P1: diagnostics expose only the LENGTH — NEVER the transcript text. Test/E2E/real-device
+                // artifacts are inside the privacy boundary too, so this is unconditional (no ENV.isTest escape).
+                selectedTranscriptForSaveLength: (this.transcriptLifecycle.selectedTranscriptForSave ?? '').length,
                 selectedTranscriptSource: this.transcriptLifecycle.selectedTranscriptSource ?? null,
                 // #891 Phase 5.8 Step 1: DEV/TEST-ONLY numbers-only filler artifact for the known-script take.
                 // The getter self-gates (null in production); custom words anonymized; no transcript text.
@@ -614,7 +623,8 @@ export class SpeechRuntimeController {
         /** #1033 (1): present when the placeholder row was never created. Retry must CREATE the row first,
          *  using this recording's idempotency identity so a retry can never produce a duplicate session. */
         initialSave?: { userId: string; recordingId: string; mode: string; engineVersion?: string; modelName?: string; deviceType?: string };
-        completeArgs: { status: 'completed'; transcript: string; duration: number };
+        // #1306: transcript-free. A finalized retry replays the exact content-free metrics + one next action.
+        completeArgs: CompleteSessionOptions & { status: 'completed' };
         attributionEvidence: RuntimeEvidence | null;
         progressContext: ProgressCompletionContext;
         progressMetrics: ProgressMetricsState;
@@ -744,9 +754,8 @@ export class SpeechRuntimeController {
                     const created = await saveSession(
                         {
                             user_id: ctx.userId,
-                            title: `Session ${new Date().toLocaleString()}`,
+                            title: `Session ${new Date().toISOString()}`,
                             duration: 0,
-                            transcript: ' ',
                             total_words: 0,
                             engine: ctx.mode,
                         },
@@ -946,34 +955,40 @@ export class SpeechRuntimeController {
         const userId = this.capturedUserId;
         const ownedDraft = sessionId && userId ? getRecoverableDraftForUser(userId) : null;
         const draftForThisSession = ownedDraft && ownedDraft.sessionId === sessionId ? ownedDraft : null;
-        // Canonical recoverable text (committed / chunks / frozen / partial), plus the owned draft.
-        const liveTranscript = this.collectRecoverableTranscript();
-        const transcript = (liveTranscript || draftForThisSession?.transcript || '').trim();
 
-        if (transcript.length > 0 && (sessionId || this.pendingInitialSaveContext)) {
-            const startTime = useSessionStore.getState().startTime;
-            const liveDuration = startTime ? Math.max(0, Math.round((Date.now() - startTime) / 1000)) : 0;
-            // #1033 (1): if the placeholder row does not exist yet (failure inside the pre-session window),
-            // arm an INITIAL-SAVE retry carrying the owner + this recording's idempotency identity, so the
-            // first persistence can still happen later without ever creating a duplicate session.
+        // #1306: ONLY a FINALIZED draft (exact final metrics + the next action already derived at a clean stop)
+        // can complete on retry. A post-start failure with only live/partial state must NEVER be turned into a
+        // completed session from fabricated metrics — it resolves by discard instead.
+        if (draftForThisSession?.recoveryState === 'finalized_pending_save' && (sessionId || this.pendingInitialSaveContext)) {
+            const dur = Math.round(draftForThisSession.durationSeconds || 0);
             const initialSave = sessionId ? undefined : (this.pendingInitialSaveContext ?? undefined);
             this.pendingFullSaveRetry = {
                 sessionId,
                 ...(initialSave ? { initialSave } : {}),
-                completeArgs: { status: 'completed', transcript, duration: Math.round(draftForThisSession?.durationSeconds || liveDuration) },
+                completeArgs: {
+                    status: 'completed',
+                    duration: dur,
+                    nextActionSignal: draftForThisSession.nextActionSignal ?? null,
+                    metrics: {
+                        totalWords: draftForThisSession.metrics.totalWords ?? null,
+                        clarityScore: draftForThisSession.metrics.clarityScore ?? null,
+                        wpm: draftForThisSession.metrics.wpm ?? null,
+                        fillerCounts: draftForThisSession.metrics.fillerCounts ?? null,
+                        pauseMetrics: draftForThisSession.metrics.pauseMetrics ?? null,
+                    },
+                },
                 attributionEvidence: null,  // #1161: mid-recording failure has no trusted identity → no authority
-                progressContext: this.buildProgressCompletionContext(
-                    Math.round(draftForThisSession?.durationSeconds || liveDuration),
-                ),
+                progressContext: this.buildProgressCompletionContext(dur),
                 progressMetrics: { payload: null, persisted: false },
             };
-            logger.warn({ sessionId, kind: this.pendingResolutionKind(), state: this.state }, '[controller] post-start failure with recoverable transcript → save retry armed (#1033 1/B)');
+            logger.warn({ sessionId, kind: this.pendingResolutionKind(), state: this.state }, '[controller] post-start failure with a FINALIZED draft → save retry armed (#1306/#1033 1/B)');
             this.publishLockState();
             return;
         }
-        // Nothing recoverable for THIS session/owner → resolved by discard; do not leave it locked.
+        // No finalized metrics to save (only partial/interrupted state) → resolve by discard; never fabricate a
+        // completion. The interrupted snapshot (if any) remains an explicitly incomplete, non-Progress record.
         this.markRecordingResolved();
-        logger.info({ state: this.state, hasSession: Boolean(sessionId), hasOwner: Boolean(userId) }, '[controller] post-start failure with no recoverable work → resolved (unlocked) (#1033 B)');
+        logger.info({ state: this.state, hasSession: Boolean(sessionId), hasOwner: Boolean(userId), interrupted: draftForThisSession?.recoveryState === 'active_interrupted' }, '[controller] post-start failure with no finalized work → resolved (unlocked) (#1306/#1033 B)');
     }
 
     /**
@@ -1030,22 +1045,34 @@ export class SpeechRuntimeController {
      */
     public rehydrateUnresolvedRecording(userId: string | null | undefined): boolean {
         const draft = getRecoverableDraftForUser(userId);
-        if (!draft || !draft.transcript.trim()) return false;
+        // #1306: only a FINALIZED draft can be re-armed for completion. An active_interrupted draft has no final
+        // metrics and must never rehydrate into a completable save.
+        if (!draft || draft.recoveryState !== 'finalized_pending_save') return false;
         this.sessionId = draft.sessionId;
         this.recordingStartedUnresolved = true;
         this.pendingFullSaveRetry = {
             sessionId: draft.sessionId,
-            completeArgs: { status: 'completed', transcript: draft.transcript, duration: Math.round(draft.durationSeconds) },
+            completeArgs: {
+                status: 'completed',
+                duration: Math.round(draft.durationSeconds),
+                nextActionSignal: draft.nextActionSignal ?? null,
+                metrics: {
+                    totalWords: draft.metrics.totalWords ?? null,
+                    clarityScore: draft.metrics.clarityScore ?? null,
+                    wpm: draft.metrics.wpm ?? null,
+                    fillerCounts: draft.metrics.fillerCounts ?? null,
+                    pauseMetrics: draft.metrics.pauseMetrics ?? null,
+                },
+            },
             attributionEvidence: null,  // #1161: rehydrated recording has no trusted identity → no authority
-            // The recovery draft intentionally carries no objective brief/transcript linkage. Missing mode
-            // context therefore fails closed instead of being guessed as Open Mic after reload.
+            // The recovery draft carries no objective brief linkage. Missing mode context fails closed instead
+            // of being guessed as Open Mic after reload.
             progressContext: { mode: 'unknown' },
-            // Recovery drafts do not contain a trustworthy rich-metrics payload. Saving may complete, but
             // Progress must remain unavailable rather than writing an immutable partial evaluation.
             progressMetrics: { payload: null, persisted: false },
         };
         this.publishLockState();
-        logger.info({ sessionId: draft.sessionId }, '[controller] rehydrated unresolved recording for same user (#1033 C)');
+        logger.info({ sessionId: draft.sessionId }, '[controller] rehydrated FINALIZED unresolved recording for same user (#1306/#1033 C)');
         return true;
     }
 
@@ -1223,18 +1250,24 @@ export class SpeechRuntimeController {
         }
 
         const store = useSessionStore.getState();
-        const transcript = this.collectRecoverableTranscript();
-        if (!transcript) return;
+        // #1306: read the live transcript TRANSIENTLY only to decide whether anything was said — NEVER persist
+        // it. The snapshot itself is content-free.
+        const liveTranscript = this.collectRecoverableTranscript();
+        if (!liveTranscript) return;
+        const partialWordCount = liveTranscript.split(/\s+/).filter(Boolean).length;
 
         const startTime = store.startTime;
         const durationSeconds = startTime ? Math.max(0, Math.round((Date.now() - startTime) / 1000)) : 0;
 
+        // CONTENT-FREE, INTERRUPTED snapshot: partial synchronous counters only. It can NEVER become a completed
+        // session or enter Progress comparisons — it carries no final metrics and no next action.
         saveSessionRecoveryDraft({
             sessionId,
             userId,
-            transcript,
+            recoveryState: 'active_interrupted',
             durationSeconds,
             mode: this.service?.getMode?.() ?? store.sttMode ?? 'unknown',
+            metrics: { totalWords: partialWordCount },
         });
     }
 
@@ -2139,6 +2172,10 @@ export class SpeechRuntimeController {
         store.freezeTranscriptAtStop(null);
         store.setTranscriptFinalizing(false);
         store.updateFillerData({});
+        // #1306 Option A: drop the prior take's terminal metric snapshot so it never lingers onto a new session.
+        store.setFinalizedWordCount(null);
+        store.setFinalizedFillerData(null);
+        store.setFinalizedFillerCount(null);
         store.setChunks([]);
         store.setPauseMetrics({
             totalPauses: 0,
@@ -2190,6 +2227,24 @@ export class SpeechRuntimeController {
         this.transcriptLifecycle = createEmptyTranscriptLifecycleState();
     }
 
+    /**
+     * #1306 P1: purge the ephemeral live transcript from working-memory surfaces once metrics have been derived
+     * and the session finalized. The live transcript is working memory ONLY; after finalization it must not
+     * linger in the session store or the controller's transcript lifecycle (incl. selectedTranscriptForSave).
+     * Metrics (fillerCounts / next_action / clarity) are held separately (finalizedAnalysis + the metrics-only
+     * save payload), so clearing the raw text here never affects the save, a Retry Save, or the review reader.
+     * Production diagnostics already carry lengths only (see pushNativeStoreTrace + the debug object), so the
+     * dev/proof trace ring is intentionally left intact for test harnesses.
+     */
+    private purgeTranscriptWorkingMemory(): void {
+        try {
+            const store = useSessionStore.getState();
+            store.updateTranscript('', '');
+            store.setChunks([]);
+        } catch { /* store may be torn down mid-teardown; best-effort */ }
+        this.resetTranscriptLifecycle();
+    }
+
     private freezeTranscriptLifecycleAtStop(): string {
         this.syncTranscriptLifecycleFromStore();
         const frozen =
@@ -2211,15 +2266,25 @@ export class SpeechRuntimeController {
 
         const pushNativeStoreTrace = (event: string, payload: Record<string, unknown> = {}) => {
             if (typeof window === 'undefined' || !window.__NATIVE_BROWSER_TRACE__) return;
-            window.__NATIVE_BROWSER_TRACE__.push({
+            // #1306 P1: diagnostics retain only codes/numbers/LENGTHS — NEVER transcript text, in ANY build
+            // (test/E2E/real-device artifacts are inside the privacy boundary too). The base carries lengths; any
+            // transcript-bearing key (base + any passed in `payload`) is stripped below so no spoken prose ever
+            // lands in the retained trace ring.
+            const entry: Record<string, unknown> = {
                 t: Number(performance.now().toFixed(1)),
                 event,
-                currentTranscript,
-                partial: data.transcript.partial ?? '',
-                final: data.transcript.final ?? '',
+                currentTranscriptLength: currentTranscript.length,
+                partialLength: (data.transcript.partial ?? '').length,
+                finalLength: (data.transcript.final ?? '').length,
                 chunkCount: store.chunks.length,
                 ...payload,
-            });
+            };
+            // #1306 P1: NEVER retain transcript text in a diagnostic trace, in any build — strip every
+            // transcript-bearing key (base + any passed in `payload`). Lengths above are the only text signal.
+            for (const k of ['currentTranscript', 'partial', 'final', 'preview', 'finalTranscript', 'newFullText', 'text', 'frozenAtStop']) {
+                if (k in entry) delete entry[k];
+            }
+            window.__NATIVE_BROWSER_TRACE__.push(entry);
         };
 
         // 🛡️ USER_ID EMISSION GUARD: Ensure transcripts belong to the session starter
@@ -2842,7 +2907,7 @@ export class SpeechRuntimeController {
                     this.updateSessionPersisted(false);
                     pushNativeRuntimeTrace('controller_placeholder_save_start', { mode: negMode });
                     const saveResult = await saveSession(
-                        { user_id: userId, title: `Session ${new Date().toLocaleString()}`, duration: 0, transcript: ' ', total_words: 0, engine: negMode },
+                        { user_id: userId, title: `Session ${new Date().toISOString()}`, duration: 0, total_words: 0, engine: negMode },
                         { id: userId } as UserProfile, negMode, idempotencyKey, metadata);
                     pushNativeRuntimeTrace('controller_placeholder_save_done', {
                         hasDbSession: Boolean(saveResult?.session), usageExceeded: Boolean(saveResult?.usageExceeded),
@@ -3186,7 +3251,7 @@ export class SpeechRuntimeController {
                                 ' ';
                             const fallbackSessionData = {
                                 user_id: userId,
-                                title: `Session ${new Date().toLocaleString()}`,
+                                title: `Session ${new Date().toISOString()}`,
                                 duration: Math.round(duration),
                                 transcript: fallbackTranscript,
                                 total_words: 0,
@@ -3333,7 +3398,8 @@ export class SpeechRuntimeController {
                         this.lastSaveCandidateDebug = {
                             sessionId,
                             saveCandidateReason,
-                            selectedForSave: finalTranscript,
+                            // #1306 P1: length only — the transcript text is NEVER placed in a diagnostic, in any
+                            // build (test/E2E/real-device artifacts are inside the privacy boundary too).
                             selectedForSaveLength: finalTranscript.length,
                             finalWordCount: finalTranscript.split(/\s+/).filter(Boolean).length,
                             meaningfulWordCount,
@@ -3510,35 +3576,74 @@ export class SpeechRuntimeController {
                                 clarityScore,
                                 accuracy,
                             }, '[DEBUG-STOP] completeSession completed-status starting');
+                            // #1306 metrics-only: derive the CONTENT-FREE final payload from the in-memory
+                            // transcript, then never persist the transcript itself. filler_counts is the strict
+                            // flat standard-key map; next_action_signal is the one structured action.
+                            const finalFillerCounts = flattenToFillerCounts(fillerWords);
+                            // #1306 Option A: capture the FINAL validated metric snapshot (filler breakdown +
+                            // headline count + word count) into DEDICATED store fields BEFORE the transcript is
+                            // purged, so the terminal review reads THIS snapshot and never recounts (or retains)
+                            // the transcript. These fields are separate from the live `fillerData` (which the live
+                            // useFillerWords→store sync overwrites to `{}` once the chunks are purged). `fillerWords`
+                            // (== sessionMetrics.fillerData) is the canonical nested per-key shape the review
+                            // consumes; `sessionMetrics.fillerCount` is the true-filler headline.
+                            useSessionStore.getState().setFinalizedWordCount(wordCount);
+                            useSessionStore.getState().setFinalizedFillerData(fillerWords);
+                            useSessionStore.getState().setFinalizedFillerCount(sessionMetrics.fillerCount);
+                            const PAUSE_KEYS = ['totalPauses', 'averagePauseDuration', 'longestPause', 'pausesPerMinute', 'silencePercentage', 'transitionPauses', 'extendedPauses'] as const;
+                            const finalPauseMetrics = store.pauseMetrics
+                                ? PAUSE_KEYS.reduce<Record<string, number>>((acc, k) => {
+                                    const v = (store.pauseMetrics as unknown as Record<string, unknown>)[k];
+                                    if (typeof v === 'number' && Number.isFinite(v)) acc[k] = v;
+                                    return acc;
+                                }, {})
+                                : {};
+                            const finalMetrics = {
+                                totalWords: wordCount,
+                                clarityScore,
+                                wpm,
+                                fillerCounts: finalFillerCounts,
+                                pauseMetrics: finalPauseMetrics,
+                            };
+                            const finalNextAction = deriveNextActionSignal({
+                                durationSeconds: Math.round(duration),
+                                wordCount,
+                                wpm,
+                                fillerCounts: finalFillerCounts,
+                                clarityScore,
+                            });
+
+                            // CONTENT-FREE recovery draft: exact final metrics + the next action, NO transcript.
                             saveSessionRecoveryDraft({
                                 sessionId,
                                 userId,
-                                transcript: finalTranscript,
+                                recoveryState: 'finalized_pending_save',
                                 durationSeconds: Math.round(duration),
                                 mode: modeForFinalization ?? 'unknown',
+                                metrics: finalMetrics,
+                                nextActionSignal: finalNextAction,
                             });
 
-                            const completeArgs = {
-                                status: 'completed' as const,
-                                transcript: finalTranscript,
-                                duration: Math.round(duration)
+                            const completeArgs: CompleteSessionOptions & { status: 'completed' } = {
+                                status: 'completed',
+                                duration: Math.round(duration),
+                                nextActionSignal: finalNextAction,
+                                metrics: finalMetrics,
                             };
                             const progressContext = this.buildProgressCompletionContext(Math.round(duration));
                             // Capture the exact rich-metrics write before either persistence step can fail.
                             // A full-save retry replays this immutable payload; an attribution retry carries
                             // the actual result of the original write. Recovery paths without this payload
                             // fail closed and never create an immutable incomplete Progress evaluation.
+                            // #1306 metrics-only: the rich-metrics write is content-free — flat filler_counts, no
+                            // custom_words, no per-session accuracy. Reuses the same derived values sent to the RPC.
                             const richMetricsPayload: RichMetricsPayload = {
                                 total_words: wordCount,
-                                filler_words: fillerWords as unknown as FillerCounts,
-                                custom_words: this.userWords.reduce<Record<string, { count: number }>>((acc, word) => {
-                                    acc[word] = { count: fillerWords[word]?.count || 0 };
-                                    return acc;
-                                }, {}),
-                                pause_metrics: store.pauseMetrics,
+                                filler_counts: finalFillerCounts,
+                                pause_metrics: finalPauseMetrics,
                                 wpm,
                                 clarity_score: clarityScore,
-                                accuracy,
+                                next_action_signal: finalNextAction,
                             };
                             const completion = await completeSession(sessionId, completeArgs);
                             if (!completion.success) {
@@ -3786,6 +3891,11 @@ export class SpeechRuntimeController {
                 this.service = null;
                 useSessionStore.getState().setTranscriptFinalizing(false);
                 useSessionStore.getState().freezeTranscriptAtStop(null);
+                // #1306 P1: metrics are derived and the session is finalized here — purge the ephemeral live
+                // transcript from working memory (store + lifecycle) so no spoken text survives finalization. A
+                // still-pending Native background formatter can't re-populate it: its writeback is guarded on the
+                // store still holding this session's raw final, which is now cleared.
+                this.purgeTranscriptWorkingMemory();
 
                 logger.info('[DEBUG-STOP] transition READY starting');
                 await this.transition('READY');
@@ -3843,6 +3953,11 @@ export class SpeechRuntimeController {
                         detail: 'A local recovery draft was kept in this browser after a save issue.',
                     });
                 }
+                // #1306 P1: the FAILED terminal is also a terminal stop — transcript-derived processing is done
+                // (the content-free recovery draft, if any, was already written by persistActiveRecoveryDraft and
+                // the recovery-signal length was captured above). Purge the ephemeral transcript so no spoken
+                // text survives a failed finalization either.
+                this.purgeTranscriptWorkingMemory();
                 throw err;
             }
         });

@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { saveSession } from '../storage';
+import { saveSession, completeSession } from '../storage';
 import { getSupabaseClient } from '../supabaseClient';
 import type { PracticeSession } from '../../types/session';
 import type { UserProfile } from '../../types/user';
+import type { PersistedFillerCounts } from '../../contracts/fillerCounts';
+
+const VALID_NEXT_ACTION = { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' } as const;
 
 // Mock dependencies
 vi.mock('../supabaseClient', () => ({
@@ -21,54 +24,73 @@ describe('storage.ts validation', () => {
         vi.useRealTimers();
     });
 
-    it('should throw an error if transcript exceeds MAX_TRANSCRIPT_LENGTH', async () => {
-        const mockUser = {
-            id: 'user-123',
-            email: 'test@example.com',
-            subscription_status: 'free',
-        };
+    const mockUser = { id: 'user-123', email: 'test@example.com', subscription_status: 'free' };
 
-        // Create a massive string > 500KB
-        const massiveTranscript = 'a'.repeat(500001);
+    // #1306 metrics-only: saveSession STRIPS every content-bearing field before the RPC, so a transcript/prose
+    // write is impossible even if a caller passes one — there is no length limit because content is never sent.
+    it('strips transcript + other content fields from the RPC payload (never persists content)', async () => {
+        const mockRpc = vi.fn().mockResolvedValue({ data: { new_session: { id: 'session-1' }, usage_exceeded: false }, error: null });
+        vi.mocked(getSupabaseClient).mockReturnValue({ rpc: mockRpc } as unknown as ReturnType<typeof getSupabaseClient>);
 
         const sessionData = {
             user_id: mockUser.id,
-            transcript: massiveTranscript,
+            transcript: 'a'.repeat(500001) + ' um so today I talked about my weekend',
+            ai_suggestions: { version: 'gemini_coaching_v1', what_worked: 'x', what_to_try_next: 'y' },
+            ground_truth: 'the exact reference text',
+            accuracy: 0.9,
+            custom_words: { foo: {} },
             duration: 60,
-        } as Partial<PracticeSession> & { user_id: string };
-
-        await expect(saveSession(sessionData, mockUser as unknown as UserProfile))
-            .rejects
-            .toThrow(/Transcript too long/);
-    });
-
-    it('should pass if transcript is within limits', async () => {
-        const mockUser = {
-            id: 'user-123',
-            email: 'test@example.com',
-            subscription_status: 'free',
-        };
-
-        const validTranscript = 'a'.repeat(500);
-
-        const sessionData = {
-            user_id: mockUser.id,
-            transcript: validTranscript,
-            duration: 60,
-        } as Partial<PracticeSession> & { user_id: string };
-
-        // Mock successful RPC call
-        const mockRpc = vi.fn().mockResolvedValue({
-            data: { new_session: { id: 'session-1' }, usage_exceeded: false },
-            error: null
-        });
-
-        vi.mocked(getSupabaseClient).mockReturnValue({
-            rpc: mockRpc
-        } as unknown as ReturnType<typeof getSupabaseClient>);
+            total_words: 100,
+        } as unknown as Partial<PracticeSession> & { user_id: string };
 
         const result = await saveSession(sessionData, mockUser as unknown as UserProfile);
         expect(result.session).toBeDefined();
         expect(mockRpc).toHaveBeenCalled();
+        const payload = mockRpc.mock.calls[0][1] as { p_session_data: Record<string, unknown> };
+        for (const banned of ['transcript', 'ai_suggestions', 'ground_truth', 'accuracy', 'custom_words', 'filler_words']) {
+            expect(payload.p_session_data).not.toHaveProperty(banned);
+        }
+        // Content-free metrics still pass through.
+        expect(payload.p_session_data).toHaveProperty('duration', 60);
+        expect(payload.p_session_data).toHaveProperty('total_words', 100);
+    });
+
+    // #1306 CLIENT persistence boundary: an unknown/prose filler key is rejected BEFORE the RPC — never sent,
+    // never silently dropped, and the prose is NEVER echoed into an error, log, or payload.
+    it('completeSession REJECTS an unknown prose filler key (no RPC call, no prose leak)', async () => {
+        const PROSE = 'confidential project phrase';
+        const mockRpc = vi.fn().mockResolvedValue({ data: { success: true }, error: null });
+        vi.mocked(getSupabaseClient).mockReturnValue({ rpc: mockRpc } as unknown as ReturnType<typeof getSupabaseClient>);
+        const logger = (await import('../logger')).default;
+        const errorSpy = vi.spyOn(logger, 'error');
+
+        const res = await completeSession('sess-1', {
+            status: 'completed',
+            duration: 60,
+            nextActionSignal: VALID_NEXT_ACTION,
+            metrics: { fillerCounts: { [PROSE]: 1 } as unknown as PersistedFillerCounts },
+        });
+
+        expect(res.success).toBe(false);
+        expect(mockRpc).not.toHaveBeenCalled(); // rejected before it could reach the DB (never in an RPC payload)
+        // No-leak: the prose never appears in any logger call — only a sanitized code.
+        const loggedBlob = JSON.stringify(errorSpy.mock.calls);
+        expect(loggedBlob).not.toContain(PROSE);
+        expect(loggedBlob).toContain('invalid_filler_counts_key');
+        errorSpy.mockRestore();
+    });
+
+    it('completeSession ALLOWS an explicit {} filler map (a measured zero) through to the RPC', async () => {
+        const mockRpc = vi.fn().mockResolvedValue({ data: { success: true }, error: null });
+        vi.mocked(getSupabaseClient).mockReturnValue({ rpc: mockRpc } as unknown as ReturnType<typeof getSupabaseClient>);
+
+        const res = await completeSession('sess-2', {
+            status: 'completed', duration: 60, nextActionSignal: VALID_NEXT_ACTION, metrics: { fillerCounts: {} },
+        });
+
+        expect(res.success).toBe(true);
+        expect(mockRpc).toHaveBeenCalled();
+        const arg = mockRpc.mock.calls[0][1] as { p_filler_counts: unknown };
+        expect(arg.p_filler_counts).toEqual({}); // measured zero forwarded, not coerced away
     });
 });

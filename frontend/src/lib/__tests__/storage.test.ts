@@ -47,11 +47,16 @@ describe('storage.ts', () => {
             const result = await getSessionHistory('user1');
             expect(result).toEqual(mockData);
             expect(mockSupabase.from).toHaveBeenCalledWith('sessions');
-            expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('ai_suggestions'));
+            // #1306 metrics-only: the select is CONTENT-FREE — metrics + the structured next action, never
+            // transcript/ai_suggestions/ground_truth/accuracy/filler_words.
+            expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('next_action_signal'));
+            expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('filler_counts'));
             expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('pause_metrics'));
-            expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('ground_truth'));
-            expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('transcript'));
             expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('engine_version'));
+            const selectArg = mockSelect.mock.calls[0][0] as string;
+            for (const banned of ['transcript,', 'ai_suggestions', 'ground_truth', 'accuracy', 'filler_words']) {
+                expect(selectArg).not.toContain(banned);
+            }
             expect(mockOr).toHaveBeenCalledWith('status.is.null,status.eq.completed');
         });
 

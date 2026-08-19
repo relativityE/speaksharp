@@ -50,11 +50,14 @@ test(`Gate 2 mocked private: analytics values change from transcript events and 
   await expect(page.getByTestId(TEST_IDS.CLARITY_SCORE_VALUE)).toContainText('%');
   await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('1');
   await expect(page.getByTestId('session-engine-metadata')).toContainText(expectedEngineLabel);
-  await expect(page.getByText(/target phrase should be tracked/i)).toBeVisible();
+  // #1306 metrics-only: the spoken transcript is ephemeral working memory — it drove the LIVE metrics above
+  // but is NEVER persisted or shown on the saved review surface (before OR after reload).
+  await expect(page.getByText(/target phrase should be tracked/i)).toHaveCount(0);
+  await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
 
   await page.reload();
   await waitForFeature(page, 'analytics');
-  await expect(page.getByText(/target phrase should be tracked/i)).toBeVisible();
+  await expect(page.getByText(/target phrase should be tracked/i)).toHaveCount(0);
   await expect(page.getByTestId('session-engine-metadata')).toContainText(expectedEngineLabel);
 
   await page.getByRole('button', { name: /Export PDF/i }).click();
