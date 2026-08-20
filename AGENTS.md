@@ -1,6 +1,6 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-07-26
-**Last Updated:** 2026-07-26
+**Last Reviewed:** 2026-08-19
+**Last Updated:** 2026-08-19
 
 # Working Instructions for SpeakSharp
 
@@ -95,6 +95,46 @@ inspect the PR's Edge-function/config diff and disclose the resulting production
 - do not interpret migration or frontend deployment as authorized by that decision.
 
 ## Work And Review Model
+
+### Exact-Artifact Development And Review Contract
+
+The repository issue form, pull-request template, and `PR Evidence Contract` workflow
+are mandatory controls, not optional documentation.
+
+- Create the governing issue first. Open a linked Draft PR before substantive
+  implementation and use `Refs #<issue>` for an increment or `Closes #<issue>` only
+  for the final accepted increment. Do not implement issue-only work.
+- Before reporting status or requesting review, re-read and report the exact local HEAD,
+  remote PR head, current `origin/main`, worktree state, changed-file allowlist,
+  relevant tool versions, and hashes for reviewed/generated artifacts. A claim applies
+  only to the pushed SHA it names.
+- Before browser, deployed, or real-device evidence, use a new context or reload with
+  cache disabled; read `window.__APP_RELEASE__`; compare it with the intended deployed
+  SHA; and verify the harness/selectors against that exact release. Missing or mismatched
+  release identity makes the run `VOID`, never `PASS`.
+- Use only these implementation/qualification states: `OPEN`,
+  `IMPLEMENTED/NOT QUALIFIED`, `VOID`, `QUALIFIED`, and `BLOCKED`. Implemented,
+  merged, deployed, and real-device-proven are separate states.
+- Every new gate must include a durable negative or mutation test that deliberately
+  breaks the protected condition and proves a nonzero result. A check shown only to pass
+  is not yet trusted as a gate.
+- Mocks, PGlite, source-text checks, local substitutes, screenshots, historical runs,
+  and selected test subsets may diagnose. They cannot replace the authoritative
+  PostgreSQL, PostgREST, pinned-toolchain, exact-head CI, deployed-browser, or real-device
+  proof required by the acceptance contract.
+- A review request must separate evidence completed from evidence pending and state
+  limitations, dependencies, mutation evidence, and exact status. Required pending
+  evidence must be `None.` and status must be `QUALIFIED` before requesting review.
+- Never report uncommitted or unpushed work as delivered. Each pushed checkpoint report
+  names its SHA, review focus, completed checks, pending checks, and limitations.
+- Unrelated tooling or infrastructure discoveries are logged rather than fixed inline
+  unless they can expose security/privacy, corrupt data, or create a false green on the
+  active critical path.
+- After two correction rounds on the same document, gate, packet, or evidence artifact,
+  stop incremental patching and regenerate it from authoritative sources or rescope it.
+- Consolidate Product Owner, PM, and consultant findings into one prioritized correction
+  packet before Dev resumes. Security, privacy, and qualification-voiding findings may
+  interrupt immediately; otherwise avoid competing incremental instructions.
 
 - Keep one active implementation PR at a time unless the Product Owner explicitly changes
   priority. An issue may span multiple PRs, but those PRs land sequentially rather than
