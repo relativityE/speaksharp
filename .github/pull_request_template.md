@@ -43,9 +43,19 @@ Refs #
 
 ## Scope and allowlist
 
-- Changed-file allowlist: PENDING
+- Changed-file allowlist: see the machine-readable block below
 - Explicitly out of scope: PENDING
 - Production action on merge: PENDING
+
+<!--
+The authoritative allowlist is the fenced `files` block below: one exact repository
+path per line. Enforcement compares this exact sorted set with the paginated GitHub
+changed-file set; any extra, missing, or renamed path fails.
+-->
+
+```files
+PENDING
+```
 
 ## Exact artifact and freshness
 

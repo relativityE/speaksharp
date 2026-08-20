@@ -1,5 +1,10 @@
 name: PR Evidence Contract
 
+# Enforcement authority is the validator from the TRUSTED base/main artifact, never the
+# validator carried by the PR head. A PR that edits the validator is exercised only as a
+# candidate by the unit suite; it cannot judge its own evidence. The read-only token makes
+# operating on PR-head content safe (no privileged token to abuse).
+
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft, review_requested]
@@ -13,6 +18,13 @@ concurrency:
   group: pr-evidence-contract-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  GH_TOKEN: ${{ github.token }}
+  REPO: ${{ github.repository }}
+  PR_NUMBER: ${{ github.event.pull_request.number }}
+  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+
 jobs:
   validate:
     name: Exact artifact and issue contract
@@ -20,65 +32,88 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Checkout exact PR head
+      - name: Checkout PR head content (untrusted DATA only)
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Use repository Node version
         uses: actions/setup-node@v4
         with:
           node-version: 22.12.0
 
-      - name: Prove validator rejects broken evidence
-        run: node scripts/pr-evidence-contract.mjs --self-test
+      - name: Resolve the trusted base validator
+        run: |
+          set -euo pipefail
+          mkdir -p .trusted
+          git fetch --no-tags --depth=1 origin "$BASE_SHA" 2>/dev/null || true
+          if git cat-file -e "${BASE_SHA}:scripts/pr-evidence-contract.mjs" 2>/dev/null; then
+            git show "${BASE_SHA}:scripts/pr-evidence-contract.mjs" > .trusted/pr-evidence-contract.mjs
+            echo "::notice title=Trusted validator::Enforcing with the base validator from ${BASE_SHA}."
+          else
+            # Bootstrap: the base predates the validator (this PR introduces it). Use the
+            # candidate from the PR head for THIS bootstrap PR only; future PRs are judged
+            # by the merged base validator.
+            cp scripts/pr-evidence-contract.mjs .trusted/pr-evidence-contract.mjs
+            echo "::warning title=Bootstrap validator::Base ${BASE_SHA} has no validator; using the PR-head candidate for this bootstrap PR only."
+          fi
+          echo "TRUSTED_VALIDATOR=$PWD/.trusted/pr-evidence-contract.mjs" >> "$GITHUB_ENV"
 
-      - name: Validate PR evidence body
+      - name: Prove the trusted validator rejects broken evidence (self-test)
+        run: node "$TRUSTED_VALIDATOR" --self-test
+
+      - name: Prove enforcement uses the trusted validator, not the PR head
+        run: |
+          set -euo pipefail
+          printf '{"pull_request":{"body":"garbage","draft":false,"head":{"sha":"%s"},"base":{"sha":"%s"},"created_at":"2026-01-01T00:00:00Z"}}' \
+            "$HEAD_SHA" "$BASE_SHA" > .bad-event.json
+          # A malicious PR could ship this always-pass validator at its head:
+          printf 'export function validatePrBody(){return[]}\nif(import.meta.url==="file://"+process.argv[1]){process.exit(0)}\n' > .evil.mjs
+          if GITHUB_EVENT_PATH=.bad-event.json node .evil.mjs; then
+            echo "A PR-head 'always-pass' validator would FALSELY green an invalid body."
+          fi
+          # Enforcement authority is the trusted base validator, which must reject it:
+          if GITHUB_EVENT_PATH=.bad-event.json node "$TRUSTED_VALIDATOR"; then
+            echo "::error::FALSE GREEN — the trusted validator passed an invalid body."
+            exit 1
+          fi
+          echo "PASS: the trusted validator rejects an invalid body regardless of the PR-head validator."
+
+      - name: Gather GitHub-authoritative metadata
+        run: |
+          set -euo pipefail
+          # Actual changed-file set (paginated).
+          gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" --jq '.[].filename' > changed_files.txt
+          echo "Changed files:"; cat changed_files.txt
+
+          # Full SHA-256 of each changed file present in the head checkout.
+          : > file_hashes.txt
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            if [ -f "$f" ]; then sha256sum "$f" >> file_hashes.txt; fi
+          done < changed_files.txt
+          echo "File hashes:"; cat file_hashes.txt
+
+          # Governing issues referenced in the (comment-stripped) body, resolved via the API.
+          node "$TRUSTED_VALIDATOR" --extract-issue-refs > refs.txt || true
+          echo "Referenced issues:"; cat refs.txt
+          echo "[]" > governing_issues.json
+          while IFS= read -r n; do
+            [ -z "$n" ] && continue
+            if issue=$(gh api "repos/${REPO}/issues/${n}" 2>/dev/null); then
+              printf '%s' "$issue" | jq \
+                '{number, body: (.body // ""), createdAt: .created_at, isPullRequest: (has("pull_request"))}' > one_issue.json
+              jq -s '.[0] + [.[1]]' governing_issues.json one_issue.json > governing_issues.json.tmp
+              mv governing_issues.json.tmp governing_issues.json
+            fi
+          done < refs.txt
+          echo "Governing issues:"; cat governing_issues.json
+
+      - name: Enforce the PR evidence contract
         env:
-          GITHUB_EVENT_PATH: ${{ github.event_path }}
-        run: node scripts/pr-evidence-contract.mjs
-
-      - name: Verify linked governing issue exists and predates the PR
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const pullRequest = context.payload.pull_request;
-            // Strip HTML comments so the template's example reference cannot be verified
-            // as a governing issue; only author-supplied references count.
-            const body = (pullRequest.body || '').replace(/<!--[\s\S]*?-->/g, '');
-            const matches = [...body.matchAll(/\b(?:Refs|Fixes|Closes)\s+#(\d+)\b/gi)];
-            const numbers = [...new Set(matches.map((match) => Number(match[1])))];
-
-            if (numbers.length === 0) {
-              core.setFailed('No governing issue reference was found.');
-              return;
-            }
-
-            const failures = [];
-            for (const issueNumber of numbers) {
-              try {
-                const { data: issue } = await github.rest.issues.get({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issueNumber,
-                });
-
-                if (issue.pull_request) {
-                  failures.push('#' + issueNumber + ' is a pull request, not a governing issue.');
-                  continue;
-                }
-
-                if (new Date(issue.created_at) > new Date(pullRequest.created_at)) {
-                  failures.push('#' + issueNumber + ' was created after this PR; issue-first intake is required.');
-                }
-              } catch (error) {
-                failures.push('#' + issueNumber + ' could not be verified: ' + error.message);
-              }
-            }
-
-            if (failures.length > 0) {
-              core.setFailed(failures.join('\n'));
-              return;
-            }
-
-            core.info('PASS: linked governing issue exists and predates the PR.');
+          PR_CHANGED_FILES_FILE: changed_files.txt
+          PR_FILE_HASHES_FILE: file_hashes.txt
+          PR_GOVERNING_ISSUES_FILE: governing_issues.json
+        run: node "$TRUSTED_VALIDATOR"

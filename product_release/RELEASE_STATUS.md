@@ -2,8 +2,8 @@
 
 **Status:** Authoritative (SSOT for release/deployment posture)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-08-19
-**Last Verified:** 2026-08-19 (GitHub: `main` = `307462931905ddcaac1eac303821c4291b7e0257`; #1314 exact head `76ac04287456517427d0fd2e2d9d7078a27c9c7f` has eight terminal green workflows, including the pinned Supabase CLI partial-apply proof. Production release identity was not re-read during this documentation update and must be read from `window.__APP_RELEASE__` before the next deployed/browser qualification.)
+**Last Reviewed:** 2026-08-20
+**Last Verified:** 2026-08-20 (GitHub: `main` = `307462931905ddcaac1eac303821c4291b7e0257`; #1314's accepted application-qualified head is `95c4f5f3c60fb6d3f183d72a9017f3e54c0a165e`; #1317 (delivery-lifecycle enforcement) review/merge is now first in the queue. Production release identity was not re-read during this documentation update and must be read from `window.__APP_RELEASE__` before the next deployed/browser qualification.)
 **Applies To:** Current production deployment + release tracks for the SpeakSharp beta.
 **Class:** Runtime fact.
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
@@ -21,27 +21,28 @@ pending consolidation; do not use it to qualify the MVP.
 |---|---|
 | Repository `main` | `307462931905ddcaac1eac303821c4291b7e0257` at this verification. Moving pointer; re-read before every claim. |
 | Production release | The #1309 deployment evidence identifies release `30746293…`; it was not re-read in this documentation update. Every deployed/browser run must read `window.__APP_RELEASE__` and match the intended SHA or return `VOID`. |
-| #1314 Private-STT findings | Draft head `76ac04287456517427d0fd2e2d9d7078a27c9c7f`. Eight exact-head workflows are terminal green. The migration artifact/proof is **APPLICATION QUALIFIED**, but production migration application remains **HOLD pending separate Product Owner authorization**. This does not qualify the product or close the nine remaining user-facing findings. |
-| #1316 / #1317 delivery controls | Issue #1316 and Draft PR #1317 add the issue-first intake, default PR evidence template, exact-artifact validator, mutation self-test, and review-readiness workflow. These controls become repository defaults only after separate review and merge authorization. |
+| #1314 Private-STT findings | Application-qualified head `95c4f5f3c60fb6d3f183d72a9017f3e54c0a165e`. The migration artifact/proof is **APPLICATION QUALIFIED**; production migration application remains **HOLD pending separate Product Owner authorization**. This does not qualify the product or close the remaining user-facing findings. Queued behind #1317: no #1314 review/apply resumes until #1317 passes its correction and is separately merge-authorized. |
+| #1316 / #1317 delivery controls | Issue #1316 and Draft PR #1317 add issue-first intake, the default PR evidence template, a **trusted-base** exact-artifact validator (compares reported SHAs and the machine-readable allowlist against GitHub's actual head/base/changed-file set, comment-safe fail-closed parsing, governing-issue Phase-0 validation), mutation tests, and the enforcement workflow. This is the regenerated boundary (correction round 2). These controls are **source-only** and become repository defaults only after separate review and merge authorization; nothing else requests review until #1317 passes and merges. |
 | Real-device acceptance | The earlier two-session run is `VOID` because it used a stale browser bundle and an invalid short Progress sample. A fresh-release three-session Private-STT run remains required after migration application, client adoption, UI/retention/PDF/progress fixes, deployment, and release-identity verification. |
 | MVP STT/AI product ruling | **Private STT only.** AssemblyAI/Cloud STT is not an MVP launch path and must not be used as qualification evidence or described as the plan. Gemini is used only for AI suggestions. |
 
 ### Current qualification sequence
 
-1. Bounded review of #1314's application-qualified migration artifact.
-2. Separate Product Owner authorization for migration apply; execute apply, enforcing
+1. Review and separately merge-authorize #1317 (the regenerated delivery-lifecycle enforcement boundary). Nothing else requests review until this lands.
+2. Bounded review of #1314's application-qualified migration artifact (`95c4f5f3`).
+3. Separate Product Owner authorization for migration apply; execute apply, enforcing
    postflight/readback, schema reload verification, and rollback triggers.
-3. Adopt `complete_session_v2` in the client and prove the authoritative save path.
-4. Close the remaining retention, Analytics, PDF, filler, Progress, and finalization
+4. Adopt `complete_session_v2` in the client and prove the authoritative save path.
+5. Close the remaining retention, Analytics, PDF, filler, Progress, and finalization
    findings from the human run.
-5. Deploy the exact reviewed head.
-6. Start a new browser context or reload with cache disabled, read
+6. Deploy the exact reviewed head.
+7. Start a new browser context or reload with cache disabled, read
    `window.__APP_RELEASE__`, compare it to the deployed SHA, and verify current
    harness/selectors. Missing or mismatch means `VOID`.
-7. Run the three-session real-device Private-STT acceptance with controlled WER evidence,
+8. Run the three-session real-device Private-STT acceptance with controlled WER evidence,
    runtime/audio metrics, zero-Cloud proof, newest-two transcript retention/PDF review,
    session-over-session progress, and no stale finalization state.
-8. Continue the remaining MVP release ledger only after that acceptance result.
+9. Continue the remaining MVP release ledger only after that acceptance result.
 
 ### Current evidence/review control
 
