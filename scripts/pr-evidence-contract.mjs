@@ -59,7 +59,8 @@ function section(body, heading) {
   if (start < 0) return null;
   const rest = body.slice(start + heading.length);
   const next = rest.search(/^##\s+/m);
-  return (next < 0 ? rest : rest.slice(0, next)).trim();
+  const raw = next < 0 ? rest : rest.slice(0, next);
+  return raw.replace(/<!--[\s\S]*?-->/g, '').trim();
 }
 
 function meaningful(value) {
@@ -184,6 +185,7 @@ A repository mechanism prevents stale qualification.
 ## Evidence completed
 Validator self-test passed on exact head.
 ## Evidence pending
+<!-- Ready-for-review value must be exactly: None. -->
 None.
 ## Mutation / failure proof
 - Mutation proof: Removed the issue link and observed nonzero validation.
