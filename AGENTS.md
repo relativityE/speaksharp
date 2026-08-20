@@ -96,65 +96,54 @@ inspect the PR's Edge-function/config diff and disclose the resulting production
 
 ## Work And Review Model
 
-### Exact-Artifact Development And Review Contract
+### Two-Clock Evidence Contract (delivery lifecycle)
 
-The repository issue form, pull-request template, and `PR Evidence Contract` workflow
-are mandatory controls, not optional documentation.
+The repository issue form, PR template, and `PR Evidence Contract` workflow are mandatory
+controls. The design deletes the stale-claim class rather than scanning prose harder.
 
-The lifecycle below is fixed. Every PR names its current phase and single next transition
-in the `PR lifecycle gate`. Implemented, merged, deployed, and customer-proven are distinct
-phases; never report a later phase's confidence from an earlier phase's evidence.
+- Trusted computing base: the validator, risk map, schema, and thresholds that judge a PR
+  resolve from the trusted base branch, never the PR checkout. A candidate change to the
+  validator is exercised by CI/mutation fixtures but is not enforcement authority until
+  merged. The bot reads PR-head content only as data; it never executes PR-head validator
+  or config code.
+- Two clocks decide freshness. The code clock is the actual GitHub head SHA; the intent
+  clock is the hash of the governing issue's Acceptance-criteria section. Evidence is
+  current only when both match; otherwise it is `STALE`. On a head change, evidence with
+  intersecting coverage goes stale; on an Acceptance-criteria edit, all evidence goes stale
+  and the PR returns to Draft.
+- The bot owns the facts. One idempotent bot-managed block records
+  `{tier, head_sha, base_sha, changed_files, ac_hash, evidence:[{id,type,status,sha,ac_hash,coverage,link}]}`.
+  Status is an enum (`PENDING|PASS|FAIL|STALE|BLOCKED|VOID`), never prose. The author writes
+  outcome, scope, limitations, and decisions; the bot writes GitHub facts and evidence state.
+  At Ready-for-review the full required set runs once at the final SHA and that run is
+  authoritative.
+- Two risk tiers, classified from trusted base path rules (an author cannot self-downgrade).
+  LIGHT (docs/copy/test-only that cannot mutate production): bot facts match GitHub, the
+  governing issue and non-empty Acceptance criteria exist, and exact final CI is green;
+  mutation/browser evidence is advisory. FULL (migrations, auth, billing/entitlements,
+  persistence/privacy, deployment/config, shared/core paths, or browser/real-device): all
+  LIGHT checks plus structured evidence, applicable defect-class mutation, deployed-SHA
+  assertion for browser work, and separate production-state approval.
+- Mutation means defect-class falsification: a named mutant must recreate the protected
+  defect class and the gate must reject it. Commenting out an assertion is not evidence.
+- Issue-first is part control, part attestation. Mechanical: the governing issue exists
+  before the PR, its Acceptance-criteria section is non-empty, the AC hash is recorded, and
+  the PR opens Draft. Human: whether the criteria are actually good and observable — never
+  labelled a mechanical control. An in-place Acceptance-criteria edit intentionally
+  invalidates the PR evidence; new criteria after implementation begins normally become a
+  new issue.
+- Two Product Owner authorizations, not more: merge authorization (including any declared
+  automatic deploy effect) and production-state authorization (migrations, activation,
+  paid/live-provider action, secret/config mutation, or a direct production write). PM
+  review is quality review, not a third authorization; real-device testing is evidence, not
+  an approval. A production-incident break-glass override needs a named Product Owner record
+  with scope, expiry, logged skipped checks, and an auto-created follow-up issue within 24h;
+  it never silently waives production-state authorization.
+- Never report uncommitted or unpushed work as delivered; a claim binds only to the pushed
+  SHA it names. Do not post per-commit essays — one blocker/authority note or one complete
+  review-ready return. After two correction rounds on the same increment, regenerate or
+  rescope it rather than patch a third time.
 
-- Phase 0 — Governing issue defined: outcome, falsifiable acceptance criteria, risk, allowlist, authorization gates.
-- Phase 1 — Draft PR linked; implementation in progress; evidence may be pending.
-- Phase 2 — Review-ready: exact-head source + required CI green, evidence complete, pending `None.`, status `QUALIFIED`.
-- Phase 3 — Under review; one consolidated PM/consultant return being resolved.
-- Phase 4 — Merge authorized and merged to `main` (separate Product Owner authorization).
-- Phase 5 — Production application/apply + readback (migration/deploy; separate authorization).
-- Phase 6 — Deployed; release identity re-read from `window.__APP_RELEASE__` and matched to the intended SHA.
-- Phase 7 — Real-device/customer acceptance proven; governing issue CLOSED.
-
-Velocity rules: do not restate a moving SHA or run ID as if fixed; a claim binds only to the
-pushed SHA it names. Do not write per-commit essays — post one blocker/authority note or one
-complete review-ready return, not a narrative per push. One consolidated PM review resolves a
-review-ready PR; the consultant is engaged only for security/privacy, qualification-void, or
-product-contract escalation. A second failed return on the same increment forces regenerate or
-rescope, not a third patch.
-
-- Create the governing issue first. Open a linked Draft PR before substantive
-  implementation and use `Refs #<issue>` for an increment or `Closes #<issue>` only
-  for the final accepted increment. Do not implement issue-only work.
-- Before reporting status or requesting review, re-read and report the exact local HEAD,
-  remote PR head, current `origin/main`, worktree state, changed-file allowlist,
-  relevant tool versions, and hashes for reviewed/generated artifacts. A claim applies
-  only to the pushed SHA it names.
-- Before browser, deployed, or real-device evidence, use a new context or reload with
-  cache disabled; read `window.__APP_RELEASE__`; compare it with the intended deployed
-  SHA; and verify the harness/selectors against that exact release. Missing or mismatched
-  release identity makes the run `VOID`, never `PASS`.
-- Use only these implementation/qualification states: `OPEN`,
-  `IMPLEMENTED/NOT QUALIFIED`, `VOID`, `QUALIFIED`, and `BLOCKED`. Implemented,
-  merged, deployed, and real-device-proven are separate states.
-- Every new gate must include a durable negative or mutation test that deliberately
-  breaks the protected condition and proves a nonzero result. A check shown only to pass
-  is not yet trusted as a gate.
-- Mocks, PGlite, source-text checks, local substitutes, screenshots, historical runs,
-  and selected test subsets may diagnose. They cannot replace the authoritative
-  PostgreSQL, PostgREST, pinned-toolchain, exact-head CI, deployed-browser, or real-device
-  proof required by the acceptance contract.
-- A review request must separate evidence completed from evidence pending and state
-  limitations, dependencies, mutation evidence, and exact status. Required pending
-  evidence must be `None.` and status must be `QUALIFIED` before requesting review.
-- Never report uncommitted or unpushed work as delivered. Each pushed checkpoint report
-  names its SHA, review focus, completed checks, pending checks, and limitations.
-- Unrelated tooling or infrastructure discoveries are logged rather than fixed inline
-  unless they can expose security/privacy, corrupt data, or create a false green on the
-  active critical path.
-- After two correction rounds on the same document, gate, packet, or evidence artifact,
-  stop incremental patching and regenerate it from authoritative sources or rescope it.
-- Consolidate Product Owner, PM, and consultant findings into one prioritized correction
-  packet before Dev resumes. Security, privacy, and qualification-voiding findings may
-  interrupt immediately; otherwise avoid competing incremental instructions.
 
 - Keep one active implementation PR at a time unless the Product Owner explicitly changes
   priority. An issue may span multiple PRs, but those PRs land sequentially rather than

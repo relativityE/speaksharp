@@ -1,599 +1,399 @@
 #!/usr/bin/env node
 //
-// PR Evidence Contract validator (regenerated for #1316 correction round 2).
+// PR evidence contract — trusted two-clock bot (#1316 v2 superseding design).
 //
-// Trust model: this script is enforcement authority ONLY when run from a trusted
-// base/main artifact (see .github/workflows/pr-evidence-contract.yml). A PR that
-// edits this file is exercised as a *candidate* by the unit suite, but never judges
-// its own evidence. The validator is pure: it consumes GitHub-authoritative DATA
-// (actual head/base SHA, the paginated changed-file set, governing-issue bodies,
-// computed file hashes) and the PR body, and returns a list of errors. It performs
-// no network or git access itself.
+// Deletes the stale-claim class instead of scanning prose harder:
+//   * Enforcement resolves from the TRUSTED base branch, never the PR head.
+//   * The BOT owns GitHub facts and evidence state; the AUTHOR owns prose only.
+//   * Two clocks decide freshness — the code clock (actual head SHA) and the intent
+//     clock (hash of the governing issue's Acceptance Criteria section). Evidence is
+//     current only when both match; otherwise it is STALE.
+//   * Risk tier (LIGHT/FULL) is classified from trusted base path rules; an author
+//     cannot self-downgrade.
 //
-// Fail-closed parsing: every heading / field / section / checkbox is read from a
-// comment-stripped copy of the body, so content hidden inside HTML comments cannot
-// satisfy a requirement. Unresolved placeholder prefixes (PENDING, TBD, ...) are
-// rejected on non-draft required fields even when trailing prose is appended.
+// This module is pure: it consumes facts and returns errors / rendered text. All network
+// and git access lives in the workflow. It never imports PR-head code.
 
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 
-export const PR_CONTRACT_MARKER = '<!-- speaksharp-pr-contract:v1 -->';
-export const ISSUE_CONTRACT_MARKER = 'speaksharp-issue-contract:v1';
+export const BLOCK_START = '<!-- pr-evidence-bot:v1:start -->';
+export const BLOCK_END = '<!-- pr-evidence-bot:v1:end -->';
+export const STATUS_ENUM = ['PENDING', 'PASS', 'FAIL', 'STALE', 'BLOCKED', 'VOID'];
+export const TIERS = ['LIGHT', 'FULL'];
 
-const REQUIRED_HEADINGS = [
-  '## PR lifecycle gate',
-  '## Governing issue',
-  '## User outcome',
-  '## Scope and allowlist',
-  '## Exact artifact and freshness',
-  '## Evidence completed',
-  '## Evidence pending',
-  '## Mutation / failure proof',
-  '## Limitations and dependencies',
-  '## Status',
-  '## Review readiness',
+// Trusted risk map: any changed path matching a FULL rule forces FULL.
+export const FULL_PATH_RULES = [
+  { re: /(^|\/)migrations\//i, reason: 'database migration' },
+  { re: /(^|\/)auth(\/|\.)/i, reason: 'authentication/authorization' },
+  { re: /(billing|stripe|entitlement)/i, reason: 'billing/entitlements' },
+  { re: /(transcript|persistence|privacy)/i, reason: 'persistence/privacy' },
+  { re: /(^|\/)supabase\/functions\//i, reason: 'edge/production function' },
+  { re: /\.github\/workflows\/.*(deploy|release|migrat|prod)/i, reason: 'deployment/release automation' },
+  { re: /^frontend\/src\/(services|lib|config|constants)\//i, reason: 'shared/core product path' },
 ];
-
-// Every load-bearing lifecycle / authority / freshness field is mandatory.
-const REQUIRED_FIELDS = [
-  // Lifecycle + authority
-  'Current phase',
-  'Allowed next transition',
-  'Active review return',
-  'Correction round count',
-  'Correction disposition',
-  'Review cadence',
-  'Stop rule',
-  'Separate authorities',
-  // Scope + production effect
-  'Explicitly out of scope',
-  'Production action on merge',
-  // Exact artifact + freshness
-  'PR head SHA',
-  'Remote PR head SHA',
-  'Base/main SHA',
-  'Worktree state',
-  'Tool/runtime versions',
-  'Artifact hashes',
-  'Evidence scope',
-  // Browser / deployed freshness
-  'Browser/deployed proof',
-  'Target URL/environment',
-  'Expected deployed SHA',
-  'Browser release identity',
-  'Browser release match',
-  'Cache/reload action',
-  'Harness/selectors verified against exact release',
-  // Mutation / limitations / status
-  'Mutation proof',
-  'Known limitations',
-  'Dependencies/ordering',
-  'Substitutions used only for diagnosis',
-  'Status',
-];
-
-const SHA1_FULL = /^[0-9a-f]{40}$/;
-const SHA256_FULL = /^[0-9a-f]{64}$/;
-const UNRESOLVED_PREFIX = /^(?:pending|tbd|todo|unknown|unverified|open)\b/i;
-
-// Governing-issue Phase-0 contract.
-const ISSUE_FORM_SECTIONS = [
-  'User outcome',
-  'Observed problem and exact evidence',
-  'Highest risk boundary',
-  'Acceptance criteria',
-  'Required evidence',
-  'Proposed PR increment and file allowlist',
-  'Dependencies, ordering, and authorization gates',
-];
-const ISSUE_V1_FIELDS = ['Status', 'Current phase', 'Separate authorities'];
-
-function escapeRegex(value) {
-  return value.replace(/[|\\{}()[\]^$+*?.-]/g, '\\$&');
-}
 
 export function stripComments(text) {
   return String(text ?? '').replace(/<!--[\s\S]*?-->/g, '');
 }
 
-function clean(value) {
-  return value.trim().replace(/^`+|`+$/g, '').trim();
-}
-
-function field(strippedBody, label) {
-  const match = strippedBody.match(new RegExp('^-\\s*' + escapeRegex(label) + ':\\s*(.*)$', 'mi'));
-  if (!match) return null;
-  const value = clean(match[1]);
-  return value === '' ? null : value;
-}
-
-function section(strippedBody, heading) {
-  const start = strippedBody.indexOf(heading);
-  if (start < 0) return null;
-  const rest = strippedBody.slice(start + heading.length);
-  const next = rest.search(/^##\s+/m);
-  return (next < 0 ? rest : rest.slice(0, next)).trim();
-}
-
-function isUnresolved(value) {
-  return value === null || value === '' || UNRESOLVED_PREFIX.test(value);
-}
-
-function isExplicitNa(value) {
-  return /^n\/?a\s*[—-]\s*.{6,}$/i.test(value ?? '') || /^not required\s*[—-]\s*.{6,}$/i.test(value ?? '');
-}
-
-// Authoritative machine-readable allowlist: a fenced ```files block, one path per line.
-export function parseAllowlist(strippedBody) {
-  const match = strippedBody.match(/```files\s*\n([\s\S]*?)```/i);
-  if (!match) return null;
-  return match[1]
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith('#'));
-}
-
-export function extractIssueRefs(body) {
+// Content of a "## Label" / "### Label" section up to the next heading (comment-stripped).
+export function extractSection(body, label) {
   const stripped = stripComments(body);
-  const set = new Set();
-  for (const match of stripped.matchAll(/\b(?:Refs|Fixes|Closes)\s+#(\d+)\b/gi)) {
-    set.add(Number(match[1]));
-  }
-  return [...set];
+  const re = new RegExp(
+    '(?:^|\\n)#{1,6}[ \\t]*' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[ \\t]*\\n([\\s\\S]*?)(?=\\n#{1,6}[ \\t]|$)',
+    'i',
+  );
+  const m = stripped.match(re);
+  return m ? m[1].trim() : null;
 }
 
-function sectionContent(stripped, label) {
-  const re = new RegExp('(?:^|\\n)#{1,6}[ \\t]*' + escapeRegex(label) + '[ \\t]*\\n([\\s\\S]*?)(?=\\n#{1,6}[ \\t]|$)', 'i');
-  const match = stripped.match(re);
-  return match ? match[1].trim() : null;
+// Intent clock: normalized hash of the governing issue's Acceptance Criteria section.
+export function computeAcHash(issueBody) {
+  const section = extractSection(issueBody, 'Acceptance criteria');
+  if (section === null) return null;
+  const normalized = section
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+    .filter((line) => line.length > 0)
+    .join('\n');
+  return crypto.createHash('sha256').update(normalized).digest('hex');
 }
 
-// Validate one governing issue against the canonical implementation form OR the
-// retrofitted speaksharp-issue-contract:v1 contract.
-export function validateGoverningIssue(issue) {
-  const errors = [];
-  const number = issue?.number ?? '?';
-  if (issue?.isPullRequest) {
-    errors.push('#' + number + ' is a pull request, not a governing issue.');
-    return errors;
-  }
-  const raw = issue?.body ?? '';
-  const stripped = stripComments(raw);
-
-  if (raw.includes(ISSUE_CONTRACT_MARKER)) {
-    // Retrofitted contract: the Implementation lifecycle gate with resolved Status,
-    // Current phase, and Separate authorities, plus a non-empty Outcome section.
-    if (!/(?:^|\n)#{1,6}[ \t]*Implementation lifecycle gate\b/i.test(stripped)) {
-      errors.push('#' + number + ' issue-contract:v1 is missing the Implementation lifecycle gate section.');
-    }
-    for (const key of ISSUE_V1_FIELDS) {
-      const re = new RegExp('(?:^|\\n)-\\s*' + escapeRegex(key) + '\\s*:\\s*\\S', 'i');
-      if (!re.test(stripped)) errors.push('#' + number + ' issue-contract:v1 is missing a resolved ' + key + ' field.');
-    }
-    const outcome = sectionContent(stripped, 'Outcome');
-    if (outcome === null || outcome.replace(/\s+/g, '').length === 0) {
-      errors.push('#' + number + ' issue-contract:v1 is missing a non-empty Outcome section.');
-    }
-    return errors;
-  }
-
-  // Canonical implementation form: require each Phase-0 section heading AND content.
-  for (const label of ISSUE_FORM_SECTIONS) {
-    const content = sectionContent(stripped, label);
-    if (content === null) {
-      errors.push('#' + number + ' is missing the Phase-0 section: ' + label + '.');
-    } else if (content.replace(/\s+/g, '').length === 0) {
-      errors.push('#' + number + ' has an empty Phase-0 section: ' + label + '.');
-    }
-  }
-  return errors;
+export function acSectionNonEmpty(issueBody) {
+  const section = extractSection(issueBody, 'Acceptance criteria');
+  return section !== null && section.replace(/\s+/g, '').length > 0;
 }
 
-function validateGoverningIssues(refs, issues, prCreatedAt, errors) {
-  if (refs.length === 0) {
-    errors.push('A governing issue reference is required: Refs/Fixes/Closes #<number>.');
-    return;
-  }
-  const byNumber = new Map((issues ?? []).map((issue) => [Number(issue.number), issue]));
-  let qualifying = 0;
-  const phaseErrors = [];
-  for (const ref of refs) {
-    const issue = byNumber.get(ref);
-    if (!issue) {
-      errors.push('#' + ref + ' could not be verified against GitHub.');
-      continue;
-    }
-    if (issue.isPullRequest) {
-      errors.push('#' + ref + ' is a pull request, not a governing issue.');
-      continue;
-    }
-    if (prCreatedAt && issue.createdAt && new Date(issue.createdAt) > new Date(prCreatedAt)) {
-      errors.push('#' + ref + ' was created after this PR; issue-first intake is required.');
-      continue;
-    }
-    const issueErrors = validateGoverningIssue(issue);
-    if (issueErrors.length === 0) {
-      qualifying += 1;
-    } else {
-      phaseErrors.push(...issueErrors);
+// Trusted tier classification; author cannot downgrade.
+export function classifyTier(changedFiles) {
+  const reasons = [];
+  for (const file of changedFiles ?? []) {
+    for (const rule of FULL_PATH_RULES) {
+      if (rule.re.test(file)) reasons.push(file + ' → ' + rule.reason);
     }
   }
-  if (qualifying === 0) {
-    if (phaseErrors.length > 0) errors.push(...phaseErrors);
-    else errors.push('No referenced issue satisfies the Phase-0 governing-issue contract.');
+  return { tier: reasons.length ? 'FULL' : 'LIGHT', reasons };
+}
+
+// The bot-managed facts block (idempotent JSON between fixed markers).
+export function renderManagedBlock(facts) {
+  const ordered = {
+    tier: facts.tier,
+    head_sha: facts.head_sha,
+    base_sha: facts.base_sha,
+    changed_files: [...(facts.changed_files ?? [])].sort(),
+    ac_hash: facts.ac_hash,
+    evidence: (facts.evidence ?? []).map((e) => ({
+      id: e.id, type: e.type, status: e.status, sha: e.sha, ac_hash: e.ac_hash, coverage: e.coverage, link: e.link,
+    })),
+  };
+  return BLOCK_START + '\n```json\n' + JSON.stringify(ordered, null, 2) + '\n```\n' + BLOCK_END;
+}
+
+export function parseManagedBlock(body) {
+  const start = body.indexOf(BLOCK_START);
+  const end = body.indexOf(BLOCK_END);
+  if (start < 0 || end < 0 || end < start) return null;
+  const inner = body.slice(start + BLOCK_START.length, end);
+  const m = inner.match(/```json\s*\n([\s\S]*?)```/i);
+  if (!m) return null;
+  try {
+    return JSON.parse(m[1]);
+  } catch {
+    return null;
   }
 }
 
-function setDiff(reported, actual) {
-  const a = new Set(reported);
-  const b = new Set(actual);
-  const missing = [...b].filter((x) => !a.has(x)).sort();
-  const extra = [...a].filter((x) => !b.has(x)).sort();
-  return { missing, extra };
+// Replace (or insert) the managed block, leaving author prose untouched. Idempotent:
+// returns the same string when the block already matches.
+export function upsertManagedBlock(body, block) {
+  const start = body.indexOf(BLOCK_START);
+  const end = body.indexOf(BLOCK_END);
+  if (start >= 0 && end >= 0 && end > start) {
+    return body.slice(0, start) + block + body.slice(end + BLOCK_END.length);
+  }
+  const sep = body.endsWith('\n') ? '\n' : '\n\n';
+  return body + sep + block + '\n';
 }
+
+// Mark evidence STALE when either clock moved; core/shared coverage invalidates all.
+export function reconcileEvidence(evidence, headSha, acHash) {
+  return (evidence ?? []).map((e) => {
+    const stale = e.sha !== headSha || e.ac_hash !== acHash;
+    return { ...e, status: stale && e.status !== 'PENDING' ? 'STALE' : e.status };
+  });
+}
+
+// Break-glass: a named Product Owner override with scope + expiry. Never waives
+// production-state authorization.
+export function parseBreakGlass(body) {
+  const stripped = stripComments(body);
+  const m = stripped.match(/BREAK-GLASS APPROVED[^\n]*\n([\s\S]*?)(?=\n#{1,6}[ \t]|$)/i);
+  if (!m) return null;
+  const block = m[0];
+  return {
+    owner: /owner\s*:\s*(\S+)/i.exec(block)?.[1] ?? null,
+    scope: /scope\s*:\s*(.+)/i.exec(block)?.[1]?.trim() ?? null,
+    expiry: /expiry\s*:\s*(\S+)/i.exec(block)?.[1] ?? null,
+    followUp: /follow-?up\s*:\s*(#\d+|\S+)/i.exec(block)?.[1] ?? null,
+  };
+}
+export function breakGlassValid(record) {
+  return Boolean(record && record.owner && record.scope && record.expiry && record.followUp);
+}
+
+// Author-owned sections/fields (prose the bot must not own).
+const REQUIRED_AUTHOR_SECTIONS = ['## User outcome', '## Scope and decisions', '## Limitations'];
+const REQUIRED_AUTHOR_ATTESTATIONS = [
+  'Acceptance criteria are observable and sufficient',
+  'Scope is the smallest coherent increment',
+];
 
 /**
- * @param {string} body - the raw PR body.
- * @param {object} options
- *   draft            : boolean
- *   actualHeadSha    : string | null  (github.event.pull_request.head.sha)
- *   actualBaseSha    : string | null  (github.event.pull_request.base.sha)
- *   changedFiles     : string[] | null (paginated GitHub changed-file set)
- *   fileHashes       : Array<{path,sha256}> | null (computed sha256 of head files)
- *   governingIssues  : Array<{number,body,createdAt,isPullRequest}> | null
- *   prCreatedAt      : string | null
+ * Validate a PR.
+ * @param {object} input
+ *   body    : final PR body (author prose + bot-managed block)
+ *   draft   : boolean
+ *   actual  : { headSha, baseSha, changedFiles, acHash, acPresent, acNonEmpty,
+ *               issuePredates, finalCi: 'success'|'pending'|'failure'|null }
  */
-export function validatePrBody(body, options = {}) {
-  const {
-    draft = true,
-    actualHeadSha = null,
-    actualBaseSha = null,
-    changedFiles = null,
-    fileHashes = null,
-    governingIssues = null,
-    prCreatedAt = null,
-  } = options;
-
+export function validatePr(input) {
+  const { body = '', draft = true, actual = {} } = input;
   const errors = [];
-  const raw = body ?? '';
-  const stripped = stripComments(raw);
+  const stripped = stripComments(body);
 
-  // The contract marker is intentionally an HTML comment; check it on the raw body.
-  if (!raw.includes(PR_CONTRACT_MARKER)) {
-    errors.push('Missing ' + PR_CONTRACT_MARKER + ' marker.');
+  // Governing issue + intent clock (mechanical part of issue-first).
+  if (!/\b(?:Refs|Fixes|Closes)\s+#\d+\b/i.test(stripped)) {
+    errors.push('A governing issue reference is required: Refs/Fixes/Closes #<number>.');
   }
+  if (actual.issuePredates === false) errors.push('The governing issue must predate the PR.');
+  if (actual.acPresent === false) errors.push('The governing issue has no Acceptance criteria section.');
+  if (actual.acNonEmpty === false) errors.push('The governing issue Acceptance criteria section is empty.');
 
-  // Everything else must be real (comment-stripped) content.
-  for (const heading of REQUIRED_HEADINGS) {
-    if (!new RegExp('^' + escapeRegex(heading) + '\\s*$', 'm').test(stripped)) {
-      errors.push('Missing required heading: ' + heading);
+  // Author-owned prose must exist (bot never writes these).
+  for (const heading of REQUIRED_AUTHOR_SECTIONS) {
+    if (!new RegExp('^' + heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*$', 'm').test(stripped)) {
+      errors.push('Missing author section: ' + heading);
     }
   }
 
-  for (const label of REQUIRED_FIELDS) {
-    if (field(stripped, label) === null) errors.push('Missing required field: ' + label);
+  // Bot-managed facts block.
+  const block = parseManagedBlock(body);
+  if (!block) {
+    errors.push('The bot-managed facts block is missing or unparseable.');
+    return errors;
   }
 
-  const refs = extractIssueRefs(raw);
-  // Issue-first + Phase-0 applies whenever governing-issue data is available.
-  if (governingIssues !== null) {
-    validateGoverningIssues(refs, governingIssues, prCreatedAt, errors);
-  } else if (refs.length === 0) {
-    errors.push('A governing issue reference is required: Refs/Fixes/Closes #<number>.');
+  // Schema.
+  for (const key of ['tier', 'head_sha', 'base_sha', 'changed_files', 'ac_hash', 'evidence']) {
+    if (!(key in block)) errors.push('Managed block is missing field: ' + key);
+  }
+  if (block.tier && !TIERS.includes(block.tier)) errors.push('Managed block tier is not a valid enum.');
+  if (!Array.isArray(block.evidence)) errors.push('Managed block evidence must be an array.');
+  for (const e of block.evidence ?? []) {
+    if (!STATUS_ENUM.includes(e.status)) errors.push('Evidence status "' + e.status + '" is not a valid enum.');
+  }
+
+  // Two clocks: bot facts must equal the actual GitHub facts.
+  if (actual.headSha && block.head_sha !== actual.headSha) errors.push('Managed head_sha does not match the actual GitHub head SHA.');
+  if (actual.baseSha && block.base_sha !== actual.baseSha) errors.push('Managed base_sha does not match the actual GitHub base SHA.');
+  if (actual.acHash && block.ac_hash !== actual.acHash) errors.push('Managed ac_hash does not match the governing issue Acceptance-criteria hash (intent clock).');
+  if (actual.changedFiles) {
+    const a = [...block.changed_files].sort().join('\n');
+    const b = [...actual.changedFiles].sort().join('\n');
+    if (a !== b) errors.push('Managed changed_files does not match the actual GitHub changed-file set.');
+  }
+
+  // Trusted tier; no self-downgrade.
+  if (actual.changedFiles) {
+    const trusted = classifyTier(actual.changedFiles).tier;
+    if (block.tier !== trusted) {
+      errors.push('Managed tier ' + block.tier + ' does not match the trusted classification ' + trusted + ' (no self-downgrade).');
+    }
   }
 
   if (draft) return errors;
 
-  // ---- Non-draft (review-ready) enforcement ----
-
-  // Placeholder prefixes are unresolved even with trailing prose.
-  for (const label of REQUIRED_FIELDS) {
-    const value = field(stripped, label);
-    if (value !== null && UNRESOLVED_PREFIX.test(value) && !isExplicitNa(value)) {
-      errors.push('Review-ready field is unresolved: ' + label);
-    }
+  // ---- Ready-for-review (non-draft) ----
+  for (const line of REQUIRED_AUTHOR_ATTESTATIONS) {
+    const re = new RegExp('- \\[x\\][^\\n]*' + line.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    if (!re.test(stripped)) errors.push('Author attestation not checked: ' + line);
   }
-
-  // Lifecycle gate.
-  const phase = field(stripped, 'Current phase') ?? '';
-  if (!/^phase\s*2\b/i.test(phase)) errors.push('Current phase must be "Phase 2 — Review-ready" for a non-draft PR.');
-
-  const nextTransition = field(stripped, 'Allowed next transition') ?? '';
-  if (!/^phase\s*3\b/i.test(nextTransition)) errors.push('Allowed next transition must be "Phase 3 — Under review".');
-
-  const activeReturn = field(stripped, 'Active review return') ?? '';
-  if (!/^(?:none\.?|resolved\b)/i.test(activeReturn)) {
-    errors.push('Active review return must be resolved (None. or Resolved — <ref>) before review.');
-  }
-
-  const correctionRaw = field(stripped, 'Correction round count') ?? '';
-  if (!/^\d+$/.test(correctionRaw)) {
-    errors.push('Correction round count must be a non-negative integer.');
-  } else {
-    const count = Number.parseInt(correctionRaw, 10);
-    if (count > 2) {
-      errors.push('Correction round count exceeds the two-loop cap; regenerate or rescope the increment.');
-    } else if (count >= 2) {
-      const disposition = field(stripped, 'Correction disposition') ?? '';
-      if (!/(?:regenerat|rescope)/i.test(disposition)) {
-        errors.push('A second correction loop requires Correction disposition to state Regenerate or Rescope.');
-      }
-    }
-  }
-
-  // Exact artifact compared with GitHub's actual artifact.
-  const reportedHead = (field(stripped, 'PR head SHA') ?? '').toLowerCase();
-  const reportedRemote = (field(stripped, 'Remote PR head SHA') ?? '').toLowerCase();
-  const reportedBase = (field(stripped, 'Base/main SHA') ?? '').toLowerCase();
-
-  if (!SHA1_FULL.test(reportedHead)) errors.push('PR head SHA must be a full 40-character commit SHA.');
-  if (!SHA1_FULL.test(reportedRemote)) errors.push('Remote PR head SHA must be a full 40-character commit SHA.');
-  if (!SHA1_FULL.test(reportedBase)) errors.push('Base/main SHA must be a full 40-character commit SHA.');
-  if (reportedHead && reportedRemote && reportedHead !== reportedRemote) {
-    errors.push('PR head SHA does not equal remote PR head SHA.');
-  }
-  if (actualHeadSha) {
-    const actual = actualHeadSha.toLowerCase();
-    if (reportedHead && reportedHead !== actual) errors.push('PR head SHA does not match the actual GitHub head SHA.');
-    if (reportedRemote && reportedRemote !== actual) errors.push('Remote PR head SHA does not match the actual GitHub head SHA.');
-  }
-  if (actualBaseSha) {
-    if (reportedBase && reportedBase !== actualBaseSha.toLowerCase()) {
-      errors.push('Base/main SHA does not match the actual GitHub base SHA.');
-    }
-  }
-
-  // Changed-file allowlist compared with the actual changed-file set.
-  const allowlist = parseAllowlist(stripped);
-  if (allowlist === null) {
-    errors.push('A machine-readable ```files allowlist block is required.');
-  } else if (changedFiles !== null) {
-    const { missing, extra } = setDiff(allowlist, changedFiles);
-    if (missing.length) errors.push('Allowlist omits changed files: ' + missing.join(', '));
-    if (extra.length) errors.push('Allowlist lists files that did not change: ' + extra.join(', '));
-  }
-
-  // Artifact hashes must be full SHA-256, one per changed file.
-  const hashesField = field(stripped, 'Artifact hashes') ?? '';
-  if (!isExplicitNa(hashesField)) {
-    const hexTokens = (hashesField.match(/[0-9a-f]{7,}/gi) ?? []).map((t) => t.toLowerCase());
-    const shortTokens = hexTokens.filter((t) => t.length !== 64);
-    const full = hexTokens.filter((t) => SHA256_FULL.test(t));
-    if (shortTokens.length) errors.push('Artifact hashes must be full 64-character SHA-256 values, not prefixes.');
-    if (fileHashes !== null) {
-      for (const { path, sha256 } of fileHashes) {
-        if (!full.includes(sha256.toLowerCase())) {
-          errors.push('Artifact hashes is missing the SHA-256 for ' + path + '.');
-        }
-      }
-    }
-  } else if (fileHashes !== null && fileHashes.length > 0) {
-    errors.push('Artifact hashes may not be N/A when files changed; report full SHA-256 values.');
-  }
-
-  // Evidence, status, checkboxes.
-  const pending = section(stripped, '## Evidence pending');
-  if (pending !== 'None.') errors.push('Evidence pending must be exactly "None." before review.');
-
-  const completed = section(stripped, '## Evidence completed');
-  if (!completed || UNRESOLVED_PREFIX.test(completed)) errors.push('Evidence completed is empty or unresolved.');
-
-  if ((field(stripped, 'Status') ?? '') !== 'QUALIFIED') errors.push('Status must be QUALIFIED before review.');
-
   if (/-\s*\[\s\]/.test(stripped)) errors.push('All review-readiness checkboxes must be checked.');
 
-  // Browser / deployed release-identity gate.
-  const browserProof = field(stripped, 'Browser/deployed proof') ?? '';
-  if (/^required$/i.test(browserProof)) {
-    const expected = (field(stripped, 'Expected deployed SHA') ?? '').toLowerCase();
-    const actual = (field(stripped, 'Browser release identity') ?? '').toLowerCase();
-    if (!SHA1_FULL.test(expected) || !SHA1_FULL.test(actual)) {
-      errors.push('Required browser proof needs full 40-character expected and observed release SHAs.');
-    } else if (expected !== actual) {
-      errors.push('Browser release identity does not match the expected deployed SHA.');
-    }
-    if (!/^yes\b/i.test(field(stripped, 'Browser release match') ?? '')) {
-      errors.push('Browser release match must be YES for required browser proof.');
-    }
-    if (!/^yes\b/i.test(field(stripped, 'Harness/selectors verified against exact release') ?? '')) {
-      errors.push('Harness/selectors must be verified against the exact browser release.');
-    }
-  } else if (!/^not required\s*[—-]\s*.{10,}$/i.test(browserProof)) {
-    errors.push('Browser/deployed proof must be REQUIRED or NOT REQUIRED — <specific reason>.');
+  // Final run is authoritative: reconcile evidence against both clocks, then require the
+  // required blocking evidence PASS at the final SHA/AC.
+  const reconciled = reconcileEvidence(block.evidence, actual.headSha ?? block.head_sha, actual.acHash ?? block.ac_hash);
+  const finalCi = reconciled.find((e) => e.type === 'ci');
+  if (!finalCi) {
+    errors.push('A final CI evidence record is required at review-ready.');
+  } else if (finalCi.status !== 'PASS') {
+    errors.push('Final CI evidence is not PASS (it is ' + finalCi.status + ').');
+  }
+  if (actual.finalCi && actual.finalCi !== 'success') {
+    errors.push('The actual exact-head CI is not terminal green (' + actual.finalCi + ').');
+  }
+  const blocking = reconciled.filter((e) => e.coverage === 'all' || e.type === 'ci' || e.type === 'browser');
+  if (blocking.some((e) => ['STALE', 'FAIL', 'PENDING', 'BLOCKED', 'VOID'].includes(e.status))) {
+    errors.push('Blocking evidence is stale or unresolved; re-run at the final SHA.');
   }
 
+  // FULL tier requires structured evidence beyond CI (defect-class mutation, and a
+  // deployed-SHA assertion for browser work).
+  if (block.tier === 'FULL') {
+    const hasMutation = reconciled.some((e) => e.type === 'mutation' && e.status === 'PASS');
+    if (!hasMutation) errors.push('FULL tier requires a passing defect-class mutation evidence record.');
+  }
   return errors;
 }
 
 // ---------------------------------------------------------------------------
-// Self-test: trust-independent mutation proof, runnable from the trusted base.
-// The exhaustive matrix lives in tests/unit/prEvidenceContract.test.js.
+// Facts assembly (from the workflow-provided event + metadata files)
 // ---------------------------------------------------------------------------
 
-const CANONICAL_ISSUE = {
-  number: 1316,
-  isPullRequest: false,
-  createdAt: '2026-08-18T00:00:00Z',
-  body: [
-    '### User outcome', 'A durable lifecycle gate.', '',
-    '### Observed problem and exact evidence', 'Green CI hid false-green paths.', '',
-    '### Highest risk boundary', 'Deployment or release automation', '',
-    '### Acceptance criteria', '- [ ] Trusted-base validator', '',
-    '### Required evidence', 'Exact-head CI and mutation proof.', '',
-    '### Proposed PR increment and file allowlist', 'Eight governance files.', '',
-    '### Dependencies, ordering, and authorization gates', 'Merge separately authorized.', '',
-  ].join('\n'),
-};
+function readJson(path) { return JSON.parse(fs.readFileSync(path, 'utf8')); }
+function readLines(path) { return fs.readFileSync(path, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean); }
 
-export function validFixture() {
-  return `${PR_CONTRACT_MARKER}
-## PR lifecycle gate
-- Current phase: Phase 2 — Review-ready
-- Allowed next transition: Phase 3 — Under review
-- Active review return: None.
-- Correction round count: 0
-- Correction disposition: N/A — not at the second correction loop yet
-- Review cadence: One consolidated PM review per review-ready state.
-- Stop rule: Missing preconditions => VOID; a second correction loop forces regenerate or rescope.
-- Separate authorities: Merge, migration, deployment, activation, and production proof are separately authorized.
-## Governing issue
-Refs #1316
-## User outcome
-A repository mechanism prevents stale qualification.
-## Scope and allowlist
-- Changed-file allowlist: see the machine-readable block below
-- Explicitly out of scope: Product code
-- Production action on merge: None
-
-\`\`\`files
-scripts/pr-evidence-contract.mjs
-\`\`\`
-## Exact artifact and freshness
-- PR head SHA: ${'a'.repeat(40)}
-- Remote PR head SHA: ${'a'.repeat(40)}
-- Base/main SHA: ${'b'.repeat(40)}
-- Worktree state: clean
-- Tool/runtime versions: Node 22.12.0
-- Artifact hashes: scripts/pr-evidence-contract.mjs ${'c'.repeat(64)}
-- Evidence scope: exact head
-### Browser/deployed freshness
-- Browser/deployed proof: NOT REQUIRED — repository metadata only
-- Target URL/environment: N/A — no runtime changed
-- Expected deployed SHA: N/A — no deployment required
-- Browser release identity: N/A — no browser evidence used
-- Browser release match: N/A — no browser evidence used
-- Cache/reload action: N/A — no browser evidence used
-- Harness/selectors verified against exact release: N/A — no harness changed
-## Evidence completed
-Validator self-test passed on exact head.
-## Evidence pending
-None.
-## Mutation / failure proof
-- Mutation proof: Broke each control and observed a nonzero result.
-## Limitations and dependencies
-- Known limitations: Enforcement binds once the base contains this validator.
-- Dependencies/ordering: Merge separately authorized.
-- Substitutions used only for diagnosis: None
-## Status
-- Status: QUALIFIED
-## Review readiness
-- [x] Complete
-`;
+export function extractIssueRefs(body) {
+  const set = new Set();
+  for (const m of stripComments(body).matchAll(/\b(?:Refs|Fixes|Closes)\s+#(\d+)\b/gi)) set.add(Number(m[1]));
+  return [...set];
 }
 
-export function runSelfTest() {
-  const fixture = validFixture();
-  const baseOptions = {
-    draft: false,
-    actualHeadSha: 'a'.repeat(40),
-    actualBaseSha: 'b'.repeat(40),
-    changedFiles: ['scripts/pr-evidence-contract.mjs'],
-    fileHashes: [{ path: 'scripts/pr-evidence-contract.mjs', sha256: 'c'.repeat(64) }],
-    governingIssues: [CANONICAL_ISSUE],
-    prCreatedAt: '2026-08-20T00:00:00Z',
+function loadActual() {
+  const event = readJson(process.env.GITHUB_EVENT_PATH);
+  const pr = event.pull_request;
+  const changedFiles = process.env.PR_CHANGED_FILES_FILE ? readLines(process.env.PR_CHANGED_FILES_FILE) : null;
+  let issue = null;
+  if (process.env.PR_GOVERNING_ISSUE_FILE) issue = readJson(process.env.PR_GOVERNING_ISSUE_FILE);
+  const acHash = issue ? computeAcHash(issue.body ?? '') : null;
+  return {
+    pr,
+    headSha: pr.head?.sha ?? null,
+    baseSha: pr.base?.sha ?? null,
+    changedFiles,
+    acHash,
+    acPresent: issue ? extractSection(issue.body ?? '', 'Acceptance criteria') !== null : undefined,
+    acNonEmpty: issue ? acSectionNonEmpty(issue.body ?? '') : undefined,
+    issuePredates: issue && issue.created_at && pr.created_at ? new Date(issue.created_at) <= new Date(pr.created_at) : undefined,
+    finalCi: process.env.PR_FINAL_CI ?? null,
   };
-
-  const validErrors = validatePrBody(fixture, baseOptions);
-  if (validErrors.length) throw new Error('Validator rejected a valid fixture:\n' + validErrors.join('\n'));
-
-  const mutations = [
-    ['comment-only heading', fixture.replace('## Status', '<!-- ## Status -->')],
-    ['comment-only field', fixture.replace('- Stop rule:', '<!-- - Stop rule:')],
-    ['pending-with-prose field', fixture.replace('- Worktree state: clean', '- Worktree state: PENDING — awaiting push')],
-    ['reported head not matching actual', fixture.replaceAll('a'.repeat(40), 'd'.repeat(40))],
-    ['stale base', fixture.replace('- Base/main SHA: ' + 'b'.repeat(40), '- Base/main SHA: ' + 'e'.repeat(40))],
-    ['short hash prefix', fixture.replace('c'.repeat(64), 'c'.repeat(8))],
-    ['missing cadence', fixture.replace('- Review cadence: One consolidated PM review per review-ready state.\n', '')],
-    ['missing separate authorities', fixture.replace(/- Separate authorities: .*\n/, '')],
-    ['second loop without disposition', fixture
-      .replace('- Correction round count: 0', '- Correction round count: 2')
-      .replace('- Correction disposition: N/A — not at the second correction loop yet', '- Correction disposition: patched again')],
-  ];
-  for (const [name, mutated] of mutations) {
-    if (validatePrBody(mutated, baseOptions).length === 0) throw new Error('Mutation not detected: ' + name);
-  }
-
-  // Allowlist mismatch (extra actual file) must fail.
-  if (validatePrBody(fixture, { ...baseOptions, changedFiles: ['scripts/pr-evidence-contract.mjs', 'AGENTS.md'] }).length === 0) {
-    throw new Error('Mutation not detected: allowlist missing a changed file');
-  }
-  // Blank governing issue must fail.
-  if (validatePrBody(fixture, { ...baseOptions, governingIssues: [{ number: 1316, isPullRequest: false, createdAt: '2026-08-18T00:00:00Z', body: '' }] }).length === 0) {
-    throw new Error('Mutation not detected: blank governing issue');
-  }
-
-  // Valid draft control (fields still PENDING) must pass.
-  const draftFixture = fixture
-    .replace('- Status: QUALIFIED', '- Status: OPEN')
-    .replace('- Current phase: Phase 2 — Review-ready', '- Current phase: Phase 1 — Draft')
-    .replace('\nNone.\n## Mutation / failure proof', '\nPENDING — implementation in progress\n## Mutation / failure proof');
-  const draftErrors = validatePrBody(draftFixture, { draft: true, governingIssues: [CANONICAL_ISSUE], prCreatedAt: '2026-08-20T00:00:00Z' });
-  if (draftErrors.length) throw new Error('Validator rejected a valid draft:\n' + draftErrors.join('\n'));
 }
 
-// ---------------------------------------------------------------------------
-// CLI
-// ---------------------------------------------------------------------------
-
-function readJson(path) {
-  return JSON.parse(fs.readFileSync(path, 'utf8'));
-}
-
-function readLines(path) {
-  return fs.readFileSync(path, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean);
+function emitBlock() {
+  const a = loadActual();
+  const tier = classifyTier(a.changedFiles).tier;
+  const ciStatus = a.finalCi === 'success' ? 'PASS' : a.finalCi === 'failure' ? 'FAIL' : 'PENDING';
+  const evidence = [{
+    id: 'final-ci', type: 'ci', status: ciStatus, sha: a.headSha, ac_hash: a.acHash,
+    coverage: 'all', link: process.env.PR_FINAL_CI_LINK ?? '',
+  }];
+  process.stdout.write(renderManagedBlock({
+    tier, head_sha: a.headSha, base_sha: a.baseSha, changed_files: a.changedFiles ?? [], ac_hash: a.acHash, evidence,
+  }));
 }
 
 function enforce() {
-  const eventPath = process.env.GITHUB_EVENT_PATH;
-  if (!eventPath) throw new Error('GITHUB_EVENT_PATH is required for enforcement.');
-  const event = readJson(eventPath);
-  const pr = event.pull_request;
-  if (!pr) throw new Error('pull_request payload is required.');
-
-  const changedFiles = process.env.PR_CHANGED_FILES_FILE ? readLines(process.env.PR_CHANGED_FILES_FILE) : null;
-  const governingIssues = process.env.PR_GOVERNING_ISSUES_FILE ? readJson(process.env.PR_GOVERNING_ISSUES_FILE) : null;
-  let fileHashes = null;
-  if (process.env.PR_FILE_HASHES_FILE) {
-    fileHashes = readLines(process.env.PR_FILE_HASHES_FILE).map((line) => {
-      const [sha256, ...rest] = line.split(/\s+/);
-      return { sha256, path: rest.join(' ') };
-    });
-  }
-
-  const errors = validatePrBody(pr.body ?? '', {
-    draft: Boolean(pr.draft),
-    actualHeadSha: pr.head?.sha ?? null,
-    actualBaseSha: pr.base?.sha ?? null,
-    changedFiles,
-    fileHashes,
-    governingIssues,
-    prCreatedAt: pr.created_at ?? null,
-  });
-
+  const a = loadActual();
+  const body = process.env.PR_BODY_FILE ? fs.readFileSync(process.env.PR_BODY_FILE, 'utf8') : (a.pr.body ?? '');
+  const errors = validatePr({ body, draft: Boolean(a.pr.draft), actual: a });
   if (errors.length) {
     console.error(errors.map((e) => '- ' + e).join('\n'));
     process.exitCode = 1;
     return;
   }
-  console.log('PASS: PR evidence contract (' + (pr.draft ? 'draft' : 'review-ready') + ')');
+  console.log('PASS: PR evidence contract (' + (a.pr.draft ? 'draft' : 'review-ready') + ', tier ' + classifyTier(a.changedFiles).tier + ')');
+}
+
+// ---------------------------------------------------------------------------
+// Self-test: trust-independent defect-class mutation proof.
+// ---------------------------------------------------------------------------
+
+export function selfTestData() {
+  const headSha = 'a'.repeat(40);
+  const baseSha = 'b'.repeat(40);
+  const changedFiles = ['AGENTS.md', 'scripts/pr-evidence-contract.mjs', 'tests/unit/prEvidenceContract.test.js'];
+  const acHash = 'c'.repeat(64);
+  const block = renderManagedBlock({
+    tier: 'LIGHT', head_sha: headSha, base_sha: baseSha, changed_files: changedFiles, ac_hash: acHash,
+    evidence: [{ id: 'final-ci', type: 'ci', status: 'PASS', sha: headSha, ac_hash: acHash, coverage: 'all', link: 'http://ci' }],
+  });
+  const body = [
+    '## User outcome', 'Delete the stale-claim class.', '',
+    '## Scope and decisions', 'Refs #1316. Eight governance files.', '',
+    '## Limitations', 'Bootstrap PR.', '',
+    '## Review readiness',
+    '- [x] Acceptance criteria are observable and sufficient',
+    '- [x] Scope is the smallest coherent increment', '',
+    block, '',
+  ].join('\n');
+  const actual = { headSha, baseSha, changedFiles, acHash, acPresent: true, acNonEmpty: true, issuePredates: true, finalCi: 'success' };
+  return { body, actual, headSha, baseSha, changedFiles, acHash, block };
+}
+
+export function runSelfTest() {
+  const { body, actual } = selfTestData();
+  const ok = validatePr({ body, draft: false, actual });
+  if (ok.length) throw new Error('Validator rejected a valid review-ready PR:\n' + ok.join('\n'));
+
+  const mutants = [
+    ['untrusted head SHA (equal fakes)', { body: body.replaceAll('a'.repeat(40), 'd'.repeat(40)), actual }],
+    ['stale AC hash', { body, actual: { ...actual, acHash: 'e'.repeat(64) } }],
+    ['extra changed file', { body, actual: { ...actual, changedFiles: [...actual.changedFiles, 'README.md'] } }],
+    ['missing changed file', { body, actual: { ...actual, changedFiles: actual.changedFiles.slice(1) } }],
+    ['stale evidence after head change', { body, actual: { ...actual, headSha: 'f'.repeat(40) } }],
+    ['final CI not green', { body, actual: { ...actual, finalCi: 'failure' } }],
+    ['invalid structured status', { body: body.replace('"status": "PASS"', '"status": "GREENISH"'), actual }],
+    ['missing managed block', { body: body.replace(/<!-- pr-evidence-bot:v1:start -->[\s\S]*<!-- pr-evidence-bot:v1:end -->/, ''), actual }],
+    ['unchecked attestation', { body: body.replace('- [x] Scope is the smallest coherent increment', '- [ ] Scope is the smallest coherent increment'), actual }],
+  ];
+  for (const [name, input] of mutants) {
+    if (validatePr({ ...input, draft: false }).length === 0) throw new Error('Mutant not caught: ' + name);
+  }
+
+  // Stale browser release: a FULL PR with a browser evidence record whose observed
+  // release SHA no longer matches the head is STALE and blocks.
+  {
+    const d = selfTestData();
+    const browserBlock = renderManagedBlock({
+      tier: 'FULL', head_sha: d.headSha, base_sha: d.baseSha, changed_files: d.changedFiles, ac_hash: d.acHash,
+      evidence: [
+        { id: 'final-ci', type: 'ci', status: 'PASS', sha: d.headSha, ac_hash: d.acHash, coverage: 'all', link: 'http://ci' },
+        { id: 'mut', type: 'mutation', status: 'PASS', sha: d.headSha, ac_hash: d.acHash, coverage: 'all', link: 'http://m' },
+        { id: 'browser', type: 'browser', status: 'PASS', sha: 'f'.repeat(40), ac_hash: d.acHash, coverage: 'browser', link: 'http://b' },
+      ],
+    });
+    const staleBrowserBody = d.body.replace(/<!-- pr-evidence-bot:v1:start -->[\s\S]*<!-- pr-evidence-bot:v1:end -->/, browserBlock);
+    const fullActual = { ...d.actual, changedFiles: [...d.changedFiles, 'frontend/src/services/x.ts'] };
+    if (validatePr({ body: staleBrowserBody, draft: false, actual: fullActual }).length === 0) {
+      throw new Error('Mutant not caught: stale browser release');
+    }
+  }
+
+  // Anti-downgrade: a FULL path present, block claims LIGHT.
+  const downgradeActual = { ...actual, changedFiles: [...actual.changedFiles, 'backend/supabase/migrations/x.sql'] };
+  if (validatePr({ body, draft: false, actual: downgradeActual }).length === 0) {
+    throw new Error('Mutant not caught: author FULL->LIGHT downgrade');
+  }
+
+  // Idempotency: upserting the same block twice yields the same body.
+  const once = upsertManagedBlock('## User outcome\nx\n', selfTestData().block);
+  const twice = upsertManagedBlock(once, selfTestData().block);
+  if (once !== twice) throw new Error('Managed block upsert is not idempotent.');
 }
 
 function main() {
   const args = new Set(process.argv.slice(2));
-  if (args.has('--self-test')) {
-    runSelfTest();
-    console.log('PASS: PR evidence contract self-test');
-    return;
-  }
+  if (args.has('--self-test')) { runSelfTest(); console.log('PASS: PR evidence contract self-test'); return; }
   if (args.has('--extract-issue-refs')) {
-    const eventPath = process.env.GITHUB_EVENT_PATH;
-    const event = readJson(eventPath);
+    const event = readJson(process.env.GITHUB_EVENT_PATH);
     console.log(extractIssueRefs(event.pull_request?.body ?? '').join('\n'));
     return;
   }
+  if (args.has('--emit-block')) { emitBlock(); return; }
   enforce();
 }
 
-if (import.meta.url === 'file://' + process.argv[1]) {
-  main();
-}
+if (import.meta.url === 'file://' + process.argv[1]) main();
