@@ -2,14 +2,55 @@
 
 **Status:** Authoritative (SSOT for release/deployment posture)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-07-24
-**Last Verified:** 2026-07-24T17:10:25Z (production `window.__APP_RELEASE__` read read-only from `https://speaksharp-public.vercel.app/` = `05643fbd991a503f8c183a4ac19ab2aa8d2d2f95`, HTTP 200; baselines verified against `origin/main` via GitHub; release mechanism verified in `frontend/vite.config.mjs` + the served `index.html` per #1027). The `#1006` remediation is CLOSED (draft, not activated) — see "Current open work".
+**Last Reviewed:** 2026-08-19
+**Last Verified:** 2026-08-19 (GitHub: `main` = `307462931905ddcaac1eac303821c4291b7e0257`; #1314 exact head `76ac04287456517427d0fd2e2d9d7078a27c9c7f` has eight terminal green workflows, including the pinned Supabase CLI partial-apply proof. Production release identity was not re-read during this documentation update and must be read from `window.__APP_RELEASE__` before the next deployed/browser qualification.)
 **Applies To:** Current production deployment + release tracks for the SpeakSharp beta.
 **Class:** Runtime fact.
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
 **Not Authoritative For:** stable product contracts (→ `PRODUCT_REQUIREMENTS.md`), architecture (→ `ARCHITECTURE.md`), STT contracts (→ `STT.md`); documentation structure (→ `README.md`).
 **Supersedes:** any conflicting current-status claim in `product_release/archive/` or older files.
 **Evidence Sources:** GitHub `origin/main`; the production deployment's `window.__APP_RELEASE__`; the required release workflows (see `RC_GATES.md`).
+
+## Current MVP override — 2026-08-19
+
+This section is the current authority when an older entry below conflicts. The older July
+baseline and product-posture material is retained temporarily as historical provenance
+pending consolidation; do not use it to qualify the MVP.
+
+| Item | Current status |
+|---|---|
+| Repository `main` | `307462931905ddcaac1eac303821c4291b7e0257` at this verification. Moving pointer; re-read before every claim. |
+| Production release | The #1309 deployment evidence identifies release `30746293…`; it was not re-read in this documentation update. Every deployed/browser run must read `window.__APP_RELEASE__` and match the intended SHA or return `VOID`. |
+| #1314 Private-STT findings | Draft head `76ac04287456517427d0fd2e2d9d7078a27c9c7f`. Eight exact-head workflows are terminal green. The migration artifact/proof is **APPLICATION QUALIFIED**, but production migration application remains **HOLD pending separate Product Owner authorization**. This does not qualify the product or close the nine remaining user-facing findings. |
+| #1316 / #1317 delivery controls | Issue #1316 and Draft PR #1317 add the issue-first intake, default PR evidence template, exact-artifact validator, mutation self-test, and review-readiness workflow. These controls become repository defaults only after separate review and merge authorization. |
+| Real-device acceptance | The earlier two-session run is `VOID` because it used a stale browser bundle and an invalid short Progress sample. A fresh-release three-session Private-STT run remains required after migration application, client adoption, UI/retention/PDF/progress fixes, deployment, and release-identity verification. |
+| MVP STT/AI product ruling | **Private STT only.** AssemblyAI/Cloud STT is not an MVP launch path and must not be used as qualification evidence or described as the plan. Gemini is used only for AI suggestions. |
+
+### Current qualification sequence
+
+1. Bounded review of #1314's application-qualified migration artifact.
+2. Separate Product Owner authorization for migration apply; execute apply, enforcing
+   postflight/readback, schema reload verification, and rollback triggers.
+3. Adopt `complete_session_v2` in the client and prove the authoritative save path.
+4. Close the remaining retention, Analytics, PDF, filler, Progress, and finalization
+   findings from the human run.
+5. Deploy the exact reviewed head.
+6. Start a new browser context or reload with cache disabled, read
+   `window.__APP_RELEASE__`, compare it to the deployed SHA, and verify current
+   harness/selectors. Missing or mismatch means `VOID`.
+7. Run the three-session real-device Private-STT acceptance with controlled WER evidence,
+   runtime/audio metrics, zero-Cloud proof, newest-two transcript retention/PDF review,
+   session-over-session progress, and no stale finalization state.
+8. Continue the remaining MVP release ledger only after that acceptance result.
+
+### Current evidence/review control
+
+Before any review request, the PR must identify its governing issue and exact pushed SHA;
+attest local/remote/base/worktree/allowlist/tool/hash freshness; separate completed from
+pending evidence; provide mutation/failure proof for new gates; state limitations; and use
+one of `OPEN`, `IMPLEMENTED/NOT QUALIFIED`, `VOID`, `QUALIFIED`, or `BLOCKED`.
+Required pending evidence must be `None.` and status must be `QUALIFIED`. Diagnostic
+substitutes never qualify an authoritative boundary.
 
 ## Current baseline & production posture
 
@@ -64,7 +105,7 @@ The **≈90 seconds** of post-stop processing quoted for a full five-minute sing
 |---|---|---|
 | Browser (Web Speech; method name **"Browser"** + secondary **"Quick preview"** descriptor badge, shipped #1041; internal token `native`) | All tiers (default preview) | Convenience path; **not** local/offline/on-device (Chrome routes audio to Google); weakest path; never an automatic fallback. Nudge Private after a preview session. |
 | Private (v2 / whisper-base.en) | All tiers (local, download on first use) | Default Private engine. v4 WebGPU OFF — `VITE_PRIVATE_STT_V4_DISABLED` hard kill is authoritative; PostHog flags are secondary and cannot override it. |
-| **Cloud (AssemblyAI)** | **Paid Pro only** | Requires real paid Pro entitlement (`stripe_subscription_id`). Not available to Free testers during the no-billing beta; existing paid-Pro accounts retain access. Strongest STT path. |
+| **Cloud (AssemblyAI) — not an MVP path** | **Out of MVP / must not be used for launch qualification** | Current product ruling is Private STT only. Treat any remaining Cloud code/config as legacy exposure to inventory and close deliberately; do not present it as the launch plan. |
 
 ## Release-track posture
 
