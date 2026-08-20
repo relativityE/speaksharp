@@ -1,0 +1,141 @@
+name: PR Evidence Contract
+
+# Minimal enforceable core (#1316 regenerate). The workflow runs in BASE-branch context via
+# `pull_request_target`, and the validator is the base copy — a PR cannot weaken the workflow
+# or the script that judges it. PR-head content is used only as data (via the API); PR-head
+# code is never checked out or executed.
+#
+# Bootstrap note: `pull_request_target` uses the workflow definition from the base branch, so
+# this file governs a PR only after it is merged to the base. #1317 (which introduces it) is
+# reviewed manually + by exact-head ci.yml; the bot governs every subsequent PR. Making the
+# trusted check a required status check / org-required workflow is a separately authorized
+# follow-on.
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft, review_requested]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+  actions: read
+
+concurrency:
+  group: pr-evidence-contract-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  REPO: ${{ github.repository }}
+  PR_NUMBER: ${{ github.event.pull_request.number }}
+  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+
+jobs:
+  validate:
+    name: Exact artifact and issue contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    steps:
+      # pull_request_target checks out the BASE branch by default; keep it that way and never
+      # fetch or run PR-head code. The validator we run is the trusted base copy.
+      - name: Checkout trusted base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Use repository Node version
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+
+      - name: Confirm the trusted base validator is present
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/pr-evidence-contract.mjs ]; then
+            echo "::error::Trusted base validator missing at ${BASE_SHA}. This workflow only governs a PR after it merges to base."
+            exit 1
+          fi
+          echo "TRUSTED_VALIDATOR=$PWD/scripts/pr-evidence-contract.mjs" >> "$GITHUB_ENV"
+
+      - name: Prove the trusted validator rejects broken evidence (self-test)
+        run: node "$TRUSTED_VALIDATOR" --self-test
+
+      - name: Gather GitHub-authoritative facts
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" --jq '.[].filename' | sort > changed_files.txt
+          echo "Changed files:"; cat changed_files.txt
+
+          # Primary governing issue = first referenced non-PR issue that predates the PR.
+          node "$TRUSTED_VALIDATOR" --extract-issue-refs > refs.txt || true
+          echo "null" > governing_issue.json
+          PR_CREATED="${{ github.event.pull_request.created_at }}"
+          while IFS= read -r n; do
+            [ -z "$n" ] && continue
+            issue=$(gh api "repos/${REPO}/issues/${n}" 2>/dev/null) || continue
+            is_pr=$(printf '%s' "$issue" | jq 'has("pull_request")')
+            created=$(printf '%s' "$issue" | jq -r '.created_at')
+            if [ "$is_pr" = "false" ] && { [ "$created" \< "$PR_CREATED" ] || [ "$created" = "$PR_CREATED" ]; }; then
+              printf '%s' "$issue" | jq '{number, body: (.body // ""), created_at}' > governing_issue.json
+              break
+            fi
+          done < refs.txt
+          echo "Governing issue:"; jq '{number, created_at}' governing_issue.json || true
+
+          # Exact-head full CI: the ci.yml run at HEAD_SHA, plus the required-job conclusions.
+          # unit-coverage-merge runs `pnpm quality`; full-evidence + report are the full lane.
+          CI_JSON=$(gh run list --repo "$REPO" --commit "$HEAD_SHA" --workflow ci.yml --limit 1 --json status,conclusion,url,databaseId 2>/dev/null || echo '[]')
+          CI_STATUS=$(printf '%s' "$CI_JSON" | jq -r '.[0].status // "none"')
+          CI_CONCL=$(printf '%s' "$CI_JSON" | jq -r '.[0].conclusion // "none"')
+          CI_LINK=$(printf '%s' "$CI_JSON" | jq -r '.[0].url // ""')
+          CI_ID=$(printf '%s' "$CI_JSON" | jq -r '.[0].databaseId // ""')
+          FULL_LANE=false
+          if [ "$CI_STATUS" = "completed" ] && [ -n "$CI_ID" ]; then
+            JOBS=$(gh run view "$CI_ID" --repo "$REPO" --json jobs 2>/dev/null || echo '{}')
+            OK=true
+            for J in unit-coverage-merge full-evidence report; do
+              C=$(printf '%s' "$JOBS" | jq -r --arg j "$J" '[.jobs[]? | select(.name==$j) | .conclusion] | (.[0] // "none")')
+              echo "required job $J = $C"
+              [ "$C" = "success" ] || OK=false
+            done
+            [ "$OK" = "true" ] && FULL_LANE=true
+          fi
+          CI_CONCL_OUT=none; [ "$CI_STATUS" = "completed" ] && CI_CONCL_OUT="$CI_CONCL"
+          echo "PR_CI_CONCLUSION=$CI_CONCL_OUT" >> "$GITHUB_ENV"
+          echo "PR_CI_LINK=$CI_LINK" >> "$GITHUB_ENV"
+          echo "PR_FULL_LANE=$FULL_LANE" >> "$GITHUB_ENV"
+          echo "Exact-head CI: status=$CI_STATUS conclusion=$CI_CONCL full_lane=$FULL_LANE"
+
+      - name: Upsert the bot-managed facts block
+        env:
+          PR_CHANGED_FILES_FILE: changed_files.txt
+          PR_GOVERNING_ISSUE_FILE: governing_issue.json
+        run: |
+          set -euo pipefail
+          node "$TRUSTED_VALIDATOR" --emit-block > managed_block.txt
+          echo "Managed block:"; cat managed_block.txt; echo
+          gh pr view "$PR_NUMBER" --repo "$REPO" --json body --jq '.body' > current_body.md || : > current_body.md
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const { upsertManagedBlock } = await import(process.env.TRUSTED_VALIDATOR);
+            const body = fs.readFileSync("current_body.md","utf8");
+            const block = fs.readFileSync("managed_block.txt","utf8").replace(/\n$/,"");
+            fs.writeFileSync("merged_body.md", upsertManagedBlock(body, block));
+          '
+          if ! diff -q current_body.md merged_body.md >/dev/null 2>&1; then
+            echo "Body changed; writing bot-managed block."
+            gh pr edit "$PR_NUMBER" --repo "$REPO" --body-file merged_body.md
+          else
+            echo "Bot-managed block already current; no write (idempotent)."
+          fi
+
+      - name: Enforce the PR evidence contract
+        env:
+          PR_CHANGED_FILES_FILE: changed_files.txt
+          PR_GOVERNING_ISSUE_FILE: governing_issue.json
+          PR_BODY_FILE: merged_body.md
+        run: node "$TRUSTED_VALIDATOR"

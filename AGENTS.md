@@ -1,6 +1,6 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-07-26
-**Last Updated:** 2026-07-26
+**Last Reviewed:** 2026-08-19
+**Last Updated:** 2026-08-19
 
 # Working Instructions for SpeakSharp
 
@@ -95,6 +95,45 @@ inspect the PR's Edge-function/config diff and disclose the resulting production
 - do not interpret migration or frontend deployment as authorized by that decision.
 
 ## Work And Review Model
+
+### Trusted Evidence Contract (delivery lifecycle — minimal core)
+
+The base-owned PR Evidence Contract bot and the `pnpm quality` gate are mandatory controls.
+#1317 ships a genuinely enforceable minimal core; the incomplete mechanisms are deferred to
+focused follow-ups and must not be claimed as operational until they land.
+
+- Trust: the enforcement workflow runs in base-branch context (`pull_request_target`) and the
+  validator is the base copy, so a PR cannot weaken the workflow or script that judges it. The
+  bot reads PR-head content only as data (via the API); it never checks out or executes
+  PR-head code. Making the trusted check a required status check / org-required workflow is a
+  separately authorized follow-on; until then the PM manually applies the gate.
+- The bot owns the facts. One idempotent bot-managed block records the actual head SHA, base
+  SHA, complete changed-file set, the governing issue's Acceptance-criteria hash, and the
+  exact-head full-CI status (enum). The author writes only prose (governing issue, outcome,
+  scope/decisions, limitations).
+- Mechanical core: the governing issue exists, predates the PR, and has a non-empty
+  Acceptance-criteria section; the recorded head/base/changed-file set matches GitHub; and
+  exact-head full CI is green, including `pnpm quality` (the ci.yml unit-coverage-merge,
+  full-evidence, and report jobs). A hand-edited CI status cannot pass — the bot recomputes it
+  from the actual run.
+- No author/human attestations. AC and scope quality are reviewer judgment during review, not
+  an author attestation, required checkbox, or template gate. No PR template, issue form,
+  validator, test, or rule here requires such a checkbox.
+- Run `pnpm quality` (product-contract, ESLint, TypeScript, and the banned-suppression guard)
+  before every push and every review request, and get it clean. Local focused tests alone are
+  not enough; a failing quality gate must stop the push. CI is confirmation, not the first check.
+- Deferred to separately authorized follow-ups (NOT operational yet): LIGHT/FULL tiering,
+  trusted mutation/browser evidence ingestion, deployed-SHA requirements, issue-edit-triggered
+  invalidation with automatic Draft conversion, protocol telemetry, and break-glass automation.
+- Two Product Owner authorizations: merge (including any declared auto-deploy effect) and
+  production-state (migrations, activation, paid/live-provider action, secret/config mutation,
+  or a direct production write). PM review is quality review, not a third authorization;
+  real-device testing is evidence, not an approval.
+- A claim binds only to the pushed SHA it names; never report uncommitted work as delivered.
+  Post one blocker/authority note or one complete review-ready return, not per-commit essays.
+  After two correction rounds on the same increment, regenerate or rescope rather than patch a
+  third time.
+
 
 - Keep one active implementation PR at a time unless the Product Owner explicitly changes
   priority. An issue may span multiple PRs, but those PRs land sequentially rather than

@@ -1,0 +1,98 @@
+name: Implementation or product fix
+description: Define an outcome that must move into a linked Draft PR before implementation.
+title: "[Work] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        An issue defines the outcome; implementation happens only in a linked Draft PR.
+        Create the issue first, then open a Draft PR that references it before editing implementation files.
+
+  - type: textarea
+    id: user-outcome
+    attributes:
+      label: User outcome
+      description: What user, operator, privacy, security, or reliability outcome must change?
+      placeholder: A user can...
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed-problem
+    attributes:
+      label: Observed problem and exact evidence
+      description: Include the current SHA/release, reproduction, logs, screenshots, or authoritative query. Distinguish facts from hypotheses.
+      placeholder: |
+        Observed at SHA/release:
+        Reproduction:
+        Evidence:
+        Hypothesis:
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Highest risk boundary
+      options:
+        - Privacy or security
+        - Database or migration
+        - Authentication or authorization
+        - Billing or entitlement
+        - Recording or transcript persistence
+        - Deployment or release automation
+        - User-visible behavior
+        - Test or infrastructure only
+        - Documentation only
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable, falsifiable outcomes. Include failure behavior and rollback/containment when relevant.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Required evidence
+      description: State which local, CI, real-database, PostgREST, deployed-browser, or real-device proofs are authoritative.
+      placeholder: |
+        Focused:
+        Full/exact-head:
+        Integration:
+        Deployed/real-device:
+        Mutation/failure proof:
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Proposed PR increment and file allowlist
+      description: Define the smallest coherent PR and name explicit exclusions.
+      placeholder: |
+        Increment:
+        Expected files:
+        Out of scope:
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies, ordering, and authorization gates
+      description: Separate merge, migration, deployment, activation, paid tests, and production writes.
+      placeholder: |
+        Must happen before:
+        Must happen after:
+        Separate PO authorization required for:
+    validations:
+      required: true
