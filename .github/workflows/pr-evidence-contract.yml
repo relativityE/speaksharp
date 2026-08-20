@@ -1,13 +1,18 @@
 name: PR Evidence Contract
 
-# Trusted two-clock bot (#1316 v2). Enforcement resolves the validator/risk-map/schema
-# from the TRUSTED base branch, never the PR head. The bot owns GitHub facts (code clock =
-# head SHA; intent clock = Acceptance-criteria hash) and writes them into an idempotent
-# managed block; the author owns prose only. A read-only token keeps PR-head content safe
-# as data; the write scope is used solely to upsert the bot-managed block.
+# Minimal enforceable core (#1316 regenerate). The workflow runs in BASE-branch context via
+# `pull_request_target`, and the validator is the base copy — a PR cannot weaken the workflow
+# or the script that judges it. PR-head content is used only as data (via the API); PR-head
+# code is never checked out or executed.
+#
+# Bootstrap note: `pull_request_target` uses the workflow definition from the base branch, so
+# this file governs a PR only after it is merged to the base. #1317 (which introduces it) is
+# reviewed manually + by exact-head ci.yml; the bot governs every subsequent PR. Making the
+# trusted check a required status check / org-required workflow is a separately authorized
+# follow-on.
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft, review_requested]
 
 permissions:
@@ -34,11 +39,12 @@ jobs:
     timeout-minutes: 6
 
     steps:
-      - name: Checkout PR head content (untrusted DATA only)
+      # pull_request_target checks out the BASE branch by default; keep it that way and never
+      # fetch or run PR-head code. The validator we run is the trusted base copy.
+      - name: Checkout trusted base
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
+          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
 
       - name: Use repository Node version
@@ -46,36 +52,17 @@ jobs:
         with:
           node-version: 22.12.0
 
-      - name: Resolve the trusted base validator
+      - name: Confirm the trusted base validator is present
         run: |
           set -euo pipefail
-          mkdir -p .trusted
-          git fetch --no-tags --depth=1 origin "$BASE_SHA" 2>/dev/null || true
-          if git cat-file -e "${BASE_SHA}:scripts/pr-evidence-contract.mjs" 2>/dev/null; then
-            git show "${BASE_SHA}:scripts/pr-evidence-contract.mjs" > .trusted/pr-evidence-contract.mjs
-            echo "::notice title=Trusted validator::Enforcing with the base validator from ${BASE_SHA}."
-          else
-            cp scripts/pr-evidence-contract.mjs .trusted/pr-evidence-contract.mjs
-            echo "::warning title=Bootstrap validator::Base ${BASE_SHA} has no validator; using the PR-head candidate for this bootstrap PR only."
+          if [ ! -f scripts/pr-evidence-contract.mjs ]; then
+            echo "::error::Trusted base validator missing at ${BASE_SHA}. This workflow only governs a PR after it merges to base."
+            exit 1
           fi
-          echo "TRUSTED_VALIDATOR=$PWD/.trusted/pr-evidence-contract.mjs" >> "$GITHUB_ENV"
+          echo "TRUSTED_VALIDATOR=$PWD/scripts/pr-evidence-contract.mjs" >> "$GITHUB_ENV"
 
       - name: Prove the trusted validator rejects broken evidence (self-test)
         run: node "$TRUSTED_VALIDATOR" --self-test
-
-      - name: Prove enforcement uses the trusted validator, not the PR head
-        run: |
-          set -euo pipefail
-          printf '{"pull_request":{"body":"garbage","draft":false,"head":{"sha":"%s"},"base":{"sha":"%s"},"created_at":"2026-01-01T00:00:00Z"}}' \
-            "$HEAD_SHA" "$BASE_SHA" > .bad-event.json
-          printf 'export function validatePr(){return[]}\nif(import.meta.url==="file://"+process.argv[1]){process.exit(0)}\n' > .evil.mjs
-          if GITHUB_EVENT_PATH=.bad-event.json node .evil.mjs; then
-            echo "A PR-head 'always-pass' validator would FALSELY green an invalid body."
-          fi
-          if GITHUB_EVENT_PATH=.bad-event.json node "$TRUSTED_VALIDATOR"; then
-            echo "::error::FALSE GREEN — the trusted validator passed an invalid body."; exit 1
-          fi
-          echo "PASS: the trusted validator rejects an invalid body regardless of the PR-head validator."
 
       - name: Gather GitHub-authoritative facts
         run: |
@@ -92,22 +79,36 @@ jobs:
             issue=$(gh api "repos/${REPO}/issues/${n}" 2>/dev/null) || continue
             is_pr=$(printf '%s' "$issue" | jq 'has("pull_request")')
             created=$(printf '%s' "$issue" | jq -r '.created_at')
-            if [ "$is_pr" = "false" ] && [ "$created" \< "$PR_CREATED" -o "$created" = "$PR_CREATED" ]; then
+            if [ "$is_pr" = "false" ] && { [ "$created" \< "$PR_CREATED" ] || [ "$created" = "$PR_CREATED" ]; }; then
               printf '%s' "$issue" | jq '{number, body: (.body // ""), created_at}' > governing_issue.json
               break
             fi
           done < refs.txt
           echo "Governing issue:"; jq '{number, created_at}' governing_issue.json || true
 
-          # Code clock's final-CI fact: the ci.yml run at this exact head.
-          CI_JSON=$(gh run list --repo "$REPO" --commit "$HEAD_SHA" --workflow ci.yml --limit 1 --json status,conclusion,url 2>/dev/null || echo '[]')
+          # Exact-head full CI: the ci.yml run at HEAD_SHA, plus the required-job conclusions.
+          # unit-coverage-merge runs `pnpm quality`; full-evidence + report are the full lane.
+          CI_JSON=$(gh run list --repo "$REPO" --commit "$HEAD_SHA" --workflow ci.yml --limit 1 --json status,conclusion,url,databaseId 2>/dev/null || echo '[]')
           CI_STATUS=$(printf '%s' "$CI_JSON" | jq -r '.[0].status // "none"')
           CI_CONCL=$(printf '%s' "$CI_JSON" | jq -r '.[0].conclusion // "none"')
           CI_LINK=$(printf '%s' "$CI_JSON" | jq -r '.[0].url // ""')
-          if [ "$CI_STATUS" = "completed" ]; then FINAL_CI="$CI_CONCL"; else FINAL_CI="pending"; fi
-          echo "PR_FINAL_CI=$FINAL_CI" >> "$GITHUB_ENV"
-          echo "PR_FINAL_CI_LINK=$CI_LINK" >> "$GITHUB_ENV"
-          echo "Final CI: status=$CI_STATUS conclusion=$CI_CONCL -> $FINAL_CI"
+          CI_ID=$(printf '%s' "$CI_JSON" | jq -r '.[0].databaseId // ""')
+          FULL_LANE=false
+          if [ "$CI_STATUS" = "completed" ] && [ -n "$CI_ID" ]; then
+            JOBS=$(gh run view "$CI_ID" --repo "$REPO" --json jobs 2>/dev/null || echo '{}')
+            OK=true
+            for J in unit-coverage-merge full-evidence report; do
+              C=$(printf '%s' "$JOBS" | jq -r --arg j "$J" '[.jobs[]? | select(.name==$j) | .conclusion] | (.[0] // "none")')
+              echo "required job $J = $C"
+              [ "$C" = "success" ] || OK=false
+            done
+            [ "$OK" = "true" ] && FULL_LANE=true
+          fi
+          CI_CONCL_OUT=none; [ "$CI_STATUS" = "completed" ] && CI_CONCL_OUT="$CI_CONCL"
+          echo "PR_CI_CONCLUSION=$CI_CONCL_OUT" >> "$GITHUB_ENV"
+          echo "PR_CI_LINK=$CI_LINK" >> "$GITHUB_ENV"
+          echo "PR_FULL_LANE=$FULL_LANE" >> "$GITHUB_ENV"
+          echo "Exact-head CI: status=$CI_STATUS conclusion=$CI_CONCL full_lane=$FULL_LANE"
 
       - name: Upsert the bot-managed facts block
         env:

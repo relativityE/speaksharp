@@ -22,7 +22,7 @@ pending consolidation; do not use it to qualify the MVP.
 | Repository `main` | `307462931905ddcaac1eac303821c4291b7e0257` at this verification. Moving pointer; re-read before every claim. |
 | Production release | The #1309 deployment evidence identifies release `30746293…`; it was not re-read in this documentation update. Every deployed/browser run must read `window.__APP_RELEASE__` and match the intended SHA or return `VOID`. |
 | #1314 Private-STT findings | Application-qualified head `95c4f5f3c60fb6d3f183d72a9017f3e54c0a165e`. The migration artifact/proof is **APPLICATION QUALIFIED**; production migration application remains **HOLD pending separate Product Owner authorization**. This does not qualify the product or close the remaining user-facing findings. Queued behind #1317: no #1314 review/apply resumes until #1317 passes its correction and is separately merge-authorized. |
-| #1316 / #1317 delivery controls | Issue #1316 (v2) and Draft PR #1317 add the **two-clock trusted bot**: enforcement resolves the validator/risk-map/schema from the trusted base (never the PR head); the bot owns GitHub facts and writes an idempotent managed block keyed to the code clock (actual head SHA) and intent clock (governing-issue Acceptance-criteria hash); risk tier LIGHT/FULL is classified from trusted path rules with no author self-downgrade; structured evidence uses status enums; defect-class mutants are proven. Source-only until separate review and merge authorization; nothing else requests review until #1317 passes and merges. |
+| #1316 / #1317 delivery controls | Issue #1316 and Draft PR #1317 add the **base-owned trusted evidence bot (minimal core)**: the workflow runs in base-branch context (`pull_request_target`) so a PR cannot weaken its own judge; the bot owns GitHub facts and writes an idempotent managed block (head SHA, base SHA, changed-file set, Acceptance-criteria hash, exact-head full-CI status incl. `pnpm quality`); no author attestations. LIGHT/FULL tiering, mutation/browser evidence, deployed-SHA, issue-edit invalidation, telemetry, and break-glass are deferred to follow-ups. Source-only until separate review and merge authorization; nothing else requests review until #1317 merges. |
 | Real-device acceptance | The earlier two-session run is `VOID` because it used a stale browser bundle and an invalid short Progress sample. A fresh-release three-session Private-STT run remains required after migration application, client adoption, UI/retention/PDF/progress fixes, deployment, and release-identity verification. |
 | MVP STT/AI product ruling | **Private STT only.** AssemblyAI/Cloud STT is not an MVP launch path and must not be used as qualification evidence or described as the plan. Gemini is used only for AI suggestions. |
 
@@ -46,12 +46,16 @@ pending consolidation; do not use it to qualify the MVP.
 
 ### Current evidence/review control
 
-Before any review request, the PR must identify its governing issue and exact pushed SHA;
-attest local/remote/base/worktree/allowlist/tool/hash freshness; separate completed from
-pending evidence; provide mutation/failure proof for new gates; state limitations; and use
-one of `OPEN`, `IMPLEMENTED/NOT QUALIFIED`, `VOID`, `QUALIFIED`, or `BLOCKED`.
-Required pending evidence must be `None.` and status must be `QUALIFIED`. Diagnostic
-substitutes never qualify an authoritative boundary.
+Delivered by the base-owned PR Evidence Contract bot (minimal core, PR #1317). The author
+writes prose only (governing issue, outcome, scope/decisions, limitations); there are NO
+author/human attestation checkboxes. The bot, running in base-branch context, owns and
+verifies the GitHub facts: the governing issue exists, predates the PR, and has a non-empty
+Acceptance-criteria section; the recorded head SHA, base SHA, and complete changed-file set
+match GitHub; and exact-head full CI (including `pnpm quality`) is green. AC and scope
+quality are reviewer judgment during review, not a mechanical gate. Deferred to separately
+authorized follow-ups: LIGHT/FULL tiering, trusted mutation/browser evidence, deployed-SHA
+requirements, issue-edit-triggered invalidation with automatic Draft conversion, telemetry,
+and break-glass automation.
 
 ## Current baseline & production posture
 

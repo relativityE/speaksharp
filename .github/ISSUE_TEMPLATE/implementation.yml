@@ -96,19 +96,3 @@ body:
         Separate PO authorization required for:
     validations:
       required: true
-
-  - type: checkboxes
-    id: conversion-gate
-    attributes:
-      label: Issue-to-PR implementation gate
-      options:
-        - label: I will open a linked Draft PR before implementation begins.
-          required: true
-        - label: The PR will use the repository PR template and reference this issue.
-          required: true
-        - label: I will not request review until exact-artifact and freshness fields are complete.
-          required: true
-        - label: A stale or unverifiable browser bundle makes the run VOID, not PASS.
-          required: true
-        - label: Merge, migration, deployment, activation, and production proof remain separate decisions.
-          required: true

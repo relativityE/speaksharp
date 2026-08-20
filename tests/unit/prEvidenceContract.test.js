@@ -1,17 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   validatePr,
-  classifyTier,
   computeAcHash,
   acSectionNonEmpty,
+  ciStatusFrom,
   extractSection,
   renderManagedBlock,
   parseManagedBlock,
   upsertManagedBlock,
-  reconcileEvidence,
   extractIssueRefs,
-  parseBreakGlass,
-  breakGlassValid,
   selfTestData,
 } from '../../scripts/pr-evidence-contract.mjs';
 
@@ -19,156 +16,90 @@ const HEAD = 'a'.repeat(40);
 const BASE = 'b'.repeat(40);
 const AC = 'c'.repeat(64);
 
-function make(overrides = {}) {
+function make(o = {}) {
   const d = selfTestData();
-  const body = overrides.body ?? d.body;
-  const actual = { ...d.actual, ...(overrides.actual ?? {}) };
-  return { body, actual, draft: overrides.draft ?? false };
+  return { body: o.body ?? d.body, actual: { ...d.actual, ...(o.actual ?? {}) }, draft: o.draft ?? false };
 }
 const fails = (o) => validatePr(make(o)).length > 0;
 
 describe('valid controls pass', () => {
-  it('accepts a complete review-ready LIGHT PR', () => {
+  it('accepts a review-ready PR with no author attestations', () => {
+    expect(/\[[ x]\]/.test(selfTestData().body)).toBe(false);
     expect(validatePr(make())).toEqual([]);
   });
-  it('accepts a draft with pending CI evidence', () => {
+  it('accepts a draft with pending CI', () => {
     const d = selfTestData();
     const body = d.body.replace('"status": "PASS"', '"status": "PENDING"');
-    expect(validatePr({ body, draft: true, actual: { ...d.actual, finalCi: 'pending' } })).toEqual([]);
+    expect(validatePr({ body, draft: true, actual: { ...d.actual, ciConclusion: null, fullLane: false } })).toEqual([]);
   });
 });
 
-describe('two clocks — bot facts vs actual GitHub facts', () => {
-  it('rejects equal-but-fake head SHAs (agree with each other, not GitHub)', () => {
-    const d = selfTestData();
-    expect(fails({ body: d.body.replaceAll(HEAD, 'd'.repeat(40)) })).toBe(true);
+describe('the bot owns the facts', () => {
+  it('rejects equal-but-fake head SHAs', () => { expect(fails({ body: selfTestData().body.replaceAll(HEAD, 'd'.repeat(40)) })).toBe(true); });
+  it('rejects a stale base SHA', () => { expect(fails({ actual: { baseSha: 'e'.repeat(40) } })).toBe(true); });
+  it('rejects a stale AC hash', () => { expect(fails({ actual: { acHash: 'e'.repeat(64) } })).toBe(true); });
+  it('rejects an extra changed file', () => { expect(fails({ actual: { changedFiles: [...selfTestData().actual.changedFiles, 'README.md'] } })).toBe(true); });
+  it('rejects a missing changed file', () => { expect(fails({ actual: { changedFiles: ['AGENTS.md'] } })).toBe(true); });
+});
+
+describe('issue-first (mechanical)', () => {
+  it('rejects a missing governing issue reference', () => { expect(fails({ body: selfTestData().body.replace('Refs #1316', 'no issue') })).toBe(true); });
+  it('rejects a nonexistent/unresolved governing issue', () => { expect(fails({ actual: { issueResolved: false } })).toBe(true); });
+  it('rejects an issue created after the PR', () => { expect(fails({ actual: { issuePredates: false } })).toBe(true); });
+  it('rejects an empty Acceptance criteria section', () => { expect(fails({ actual: { acNonEmpty: false } })).toBe(true); });
+});
+
+describe('exact-head full CI including pnpm quality', () => {
+  it('rejects when the full lane did not run (fullLane false)', () => {
+    expect(fails({ actual: { fullLane: false } })).toBe(true);
   });
-  it('rejects a stale base SHA', () => {
-    expect(fails({ actual: { baseSha: 'e'.repeat(40) } })).toBe(true);
+  it('rejects a failed exact-head run', () => {
+    expect(fails({ actual: { ciConclusion: 'failure' } })).toBe(true);
   });
-  it('rejects a stale AC hash (intent clock moved)', () => {
-    expect(fails({ actual: { acHash: 'e'.repeat(64) } })).toBe(true);
+  it('rejects author-forged CI PASS when the actual full lane did not pass', () => {
+    // block hand-edited to PASS, but the actual run was not a full-lane success
+    expect(fails({ actual: { fullLane: false, ciConclusion: 'success' } })).toBe(true);
   });
-  it('rejects an extra changed file', () => {
-    expect(fails({ actual: { changedFiles: ['AGENTS.md', 'scripts/pr-evidence-contract.mjs', 'tests/unit/prEvidenceContract.test.js', 'README.md'] } })).toBe(true);
-  });
-  it('rejects a missing changed file', () => {
-    expect(fails({ actual: { changedFiles: ['AGENTS.md'] } })).toBe(true);
-  });
-  it('marks evidence STALE and blocks after a head change', () => {
-    expect(fails({ actual: { headSha: 'f'.repeat(40) } })).toBe(true);
+  it('accepts only a full-lane success', () => {
+    expect(validatePr(make({ actual: { fullLane: true, ciConclusion: 'success' } }))).toEqual([]);
   });
 });
 
-describe('risk tiers and anti-downgrade', () => {
-  it('classifies docs/CI/test-only changes as LIGHT', () => {
-    expect(classifyTier(['AGENTS.md', 'scripts/pr-evidence-contract.mjs', 'tests/unit/x.test.js']).tier).toBe('LIGHT');
-  });
-  it('classifies a migration as FULL', () => {
-    expect(classifyTier(['backend/supabase/migrations/x.sql']).tier).toBe('FULL');
-  });
-  it('classifies billing/auth/core paths as FULL', () => {
-    expect(classifyTier(['frontend/src/services/stripe.ts']).tier).toBe('FULL');
-    expect(classifyTier(['app/auth/login.ts']).tier).toBe('FULL');
-  });
-  it('rejects an author FULL->LIGHT downgrade (trusted classification wins)', () => {
-    expect(fails({ actual: { changedFiles: ['AGENTS.md', 'scripts/pr-evidence-contract.mjs', 'tests/unit/prEvidenceContract.test.js', 'backend/supabase/migrations/x.sql'] } })).toBe(true);
-  });
-});
-
-describe('structured status enum and managed block', () => {
-  it('rejects an invalid structured status', () => {
-    const d = selfTestData();
-    expect(fails({ body: d.body.replace('"status": "PASS"', '"status": "GREENISH"') })).toBe(true);
-  });
-  it('rejects a missing managed block', () => {
-    const d = selfTestData();
-    expect(fails({ body: d.body.replace(/<!-- pr-evidence-bot:v1:start -->[\s\S]*<!-- pr-evidence-bot:v1:end -->/, '') })).toBe(true);
-  });
-  it('rejects final CI that is not green', () => {
-    expect(fails({ actual: { finalCi: 'failure' } })).toBe(true);
-  });
-  it('rejects an unchecked author attestation', () => {
-    const d = selfTestData();
-    expect(fails({ body: d.body.replace('- [x] Scope is the smallest coherent increment', '- [ ] Scope is the smallest coherent increment') })).toBe(true);
-  });
-  it('rejects a missing author outcome section', () => {
-    const d = selfTestData();
-    expect(fails({ body: d.body.replace('## User outcome', '## Removed') })).toBe(true);
-  });
-});
-
-describe('FULL tier evidence', () => {
-  const d = selfTestData();
-  const fullFiles = [...d.actual.changedFiles, 'frontend/src/services/x.ts'];
-  function fullBody(evidence) {
-    const block = renderManagedBlock({ tier: 'FULL', head_sha: HEAD, base_sha: BASE, changed_files: fullFiles, ac_hash: AC, evidence });
-    return d.body.replace(/<!-- pr-evidence-bot:v1:start -->[\s\S]*<!-- pr-evidence-bot:v1:end -->/, block);
-  }
-  it('requires a passing mutation record for FULL', () => {
-    const body = fullBody([{ id: 'ci', type: 'ci', status: 'PASS', sha: HEAD, ac_hash: AC, coverage: 'all', link: 'x' }]);
-    expect(validatePr({ body, draft: false, actual: { ...d.actual, changedFiles: fullFiles } }).length).toBeGreaterThan(0);
-  });
-  it('accepts FULL with ci + mutation PASS', () => {
-    const body = fullBody([
-      { id: 'ci', type: 'ci', status: 'PASS', sha: HEAD, ac_hash: AC, coverage: 'all', link: 'x' },
-      { id: 'mut', type: 'mutation', status: 'PASS', sha: HEAD, ac_hash: AC, coverage: 'all', link: 'y' },
-    ]);
-    expect(validatePr({ body, draft: false, actual: { ...d.actual, changedFiles: fullFiles } })).toEqual([]);
-  });
-  it('rejects a stale browser release (observed SHA != head)', () => {
-    const body = fullBody([
-      { id: 'ci', type: 'ci', status: 'PASS', sha: HEAD, ac_hash: AC, coverage: 'all', link: 'x' },
-      { id: 'mut', type: 'mutation', status: 'PASS', sha: HEAD, ac_hash: AC, coverage: 'all', link: 'y' },
-      { id: 'br', type: 'browser', status: 'PASS', sha: 'f'.repeat(40), ac_hash: AC, coverage: 'browser', link: 'z' },
-    ]);
-    expect(validatePr({ body, draft: false, actual: { ...d.actual, changedFiles: fullFiles } }).length).toBeGreaterThan(0);
-  });
+describe('structured block + author prose', () => {
+  it('rejects an invalid CI status enum', () => { expect(fails({ body: selfTestData().body.replace('"status": "PASS"', '"status": "GREENISH"') })).toBe(true); });
+  it('rejects a missing managed block', () => { expect(fails({ body: selfTestData().body.replace(/<!-- pr-evidence-bot:v1:start -->[\s\S]*<!-- pr-evidence-bot:v1:end -->/, '') })).toBe(true); });
+  it('rejects a missing author section', () => { expect(fails({ body: selfTestData().body.replace('## User outcome', '## Removed') })).toBe(true); });
 });
 
 describe('pure helpers', () => {
   const issue = ['## Acceptance criteria', '- [ ] a', '- [ ] b', '', '## Next'].join('\n');
-  it('computeAcHash is stable and whitespace-normalized', () => {
-    const h1 = computeAcHash(issue);
-    const h2 = computeAcHash(issue.replace('- [ ] a', '- [ ]   a   '));
-    expect(h1).toMatch(/^[0-9a-f]{64}$/);
-    expect(h1).toBe(h2);
+  it('ciStatusFrom: full-lane success is PASS; anything else is PENDING/FAIL', () => {
+    expect(ciStatusFrom({ conclusion: 'success', fullLane: true })).toBe('PASS');
+    expect(ciStatusFrom({ conclusion: 'success', fullLane: false })).toBe('PENDING');
+    expect(ciStatusFrom({ conclusion: 'failure', fullLane: true })).toBe('FAIL');
+    expect(ciStatusFrom({ conclusion: null, fullLane: false })).toBe('PENDING');
   });
-  it('computeAcHash changes when AC content changes', () => {
+  it('computeAcHash is stable, whitespace-normalized, and content-sensitive', () => {
+    expect(computeAcHash(issue)).toBe(computeAcHash(issue.replace('- [ ] a', '- [ ]   a   ')));
     expect(computeAcHash(issue)).not.toBe(computeAcHash(issue.replace('- [ ] b', '- [ ] c')));
-  });
-  it('computeAcHash returns null with no AC section', () => {
-    expect(computeAcHash('## Something else\nx')).toBeNull();
+    expect(computeAcHash(issue)).toMatch(/^[0-9a-f]{64}$/);
   });
   it('acSectionNonEmpty detects an empty AC section', () => {
     expect(acSectionNonEmpty('## Acceptance criteria\n\n## Next')).toBe(false);
     expect(acSectionNonEmpty(issue)).toBe(true);
   });
   it('extractSection ignores commented headings', () => {
-    expect(extractSection('<!-- ## Acceptance criteria\nx -->\n## Real\ny', 'Real')).toBe('y');
+    expect(extractSection('<!-- ## Real\nx -->\n## Real\ny', 'Real')).toBe('y');
   });
-  it('render/parse round-trips the managed block', () => {
-    const facts = { tier: 'LIGHT', head_sha: HEAD, base_sha: BASE, changed_files: ['b', 'a'], ac_hash: AC, evidence: [] };
-    const parsed = parseManagedBlock(renderManagedBlock(facts));
-    expect(parsed.changed_files).toEqual(['a', 'b']);
-    expect(parsed.tier).toBe('LIGHT');
+  it('render/parse round-trips and sorts changed_files', () => {
+    expect(parseManagedBlock(renderManagedBlock({ head_sha: HEAD, base_sha: BASE, changed_files: ['b', 'a'], ac_hash: AC, ci: { status: 'PASS', link: '' } })).changed_files).toEqual(['a', 'b']);
   });
   it('upsertManagedBlock is idempotent', () => {
-    const block = renderManagedBlock({ tier: 'LIGHT', head_sha: HEAD, base_sha: BASE, changed_files: [], ac_hash: AC, evidence: [] });
+    const block = renderManagedBlock({ head_sha: HEAD, base_sha: BASE, changed_files: [], ac_hash: AC, ci: { status: 'PENDING', link: '' } });
     const once = upsertManagedBlock('## User outcome\nx\n', block);
     expect(upsertManagedBlock(once, block)).toBe(once);
   });
-  it('reconcileEvidence marks moved-clock evidence STALE', () => {
-    const ev = [{ id: 'x', type: 'ci', status: 'PASS', sha: HEAD, ac_hash: AC, coverage: 'all' }];
-    expect(reconcileEvidence(ev, 'f'.repeat(40), AC)[0].status).toBe('STALE');
-    expect(reconcileEvidence(ev, HEAD, AC)[0].status).toBe('PASS');
-  });
   it('extractIssueRefs ignores commented refs', () => {
     expect(extractIssueRefs('<!-- Refs #9 -->\nRefs #1316')).toEqual([1316]);
-  });
-  it('break-glass requires owner, scope, expiry, and follow-up', () => {
-    const rec = parseBreakGlass('BREAK-GLASS APPROVED\nowner: po\nscope: hotfix\nexpiry: 2026-08-21\nfollow-up: #99\n');
-    expect(breakGlassValid(rec)).toBe(true);
-    expect(breakGlassValid(parseBreakGlass('BREAK-GLASS APPROVED\nowner: po\n'))).toBe(false);
   });
 });
