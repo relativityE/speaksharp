@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from "npm:stripe@16"
 import { createClient } from "npm:@supabase/supabase-js@2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
-import { corsHeaders as buildCorsHeaders } from "../_shared/cors.ts"
+import { corsGuard, corsHeaders as buildCorsHeaders } from "../_shared/cors.ts"
 
 // Port configuration for local development fallback (inlined to avoid bundler issues)
 const DEV_PORT = 5174;
@@ -17,16 +17,31 @@ const stripe = STRIPE_SECRET_KEY
   ? new Stripe(STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient() })
   : null;
 
-type CheckoutPlan = "basic" | "pro";
+type CheckoutPlan = "pro";
 type EnvGetter = (key: string) => string | undefined;
 type SupabaseFactory = (authHeader: string) => ReturnType<typeof createClient>;
+type StripePrice = {
+  active?: boolean;
+  unit_amount?: number | null;
+  currency?: string;
+  recurring?: { interval?: string | null; interval_count?: number | null } | null;
+};
 type StripeLike = {
   checkout: {
     sessions: {
       create: (params: Record<string, unknown>) => Promise<{ id: string; url: string | null }>;
     };
   };
+  prices: {
+    retrieve: (id: string) => Promise<StripePrice>;
+  };
 };
+
+// #1266/#1282 — the Pro price is the server-configured recurring monthly price of EXACTLY 1,000 cents.
+// The amount is never caller-supplied: checkout uses STRIPE_PRO_PRICE_ID and, before creating a session,
+// verifies that the resolved Stripe Price is active, recurring monthly, exactly 1000 cents, in the
+// configured currency. A misconfigured price fails closed (no checkout is created at the wrong price).
+const PRO_PRICE_EXPECTED_UNIT_AMOUNT = 1000;
 
 type HandlerDeps = {
   getEnv?: EnvGetter;
@@ -37,7 +52,7 @@ type HandlerDeps = {
 const normalizePlan = (value: unknown): CheckoutPlan | null => {
   if (typeof value !== "string") return "pro";
   const normalized = value.trim().toLowerCase();
-  if (normalized === "basic" || normalized === "pro") return normalized;
+  if (normalized === "pro") return normalized;
   return null;
 };
 
@@ -69,6 +84,11 @@ const fetchExistingStripeCustomerId = async (
 };
 
 export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Response> {
+  // Exact-origin CORS guard: reject hostile/unapproved origins and answer preflight BEFORE any
+  // env read, payments-enabled check, auth, Supabase, or Stripe API/session-creation call.
+  const corsRejection = corsGuard(req);
+  if (corsRejection) return corsRejection;
+
   const responseHeaders = buildCorsHeaders(req);
   const getEnv: EnvGetter = deps.getEnv ?? ((key) => Deno.env.get(key) ?? undefined);
   const stripeClient = deps.stripeClient ?? stripe;
@@ -80,9 +100,25 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
     )
   );
 
-  // Handle CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: responseHeaders })
+  // (CORS preflight + hostile-origin rejection handled by corsGuard above.)
+
+  // Fail-closed beta billing (authoritative server guard — frontend hiding is not sufficient).
+  // Checkout is refused unless BOTH: payments are explicitly enabled AND a LIVE Stripe secret key is
+  // configured. Defaults to closed, so a stray live publishable key alone can never open checkout.
+  // This does NOT touch existing entitlements: it only refuses to CREATE new checkout sessions.
+  {
+    const paymentsExplicitlyEnabled = getEnv("PAYMENTS_ENABLED") === "true";
+    const secretKey = getEnv("STRIPE_SECRET_KEY");
+    const hasLiveSecret = typeof secretKey === "string" && secretKey.startsWith("sk_live_");
+    if (!paymentsExplicitlyEnabled || !hasLiveSecret) {
+      console.warn("[Stripe Checkout] ⛔ payments disabled — refusing checkout (fail-closed beta)");
+      return createErrorResponse(
+        ErrorCodes.PAYMENTS_DISABLED,
+        "Pro enrollment is not open during this beta.",
+        responseHeaders,
+        { paymentsEnabled: false },
+      );
+    }
   }
 
   try {
@@ -94,7 +130,6 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       hasUrl: !!getEnv("SUPABASE_URL"),
       hasAnon: !!getEnv("SUPABASE_ANON_KEY"),
       hasStripeKey: !!getEnv("STRIPE_SECRET_KEY"),
-      hasBasicPriceId: !!getEnv("STRIPE_BASIC_PRICE_ID"),
       hasProPriceId: !!getEnv("STRIPE_PRO_PRICE_ID"),
       hasSiteUrl: !!getEnv("SITE_URL"),
     };
@@ -182,14 +217,6 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
         { allowed: ["pro"] }
       );
     }
-    if (plan === "basic") {
-      return createErrorResponse(
-        ErrorCodes.PAID_BASIC_FUTURE,
-        "Paid Basic is not available yet. Start Free or upgrade to Pro.",
-        responseHeaders,
-        { allowed: ["pro"], unavailable: "basic" }
-      );
-    }
     const conversionSource = sanitizeMetadataValue(requestBody.conversionSource, 'unknown');
     const utmSource = sanitizeMetadataValue(requestBody.utm?.source, 'unknown');
     const utmMedium = sanitizeMetadataValue(requestBody.utm?.medium, conversionSource);
@@ -240,6 +267,49 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       : user.email
         ? { customer_email: user.email }
         : {};
+
+    // 4b. Verify the configured Pro price BEFORE creating a session. The amount is server-owned, never
+    // caller-supplied; we additionally assert it is an active, recurring MONTHLY price of EXACTLY 1,000
+    // cents in the configured currency (#1266/#1282 contract). Any mismatch fails closed — we never open
+    // checkout at an unverified or wrong price.
+    {
+      const expectedCurrency = (getEnv("STRIPE_PRICE_CURRENCY") ?? "usd").trim().toLowerCase();
+      let price: StripePrice;
+      try {
+        price = await stripeClient.prices.retrieve(priceId);
+      } catch (priceErr) {
+        console.error("[Stripe Checkout] ❌ Failed to retrieve Pro price for verification:", priceErr);
+        return createErrorResponse(
+          ErrorCodes.CONFIG_INVALID_PRICE,
+          "Unable to verify the Pro price configuration. Checkout is unavailable.",
+          responseHeaders,
+          { priceEnv: priceEnvName },
+        );
+      }
+
+      const actualCurrency = (price?.currency ?? "").toLowerCase();
+      const interval = price?.recurring?.interval ?? null;
+      const intervalCount = price?.recurring?.interval_count ?? null;
+      // #1282 blocker 2: FAIL CLOSED. active MUST be exactly true (a missing/undefined active field is NOT
+      // treated as active); the price MUST recur every 1 month (interval 'month' AND interval_count === 1,
+      // so a 3-month or annual price cannot masquerade as "monthly"); exactly 1000 cents; configured currency.
+      const problems: string[] = [];
+      if (price?.active !== true) problems.push(`active:${price?.active ?? "missing"}`);
+      if (interval !== "month") problems.push(`interval:${interval ?? "none"}`);
+      if (intervalCount !== 1) problems.push(`interval_count:${intervalCount ?? "none"}`);
+      if (price?.unit_amount !== PRO_PRICE_EXPECTED_UNIT_AMOUNT) problems.push(`unit_amount:${price?.unit_amount ?? "none"}`);
+      if (actualCurrency !== expectedCurrency) problems.push(`currency:${actualCurrency || "none"}`);
+
+      if (problems.length > 0) {
+        console.error(`[Stripe Checkout] ❌ Pro price failed verification (${problems.join(", ")})`);
+        return createErrorResponse(
+          ErrorCodes.CONFIG_INVALID_PRICE,
+          `The configured Pro price must be an active recurring monthly price of exactly ${PRO_PRICE_EXPECTED_UNIT_AMOUNT} ${expectedCurrency}.`,
+          responseHeaders,
+          { problems, expectedUnitAmount: PRO_PRICE_EXPECTED_UNIT_AMOUNT, expectedCurrency },
+        );
+      }
+    }
 
     // 5. Stripe Session Creation
     console.log(`[Stripe Checkout] 💳 Creating Stripe Session for ${plan} with Price ID: ${priceId}`);

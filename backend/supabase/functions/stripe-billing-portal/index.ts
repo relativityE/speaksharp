@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from "npm:stripe@16"
 import { createClient } from "npm:@supabase/supabase-js@2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
-import { corsHeaders as buildCorsHeaders } from "../_shared/cors.ts"
+import { corsGuard, corsHeaders as buildCorsHeaders } from "../_shared/cors.ts"
 
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
 if (!STRIPE_SECRET_KEY && import.meta.main) {
@@ -49,6 +49,11 @@ const fetchStripeCustomerId = async (
 };
 
 export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Response> {
+  // Exact-origin CORS guard: reject hostile/unapproved origins and answer preflight BEFORE any
+  // auth, Supabase, or Stripe billing-portal session call.
+  const corsRejection = corsGuard(req);
+  if (corsRejection) return corsRejection;
+
   const responseHeaders = buildCorsHeaders(req);
   const getEnv: EnvGetter = deps.getEnv ?? ((key) => Deno.env.get(key) ?? undefined);
   const stripeClient = deps.stripeClient ?? stripe;
@@ -60,9 +65,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
     )
   );
 
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: responseHeaders });
-  }
+  // (CORS preflight + hostile-origin rejection handled by corsGuard above.)
 
   if (req.method !== "POST") {
     return createErrorResponse(

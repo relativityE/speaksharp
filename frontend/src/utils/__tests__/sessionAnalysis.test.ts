@@ -3,24 +3,78 @@ import {
     calculateCoreSessionMetrics,
     getWpmLabel,
     getSessionAnalysisMetrics,
+    getFillerExplanation,
+    getClarityExplanation,
     isUsableFillerCounts,
+    validatedFillerTotal,
     normalizeFillerCounts,
+    FILLER_TRANSCRIPT_DISCLOSURE,
+    selectReviewFillerSnapshot,
 } from '../sessionAnalysis';
 import type { PracticeSession } from '@/types/session';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 
 describe('sessionAnalysis metric truth', () => {
-    it('counts captured filler words and explains their impact', () => {
+    it('counts the TRUE-filler tier as the headline; the per-word breakdown still shows every tracked word (#1231)', () => {
         const metrics = calculateCoreSessionMetrics({
             transcript: 'Um I think uh this is like a useful test',
             durationSeconds: 30,
         });
 
         expect(metrics.wordCount).toBe(10);
-        expect(metrics.fillerCount).toBe(3);
+        // Headline = true fillers only: um(1) + uh(1) = 2. "like" is a discourse marker, excluded by default.
+        expect(metrics.fillerCount).toBe(2);
+        // The per-word breakdown is UNCHANGED — total.count stays the comprehensive all-tier count (3), so the
+        // chips still show like/um/uh; only the headline number is the true-filler tier.
         expect(metrics.fillerData.total.count).toBe(3);
+        expect(metrics.fillerData.like.count).toBe(1);
         expect(metrics.fillerExplanation).toContain('This is likely noticeable; pause before restarting a thought');
         expect(metrics.clarityExplanation).toContain('Replace the next one with a brief pause');
+    });
+
+    it('opting in counts discourse markers toward the headline too (#1231)', () => {
+        const metrics = calculateCoreSessionMetrics({
+            transcript: 'Um I think uh this is like a useful test',
+            durationSeconds: 30,
+            includeDiscourseMarkers: true,
+        });
+        // um(1) + uh(1) + like(1) = 3 with discourse markers opted in.
+        expect(metrics.fillerCount).toBe(3);
+    });
+
+    // #894: every count-bearing filler explanation carries the transcript-derived disclosure, so the metric
+    // is presented as an honest lower bound (STT engines can omit a spoken filler upstream). It is NOT added
+    // to the "no transcript captured" / "too little speech" cases, where no count is presented.
+    describe('#894: transcript-derived disclosure on count-bearing explanations', () => {
+        it('appends the disclosure when a count IS presented (fillers detected)', () => {
+            expect(getFillerExplanation(3, 100)).toContain(FILLER_TRANSCRIPT_DISCLOSURE);
+        });
+        it('appends the disclosure to the honest zero ("none detected" may still be an under-count)', () => {
+            expect(getFillerExplanation(0, 100)).toContain(FILLER_TRANSCRIPT_DISCLOSURE);
+        });
+        it('does NOT append the disclosure when no transcript was captured', () => {
+            expect(getFillerExplanation(0, 0)).not.toContain(FILLER_TRANSCRIPT_DISCLOSURE);
+        });
+        it('does NOT append the disclosure when there is too little speech to verify', () => {
+            // wordCount < MIN_RELIABLE_SCORING_WORDS (3) → the "too little speech" branch, which presents no count.
+            expect(getFillerExplanation(0, 2)).not.toContain(FILLER_TRANSCRIPT_DISCLOSURE);
+        });
+
+        // The adjacent Clear Delivery card renders getClarityExplanation, which ALSO cites the filler count in
+        // its filler-dependent branches. Those must carry the same disclosure so the count is never presented
+        // as exact on one card while caveated on the other.
+        it('clarity: appends the disclosure when the explanation cites a non-zero filler count', () => {
+            expect(getClarityExplanation({ wordCount: 100, fillerCount: 3, errorCount: 0, wpm: 130 }))
+                .toContain(FILLER_TRANSCRIPT_DISCLOSURE);
+        });
+        it('clarity: appends the disclosure to the "no filler words detected" branch', () => {
+            expect(getClarityExplanation({ wordCount: 100, fillerCount: 0, errorCount: 0, wpm: 130 }))
+                .toContain(FILLER_TRANSCRIPT_DISCLOSURE);
+        });
+        it('clarity: does NOT append the disclosure to non-filler branches (inaudible speech)', () => {
+            expect(getClarityExplanation({ wordCount: 100, fillerCount: 0, errorCount: 2, wpm: 130 }))
+                .not.toContain(FILLER_TRANSCRIPT_DISCLOSURE);
+        });
     });
 
     it('STT-P1: re-counts respelled fillers ("Umm") from the final transcript when no live fillerData is supplied', () => {
@@ -73,10 +127,7 @@ describe('sessionAnalysis metric truth', () => {
         const metrics = calculateCoreSessionMetrics({
             transcript: 'This final transcript dropped the filler words',
             durationSeconds: 30,
-            fillerData: {
-                um: { count: 2 },
-                total: { count: 2 },
-            },
+            fillerData: { um: 2 },
         });
 
         expect(metrics.fillerCount).toBe(2);
@@ -84,65 +135,58 @@ describe('sessionAnalysis metric truth', () => {
         expect(metrics.clarityScore).toBeLessThan(100);
     });
 
-    it('SSOT: uses the persisted canonical filler total and does NOT inflate a valid persisted zero from transcript', () => {
-        // Live counter recorded ZERO; the committed transcript text happens to contain "um"/"uh". Per the
-        // live-canonical SSOT, the persisted zero is authoritative and must NOT be repaired up from the
-        // transcript (previous behavior wrongly took max(persisted, recount) = 2).
+    it('#1306: a MEASURED zero ({}) filler map reads as 0 (never inflated — there is no transcript to recount)', () => {
+        // A measured `{}` is a genuine zero. There is no transcript, so it can never be "repaired up" from text.
         const session = {
-            id: 'session-1',
-            user_id: 'user-1',
-            created_at: '2026-05-21T12:00:00.000Z',
-            updated_at: '2026-05-21T12:00:00.000Z',
-            title: 'Truth check',
-            duration: 60,
-            total_words: 8,
-            transcript: 'um this transcript has uh two fillers',
-            filler_words: { total: { count: 0 } }, // valid persisted (live) zero
-            clarity_score: null,
-            wpm: null,
+            id: 'session-1', user_id: 'user-1', created_at: '2026-05-21T12:00:00.000Z',
+            title: 'Truth check', duration: 60, total_words: 8,
+            filler_counts: {}, // measured zero
+            clarity_score: null, wpm: null,
         } as unknown as PracticeSession;
 
         const metrics = getSessionAnalysisMetrics(session);
 
-        expect(metrics.fillerCount).toBe(0);
+        expect(metrics.fillerCount).toBe(0);           // measured zero, not unavailable, not inflated
         expect(metrics.fillerData.total.count).toBe(0);
-        expect(metrics.wpm).toBe(8); // word count/WPM still derive from the transcript
+        expect(metrics.wpm).toBe(8);                   // wpm from stored total_words (8 words / 1 min)
     });
 
-    it('SSOT: recounts custom filler words from transcript ONLY as fallback when persisted filler data is absent', () => {
+    it('#1306: NO transcript recount — an absent (NULL) filler map is UNAVAILABLE (null), never re-derived or shown as 0', () => {
+        // There is no transcript to recount. An unmeasured (null) filler map yields an UNAVAILABLE headline —
+        // never a fabricated "0 fillers".
         const session = {
-            id: 'session-2',
-            user_id: 'user-1',
-            created_at: '2026-05-21T12:00:00.000Z',
-            updated_at: '2026-05-21T12:00:00.000Z',
-            title: 'Custom filler truth check',
-            duration: 60,
-            transcript: 'basically this basically needs to count',
-            custom_words: { basically: { count: 0 } },
-            filler_words: null, // absent → fallback recount (diagnostic), which honors custom words
-            clarity_score: null,
-            wpm: null,
+            id: 'session-2', user_id: 'user-1', created_at: '2026-05-21T12:00:00.000Z',
+            title: 'No recount', duration: 60,
+            filler_counts: undefined, // not measured
+            clarity_score: null, wpm: null,
         } as unknown as PracticeSession;
 
-        const metrics = getSessionAnalysisMetrics(session);
-
-        expect(metrics.fillerData.basically.count).toBe(2);
-        expect(metrics.fillerData.total.count).toBe(2);
-        expect(metrics.fillerCount).toBe(2);
+        expect(getSessionAnalysisMetrics(session).fillerCount).toBeNull();
     });
 
-    it('turns Cloud-quality transcript evidence into plain-language coaching', () => {
+    it('turns Cloud-quality transcript evidence into plain-language coaching (#1231: discourse-only is not penalised by default)', () => {
+        // This sentence's only "fillers" are discourse markers ("like", "basically") — legitimate speech.
         const metrics = calculateCoreSessionMetrics({
             transcript: 'The stale smell of old beer, like, lingers, basically, a dash of pepper spoils beef stew. Well, the swan dive was far short of perfect.',
             durationSeconds: 26.194,
         });
 
         expect(metrics.wordCount).toBe(25);
-        expect(metrics.fillerCount).toBe(2);
+        // Default headline = 0 true fillers: discourse markers are not counted, so the user is NOT told they
+        // filled when they merely used "like"/"basically". Coaching pivots to the real issue — very slow pace.
+        expect(metrics.fillerCount).toBe(0);
         expect(metrics.wpm).toBe(57);
         expect(metrics.wpmExplanation).toContain('very slow for most listeners');
-        expect(metrics.fillerExplanation).toContain('Pick one repeat filler to replace with silence next time');
-        expect(metrics.clarityExplanation).toContain('Replace the next one with a brief pause');
+        expect(metrics.clarityExplanation).toContain('Slow pacing is lowering the score');
+
+        // With the opt-in, the same two discourse markers DO count toward the headline.
+        const optedIn = calculateCoreSessionMetrics({
+            transcript: 'The stale smell of old beer, like, lingers, basically, a dash of pepper spoils beef stew. Well, the swan dive was far short of perfect.',
+            durationSeconds: 26.194,
+            includeDiscourseMarkers: true,
+        });
+        expect(optedIn.fillerCount).toBe(2);
+        expect(optedIn.fillerExplanation).toContain('Pick one repeat filler to replace with silence next time');
     });
 
     it('explains clean transcripts as a next-step coaching opportunity instead of a bare score', () => {
@@ -187,26 +231,30 @@ describe('Live filler SSOT — live count is canonical, recount is diagnostic/fa
         expect(zeroWithFillersInText.clarityScore).toBeGreaterThanOrEqual(recountBaseline.clarityScore);
     });
 
-    // #3: analytics uses persisted canonical, NOT max(persisted, recount).
-    it('analytics: persisted canonical is used even when a transcript recount would be larger', () => {
+    // #1306: the stored flat filler_counts is the ONLY source — there is no transcript to recount from.
+    it('analytics: the stored filler_counts is authoritative (no transcript recount can inflate it)', () => {
         const session = {
-            id: 's', user_id: 'u', created_at: '', updated_at: '', title: 't', duration: 60,
-            transcript: 'um um um um um lots of ums in the text here',
-            filler_words: { total: { count: 1, color: '' }, um: { count: 1, color: '' } }, // canonical 1
+            id: 's', user_id: 'u', created_at: '', title: 't', duration: 60,
+            filler_counts: { um: 1 }, // measured: one um
             clarity_score: null, wpm: null,
         } as unknown as PracticeSession;
         const metrics = getSessionAnalysisMetrics(session);
-        expect(metrics.fillerCount).toBe(1); // NOT 5
+        expect(metrics.fillerCount).toBe(1);
     });
 
-    // #6: recount fallback ONLY when persisted is missing/malformed.
-    it('analytics: recounts the transcript when persisted filler data is absent/malformed', () => {
-        const base = { id: 's', user_id: 'u', created_at: '', updated_at: '', title: 't', duration: 60,
-            transcript: 'um and uh appear here', clarity_score: null, wpm: null };
-        for (const badPersisted of [null, {}, { total: { count: 'x' } }]) {
-            const metrics = getSessionAnalysisMetrics({ ...base, filler_words: badPersisted } as unknown as PracticeSession);
-            expect(metrics.fillerCount).toBeGreaterThan(0); // fell back to recount
-        }
+    // #1306: the FOUR filler evidence states are honestly distinguished at the READ boundary — NEVER collapsed
+    // into 0, and NEVER recounted from a (non-existent) transcript.
+    it('analytics: null/invalid = UNAVAILABLE (null); {} = measured zero (0); nonempty = measured total', () => {
+        const base = { id: 's', user_id: 'u', created_at: '', title: 't', duration: 60, clarity_score: null, wpm: null };
+        const read = (persisted: unknown) => getSessionAnalysisMetrics({ ...base, filler_counts: persisted } as unknown as PracticeSession).fillerCount;
+        // NOT measured / invalid → null (unavailable), never a fabricated 0 "zero fillers".
+        expect(read(null)).toBeNull();
+        expect(read(undefined)).toBeNull();
+        expect(read({ um: -1 })).toBeNull();          // invalid value → unavailable
+        expect(read({ 'a prose key': 3 })).toBeNull(); // invalid key → unavailable
+        // Measured → a number (0 for `{}`), never a recount.
+        expect(read({})).toBe(0);                      // measured zero
+        expect(read({ um: 4 })).toBe(4);               // measured counts
     });
 
     // #8: no transcript/raw-custom text is embedded in the canonical filler data structure.
@@ -226,13 +274,32 @@ describe('isUsableFillerCounts — valid-zero is usable; only absent/malformed i
     it('valid zero (total:0) is usable', () => { expect(isUsableFillerCounts({ total: { count: 0, color: '' } })).toBe(true); });
     it('zero entry without total is usable', () => { expect(isUsableFillerCounts({ um: { count: 0, color: '' } } as never)).toBe(true); });
     it('nonzero counts are usable', () => { expect(isUsableFillerCounts({ total: { count: 3, color: '' } })).toBe(true); });
-    it('null / undefined / empty are NOT usable', () => {
-        expect(isUsableFillerCounts(null)).toBe(false);
-        expect(isUsableFillerCounts(undefined)).toBe(false);
-        expect(isUsableFillerCounts({})).toBe(false);
+    it('#1306: null / undefined are NOT usable (not measured); but {} IS usable (a measured zero)', () => {
+        expect(isUsableFillerCounts(null)).toBe(false);      // not measured
+        expect(isUsableFillerCounts(undefined)).toBe(false); // not measured
+        expect(isUsableFillerCounts({})).toBe(true);         // measured zero — must count, not excluded
     });
     it('malformed (non-numeric total, no numeric entry) is NOT usable', () => {
         expect(isUsableFillerCounts({ total: { count: 'x' } } as never)).toBe(false);
+    });
+    it('#1131 round-4 (#3): an ARRAY or SCALAR filler_words is NOT usable — fail closed, never treated as an object map', () => {
+        // typeof [] === 'object', so an array would otherwise be iterated by index. Scalars carry no counts.
+        expect(isUsableFillerCounts([{ count: 2 }] as never)).toBe(false);
+        expect(validatedFillerTotal([{ count: 2 }] as never)).toBeNull();
+        expect(isUsableFillerCounts(5 as never)).toBe(false);
+        expect(validatedFillerTotal(5 as never)).toBeNull();
+        expect(validatedFillerTotal('x' as never)).toBeNull();
+    });
+    it('#1131 (#31): a finite but INVALID total (fractional / negative) is NOT usable — never coerced to zero', () => {
+        // Previously these were "usable" (Number.isFinite) then getFillerTotal coerced them to a confident 0.
+        expect(isUsableFillerCounts({ total: { count: 2.5 } } as never)).toBe(false);
+        expect(isUsableFillerCounts({ total: { count: -1 } } as never)).toBe(false);
+        // …and validatedFillerTotal returns null for them (the aligned predicate), not 0.
+        expect(validatedFillerTotal({ total: { count: 2.5 } } as never)).toBeNull();
+        expect(validatedFillerTotal({ total: { count: -1 } } as never)).toBeNull();
+        // A genuine zero total remains usable and authoritative.
+        expect(isUsableFillerCounts({ total: { count: 0, color: '' } })).toBe(true);
+        expect(validatedFillerTotal({ total: { count: 0, color: '' } })).toBe(0);
     });
 });
 
@@ -246,10 +313,12 @@ describe('normalizeFillerCounts — accepted canonical filler data ALWAYS expose
         const out = normalizeFillerCounts({ um: { count: 3, color: '' }, so: { count: 2, color: '' } } as FillerCounts);
         expect(out.total.count).toBe(5);
     });
-    it('preserves an existing numeric total (identity — no re-sum)', () => {
+    it('#1306: total.count is ALWAYS the validated sum of entries (an inconsistent stored total is not trusted)', () => {
+        // Input claims total 4 but its only entry is um:9. The normalized total is the recomputed sum (9),
+        // never a blindly-trusted, inconsistent stored total.
         const input = { total: { count: 4, color: '' }, um: { count: 9, color: '' } } as FillerCounts;
-        expect(normalizeFillerCounts(input)).toBe(input); // same object, total not overwritten
-        expect(normalizeFillerCounts(input).total.count).toBe(4);
+        expect(normalizeFillerCounts(input).total.count).toBe(9);
+        expect(normalizeFillerCounts(input).um.count).toBe(9);
     });
     it('empty object gets total.count 0', () => {
         expect(normalizeFillerCounts({} as FillerCounts).total.count).toBe(0);
@@ -298,5 +367,122 @@ describe('metrics-duration: pace uses the persisted RECORDING duration, not fina
         // Coaching impact: the recording duration keeps pace in the target band; the wall-clock drops it below.
         expect(good).toBeGreaterThanOrEqual(130);
         expect(buggy).toBeLessThan(130);
+    });
+});
+
+// #1306 P1-4: UNAVAILABLE filler evidence (null) must produce NEUTRAL N/A copy — never a fabricated
+// "no filler words were detected". A MEASURED empty map ({}) is a genuine zero and keeps the zero copy.
+describe('#1306 P1-4 — unavailable vs measured-zero filler copy', () => {
+    const PLENTY = 50; // comfortably above MIN_RELIABLE_SCORING_WORDS
+
+    it('getFillerExplanation(null): N/A copy, NEVER "No filler words were detected"', () => {
+        const copy = getFillerExplanation(null, PLENTY);
+        expect(copy).toMatch(/wasn.t available|not available/i);
+        expect(copy).not.toMatch(/no filler words were detected/i);
+    });
+
+    it('getFillerExplanation(0): genuine measured-zero copy', () => {
+        expect(getFillerExplanation(0, PLENTY)).toMatch(/no filler words were detected/i);
+    });
+
+    it('getClarityExplanation with null fillers does NOT assert "no filler words ... were detected"', () => {
+        const copy = getClarityExplanation({ wordCount: PLENTY, fillerCount: null, errorCount: 0, wpm: 130 });
+        expect(copy).not.toMatch(/no filler words or transcript errors were detected/i);
+        expect(copy).toMatch(/wasn.t available|pacing/i);
+    });
+
+    it('getClarityExplanation with measured-zero fillers keeps the "no filler words ..." wording', () => {
+        const copy = getClarityExplanation({ wordCount: PLENTY, fillerCount: 0, errorCount: 0, wpm: 130 });
+        expect(copy).toMatch(/no filler words or transcript errors were detected/i);
+    });
+
+    it('reader: a NULL persisted filler_counts → fillerCount null + N/A explanation (no fabricated zero)', () => {
+        const metrics = getSessionAnalysisMetrics({
+            id: 's', user_id: 'u', created_at: '2025-01-01T00:00:00Z',
+            duration: 60, total_words: PLENTY, filler_counts: null,
+        } as unknown as PracticeSession);
+        expect(metrics.fillerCount).toBeNull();
+        expect(metrics.fillerExplanation).not.toMatch(/no filler words were detected/i);
+        expect(metrics.fillerExplanation).toMatch(/wasn.t available|not available/i);
+        expect(metrics.clarityExplanation).not.toMatch(/no filler words or transcript errors were detected/i);
+    });
+
+    it('reader: a MEASURED empty map ({}) → fillerCount 0 + genuine measured-zero copy', () => {
+        const metrics = getSessionAnalysisMetrics({
+            id: 's', user_id: 'u', created_at: '2025-01-01T00:00:00Z',
+            duration: 60, total_words: PLENTY, filler_counts: {},
+        } as unknown as PracticeSession);
+        expect(metrics.fillerCount).toBe(0);
+        expect(metrics.fillerExplanation).toMatch(/no filler words were detected/i);
+    });
+
+    it('reader: clarity_score=NULL → NOT reconstructed; not scorable + neutral N/A copy (no performance claim)', () => {
+        const metrics = getSessionAnalysisMetrics({
+            id: 's', user_id: 'u', created_at: '2025-01-01T00:00:00Z',
+            duration: 60, total_words: PLENTY, wpm: 200, filler_counts: {}, clarity_score: null,
+        } as unknown as PracticeSession);
+        expect(metrics.isClarityScorable).toBe(false);            // unavailable → not scorable
+        expect(metrics.clarityLabel).toBe('Not scored');
+        expect(metrics.clarityExplanation).toMatch(/wasn.t scored/i);
+        // No fabricated performance claim (e.g. "fast pacing is lowering the score") from an absent score.
+        expect(metrics.clarityExplanation).not.toMatch(/lowering the score|pacing is/i);
+    });
+
+    it('reader: valid stored clarity + UNAVAILABLE fillers → keeps stored score, invents no filler/transcript-error evidence', () => {
+        const metrics = getSessionAnalysisMetrics({
+            id: 's', user_id: 'u', created_at: '2025-01-01T00:00:00Z',
+            duration: 60, total_words: PLENTY, wpm: 130, filler_counts: null, clarity_score: 82,
+        } as unknown as PracticeSession);
+        expect(metrics.clarityScore).toBe(82);                    // stored value preserved
+        expect(metrics.isClarityScorable).toBe(true);
+        // Must not claim "no filler words ... detected" nor "no transcript errors" (no transcript exists).
+        expect(metrics.clarityExplanation).not.toMatch(/no filler words/i);
+        expect(metrics.clarityExplanation).not.toMatch(/transcript errors/i);
+    });
+
+    it('reader: valid stored clarity + MEASURED-zero fillers → no "transcript errors" claim (reader has no transcript)', () => {
+        const metrics = getSessionAnalysisMetrics({
+            id: 's', user_id: 'u', created_at: '2025-01-01T00:00:00Z',
+            duration: 60, total_words: PLENTY, wpm: 130, filler_counts: {}, clarity_score: 88,
+        } as unknown as PracticeSession);
+        expect(metrics.clarityScore).toBe(88);
+        expect(metrics.clarityExplanation).not.toMatch(/transcript errors/i);
+    });
+});
+
+
+describe('selectReviewFillerSnapshot (#1314 C3 — one validated snapshot)', () => {
+    it('after-state uses the finalized snapshot and derives the total from its chip keys', () => {
+        const snap = selectReviewFillerSnapshot({
+            inAfter: true,
+            finalizedFillerData: { um: { count: 2 }, like: { count: 1 }, total: { count: 9 } } as never,
+            liveFillerData: {} as never,
+        });
+        expect(snap.available).toBe(true);
+        expect(snap.total).toBe(2); // um(2) only — discourse "like" excluded; NOT the stale total.count(9)
+        expect(Object.keys(snap.counts ?? {})).toEqual(['um']);
+    });
+    it('measured zero ({}) is available with total 0', () => {
+        const snap = selectReviewFillerSnapshot({ inAfter: true, finalizedFillerData: {} as never, liveFillerData: null });
+        expect(snap.available).toBe(true);
+        expect(snap.total).toBe(0);
+        expect(snap.counts).toEqual({});
+    });
+    it('null finalized snapshot is unavailable (no numeric claim) — no fallback to the live source', () => {
+        const snap = selectReviewFillerSnapshot({
+            inAfter: true, finalizedFillerData: null,
+            liveFillerData: { um: { count: 5 } } as never,
+        });
+        expect(snap.available).toBe(false);
+        expect(snap.counts).toBeNull();
+        expect(snap.total).toBe(0);
+    });
+    it('before/live state selects the live snapshot', () => {
+        const snap = selectReviewFillerSnapshot({
+            inAfter: false, finalizedFillerData: { um: { count: 9 } } as never,
+            liveFillerData: { uh: { count: 4 } } as never,
+        });
+        expect(snap.total).toBe(4);
+        expect(Object.keys(snap.counts ?? {})).toEqual(['uh']);
     });
 });

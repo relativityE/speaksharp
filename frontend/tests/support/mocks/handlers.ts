@@ -23,7 +23,7 @@ export const handlers = [
       if (email.includes('pro-user@test.com')) {
         userId = 'pro-user';
         subscription_status = 'pro';
-      } else if (email.includes('free-user@test.com') || email.includes('basic-user@test.com') || email === 'test-user-signin@example.com') {
+      } else if (email.includes('free-user@test.com') || email === 'test-user-signin@example.com') {
         userId = 'mock-user-id-signin'; // Use a consistent ID
       }
 

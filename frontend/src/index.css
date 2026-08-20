@@ -9,7 +9,7 @@ All colors MUST be HSL.
 @layer base {
   :root {
     /* Light page background: slightly deeper/less-bright so white cards separate more clearly. */
-    --background: 215 24% 88%;
+    --background: 215 24% 76%;
     --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;
@@ -68,10 +68,51 @@ All colors MUST be HSL.
     --shadow-card-primary: 0 2px 4px rgba(15, 23, 42, 0.08), 0 16px 40px rgba(15, 23, 42, 0.12);
     --shadow-cta: 0 4px 12px rgba(180, 92, 5, 0.26), 0 8px 18px rgba(180, 92, 5, 0.20);
 
+    /*
+     * Primary-nav active-page tint. Deliberately NOT the solid brand teal (--accent):
+     * a solid teal pill competes with the page's primary CTA. This is a quiet tint with
+     * a dark-teal label.
+     *
+     * Darkened deliberately: at 92% lightness the tint was ~1.14:1 against the white header
+     * and the two label colours differed by ~1.19:1, so the state read as hue alone — weak
+     * for deuteranopia/protanopia and on dim or sunlit displays. The tint is now ~1.5:1
+     * against white and the labels ~1.6:1 apart, while active text keeps ~7:1 on the pill.
+     */
+    --nav-active-bg: 176 42% 78%;
+    --nav-active-fg: 176 80% 16%;
+    --nav-item-fg: 217 19% 40%;
+    --nav-item-fg-hover: 222 47% 11%;
+
+    /*
+     * Account avatar. Deliberately NOT the active-nav tint: the avatar is permanently present, and
+     * painting it in the "you are here" colour would dilute the active-page signal to a colour that
+     * appears twice in the bar. A neutral slate chip instead — identity, not navigation state.
+     */
+    --nav-avatar-bg: 218 27% 92%;
+    --nav-avatar-fg: 222 32% 28%;
+
     --header-height: 4rem;
     --bottom-nav-height: 5rem;
     --toast-offset-top: calc(var(--header-height) + 0.75rem);
     --toast-offset-bottom: 1.5rem;
+
+    /* #1047 Practice Session surface tokens. The Session page uses the shadcn system (index.css),
+       NOT the `.practice-root` warm palette in practice.css — so these live here with the rest of the
+       app-shell tokens and are consumed as hsl(var(--…)); components carry no raw hex. */
+    /* Brand dark green — the filled "How Rough Drafts works" island. It must NOT be another
+       white rounded rectangle: as a white ghost button above a white status bar it read as a second
+       status row rather than as an action. */
+    --session-green-deep: 164 74% 17%;
+    --session-green-deep-hover: 164 74% 13%;
+    --session-green-deep-foreground: 0 0% 100%;
+    /* Receding ambient-status tint for the demoted "Mic ready" bar. */
+    --session-green-soft: 160 44% 94%;
+    --session-green-soft-border: 160 32% 74%;
+    --session-green-soft-text: 164 74% 17%;
+    /* Warm tile behind the collapsed filler row's glyph (warm = evidence, matching the filler chips). */
+    --session-warm-tile: 36 88% 92%;
+    --session-warm-tile-text: 30 84% 30%;
+    --shadow-session-help: 0 6px 16px -6px hsl(164 74% 17% / 0.45), 0 2px 5px -2px hsl(164 74% 17% / 0.32);
   }
 
   .dark {
@@ -123,7 +164,66 @@ All colors MUST be HSL.
     --chart-3: 160 84% 30%;
     --chart-4: 220 9% 46%;
     --chart-5: 0 72% 51%;
+
+    /* #1092 nav active-state (dark theme) */
+    --nav-active-bg: 176 40% 20%;
+    --nav-active-fg: 176 55% 80%;
+    --nav-item-fg: 215 18% 72%;
+    --nav-item-fg-hover: 210 35% 96%;
+
+    /* #1047 dark-theme counterparts. The deep green lightens so white text stays legible on it, and
+       the "soft" ambient tint becomes a low-luminance wash rather than a pale card. */
+    --session-green-deep: 164 60% 26%;
+    --session-green-deep-hover: 164 60% 31%;
+    --session-green-deep-foreground: 0 0% 100%;
+    --session-green-soft: 164 30% 15%;
+    --session-green-soft-border: 164 26% 30%;
+    --session-green-soft-text: 160 55% 78%;
+    --session-warm-tile: 32 40% 20%;
+    --session-warm-tile-text: 36 85% 72%;
+    --shadow-session-help: 0 6px 16px -6px hsl(164 60% 26% / 0.55), 0 2px 5px -2px hsl(164 60% 26% / 0.4);
+    --nav-avatar-bg: 218 20% 26%;
+    --nav-avatar-fg: 214 30% 88%;
   }
+}
+
+/*
+ * Primary navigation items.
+ *
+ * ONLY background-color and color may differ between the active and inactive states.
+ * Every geometry property (padding, radius, font-size, font-weight, gap) is declared
+ * once here, on the base class, so switching pages cannot reflow the nav bar.
+ */
+.nav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 9px 13px;
+  border-radius: 9px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 700;
+  white-space: nowrap;
+  background-color: transparent;
+  color: hsl(var(--nav-item-fg));
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+/* Hover on an inactive item darkens the label only — a hover background would read as active. */
+.nav-item:hover {
+  color: hsl(var(--nav-item-fg-hover));
+}
+
+.nav-item:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* One signal only: a quiet tinted pill. No underline / bottom border / bar indicator. */
+.nav-item--active,
+.nav-item--active:hover {
+  background-color: hsl(var(--nav-active-bg));
+  color: hsl(var(--nav-active-fg));
 }
 
 /* Utility classes for specific visual effects */
@@ -149,6 +249,11 @@ All colors MUST be HSL.
 
 .cta-shadow {
   box-shadow: var(--shadow-cta);
+}
+
+/* #1047: the soft dark-green lift under the "How Rough Drafts works" island. */
+.session-help-shadow {
+  box-shadow: var(--shadow-session-help);
 }
 
 .text-gradient-brand {

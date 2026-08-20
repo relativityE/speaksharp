@@ -4,13 +4,14 @@
  * Import in Backend via: import { ... } from '../_shared/types.ts'
  */
 
-// Usage Limit API
+// Recording-access API (legacy endpoint name: check-usage-limit)
 export interface UsageLimitResponse {
     can_start: boolean;
     is_pro: boolean;
-    remaining_seconds: number;
-    limit_seconds: number;
-    used_seconds: number;
+    subscription_status: string;
+    trial_active?: boolean;
+    trial_expires_at?: string | null;
+    trial_seconds_remaining?: number;
     error?: string;
 }
 

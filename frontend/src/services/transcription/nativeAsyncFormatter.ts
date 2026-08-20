@@ -61,7 +61,6 @@ export async function formatNativeSessionInBackground(
   params: FormatNativeSessionParams,
 ): Promise<NativeFormattingState> {
   const { sessionId, onUpdated } = params;
-  const updateSession = params.updateSessionFn ?? updateSessionDefault;
   const raw = (params.rawTranscript ?? '').trim();
 
   const done = (partial: Partial<NativeFormattingState>): NativeFormattingState => {
@@ -105,15 +104,10 @@ export async function formatNativeSessionInBackground(
       return done({ status: 'complete', changed: true, savedTranscriptUpdated: false });
     }
 
-    const result = await updateSession(sessionId, { transcript: formatted });
-    if (!result.success) {
-      logger.warn({ sessionId, error: result.error ?? null },
-        '[NativeAsyncFormatter] saved-transcript update failed; raw transcript preserved');
-      return done({ status: 'failed', changed: true, savedTranscriptUpdated: false });
-    }
-
+    // #1306 metrics-only: the formatted transcript is NEVER persisted (no transcript crosses the DB boundary).
+    // Surface the cleaned text to in-memory callers for live display only; the DB is never written.
     onUpdated?.(formatted);
-    return done({ status: 'complete', changed: true, savedTranscriptUpdated: true });
+    return done({ status: 'complete', changed: true, savedTranscriptUpdated: false });
   } catch (error) {
     // formatNativeTranscript should never throw, but be defensive: raw is preserved.
     logger.warn({ error, sessionId },

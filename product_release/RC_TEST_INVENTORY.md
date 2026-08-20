@@ -1,23 +1,27 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+> **Current authority:** [`QUALITY.md`](./QUALITY.md).
+
 # RC Test Inventory And Gate Map
 
-**Last reviewed:** 2026-07-15 (counts regenerated from the repository at `main@84f720d2`)
+**Last reviewed:** 2026-07-20 (counts regenerated from the repository on the private-first `main` line)
 
 This document maps the test estate into release-candidate buckets. The goal is not to count every test as equally valuable. The goal is to make clear which tests close RC gates, which tests are advisory, which are benchmark/probe-only, and where we have gaps or redundant spend.
 
 ## Executive Summary
 
-Test inventory by file count — **regenerated from the repo on 2026-07-15** (`find` over the current tree; backend lives under `backend/supabase/`):
+Test inventory by file count — **regenerated from the repo on 2026-07-20** (`find` over the current tree; backend lives under `backend/supabase/`):
 
 | Bucket | Location (glob) | Test Files | Counts Toward RC Gate? |
 |---|---|---:|---:|
-| Frontend unit/component | `frontend/src/**/*.{test,spec}.{ts,tsx}` (excl. e2e) | **190** | Yes, selectively |
+| Frontend unit/component | `frontend/src/**/*.{test,spec}.{ts,tsx}` (excl. e2e) | **191** | Yes, selectively |
 | Frontend unit harness | `frontend/tests/**/*.{test,spec}.*` | **11** | Yes |
-| Supabase Edge (Deno) tests | `backend/supabase/functions/**/*.test.ts` | **9** | Yes |
-| E2E (mocked + diagnostics) | `tests/e2e/**/*.spec.ts` | **24** | Yes, selectively (19 top-level + 5 in subdirs) |
-| Live / deployed tests | `tests/live/**/*.spec.ts` | **30** | Yes, selectively |
+| Supabase Edge (Deno) tests | `backend/supabase/functions/**/*.test.ts` | **20** | Yes |
+| E2E (mocked + diagnostics) | `tests/e2e/**/*.spec.ts` | **25** | Yes, selectively (20 top-level + 5 in subdirs) |
+| Live / deployed tests | `tests/live/**/*.spec.ts` | **31** | Yes, selectively |
 | DB migrations (schema surface) | `backend/supabase/migrations/*.sql` | **74** | Deploy gate (`Deploy Supabase`) |
 
-> Earlier revisions of this table (frontend 106, total 157, Edge 7, E2E 10/5, live 19) were stale and are superseded by the regenerated counts above. Bucket sub-classifications (benchmarks / canary / soak / analytics / STT-baseline) remain within the per-file triage below; the counts above are the authoritative file totals per directory.
+> Earlier revisions of this table (frontend 106/190, total 157, Edge 7/9, E2E 10/24, live 19/30) were stale and are superseded by the regenerated counts above. The Edge jump reflects added per-function `cors.test.ts` / `auth-boundary.test.ts` files; E2E/live grew by the mode-selector, post-save, and exact-origin CORS specs. Bucket sub-classifications (benchmarks / canary / soak / analytics / STT-baseline) remain within the per-file triage below; the counts above are the authoritative file totals per directory.
 
 ## Per-File Triage Status
 
@@ -125,6 +129,8 @@ These are the named browser/live/canary files that currently count toward RC sta
 | `tests/e2e/primary-journey.e2e.spec.ts` | Gate 1 / Gate 5 | Human journey | Core mocked user journey reaches session flow by tier and STT mode. |
 | `tests/e2e/user-features.e2e.spec.ts` | Gate 1 / Gate 5 | Product rule / human journey | Free/Pro feature matrix, export, and visible feature access behave as promised. |
 | `tests/e2e/error-states.e2e.spec.ts` | Gate 5 | Human journey | Common failures surface actionable UI instead of silent or cryptic breakage. |
+| `tests/e2e/mode-selector-private-first.e2e.spec.ts` | Gate 5 | Human journey / UI-geometry rule | Private-first order (Recommended → Quick preview → Pro) across 320/375/390/1280px; ONE controlled description flyout (never 3 overlapping bubbles), disjoint from menu/Live Coaching and in-viewport; menu fully opaque every open frame; touch About vs dropdown mutually exclusive; no horizontal overflow. |
+| `tests/e2e/post-save-consolidation.e2e.spec.ts` | Gate 1 / Gate 5 | Human journey / persistence contract | ONE post-save saved-state surface (single status bar), one Analytics action (→`/analytics`) with bounded→persistent green cue (reduced-motion goes straight to persistent), quiet Private CTA only for eligible Native, no "Next: Analytics" toast; SessionPage final transcript equals the persisted detail transcript; validated 320/375/390/1280px. |
 | `tests/e2e/analytics-truth.e2e.spec.ts` | Gate 1 / Gate 3 | Math / persistence contract | Transcript-derived analytics persist through reload/history/export with expected arithmetic. |
 | `tests/e2e/user-facing-regressions.e2e.spec.ts` | Gate 1 / Gate 5 | Human journey | Analytics guidance and release-critical copy remain understandable and actionable. |
 | `tests/e2e/user-filler-words.e2e.spec.ts` | Gate 1 | Product rule / regex safety | Custom filler words persist and affect analysis without query/regex regressions. |
@@ -133,6 +139,7 @@ These are the named browser/live/canary files that currently count toward RC sta
 | `tests/e2e/analytics-suite.e2e.spec.ts` | Gate 1 | Product truth / math | Analytics page aggregates meaningful session data; secondary to `analytics-truth` when overlapping. |
 | `tests/e2e/infra.probe.e2e.spec.ts` | Gate 1 baseline | Message/probe contract | Built app boots with expected readiness markers; not product proof alone. |
 | `tests/live/cloud-token-gates.live.spec.ts` | Gate 3 | Security/product rule | Deployed Cloud token denials for Free, Private-sample, and over-quota users are fail-closed. |
+| `tests/live/cors-exact-origin.live.spec.ts` | Gate 3 | Security rule | Deployed edge functions enforce exact-origin, fail-closed CORS: approved origin echoed exactly; hostile lookalikes/wrong-protocol/unapproved-port rejected 403 with no `Access-Control-Allow-Origin`. Non-skipping (missing `SUPABASE_URL` throws, never silently passes). |
 | `tests/live/pro-stt-artifact-matrix.live.spec.ts` | Gate 1 / Gate 3 | Human journey / running app | Real Pro STT path creates transcript, save/history/detail, AI feedback, and PDF artifact. |
 | `tests/live/private-cache.live.spec.ts` | Gate 1 / Gate 3 | State machine / running app | Private model/cache path starts and remains usable across repeated starts. |
 | `tests/live/first-time-tester-private-trial.live.spec.ts` | Gate 1 / Gate 5 | Human journey | Fresh tester starts Browser-first, intentionally enters the bounded Private sample path, records, saves, and reopens history. |
@@ -145,6 +152,8 @@ These are the named browser/live/canary files that currently count toward RC sta
 | `tests/canary/user-filler-words.canary.spec.ts` | Gate 1 | Product rule / running app | Production custom-filler path remains alive; secondary to live persistence matrix. |
 
 Non-counted unless explicitly promoted: `tests/e2e/dump-ground/*`, `tests/e2e/diagnostics/*`, `tests/live/benchmark-*.live.spec.ts`, `tests/live/stt-accuracy-integration.live.spec.ts`, `tests/live/stt-integration.live.spec.ts`, `tests/live/analytics-live-native-probe.live.spec.ts`, `tests/live/analytics-journey.live.spec.ts`, `tests/live/auth.live.spec.ts`, `tests/live/upgrade.live.spec.ts`, `tests/live/tester-b-private-native-stt.live.spec.ts`, `tests/live/driver-dependent/private-stt.live.spec.ts`, `tests/soak/*`, and `tests/stt-correctness/wer-baseline.spec.ts`. These remain diagnostic, advisory, legacy-overlap, or release-scope-dependent until a specific RC contract promotes them.
+
+The mode-selector / post-save specs also emit PNGs (`test-results/mode-selector/*`, `test-results/post-save-consolidation/*`) uploaded by `ci.yml` as `ux-review-screenshots-shard-*` with `retention-days: 1`. Those images are **short-lived layout/PR review aids, NOT product/STT evidence** — never cite them as STT accuracy or transcript-fidelity proof. The counted signal is the spec assertions, not the screenshots.
 
 ## RC-Counted Unit / Component Ledger
 
@@ -313,6 +322,9 @@ Recent release-hardening commits added or tightened the following tests/evidence
 | Analytics math integrity participates in unit/quality evidence. | `tests/analytics/math-integrity.test.ts` | Gate 1 analytics truth. |
 | Session lifecycle entitlement tests tightened after Private/Cloud trial policy work. | `frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx` | Gate 1 product truth and Gate 2 access control. |
 | PrivateSTT and test setup adjusted for current engine/contract behavior. | `frontend/src/services/transcription/engines/PrivateSTT.ts`, `frontend/tests/setup.ts` | Gate 1 STT behavior and Gate 2 lifecycle safety. |
+| Private-first mode selector: responsive order/tags, single controlled description surface, fully-opaque menu, About-vs-dropdown mutual exclusion. | `tests/e2e/mode-selector-private-first.e2e.spec.ts` | Gate 5 UX. |
+| Post-save consolidation: one saved-state surface, single persistent Analytics cue, no duplicate toast, transcript parity. | `tests/e2e/post-save-consolidation.e2e.spec.ts` | Gate 1 product truth / Gate 5 UX. |
+| Deployed exact-origin CORS fail-closed proof (non-skipping). | `tests/live/cors-exact-origin.live.spec.ts` | Gate 3 DAST security. |
 
 ## GitHub Workflows
 
@@ -325,6 +337,7 @@ Recent release-hardening commits added or tightened the following tests/evidence
 | `live-release-matrix.yml` | Manual | Live product truth matrix: custom words, Native preflight, Cloud gates/artifacts, Private cache, first-time tester, Stripe readiness. | Yes, release-time. |
 | `pro-stt-artifact-matrix.yml` | Manual | Pro STT artifact path. | Yes, release-time or STT changes. |
 | `observability-api-smoke.yml` | Manual | Sentry/PostHog API readback. | Yes, release-time/advisory depending launch scope. |
+| `private-model-smoke.yml` | Manual + weekly schedule | Dependency + deterministic-inference regression guard for the DORMANT Private v4 stack (`@huggingface/transformers`). NOT a release proof, NOT production v2 coverage, does NOT activate v4. | Advisory; non-blocking. |
 | `benchmarks.yml` | Schedule/manual | STT ceiling benchmarks. | Advisory, required only for engine/model changes. |
 | `stress-endurance.yml` | Schedule/manual | Backend stress/browser endurance. | Advisory unless investigating stability. |
 | `setup-test-users.yml` | Manual | Test user provisioning. | Utility, not a correctness gate. |

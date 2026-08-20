@@ -150,6 +150,8 @@ export interface TranscriptionServiceOptions {
   mockMic?: MicStream;
   onModeChange?: (mode: TranscriptionMode | null) => void;
   onStatusChange?: (status: SttStatus) => void;
+  /** #1089: capture backstop hit — the app must stop and finalize (see TranscriptionModeOptions). */
+  onCaptureLimitReached?: (info: { bufferedSeconds: number; limitSeconds: number }) => void;
   onAudioData?: (data: Float32Array) => void;
   onError?: (error: Error) => void;
   watchdogIntervalMs?: number;
@@ -261,13 +263,13 @@ export default class TranscriptionService {
       state.setModelLoadingProgress(100);
       state.setSTTStatus({
         type: 'ready',
-        message: 'Private ready. Nothing leaves your browser.',
+        message: 'Private ready. Audio stays on this device; your transcript is saved with the session.',
         detail: 'On-device transcription is initialized for this browser tab.',
         progress: 100
       });
     }
 
-    toast.success('Private is ready. Nothing leaves your browser.', {
+    toast.success('Private ready. Audio stays on this device; your transcript is saved with the session.', {
       id: 'private-model-ready',
       duration: 5000,
     });
@@ -546,8 +548,11 @@ export default class TranscriptionService {
       heartbeatSession: async (sessionId) => {
         await heartbeatSession(sessionId);
       },
-      completeSession: async (sessionId, transcript, duration) => {
-        await completeSession(sessionId, { transcript, duration });
+      completeSession: async (sessionId, _transcript, duration) => {
+        // #1306: the persistence interface is transcript-free. This legacy adapter carries no derived metrics
+        // or next action, so it can only finalize duration — never fabricate a completed metrics-only session.
+        void _transcript;
+        await completeSession(sessionId, { duration });
       }
     };
   }
@@ -655,6 +660,10 @@ export default class TranscriptionService {
             else if (status.type === 'recording') this.privateMicReadyToSpeak = true;
           }
           this.strategyCallbacks.onStatusChange?.(status);
+        },
+        onCaptureLimitReached: (info) => {
+          if (this.activeStrategyId !== tempId) return;
+          this.options.onCaptureLimitReached?.(info);
         },
         onAudioData: (data) => {
           if (this.activeStrategyId !== tempId) return;

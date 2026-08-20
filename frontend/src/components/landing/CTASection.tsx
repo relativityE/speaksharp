@@ -18,7 +18,7 @@ export const CTASection = () => {
                         <span className="text-amber-700">matters?</span>
                     </h2>
                     <p className="mx-auto max-w-xl text-base font-medium text-foreground/70">
-                        Start free in your browser.
+                        Start the complete product free for 30 days. Your recordings stay Private on this device.
                     </p>
                     <div className="flex justify-center pt-4">
                         <Button
@@ -31,7 +31,7 @@ export const CTASection = () => {
                                 className="flex items-center gap-2"
                                 onClick={() => trackConversionCtaClicked({ source: 'landing_cta' })}
                             >
-                                Start free practice
+                                Start your 30-day trial
                                 <ArrowRight className="size-4" />
                             </Link>
                         </Button>

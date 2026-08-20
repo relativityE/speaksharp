@@ -23,7 +23,13 @@ type FakeWorkerMode = 'ready' | 'silent' | 'transcribe-result' | 'transcribe-err
 let fakeWorkerMode: FakeWorkerMode = 'ready';
 const fakeWorkerInstances: FakeWorker[] = [];
 
-type FakeWorkerMessage = { id: number; type: string; audio?: Float32Array; decodeOptions?: Record<string, unknown> };
+type FakeWorkerMessage = {
+    id: number;
+    type: string;
+    audio?: Float32Array;
+    decodeOptions?: Record<string, unknown>;
+    captureEvidence?: boolean;
+};
 
 class FakeWorker {
     onmessage: ((event: MessageEvent) => void) | null = null;
@@ -41,6 +47,9 @@ class FakeWorker {
                         latencyMs: 42,
                         audioLengthSeconds: 1,
                         resultShape: 'text',
+                        inputEvidence: message.captureEvidence ? {
+                            sha256: 'a'.repeat(64), samples: 16_000, bytes: 64_000,
+                        } : undefined,
                     },
                 } as MessageEvent);
                 return;
@@ -83,6 +92,8 @@ describe('TransformersJSEngine worker message contract', () => {
         vi.unstubAllGlobals();
         fakeWorkerMode = 'ready';
         fakeWorkerInstances.length = 0;
+        delete window.__PRIVATE_V2_WORKER_EVIDENCE_ENABLED__;
+        delete window.__PRIVATE_V2_WORKER_INPUT_EVIDENCE__;
         vi.stubGlobal('Worker', FakeWorker);
         vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
@@ -93,6 +104,8 @@ describe('TransformersJSEngine worker message contract', () => {
         vi.useRealTimers();
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
+        delete window.__PRIVATE_V2_WORKER_EVIDENCE_ENABLED__;
+        delete window.__PRIVATE_V2_WORKER_INPUT_EVIDENCE__;
     });
 
     it('contract: init resolves when the worker responds with ready', async () => {
@@ -140,9 +153,35 @@ describe('TransformersJSEngine worker message contract', () => {
             data: 'worker transcript',
         }));
         expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
-            expect.objectContaining({ type: 'transcribe', audio: expect.any(Float32Array) }),
+            expect.objectContaining({
+                type: 'transcribe',
+                audio: expect.any(Float32Array),
+                captureEvidence: false,
+            }),
             expect.any(Array),
         );
+        expect(window.__PRIVATE_V2_WORKER_INPUT_EVIDENCE__).toBeUndefined();
+
+        await engine.destroy();
+    });
+
+    it('contract: route hashing is enabled only by the explicit evidence hook', async () => {
+        fakeWorkerMode = 'transcribe-result';
+        window.__PRIVATE_V2_WORKER_EVIDENCE_ENABLED__ = true;
+        const { TransformersJSEngine } = await import('../TransformersJSEngine');
+        const engine = new TransformersJSEngine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+
+        await engine.init();
+        const result = await engine.transcribe(new Float32Array(16_000));
+
+        expect(result.isOk).toBe(true);
+        expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'transcribe', captureEvidence: true }),
+            expect.any(Array),
+        );
+        expect(window.__PRIVATE_V2_WORKER_INPUT_EVIDENCE__).toEqual(expect.objectContaining({
+            sha256: 'a'.repeat(64), samples: 16_000, bytes: 64_000,
+        }));
 
         await engine.destroy();
     });

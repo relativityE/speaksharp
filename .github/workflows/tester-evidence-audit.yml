@@ -1,0 +1,95 @@
+name: Tester Evidence Audit (READ-ONLY)
+
+# Manual-only, read-only production tester audit. Supabase is the completion source of truth.
+# Performs Auth Admin listUsers + PostgREST SELECT ONLY — the script hard-blocks insert/update/upsert/
+# delete/rpc at runtime and fails the job if a mutation is attempted. Emits aggregates + category NAMES
+# only: never emails, credentials, tokens, user/session ids, audio, or transcript bodies.
+#
+# The audit consumes ONLY:
+#   secrets:   SUPABASE_SERVICE_ROLE_KEY, AUDIT_EXCLUDED_EMAILS_JSON
+#   variables: SUPABASE_URL, AUDIT_EXCLUSION_LIST_VERSION, AUDIT_EXCLUSION_LIST_REVIEWED_AT
+#   inputs:    practice_deploy_at, final_deploy_at, confirm_exclusion_manifest_complete
+# It references no individual per-account email secret, no password, no anon key, and no hardcoded
+# operational account address. The audit's OWN first listUsers call is the credential/reachability
+# preflight (there is no external sign-in preflight).
+
+on:
+  workflow_dispatch:
+    inputs:
+      practice_deploy_at:
+        description: 'ISO timestamp of the /practice deploy (c99208b9) — window B boundary'
+        required: false
+        default: '2026-07-23T14:37:41Z'
+      final_deploy_at:
+        description: 'ISO timestamp of the FINAL production deploy — optional window C (post-final baseline)'
+        required: false
+        default: ''
+      confirm_exclusion_manifest_complete:
+        description: 'Operator attests the exclusion manifest contains ALL known owner/admin/QA/canary/synthetic/checkout accounts for the audit window. Must be true or the audit fails closed.'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tester-evidence-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Read-only tester evidence audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `version:` input — the pnpm version comes from package.json `packageManager` (matches ops-health.yml).
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Secrets/variables are injected by GitHub and consumed only inside the Node process. Manifest
+      # addresses are registered with ::add-mask:: before any DB op; the report (no addresses) is written
+      # to AUDIT_REPORT_FILE for the artifact — stdout is NOT redirected so add-mask reaches the live log.
+      - name: Run read-only tester evidence audit
+        env:
+          # VARIABLE:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          # SECRET (the established Auth-Admin key):
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # SECRET — centralized exclusion manifest: JSON object with EXACTLY the categories
+          # owner_admin/synthetic/checkout/canary/qa, each an array of valid emails. REQUIRED; the audit
+          # fails closed if absent/malformed/incomplete. Addresses are never printed — only category counts.
+          AUDIT_EXCLUDED_EMAILS_JSON: ${{ secrets.AUDIT_EXCLUDED_EMAILS_JSON }}
+          # VARIABLES — printed for traceability; part of the completion gate.
+          AUDIT_EXCLUSION_LIST_VERSION: ${{ vars.AUDIT_EXCLUSION_LIST_VERSION }}
+          AUDIT_EXCLUSION_LIST_REVIEWED_AT: ${{ vars.AUDIT_EXCLUSION_LIST_REVIEWED_AT }}
+          # INPUTS:
+          CONFIRM_EXCLUSION_MANIFEST_COMPLETE: ${{ github.event.inputs.confirm_exclusion_manifest_complete }}
+          PRACTICE_DEPLOY_AT: ${{ github.event.inputs.practice_deploy_at }}
+          FINAL_DEPLOY_AT: ${{ github.event.inputs.final_deploy_at }}
+          AUDIT_REPORT_FILE: ${{ runner.temp }}/tester-evidence-audit.txt
+        # `set -euo pipefail`, no `tee`, no stdout redirect (add-mask must reach the live log). The script
+        # writes the sanitized report to AUDIT_REPORT_FILE; a failure exits non-zero and writes no file.
+        run: |
+          set -euo pipefail
+          node scripts/tester-evidence-audit.mjs
+
+      # Upload ONLY on success: a failed/partial run must never produce a successful-looking audit
+      # artifact. `if-no-files-found: error` so a missing report is a hard failure, not a silent pass.
+      - name: Upload sanitized aggregate report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tester-evidence-audit-aggregates
+          path: ${{ runner.temp }}/tester-evidence-audit.txt
+          if-no-files-found: error
+          retention-days: 7

@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { arePaymentsEnabled } from '@/config/appRuntimeConfig';
 
 type LegalPageProps = {
   title: string;
@@ -35,10 +36,13 @@ const LegalPage = ({ title, updated, sections }: LegalPageProps) => {
   );
 };
 
-export const TermsPage = () => (
-  <LegalPage
+export const TermsPage = () => {
+  const paymentsEnabled = arePaymentsEnabled();
+
+  return (
+    <LegalPage
     title="Terms of Service"
-    updated="May 29, 2026"
+    updated="August 11, 2026"
     sections={[
       {
         heading: 'Use of SpeakSharp',
@@ -46,11 +50,15 @@ export const TermsPage = () => (
       },
       {
         heading: 'Accounts and Access',
-        body: 'Free accounts can use Browser transcription and the included practice limits. Private transcription includes one sample session before paid Early Access. Cloud transcription is a paid Early Access feature.',
+        body: paymentsEnabled
+          ? 'SpeakSharp is one product: the complete Private Practice experience is free for your first 30 days, then $10/month to continue. Every customer recording uses Private on-device transcription; Private is never a paid add-on and there is no feature-limited tier.'
+          : 'SpeakSharp is one product: the complete Private Practice experience is free for your first 30 days — no card required. Paid continuation is $10/month and opens when Pro enrollment is enabled. Every customer recording uses Private on-device transcription; Private is never a paid add-on and there is no feature-limited tier.',
       },
       {
         heading: 'Payments',
-        body: 'Pro checkout and billing management are handled by Stripe. Subscription status is applied only after Stripe confirms checkout or webhook events. You can cancel from billing management when available for your account, or contact support through Report Issue for cancellation, refund, or payment questions. Refund requests are reviewed case by case during paid early access.',
+        body: paymentsEnabled
+          ? 'The complete product is free for the first 30 days with no card required; after that, continued access is $10/month. The price and terms are shown before checkout, and cancellation, billing-management, and refund support are available through the paths described in the product. No card is collected until you explicitly upgrade.'
+          : 'The complete product is free for the first 30 days with no card required. Paid continuation is $10/month, but checkout is not yet enabled; when it opens, the price, cancellation, and refund terms will be shown before any charge. No card is collected until you explicitly upgrade.',
       },
       {
         heading: 'Acceptable Use',
@@ -61,13 +69,14 @@ export const TermsPage = () => (
         body: 'These terms may be updated as SpeakSharp moves through launch testing. Continued use after an update means you accept the revised terms.',
       },
     ]}
-  />
-);
+    />
+  );
+};
 
 export const PrivacyPage = () => (
   <LegalPage
     title="Privacy Policy"
-    updated="May 29, 2026"
+    updated="August 11, 2026"
     sections={[
       {
         heading: 'What We Process',
@@ -75,19 +84,19 @@ export const PrivacyPage = () => (
       },
       {
         heading: 'Transcription Modes',
-        body: 'Browser transcription runs through the browser speech recognition capability. Private transcription is designed to keep transcription local after setup. Cloud transcription sends audio to a cloud transcription provider only when the user selects a Cloud-capable Pro workflow.',
+        body: 'SpeakSharp uses Private on-device transcription for every customer practice session. After a one-time model setup, speech audio is processed on the user’s device and is not uploaded to a transcription provider.',
       },
       {
         heading: 'How Data Is Used',
-        body: 'Session data is used to provide transcripts, coaching, analytics, reports, reliability monitoring, and support.',
+        body: 'Session data is used to provide transcripts, coaching, progress, reports, reliability monitoring, and support. Transcript text and coaching results may be stored with saved session records. Retention duration and deletion timing are still being finalized; use Report Issue for a data-retention request. Non-content session metrics may remain for progress.',
       },
       {
         heading: 'Service Providers',
-        body: 'SpeakSharp may use providers such as Supabase, Stripe, PostHog, Sentry, Gemini, and cloud transcription services to deliver authentication, billing, analytics, monitoring, coaching, and selected transcription features.',
+        body: 'SpeakSharp may use providers such as Supabase, Stripe, PostHog, Sentry, and Gemini for authentication, billing infrastructure, analytics, monitoring, and coaching. Private speech audio is not sent to those providers for transcription. When a server-backed coaching feature is used, the minimum text required for that feature may be processed under this policy.',
       },
       {
         heading: 'Control',
-        body: 'You can choose which transcription mode to use when available, avoid Cloud transcription by staying with Browser or Private transcription, and contact support for account or data questions.',
+        body: 'You can choose whether to practice and use Report Issue for account, privacy, retention, or data questions. There is no customer-facing transcription-mode selector; every customer practice session uses Private transcription.',
       },
     ]}
   />

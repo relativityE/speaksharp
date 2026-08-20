@@ -2,7 +2,7 @@ import React from 'react';
 import { HelpCircle } from 'lucide-react';
 
 interface HelpPopoverProps {
-    /** Accessible name for the trigger and the popover panel, e.g. "About the SpeakSharp Score". */
+    /** Accessible name for the trigger and the popover panel, e.g. "About session feedback". */
     label: string;
     /** Help content (kept out of the default-visible UI). */
     children: React.ReactNode;
@@ -10,8 +10,17 @@ interface HelpPopoverProps {
     testId?: string;
     className?: string;
     triggerClassName?: string;
+    /** Trigger box size (default 'h-5 w-5'). Pass 'h-11 w-11' for a ≥44×44px touch target. */
+    triggerSizeClass?: string;
     /** Popover panel width class (default w-64). */
     panelClassName?: string;
+    /**
+     * Controlled open state. When provided, the PARENT owns visibility — used to keep this help
+     * surface mutually exclusive with another surface (e.g. the STT dropdown). Every open/close still
+     * reports through `onOpenChange`. Omit both for the default uncontrolled behavior.
+     */
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
 }
 
 /**
@@ -28,9 +37,21 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     testId,
     className = '',
     triggerClassName = '',
+    triggerSizeClass = 'h-5 w-5',
     panelClassName = 'w-64',
+    open: controlledOpen,
+    onOpenChange,
 }) => {
-    const [open, setOpen] = React.useState(false);
+    const [internalOpen, setInternalOpen] = React.useState(false);
+    const isControlled = controlledOpen !== undefined;
+    const open = isControlled ? controlledOpen : internalOpen;
+    // Single setter: updates local state when uncontrolled, and ALWAYS reports through onOpenChange so a
+    // controlling parent can react (e.g. close the dropdown when About opens).
+    const setOpen = React.useCallback((next: boolean) => {
+        if (!isControlled) setInternalOpen(next);
+        onOpenChange?.(next);
+    }, [isControlled, onOpenChange]);
+    const panelId = testId ? `${testId}-content` : undefined;
     // Horizontal nudge (px) applied when the panel would otherwise clip off a viewport
     // edge — keeps the help text fully readable on narrow/mobile screens. 0 on desktop.
     const [shiftX, setShiftX] = React.useState(0);
@@ -54,14 +75,14 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
         cancelClose();
         pinnedRef.current = false;
         setOpen(false);
-    }, [cancelClose]);
+    }, [cancelClose, setOpen]);
 
     // Small delay so moving the pointer from trigger to panel doesn't dismiss it.
     const scheduleClose = React.useCallback(() => {
         if (pinnedRef.current) return;
         cancelClose();
         closeTimer.current = setTimeout(() => setOpen(false), 120);
-    }, [cancelClose]);
+    }, [cancelClose, setOpen]);
 
     React.useEffect(() => () => cancelClose(), [cancelClose]);
 
@@ -116,6 +137,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
                 aria-label={label}
                 aria-expanded={open}
                 aria-haspopup="dialog"
+                aria-controls={open && panelId ? panelId : undefined}
                 data-testid={testId}
                 onClick={() => {
                     if (pinnedRef.current) {
@@ -128,16 +150,17 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
                 }}
                 onFocus={() => { cancelClose(); setOpen(true); }}
                 onBlur={scheduleClose}
-                className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-foreground/45 transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${triggerClassName}`}
+                className={`inline-flex ${triggerSizeClass} items-center justify-center rounded-full text-foreground/45 transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${triggerClassName}`}
             >
                 <HelpCircle className="h-4 w-4" aria-hidden="true" />
             </button>
             {open && (
                 <div
                     ref={panelRef}
+                    id={panelId}
                     role="dialog"
                     aria-label={label}
-                    data-testid={testId ? `${testId}-content` : undefined}
+                    data-testid={panelId}
                     className={`absolute right-0 top-7 z-50 ${panelClassName} max-w-[calc(100vw-1rem)] rounded-lg border border-border bg-card p-3 text-left text-xs font-medium leading-snug text-foreground/80 shadow-lg`}
                     style={shiftX ? { transform: `translateX(${shiftX}px)` } : undefined}
                     onMouseEnter={cancelClose}

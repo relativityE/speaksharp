@@ -8,8 +8,8 @@ Canary tests run against **real staging infrastructure** with live Supabase.
 # Start dev server first
 pnpm dev
 
-# In another terminal, run with CANARY_PASSWORD
-CANARY_PASSWORD=your_password pnpm test:canary
+# In another terminal, run with CANARY_LANE_PASSWORD
+CANARY_LANE_PASSWORD=your_password pnpm test:canary
 ```
 
 ## Running via GitHub Actions (Recommended)
@@ -30,7 +30,7 @@ gh run view <RUN_ID> --log-failed
 ```
 
 ## GitHub Secrets Used
-- `CANARY_PASSWORD` - Password for `canary-user@speaksharp.app`
+- `CANARY_LANE_PASSWORD` - Password for `the operator-controlled canary identity`
 - `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`
 
 ## Files

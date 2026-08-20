@@ -60,7 +60,10 @@ const ALL_OFF: V4FlagState = {
 
 const V4_HARD_DISABLED: boolean = (() => {
   try {
-    return import.meta.env?.VITE_PRIVATE_STT_V4_DISABLED === 'true';
+    // DIRECT static access (no `?.`): optional chaining on import.meta.env defeats Vite's static
+    // replacement and inlines the WHOLE env object (incl. Vercel's per-deploy VITE_VERCEL_GIT_COMMIT_SHA)
+    // into this chunk (STTEngine), rotating its content hash every deploy. The try/catch already guards.
+    return import.meta.env.VITE_PRIVATE_STT_V4_DISABLED === 'true';
   } catch {
     return false;
   }

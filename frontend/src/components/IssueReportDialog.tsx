@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bug } from 'lucide-react';
-import { useLocation, useParams } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
+import { deriveSessionIdFromPath } from '@/lib/sessionRoute';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -19,6 +20,8 @@ import {
   type IssueReportCategory,
   type IssueReportSeverity,
 } from '@/services/issueReportService';
+import { resolvePageContext, issueAreasForContext, type PageContext } from '@/services/pageContext';
+import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 
 interface IssueReportDialogProps {
@@ -30,7 +33,6 @@ interface IssueReportDialogProps {
   runtimeState?: string | null;
 }
 
-const MAX_TRANSCRIPT_SNIPPET = 4000;
 
 // DB slug -> friendly, user-facing label. Labels are display-only; the DB stores the slug.
 const CATEGORY_LABELS: Record<IssueReportCategory, string> = {
@@ -60,29 +62,49 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   runtimeState,
 }) => {
   const location = useLocation();
-  const params = useParams();
+  // Active /practice surface (Quick/Objective/home) from the shared provider — null off /practice. Snapshotted
+  // into pageContext at open time so the report is attributed to the surface the user was actually on.
+  const { surface } = usePracticeSurface();
   const [open, setOpen] = React.useState(false);
+  // Page identity + owned session id are SNAPSHOTTED when the dialog opens (see openContext), so a
+  // route/journey transition while the dialog is open never changes the report's origin. This dialog
+  // renders in global navigation, OUTSIDE the /analytics/:sessionId route element, so useParams() would
+  // not see the sessionId — it is derived from the pathname (UUID-validated) at open time instead.
+  const [pageContext, setPageContext] = React.useState<PageContext>(() => resolvePageContext(location.pathname, surface));
+  const [snapshotSessionId, setSnapshotSessionId] = React.useState<string | null>(() => deriveSessionIdFromPath(location.pathname));
+  const [issueArea, setIssueArea] = React.useState<string>(() => issueAreasForContext(resolvePageContext(location.pathname, surface))[0]?.value ?? 'other');
   const [category, setCategory] = React.useState<IssueReportCategory>('recording_transcription');
   const [severity, setSeverity] = React.useState<IssueReportSeverity>('medium');
   const [title, setTitle] = React.useState('');
   const [description, setDescription] = React.useState('');
-  const [includeTranscript, setIncludeTranscript] = React.useState(false);
-  // Option C: the user pastes only the exact snippet they believe is the problem — we never
-  // auto-capture the full session transcript. Default empty; opt-in via the checkbox.
-  const [transcriptSnippet, setTranscriptSnippet] = React.useState('');
+  // #1306 metrics-only: there is NO transcript field on this form. A support report carries the user's own
+  // typed title/description (+ optional audio-debug note) — never a transcript snippet or any session speech,
+  // and nothing is ever pre-filled from a recording.
   const [includeAudio, setIncludeAudio] = React.useState(false);
   const [audioAttachmentNote, setAudioAttachmentNote] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const canSubmit = title.trim().length >= 4 && description.trim().length >= 10 && !isSubmitting;
 
+  const issueAreaOptions = issueAreasForContext(pageContext);
+
+  // Snapshot the page context (incl. the active /practice surface) at dialog-OPEN time (not submit), then
+  // defer to Radix's open state.
+  const handleOpenChange = (next: boolean) => {
+    if (next) {
+      const ctx = resolvePageContext(location.pathname, surface);
+      setPageContext(ctx);
+      setSnapshotSessionId(deriveSessionIdFromPath(location.pathname));
+      setIssueArea(issueAreasForContext(ctx)[0]?.value ?? 'other');
+    }
+    setOpen(next);
+  };
+
   const reset = () => {
     setCategory('recording_transcription');
     setSeverity('medium');
     setTitle('');
     setDescription('');
-    setIncludeTranscript(false);
-    setTranscriptSnippet('');
     setIncludeAudio(false);
     setAudioAttachmentNote('');
   };
@@ -91,28 +113,26 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
     if (!canSubmit) return;
     setIsSubmitting(true);
     try {
-      const pageUrl = typeof window !== 'undefined' ? window.location.href : location.pathname;
+      // Store the sanitized route TEMPLATE — never the full URL, query string, or hash.
+      const pageUrl = pageContext.canonicalRoute;
       const metadata = buildIssueReportMetadata({
-        route: `${location.pathname}${location.search}`,
+        context: pageContext,
+        issueArea,
         plan,
         sttMode,
         runtimeState,
       });
-      const snippet = transcriptSnippet.trim().slice(0, MAX_TRANSCRIPT_SNIPPET);
-      const includeSnippet = includeTranscript && snippet.length > 0;
       // Attach the submitter's account id for all authenticated reports so support can
       // follow up. The id is an opaque auth UUID — no email/name is stored in the row.
       await issueReportService.submit({
         userId: userId ?? null,
-        sessionId: params.sessionId ?? null,
+        sessionId: snapshotSessionId,
         category,
         severity,
         title,
         description,
         pageUrl,
         metadata,
-        includeTranscript: includeSnippet,
-        transcriptExcerpt: includeSnippet ? snippet : null,
         includeAudio,
         audioAttachmentNote: includeAudio ? audioAttachmentNote : null,
       });
@@ -127,7 +147,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button
           type="button"
@@ -150,6 +170,26 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
         </DialogHeader>
 
         <div className="space-y-4">
+          <div
+            className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm"
+            data-testid="issue-report-page-context"
+          >
+            <span className="text-muted-foreground">Reporting from:</span>
+            <span className="font-medium text-foreground">{pageContext.pageLabel}</span>
+          </div>
+
+          <label className="space-y-1 text-sm font-medium">
+            What part had a problem?
+            <select
+              className="h-10 w-full rounded-md border border-input bg-muted/60 px-3 text-sm"
+              value={issueArea}
+              onChange={(event) => setIssueArea(event.target.value)}
+              data-testid="issue-report-area"
+            >
+              {issueAreaOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </label>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1 text-sm font-medium">
               Category
@@ -203,30 +243,6 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
             basic technical details to help debug. We do not include your email, name, password, login
             credentials, transcript, or audio unless you choose to add optional details.
           </div>
-
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={includeTranscript}
-              onChange={(event) => setIncludeTranscript(event.target.checked)}
-              data-testid="issue-report-include-transcript"
-            />
-            <span>Include a transcript snippet I paste below (optional)</span>
-          </label>
-
-          {includeTranscript && (
-            <label className="space-y-1 text-sm font-medium">
-              Transcript snippet
-              <textarea
-                className="min-h-20 w-full rounded-md border border-input bg-muted/60 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={transcriptSnippet}
-                onChange={(event) => setTranscriptSnippet(event.target.value.slice(0, MAX_TRANSCRIPT_SNIPPET))}
-                maxLength={MAX_TRANSCRIPT_SNIPPET}
-                placeholder="Paste only the words you want to share — not your whole session. Nothing is sent unless you paste it here."
-                data-testid="issue-report-transcript-snippet"
-              />
-            </label>
-          )}
 
           <label className="flex items-start gap-2 text-sm">
             <input

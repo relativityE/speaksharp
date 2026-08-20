@@ -1,0 +1,104 @@
+name: "db push partial-apply proof (pinned CLI, disposable)"
+
+# #1314 — proves what the ACTUAL apply path does with a mid-file failure, through the PINNED Supabase CLI
+# (2.101.0) via `db push --db-url` against a disposable Postgres. Direct psql proved the hazard exists in raw
+# SQL; this proves what db push does with it, which is the only thing that governs a real application.
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/20260819120000_complete_session_v2_atomic_retention_1314.sql'
+      - 'scripts/run-db-push-partial-apply-proof.sh'
+      - 'scripts/postflight-gate-1314.sh'
+      - 'scripts/mutation-test-postflight-gate.sh'
+      - '.github/workflows/db-push-partial-apply-matrix.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-push-partial-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: "db push partial-apply (postgres:${{ matrix.pg }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '17']
+    steps:
+      - uses: actions/checkout@v6
+
+      # PINNED to the exact version the real apply workflow uses. The whole point is to test THAT CLI.
+      - uses: supabase/setup-cli@v2
+        with:
+          version: 2.101.0
+
+      - name: Install psql client (bounded)
+        run: |
+          timeout 180 sudo apt-get update -qq || { echo "::error::apt-get update exceeded its 180s bound"; exit 1; }
+          timeout 180 sudo apt-get install -y -qq postgresql-client \
+            || { echo "::error::apt-get install exceeded its 180s bound"; exit 1; }
+
+      # `supabase db push --db-url` IGNORES sslmode and UNCONDITIONALLY requires TLS (reproduced locally with the
+      # pinned CLI: it refuses a plain server and connects to one with even a self-signed cert). A bare
+      # `services:` postgres container has no cert, so it must be self-run with SSL enabled — this is the only
+      # way to exercise the real apply path rather than a substitute.
+      - name: Start SSL-enabled disposable Postgres (CLI requires TLS)
+        run: |
+          mkdir -p "$RUNNER_TEMP/pg"
+          openssl req -new -x509 -days 1 -nodes -subj "/CN=localhost" \
+            -out "$RUNNER_TEMP/pg/server.crt" -keyout "$RUNNER_TEMP/pg/server.key" >/dev/null 2>&1
+          chmod 600 "$RUNNER_TEMP/pg/server.key"
+          # postgres runs as uid 999 inside the image; make the cert readable and owned accordingly.
+          sudo chown 999:999 "$RUNNER_TEMP/pg/server.crt" "$RUNNER_TEMP/pg/server.key"
+          docker run -d --name pg1314 -p 5432:5432 \
+            -e POSTGRES_PASSWORD=disposable_ci_only -e POSTGRES_DB=matrix_test \
+            -v "$RUNNER_TEMP/pg/server.crt:/etc/pg/server.crt:ro" \
+            -v "$RUNNER_TEMP/pg/server.key:/etc/pg/server.key:ro" \
+            postgres:${{ matrix.pg }} \
+            -c ssl=on -c ssl_cert_file=/etc/pg/server.crt -c ssl_key_file=/etc/pg/server.key
+          for i in $(seq 1 30); do
+            PGPASSWORD=disposable_ci_only pg_isready -h 127.0.0.1 -p 5432 -U postgres && break; sleep 2
+          done
+          PGPASSWORD=disposable_ci_only pg_isready -h 127.0.0.1 -p 5432 -U postgres \
+            || { echo '::error::disposable postgres did not become ready'; docker logs pg1314; exit 1; }
+          # confirm SSL is actually on, or the whole proof is moot
+          PGPASSWORD=disposable_ci_only psql "postgresql://postgres:disposable_ci_only@127.0.0.1:5432/matrix_test?sslmode=require" \
+            -Atc "SELECT 'ssl=on confirmed'" || { echo '::error::postgres did not accept an SSL connection'; docker logs pg1314; exit 1; }
+
+      - name: Poisoned + clean db push proof
+        env:
+          DB_URL: postgresql://postgres:disposable_ci_only@127.0.0.1:5432/matrix_test?sslmode=require
+        run: |
+          set -o pipefail
+          bash scripts/run-db-push-partial-apply-proof.sh | tee dbpush-${{ matrix.pg }}.txt
+
+      - name: Postflight gate mutation harness
+        env:
+          DB_URL: postgresql://postgres:disposable_ci_only@127.0.0.1:5432/matrix_test?sslmode=require
+        run: |
+          set -o pipefail
+          bash scripts/mutation-test-postflight-gate.sh | tee mutations-${{ matrix.pg }}.txt
+
+      - name: Postgres logs on failure
+        if: failure()
+        run: docker logs pg1314 || true
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### db push partial-apply — postgres:${{ matrix.pg }} (CLI 2.101.0)"
+            echo '```'
+            grep -E '^==|^   |^  (OK|FAIL)|^PASS|^FAIL|^GATE' dbpush-${{ matrix.pg }}.txt 2>/dev/null || echo 'no result captured'
+            echo '```'
+            echo "### Gate mutation harness — postgres:${{ matrix.pg }}"
+            echo '```'
+            grep -E '^  (CAUGHT|MISSED|NOTE)|^MUTATION' mutations-${{ matrix.pg }}.txt 2>/dev/null || echo 'no result captured'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -4,6 +4,8 @@ import {
   programmaticLoginWithRoutes,
   selectTranscriptionEngine,
   simulateTranscription,
+  startRecording,
+  stopRecording,
   waitForFeature,
 } from './helpers';
 import { TEST_IDS } from '../constants';
@@ -14,41 +16,38 @@ test.describe('User-facing session and analytics regressions', () => {
   test('keeps final transcript visible when later interim text is blank', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
-    await selectTranscriptionEngine(page, 'native');
+    await selectTranscriptionEngine(page, 'private');
 
-    const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-    await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
-    await startButton.click();
-    await expect(startButton).toHaveAttribute('data-recording', 'true');
+    await startRecording(page);
 
     await simulateTranscription(page, userFacingTranscript, true);
-    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('tester-facing transcript');
+    await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toContainText('tester-facing transcript');
 
     await simulateTranscription(page, '', false);
-    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('tester-facing transcript');
-    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).not.toContainText('Listening...');
+    await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toContainText('tester-facing transcript');
   });
 
-  test('shows explanations for live metrics after speech is captured', async ({ page }) => {
+  test('shows the coaching verdict after speech is captured', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session?coaching=treatment');
-    await selectTranscriptionEngine(page, 'native');
+    await selectTranscriptionEngine(page, 'private');
 
-    const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-    await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
-    await startButton.click();
+    await startRecording(page);
     await simulateTranscription(page, userFacingTranscript, true);
-    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('tester-facing transcript');
+    await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toContainText('tester-facing transcript');
 
-    await expect(page.getByTestId('live-coaching-score-card')).toBeVisible();
-    await expect(page.getByTestId('live-session-score')).toHaveText('--');
-    // The score breakdown and transcript-quality caveat now live behind accessible help.
-    await page.getByTestId('score-help').click();
-    await expect(page.getByTestId('live-score-quality-caveat')).toContainText(/miss filler words/i);
-    await expect(page.getByTestId('live-score-evidence')).toContainText(/pace, fillers, pauses/i);
-    await expect(page.getByTestId('live-coaching-actions')).toContainText(/\w+/);
-    await expect(page.getByText(/filler words detected|captured words/i)).toBeVisible();
-    await expect(page.getByTestId('live-coaching-actions')).toContainText(/beat of silence|pause|main point|example|takeaway/i);
+    // #1231/#1222: the retired live-coaching SCORE card (`live-coaching-score-card`, `live-session-score`,
+    // `score-help`, `live-score-*`, `live-coaching-actions`) is replaced by the coaching verdict surface.
+    // After a captured session the after-state coaching card resolves to the verdict + one fix.
+    await page.waitForTimeout(5_200);
+    await stopRecording(page);
+
+    const coaching = page.getByTestId('coaching-card');
+    await expect(coaching).toBeVisible({ timeout: 15_000 });
+    await expect(coaching).toHaveAttribute('data-coaching-state', 'after', { timeout: 15_000 });
+    await expect(page.getByTestId('session-verdict')).toBeVisible();
+    await expect(page.getByTestId('verdict-line')).not.toHaveText('');
+    await expect(page.getByTestId('verdict-fix')).toBeVisible();
   });
 
   test('preserves metric parity from session to analytics detail after save and reload', async ({ page }) => {
@@ -56,56 +55,58 @@ test.describe('User-facing session and analytics regressions', () => {
 
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
-    await selectTranscriptionEngine(page, 'native');
+    await selectTranscriptionEngine(page, 'private');
 
-    const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-    const transcriptPanel = page.getByTestId(TEST_IDS.TRANSCRIPT_PANEL);
-    await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
-    await startButton.click();
+    await startRecording(page);
+    // Trust-state while recording: the live indicator is shown (replaces the retired draft banner /
+    // `__SS_TRUST_STATE__` window state — #1231).
+    await expect(page.getByTestId('transcript-live-indicator')).toBeVisible({ timeout: 15_000 });
     await simulateTranscription(page, userFacingTranscript, true);
-    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('tester-facing transcript');
-    await expect(transcriptPanel).toHaveAttribute('data-draft-banner-visible', 'true');
-    await expect(transcriptPanel).toHaveAttribute('data-final-state-visible', 'false');
-    const trustStateWhileRecording = await page.evaluate(() => (
-      window as Window & {
-        __SS_TRUST_STATE__?: { uiState?: string; draftBannerVisible?: boolean };
-      }
-    ).__SS_TRUST_STATE__);
-    expect(trustStateWhileRecording).toMatchObject({
-      uiState: 'drafting',
-      draftBannerVisible: true,
-    });
+    await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toContainText('tester-facing transcript');
 
-    await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('2');
     await page.waitForTimeout(5_200);
-    await startButton.click();
+    await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
-    await expect(transcriptPanel).toHaveAttribute('data-final-state-visible', 'true', { timeout: 15_000 });
+
+    // #1231: the headline filler count is the TRUE-filler tier — "um" (1). "like" is a discourse marker:
+    // it still appears in the per-word breakdown, but is not counted in the headline. This true-filler count
+    // is the session-page metric that must reach analytics unchanged. `after-stats` reads "<n> fillers · <n> words".
+    await expect(page.getByTestId('filler-breakdown')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('after-stats')).toContainText('1 fillers');
+
+    // #1306 Option A: diagnostics carry LENGTHS/codes only — the save-candidate NEVER exposes transcript text
+    // (the privacy boundary covers test/E2E artifacts too). Assert a real candidate was selected via its length,
+    // and that no transcript-text field is present.
     const saveCandidate = await page.evaluate(() => (
       window as Window & {
         __SPEECH_RUNTIME_DEBUG__?: () => {
-          saveCandidate?: { selectedForSave?: string; saveCandidateReason?: string };
+          saveCandidate?: { selectedForSave?: string; selectedForSaveLength?: number; saveCandidateReason?: string };
         };
       }
     ).__SPEECH_RUNTIME_DEBUG__?.().saveCandidate ?? null);
-    expect(saveCandidate?.selectedForSave).toContain('tester-facing transcript');
-    expect(saveCandidate?.selectedForSave).not.toContain('[E2E_MOCK]');
+    expect(saveCandidate).not.toBeNull();
+    expect(saveCandidate?.selectedForSaveLength ?? 0).toBeGreaterThan(0);
+    expect(saveCandidate?.selectedForSave).toBeUndefined();
 
     await page.getByTestId(TEST_IDS.NAV_ANALYTICS_LINK).click();
     await waitForFeature(page, 'analytics');
     const latestSession = page.getByTestId(/session-history-item-/).first();
-    await expect(latestSession).toContainText('2');
+    await expect(latestSession).toContainText('1'); // #1231: true-filler headline (um), matches the session page
     await latestSession.getByTestId(/session-detail-link-/).click();
     await page.waitForURL('**/analytics/session-*');
 
-    await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('2');
+    // Analytics session-DETAIL page keeps its own filler-count metric surface (unchanged by the overhaul).
+    await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('1');
     await expect(page.getByTestId(`${TEST_IDS.FILLER_COUNT_VALUE}-explanation`)).toContainText('captured words');
-    await expect(page.getByText(/tester-facing transcript/i)).toBeVisible();
+    // #1306 metrics-only: the filler METRIC reaches the detail unchanged, but the transcript that produced it is
+    // ephemeral and is NEVER persisted or shown on the saved detail (before OR after reload).
+    await expect(page.getByText(/tester-facing transcript/i)).toHaveCount(0);
+    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
 
     await page.reload();
     await waitForFeature(page, 'analytics');
-    await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('2');
-    await expect(page.getByText(/tester-facing transcript/i)).toBeVisible();
+    await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('1');
+    await expect(page.getByText(/tester-facing transcript/i)).toHaveCount(0);
   });
 
   test('keeps mobile session controls and transcript visible without obstruction', async ({ page }) => {
@@ -113,26 +114,31 @@ test.describe('User-facing session and analytics regressions', () => {
     await programmaticLoginWithRoutes(page, { userType: 'free' });
     await navigateToRoute(page, '/session');
 
-    const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-    const transcriptPanel = page.getByTestId(TEST_IDS.TRANSCRIPT_PANEL);
+    // #1231: start is the before-state `mic-start`; the transcript surface is the `transcript-card`.
+    const startButton = page.getByTestId(TEST_IDS.MIC_START);
+    const transcriptCard = page.getByTestId(TEST_IDS.TRANSCRIPT_CARD);
     await expect(startButton).toBeVisible();
-    await expect(transcriptPanel).toBeVisible();
-    await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
+    await expect(transcriptCard).toBeVisible();
 
     const startBox = await startButton.boundingBox();
-    const transcriptBox = await transcriptPanel.boundingBox();
+    const transcriptBox = await transcriptCard.boundingBox();
     expect(startBox).not.toBeNull();
     expect(transcriptBox).not.toBeNull();
     expect(startBox!.width).toBeGreaterThan(40);
     expect(startBox!.height).toBeGreaterThan(40);
     expect(startBox!.y + startBox!.height).toBeLessThanOrEqual(844);
+    // The responsive shell stacks on phones; the transcript must use the readable full-width column.
     expect(transcriptBox!.width).toBeGreaterThan(300);
+    const progressBox = await page.getByTestId('session-slot-c').boundingBox();
+    if (progressBox) {
+      expect(progressBox.y).toBeGreaterThan(transcriptBox!.y);
+    }
 
-    await startButton.click();
-    await expect(startButton).toHaveAttribute('data-recording', 'true');
+    await startRecording(page);
     await simulateTranscription(page, 'free mobile transcript appears without hidden controls', true);
 
-    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText(/free mobile transcript/i);
-    await expect(page.getByLabel(/Stop Recording/i)).toBeVisible();
+    await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toContainText(/free mobile transcript/i);
+    // The during-state stop control (recorder bar) is reachable — no obstruction.
+    await expect(page.getByTestId(TEST_IDS.RECORDER_STOP)).toBeVisible();
   });
 });

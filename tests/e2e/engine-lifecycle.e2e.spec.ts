@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { navigateToRoute, waitForModelReady, programmaticLoginWithRoutes, selectTranscriptionEngine } from './helpers';
+import { navigateToRoute, waitForModelReady, selectTranscriptionEngine, startRecording, stopRecording } from './helpers';
 import { registerMockInE2E, enableTestRegistry } from '../helpers/testRegistry.helpers';
 
 
@@ -25,21 +25,26 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
   // startable or safely blocked behind visible setup/download guidance.
   test('Engine Lifecycle: explicit Private selection shows safe setup or ready state', async ({ proPage: page }) => {
     await navigateToRoute(page, '/session');
+    // #1184/#1222: Private is the only engine — there is no `stt-mode-select` and no `data-recording`
+    // attribute. selectTranscriptionEngine confirms the Private recorder surface is mounted. Start (before)
+    // and stop (during) are split into `mic-start` / `recorder-stop`.
     await selectTranscriptionEngine(page, 'private');
 
-    const modeButton = page.getByTestId('stt-mode-select');
-    await expect(modeButton).toHaveAttribute('data-state', 'private', { timeout: 15000 });
+    const startButton = page.getByTestId('mic-start');
+    const startReady = (await startButton.isVisible().catch(() => false))
+      && (await startButton.isEnabled({ timeout: 5_000 }).catch(() => false));
 
-    const startButton = page.getByTestId('session-start-stop-button');
-    await expect(startButton).toHaveAttribute('data-recording', 'false', { timeout: 10000 });
-
-    if (await startButton.isEnabled({ timeout: 5_000 }).catch(() => false)) {
-      await startButton.click();
-      await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
-      await startButton.click();
+    if (startReady) {
+      await startRecording(page);
+      await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 15000 });
+      await stopRecording(page);
     } else {
-      await expect(startButton).toBeDisabled();
-      await expect(page.locator('body')).toContainText(/Private|model setup|Downloading private model|local/i);
+      // Private requires a one-time on-device model download → the page shows the download/setup
+      // affordance (`mic-download`) instead of an enabled start, with visible setup guidance.
+      await expect(
+        page.getByTestId('mic-download').or(page.getByTestId('mic-card')),
+      ).toBeVisible();
+      await expect(page.locator('body')).toContainText(/Private|model setup|Download|local/i);
     }
   });
 
@@ -80,137 +85,17 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     });
 
     await navigateToRoute(page, '/session');
+    // #1184/#1222: Private is the only engine (no `stt-mode-select`); confirm the recorder surface is mounted.
     await selectTranscriptionEngine(page, 'private');
     // Forensic Readiness Gate (Invariant I3)
     await waitForModelReady(page, 15000);
-    await expect(page.getByTestId('stt-mode-select')).toHaveAttribute('data-state', 'private', { timeout: 15000 });
 
-    await page.getByTestId('session-start-stop-button').click();
-
-    // Should start recording via Fallback Engine
-    await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
-    // Normalize to handle both Primary (Private Ready) and Fallback (Recording active) labels
-    await expect(page.getByTestId('stt-status-label')).toContainText(/Recording active|Private Ready/i);
-  });
-
-  async function openModeMenu(page: import('@playwright/test').Page) {
-    const modeButton = page.getByTestId('stt-mode-select');
-    const bbox = await modeButton.boundingBox();
-    if (bbox) {
-      await page.mouse.click(bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
-    } else {
-      await modeButton.click({ force: true });
-    }
-  }
-
-  async function expectModeDisabled(page: import('@playwright/test').Page, label: RegExp) {
-    const option = page.getByRole('menuitemradio', { name: label });
-    await expect(option).toBeVisible();
-    await expect(option).toHaveAttribute('data-disabled', '');
-  }
-
-  async function expectModeEnabled(page: import('@playwright/test').Page, label: RegExp) {
-    const option = page.getByRole('menuitemradio', { name: label });
-    await expect(option).toBeVisible();
-    await expect(option).not.toHaveAttribute('data-disabled', '');
-  }
-
-  // SCENARIO 3: Access Control. The 60-minute Pro trial is retired; Private access for
-  // free users now flows from the Private sample entitlement (one ≤5-min session) reported
-  // by the usage-limit RPC. An available sample unlocks Private; Cloud stays Pro-only.
-  test('Tier Control: free user with an available Private sample can use Private but not Cloud', async ({ page }) => {
-    // Sample-entitlement contract: an available sample (seconds remaining) unlocks Private.
-    // The sample fields are set on mockProfile so the FIRST usage-limit hydration already
-    // reflects the sample — the default check-usage-limit mock reads them from the page
-    // profile, avoiding a late override the app would only see after caching the generic
-    // Free response.
-    await programmaticLoginWithRoutes(page, {
-      userType: 'free',
-      mockProfile: {
-        subscription_status: 'free',
-        stripe_subscription_id: null,
-        subscription_id: null,
-        preferred_mode: 'native',
-        private_sample_available: true,
-        private_sample_limit_seconds: 300,
-        private_sample_seconds_used: 0,
-        private_sample_seconds_remaining: 300,
-      },
-    });
-
-    await navigateToRoute(page, '/session');
-    const usageLimitProbe = await page.evaluate(() => {
-      const win = window as unknown as {
-        queryClient?: {
-          getQueryCache?: () => {
-            getAll?: () => Array<{
-              queryKey?: unknown;
-              state?: { data?: unknown; status?: string };
-            }>;
-          };
-        };
-        __E2E_DEPS__?: { fetchUsageLimit?: unknown };
-        supabase?: { functions?: { invoke?: unknown } };
-      };
-      const usageQueries = win.queryClient?.getQueryCache?.().getAll?.()
-        .filter(query => JSON.stringify(query.queryKey).includes('usageLimit'))
-        .map(query => ({
-          queryKey: query.queryKey,
-          status: query.state?.status,
-          data: query.state?.data,
-        })) ?? [];
-
-      return {
-        source: typeof win.__E2E_DEPS__?.fetchUsageLimit === 'function'
-          ? 'window.__E2E_DEPS__.fetchUsageLimit'
-          : win.supabase?.functions?.invoke
-            ? 'window.supabase.functions.invoke'
-            : 'network/default',
-        hasWindowSupabase: !!win.supabase,
-        hasE2EFetchUsageLimit: typeof win.__E2E_DEPS__?.fetchUsageLimit === 'function',
-        usageQueries,
-      };
-    });
-    expect(usageLimitProbe.source).toBe('window.supabase.functions.invoke');
-    expect(usageLimitProbe.usageQueries).toHaveLength(1);
-    expect(usageLimitProbe.usageQueries[0]?.status).toBe('success');
-    expect(usageLimitProbe.usageQueries[0]?.data).toMatchObject({
-      subscription_status: 'free',
-      is_pro: false,
-      private_sample_available: true,
-      private_sample_limit_seconds: 300,
-      private_sample_seconds_remaining: 300,
-      private_sample_session_id: null,
-      private_sample_completed_at: null,
-    });
-    await openModeMenu(page);
-
-    await expectModeEnabled(page, /Private/i);
-    await expectModeDisabled(page, /Cloud/i);
-  });
-
-  test('Tier Control: free user with no available Private sample cannot use Private or Cloud', async ({ page }) => {
-    // Sample already consumed/unavailable: Private locks back to Pro-only, same as Cloud.
-    // Set on mockProfile so the first usage-limit hydration reflects the consumed sample.
-    await programmaticLoginWithRoutes(page, {
-      userType: 'free',
-      mockProfile: {
-        subscription_status: 'free',
-        stripe_subscription_id: null,
-        subscription_id: null,
-        preferred_mode: 'native',
-        private_sample_available: false,
-        private_sample_limit_seconds: 300,
-        private_sample_seconds_used: 300,
-        private_sample_seconds_remaining: 0,
-      },
-    });
-
-    await navigateToRoute(page, '/session');
-    await openModeMenu(page);
-
-    await expectModeDisabled(page, /Private/i);
-    await expectModeDisabled(page, /Cloud/i);
+    // Should start recording via the Fallback Engine. The new page has no `data-recording` attribute nor
+    // an `stt-status-label` pill (that pill lived on the retired legacy recorder card) — the RECORDING
+    // runtime signal and the shell's `during` state are the recording truth that the fallback succeeded.
+    await startRecording(page);
+    await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 15000 });
+    await expect(page.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
   });
 
 });

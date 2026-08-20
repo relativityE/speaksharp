@@ -48,7 +48,7 @@ import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils
 import { getV4FlagState } from '../privateV4Flags';
 import { getV4ExperimentOverrides } from '../privateV4Experiment';
 import { buildV4LifecycleProps, emitV4Ready, emitV4Fallback, emitV4Error } from '../privateV4Telemetry';
-import { buildEngineVersion, type EngineVariant } from '../privateSampleTelemetry';
+import { buildEngineVersion, type EngineVariant } from '../privateTelemetry';
 // Stale import removed
 
 declare global {
@@ -122,7 +122,7 @@ function getPrivateEngineOverride(): PrivateEngineType | null {
 
 /**
  * Whether a deterministic Private-engine override is active (dev/test/E2E only). Used by
- * sample telemetry to attribute `assignment_source='deterministic_override'`. Honors the
+ * Private engine telemetry to attribute `assignment_source='deterministic_override'`. Honors the
  * same gating as `getPrivateEngineOverride` — always false in production.
  */
 export function isPrivateEngineOverrideActive(): boolean {

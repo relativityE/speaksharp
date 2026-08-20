@@ -20,12 +20,6 @@ export const TEST_USER_FREE = {
   password: 'password123',
 };
 
-// Reserved for future paid Basic tests. Current unpaid baseline users are Free.
-export const TEST_USER_BASIC = {
-  email: 'basic-user@test.com',
-  password: 'password123',
-};
-
 export const TEST_USER_EMAIL = 'test-user@example.com';
 export const TEST_USER_PASSWORD = 'password123';
 
@@ -35,10 +29,12 @@ export const SOAK_TEST_USER = {
 };
 
 // Canary test user for production smoke tests
-// Password is shared via CANARY_PASSWORD secret in GitHub Actions
+// The lane-resolved canary password (CANARY_LANE_PASSWORD) is injected by CI from the lane's own secret —
+// CANARY_TRIAL_PASSWORD for active-trial, CANARY_PAID_PASSWORD for paid-continuation.
 export const CANARY_USER = {
   email: process.env.CANARY_EMAIL!, // Required env var (injected by CI or .env)
-  password: process.env.CANARY_PASSWORD || '',
+  password: process.env.CANARY_LANE_PASSWORD || '',
+  lane: (process.env.CANARY_EXPECTED_ACCESS || 'active-trial') as 'active-trial' | 'paid-continuation',
 };
 
 // The two specific credentials we use for frontend isolated sandboxes.
@@ -98,12 +94,19 @@ export const TEST_IDS = {
   // Session page
   SESSION_SIDEBAR: 'session-sidebar',
   SESSION_START_STOP_BUTTON: 'session-start-stop-button',
+  // #1222/#1231: the new session page splits start (before) / stop (during) and renames the transcript.
+  MIC_START: 'mic-start',
+  RECORDER_STOP: 'recorder-stop',
+  SESSION_SHELL: 'session-shell',
+  MIC_CARD: 'mic-card',
+  TRANSCRIPT_CARD: 'transcript-card',
+  LIVE_TRANSCRIPT: 'live-transcript',
   SESSION_STATUS_INDICATOR: 'session-status-indicator',
   TRANSCRIPT_PANEL: 'transcript-panel',
   TRANSCRIPT_CONTAINER: 'transcript-container',
   TRANSCRIPT_DISPLAY: 'transcript-display',
   MODEL_LOADING_INDICATOR: 'model-loading-indicator',
-  PRIVATE_SAMPLE_SETUP_BUTTON: 'first-run-setup-private',
+  PRIVATE_MODEL_SETUP_BUTTON: 'first-run-setup-private',
 
   // Metrics
   CLARITY_SCORE_VALUE: 'clarity-score-value',
@@ -143,8 +146,6 @@ export const TEST_IDS = {
 // These define how many real accounts setup-test-users.mjs will provision in the DB.
 // We need exactly 15 to satisfy the cloud API_LOAD_CONCURRENCY of 15, plus 2 for UI Memcheck.
 export const FREE_USER_COUNT = 5;
-// Backward-compatible alias for older scripts; new code should use FREE_USER_COUNT.
-export const BASIC_USER_COUNT = FREE_USER_COUNT;
 export const PRO_USER_COUNT = 10;
 export const MAX_TOTAL_TEST_USERS = 50;
 
@@ -200,9 +201,9 @@ export const SOAK_CONFIG = {
   PLAYWRIGHT_TIMEOUT_MS: Math.max(SOAK_MEMORY_DURATION_MS * 2.5, 300 * 1000),
   P95_THRESHOLD_MS: 10000,
   MAX_MEMORY_MB: 200,
-  // Soak UI memory proof must use Browser/Native STT. Private requires a
-  // model cache and is covered by dedicated Private proofs, not the memory soak.
-  USE_NATIVE_MODE: true,
+  // #1294 Option 1: the soak UI memory proof runs the REAL customer Private engine (active-trial accounts);
+  // the deterministic transcription double lives behind the Private adapter (mock engine, no model download).
+  // Native/Browser/Cloud are not customer paths and are never exercised here.
   TRACK_MEMORY: true,
   RESULTS_DIR: 'test-results/soak',
 } as const;

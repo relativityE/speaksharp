@@ -1,3 +1,7 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+> **Current authority:** the open GitHub issue set and final-last canonical roadmap reconciliation in #1272.
+
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-26
 **Version:** v0.6.19-rc0
@@ -18,11 +22,11 @@ This document tracks identified risks and their impact on the 12-hour launch win
 | :--- | :--- | :--- | :--- | :--- |
 | **Quota Gate** | ✅ CONTROLLED/PUBLIC LEDGER EVIDENCE GREEN | Fail-closed quota and usage-token behavior are covered by current release evidence; keep regression coverage in CI. | **Critical**: Revenue leakage if regressed | No |
 | **Private Sample Guard** | 🟡 UPDATED POLICY / PROOF PENDING | Public trial lifecycle is superseded by one server-backed Private sample for Free users. | **P0**: Private sample access can leak if server enforcement regresses | No |
-| **Stripe Webhook**| 🟡 TEST-MODE PASS / LIVE KEYS PENDING | Test-mode checkout/webhook entitlement evidence is recorded; live `cs_live_...` checkout and live webhook propagation remain public-launch blockers. | **P0**: Users cannot upgrade | No |
+| **Stripe Webhook**| 🟡 TEST-MODE JOURNEY PROVEN / LIVE ACTIVATION PENDING OWNER AUTH | The test-mode checkout/webhook entitlement journey is proven — the accepted functional proof (`RELEASE_CLOSEOUT_LEDGER.md` §D). The full live activation contract (both payment switches ON + aligned live keys/webhook/prices + webhook/price/entitlement verification) is pending written Prod Owner authorization; a live-money proof is **not required**. Any live `cs_live_...`/webhook check is activation-configuration verification or optional post-activation smoke, **not** a public-launch blocker. | **P0**: Users cannot upgrade until activation is authorized | No |
 | **Safari Mic** | 🟡 PENDING | Potential silent failure on resume | **P1**: Degraded mobile UX | Yes |
 | **Sentry Ingest** | ✅ OBSERVABILITY API SMOKE PASS | Frontend, Edge, and PostHog provider readback evidence is recorded in `PUBLIC_LAUNCH_LEDGER.md`. | **High**: Blind to launch errors if regressed | No |
 | **Usage Edge CORS** | 🟡 CI/DEPLOY GREEN / HEADER VALIDATION PENDING | `check-usage-limit` uses the shared request-aware CORS helper; Edge Function deploy is green, but deployed header validation should be rechecked after each Edge deploy. | **P1**: JWT still required, but attack surface should match other Edge Functions | No |
-| **Stripe Secret Init** | 🟢 JOURNEY PROVEN (TEST) / LIVE = OPS CUTOVER | Checkout→webhook→billing-portal journey is proven with Stripe TEST-mode keys (the accepted proof per `RELEASE_CLOSEOUT_LEDGER.md` §D); webhook runtime lazily validates secrets and fails closed. Going live is an **Ops config cutover** (swap to `sk_live`/`pk_live`/live `whsec`/live price IDs + register the live webhook + verify `stripeKeyClass==="live"`), **not** a pending Dev/QA proof. | **P2 (ops launch-day)**: live key swap, no money-test | No |
+| **Stripe Secret Init** | 🟢 JOURNEY PROVEN (TEST) / LIVE = FULL ACTIVATION CONTRACT | Checkout→webhook→billing-portal journey is proven with Stripe TEST-mode keys (the accepted proof per `RELEASE_CLOSEOUT_LEDGER.md` §D); webhook runtime lazily validates secrets and fails closed. Going live is **not merely a key swap**: it requires the complete activation contract — **both** payment switches explicitly enabled (`VITE_PAYMENTS_ENABLED=true` **and** `PAYMENTS_ENABLED=true`), aligned live Stripe keys/webhook/price configuration, webhook/price/entitlement verification, and separate **written owner authorization**. Live keys alone (or a `stripeKeyClass==="live"` check) validate config but do not open checkout while either switch is OFF. | **P2 (ops launch-day)**: full activation contract (both switches + aligned live config + written owner approval), no money-test during the beta | No |
 | **GitHub Canary** | 🟡 CURRENT RUNS MUST BE READ FROM STATUS SSOT | Canary/CI/RC evidence changes frequently and must not be copied here. Use `RELEASE_STATUS.md` for current workflow posture. | **P1**: Keep this green after every deploy | No |
 | **STT Benchmarks** | 🟡 PUBLIC CLAIMS LIMITED | Private v2, Private v4, and Cloud are the benchmarkable engines in our control. Native Browser STT is browser-dependent convenience STT and must not be marketed as corpus/WER validated unless the exact browser audio route is separately proven. | **P1 only if benchmark claims are marketed** | Yes |
 | **Private Model Cache/Progress** | ✅ CONTROLLED TESTER PASS | Private remains the primary validated Pro path for controlled testers; public ledger records Private artifact evidence. | **P1**: Required for Private STT first-use/second-use trust | No |
@@ -41,7 +45,7 @@ This document tracks identified risks and their impact on the 12-hour launch win
 
 1. **Validate Fail-Closed Quota**: Verify the deployed `check-usage-limit` function returns fail-closed responses on RPC/internal uncertainty.
 2. **Validate AI Suggestions**: Verify the deployed Gemini suggestion path returns safe fallback output on malformed responses and does not 500 the analytics page.
-3. **Stripe Verification**: Not required for the controlled **no-billing beta** — paid checkout is intentionally closed (`stripeKeyClass="test"`, Beta-50 billing freeze). The billing journey is proven in Stripe **test** mode (accepted proof). A live-money transaction belongs to the separate future paid cutover (`PAID_OPS_HARDENING_RUNBOOK.md`), gated on written owner approval — do **not** run a live charge during this beta.
+3. **Stripe Verification**: Not required for the controlled **no-billing beta** — paid checkout is intentionally closed by the payment switches (`VITE_PAYMENTS_ENABLED` / `PAYMENTS_ENABLED` both OFF), NOT by the key class; `stripeKeyClass="test"` + the Beta-50 billing freeze are co-facts. The billing journey is proven in Stripe **test** mode (accepted proof). A live-money transaction is **not** a required proof; an optional controlled live smoke may occur only after separately authorized activation (`PAID_OPS_HARDENING_RUNBOOK.md`) — do **not** run a live charge during this beta.
 4. **Env Verification**: Complete the [LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md).
 5. **Canary Maintenance**: Keep GitHub canary and soak green after deploys; record changing run IDs only in `RELEASE_STATUS.md`.
 6. **Benchmark Workflow Boundary**: Keep user-facing benchmark claims limited to engines with current benchmark evidence. Native Browser STT is not a corpus/WER release benchmark.
@@ -54,6 +58,12 @@ This document tracks identified risks and their impact on the 12-hour launch win
 ---
 
 ## 🛡️ Launch Boundary (Explicitly Deferred)
+- **Personal Progress & Executive Rehearsal feature train** — the transition from the 0–10 SpeakSharp
+  Score to transparent personal progress, plus Executive Rehearsal, is a **separate post-hardening
+  train** delivered as small inchstones (contract: `PRODUCT_FEATURES.operational.md` +
+  `SPEAKSHARP_SESSION_PROGRESS.operational.md` Part A; inchstones: `BACKLOG.md` §4). It is **not** in
+  this launch window and introduces **no** billing, Private v4, migration, deployment, or
+  tester-exposure change. Live Meeting Companion is future direction only (not sequenced).
 - Architecture Elegance & Refactoring.
 - High-concurrency performance tuning.
 - Visual polish and non-critical UI transitions.

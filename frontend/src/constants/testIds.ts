@@ -14,6 +14,7 @@ export const TEST_IDS = {
     NAV_HOME_LINK: 'nav-home-link',
     NAV_SESSION_LINK: 'nav-session-link',
     NAV_ANALYTICS_LINK: 'nav-analytics-link',
+    NAV_FAQ_LINK: 'nav-faq-link',
     NAV_SIGN_IN_LINK: 'nav-sign-in-link',
     SESSION_SETTINGS_BUTTON: 'add-custom-word-button', // Settings button in FillerWordsCard
     USER_FILLER_WORDS_INPUT: 'user-filler-words-input',

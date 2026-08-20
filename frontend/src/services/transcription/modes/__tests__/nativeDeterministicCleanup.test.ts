@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { normalizeNativeTranscript } from '../nativeDeterministicCleanup';
 import { isWordPreserving } from '../nativeTranscriptFormatter';
+import { countFillerWords } from '../../../../utils/fillerWordUtils';
 
 describe('normalizeNativeTranscript (deterministic, word-preserving Native cleanup)', () => {
   it('returns empty for empty/whitespace input', () => {
@@ -49,5 +50,16 @@ describe('normalizeNativeTranscript (deterministic, word-preserving Native clean
       const out = normalizeNativeTranscript(raw);
       expect(isWordPreserving(raw, out)).toBe(true);
     }
+  });
+
+  // #894 INVARIANT LOCK: a spoken filler that reaches the Native transcript must survive cleanup AND remain
+  // countable. Native's own recall gap is upstream and out of scope; the cleanup must never be the thing that
+  // erases a present filler.
+  it('#894: a present um/uh survives cleanup and stays countable', () => {
+    const out = normalizeNativeTranscript('um so i was uh thinking');
+    expect(out).toBe('Um so i was uh thinking.');
+    const counts = countFillerWords(out);
+    expect(counts.um.count).toBe(1);
+    expect(counts.uh.count).toBe(1);
   });
 });

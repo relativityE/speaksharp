@@ -154,7 +154,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       return {
         isAvailable: false,
         reason: 'NO_API_KEY',
-        message: 'Cloud STT is available only for signed-in Pro accounts with Cloud entitlement.'
+        message: 'This internal transcription provider is unavailable outside its isolated test harness.'
       };
     }
 

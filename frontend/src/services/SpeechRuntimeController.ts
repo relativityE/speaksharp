@@ -13,20 +13,25 @@ import { safeResetSessionTelemetry } from '@/services/telemetry/sessionTelemetry
 import { computeLegacyMetrics, compareSnapshotToLegacy, type ParityReport } from '@/services/telemetry/metricsParity';
 import { measureFillerDivergence, cloneFillerCounts, buildSanitizedFillerArtifact, type FillerDivergenceReport, type SanitizedFillerArtifact } from '@/services/telemetry/fillerDivergence';
 import {
-    PRIVATE_SAMPLE_EVENTS,
-    emitPrivateSample,
-    resolveSampleAssignment,
-    setPrivateSampleContext,
-    buildSampleEnvProps,
+    PRIVATE_TELEMETRY_EVENTS,
+    emitPrivateTelemetry,
+    resolvePrivateAssignment,
+    setPrivateTelemetryContext,
+    clearPrivateRecordingIdentity,
+    buildPrivateEnvProps,
     buildEngineVersion,
-} from '@/services/transcription/privateSampleTelemetry';
+} from '@/services/transcription/privateTelemetry';
+import { ATTRIBUTION_STATUS, type AttributionStatus } from '@/constants/attributionStatus';
 import { useReadinessStore } from '@/stores/useReadinessStore';
-import { saveSession, completeSession, heartbeatSession } from '@/lib/storage';
+import { saveSession, completeSession, heartbeatSession, type CompleteSessionOptions } from '@/lib/storage';
+import { flattenToFillerCounts, deriveNextActionSignal } from '@/utils/nextAction';
+import { PRIV_STT } from './transcription/sttConstants';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import type { UserProfile } from '@/types/user';
 import type { TranscriptUpdate, HistorySegment, SttStatus } from '@/types/transcription';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
+import { emitEngineRequestCollapsedToPrivate, isRetiredEngineRequest } from '@/services/transcription/sttExclusivityTelemetry';
 import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
 import { STT_CONFIG } from '@/config';
@@ -44,7 +49,10 @@ import { updateSession } from '@/lib/storage';
 import { formatNativeSessionInBackground } from '@/services/transcription/nativeAsyncFormatter';
 import { reconcileFinalizedFillers } from '@/utils/finalizedSessionAnalysis';
 import { shouldPublishFinalized } from '@/services/transcription/finalizeGate';
-import { clearSessionRecoveryDraft, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
+// #1033 (2): the controller deliberately imports ONLY the owner-scoped reader — the unscoped
+// getSessionRecoveryDraft() must never be reachable from a recovery path.
+import { clearSessionRecoveryDraft, getRecoverableDraftForUser, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
+import { wireProgressEvaluationOnSave } from '@/services/progress/recordProgress';
 import { installSttEvidenceCollector } from '@/services/transcription/sttEvidenceCollector';
 import { installSttIdentityAccessor } from '@/services/transcription/sttIdentity';
 
@@ -75,16 +83,22 @@ const pushNativeRuntimeTrace = (event: string, payload: Record<string, unknown> 
     });
 };
 
+// #1306 P1: transcript-text keys that must NEVER appear in a PRODUCTION diagnostic trace (lengths only there).
+const TRANSCRIPT_TRACE_TEXT_KEYS = ['preview', 'text', 'transcript', 'partial', 'final', 'finalTranscript', 'currentTranscript', 'newFullText', 'frozenAtStop'];
 const pushTranscriptLifecycleTrace = (stage: string, payload: Record<string, unknown> = {}) => {
     if (typeof window === 'undefined') return;
     window.__SS_TRANSCRIPT_TRACE__ = window.__SS_TRANSCRIPT_TRACE__ ?? [];
     window.__SS_TRANSCRIPT_TRACE_SEQ__ = (window.__SS_TRANSCRIPT_TRACE_SEQ__ ?? 0) + 1;
+    // #1306 P1: diagnostics retain only codes/numbers/lengths/timestamps — NEVER transcript text, in any build
+    // (test/E2E/real-device artifacts are inside the privacy boundary too). Strip any text keys a caller passed.
+    const safePayload: Record<string, unknown> = { ...payload };
+    for (const k of TRANSCRIPT_TRACE_TEXT_KEYS) if (k in safePayload) delete safePayload[k];
     window.__SS_TRANSCRIPT_TRACE__.push({
         sequence: window.__SS_TRANSCRIPT_TRACE_SEQ__,
         t: Number(performance.now().toFixed(1)),
         stage,
         timestamp: Date.now(),
-        ...payload,
+        ...safePayload,
     });
     if (window.__SS_TRANSCRIPT_TRACE__.length > 1000) {
         window.__SS_TRANSCRIPT_TRACE__.shift();
@@ -106,6 +120,37 @@ const hasMeaningfulTranscriptText = (text: string): boolean => {
     if (!normalized) return false;
     if (NATIVE_NOISE_TRANSCRIPTS.has(normalized)) return false;
     return normalized.split(' ').filter(Boolean).length >= 2;
+};
+
+type ObjectiveBriefSnapshot = {
+    projectId: string;
+    briefId: string;
+    points?: string[];
+    topic?: string;
+    paceGuideSecPerPoint?: number | null;
+};
+
+type RecordingProgressMode =
+    | { mode: 'open_mic' }
+    | { mode: 'focus_points'; brief: ObjectiveBriefSnapshot }
+    | { mode: 'unknown' };
+
+type ProgressCompletionContext =
+    | { mode: 'open_mic' }
+    | {
+        mode: 'focus_points';
+        brief: ObjectiveBriefSnapshot;
+        segments: { text: string; startSec: number }[];
+        durationSeconds: number;
+    }
+    | { mode: 'unknown' };
+
+type RichMetricsPayload = Parameters<typeof updateSession>[1];
+type ProgressMetricsState = {
+    /** Exact immutable payload calculated for this recording, or null when recovery cannot prove it. */
+    payload: RichMetricsPayload | null;
+    /** Actual result of the rich-metrics write. Never inferred from transcript completion or attribution. */
+    persisted: boolean;
 };
 
 const normalizeTranscriptPrefix = (text: string): string =>
@@ -163,13 +208,14 @@ const createControllerOwnedServiceCallbacks = (
         | 'onModeChange'
         | 'onStatusChange'
         | 'onError'
-    >> & Pick<TranscriptionServiceOptions, 'onHistoryUpdate'>
+    >> & Pick<TranscriptionServiceOptions, 'onHistoryUpdate' | 'onCaptureLimitReached'>
 ): Partial<TranscriptionServiceOptions> => ({
     ...callbacks,
     onTranscriptUpdate: handlers.onTranscriptUpdate,
     onHistoryUpdate: handlers.onHistoryUpdate,
     onError: handlers.onError,
     onStatusChange: handlers.onStatusChange,
+    onCaptureLimitReached: handlers.onCaptureLimitReached,
     onModelLoadProgress: handlers.onModelLoadProgress,
     onReady: handlers.onReady,
     onAudioData: handlers.onAudioData,
@@ -284,6 +330,36 @@ const createEmptyTranscriptLifecycleState = (): TranscriptLifecycleState => ({
  * Tests must use whenStable() — never vi.waitFor() for side-effects.
  * @see LifecycleToken
  */
+/**
+ * #1089: post-Stop finalization exceeded PRIV_STT.FINALIZE_HARD_TIMEOUT_MS. Distinct from a decode
+ * ERROR: the engine never answered at all, so the failure is a hang, and the user-facing recovery
+ * copy differs. Routed through the normal stop-error path so it reuses the existing FAILED +
+ * recovery-draft architecture rather than inventing a second one.
+ */
+export class FinalizationTimeoutError extends Error {
+    readonly timeoutMs: number;
+    constructor(timeoutMs: number) {
+        super(`Finalization exceeded ${timeoutMs}ms`);
+        this.name = 'FinalizationTimeoutError';
+        this.timeoutMs = timeoutMs;
+    }
+}
+
+/**
+ * #1161 runtime evidence posted to the trusted server producer (attest-session-engine). Advisory input only —
+ * the server re-validates it and is the sole writer of the attribution authority. `provider` selects the class:
+ * `transformers-js[-v4]` → Private, `web-speech` → Browser.
+ */
+export interface RuntimeEvidence {
+    provider: string;
+    engine: string;
+    engine_version?: string;
+    model_id?: string;
+    resolved_device?: string;
+    fallback_occurred: boolean;
+    cloud_used: boolean;
+}
+
 export class SpeechRuntimeController {
     private static instance: SpeechRuntimeController | null = null;
     private readonly HEARTBEAT_THRESHOLD_MS =
@@ -323,6 +399,10 @@ export class SpeechRuntimeController {
     private heartbeatVersion = 0;
     private idleTimeout: NodeJS.Timeout | null = null;
     private readonly IDLE_RECLAMATION_MS = 5 * 60 * 1000;
+    // #1258: monotonically increments ONLY when an actual idle reclamation tears the engine down. Consumers
+    // (the foreground-return reload) key their one-shot reload off a CHANGE in this token, so a tab switch or a
+    // generic IDLE state never triggers a reload — only a real reclamation does.
+    private idleReclamationGeneration = 0;
     private readonly WATCHDOG_PERIOD_MS = 5000;
 
     private readonly FAILURE_HOLD_DURATION_MS = STT_CONFIG.FAILURE_HOLD_DURATION_MS;
@@ -365,6 +445,14 @@ export class SpeechRuntimeController {
         this.serviceCallbacks = {
             onTranscriptUpdate: this.handleTranscriptUpdate.bind(this),
             onStatusChange: this.handleStatusChange.bind(this),
+            // #1089: the engine hit its hard capture backstop and has stopped accepting audio. Publish it
+            // so the session layer performs a CONTROLLED stop (preserving + finalizing everything captured
+            // before the guard) instead of the old behaviour: silently discarding audio while the UI still
+            // said "Recording". Durations only — no transcript, no audio, no identity.
+            onCaptureLimitReached: (info) => {
+                logger.warn(info, '[Controller] ⚠️ Capture backstop reached — stopping and finalizing');
+                useSessionStore.getState().setCaptureLimitReached(info);
+            },
             onModelLoadProgress: this.handleModelLoadProgress.bind(this),
             onReady: this.handleReady.bind(this),
             onHistoryUpdate: this.handleHistoryUpdate.bind(this),
@@ -391,7 +479,9 @@ export class SpeechRuntimeController {
                 // Authoritative save-candidate decision from the last Stop, so proofs
                 // can distinguish a real empty save from DOM-banner extraction noise.
                 saveCandidate: this.lastSaveCandidateDebug,
-                selectedTranscriptForSave: this.transcriptLifecycle.selectedTranscriptForSave ?? null,
+                // #1306 P1: diagnostics expose only the LENGTH — NEVER the transcript text. Test/E2E/real-device
+                // artifacts are inside the privacy boundary too, so this is unconditional (no ENV.isTest escape).
+                selectedTranscriptForSaveLength: (this.transcriptLifecycle.selectedTranscriptForSave ?? '').length,
                 selectedTranscriptSource: this.transcriptLifecycle.selectedTranscriptSource ?? null,
                 // #891 Phase 5.8 Step 1: DEV/TEST-ONLY numbers-only filler artifact for the known-script take.
                 // The getter self-gates (null in production); custom words anonymized; no transcript text.
@@ -406,10 +496,16 @@ export class SpeechRuntimeController {
             // identity for the dev/test badge + proof artifacts (also folded into __STT_EVIDENCE__().identity).
             installSttIdentityAccessor(window);
 
-            // Fix 1 Correction: Programmatic Mode Switch
-            (window as unknown as Record<string, unknown>).__E2E_SET_MODE__ = (mode: TranscriptionMode) => {
-                this.updatePolicy({ ...this.policy!, preferredMode: mode });
-            };
+            // Fix 1 Correction: Programmatic Mode Switch — TEST-ONLY write hook. It MUST NOT ship to the
+            // production bundle: the mock-free production proof (#1151) rejects any __E2E_/__MOCK_ injection
+            // surface, and a mode setter in prod is an engine-hierarchy nudge vector. ENV.isTest is false in
+            // the real production build (import.meta.env.MODE === 'production') and true in unit/e2e, so the
+            // read-only proof accessors above stay while this writer is gated out of production.
+            if (ENV.isTest) {
+                (window as unknown as Record<string, unknown>).__E2E_SET_MODE__ = (mode: TranscriptionMode) => {
+                    this.updatePolicy({ ...this.policy!, preferredMode: mode });
+                };
+            }
         }
     }
 
@@ -455,7 +551,7 @@ export class SpeechRuntimeController {
         return useSessionStore;
     }
 
-    /** Active DB session id (null when no session is persisted). For sample telemetry. */
+    /** Active DB session id (null when no session is persisted). */
     public getSessionId(): string | null {
         return this.sessionId;
     }
@@ -466,14 +562,12 @@ export class SpeechRuntimeController {
     }
 
     /**
-     * Set the session-scoped Private-sample telemetry context (engine_variant +
-     * assignment_source + flag attribution + model + release) so every downstream
-     * sample event is consistently attributable. Never throws.
+     * Set content-free Private engine telemetry context and capture the durable engine version.
      */
-    public applyPrivateSampleContext(): void {
+    public applyPrivateTelemetryContext(): void {
         try {
             const flags = getV4FlagState();
-            const assignment = resolveSampleAssignment({
+            const assignment = resolvePrivateAssignment({
                 resolvedEngineType: this.getResolvedEngineType(),
                 overrideActive: isPrivateEngineOverrideActive(),
                 allowlisted: flags.allowlisted,
@@ -483,8 +577,8 @@ export class SpeechRuntimeController {
             // Fall back to the variant's default model id if metadata hasn't surfaced one yet, so
             // the durable engine_version is always private_v2:<model> / private_v4:<model>.
             const model = meta?.modelName ?? (assignment.engine_variant === 'private_v4' ? 'base_q4' : 'whisper-base.en');
-            const release = typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : null;
-            setPrivateSampleContext({
+            const release = typeof window !== 'undefined' ? (window.__APP_RELEASE__ ?? null) : null;
+            setPrivateTelemetryContext({
                 session_id: this.sessionId,
                 engine_variant: assignment.engine_variant,
                 assignment_source: assignment.assignment_source,
@@ -496,19 +590,612 @@ export class SpeechRuntimeController {
             // Capture the resolved arm now (engine is resolved here) for durable persistence at
             // stop — independent of the telemetry context's clear timing.
             this.resolvedPrivateEngineVersion = buildEngineVersion(assignment.engine_variant, model);
+            this.resolvedPrivateEngineSessionId = this.sessionId; // scope the arm to THIS recording (#1033)
         } catch {
             /* telemetry context must never break the recording pipeline */
         }
     }
 
-    // Private-sample SETUP telemetry, driven by the engine status stream so it fires regardless
+    // Private setup telemetry, driven by the engine status stream so it fires regardless
     // of how the model load was triggered (warmUp / auto-init on mode select / explicit download).
     private privateSetupStartedAt: number | null = null;
     private privateSetupResolved = false;
     /** Resolved Private arm (private_v2:<model> / private_v4:<model>), captured at engine-resolve
      *  for durable persistence to sessions.engine_version at stop. */
     private resolvedPrivateEngineVersion: string | null = null;
-    private emitPrivateSampleSetupStatus(type: string): void {
+    /** The recording/session the resolved Private arm belongs to, so it can never verify a different recording. */
+    private resolvedPrivateEngineSessionId: string | null = null;
+    /** #1033: last recording whose durable attribution write failed — stashed so Retry Save can promote it
+     *  pending→verified via UPDATE (never a duplicate session). Null when nothing is awaiting retry. */
+    private pendingAttributionRetry: {
+        sessionId: string;
+        evidence: RuntimeEvidence | null;
+        progressContext: ProgressCompletionContext;
+        progressMetrics: ProgressMetricsState;
+    } | null = null;
+    /** #1033 (item 2/3): last recording whose durable FULL SAVE (completeSession) failed — a strictly worse
+     *  failure than an attribution-only miss (the transcript row itself is not persisted). Stashed so Retry
+     *  Save re-runs the ACTUAL failed op — completeSession THEN the attribution write — for the SAME session,
+     *  never a duplicate. Distinct from pendingAttributionRetry so each resolution retries only what failed. */
+    private pendingFullSaveRetry: {
+        /** null when the session ROW DOES NOT EXIST YET (pre-session window) — see `initialSave`. */
+        sessionId: string | null;
+        /** #1033 (1): present when the placeholder row was never created. Retry must CREATE the row first,
+         *  using this recording's idempotency identity so a retry can never produce a duplicate session. */
+        initialSave?: { userId: string; recordingId: string; mode: string; engineVersion?: string; modelName?: string; deviceType?: string };
+        // #1306: transcript-free. A finalized retry replays the exact content-free metrics + one next action.
+        completeArgs: CompleteSessionOptions & { status: 'completed' };
+        attributionEvidence: RuntimeEvidence | null;
+        progressContext: ProgressCompletionContext;
+        progressMetrics: ProgressMetricsState;
+    } | null = null;
+
+    /** #1265: immutable practice-mode snapshot captured when this recording enters RECORDING. Retry paths
+     *  must never infer mode from a later live store or default missing context to Open Mic. */
+    private recordingProgressMode: RecordingProgressMode = { mode: 'unknown' };
+
+    /** #1033 (1): owner + idempotency identity for the window between RECORDING and the initial save. Set
+     *  once the authenticated owner is known (before speech), cleared once the row exists or at resolution.
+     *  #1161 (finding 6): also carries the engine provenance so an initial-save retry recreates identical rows. */
+    private pendingInitialSaveContext: { userId: string; recordingId: string; mode: string; engineVersion?: string; modelName?: string; deviceType?: string } | null = null;
+
+    /** #1033 (5): a producer-affecting policy change (entitlement/profile sync) that arrived while the engine
+     *  was locked. It is NOT applied to the live recording; it is queued and applied at the next recording's
+     *  start boundary, so entitlement changes are never lost and never swap the in-flight producer. */
+    private queuedProducerPolicy: TranscriptionPolicy | null = null;
+
+    /** #1033 (3): in-flight transactional application of `queuedProducerPolicy` (awaitable — the service is
+     *  the authority on whether the new policy actually took effect). */
+    private queuedPolicyApplication: Promise<void> | null = null;
+
+    /** #1033 (4): the IMMUTABLE producing engine for the in-flight recording, latched the moment the service
+     *  confirms it reached RECORDING. While set, no service callback may report a different mode, and final
+     *  attribution must match it. Cleared only on durable save, confirmed discard, or a new recording's start
+     *  boundary (a PRE-start failure never latches, so it needs no clearing). */
+    private recordingEngineMode: TranscriptionMode | null = null;
+
+    /** #1033 (2): set when the service reported an engine different from the latch — the transcript may mix
+     *  producers, so this recording can NEVER be marked `verified`. Cleared at the recording boundary. */
+    private producerIntegrityCompromised = false;
+
+    /** #1033 (2): in-flight producer-integrity teardown, so duplicate/stale callbacks chain onto the same
+     *  teardown rather than starting a second one (and so it can be awaited deterministically). */
+    private producerIntegrityTeardown: Promise<void> | null = null;
+
+    /** Recording-lifecycle states during which the STT engine selection is locked (one engine per recording). */
+    private static readonly RECORDING_LIFECYCLE_STATES: ReadonlySet<RuntimeState> = new Set<RuntimeState>(['INITIATING', 'ENGINE_INITIALIZING', 'RECORDING', 'STOPPING']);
+    /** #1033: set SYNCHRONOUSLY the instant Start is invoked (before the enqueued work reaches INITIATING),
+     *  so the lock cannot lose a race to a rapid engine change right after Start. Released by transition()
+     *  once a real state (INITIATING/…/terminal) is reached, where the lifecycle/pending predicates take over. */
+    private engineSelectionIntentLocked = false;
+    /** #1033: TRUE once a recording has actually BEGUN (transition to RECORDING) and has NOT yet reached a
+     *  terminal resolution — durable save + attribution success, an approved discard, or successful Retry Save.
+     *  This keeps the lock through POST-START failures (heartbeat/STT/runtime/stop/finalization/attribution),
+     *  which land in non-locked states (FAILED/FAILED_VISIBLE/TERMINATED/READY/IDLE). A PRE-recording failure
+     *  never sets it, so it correctly unlocks. Preserves the transcript/recovery-draft window. */
+    private recordingStartedUnresolved = false;
+    /** #1033: engine selection is locked while (a) Start intent, (b) the recording lifecycle, (c) a pending
+     *  attribution retry, OR (d) a started recording has not yet durably resolved (post-start failure window).
+     *  THE single authoritative predicate — consumed by the UI selector AND enforced in the controller. */
+    public isEngineSelectionLocked(): boolean {
+        return this.engineSelectionIntentLocked
+            || SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)
+            || this.pendingAttributionRetry !== null
+            || this.pendingFullSaveRetry !== null
+            || this.recordingStartedUnresolved;
+    }
+    /** #1033: true while a completed recording's attribution write OR full save is awaiting Retry Save. */
+    public hasPendingAttribution(): boolean {
+        return this.pendingAttributionRetry !== null || this.pendingFullSaveRetry !== null;
+    }
+    /** #1033 (item 2): what the current Retry Save would re-attempt — the ACTUAL failed op, or none. A full
+     *  save failure outranks an attribution failure (it is the more severe, less-persisted state). */
+    public pendingResolutionKind(): 'initial_save' | 'full_save' | 'attribution' | null {
+        if (this.pendingFullSaveRetry) {
+            return this.pendingFullSaveRetry.initialSave && !this.pendingFullSaveRetry.sessionId
+                ? 'initial_save'
+                : 'full_save';
+        }
+        if (this.pendingAttributionRetry) return 'attribution';
+        return null;
+    }
+
+    /**
+     * #1033 Retry Save — re-attempt the durable attribution write for the last recording whose write
+     * failed. Updates the SAME row by session id (never creates a duplicate session). On success the row
+     * moves pending→verified/unverified; on failure it stays pending and remains retryable. Idempotent
+     * (returns true when nothing is pending).
+     */
+    public async retryPendingAttribution(): Promise<boolean> {
+        const pending = this.pendingAttributionRetry;
+        if (!pending) return true;
+        const targetSessionId = pending.sessionId;
+        try {
+            // #1161: re-post evidence to the trusted server producer. null = transient failure → stay retryable.
+            const res = await this.attestSessionEngine(pending.sessionId, pending.evidence);
+            if (res === null) return false;
+            // compare-and-clear: clear ONLY if the slot still holds the session we just promoted — if it
+            // changed to another session while the update was in flight, leave that one intact (#1033).
+            if (this.pendingAttributionRetry?.sessionId === targetSessionId) {
+                this.pendingAttributionRetry = null;
+                this.markRecordingResolved(); // Retry Save succeeded → recording fully resolved → unlock
+            }
+            await this.completeProgressForRecording(
+                pending.progressContext ?? { mode: 'unknown' },
+                targetSessionId,
+                res.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
+                pending.progressMetrics?.persisted ?? false,
+            );
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * #1033 (item 2/3) unified Retry Save — re-runs the ACTUAL failed op for the last unresolved recording:
+     *  - a FULL-SAVE failure re-runs completeSession THEN the attribution write (the transcript row was never
+     *    persisted); only when BOTH succeed is the recording resolved and the lock released.
+     *  - an ATTRIBUTION-only failure re-runs just the attribution write (transcript already persisted).
+     * Same session id throughout (never a duplicate). Idempotent: returns true when nothing is pending.
+     * Session-safe compare-and-clear: only clears the slot it actually resolved.
+     */
+    public async retryRecordingSave(): Promise<boolean> {
+        const fullSave = this.pendingFullSaveRetry;
+        if (fullSave) {
+            let targetSessionId = fullSave.sessionId;
+            try {
+                // #1033 (1): INITIAL SAVE — the row never existed (failure landed between RECORDING and the
+                // placeholder save). Create it with THIS recording's idempotency key so a retry can never
+                // create a duplicate, then complete it and write the (unverified) attribution.
+                if (!targetSessionId) {
+                    const ctx = fullSave.initialSave;
+                    if (!ctx) return false; // no owner/identity → cannot safely persist; stay retryable
+                    const created = await saveSession(
+                        {
+                            user_id: ctx.userId,
+                            title: `Session ${new Date().toISOString()}`,
+                            duration: 0,
+                            total_words: 0,
+                            engine: ctx.mode,
+                        },
+                        { id: ctx.userId } as UserProfile,
+                        ctx.mode as TranscriptionMode,
+                        ctx.recordingId, // idempotency identity — same recording, never a duplicate row
+                        // #1161 (finding 6): carry the SAME engine provenance so the recovered row is not
+                        // recreated with a blank engine identity.
+                        { engineVersion: ctx.engineVersion, modelName: ctx.modelName, deviceType: ctx.deviceType },
+                    );
+                    const createdId = created?.session?.id;
+                    if (!createdId) return false; // still retryable; nothing destroyed
+                    targetSessionId = createdId;
+                    // Adopt the row so a subsequent retry resumes as a normal full-save.
+                    if (this.pendingFullSaveRetry === fullSave) {
+                        this.pendingFullSaveRetry = { ...fullSave, sessionId: createdId };
+                    }
+                    if (!this.sessionId) this.sessionId = createdId;
+                    this.applyPrivateTelemetryContext();
+                }
+                const completion = await completeSession(targetSessionId, fullSave.completeArgs);
+                if (!completion?.success) return false;
+                // #1161: attribution via the trusted server producer. null = transient → stay retryable.
+                const attrRes = await this.attestSessionEngine(targetSessionId, fullSave.attributionEvidence);
+                if (attrRes === null) return false;
+                // #1265: transcript completion and attribution do not prove the rich delivery metrics landed.
+                // Re-run the exact payload captured for this recording; missing payload or any failed/throwing
+                // write is a completed recording with NO Progress evaluation, never an immutable partial row.
+                let metricsPersisted = false;
+                const metricsPayload = fullSave.progressMetrics?.payload ?? null;
+                if (metricsPayload) {
+                    try {
+                        const metricsResult = await updateSession(targetSessionId, metricsPayload);
+                        metricsPersisted = metricsResult.success;
+                        if (!metricsPersisted) {
+                            logger.warn(
+                                { sessionId: targetSessionId, error: metricsResult.error ?? null },
+                                '[controller] Retry Save completed, but rich metrics did not persist; Progress skipped (#1265)',
+                            );
+                        }
+                    } catch (metricsError) {
+                        logger.warn(
+                            { sessionId: targetSessionId, metricsError },
+                            '[controller] Retry Save rich metrics threw; recording kept, Progress skipped (#1265)',
+                        );
+                    }
+                }
+                // Full save + attribution both durable → recording resolved. Compare-and-clear (the slot may
+                // have been re-pointed to another session mid-flight, though the single-unresolved invariant
+                // makes that near-impossible); never clear a different session's unresolved work.
+                if (this.pendingFullSaveRetry?.sessionId === targetSessionId) {
+                    this.pendingFullSaveRetry = null;
+                    if (this.pendingAttributionRetry?.sessionId === targetSessionId) this.pendingAttributionRetry = null;
+                    this.markRecordingResolved();
+                    await this.completeProgressForRecording(
+                        fullSave.progressContext ?? { mode: 'unknown' },
+                        targetSessionId,
+                        attrRes.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
+                        metricsPersisted,
+                    );
+                }
+                return true;
+            } catch {
+                return false;
+            }
+        }
+        // No full-save failure outstanding → fall back to the attribution-only retry.
+        return this.retryPendingAttribution();
+    }
+
+    /**
+     * #1033 (B) — INVARIANT enforcer. Whenever a recording that BEGAN becomes unresolved via a post-start
+     * failure (heartbeat / engine death / runtime error / a stop that failed before completeSession) WITHOUT
+     * a specific retry op already stashed, guarantee an actionable resolution so the user is never locked with
+     * no recovery route:
+     *  - recoverable unsaved transcript (durable recovery draft for this session, or the live store) → stash a
+     *    FULL-SAVE retry (the durable save never happened). Identity can't be verified after a mid-recording
+     *    failure, so attribution is 'unverified' — honest, never fabricated.
+     *  - nothing recoverable to save → the recording is resolved by discard → unlock.
+     * Post-condition (asserted by tests): recordingStartedUnresolved ⟹ pendingResolutionKind() !== null.
+     */
+    /**
+     * #1033 (4) — the single place a recording becomes RESOLVED: durably saved, successfully retried, or
+     * explicitly discarded. Releases the post-start lock AND the immutable producer latch together, so the
+     * latch can never outlive its recording (and a stale latch can never reject the next recording's engine).
+     */
+    /**
+     * #1033 (3) — the ONE valid next engine under a policy. The requested `preferredMode` wins only if that
+     * engine is still allowed by the policy; otherwise fall back to an allowed engine. A stale UI selection
+     * (e.g. Cloud/Private chosen before entitlement was revoked) can never override a newly restricted policy.
+     */
+    private resolveEntitledMode(p: TranscriptionPolicy): TranscriptionMode {
+        const allowed = (m: TranscriptionMode): boolean =>
+            m === 'cloud' ? Boolean(p.allowCloud)
+                : m === 'private' ? Boolean(p.allowPrivate)
+                    : Boolean(p.allowNative);
+        if (p.preferredMode && allowed(p.preferredMode)) return p.preferredMode;
+        const fallback: TranscriptionMode[] = ['private', 'native', 'cloud'];
+        return fallback.find(allowed) ?? 'native';
+    }
+
+    /**
+     * #1033 (3) — apply the queued producer policy as a TRANSACTIONAL state transition across the session
+     * store, the controller policy, and the SERVICE. The previous coherent state is captured first; the
+     * service's `updatePolicy` is **awaited** (it is the authority — a synchronous controller assignment
+     * proves nothing). The queue is cleared ONLY after the service confirms. On failure the prior coherent
+     * state is restored, the queue is retained for retry, and a retryable configuration error is surfaced —
+     * so store / controller / service / queue can never disagree.
+     */
+    private async applyQueuedProducerPolicy(): Promise<void> {
+        const queued = this.queuedProducerPolicy;
+        if (!queued) return;
+        const store = useSessionStore.getState();
+        const prevPolicy = this.policy;
+        const prevMode = store.sttMode;
+        // ONE valid next mode: a stale Cloud/Private selection cannot survive a revoked entitlement.
+        const nextMode = this.resolveEntitledMode(queued);
+        const coherent: TranscriptionPolicy = { ...queued, preferredMode: nextMode };
+        try {
+            store.setSTTMode(nextMode);
+            this.policy = coherent;
+            if (this.service) {
+                // Route through the command queue so this lands AFTER any service policy write already
+                // enqueued by an earlier updatePolicy — otherwise a stale in-flight policy could resolve
+                // last and leave the service configured for the engine we just replaced.
+                await this.enqueue(async (token) => {
+                    if (token.cancelled || token.version !== this.lifecycleVersion) return;
+                    const svc = this.service;
+                    if (!svc) return;
+                    await svc.updatePolicy(coherent); // the SERVICE confirms, or this throws
+                });
+            }
+            this.queuedProducerPolicy = null; // cleared only on confirmed application
+            logger.info({ nextMode }, '[controller] queued producer policy applied + confirmed by service (#1033 3)');
+        } catch (e) {
+            // Roll back to the previous coherent state and KEEP the queue so it can be retried.
+            this.policy = prevPolicy;
+            useSessionStore.getState().setSTTMode(prevMode);
+            this.queuedProducerPolicy = queued;
+            logger.error({ e, nextMode }, '[controller] queued producer policy REJECTED by service — restored prior state, queue retained (#1033 3)');
+            useSessionStore.getState().setSTTStatus({
+                type: 'error',
+                message: 'Could not update your transcription settings.',
+                detail: 'Your previous transcription method is still in effect. Please try again.',
+            });
+        }
+    }
+
+    private snapshotProgressModeAtRecordingBoundary(): RecordingProgressMode {
+        const brief = useSessionStore.getState().activeObjectiveBrief;
+        if (!brief) return { mode: 'open_mic' };
+        return {
+            mode: 'focus_points',
+            brief: {
+                ...brief,
+                ...(brief.points ? { points: [...brief.points] } : {}),
+            },
+        };
+    }
+
+    private buildProgressCompletionContext(durationSeconds?: number): ProgressCompletionContext {
+        if (this.recordingProgressMode.mode !== 'focus_points') return this.recordingProgressMode;
+        const store = useSessionStore.getState();
+        return {
+            mode: 'focus_points',
+            brief: this.recordingProgressMode.brief,
+            segments: store.chunks
+                .filter((chunk) => chunk.isFinal)
+                .map((chunk) => ({ text: chunk.transcript, startSec: chunk.timestamp })),
+            durationSeconds: durationSeconds ?? store.completedSessionDurationSeconds ?? 0,
+        };
+    }
+
+    private markRecordingResolved(): void {
+        this.recordingStartedUnresolved = false;
+        this.recordingEngineMode = null;
+        this.pendingInitialSaveContext = null;
+        // #1033 Part-2b: republish so SessionPage's banner disappears + the selector unlocks after a
+        // successful retry/discard resolves the recording (no FSM transition fires here otherwise).
+        this.publishLockState();
+        // #1033 (5): a producer-affecting policy change (e.g. an entitlement/profile sync) that was rejected
+        // while locked is applied NOW, at the resolution boundary — the change is never lost, and it never
+        // touched the recording that was in flight. Applied only once the lock has actually released.
+        if (this.queuedProducerPolicy && !this.isEngineSelectionLocked()) {
+            this.queuedPolicyApplication = this.applyQueuedProducerPolicy();
+        }
+    }
+
+    private ensurePostStartFailureIsActionable(): void {
+        if (!this.recordingStartedUnresolved) return;
+        if (this.pendingFullSaveRetry || this.pendingAttributionRetry) return; // a specific retry already exists
+
+        // #1033 (2): resolve recovery ONLY by the CURRENT session id + the authenticated owner. Never read
+        // the unscoped global draft — without both identities we could otherwise consume a stale draft that
+        // belongs to a different account. Missing identity fails CLOSED: no foreign draft is ever loaded.
+        const sessionId = this.sessionId;
+        const userId = this.capturedUserId;
+        const ownedDraft = sessionId && userId ? getRecoverableDraftForUser(userId) : null;
+        const draftForThisSession = ownedDraft && ownedDraft.sessionId === sessionId ? ownedDraft : null;
+
+        // #1306: ONLY a FINALIZED draft (exact final metrics + the next action already derived at a clean stop)
+        // can complete on retry. A post-start failure with only live/partial state must NEVER be turned into a
+        // completed session from fabricated metrics — it resolves by discard instead.
+        if (draftForThisSession?.recoveryState === 'finalized_pending_save' && (sessionId || this.pendingInitialSaveContext)) {
+            const dur = Math.round(draftForThisSession.durationSeconds || 0);
+            const initialSave = sessionId ? undefined : (this.pendingInitialSaveContext ?? undefined);
+            this.pendingFullSaveRetry = {
+                sessionId,
+                ...(initialSave ? { initialSave } : {}),
+                completeArgs: {
+                    status: 'completed',
+                    duration: dur,
+                    nextActionSignal: draftForThisSession.nextActionSignal ?? null,
+                    metrics: {
+                        totalWords: draftForThisSession.metrics.totalWords ?? null,
+                        clarityScore: draftForThisSession.metrics.clarityScore ?? null,
+                        wpm: draftForThisSession.metrics.wpm ?? null,
+                        fillerCounts: draftForThisSession.metrics.fillerCounts ?? null,
+                        pauseMetrics: draftForThisSession.metrics.pauseMetrics ?? null,
+                    },
+                },
+                attributionEvidence: null,  // #1161: mid-recording failure has no trusted identity → no authority
+                progressContext: this.buildProgressCompletionContext(dur),
+                progressMetrics: { payload: null, persisted: false },
+            };
+            logger.warn({ sessionId, kind: this.pendingResolutionKind(), state: this.state }, '[controller] post-start failure with a FINALIZED draft → save retry armed (#1306/#1033 1/B)');
+            this.publishLockState();
+            return;
+        }
+        // No finalized metrics to save (only partial/interrupted state) → resolve by discard; never fabricate a
+        // completion. The interrupted snapshot (if any) remains an explicitly incomplete, non-Progress record.
+        this.markRecordingResolved();
+        logger.info({ state: this.state, hasSession: Boolean(sessionId), hasOwner: Boolean(userId), interrupted: draftForThisSession?.recoveryState === 'active_interrupted' }, '[controller] post-start failure with no finalized work → resolved (unlocked) (#1306/#1033 B)');
+    }
+
+    /**
+     * #1033 (B/6) — explicit, user-CONFIRMED discard of an unresolved recording. The UI MUST warn that unsaved
+     * work will be lost before calling this.
+     *
+     * HONEST PERSISTENCE. Explicit discard authorizes losing the TRANSCRIPT — it does not authorize leaving the
+     * database inconsistent while destroying the only recovery copy. Three distinct outcomes:
+     *  - `discarded` — no database row exists (nothing to mark). Local state cleared; unlocked.
+     *  - `discarded` — an existing row was successfully marked failed. Local draft cleared; unlocked.
+     *  - `retryable` — an existing row could NOT be marked failed. The recovery draft is KEPT and the recording
+     *    stays locked/retryable, so we never claim a clean discard over an active/pending row. The caller
+     *    should surface the failure and offer retry.
+     */
+    public async discardUnresolvedRecording(): Promise<{ outcome: 'discarded' | 'retryable'; sessionId: string | null }> {
+        const sessionId = this.pendingFullSaveRetry?.sessionId ?? this.pendingAttributionRetry?.sessionId ?? this.sessionId ?? null;
+
+        if (sessionId) {
+            let marked = false;
+            try {
+                const res = await completeSession(sessionId, {
+                    status: 'failed',
+                    reason: 'User discarded an unsaved recording after a save/attribution failure.',
+                });
+                marked = Boolean(res?.success);
+            } catch (e) {
+                logger.warn({ e, sessionId }, '[controller] discard: marking the session failed threw (#1033 6)');
+                marked = false;
+            }
+            if (!marked) {
+                // The row exists but could not be marked failed. Do NOT destroy the sole recovery copy and do
+                // NOT claim success — remain locked + retryable so the state stays honest and recoverable.
+                logger.error({ sessionId }, '[controller] discard NOT completed — row could not be marked failed; keeping draft + staying locked (#1033 6)');
+                return { outcome: 'retryable', sessionId };
+            }
+            clearSessionRecoveryDraft(sessionId);
+        } else {
+            // No database row was ever created — there is nothing to reconcile; clear local state only.
+            clearSessionRecoveryDraft();
+        }
+
+        this.pendingFullSaveRetry = null;
+        this.pendingAttributionRetry = null;
+        this.markRecordingResolved();
+        logger.info({ sessionId, state: this.state }, '[controller] unresolved recording discarded → unlocked (#1033 B)');
+        return { outcome: 'discarded', sessionId };
+    }
+
+    /**
+     * #1033 (C) — same-user reload rehydration. Reads the recovery draft ONLY if it belongs to `userId`
+     * (account-boundary safe — never exposes one user's unsaved work to another), and if present re-arms the
+     * unresolved-recording lock + a full-save retry so the user can Retry Save or Discard after a reload.
+     * Returns true when a draft for this user was rehydrated. No-op (returns false) when there is none for them.
+     */
+    public rehydrateUnresolvedRecording(userId: string | null | undefined): boolean {
+        const draft = getRecoverableDraftForUser(userId);
+        // #1306: only a FINALIZED draft can be re-armed for completion. An active_interrupted draft has no final
+        // metrics and must never rehydrate into a completable save.
+        if (!draft || draft.recoveryState !== 'finalized_pending_save') return false;
+        this.sessionId = draft.sessionId;
+        this.recordingStartedUnresolved = true;
+        this.pendingFullSaveRetry = {
+            sessionId: draft.sessionId,
+            completeArgs: {
+                status: 'completed',
+                duration: Math.round(draft.durationSeconds),
+                nextActionSignal: draft.nextActionSignal ?? null,
+                metrics: {
+                    totalWords: draft.metrics.totalWords ?? null,
+                    clarityScore: draft.metrics.clarityScore ?? null,
+                    wpm: draft.metrics.wpm ?? null,
+                    fillerCounts: draft.metrics.fillerCounts ?? null,
+                    pauseMetrics: draft.metrics.pauseMetrics ?? null,
+                },
+            },
+            attributionEvidence: null,  // #1161: rehydrated recording has no trusted identity → no authority
+            // The recovery draft carries no objective brief linkage. Missing mode context fails closed instead
+            // of being guessed as Open Mic after reload.
+            progressContext: { mode: 'unknown' },
+            // Progress must remain unavailable rather than writing an immutable partial evaluation.
+            progressMetrics: { payload: null, persisted: false },
+        };
+        this.publishLockState();
+        logger.info({ sessionId: draft.sessionId }, '[controller] rehydrated FINALIZED unresolved recording for same user (#1306/#1033 C)');
+        return true;
+    }
+
+    /** Closed allowlist of engine tokens eligible for a VERIFIED attribution. Anything else → unverified. */
+    private static readonly VERIFIABLE_ENGINES: ReadonlySet<string> = new Set(['native', 'private', 'cloud']);
+
+    /**
+     * #1033 — Snapshot the finalizing engine's durable identity from the LIVE engine.
+     * MUST be called BEFORE `service.stopTranscription()` (which can mutate/destroy engine metadata).
+     * One recording = one engine (the selector is locked while recording — Part 2), so `producerMode`
+     * is authoritative.
+     *
+     * VERIFIED requires ALL of: a known engine token (closed allowlist), real live `getMetadata()`
+     * (no fabricated/default fallback), and non-blank engine_version/model_name/device_type. For Private
+     * the resolved arm is used only when it belongs to THE CURRENT recording/session. Anything unconfirmable
+     * — unknown engine, missing/throwing metadata, incomplete/blank tuple — yields `{ attribution_status:
+     * 'unverified' }` and does NOT overwrite the placeholder identity. Never invents a token.
+     */
+    private captureFinalizingIdentity(
+        service: { getMetadata?: () => { engineVersion?: string | null; modelName?: string | null; deviceType?: string | null } | null } | null,
+        producerMode: string | null,
+    ): { engine?: string; engine_version?: string; model_name?: string; device_type?: string; attribution_status: AttributionStatus } {
+        const unverified = { attribution_status: ATTRIBUTION_STATUS.UNVERIFIED } as const;
+        const nonBlank = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
+        try {
+            if (!producerMode || !SpeechRuntimeController.VERIFIABLE_ENGINES.has(producerMode)) return unverified;
+            // #1033 (2): the service reported a second engine during this recording — the transcript may mix
+            // producers, so it can NEVER be marked verified regardless of what metadata now reports.
+            if (this.producerIntegrityCompromised) {
+                logger.error({ sessionId: this.sessionId, producerMode }, '[controller] producer integrity compromised → unverified (#1033 2)');
+                return unverified;
+            }
+            // #1033 (4): final attribution MUST match the engine latched when this recording started. If the
+            // finalizing mode disagrees with the latch, the producer identity is not trustworthy → unverified
+            // (fail closed; never attribute a recording to an engine it did not demonstrably start on).
+            if (this.recordingEngineMode && producerMode !== this.recordingEngineMode) {
+                logger.error({ latched: this.recordingEngineMode, producerMode, sessionId: this.sessionId }, '[controller] finalizing mode ≠ latched producer → unverified (#1033 4)');
+                return unverified;
+            }
+            const meta = service?.getMetadata?.();
+            if (!meta) return unverified; // verified requires the real engine's metadata — never guess
+            const armForThisRecording = (
+                producerMode === 'private'
+                && nonBlank(this.resolvedPrivateEngineVersion)
+                && this.resolvedPrivateEngineSessionId === this.sessionId
+            ) ? this.resolvedPrivateEngineVersion : null;
+            const engineVersion = armForThisRecording ?? meta.engineVersion;
+            if (!nonBlank(engineVersion) || !nonBlank(meta.modelName) || !nonBlank(meta.deviceType)) return unverified;
+            return {
+                engine: producerMode,
+                engine_version: engineVersion,
+                model_name: meta.modelName,
+                device_type: meta.deviceType,
+                attribution_status: ATTRIBUTION_STATUS.VERIFIED,
+            };
+        } catch {
+            return unverified;
+        }
+    }
+
+    /**
+     * #1161: derive the server attestation evidence from the locally-gated finalizing identity. Returns null
+     * when there is NO trusted local identity to attest — an unverified identity (fail-closed local gate), or a
+     * Cloud producer (no trusted local identity; the server would reject it anyway). Only the two attestable
+     * classes map to a provider: Private (on-device transformers-js) and Browser (browser/OS Web Speech, which is
+     * externally processed — not on-device). The server (attest-session-engine → attest_session_engine_v1)
+     * re-validates and is the SOLE writer — this is advisory input, never trusted for the verdict, which records a
+     * client DECLARATION, not proof of which engine executed.
+     */
+    private static evidenceFromIdentity(
+        identity: { engine?: string; engine_version?: string; model_name?: string; device_type?: string; attribution_status: AttributionStatus },
+    ): RuntimeEvidence | null {
+        if (identity.attribution_status !== ATTRIBUTION_STATUS.VERIFIED || !identity.engine) return null;
+        const provider = identity.engine === 'private' ? 'transformers-js'
+            : identity.engine === 'native' ? 'web-speech'
+            : null;   // 'cloud' (or anything else) → no trusted local identity → do not attest
+        if (!provider) return null;
+        return {
+            provider,
+            engine: identity.engine,
+            engine_version: identity.engine_version,
+            model_id: identity.model_name,
+            resolved_device: identity.device_type,
+            fallback_occurred: false,   // captureFinalizingIdentity already proved a clean, latch-matched run
+            cloud_used: false,
+        };
+    }
+
+    /**
+     * #1161: the SOLE client entry point to the trusted server producer. The client can no longer write the
+     * locked attribution columns; it posts runtime evidence (or, for a definitive no-evidence run, a resolve
+     * request) and the Edge Function classifies + writes the terminal verdict. Contract:
+     *  - null evidence  → DEFINITIVE no trusted local identity (Cloud / unverifiable / rehydrated). This is NOT a
+     *    no-op: it posts `op:'resolve'` so the server writes the terminal `session_attribution_unattributed`
+     *    marker, letting #1045 Progress + #1117 retention CONVERGE instead of deferring forever. 2xx → terminal
+     *    { attributed: false }; 5xx/network → null (TRANSIENT; caller retries) — never silently pending (P1).
+     *  - present evidence, 2xx → { attributed: <server verdict> } (terminal).
+     *  - present evidence, 4xx (server rejected the evidence) → { attributed: false } (terminal; not retryable).
+     *  - either op, 5xx / network error → null (TRANSIENT; caller stashes for Retry Save).
+     */
+    private async attestSessionEngine(
+        sessionId: string, evidence: RuntimeEvidence | null,
+    ): Promise<{ attributed: boolean } | null> {
+        // Definitive no-local-evidence still reaches a SERVER terminal-unattributed resolution (P1) — only
+        // network/5xx stays transient. Present evidence → the normal attest path.
+        const body = evidence
+            ? { sessionId, runtimeEvidence: evidence }
+            : { op: 'resolve_unattributed', sessionId };
+        try {
+            const { data, error } = await getSupabaseClient().functions.invoke('attest-session-engine', { body });
+            if (error) {
+                const status = (error as { context?: { status?: number } })?.context?.status;
+                // 4xx = the server definitively rejected this request → terminal, not retryable.
+                if (typeof status === 'number' && status >= 400 && status < 500) return { attributed: false };
+                return null;   // 5xx / network (incl. resolve's not-yet-completed 503) → transient → retryable
+            }
+            return { attributed: Boolean((data as { attributed?: boolean } | null)?.attributed) };
+        } catch {
+            return null;   // network failure → retryable
+        }
+    }
+
+    private emitPrivateSetupStatus(type: string): void {
         try {
             if ((this.service?.getMode?.() ?? null) !== 'private') return;
             const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -517,19 +1204,19 @@ export class SpeechRuntimeController {
                 if (this.privateSetupStartedAt == null || this.privateSetupResolved) {
                     this.privateSetupStartedAt = now;
                     this.privateSetupResolved = false;
-                    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_STARTED, { ...buildSampleEnvProps() });
+                    emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.SETUP_STARTED, { ...buildPrivateEnvProps() });
                 }
             } else if (type === 'ready' && !this.privateSetupResolved) {
                 this.privateSetupResolved = true;
-                this.applyPrivateSampleContext();
-                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_SUCCEEDED, {
+                this.applyPrivateTelemetryContext();
+                emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.SETUP_SUCCEEDED, {
                     setup_duration_ms: this.privateSetupStartedAt != null ? Math.round(now - this.privateSetupStartedAt) : null,
-                    ...buildSampleEnvProps(),
+                    ...buildPrivateEnvProps(),
                 });
             } else if (type === 'error' && !this.privateSetupResolved && this.privateSetupStartedAt != null) {
                 this.privateSetupResolved = true;
-                this.applyPrivateSampleContext();
-                emitPrivateSample(PRIVATE_SAMPLE_EVENTS.SETUP_FAILED, { error_code: 'SetupError', ...buildSampleEnvProps() });
+                this.applyPrivateTelemetryContext();
+                emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.SETUP_FAILED, { error_code: 'SetupError', ...buildPrivateEnvProps() });
             }
         } catch {
             /* telemetry must never break the recording pipeline */
@@ -552,20 +1239,35 @@ export class SpeechRuntimeController {
         if (this.state !== 'RECORDING') return;
         const sessionId = this.sessionId;
         if (!sessionId) return;
+        // #1033 (1): a persisted session row only exists for an AUTHENTICATED user, so the draft MUST carry
+        // that owner. Writing an ownerless draft here would make the user's own work unrecoverable (the
+        // owner-scoped reader requires an exact match) AND would leave an unattributable draft in shared
+        // browser storage. If the owner is somehow unknown, fail CLOSED — never write an ownerless draft.
+        const userId = this.capturedUserId;
+        if (!userId) {
+            logger.warn({ sessionId }, '[controller] persistActiveRecoveryDraft skipped: no captured user id — refusing to write an ownerless draft (#1033)');
+            return;
+        }
 
         const store = useSessionStore.getState();
-        const { transcript: committed, partial } = store.transcript;
-        const transcript = [committed, partial].filter(Boolean).join(' ').trim();
-        if (!transcript) return;
+        // #1306: read the live transcript TRANSIENTLY only to decide whether anything was said — NEVER persist
+        // it. The snapshot itself is content-free.
+        const liveTranscript = this.collectRecoverableTranscript();
+        if (!liveTranscript) return;
+        const partialWordCount = liveTranscript.split(/\s+/).filter(Boolean).length;
 
         const startTime = store.startTime;
         const durationSeconds = startTime ? Math.max(0, Math.round((Date.now() - startTime) / 1000)) : 0;
 
+        // CONTENT-FREE, INTERRUPTED snapshot: partial synchronous counters only. It can NEVER become a completed
+        // session or enter Progress comparisons — it carries no final metrics and no next action.
         saveSessionRecoveryDraft({
             sessionId,
-            transcript,
+            userId,
+            recoveryState: 'active_interrupted',
             durationSeconds,
             mode: this.service?.getMode?.() ?? store.sttMode ?? 'unknown',
+            metrics: { totalWords: partialWordCount },
         });
     }
 
@@ -599,11 +1301,22 @@ export class SpeechRuntimeController {
      * that resolves when the service is instantiated and the engine is initialized.
      */
     public async warmUp(mode: TranscriptionMode = 'private'): Promise<void> {
+        // #1184 NOTE: warm-up still honors the requested `mode` and its lock-rejection contract (below). It is
+        // NOT a resolution/collapse point — the Private-only funnel is the policy layer (resolveMode /
+        // buildPolicyForUser / requestModeChange). Warming a retired engine directly is a residual layer-2
+        // leak (engine-code removal) tracked on #1165/#1184, not a "collapsed to Private" event.
         // Phase 1: Ensure Service Genesis (Once per session)
         await this.initializeInfrastructure();
         const requestId = ++this.warmUpRequestId;
 
         if (this.service) {
+            // #1033: while engine selection is locked, warm-up must not switch the ACTIVE engine (it writes
+            // this.policy.preferredMode directly, bypassing updatePolicy). Warming the already-selected engine
+            // is fine; warming a DIFFERENT one is rejected so one recording keeps one engine.
+            if (this.isEngineSelectionLocked() && this.policy && mode !== this.policy.preferredMode) {
+                logger.warn({ mode, active: this.policy.preferredMode, state: this.state }, '[SpeechRuntimeController] warmUp: engine change rejected — engine selection locked (#1033)');
+                return;
+            }
             const selectedMode = useSessionStore.getState().sttMode;
             if (selectedMode && selectedMode !== mode) {
                 logger.info({
@@ -670,6 +1383,25 @@ export class SpeechRuntimeController {
             await this.enqueue(async (_token) => {
                 if (!this.service) {
                     pushE2EEvent('SYNC_SUBSCRIPTION_SKIP', { reason: 'no_service' });
+                    return;
+                }
+
+                // #893: never subscribe to an already-terminated service. During the login→/session
+                // transition an enqueued sync can run against a service that was terminated in between;
+                // subscribe() would throw ENGINE_ALREADY_TERMINATED (a benign transition race) and surface
+                // as a GLOBAL UNHANDLED REJECTION. Skip + drop the stale ref so the next init recreates a
+                // fresh service (mirrors the isServiceDestroyed() guard already used on the init paths).
+                if (this.service.isServiceDestroyed()) {
+                    pushE2EEvent('SYNC_SUBSCRIPTION_SKIP', { reason: 'service_destroyed' });
+                    // #893: invalidate the cached STT readiness BEFORE dropping the dead reference. Otherwise
+                    // the terminated service's already-resolved `readyPromise` survives, and a subsequent
+                    // warmUp()/ensureReady() would short-circuit (`if (!this.readyPromise)` false), find
+                    // `this.service` null, and resolve WITHOUT creating/warming a replacement — leaving the
+                    // session reporting readiness with no live service. Clearing it (mirrors the teardown
+                    // pattern) forces the next readiness path back through initInternal to rebuild a fresh one.
+                    this.readyPromise = null;
+                    this.resetEphemeralState('service_destroyed_in_sync');
+                    this.service = null;
                     return;
                 }
 
@@ -740,21 +1472,88 @@ export class SpeechRuntimeController {
         }
     }
 
+    /**
+     * #1033 (A): the SINGLE authoritative engine-selection change. Returns accepted/rejected. While engine
+     * selection is locked it rejects BEFORE any mutation — the UI store mode, the controller preferredMode,
+     * and the service policy all stay unchanged, so nothing (not even Cloud-preservation) can restore the
+     * rejected engine. Callers (UI setMode) must NOT mutate the store on a rejection. When accepted, the store
+     * mode is set FIRST (Cloud-preservation reads it) and then the policy is applied.
+     */
+    public requestModeChange(nextMode: TranscriptionMode, nextPolicy: TranscriptionPolicy): { accepted: boolean; reason?: string } {
+        if (this.isEngineSelectionLocked()) {
+            logger.warn({ to: nextMode, state: this.state, kind: this.pendingResolutionKind() }, '[controller] requestModeChange rejected — engine selection locked (#1033)');
+            return { accepted: false, reason: 'engine_selection_locked' };
+        }
+        // #1184 STT exclusivity: the store must reference the RESOLVED engine of the applied policy, not the
+        // raw requested mode — so a request for a non-Private engine cannot leave the store (a layer) on an
+        // engine the policy won't run. Under Private-only this collapses any request to 'private' (fail-closed);
+        // under the legacy multi-engine policy it is a no-op (preferredMode === the requested mode).
+        if (isRetiredEngineRequest(nextMode)) {
+            emitEngineRequestCollapsedToPrivate({ source: 'requestModeChange', requestedMode: nextMode });
+        }
+        const resolvedMode = nextPolicy.preferredMode ?? nextMode;
+        useSessionStore.getState().setSTTMode(resolvedMode);
+        this.updatePolicy(nextPolicy);
+        return { accepted: true };
+    }
+
+    /**
+     * #1033 (A/5): does this policy change anything that can determine WHICH ENGINE PRODUCES SPEECH —
+     * the preferred engine, any engine allow-flag, or `allowFallback`? Fallback policy decides which engine
+     * takes over after a failure, so under the one-engine contract it is producer-affecting, not cosmetic.
+     */
+    private wouldChangeActiveProducer(p: TranscriptionPolicy): boolean {
+        const cur = this.policy;
+        if (!cur) return false;
+        return p.preferredMode !== cur.preferredMode
+            || p.allowNative !== cur.allowNative
+            || p.allowCloud !== cur.allowCloud
+            || p.allowPrivate !== cur.allowPrivate
+            || p.allowFallback !== cur.allowFallback;
+    }
+
     public updatePolicy(policy: TranscriptionPolicy): void {
-        const effectivePolicy = this.preserveAllowedCloudSelection(policy);
+        // #1033 (A): single authoritative gate. Normalize FIRST (Cloud-preservation etc.), then enforce the
+        // lock LAST so no normalization step can restore a rejected engine while locked. While engine selection
+        // is locked (Start intent, recording lifecycle, a pending resolution, or an unresolved recording), NO
+        // path (UI setMode, profile/entitlement sync, __E2E_SET_MODE__, warm-up, native selection, Cloud-
+        // preservation) may change the ACTIVE PRODUCER. EVERY producer-affecting field is frozen — the engine,
+        // all three allow-flags, AND `allowFallback` (which decides who produces speech after a failure).
+        // Only non-producer metadata (executionIntent) from the incoming policy passes through. A rejected
+        // entitlement/profile change is QUEUED and applied at the next recording's start boundary.
+        const normalized = this.preserveAllowedCloudSelection(policy);
+        let effectivePolicy = normalized;
+        if (this.isEngineSelectionLocked() && this.policy && this.wouldChangeActiveProducer(normalized)) {
+            logger.warn({ from: this.policy.preferredMode, to: normalized.preferredMode, state: this.state }, '[controller] updatePolicy: producer change rejected — engine selection locked (#1033)');
+            this.queuedProducerPolicy = normalized; // apply at the next recording boundary
+            effectivePolicy = {
+                ...normalized,
+                preferredMode: this.policy.preferredMode,
+                allowNative: this.policy.allowNative,
+                allowCloud: this.policy.allowCloud,
+                allowPrivate: this.policy.allowPrivate,
+                allowFallback: this.policy.allowFallback,
+            };
+        }
         this.policy = effectivePolicy;
         if (this.service) {
+            // #1033: this write is intentionally fire-and-forget, but its rejection MUST still be handled —
+            // an unhandled promise rejection here would surface as a process-level error (and in strict
+            // runtimes could terminate it) whenever the service refuses a policy. Callers that need the
+            // service to CONFIRM the policy use applyQueuedProducerPolicy(), which awaits it transactionally.
             void this.enqueue(async (token) => {
                 // Token check FIRST
-                if (token.cancelled || token.version !== this.lifecycleVersion) return; 
-                
+                if (token.cancelled || token.version !== this.lifecycleVersion) return;
+
                 const service = this.service; // Capture reference
                 if (!service) return;         // Explicit null check
 
                 await service.updatePolicy(effectivePolicy);
-                
+
                 // Re-check after await
                 if (token.cancelled || token.version !== this.lifecycleVersion) return;
+            }).catch((e) => {
+                logger.warn({ e, preferredMode: effectivePolicy.preferredMode }, '[SpeechRuntimeController] service policy update failed (non-fatal; policy retained)');
             });
         }
     }
@@ -864,6 +1663,12 @@ export class SpeechRuntimeController {
         return this.state;
     }
 
+    /** #1258: token that increments on each actual idle reclamation. A change since a consumer last observed it
+     *  means the engine was genuinely reclaimed (not merely idle / not a tab switch). */
+    public getIdleReclamationGeneration(): number {
+        return this.idleReclamationGeneration;
+    }
+
     private updateSessionPersisted(
         persisted: boolean,
         details?: { sessionId?: string | null; mode?: string | null },
@@ -916,6 +1721,44 @@ export class SpeechRuntimeController {
         return Math.max(chunkTranscript.length, storeTranscript.length);
     }
 
+    /**
+     * #1033 (3) — the CANONICAL recoverable-transcript selection, mirroring the finalization candidate
+     * chain (service_result is unavailable at failure time). Considers EVERY source finalization would:
+     * committed final, chunks, committed store text, the visible/frozen-at-stop snapshot, the best
+     * meaningful partial, the raw partial, and the combined visible snapshot. Quality-preferring like
+     * finalization (`??` chain), but NEVER returns empty while any recoverable speech text exists — a
+     * recording with only partial text or only chunks must never be classified as "nothing to recover".
+     */
+    private collectRecoverableTranscript(): string {
+        this.syncTranscriptLifecycleFromStore();
+        const store = useSessionStore.getState();
+        const chunkTranscript = store.chunks.map(chunk => chunk.transcript).join(' ').trim();
+        const storeTranscript = store.transcript.transcript.trim();
+        const storePartialTranscript = store.transcript.partial.trim();
+        const visibleStoreTranscript = [storeTranscript, storePartialTranscript].filter(Boolean).join(' ').trim();
+        const frozenStopTranscript = store.frozenTranscriptAtStop?.trim() || '';
+
+        const candidates = [
+            this.transcriptLifecycle.committedFinal || chunkTranscript || storeTranscript,
+            this.transcriptLifecycle.lastVisibleTranscriptAtStop || frozenStopTranscript,
+            this.transcriptLifecycle.bestMeaningfulPartial || storePartialTranscript,
+            visibleStoreTranscript,
+            chunkTranscript,
+            storePartialTranscript,
+        ]
+            .map(text => (text ?? '').trim())
+            .filter(Boolean);
+        if (candidates.length === 0) return '';
+
+        // RECOVERY maximizes preservation: among candidates, prefer the MEANINGFUL ones and take the most
+        // complete (longest) — so a committed body plus its in-progress partial tail is kept whole rather than
+        // truncated to the committed text alone. If nothing qualifies as meaningful, still keep the longest
+        // non-empty text rather than discarding the user's words.
+        const longest = (texts: string[]) => texts.reduce((a, b) => (b.length > a.length ? b : a));
+        const meaningful = candidates.filter(text => hasMeaningfulTranscriptText(text));
+        return meaningful.length > 0 ? longest(meaningful) : longest(candidates);
+    }
+
     private isActionableStartError(status?: SttStatus): boolean {
         if (!status || status.type !== 'error') {
             return false;
@@ -925,15 +1768,31 @@ export class SpeechRuntimeController {
     }
 
     private async transition(newState: RuntimeState, error?: Error, token?: LifecycleToken): Promise<void> {
+        // #1033: release the Start-intent BRIDGE once a real state is reached — the lifecycle-state set,
+        // the pending-retry, and recordingStartedUnresolved now govern isEngineSelectionLocked(). Once a
+        // recording has actually begun, mark it unresolved so a POST-start failure (which lands in a
+        // non-locked state) keeps engine selection locked until durable save/retry/approved-discard.
+        this.engineSelectionIntentLocked = false;
         if (newState === 'RECORDING') {
             if (!this.canTransitionToRecording()) {
                 return;
             }
+            // Recording confirmed to begin → keep engine selection locked until durable save/retry/discard,
+            // even if a later failure lands in a non-locked state (FAILED/TERMINATED/READY/IDLE).
+            this.recordingStartedUnresolved = true;
         }
 
         const previousState = this.state;
         this.state = newState;
         this.syncProvider(this.lifecycleVersion);
+
+        // #1033 (B): a terminal failure of a recording that BEGAN must never leave the user locked with no
+        // recovery. Guarantee an actionable resolution (arm a full-save retry from recoverable work, or unlock
+        // if there is nothing to save). Runs for FAILED/FAILED_VISIBLE/TERMINATED; a no-op when a specific
+        // retry op is already stashed or the recording never began.
+        if (newState === 'FAILED' || newState === 'FAILED_VISIBLE' || newState === 'TERMINATED') {
+            this.ensurePostStartFailureIsActionable();
+        }
 
         logger.info({ from: previousState, to: newState }, '[SpeechRuntimeController] ⚡ Transition');
         const store = useSessionStore.getState();
@@ -967,6 +1826,20 @@ export class SpeechRuntimeController {
             previousState === 'FAILED_VISIBLE';
 
         this.lock.updateState(newState);
+
+        // #1314 C6: clear the "Finalizing…" banner through this ONE transition reducer whenever the
+        // controller reaches a resting/terminal state, so no stop path can leave `isTranscriptFinalizing`
+        // latched true after the controller is READY (the stale-banner "stuck session" defect). The
+        // 4-minute finalization safety timeout is unchanged.
+        if (
+            newState === 'READY' ||
+            newState === 'IDLE' ||
+            newState === 'TERMINATED' ||
+            newState === 'FAILED' ||
+            newState === 'FAILED_VISIBLE'
+        ) {
+            if (store.isTranscriptFinalizing) store.setTranscriptFinalizing(false);
+        }
 
         if (isExitTransition) {
             const currentStatus = store.sttStatus;
@@ -1041,6 +1914,7 @@ export class SpeechRuntimeController {
         }
 
         if (newState === 'RECORDING' && previousState !== 'RECORDING') {
+            this.recordingProgressMode = this.snapshotProgressModeAtRecordingBoundary();
             store.startSession();
         }
 
@@ -1178,6 +2052,39 @@ export class SpeechRuntimeController {
         return false;
     }
 
+    /**
+     * #1033 (2) — PRODUCER-INTEGRITY FAILURE. The service reported an engine different from the one latched
+     * for this recording, so the transcript may already mix two producers. Fail closed and honestly:
+     *  1. mark the producer as compromised so finalization can NEVER mark this row `verified`;
+     *  2. stop the engine safely (best-effort) and leave the recording UNRESOLVED so it stays locked;
+     *  3. preserve the recoverable transcript and arm the correct recovery op (initial-save or full-save)
+     *     with `attribution_status = 'unverified'`;
+     *  4. surface an actionable error — never keep claiming the latched engine is still producing.
+     */
+    private async failProducerIntegrity(reportedMode: TranscriptionMode | null): Promise<void> {
+        this.producerIntegrityCompromised = true;
+        pushNativeRuntimeTrace('controller_producer_integrity_failure', {
+            latched: this.recordingEngineMode,
+            reported: reportedMode ?? null,
+        });
+        useSessionStore.getState().setSTTStatus({
+            type: 'error',
+            message: 'Recording stopped: the transcription engine changed unexpectedly.',
+            detail: 'Your transcript was kept and can be saved, but its engine could not be verified.',
+        });
+        // Stop the engine so it cannot keep producing under a second identity. Best-effort: teardown failure
+        // must not prevent the recovery arming below.
+        try {
+            await this.service?.stopTranscription?.();
+        } catch (e) {
+            logger.warn({ e }, '[controller] producer-integrity stop failed (continuing to arm recovery) (#1033 2)');
+        }
+        // The recording BEGAN, so it stays unresolved/locked; arm the actionable recovery for its transcript.
+        this.recordingStartedUnresolved = true;
+        this.ensurePostStartFailureIsActionable();
+        await this.transition('FAILED', new Error('PRODUCER_INTEGRITY_ENGINE_CHANGED'));
+    }
+
     private handleModeChange(mode: TranscriptionMode | null) {
         const store = useSessionStore.getState();
         const isActiveSessionTransition = ['INITIATING', 'RECORDING', 'STOPPING'].includes(this.state);
@@ -1188,6 +2095,37 @@ export class SpeechRuntimeController {
                 selectedMode: store.sttMode,
                 controllerState: this.state,
             }, '[SpeechRuntimeController] Ignoring idle warm-up mode callback');
+            return;
+        }
+
+        // #1033 (2/4): one recording = one engine. Once the producer is LATCHED, a service callback reporting a
+        // DIFFERENT mode means the SERVICE MAY ACTUALLY HAVE SWITCHED ENGINES — the transcript could already
+        // contain two producers. Merely ignoring the callback and repainting the old label would leave the UI
+        // claiming an engine that is no longer producing. This is a FATAL producer-integrity event: terminate
+        // the recording safely, preserve the recoverable transcript, arm the correct recovery, and force the
+        // attribution to `unverified` (a mixed-engine row can NEVER be marked verified).
+        // #1033 (2): once this recording is already compromised/terminal, further mismatched callbacks are
+        // STALE — ignore them entirely (no second teardown, no state mutation, no DB action).
+        if (this.producerIntegrityCompromised) {
+            logger.warn({ reportedMode: mode, state: this.state }, '[SpeechRuntimeController] Ignoring stale mode callback after producer-integrity failure (#1033 2)');
+            return;
+        }
+
+        if (this.recordingEngineMode && mode !== this.recordingEngineMode) {
+            logger.error({
+                reportedMode: mode,
+                latchedMode: this.recordingEngineMode,
+                controllerState: this.state,
+                sessionId: this.sessionId,
+            }, '[SpeechRuntimeController] PRODUCER INTEGRITY FAILURE — service reported a different engine mid-recording (#1033 2)');
+            // Start the teardown ONCE. Repeated/concurrent duplicate callbacks reuse the SAME promise and
+            // perform no second stop, transition, recovery mutation, or DB action. The handle is retained
+            // (not cleared here) so post-completion stale callbacks are inert too; it is cleared only at the
+            // next recording boundary.
+            if (!this.producerIntegrityTeardown) {
+                this.producerIntegrityTeardown = this.failProducerIntegrity(mode)
+                    .catch((e) => { logger.warn({ e }, '[controller] producer-integrity teardown error (#1033 2)'); });
+            }
             return;
         }
 
@@ -1214,7 +2152,7 @@ export class SpeechRuntimeController {
         if (status.type === 'ready') {
             this.setEngineReady(true);
         }
-        this.emitPrivateSampleSetupStatus(status.type);
+        this.emitPrivateSetupStatus(status.type);
         // P0.2: surface engine-originated local finalization status to the store so
         // the UI shows "Processing speech locally…" during STOPPING instead of the
         // stale "Recording active". Scoped to informational status while a session
@@ -1232,11 +2170,26 @@ export class SpeechRuntimeController {
 
     private resetAnalysisStateForNewRecording(): void {
         const store = useSessionStore.getState();
+        // #1033: drop the resolved Private arm at the recording boundary so a prior Private recording
+        // can never verify a later Browser/Cloud/Private row (re-latched on the next Private resolve).
+        this.resolvedPrivateEngineVersion = null;
+        this.resolvedPrivateEngineSessionId = null;
+        // #1033 (4): a NEW recording is starting — drop the previous recording's producer latch so it cannot
+        // leak across recordings. The new latch is set only once this start actually reaches RECORDING.
+        // The integrity flag is cleared HERE (a recording boundary), never at resolution, so it survives
+        // through finalization and keeps a compromised recording from ever being marked verified.
+        this.recordingEngineMode = null;
+        this.producerIntegrityCompromised = false;
+        this.producerIntegrityTeardown = null;
         this.resetTranscriptLifecycle();
         store.updateTranscript('', '');
         store.freezeTranscriptAtStop(null);
         store.setTranscriptFinalizing(false);
         store.updateFillerData({});
+        // #1306 Option A: drop the prior take's terminal metric snapshot so it never lingers onto a new session.
+        store.setFinalizedWordCount(null);
+        store.setFinalizedFillerData(null);
+        store.setFinalizedFillerCount(null);
         store.setChunks([]);
         store.setPauseMetrics({
             totalPauses: 0,
@@ -1288,6 +2241,24 @@ export class SpeechRuntimeController {
         this.transcriptLifecycle = createEmptyTranscriptLifecycleState();
     }
 
+    /**
+     * #1306 P1: purge the ephemeral live transcript from working-memory surfaces once metrics have been derived
+     * and the session finalized. The live transcript is working memory ONLY; after finalization it must not
+     * linger in the session store or the controller's transcript lifecycle (incl. selectedTranscriptForSave).
+     * Metrics (fillerCounts / next_action / clarity) are held separately (finalizedAnalysis + the metrics-only
+     * save payload), so clearing the raw text here never affects the save, a Retry Save, or the review reader.
+     * Production diagnostics already carry lengths only (see pushNativeStoreTrace + the debug object), so the
+     * dev/proof trace ring is intentionally left intact for test harnesses.
+     */
+    private purgeTranscriptWorkingMemory(): void {
+        try {
+            const store = useSessionStore.getState();
+            store.updateTranscript('', '');
+            store.setChunks([]);
+        } catch { /* store may be torn down mid-teardown; best-effort */ }
+        this.resetTranscriptLifecycle();
+    }
+
     private freezeTranscriptLifecycleAtStop(): string {
         this.syncTranscriptLifecycleFromStore();
         const frozen =
@@ -1309,15 +2280,25 @@ export class SpeechRuntimeController {
 
         const pushNativeStoreTrace = (event: string, payload: Record<string, unknown> = {}) => {
             if (typeof window === 'undefined' || !window.__NATIVE_BROWSER_TRACE__) return;
-            window.__NATIVE_BROWSER_TRACE__.push({
+            // #1306 P1: diagnostics retain only codes/numbers/LENGTHS — NEVER transcript text, in ANY build
+            // (test/E2E/real-device artifacts are inside the privacy boundary too). The base carries lengths; any
+            // transcript-bearing key (base + any passed in `payload`) is stripped below so no spoken prose ever
+            // lands in the retained trace ring.
+            const entry: Record<string, unknown> = {
                 t: Number(performance.now().toFixed(1)),
                 event,
-                currentTranscript,
-                partial: data.transcript.partial ?? '',
-                final: data.transcript.final ?? '',
+                currentTranscriptLength: currentTranscript.length,
+                partialLength: (data.transcript.partial ?? '').length,
+                finalLength: (data.transcript.final ?? '').length,
                 chunkCount: store.chunks.length,
                 ...payload,
-            });
+            };
+            // #1306 P1: NEVER retain transcript text in a diagnostic trace, in any build — strip every
+            // transcript-bearing key (base + any passed in `payload`). Lengths above are the only text signal.
+            for (const k of ['currentTranscript', 'partial', 'final', 'preview', 'finalTranscript', 'newFullText', 'text', 'frozenAtStop']) {
+                if (k in entry) delete entry[k];
+            }
+            window.__NATIVE_BROWSER_TRACE__.push(entry);
         };
 
         // 🛡️ USER_ID EMISSION GUARD: Ensure transcripts belong to the session starter
@@ -1495,6 +2476,19 @@ export class SpeechRuntimeController {
         if (expectedVersion !== this.lifecycleVersion) return;
         const mode = this.policy?.preferredMode ?? null;
         syncRuntimeState(this.state, mode);
+        this.publishLockState();
+    }
+
+    /**
+     * #1033 Part-2b: publish the authoritative lock + recovery state so the selector UI and the
+     * Retry/Discard surfaces read the SAME truth the controller enforces — never their own guess.
+     * `syncProvider` fires only on FSM transitions, but the recovery operations (retry / discard /
+     * rehydrate / resolution) mutate the lock WITHOUT a transition — they must republish, or the banner
+     * would linger and the selector stay locked after a successful retry/discard (and not appear after
+     * a reload rehydration).
+     */
+    private publishLockState(): void {
+        useSessionStore.getState().setEngineSelectionLock(this.isEngineSelectionLocked(), this.pendingResolutionKind());
     }
 
     /**
@@ -1616,6 +2610,21 @@ export class SpeechRuntimeController {
     }
 
     public async startRecording(policy?: TranscriptionPolicy, userWords: string[] = []): Promise<void> {
+        // #1033: do not start a new recording while a prior recording is unresolved — a pending attribution
+        // retry, OR a recording that began and failed post-start without a durable save. Its identity must be
+        // resolved (Retry Save) or explicitly discarded first. This bounds the system to AT MOST ONE
+        // unresolved recording, so the single retry slot / unresolved signal can never be clobbered.
+        if (this.pendingAttributionRetry || this.pendingFullSaveRetry || this.recordingStartedUnresolved) {
+            logger.warn({ pendingSession: (this.pendingFullSaveRetry ?? this.pendingAttributionRetry)?.sessionId ?? null, kind: this.pendingResolutionKind(), unresolved: this.recordingStartedUnresolved }, '[controller] startRecording blocked: prior recording unresolved (#1033)');
+            useSessionStore.getState().setSTTStatus({ type: 'error', message: 'Finish saving your previous recording before starting a new one.' });
+            return;
+        }
+        // #1033: lock engine selection SYNCHRONOUSLY at Start intent — before any async enqueue reaches
+        // INITIATING — so a rapid engine change right after Start cannot win the race. Released in transition().
+        this.engineSelectionIntentLocked = true;
+        // This take has no persisted row yet. Clear the previous take synchronously so a report opened
+        // during setup/start cannot inherit stale session correlation.
+        clearPrivateRecordingIdentity();
         this.policy = policy || null;
         this.userWords = userWords;
         // A new recording supersedes any prior stop's pending finalization: bump the finalize token so a
@@ -1623,6 +2632,10 @@ export class SpeechRuntimeController {
         // this one, and clear the prior finalized signal so its settled UI (toast/cue/copy) does not linger.
         this.finalizeSequence++;
         useSessionStore.getState().setFinalizedAnalysis(null);
+        // #1046 slice 5a: a new recording also clears any prior Focus Points coverage rail, so the
+        // settled UI from an earlier objective session never lingers onto this one (mirrors the
+        // finalizedAnalysis clear above; the brief itself is consumed separately at the stop seam).
+        useSessionStore.getState().setObjectiveCoverageResult(null);
         const recordingId = crypto.randomUUID();
         this.currentRecordingId = recordingId;
         pushNativeRuntimeTrace('controller_start_requested', {
@@ -1659,6 +2672,10 @@ export class SpeechRuntimeController {
                 pushNativeRuntimeTrace('controller_start_skip_bad_state', {
                     state: this.state,
                 });
+                // #1033 item 4: this Start is aborting before any transition (no INITIATING → no lifecycle-state
+                // lock yet). Release the synchronous Start-intent lock so it can't leak. If another recording is
+                // genuinely active it stays locked via RECORDING_LIFECYCLE_STATES; a stale/double Start does not.
+                this.engineSelectionIntentLocked = false;
                 return;
             }
 
@@ -1672,6 +2689,8 @@ export class SpeechRuntimeController {
                     version,
                     lifecycleVersion: this.lifecycleVersion,
                 });
+                // #1033 item 4: aborting before the INITIATING transition — release the Start-intent lock.
+                this.engineSelectionIntentLocked = false;
                 return;
             }
 
@@ -1754,6 +2773,29 @@ export class SpeechRuntimeController {
             const service = this.service;
             if (!service) throw new Error('SERVICE_MISSING');
 
+            // #1033 (1): resolve the authenticated OWNER and arm the initial-save recovery context BEFORE
+            // `startTranscription()` — i.e. before the engine/microphone can produce a single transcript
+            // callback. Moving this after startTranscription (or merely before the RECORDING transition) would
+            // leave a window in which speech is produced with no owner to bind a recovery draft/retry to.
+            // `getSession()` reads the local session, so this does not delay the mic meaningfully.
+            const supabase = getSupabaseClient();
+            pushNativeRuntimeTrace('controller_supabase_session_start');
+            const { data: { session: authSession } } = await supabase.auth.getSession();
+            pushNativeRuntimeTrace('controller_supabase_session_done', {
+                hasUser: Boolean(authSession?.user?.id),
+            });
+            if (_token.cancelled || _token.version !== this.lifecycleVersion) {
+                await this.transition('READY', undefined, _token);
+                return;
+            }
+            const userId = authSession?.user?.id;
+            this.capturedUserId = userId || null;
+            // Owner-bound recovery contract for the pre-session window (row does not exist yet). Carries this
+            // recording's idempotency identity so a later initial-save retry can never create a duplicate row.
+            this.pendingInitialSaveContext = userId
+                ? { userId, recordingId, mode: this.policy?.preferredMode ?? mode }
+                : null;
+
             pushE2EEvent('SR_BEFORE_ENGINE_INIT');
             pushNativeRuntimeTrace('controller_transition_engine_initializing_start');
             await this.transition('ENGINE_INITIALIZING', undefined, _token);
@@ -1770,6 +2812,37 @@ export class SpeechRuntimeController {
                 // event is missed. The real DB id + negotiated mode are rebound below WITHOUT resetting the
                 // captured state. No-op in production.
                 this.startShadowMetricsEngine(recordingId, mode);
+
+                // #1161 (Option 2 — pre-session intent): record the client-DECLARED engine mode + model as an
+                // immutable, server-RECORDED intent BEFORE the producing engine can start or capture a sample.
+                // This is a DECLARATION, not proof of execution (Private and Browser both run client-side; Browser
+                // is externally processed, never an on-device claim). It registers a pre-session INTENT keyed on
+                // the recording id — it creates NO session row, so a recording that never reaches RECORDING
+                // persists nothing (the #1033 discard safeguard is preserved). The session is created only AFTER
+                // RECORDING is confirmed (below), where the intent is atomically BOUND to it. AWAITED so capture
+                // cannot begin before the declaration is recorded; errors are surfaced (logged), never discarded —
+                // fail-closed ⇒ the session resolves definitively unattributed later, recording unaffected. The
+                // class/model come from the REQUESTED mode; attest checks the reported runtime for CONSISTENCY, so
+                // a divergent runtime resolves unattributed. Cloud registers no intent.
+                if (userId && (mode === 'private' || mode === 'native')) {
+                    try {
+                        const reg = await getSupabaseClient().functions.invoke('attest-session-engine', {
+                            // Engine type travels in the authenticated request HEADER, never the (client-controlled)
+                            // payload — the Edge rejects a payload override. Private is the primary path; Browser is
+                            // the secondary, containment-only class.
+                            headers: { 'X-SpeakSharp-Engine-Type': mode === 'private' ? 'private' : 'browser' },
+                            body: {
+                                op: 'register',
+                                recordingKey: recordingId,
+                                expectedModel: mode === 'private' ? resolvePrivateModel() : null,
+                            },
+                        });
+                        if (reg?.error) logger.warn({ err: reg.error, recordingId }, '[controller] pre-recording attribution intent failed — session will be unattributed');
+                    } catch (e) {
+                        logger.warn({ e, recordingId }, '[controller] pre-recording attribution intent threw — session will be unattributed');
+                    }
+                }
+
                 await service.startTranscription(policy, userWords);
                 // #891 Phase 5.7 (SHADOW): the negotiated/actual mode is now settled — bind it so the shadow
                 // engine filters by the REAL mode (not the requested one), keeping the early events it
@@ -1796,6 +2869,13 @@ export class SpeechRuntimeController {
                     if (safeCause) (wrapper as Error & { cause?: unknown }).cause = safeCause;
                     throw wrapper;
                 }
+                // #1033 (4): the service has CONFIRMED it is recording — latch the producing engine now. This
+                // is the immutable identity of this recording: later service callbacks reporting another mode
+                // are rejected, and final attribution must match it. Cleared on save / confirmed discard / the
+                // next recording's start boundary.
+                this.recordingEngineMode = (service.getMode?.() as TranscriptionMode | null | undefined) ?? mode;
+                pushNativeRuntimeTrace('controller_producer_latched', { latchedMode: this.recordingEngineMode });
+
                 this.isEmissionsSafe = true;
                 if (_token.cancelled || _token.version !== this.lifecycleVersion) {
                     await this.transition('READY', undefined, _token);
@@ -1810,61 +2890,66 @@ export class SpeechRuntimeController {
                 }
                 this.setEngineReady(true);
                 this.isEmissionsSafe = true;
+                // (Owner + initial-save recovery context were established BEFORE startTranscription — #1033 (1).)
                 pushNativeRuntimeTrace('controller_recording_invariant_start');
                 await this.checkRecordingInvariant();
                 pushNativeRuntimeTrace('controller_recording_invariant_done');
 
-                const supabase = getSupabaseClient();
-                pushNativeRuntimeTrace('controller_supabase_session_start');
-                const { data: { session } } = await supabase.auth.getSession();
-                pushNativeRuntimeTrace('controller_supabase_session_done', {
-                    hasUser: Boolean(session?.user?.id),
-                });
-                if (_token.cancelled || _token.version !== this.lifecycleVersion) {
-                    await this.transition('READY', undefined, _token);
-                    return;
-                }
-
-                const userId = session?.user?.id;
-                this.capturedUserId = userId || null;
-
                 if (userId) {
-                    const mode = service.getMode() || 'unknown';
+                    // #1033 / #1161 (Option 2): the session is persisted ONLY here — after RECORDING is CONFIRMED
+                    // (past the not-recording throw + DOWNLOAD_REQUIRED early-return above) — so a start that never
+                    // reaches recording creates no session. The negotiated/actual mode is now settled.
+                    const negMode = service.getMode() || 'unknown';
                     const idempotencyKey = recordingId;
                     const metadata = service.getMetadata?.() || (
-                        mode === 'private'
+                        negMode === 'private'
                             ? { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' }
-                            : mode === 'cloud'
+                            : negMode === 'cloud'
                                 ? { engineVersion: 'assemblyai', modelName: 'universal-streaming', deviceType: 'cloud' }
                                 : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
                     );
 
-                    const sessionData = {
-                        user_id: userId,
-                        title: `Session ${new Date().toLocaleString()}`,
-                        duration: 0,
-                        transcript: ' ',
-                        total_words: 0,
-                        engine: mode
-                    };
+                    // #1161 (finding 6): enrich the initial-save recovery context with the SAME engine provenance
+                    // this save uses, so an initial-save RETRY recreates the row with identical engine identity.
+                    if (this.pendingInitialSaveContext && this.pendingInitialSaveContext.userId === userId) {
+                        this.pendingInitialSaveContext = {
+                            ...this.pendingInitialSaveContext, mode: negMode,
+                            engineVersion: metadata.engineVersion, modelName: metadata.modelName, deviceType: metadata.deviceType,
+                        };
+                    }
 
                     this.updateSessionPersisted(false);
-                    pushNativeRuntimeTrace('controller_placeholder_save_start', {
-                        mode,
-                    });
-                    const saveResult = await saveSession(sessionData, { id: userId } as UserProfile, mode, idempotencyKey, metadata);
+                    pushNativeRuntimeTrace('controller_placeholder_save_start', { mode: negMode });
+                    const saveResult = await saveSession(
+                        { user_id: userId, title: `Session ${new Date().toISOString()}`, duration: 0, total_words: 0, engine: negMode },
+                        { id: userId } as UserProfile, negMode, idempotencyKey, metadata);
                     pushNativeRuntimeTrace('controller_placeholder_save_done', {
-                        hasDbSession: Boolean(saveResult?.session),
-                        usageExceeded: Boolean(saveResult?.usageExceeded),
+                        hasDbSession: Boolean(saveResult?.session), usageExceeded: Boolean(saveResult?.usageExceeded),
                     });
                     const dbSession = saveResult?.session;
 
                     if (dbSession) {
                         this.sessionId = dbSession.id;
-                        // #891 Phase 5.7 (SHADOW): bind the real DB id + negotiated mode into the already-
-                        // running shadow engine WITHOUT resetting — events captured since the early start
-                        // (above, before startTranscription) are preserved. No-op in production.
-                        this.rebindShadowSession(this.sessionId, mode);
+                        this.applyPrivateTelemetryContext();
+                        // #1161 (Option 2): ATOMICALLY bind the pre-session intent (registered before start) to the
+                        // session this recording just produced. AWAITED; a bind failure/miss ⇒ the session resolves
+                        // definitively unattributed later (no authority); recording unaffected. Only local trusted
+                        // engines registered an intent, so only they bind. Cloud never binds.
+                        if (negMode === 'private' || negMode === 'native') {
+                            try {
+                                const bind = await getSupabaseClient().functions.invoke('attest-session-engine', {
+                                    body: { op: 'bind', sessionId: dbSession.id, recordingKey: recordingId },
+                                });
+                                if (bind?.error) logger.warn({ err: bind.error, sessionId: dbSession.id }, '[controller] attribution intent bind failed — session will be unattributed');
+                            } catch (e) {
+                                logger.warn({ e, sessionId: dbSession.id }, '[controller] attribution intent bind threw — session will be unattributed');
+                            }
+                        }
+                        // #1033 (1): the row now EXISTS — the pre-session initial-save window is closed.
+                        this.pendingInitialSaveContext = null;
+                        // #891 Phase 5.7 (SHADOW): bind the real DB id + negotiated mode into the already-running
+                        // shadow engine WITHOUT resetting — events captured since the early start are preserved.
+                        this.rebindShadowSession(this.sessionId, negMode);
                     }
 
                     if (_token.cancelled || _token.version !== this.lifecycleVersion) {
@@ -1912,6 +2997,15 @@ export class SpeechRuntimeController {
 
         // 1. Monotonic Boundary Cut (FIRST)
         this.lifecycleVersion++;
+
+        // #1033: a HARD reset (navigation/logout/account change/manual) must clear the engine-selection lock
+        // and any unresolved-attribution retry so state cannot leak across users/sessions. (The soft
+        // 'subscriber_unmount' reset returns earlier and PRESERVES an in-flight recovery.)
+        this.engineSelectionIntentLocked = false;
+        this.markRecordingResolved();
+        this.pendingAttributionRetry = null;
+        this.pendingFullSaveRetry = null;
+        this.recordingProgressMode = { mode: 'unknown' };
 
         // 2. Cancel tokens & Clear registry
         this.activeTasks.forEach(t => t.cancelled = true);
@@ -2012,7 +3106,16 @@ export class SpeechRuntimeController {
                 preview: frozenAtStop.slice(0, 80),
             });
             const wasRecording = this.state === 'RECORDING';
-            await this.transition('STOPPING', undefined, token);
+            // #1089: this sits OUTSIDE the try below, and setTranscriptFinalizing(true) has already run.
+            // A throw here would leave finalization latched true forever — and finalization now disables
+            // the record control, so that is an unrecoverable lockout rather than a cosmetic flag leak.
+            try {
+                await this.transition('STOPPING', undefined, token);
+            } catch (transitionError) {
+                useSessionStore.getState().setTranscriptFinalizing(false);
+                useSessionStore.getState().freezeTranscriptAtStop(null);
+                throw transitionError;
+            }
             if (token.cancelled || token.version !== this.lifecycleVersion) {
                 useSessionStore.getState().setTranscriptFinalizing(false);
                 useSessionStore.getState().freezeTranscriptAtStop(null);
@@ -2066,7 +3169,36 @@ export class SpeechRuntimeController {
                     // (telemetry / __PRIVATE_TIMING__ / proof) and is NOT a session-length input.
                     const recordingStoppedAt = Date.now();
                     const recordingDurationSeconds = startTime ? Math.max(0, (recordingStoppedAt - startTime) / 1000) : 0;
-                    result = await service.stopTranscription();
+                    // #1089: publish the SAME authoritative spoken length the DB receives, so every post-save
+                    // surface (WPM, pace, coaching score, the review header) has a durable denominator that
+                    // survives the live timer being reset to 00:00 for the next recording.
+                    useSessionStore.getState().setCompletedSessionDuration(Math.round(recordingDurationSeconds));
+                    // #1033: snapshot the producing-engine identity from the LIVE engine, BEFORE
+                    // stopTranscription() can mutate/destroy engine metadata. Used for durable attribution.
+                    const finalizingIdentity = this.captureFinalizingIdentity(service, service.getMode?.() ?? stopEntryMode);
+                    // #1161: derive the server attestation evidence NOW (before stopTranscription destroys engine
+                    // metadata). null ⇒ no trusted local identity (unverified/Cloud) ⇒ no authority is produced.
+                    const attestationEvidence = SpeechRuntimeController.evidenceFromIdentity(finalizingIdentity);
+                    // #1089 BOUNDED FINALIZATION. stopTranscription() runs the whole-utterance decode and
+                    // has no internal ceiling; the watchdog was stopped just above. Because Finalizing…
+                    // now disables the record control, a hang here means the user cannot start, stop or
+                    // recover without reloading the page — and the 300s -> 600s cap doubled the exposure.
+                    // On expiry we throw into the EXISTING catch, which transitions to FAILED, clears the
+                    // finalizing latch and surfaces the recovery draft the user already spoke.
+                    let finalizeTimer: ReturnType<typeof setTimeout> | undefined;
+                    try {
+                        result = await Promise.race([
+                            service.stopTranscription(),
+                            new Promise<never>((_, reject) => {
+                                finalizeTimer = setTimeout(
+                                    () => reject(new FinalizationTimeoutError(PRIV_STT.FINALIZE_HARD_TIMEOUT_MS)),
+                                    PRIV_STT.FINALIZE_HARD_TIMEOUT_MS,
+                                );
+                            }),
+                        ]);
+                    } finally {
+                        if (finalizeTimer !== undefined) clearTimeout(finalizeTimer);
+                    }
                     logger.info({
                         mode: service.getMode?.() ?? stopEntryMode,
                         sessionId,
@@ -2133,7 +3265,7 @@ export class SpeechRuntimeController {
                                 ' ';
                             const fallbackSessionData = {
                                 user_id: userId,
-                                title: `Session ${new Date().toLocaleString()}`,
+                                title: `Session ${new Date().toISOString()}`,
                                 duration: Math.round(duration),
                                 transcript: fallbackTranscript,
                                 total_words: 0,
@@ -2150,6 +3282,7 @@ export class SpeechRuntimeController {
                             if (saveResult?.session?.id) {
                                 sessionId = saveResult.session.id;
                                 this.sessionId = sessionId;
+                                this.applyPrivateTelemetryContext();
                                 service.setSessionId?.(sessionId);
                                 logger.warn({ sessionId, mode }, '[DEBUG-STOP] Recovered missing sessionId with late session create');
                             }
@@ -2279,7 +3412,8 @@ export class SpeechRuntimeController {
                         this.lastSaveCandidateDebug = {
                             sessionId,
                             saveCandidateReason,
-                            selectedForSave: finalTranscript,
+                            // #1306 P1: length only — the transcript text is NEVER placed in a diagnostic, in any
+                            // build (test/E2E/real-device artifacts are inside the privacy boundary too).
                             selectedForSaveLength: finalTranscript.length,
                             finalWordCount: finalTranscript.split(/\s+/).filter(Boolean).length,
                             meaningfulWordCount,
@@ -2377,6 +3511,9 @@ export class SpeechRuntimeController {
                             store.setSTTStatus(guardedStopStatus);
                             this.updateSessionPersisted(false);
                             store.setSessionSaved(false);
+                            // #1033 (item 3): a no-speech / low-quality recording is RESOLVED by discard (nothing
+                            // to Retry Save). The post-start lock is released uniformly at the normal stop terminal
+                            // (transition READY below) for every non-error terminal, so no per-branch clear here.
                             result = null;
                         } else {
                             // #SSOT (Product Owner decision): the LIVE filler counter is canonical. Use the
@@ -2444,11 +3581,6 @@ export class SpeechRuntimeController {
                             const { data: { session } } = await supabase.auth.getSession();
                             const userId = session?.user?.id;
 
-                            if (userId) {
-                                const { updateLocalUsage } = await import('../hooks/useUsageLimit');
-                                updateLocalUsage(userId, Math.round(duration));
-                            }
-
                             logger.info({
                                 sessionId,
                                 finalTranscriptLength: finalTranscript.length,
@@ -2458,36 +3590,147 @@ export class SpeechRuntimeController {
                                 clarityScore,
                                 accuracy,
                             }, '[DEBUG-STOP] completeSession completed-status starting');
+                            // #1306 metrics-only: derive the CONTENT-FREE final payload from the in-memory
+                            // transcript, then never persist the transcript itself. filler_counts is the strict
+                            // flat standard-key map; next_action_signal is the one structured action.
+                            const finalFillerCounts = flattenToFillerCounts(fillerWords);
+                            // #1306 Option A: capture the FINAL validated metric snapshot (filler breakdown +
+                            // headline count + word count) into DEDICATED store fields BEFORE the transcript is
+                            // purged, so the terminal review reads THIS snapshot and never recounts (or retains)
+                            // the transcript. These fields are separate from the live `fillerData` (which the live
+                            // useFillerWords→store sync overwrites to `{}` once the chunks are purged). `fillerWords`
+                            // (== sessionMetrics.fillerData) is the canonical nested per-key shape the review
+                            // consumes; `sessionMetrics.fillerCount` is the true-filler headline.
+                            useSessionStore.getState().setFinalizedWordCount(wordCount);
+                            useSessionStore.getState().setFinalizedFillerData(fillerWords);
+                            useSessionStore.getState().setFinalizedFillerCount(sessionMetrics.fillerCount);
+                            const PAUSE_KEYS = ['totalPauses', 'averagePauseDuration', 'longestPause', 'pausesPerMinute', 'silencePercentage', 'transitionPauses', 'extendedPauses'] as const;
+                            const finalPauseMetrics = store.pauseMetrics
+                                ? PAUSE_KEYS.reduce<Record<string, number>>((acc, k) => {
+                                    const v = (store.pauseMetrics as unknown as Record<string, unknown>)[k];
+                                    if (typeof v === 'number' && Number.isFinite(v)) acc[k] = v;
+                                    return acc;
+                                }, {})
+                                : {};
+                            const finalMetrics = {
+                                totalWords: wordCount,
+                                clarityScore,
+                                wpm,
+                                fillerCounts: finalFillerCounts,
+                                pauseMetrics: finalPauseMetrics,
+                            };
+                            const finalNextAction = deriveNextActionSignal({
+                                durationSeconds: Math.round(duration),
+                                wordCount,
+                                wpm,
+                                fillerCounts: finalFillerCounts,
+                                clarityScore,
+                            });
+
+                            // CONTENT-FREE recovery draft: exact final metrics + the next action, NO transcript.
                             saveSessionRecoveryDraft({
                                 sessionId,
                                 userId,
-                                transcript: finalTranscript,
+                                recoveryState: 'finalized_pending_save',
                                 durationSeconds: Math.round(duration),
                                 mode: modeForFinalization ?? 'unknown',
+                                metrics: finalMetrics,
+                                nextActionSignal: finalNextAction,
                             });
 
-                            const completion = await completeSession(sessionId, {
+                            const completeArgs: CompleteSessionOptions & { status: 'completed' } = {
                                 status: 'completed',
-                                transcript: finalTranscript,
-                                duration: Math.round(duration)
-                            });
+                                duration: Math.round(duration),
+                                nextActionSignal: finalNextAction,
+                                metrics: finalMetrics,
+                            };
+                            const progressContext = this.buildProgressCompletionContext(Math.round(duration));
+                            // Capture the exact rich-metrics write before either persistence step can fail.
+                            // A full-save retry replays this immutable payload; an attribution retry carries
+                            // the actual result of the original write. Recovery paths without this payload
+                            // fail closed and never create an immutable incomplete Progress evaluation.
+                            // #1306 metrics-only: the rich-metrics write is content-free — flat filler_counts, no
+                            // custom_words, no per-session accuracy. Reuses the same derived values sent to the RPC.
+                            const richMetricsPayload: RichMetricsPayload = {
+                                total_words: wordCount,
+                                filler_counts: finalFillerCounts,
+                                pause_metrics: finalPauseMetrics,
+                                wpm,
+                                clarity_score: clarityScore,
+                                next_action_signal: finalNextAction,
+                            };
+                            const completion = await completeSession(sessionId, completeArgs);
                             if (!completion.success) {
+                                // #1033 (item 2/3): the durable FULL SAVE failed — the transcript row is NOT
+                                // persisted (a strictly worse state than an attribution-only miss). Keep the
+                                // recording locked (recordingStartedUnresolved stays true from RECORDING) and
+                                // stash a FULL-SAVE retry so Retry Save re-runs the ACTUAL failed op
+                                // (completeSession + attribution), not just the attribution write. The transcript
+                                // is preserved in the recovery draft (saved just above). Session-safe: never
+                                // overwrite a different session's outstanding retry.
+                                if (!this.pendingFullSaveRetry || this.pendingFullSaveRetry.sessionId === sessionId) {
+                                    this.pendingFullSaveRetry = {
+                                        sessionId,
+                                        completeArgs,
+                                        attributionEvidence: attestationEvidence,
+                                        progressContext,
+                                        progressMetrics: { payload: richMetricsPayload, persisted: false },
+                                    };
+                                } else {
+                                    logger.error({ existing: this.pendingFullSaveRetry.sessionId, sessionId }, '[controller] full-save retry slot held by another session — failing closed, not overwriting (#1033)');
+                                }
                                 throw new Error('SESSION_COMPLETION_FAILED');
                             }
-                            // Persist the resolved Private engine arm durably. The placeholder save
-                            // ran before the engine resolved (engine_version defaulted to
-                            // 'transformers-js'); completeSession does not touch engine_version. Read
-                            // the live sample context (engine_variant + model) and write the real arm
-                            // (private_v2:<model> / private_v4:<model>) so it is reconstructable from
-                            // the row even without PostHog. Non-fatal.
+                            // #1033: persist the finalizing engine identity + attribution_status in ONE
+                            // atomic update. The row was created 'pending' (DB default); a VERIFIED tuple
+                            // (engine/engine_version/model_name/device_type) or an 'unverified' status is
+                            // written from the identity captured before teardown. The engine cannot have
+                            // changed mid-recording (selector locked), so this is never a mis-attribution.
+                            // On write failure the row simply stays 'pending' (transcript preserved), so a
+                            // later retry can promote it to verified. Engine-specific evidence uses only
+                            // attribution_status = 'verified' (no engine_version string heuristics).
+                            // #1045: the attribution_status actually persisted for this row once the write
+                            // below succeeds ('verified' or 'unverified'). Stays undefined (row is 'pending')
+                            // on failure, so the Progress seam defers rather than record a premature row.
+                            let attributionTerminalStatus: string | undefined;
                             try {
-                                if (this.resolvedPrivateEngineVersion) {
-                                    await updateSession(sessionId, {
-                                        engine_version: this.resolvedPrivateEngineVersion,
-                                    } as Parameters<typeof updateSession>[1]);
+                                // #1161: the client can no longer write the locked attribution columns — post
+                                // evidence to the trusted server producer. null result = TRANSIENT failure → throw
+                                // into the catch to stash for Retry Save (transcript already persisted, row pending).
+                                const attestResult = await this.attestSessionEngine(sessionId, attestationEvidence);
+                                if (attestResult === null) throw new Error('attestation failed (transient — retryable)');
+                                attributionTerminalStatus = attestResult.attributed
+                                    ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED;
+                                // Clear the pending-retry ONLY if it belongs to THIS recording — a later
+                                // recording must never clear an earlier session's unresolved pending retry (#1033).
+                                if (!this.pendingAttributionRetry || this.pendingAttributionRetry.sessionId === sessionId) {
+                                    this.pendingAttributionRetry = null;
                                 }
-                            } catch (engineVersionError) {
-                                logger.warn({ engineVersionError, sessionId }, '[controller] engine_version persist failed (non-fatal)');
+                                // A clean save for this session also clears any stale full-save retry it held.
+                                if (this.pendingFullSaveRetry?.sessionId === sessionId) {
+                                    this.pendingFullSaveRetry = null;
+                                }
+                                // #1033: durable save + attribution succeeded → this recording is fully resolved;
+                                // release the post-start lock (engine selection can change for the next recording).
+                                this.markRecordingResolved();
+                            } catch (attributionError) {
+                                // #1033: transcript is already persisted (completeSession). The row stays 'pending'
+                                // (DB default); stash the patch so Retry Save can promote it pending→verified via
+                                // UPDATE (no duplicate session, no transcript loss). Session-safe: NEVER overwrite a
+                                // DIFFERENT session's unresolved pending retry — fail closed if one impossibly exists.
+                                if (!this.pendingAttributionRetry || this.pendingAttributionRetry.sessionId === sessionId) {
+                                    this.pendingAttributionRetry = {
+                                        sessionId,
+                                        evidence: attestationEvidence,
+                                        progressContext,
+                                        // The result is filled after the ordinary rich-metrics write below.
+                                        // Until then a concurrent retry fails closed rather than guessing.
+                                        progressMetrics: { payload: richMetricsPayload, persisted: false },
+                                    };
+                                } else {
+                                    logger.error({ existing: this.pendingAttributionRetry.sessionId, sessionId }, '[controller] attribution retry slot held by another session — failing closed, not overwriting (#1033)');
+                                }
+                                logger.warn({ attributionError, sessionId }, '[controller] attribution persist failed — row stays pending; retry available');
                             }
                             logger.info({ sessionId }, '[DEBUG-STOP] completeSession completed-status done');
                             sessionCompleted = true;
@@ -2591,18 +3834,7 @@ export class SpeechRuntimeController {
                             }
 
                             logger.info({ sessionId }, '[DEBUG-STOP] updateSession starting');
-                            const updateResult = await updateSession(sessionId, {
-                                total_words: wordCount,
-                                filler_words: fillerWords as unknown as FillerCounts,
-                                custom_words: this.userWords.reduce<Record<string, { count: number }>>((acc, word) => {
-                                    acc[word] = { count: fillerWords[word]?.count || 0 };
-                                    return acc;
-                                }, {}),
-                                pause_metrics: store.pauseMetrics,
-                                wpm,
-                                clarity_score: clarityScore,
-                                accuracy
-                            });
+                            const updateResult = await updateSession(sessionId, richMetricsPayload);
                             if (!updateResult.success) {
                                 logger.warn({
                                     sessionId,
@@ -2621,7 +3853,26 @@ export class SpeechRuntimeController {
                             // gate never publishes → the warning above stands and no success toast/cue shows.
                             metricsDone = true;
                             metricsOk = updateResult.success;
+                            // Attribution may still be pending, but its eventual retry must use this exact
+                            // result — transcript completion alone never implies rich metrics persisted.
+                            if (this.pendingAttributionRetry?.sessionId === sessionId) {
+                                this.pendingAttributionRetry = {
+                                    ...this.pendingAttributionRetry,
+                                    progressMetrics: { payload: richMetricsPayload, persisted: metricsOk },
+                                };
+                            }
                             maybePublishFinalized();
+
+                            // Normal completion and both retry completions share this one immutable
+                            // mode-aware seam. It uses the recording-boundary snapshot above, never the current
+                            // live brief, so a later Focus Points selection cannot attach to this take.
+                            void this.completeProgressForRecording(
+                                progressContext,
+                                sessionId,
+                                attributionTerminalStatus,
+                                metricsOk,
+                            );
+
                             clearSessionRecoveryDraft(sessionId);
 
                             this.updateStreakInternal();
@@ -2654,9 +3905,23 @@ export class SpeechRuntimeController {
                 this.service = null;
                 useSessionStore.getState().setTranscriptFinalizing(false);
                 useSessionStore.getState().freezeTranscriptAtStop(null);
+                // #1306 P1: metrics are derived and the session is finalized here — purge the ephemeral live
+                // transcript from working memory (store + lifecycle) so no spoken text survives finalization. A
+                // still-pending Native background formatter can't re-populate it: its writeback is guarded on the
+                // store still holding this session's raw final, which is now cleared.
+                this.purgeTranscriptWorkingMemory();
 
                 logger.info('[DEBUG-STOP] transition READY starting');
                 await this.transition('READY');
+                // #1033 (item 3): the stop path reached its NORMAL terminal — the recording was saved, discarded
+                // as no-speech/low-quality, or had nothing to persist. Unless a durable retry was stashed (a
+                // full-save or attribution failure, which keeps the lock for Retry Save), the recording is fully
+                // resolved, so release the post-start engine-selection lock. Covers EVERY non-error stop terminal
+                // uniformly; the error path (catch below) transitions to FAILED and deliberately stays locked so
+                // the recovery draft can be saved. This is the single authoritative unlock for a completed stop.
+                if (!this.pendingFullSaveRetry && !this.pendingAttributionRetry) {
+                    this.markRecordingResolved();
+                }
                 if (sessionCompleted) {
                     this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
                     useSessionStore.getState().setSessionSaved(true);
@@ -2684,16 +3949,123 @@ export class SpeechRuntimeController {
                 await this.transition('FAILED', err as Error, token);
                 useSessionStore.getState().setTranscriptFinalizing(false);
                 useSessionStore.getState().freezeTranscriptAtStop(null);
-                if (hasRecoveryDraftSignal) {
+                if (err instanceof FinalizationTimeoutError) {
+                    // #1089: name the real failure instead of hanging on Finalizing… forever. The control
+                    // is usable again (FAILED clears the finalizing latch), and the transcript captured up
+                    // to this point is kept as a recovery draft when there is one.
+                    useSessionStore.getState().setSTTStatus({
+                        type: 'error',
+                        message: 'We could not finish processing this recording.',
+                        detail: hasRecoveryDraftSignal
+                            ? 'What we transcribed so far was kept in this browser. You can record again.'
+                            : 'You can record again.',
+                    });
+                } else if (hasRecoveryDraftSignal) {
                     useSessionStore.getState().setSTTStatus({
                         type: 'warning',
                         message: 'Session was not saved yet.',
                         detail: 'A local recovery draft was kept in this browser after a save issue.',
                     });
                 }
+                // #1306 P1: the FAILED terminal is also a terminal stop — transcript-derived processing is done
+                // (the content-free recovery draft, if any, was already written by persistActiveRecoveryDraft and
+                // the recovery-signal length was captured above). Purge the ephemeral transcript so no spoken
+                // text survives a failed finalization either.
+                this.purgeTranscriptWorkingMemory();
                 throw err;
             }
         });
+    }
+
+    /**
+     * #1265: the only completion seam allowed to invoke Progress for a recording. Normal completion,
+     * attribution retry, and full-save retry all arrive here with the immutable recording-boundary mode.
+     * Unknown/legacy retry context fails closed. Open Mic evaluates immediately. Focus Points evaluates
+     * only after its original brief is explicitly registered; registration failure or ambiguity writes no
+     * evaluation. Later objective-stage failure after confirmed registration still evaluates.
+     */
+    private async completeProgressForRecording(
+        context: ProgressCompletionContext,
+        sessionId: string,
+        attributionStatus: string | undefined,
+        metricsPersisted: boolean,
+    ): Promise<void> {
+        if (context.mode === 'unknown') return;
+        // Both practice modes require actual durable delivery metrics. This guard sits before Open Mic's
+        // immediate path and Focus Points registration so neither can create an immutable partial evaluation.
+        if (!metricsPersisted) return;
+
+        const runProgressEval = () => void wireProgressEvaluationOnSave({
+            sessionId,
+            status: 'completed',
+            attributionStatus,
+            metricsPersisted,
+            userId: this.capturedUserId,
+        }).catch((progressErr) => logger.warn(
+            { progressErr, sessionId },
+            '[controller] progress recording failed (non-fatal)',
+        ));
+
+        if (context.mode === 'open_mic') {
+            runProgressEval();
+            return;
+        }
+
+        const store = useSessionStore.getState();
+        store.setCompletedObjectiveBrief(context.brief);
+        const liveBrief = store.activeObjectiveBrief;
+        if (liveBrief?.projectId === context.brief.projectId && liveBrief.briefId === context.brief.briefId) {
+            store.setActiveObjectiveBrief(null);
+        }
+        await this.finalizeObjectiveAndGateProgress(
+            { projectId: context.brief.projectId, briefId: context.brief.briefId },
+            sessionId,
+            context.segments,
+            context.durationSeconds,
+            runProgressEval,
+        );
+    }
+
+    /**
+     * #1265: finalize a Focus Points recording's objective evidence, publish its per-point coverage rail,
+     * and gate the session's Progress evaluation on DURABLE objective registration. Extracted so the
+     * cohort-safety invariant is DIRECTLY testable:
+     *   • register failure (registered=false)  -> NO Progress evaluation (never cohorted 'freeform');
+     *   • later objective-stage failure but registered=true -> evaluation STILL runs (the recording is a
+     *     confirmed Focus Points source, so its Progress belongs to the 'objective' cohort);
+     *   • ambiguous throw (finalize rejects)    -> NO evaluation (registration state is unknown → fail closed).
+     * There is no registration retry — a failed registration means Progress is unavailable for this take.
+     * Open Mic (no brief) never reaches here; it evaluates immediately at the call site.
+     * The seam is strictly non-fatal: any objective failure is logged and swallowed, never breaking save.
+     */
+    private async finalizeObjectiveAndGateProgress(
+        brief: { projectId: string; briefId: string },
+        sessionId: string,
+        segments: { text: string; startSec: number }[],
+        durationSeconds: number,
+        runProgressEval: () => void,
+    ): Promise<void> {
+        try {
+            const { finalizeObjectiveSessionOnSave } = await import('@/services/objective/finalizeObjectiveSessionOnSave');
+            const objResult = await finalizeObjectiveSessionOnSave({
+                projectId: brief.projectId,
+                briefId: brief.briefId,
+                sourceSessionId: sessionId,
+                idempotencyKey: sessionId,
+                segments,
+                durationSeconds,
+            });
+            // Publish per-point coverage ONLY on a fully-successful finalize carrying coverage; any failed
+            // stage leaves objectiveCoverageResult null, so a broken session shows no rail (never fabricated).
+            if (objResult.ok && objResult.coverage) {
+                useSessionStore.getState().setObjectiveCoverageResult(
+                    objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
+                );
+            }
+            if (objResult.registered) runProgressEval();
+        } catch (objErr) {
+            logger.warn({ objErr, sessionId }, '[controller] objective finalization failed (non-fatal)');
+        }
     }
 
     public async ensureReady(options: { skipIfDownloadPending?: boolean } = {}): Promise<void> {
@@ -2831,23 +4203,43 @@ export class SpeechRuntimeController {
         this.stopIdleTimer();
         this.idleTimeout = setTimeout(() => {
             if (this.state === 'IDLE' || this.state === 'READY') {
+                // #1258: while the session page is FOREGROUND, a READY Private engine must NEVER be reclaimed
+                // out from under a user who is waiting to record. Reclaiming it forces a full model
+                // re-download/re-init; on a cold device that reload cannot finish before the next idle tick, so
+                // the recorder returns to "loading" and `mic-start` never stabilizes to enabled (the deployed
+                // active-trial canary's exact failure). Preserve based on the ACTUAL running engine — service
+                // mode + engine-ready — NOT the nullable store `sttMode` (post-#1184 the store mode is
+                // frequently `null` while the running engine is a ready Private engine; the old
+                // `sttMode === 'private'` check failed open and reclaimed it).
+                // BUT still reclaim after genuine long BACKGROUND inactivity: when the page is hidden, the model
+                // is not in front of a waiting user, so freeing its memory is correct. Re-arm on preserve so a
+                // later background transition is still reclaimed.
                 const serviceMode = this.service?.getMode();
-                const selectedMode = useSessionStore.getState().sttMode;
+                const pageForeground = typeof document === 'undefined' || document.visibilityState !== 'hidden';
                 const shouldPreserveReadyPrivateEngine =
                     this.state === 'READY' &&
                     this.isEngineReady &&
                     serviceMode === 'private' &&
-                    selectedMode === 'private';
+                    pageForeground;
 
                 if (shouldPreserveReadyPrivateEngine) {
                     logger.info({
                         state: this.state,
                         serviceMode,
-                        selectedMode,
-                    }, '[SpeechRuntimeController] Skipping idle reclamation for ready Private engine');
+                    }, '[SpeechRuntimeController] Skipping idle reclamation for ready foreground Private engine');
+                    this.startIdleTimer(); // re-arm: reclaim later if the page is backgrounded
                     return;
                 }
-                void this.reset('idle_reclamation');
+                // Reclaim the engine, then advance the reload token ONLY AFTER the (synchronous) reset completes.
+                // A reset that throws must NOT mint a reload token — otherwise a foreground return would reload
+                // against a reclamation that never completed. The token is the authorization for exactly one
+                // foreground-return reload tied to THIS reclamation.
+                try {
+                    this.reset('idle_reclamation');
+                    this.idleReclamationGeneration += 1;
+                } catch (err) {
+                    logger.warn({ err }, '[SpeechRuntimeController] idle reclamation reset failed; reload token not advanced');
+                }
             }
         }, this.IDLE_RECLAMATION_MS);
     }
@@ -2886,26 +4278,21 @@ export class SpeechRuntimeController {
     public async switchToNative(): Promise<void> {
         return this.enqueue(async (token) => {
             if (token.cancelled || token.version !== this.lifecycleVersion) return;
-            if (this.service?.isServiceDestroyed()) {
-                this.service = null;
-            }
-            const serviceWithHandoff = this.service as { switchToNativeSegmented?: () => Promise<void> };
-            if (serviceWithHandoff && typeof serviceWithHandoff.switchToNativeSegmented === 'function') {
-                await serviceWithHandoff.switchToNativeSegmented();
+            // #1033: one engine per recording — the controller REJECTS a programmatic engine switch whenever
+            // the single authoritative predicate says selection is locked (Start intent, recording lifecycle,
+            // OR a pending attribution retry). Not merely a UI disable; switching happens only when unlocked.
+            if (this.isEngineSelectionLocked()) {
+                logger.warn({ state: this.state, pending: this.pendingAttributionRetry?.sessionId ?? null }, '[controller] switchToNative rejected: engine selection locked (#1033)');
                 return;
             }
-            if (this.service) {
-                this.lifecycleVersion++;
-                this.stopWatchdog();
-                await this.service.destroy();
-                this.service = null;
-            }
-            this.setEngineReady(false);
+            // #1033: selecting an engine does NOT start the microphone. Set Browser/native as the PREFERRED
+            // engine for the NEXT recording; a recording begins only via the explicit Start control. (No
+            // mid-recording segmented handoff / auto-restart — one engine per recording.)
             const nativePolicy: TranscriptionPolicy = {
                 allowNative: true, allowCloud: false, allowPrivate: false,
-                preferredMode: 'native', allowFallback: false, executionIntent: 'native-recovery'
+                preferredMode: 'native', allowFallback: false, executionIntent: 'native-selection'
             };
-            await this.startRecording(nativePolicy);
+            this.updatePolicy(nativePolicy);
         });
     }
 }

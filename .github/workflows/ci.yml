@@ -9,6 +9,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      force_full:
+        description: 'Run the complete merge-candidate lane'
+        type: boolean
+        required: false
+        default: true
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -19,30 +25,231 @@ env:
   VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
 
 jobs:
-  prepare:
-    name: prepare
+  # Replaces the ~79s serial `prepare` barrier. Runs no install (node is preinstalled on the runner)
+  # and only classifies the change. scripts/ci-change-scope.mjs is unit-tested and FAILS SAFE: any
+  # control path (CI, deps, build/test config, migrations) or unrecognised path selects the full lane,
+  # as does any push, any force_full dispatch, any non-draft PR, and any unresolvable diff.
+  scope:
+    name: scope
+    runs-on: ubuntu-latest
+    outputs:
+      full_required: ${{ steps.classify.outputs.full_required }}
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+      frontend_changed: ${{ steps.classify.outputs.frontend_changed }}
+      edge_changed: ${{ steps.classify.outputs.edge_changed }}
+      e2e_required: ${{ steps.classify.outputs.e2e_required }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Classify Change
+        id: classify
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IS_DRAFT: ${{ github.event.pull_request.draft || false }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          FORCE_FULL: ${{ github.event.inputs.force_full || false }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${BASE_SHA:-}" ]] && ! [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            git diff --name-only "$BASE_SHA"...HEAD > "$RUNNER_TEMP/changed.txt" || : > "$RUNNER_TEMP/changed.txt"
+          else
+            : > "$RUNNER_TEMP/changed.txt"
+          fi
+          node scripts/ci-change-scope.mjs "$RUNNER_TEMP/changed.txt"
+
+  # ---- Affected draft lane (NEW, non-required names; drafts cannot merge) ------------------------
+  draft-checks:
+    name: draft-checks
+    needs: scope
+    if: needs.scope.outputs.full_required != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
         with:
-          install-playwright: 'false'
+          install-native-deps: ${{ needs.scope.outputs.docs_only != 'true' && 'true' || 'false' }}
+          install-playwright: ${{ needs.scope.outputs.e2e_required }}
 
       - name: Validate Environment Variables
         run: node scripts/validate-env.mjs
 
-      - name: Run Prepare Stage
-        run: pnpm ci:prepare
+      - name: Diff Check
+        run: git diff --check ${{ github.event.pull_request.base.sha }}...HEAD
+
+      - name: Typecheck
+        if: needs.scope.outputs.docs_only != 'true'
+        run: pnpm typecheck
+
+      - name: Collect Changed Files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only --diff-filter=ACMR ${{ github.event.pull_request.base.sha }}...HEAD \
+            | grep -E '\.(js|jsx|ts|tsx)$' > "$RUNNER_TEMP/changed-code.txt" || true
+          grep -E '(^|/)__tests__/|\.(test|spec)\.(js|jsx|ts|tsx)$' "$RUNNER_TEMP/changed-code.txt" \
+            > "$RUNNER_TEMP/changed-tests.txt" || true
+          # sources = code files that are NOT tests, so `vitest related` never re-runs a changed
+          # test file that the explicit step above already executed.
+          grep -vE '(^|/)__tests__/|\.(test|spec)\.(js|jsx|ts|tsx)$' "$RUNNER_TEMP/changed-code.txt" \
+            > "$RUNNER_TEMP/changed-sources.txt" || true
+          echo "changed code=$(wc -l < "$RUNNER_TEMP/changed-code.txt") tests=$(wc -l < "$RUNNER_TEMP/changed-tests.txt") sources=$(wc -l < "$RUNNER_TEMP/changed-sources.txt")"
+
+      - name: Lint Changed Files
+        if: needs.scope.outputs.docs_only != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -s "$RUNNER_TEMP/changed-code.txt" ]]; then
+            xargs pnpm exec eslint --max-warnings 0 < "$RUNNER_TEMP/changed-code.txt"
+          else
+            echo "No JS/TS files changed."
+          fi
+
+      - name: Documentation Contracts
+        if: needs.scope.outputs.docs_only == 'true'
+        run: |
+          pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+            tests/config/documentationContract.test.ts tests/deps/docs-integrity.test.js \
+            tests/release/tester-instructions.test.ts
+
+      - name: Directly Changed Test Files
+        if: needs.scope.outputs.docs_only != 'true'
+        shell: bash
+        env:
+          VITEST_MAX_FORKS: '2'
+        run: |
+          set -euo pipefail
+          # `vitest related` selects tests that IMPORT a changed source file; it does not necessarily
+          # select a changed test file itself. Run those explicitly.
+          if [[ -s "$RUNNER_TEMP/changed-tests.txt" ]]; then
+            mapfile -t files < "$RUNNER_TEMP/changed-tests.txt"
+            pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+              --passWithNoTests "${files[@]}"
+          else
+            echo "No test files changed."
+          fi
+
+      - name: Related Unit Tests
+        if: needs.scope.outputs.docs_only != 'true'
+        shell: bash
+        env:
+          VITEST_MAX_FORKS: '2'
+        run: |
+          set -euo pipefail
+          if [[ -s "$RUNNER_TEMP/changed-sources.txt" ]]; then
+            mapfile -t files < "$RUNNER_TEMP/changed-sources.txt"
+            # --passWithNoTests: a changed file with no importing test must NOT fail the lane.
+            pnpm exec vitest related --run --config frontend/vitest.config.mjs \
+              --coverage.enabled=false --passWithNoTests "${files[@]}"
+          else
+            echo "No changed source files require related tests."
+          fi
+
+      - name: Build (frontend/e2e-affecting changes only)
+        if: needs.scope.outputs.frontend_changed == 'true' || needs.scope.outputs.e2e_required == 'true'
+        run: pnpm ci:build
+
+      - name: Setup Deno
+        if: needs.scope.outputs.edge_changed == 'true'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Edge Tests
+        if: needs.scope.outputs.edge_changed == 'true'
+        run: pnpm test:edge
+
+      # #1294 — the weekly billing qualification's executable proof: the REAL stripe-webhook handler driven
+      # against an ephemeral migrated PGlite DB with a fake Stripe (asserts lifecycle entitlement + request
+      # shapes/ordering + fail-closed). Runs every CI so the canary-critical logic is proven at exact head.
+      - name: Setup Deno (billing qualification)
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Billing Qualification Contract (Deno + PGlite)
+        run: pnpm test:billing-qualification
+
+      - name: Browser Infrastructure Probe
+        if: needs.scope.outputs.e2e_required == 'true'
+        env:
+          STT_ENGINE: mock
+        run: pnpm exec playwright test --config=playwright.config.ts --project=infra-probe
+
+  # #1311 prefetch experiment: download the COMPLETE Canvas/Sharp + Playwright apt dependency bundle ONCE
+  # (from the standard Ubuntu archive, not the degraded Azure primary), so every unit/e2e shard installs
+  # locally with mirror downloads DISABLED — eliminating the per-shard apt stall at restored 4-wide.
+  deps-prep:
+    name: deps-prep
+    needs: scope
+    if: always() && needs.scope.outputs.full_required == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          # node+pnpm only; the prefetch script installs the workspace with --ignore-scripts (Playwright CLI
+          # for the --dry-run manifest, WITHOUT building native canvas — whose apt deps we haven't installed).
+          install-dependencies: 'false'
+          install-native-deps: 'false'
+          install-playwright: 'false'
+          apt-bundle: 'false'
+      # #1311 durability: capture the runtime runner image version so the bundle cache is keyed by it.
+      # Without this, a GitHub image rollout leaves deps-prep restoring a stale-image bundle under an
+      # unchanged key -> the (retained) image-compatibility gate then fails every shard indefinitely.
+      - name: Capture runner image version
+        id: img
+        shell: bash
+        run: |
+          [ -n "${ImageVersion:-}" ] || { echo "::error::ImageVersion empty — cannot version the bundle cache"; exit 1; }
+          echo "version=${ImageOS:-unknown}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+      - name: Cache prefetched apt bundle
+        id: apt-bundle-cache
+        uses: actions/cache@v4
+        with:
+          path: apt-bundle
+          # Exact key: OS + arch + RUNTIME IMAGE VERSION + Ubuntu release + lockfile(Playwright version) +
+          # prefetch source(manifest). An image bump changes the key -> cache miss -> fresh prefetch on the
+          # matching image. NO restore-keys — a partial/foreign/stale-image bundle must never be restored
+          # (shards additionally fail closed on checksum + exact image-compatibility).
+          key: apt-deps-${{ runner.os }}-${{ runner.arch }}-${{ steps.img.outputs.version }}-noble-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('scripts/ci/apt-prefetch.sh') }}
+      - name: Prefetch apt dependency bundle (download-only, one retry)
+        if: steps.apt-bundle-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: bash scripts/ci/apt-prefetch.sh apt-bundle
+      - name: Upload apt dependency bundle
+        uses: actions/upload-artifact@v6
+        with:
+          name: apt-deps-bundle
+          path: apt-bundle
+          if-no-files-found: error
+          retention-days: 1
 
   unit-shard:
     name: unit-shard-${{ matrix.shard }}
-    needs: prepare
+    needs: [scope, deps-prep]
+    if: always() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
+    # #1311 job-level backstop: bounds a stalled setup phase well above the 300s apt timeout but far
+    # below GitHub's 6h default, so a hang fast-fails instead of zombie-running.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
+      # #1311: established 4-wide/default concurrency. Containment is the 300s fail-closed apt bounds +
+      # the 20-min job backstop above — NOT a throttle. (A 2-wide throttle was trialed and dropped: one
+      # green run neither proved contention nor justified a permanent ~60% CI-time cost.)
       matrix:
         shard: [1, 2, 3, 4]
     steps:
@@ -52,53 +259,86 @@ jobs:
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
         with:
+          install-native-deps: 'true'
           install-playwright: 'false'
+          apt-bundle: 'true'
+          apt-bundle-manifest: 'canvas-sharp'
 
-      - name: Run Unit Shard
+      - name: Run Unit Shard Execution
+        env:
+          VITEST_MAX_FORKS: '2'
         run: pnpm ci:unit:shard ${{ matrix.shard }} 4
 
-      - name: Upload Unit Shard Artifacts
+      - name: Rename Unit Metrics
+        if: always()
+        run: mv unit-metrics.json artifacts/coverage/shard-${{ matrix.shard }}/unit-metrics.json || true
+
+      - name: Upload Unit Artifacts
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: unit-shard-${{ matrix.shard }}-artifacts
-          path: |
-            test-results/unit
-            unit-metrics.json
-          retention-days: 30
+          name: unit-artifacts-${{ matrix.shard }}
+          path: artifacts/coverage
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
-  unit-coverage:
-    name: unit-coverage
-    needs: prepare
+  unit-coverage-merge:
+    name: unit-coverage-merge
+    needs: [scope, unit-shard]
+    if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Require Upstream Success
+        env:
+          UNIT_RESULT: ${{ needs.unit-shard.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$UNIT_RESULT" == "skipped" || "$UNIT_RESULT" == "cancelled" ]]; then
+            echo "::error::unit-shard was skipped or cancelled; skipping coverage merge"
+            exit 1
+          fi
+          if [[ "$UNIT_RESULT" == "failure" ]]; then
+            echo "::error::unit-shard failed; skipping coverage merge to fail pipeline properly"
+            exit 1
+          fi
+
       - name: Checkout Code
         uses: actions/checkout@v6
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
         with:
+          install-native-deps: 'false'
           install-playwright: 'false'
 
-      - name: Run Unit Coverage
-        run: pnpm ci:unit
+      - name: Download Artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts/coverage
+          pattern: 'unit-artifacts-*'
+          merge-multiple: true
 
-      - name: Upload Unit Artifacts
+      - name: Code Quality Gate
+        run: pnpm quality
+
+      - name: Run Coverage Merge
+        run: pnpm ci:unit:merge
+
+      - name: Upload Merged Coverage Artifacts
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: unit-artifacts
           path: |
             artifacts/coverage
-            frontend/coverage
             unit-metrics.json
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
   edge-tests:
     name: edge-tests
-    needs: prepare
+    needs: scope
+    if: needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -119,7 +359,8 @@ jobs:
 
   build:
     name: build
-    needs: prepare
+    needs: scope
+    if: needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -138,48 +379,47 @@ jobs:
         with:
           name: build-artifacts
           path: frontend/dist
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
 
+  # Thin health GATE (no checkout / pnpm install / apt / browser download). The browser-infra health probe
+  # itself now runs once inside e2e-shard-1 (which already has Playwright + the build), writing a
+  # HEALTH_PASSED sentinel on success into the `health-check-report` artifact. This gate downloads that
+  # artifact and passes ONLY if the sentinel is present — so the health result is reported INDEPENDENTLY of
+  # later E2E test failures. The exact job name `health-check` is retained so `full-evidence` and `report`
+  # gate on it unchanged. `if: always()` so it still evaluates when the E2E matrix has failures.
   health-check:
     name: health-check
-    needs: build
+    needs: [scope, e2e]
+    if: always() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-environment
-        with:
-          install-playwright: 'true'
-
-      - name: Download Build Artifacts
+      - name: Download Health Check Report
         uses: actions/download-artifact@v7
         with:
-          name: build-artifacts
-          path: frontend/dist
-
-      - name: Run Health Check Once
-        env:
-          STT_ENGINE: mock
-        run: pnpm ci:health-check
-
-      - name: Upload Health Check Report
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
           name: health-check-report
-          path: test-results/playwright-infra
-          retention-days: 30
-          if-no-files-found: error
+          path: health-report
+
+      - name: Verify Browser Infrastructure Health Passed
+        run: |
+          if [ -f health-report/HEALTH_PASSED ]; then
+            echo "✅ Browser infrastructure health check passed (sentinel present)."
+          else
+            echo "::error::Browser infrastructure health check did not pass — HEALTH_PASSED sentinel missing."
+            exit 1
+          fi
 
   e2e:
     name: e2e-shard-${{ matrix.shard }}
-    needs: [unit-shard, edge-tests, build, health-check]
-    if: success()
+    # CI-PERF: E2E consumes only the build artifact, so it no longer waits on unit work,
+    # edge tests or health-check. Those still gate the overall result via `report`.
+    needs: [scope, build, deps-prep]
+    if: success() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
+    # #1311 job-level backstop (see unit-shard).
+    timeout-minutes: 20
     strategy:
       fail-fast: false
+      # #1311: established 4-wide/default concurrency (see unit-shard). Containment = bounds + backstop.
       matrix:
         shard: [1, 2, 3, 4]
     steps:
@@ -190,12 +430,38 @@ jobs:
         uses: ./.github/actions/setup-environment
         with:
           install-playwright: 'true'
+          apt-bundle: 'true'
+          apt-bundle-manifest: 'playwright'
 
       - name: Download Build Artifacts
         uses: actions/download-artifact@v7
         with:
           name: build-artifacts
           path: frontend/dist
+
+      # CI-PERF: the browser-infra health probe runs HERE on shard 1 (which has already installed Playwright
+      # + downloaded the build), instead of a separate job that re-installs browsers (a 10-min+ apt/download
+      # tail for a ~14s probe). It stays independent in evidence: it runs exactly once, writes a HEALTH_PASSED
+      # sentinel only on success, and its report is uploaded as `health-check-report`. The thin `health-check`
+      # gate below downloads that report and fails unless the sentinel exists — so the health result is
+      # reported independently of later E2E test failures.
+      - name: Run Browser Infrastructure Health Check
+        if: matrix.shard == 1
+        env:
+          STT_ENGINE: mock
+        run: |
+          mkdir -p test-results/playwright-infra
+          pnpm ci:health-check
+          touch test-results/playwright-infra/HEALTH_PASSED
+
+      - name: Upload Health Check Report
+        if: always() && matrix.shard == 1
+        uses: actions/upload-artifact@v6
+        with:
+          name: health-check-report
+          path: test-results/playwright-infra
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
+          if-no-files-found: error
 
       - name: Run E2E Test Shard
         env:
@@ -212,13 +478,34 @@ jobs:
           path: |
             blob-report
             test-results/playwright
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
+
+      # UX review screenshots (post-save consolidation + mode selector). ONE uploader, both paths.
+      # Uploaded on whichever shard ran the producing spec; empty on the others.
+      # Reviewers: download "ux-review-screenshots-*".
+      - name: Upload UX Review Screenshots
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ux-review-screenshots-shard-${{ matrix.shard }}
+          path: |
+            test-results/post-save-consolidation
+            test-results/mode-selector
+            test-results/mode-selector-stays-local
+            test-results/practice-entry
+            test-results/freestyle-help
+            test-results/practice-continuity
+            test-results/product-discovery
+            test-results/session-shell-responsive
+            test-results/fp-g6g7-widths
+          retention-days: 1
+          if-no-files-found: ignore
 
   lighthouse-advisory:
     name: lighthouse-advisory
-    needs: build
-    if: always() && !cancelled()
+    needs: [scope, build]
+    if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -248,7 +535,7 @@ jobs:
           npx lhci autorun || echo "⚠️ Lighthouse advisory failed; release gate continues."
 
           echo "=== LHCI Results Debug ==="
-          ls -R lighthouse-results || echo "Directory empty or missing"
+          find lighthouse-results -maxdepth 2 -type f -print 2>/dev/null || echo "Directory empty or missing"
 
       - name: Upload Lighthouse Report
         if: always()
@@ -256,28 +543,48 @@ jobs:
         with:
           name: lighthouse-report
           path: lighthouse-results/
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
-  report:
-    name: report
-    needs: [unit-shard, unit-coverage, edge-tests, build, health-check, e2e, lighthouse-advisory]
-    if: always() && !cancelled()
+  # Heavy evidence generation for the FULL lane. It installs dependencies because it genuinely needs
+  # them (playwright merge-reports, ci:report:github, aggregate-ci, report-ci-timing). Splitting this
+  # out keeps the required `report` gate thin AND keeps evidence inside the acceptance result.
+  full-evidence:
+    name: full-evidence
+    needs: [scope, unit-coverage-merge, edge-tests, build, health-check, e2e, lighthouse-advisory]
+    if: always() && !cancelled() && needs.scope.outputs.full_required == 'true'
     runs-on: ubuntu-latest
     steps:
+      # Fail BEFORE expensive setup/aggregation when required upstream work already failed.
+      - name: Require Upstream Success
+        env:
+          UNIT: ${{ needs.unit-coverage-merge.result }}
+          EDGE: ${{ needs.edge-tests.result }}
+          BUILD: ${{ needs.build.result }}
+          HEALTH: ${{ needs.health-check.result }}
+          E2E: ${{ needs.e2e.result }}
+        run: |
+          set -euo pipefail
+          echo "unit=$UNIT edge=$EDGE build=$BUILD health=$HEALTH e2e=$E2E"
+          for r in "$UNIT" "$EDGE" "$BUILD" "$HEALTH" "$E2E"; do
+            [[ "$r" == "success" ]] || { echo "::error::upstream job failed; skipping evidence aggregation"; exit 1; }
+          done
+
       - name: Checkout Code
         uses: actions/checkout@v6
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
 
-      - name: Download All Artifacts
+      # D1: named artifacts only (no unfiltered download). D2: no recursive `ls -R`.
+      - name: Download Named Artifacts
         uses: actions/download-artifact@v7
         with:
           path: artifacts
+          pattern: '{unit-artifacts,build-artifacts,shard-report-*,ux-review-screenshots-shard-*,lighthouse-report}'
 
-      - name: List Artifacts
-        run: ls -R artifacts
+      - name: Summarise Downloaded Artifacts
+        run: find artifacts -maxdepth 2 -type d -print
 
       - name: Organize Canonical Artifacts
         run: |
@@ -297,18 +604,35 @@ jobs:
           cp artifacts/unit-artifacts/unit-metrics.json artifacts/metrics/ 2>/dev/null || true
           cp artifacts/unit-artifacts/unit-metrics.json . 2>/dev/null || true
 
-          find artifacts -type f -name 'report-*.zip' | while read report; do
-            shard_num=$(basename "$report" .zip | sed 's/report-//')
-            mkdir -p artifacts/playwright/shard-${shard_num}
-            cp "$report" artifacts/playwright/shard-${shard_num}/
+          # Canonical Playwright evidence contract (ONE exact shape):
+          #   artifacts/playwright/shard-<N>/report-full-suite-<N>.zip   for N in 1..4
+          # Explicit per-shard loop. Directory names are NEVER derived from whatever report-*.zip
+          # happens to be present (that produced shard-full-suite-1/ and could never satisfy the
+          # shard-1/ assertion). Missing, duplicate or ambiguous shard reports are rejected.
+          shard_error=0
+          for shard in 1 2 3 4; do
+            matches=$(find artifacts -type f -name "report-*${shard}.zip" ! -path 'artifacts/playwright/*' | sort)
+            count=$(printf '%s\n' "$matches" | grep -c . || true)
+            if [ "$count" -eq 0 ]; then
+              echo "::error::no Playwright report found for shard ${shard}"; shard_error=1; continue
+            fi
+            if [ "$count" -gt 1 ]; then
+              echo "::error::ambiguous Playwright reports for shard ${shard}:"; printf '%s\n' "$matches"
+              shard_error=1; continue
+            fi
+            mkdir -p "artifacts/playwright/shard-${shard}"
+            cp "$(printf '%s\n' "$matches" | head -1)" "artifacts/playwright/shard-${shard}/"
           done
+          if [ "$shard_error" -ne 0 ]; then
+            echo "::error::Playwright shard evidence is incomplete or ambiguous"; exit 1
+          fi
 
           if [ -d "artifacts/lighthouse-report" ]; then
             cp -r artifacts/lighthouse-report/* artifacts/lighthouse/ 2>/dev/null || true
           fi
 
           echo "✅ Canonical artifacts organized in /artifacts"
-          ls -R artifacts/
+          find artifacts -maxdepth 2 -type f -print
 
       - name: Merge E2E Reports
         run: |
@@ -345,7 +669,7 @@ jobs:
             artifacts/ci-job-timing.json
             product_release/evidence/software-quality.latest.json
             product_release/evidence/software-quality-summary.latest.md
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
 
       - name: Upload HTML Report
@@ -354,5 +678,64 @@ jobs:
         with:
           name: playwright-report
           path: playwright-report/
-          retention-days: 30
+          retention-days: ${{ github.event_name == 'push' && 30 || 7 }}
           if-no-files-found: warn
+
+      - name: Assert Required Evidence Is Present
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          [[ -s artifacts/coverage/coverage-summary.json ]] || { echo "::error::missing coverage-summary.json"; missing=1; }
+          [[ -f unit-metrics.json || -f artifacts/metrics/unit-metrics.json ]] || { echo "::error::missing unit-metrics.json"; missing=1; }
+          for shard in 1 2 3 4; do
+            if ! ls artifacts/playwright/shard-${shard}/* >/dev/null 2>&1; then
+              echo "::error::missing Playwright evidence for shard ${shard}"; missing=1
+            fi
+          done
+          # Lighthouse is advisory and may be intentionally skipped by path policy — not required.
+          exit "$missing"
+
+      - name: Verify Canonical Artifacts
+        run: bash scripts/verify-artifacts.sh
+
+  # ---- Thin aggregate status --------------------------------------------------------------------
+  # NOT a required branch-protection check today (protection currently requires build, edge-tests,
+  # unit-shard-1..4, e2e-shard-1..4 and sca-osv). This is a thin aggregate status only: no checkout,
+  # no setup action, no dependency install, no cache restore. It evaluates the conclusions of
+  # whichever lane was selected — including full-evidence, so evidence generation cannot fail after
+  # the aggregate has already reported success.
+  report:
+    name: report
+    needs: [scope, draft-checks, unit-coverage-merge, edge-tests, build, health-check, e2e, full-evidence]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce Selected Lane
+        env:
+          FULL_REQUIRED: ${{ needs.scope.outputs.full_required }}
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          DRAFT_RESULT: ${{ needs.draft-checks.result }}
+          UNIT_RESULT: ${{ needs.unit-coverage-merge.result }}
+          EDGE_RESULT: ${{ needs.edge-tests.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          HEALTH_RESULT: ${{ needs.health-check.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+          EVIDENCE_RESULT: ${{ needs.full-evidence.result }}
+        run: |
+          set -euo pipefail
+          if [[ "$SCOPE_RESULT" != "success" ]]; then
+            echo "::error::change classification failed (scope=$SCOPE_RESULT); refusing to accept."
+            exit 1
+          fi
+          if [[ "$FULL_REQUIRED" == "true" ]]; then
+            echo "Full merge-candidate lane: unit=$UNIT_RESULT edge=$EDGE_RESULT build=$BUILD_RESULT health=$HEALTH_RESULT e2e=$E2E_RESULT evidence=$EVIDENCE_RESULT"
+            for r in "$UNIT_RESULT" "$EDGE_RESULT" "$BUILD_RESULT" "$HEALTH_RESULT" "$E2E_RESULT" "$EVIDENCE_RESULT"; do
+              [[ "$r" == "success" ]] || { echo "::error::full lane failed"; exit 1; }
+            done
+            echo "Full merge-candidate lane passed."
+          else
+            echo "Affected draft lane: draft-checks=$DRAFT_RESULT"
+            [[ "$DRAFT_RESULT" == "success" ]] || { echo "::error::draft lane failed"; exit 1; }
+            echo "Affected draft lane passed."
+          fi

@@ -1,0 +1,58 @@
+name: Unaffiliated identity inventory (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      identity_domain:
+        description: Domain to inventory without mutation
+        required: true
+        type: string
+      confirm:
+        description: Type READ ONLY IDENTITY INVENTORY
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require exact read-only acknowledgement
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: test "$CONFIRM" = 'READ ONLY IDENTITY INVENTORY'
+
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-environment
+
+      - name: Inventory Supabase and Stripe identities without mutation
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_LIVE_SECRET_KEY }}
+          IDENTITY_DOMAIN: ${{ inputs.identity_domain }}
+        run: |
+          # `set -o pipefail` is REQUIRED: GitHub runs steps with `bash -e`, not `-o pipefail`, so this
+          # pipeline would take TEE's exit status and a FAILED AUDIT would report a PASSING step — writing a
+          # truncated or empty identity-inventory.json that the next step then reasons over.
+          set -o pipefail
+          node scripts/unaffiliated-identity-audit.mjs | tee identity-inventory.json
+
+      - name: Verify sanitized read-only result
+        run: |
+          set -euo pipefail
+          jq -e '.mutation_performed == false' identity-inventory.json >/dev/null
+          jq -e 'has("supabase_auth_identities") and has("stripe_customers") and has("stripe_subscriptions")' identity-inventory.json >/dev/null
+          echo '## Unaffiliated identity inventory' >> "$GITHUB_STEP_SUMMARY"
+          jq -r 'to_entries[] | "- \(.key): `\(.value)`"' identity-inventory.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sanitized inventory
+        uses: actions/upload-artifact@v6
+        with:
+          name: unaffiliated-identity-inventory
+          path: identity-inventory.json
+          retention-days: 1

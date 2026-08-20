@@ -16,6 +16,8 @@ import logger from './logger';
 import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
 import type { AnalyticsSummary } from '../types/analytics';
+import type { NextActionSignal } from '../contracts/nextActionSignal';
+import { validatePersistedFillerCounts, type PersistedFillerCounts } from '../contracts/fillerCounts';
 
 /**
  * Pagination options for session history queries.
@@ -25,8 +27,10 @@ export interface PaginationOptions {
   offset?: number;
 }
 
-const MAX_TRANSCRIPT_LENGTH = 500000; // ~500KB limit for transcript text
-const SESSION_ANALYSIS_SELECT = [
+// #1306 metrics-only: content columns (transcript, ai_suggestions, ground_truth, accuracy, filler_words,
+// custom_words) are no longer persisted or selected. Reads use only content-free metrics + the structured
+// next action.
+const SESSION_ANALYSIS_COLUMNS = [
   'id',
   'user_id',
   'title',
@@ -34,20 +38,36 @@ const SESSION_ANALYSIS_SELECT = [
   'total_words',
   'wpm',
   'clarity_score',
-  'accuracy',
-  'filler_words',
-  'custom_words',
+  'filler_counts',
   'pause_metrics',
-  'ai_suggestions',
-  'ground_truth',
-  'transcript',
+  'next_action_signal',
   'created_at',
   'engine',
   'engine_version',
   'model_name',
   'device_type',
-  'status'
-].join(', ');
+  'status',
+  'attribution_status',
+  'transcript_state',
+];
+const SESSION_ANALYSIS_SELECT = SESSION_ANALYSIS_COLUMNS.join(', ');
+// #1047 PR-U1 pre-migration compatibility: a main merge can deploy the frontend BEFORE the migration is
+// applied manually. During that window PostgREST rejects a select naming `transcript_state`. The legacy
+// select omits it so History/Session review still render (as legacy rows with the state absent → derived).
+const SESSION_ANALYSIS_SELECT_LEGACY = SESSION_ANALYSIS_COLUMNS.filter(c => c !== 'transcript_state').join(', ');
+
+/**
+ * True ONLY for the specific "transcript_state column does not exist / not in schema cache" error, so the
+ * legacy-select retry never swallows auth, permission, network, or unrelated query failures.
+ */
+const isMissingTranscriptStateColumn = (error: { code?: string; message?: string } | null): boolean => {
+  if (!error) return false;
+  const message = String(error.message ?? '');
+  if (!/transcript_state/i.test(message)) return false;
+  return error.code === '42703' // Postgres undefined_column
+    || error.code === 'PGRST204' // PostgREST: column not found in schema cache
+    || /does not exist|schema cache|could not find/i.test(message);
+};
 
 /**
  * Fetches the session history for a specific user with optional pagination.
@@ -73,13 +93,21 @@ export const getSessionHistory = async (
   logger.info({ requestUrl }, '[Supabase DB] Request URL');
 
   try {
-    const { data, error } = await supabase
+    const runQuery = (select: string) => supabase
       .from('sessions')
-      .select(SESSION_ANALYSIS_SELECT)
+      .select(select)
       .eq('user_id', userId)
       .or('status.is.null,status.eq.completed')
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
+
+    let { data, error } = await runQuery(SESSION_ANALYSIS_SELECT);
+    // Pre-migration only: retry WITHOUT transcript_state on the specific missing-column error; any other
+    // error (auth/permission/network/unrelated) still surfaces below.
+    if (error && isMissingTranscriptStateColumn(error)) {
+      logger.warn('[Supabase DB] transcript_state not yet applied — retrying legacy select (pre-migration)');
+      ({ data, error } = await runQuery(SESSION_ANALYSIS_SELECT_LEGACY));
+    }
 
     logger.info({ sessionCount: data?.length || 0 }, '[Supabase DB] ✅ Sessions fetched');
 
@@ -107,11 +135,18 @@ export const getSessionById = async (sessionId: string): Promise<PracticeSession
   }
 
   try {
-    const { data, error } = await supabase
+    const runQuery = (select: string) => supabase
       .from('sessions')
-      .select(SESSION_ANALYSIS_SELECT)
+      .select(select)
       .eq('id', sessionId)
       .single();
+
+    let { data, error } = await runQuery(SESSION_ANALYSIS_SELECT);
+    // Pre-migration only: retry WITHOUT transcript_state on the specific missing-column error.
+    if (error && isMissingTranscriptStateColumn(error)) {
+      logger.warn('[Supabase DB] transcript_state not yet applied — retrying legacy select (pre-migration)');
+      ({ data, error } = await runQuery(SESSION_ANALYSIS_SELECT_LEGACY));
+    }
 
     if (error) {
       if (error.code === 'PGRST116') {
@@ -151,15 +186,22 @@ export const saveSession = async (
     return { session: null, usageExceeded: false };
   }
 
-  // Security: Enforce input length limits
-  if (sessionData.transcript && sessionData.transcript.length > MAX_TRANSCRIPT_LENGTH) {
-    logger.warn({ userId: sessionData.user_id, length: sessionData.transcript.length }, 'Session save blocked: Transcript exceeds max length.');
-    throw new Error(`Transcript too long (Max ${MAX_TRANSCRIPT_LENGTH} chars). Please contact support.`);
-  }
+  // Strip every content-bearing field that the retention contract does NOT retain, before it can reach the DB —
+  // so a stray prose write is impossible even if a caller passes one via an untyped object.
+  //
+  // `transcript` is deliberately ABSENT from this list. #1306 stripped it under a "no transcript ever" P0; that
+  // was SUPERSEDED by the #1258/#1314 contract, which retains the newest two sessions' transcripts for review
+  // and PDF. Re-adding it here would silently reinstate the reverted decision, so it must not be "restored".
+  //
+  // The rest stay stripped: coaching prose, ground truth, per-session accuracy, custom words, and the
+  // loosely-typed legacy `filler_words` blob (superseded by the strict `filler_counts` contract).
+  const CONTENT_FIELDS = ['ai_suggestions', 'ground_truth', 'accuracy', 'custom_words', 'filler_words'] as const;
+  const contentFreeSessionData = { ...(sessionData as Record<string, unknown>) };
+  for (const field of CONTENT_FIELDS) delete contentFreeSessionData[field];
 
   logger.info({ userId: sessionData.user_id, duration: sessionData.duration, engineType, idempotencyKey }, '[Supabase DB] 💾 Saving session via RPC');
   const { data, error } = await supabase.rpc('create_session_and_update_usage', {
-    p_session_data: sessionData,
+    p_session_data: contentFreeSessionData,
     p_engine_type: engineType,
     p_idempotency_key: idempotencyKey,
     p_engine_version: metadata?.engineVersion,
@@ -201,28 +243,75 @@ export const heartbeatSession = async (
   return { success: !!result?.success };
 };
 
+/** Content-free FINAL metrics written atomically at completion. Numbers only — never transcript/prose. */
+export interface SessionFinalMetrics {
+  totalWords?: number | null;
+  clarityScore?: number | null;
+  wpm?: number | null;
+  fillerCounts?: PersistedFillerCounts | null;
+  pauseMetrics?: Record<string, number> | null;
+}
+
 /**
- * Marks a session as completed or failed with final metrics.
+ * Options for `completeSession`. Under the #1258/#1314 retention contract a completed session carries its
+ * metrics, exactly one next action, AND — for the two newest sessions — the retained transcript, all written by
+ * one server-side transaction.
+ */
+export interface CompleteSessionOptions {
+  status?: 'completed' | 'failed';
+  duration?: number;
+  reason?: string;
+  /** REQUIRED for a `completed` session (the DB rejects a completion without one); omit for `failed`. */
+  nextActionSignal?: NextActionSignal | null;
+  metrics?: SessionFinalMetrics;
+  // NOTE: `finalTranscript` is DELIBERATELY ABSENT until the atomic-completion migration is applied. The RPC
+  // parameter `p_final_transcript` exists only on that migration; sending it to a database without it makes
+  // PostgREST fail to resolve the function (PGRST202) and EVERY completion fail — which is exactly what turned
+  // all four e2e shards red (SESSION_COMPLETION_FAILED). The client adopts the parameter in the same increment
+  // that follows migration application, never before it.
+}
+
+/**
+ * Marks a session completed or failed. ONE server-side transaction persists the transcript, every retained
+ * metric, the filler snapshot, the one structured next action, the duration and the status together, then runs
+ * newest-two retention before commit — so "completed but missing its metrics" is not a reachable state.
+ * Strictly idempotent server-side: an identical replay is a no-op, any mismatch conflicts rather than
+ * partially writing.
+ *
+ * DEPLOY ORDER. The atomic RPC's `p_final_transcript` parameter is NOT sent yet — see CompleteSessionOptions.
+ * The migration must be applied before this client can adopt it.
  */
 export const completeSession = async (
   sessionId: string,
-  options: {
-    status?: 'completed' | 'failed';
-    transcript?: string;
-    duration?: number;
-    reason?: string;
-  } = {}
+  options: CompleteSessionOptions = {}
 ): Promise<{ success: boolean }> => {
   const supabase = getSupabaseClient();
-  const { status = 'completed', transcript, duration } = options;
+  const { status = 'completed', duration, reason, nextActionSignal, metrics } = options;
 
-  // 1. Run the existing finalization logic via RPC (Finalizes durations/usage)
+  // #1306 client persistence boundary: fail CLOSED on an invalid filler map before it can reach the DB. Only
+  // approved standard keys with non-negative finite counts are permitted — an unknown/prose key, nested object,
+  // array, string, or bad number is rejected here (never silently dropped, never persisted).
+  if (metrics?.fillerCounts != null) {
+    const v = validatePersistedFillerCounts(metrics.fillerCounts);
+    if (!v.ok) {
+      // Log only the SANITIZED code — never the offending key/value (which could be smuggled prose).
+      logger.error({ sessionId, code: v.code }, '[Supabase DB] 🏁 rejected invalid filler_counts at the persistence boundary');
+      return { success: false };
+    }
+  }
+
+  // 1. Atomic, transcript-free finalization via RPC (writes every retained metric + the next action).
   const { data, error } = await supabase.rpc('complete_session', {
     p_session_id: sessionId,
     p_status: status,
-    p_final_transcript: transcript,
     p_final_duration: duration,
-    p_reason: options.reason
+    p_reason: reason,
+    p_next_action: nextActionSignal ?? null,
+    p_total_words: metrics?.totalWords ?? null,
+    p_clarity_score: metrics?.clarityScore ?? null,
+    p_wpm: metrics?.wpm ?? null,
+    p_filler_counts: metrics?.fillerCounts ?? null,
+    p_pause_metrics: metrics?.pauseMetrics ?? null,
   });
 
   if (error) {
@@ -304,6 +393,89 @@ export const getAnalyticsSummary = async (userId: string): Promise<AnalyticsSumm
     return data as AnalyticsSummary;
   } catch (err) {
     logger.error({ err }, '[getAnalyticsSummary] Failed');
+    return null;
+  }
+};
+
+/**
+ * Server-authoritative practice-streak DTO, returned by the `get_practice_streak` RPC
+ * (migration 20260730000000). This is the STORAGE/DOMAIN type — presentation (`homeEvidence.ts`)
+ * imports it from here, never the reverse. The COUNT is derived on read from durably saved sessions;
+ * it is never a stored counter and never a localStorage guess.
+ */
+export type PracticeStreak = {
+  state: 'active' | 'none' | 'unavailable';
+  count: number;
+  lastQualifyingDate: string | null;
+  timezone: string | null;
+};
+
+/** Fail-closed "unavailable" streak — the safe resolved value for a null/invalid tz or a bad response. */
+export const STREAK_UNAVAILABLE: PracticeStreak = {
+  state: 'unavailable', count: 0, lastQualifyingDate: null, timezone: null,
+};
+
+/**
+ * Structurally validate an RPC payload into a PracticeStreak, failing CLOSED. A malformed payload is
+ * never coerced into a plausible number — it maps to `STREAK_UNAVAILABLE`. Accepted ONLY when:
+ *   - `state` is a known value;
+ *   - `count` is an INTEGER (no fractional, negative, non-numeric, NaN);
+ *   - the state/count pair is CONSISTENT: `active` ⇒ count ≥ 1; `none`/`unavailable` ⇒ count exactly 0.
+ * Anything else (active-zero, none-with-positive-count, fractional/negative/non-numeric count) is rejected.
+ */
+export function toPracticeStreak(raw: unknown): PracticeStreak {
+  if (!raw || typeof raw !== 'object') return STREAK_UNAVAILABLE;
+  const r = raw as Record<string, unknown>;
+  const { state, count } = r;
+  if (state !== 'active' && state !== 'none' && state !== 'unavailable') return STREAK_UNAVAILABLE;
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) return STREAK_UNAVAILABLE;
+  if (state === 'active' && count < 1) return STREAK_UNAVAILABLE;      // active MUST be >= 1
+  if ((state === 'none' || state === 'unavailable') && count !== 0) return STREAK_UNAVAILABLE; // MUST be 0
+  const timezone = typeof r.timezone === 'string' ? r.timezone : null;
+  const lastQualifyingDate = typeof r.lastQualifyingDate === 'string' ? r.lastQualifyingDate : null;
+  return { state, count, lastQualifyingDate, timezone };
+}
+
+/**
+ * Server-authoritative practice streak (#1093). Calls the `get_practice_streak` RPC: SECURITY INVOKER,
+ * no caller-supplied id — identity is the caller's own `auth.uid()`. Returns a validated PracticeStreak;
+ * a server error or a malformed response resolves to `STREAK_UNAVAILABLE` so the Home chip fails closed
+ * (an unavailable/invalid result renders NO chip — never a guessed or fabricated streak). The raw error
+ * is logged for diagnostics.
+ */
+export const getPracticeStreak = async (): Promise<PracticeStreak> => {
+  const supabase = getSupabaseClient();
+  try {
+    const { data, error } = await supabase.rpc('get_practice_streak');
+    if (error) {
+      logger.error({ error }, 'Error calling get_practice_streak:'); // preserved for diagnostics
+      return STREAK_UNAVAILABLE;
+    }
+    return toPracticeStreak(data);
+  } catch (err) {
+    logger.error({ err }, '[getPracticeStreak] Failed');
+    return STREAK_UNAVAILABLE;
+  }
+};
+
+/**
+ * Initialize the account-level IANA timezone ONCE from the authenticated browser (#1093). Calls the
+ * `set_user_timezone` RPC (scoped SECURITY DEFINER): it writes only while the stored value is NULL, so
+ * calling it every load is safe and never changes an established timezone. There is NO UTC fallback —
+ * an invalid/absent timezone is left NULL, so the server reports an unavailable streak and the reader
+ * hides the chip rather than showing a wrong-day count. Returns the effective stored timezone (or null).
+ */
+export const setUserTimezone = async (timezone: string): Promise<string | null> => {
+  const supabase = getSupabaseClient();
+  try {
+    const { data, error } = await supabase.rpc('set_user_timezone', { p_timezone: timezone });
+    if (error) {
+      logger.error({ error }, 'Error calling set_user_timezone:');
+      return null;
+    }
+    return (data as string) ?? null;
+  } catch (err) {
+    logger.error({ err }, '[setUserTimezone] Failed');
     return null;
   }
 };

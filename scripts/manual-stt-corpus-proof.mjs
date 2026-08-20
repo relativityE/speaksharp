@@ -28,13 +28,11 @@ const EMAIL = process.env.PRO_TEST_EMAIL
   ?? process.env.E2E_PRO_EMAIL
   ?? process.env.FREE_TEST_EMAIL
   ?? process.env.E2E_FREE_EMAIL
-  ?? process.env.BASIC_TEST_EMAIL
   ?? process.env.TEST_USER_EMAIL;
 const PASSWORD = process.env.PRO_TEST_PASSWORD
   ?? process.env.E2E_PRO_PASSWORD
   ?? process.env.FREE_TEST_PASSWORD
   ?? process.env.E2E_FREE_PASSWORD
-  ?? process.env.BASIC_TEST_PASSWORD
   ?? process.env.TEST_USER_PASSWORD;
 const OUT = process.env.STT_CORPUS_OUT || `/private/tmp/speaksharp-stt-corpus-${Date.now()}.json`;
 const MODE_LIST = (process.env.STT_MODES || 'native,private,cloud')
@@ -57,7 +55,7 @@ const PRIVATE_SETUP_CLICK_DELAY_MS = Number(process.env.STT_PRIVATE_SETUP_CLICK_
 const PRIVATE_SETUP_USER_CONSENT_REQUIRED = process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED === 'true';
 const HEADLESS = process.env.HEADLESS === 'true';
 const MAX_WER = process.env.STT_MAX_WER == null ? null : Number(process.env.STT_MAX_WER);
-const SIGNUP_EMAIL = process.env.STT_SIGNUP_EMAIL || `stt-corpus-${Date.now()}@speaksharp.app`;
+const SIGNUP_EMAIL = process.env.STT_SIGNUP_EMAIL || `stt-corpus-${Date.now()}@example.test`;
 const SIGNUP_PASSWORD = process.env.STT_SIGNUP_PASSWORD || `SttCorpus${Date.now()}!Aa9`;
 const CLEAR_PRIVATE_CACHE = process.env.STT_CLEAR_PRIVATE_CACHE === 'true';
 const PRIVATE_ENGINE = process.env.STT_PRIVATE_ENGINE || '';
@@ -452,7 +450,7 @@ async function signIn(page) {
   }
 
   if (!EMAIL || !PASSWORD) {
-    throw new Error('A test login is required for STT corpus proof. Set PRO_TEST_EMAIL/PRO_TEST_PASSWORD, E2E_PRO_EMAIL/E2E_PRO_PASSWORD, or FREE_TEST_EMAIL/FREE_TEST_PASSWORD. BASIC_TEST_* remains a legacy alias.');
+    throw new Error('A test login is required for STT corpus proof. Set PRO_TEST_EMAIL/PRO_TEST_PASSWORD, E2E_PRO_EMAIL/E2E_PRO_PASSWORD, or FREE_TEST_EMAIL/FREE_TEST_PASSWORD.');
   }
 
   await page.goto(`${BASE_URL}/auth/signin`, { waitUntil: 'domcontentloaded' });

@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { corsHeaders } from '../_shared/cors.ts';
+import { corsGuard, corsHeaders } from '../_shared/cors.ts';
 import { captureSentryEvent, createSentryEventId } from '../_shared/sentry.ts';
 
 type SmokeRequest = {
@@ -7,11 +7,13 @@ type SmokeRequest = {
 }
 
 export async function handler(req: Request) {
-  const headers = corsHeaders(req);
+  // Secret-gated automation sends NO Origin, so corsGuard passes it through (server-to-server
+  // behavior preserved). A browser request with a hostile/unapproved Origin is rejected here,
+  // before the secret check. Also answers approved preflight.
+  const corsRejection = corsGuard(req);
+  if (corsRejection) return corsRejection;
 
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers });
-  }
+  const headers = corsHeaders(req);
 
   if (req.method !== 'POST') {
     return json({ error: 'method_not_allowed' }, 405, headers);

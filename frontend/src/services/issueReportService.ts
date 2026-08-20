@@ -1,7 +1,9 @@
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
-import { emitPrivateSample, getLastSampleArm, PRIVATE_SAMPLE_EVENTS } from '@/services/transcription/privateSampleTelemetry';
+import { emitPrivateTelemetry, getLastPrivateIdentity, PRIVATE_TELEMETRY_EVENTS } from '@/services/transcription/privateTelemetry';
+import { issueAreasForContext, type PageContext } from '@/services/pageContext';
+import { pickPersistedRuntimeConfig, type PersistedRuntimeConfig } from '@/config/appRuntimeConfig';
 
 // Stable slugs stored in the DB (never the display labels). The visible, user-facing labels
 // are mapped in IssueReportDialog. Kept in sync with the user_issue_reports_category_safe
@@ -17,9 +19,25 @@ export type IssueReportCategory =
 export type IssueReportSeverity = 'low' | 'medium' | 'high' | 'critical';
 
 export interface IssueReportMetadata {
+  /** Sanitized route TEMPLATE (== canonicalRoute); never a full URL, query string, or hash. */
   route: string;
+  // ── Allowlisted page context (page-aware reporting) — content-free, snapshotted at dialog-open ──
+  pageKey?: string;
+  pageLabel?: string;
+  productMode?: string;
+  journeyStep?: string;
+  canonicalRoute?: string;
+  /** Which of the three closed /practice surfaces the report came from (null off /practice). */
+  practiceSurface?: string | null;
+  issueArea?: string | null;
+  /** Build/release id (git SHA in production) so a report pins to a build, when available. */
+  releaseId?: string | null;
   releaseProofEligible?: boolean;
-  appRuntimeConfig?: unknown;
+  /**
+   * Allowlisted runtime facts ONLY (see pickPersistedRuntimeConfig). Never the raw runtime config —
+   * that carries `url` (the full location.href with dynamic ids / query / fragment).
+   */
+  appRuntimeConfig?: PersistedRuntimeConfig;
   userAgent?: string;
   viewport?: { width: number; height: number };
   timezone?: string;
@@ -45,8 +63,8 @@ export interface SubmitIssueReportInput {
   description: string;
   pageUrl: string;
   metadata: IssueReportMetadata;
-  includeTranscript: boolean;
-  transcriptExcerpt?: string | null;
+  // #1306 metrics-only: a report NEVER carries a transcript excerpt or any session speech. Only the user's
+  // own typed title/description + an optional audio-debug note cross the boundary.
   includeAudio: boolean;
   audioAttachmentNote?: string | null;
 }
@@ -57,7 +75,9 @@ const sanitizeOptionalText = (value: string | null | undefined): string | null =
 };
 
 export const buildIssueReportMetadata = (input: {
-  route: string;
+  /** Allowlisted page context captured at dialog-open time. Its canonicalRoute becomes `route`. */
+  context: PageContext;
+  issueArea?: string | null;
   plan?: string | null;
   sttMode?: TranscriptionMode | null;
   runtimeState?: string | null;
@@ -66,14 +86,32 @@ export const buildIssueReportMetadata = (input: {
   const sentry = typeof window !== 'undefined'
     ? (window as unknown as { Sentry?: { lastEventId?: () => string | null } }).Sentry
     : undefined;
+  const { context } = input;
+  // Allowlist rule: issueArea is stored ONLY if it is a valid slug for THIS resolved context — which on
+  // /practice is the ACTIVE SURFACE's allowlist (Quick vs Objective vs home), not the whole page. Any
+  // invalid, stale, cross-surface, injected, or empty value is coerced to null — the UI select is not
+  // trusted as the sole gate.
+  const validAreas = issueAreasForContext(context).map((a) => a.value);
+  const issueArea = input.issueArea && validAreas.includes(input.issueArea) ? input.issueArea : null;
 
   return {
-    route: input.route,
+    // The stored route is the sanitized template — no full URL, query string, or hash.
+    route: context.canonicalRoute,
+    pageKey: context.pageKey,
+    pageLabel: context.pageLabel,
+    productMode: context.productMode,
+    journeyStep: context.journeyStep,
+    canonicalRoute: context.canonicalRoute,
+    practiceSurface: context.practiceSurface ?? null,
+    issueArea,
+    releaseId: runtimeConfig?.release ?? null,
     plan: input.plan ?? null,
     sttMode: input.sttMode ?? null,
     runtimeState: input.runtimeState ?? null,
     releaseProofEligible: runtimeConfig?.releaseProofEligible,
-    appRuntimeConfig: runtimeConfig,
+    // Allowlist ONLY — strips `url` (raw location.href), `port`, and `supabaseUrl` so no dynamic route
+    // id / query / fragment (session UUIDs, emails, invite/reset tokens) is ever persisted here.
+    appRuntimeConfig: pickPersistedRuntimeConfig(runtimeConfig),
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
     viewport: typeof window !== 'undefined' ? { width: window.innerWidth, height: window.innerHeight } : undefined,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -84,9 +122,11 @@ export const buildIssueReportMetadata = (input: {
 export const issueReportService = {
   async submit(input: SubmitIssueReportInput): Promise<{ id: string | null }> {
     const supabase = getSupabaseClient();
-    const transcriptExcerpt = input.includeTranscript ? sanitizeOptionalText(input.transcriptExcerpt) : null;
     const audioAttachmentNote = input.includeAudio ? sanitizeOptionalText(input.audioAttachmentNote) : null;
 
+    // #1306 metrics-only: the insert is transcript-free — no include_transcript / transcript_excerpt columns
+    // are written (the column is dropped by the Stage B enforcement migration). Only the user's typed fields +
+    // sanitized operational metadata + an optional audio-debug note are persisted.
     const { error } = await supabase
       .from('user_issue_reports')
       .insert({
@@ -98,8 +138,6 @@ export const issueReportService = {
         description: input.description.trim(),
         page_url: input.pageUrl,
         metadata: input.metadata,
-        include_transcript: input.includeTranscript,
-        transcript_excerpt: transcriptExcerpt,
         include_audio: input.includeAudio,
         audio_attachment_note: audioAttachmentNote,
       });
@@ -110,10 +148,10 @@ export const issueReportService = {
     }
 
     // Non-PII analytics breadcrumb so a Report Issue can be correlated to the user's
-    // journey (session id, and the Private arm/release via the active sample context).
+    // journey (session id and the most recent content-free Private engine identity).
     // The strict allowlist guarantees no title/description/transcript/audio rides along.
-    const arm = getLastSampleArm();
-    emitPrivateSample(PRIVATE_SAMPLE_EVENTS.REPORT_ISSUE_SUBMITTED, {
+    const arm = getLastPrivateIdentity();
+    emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.REPORT_ISSUE_SUBMITTED, {
       issue_category: input.category,
       issue_severity: input.severity,
       session_id: input.sessionId ?? arm.session_id ?? null,

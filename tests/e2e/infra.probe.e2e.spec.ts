@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { goToApp, programmaticLoginWithRoutes } from './helpers';
+import { goToApp, programmaticLoginWithRoutes, startRecording, selectTranscriptionEngine } from './helpers';
 import type { E2EWindow } from './helpers/setupE2EManifest';
 
 /**
@@ -26,12 +26,11 @@ test.describe('Core System Validation (Deterministic)', () => {
   test.beforeEach(async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'free' });
     await goToApp(page, '/session');
-    const modeSelect = page.getByTestId('stt-mode-select');
-    await expect(modeSelect).toBeVisible({ timeout: 15000 });
-    if (await modeSelect.getAttribute('data-state') !== 'native') {
-      await modeSelect.click();
-      await page.getByTestId('stt-mode-native').click();
-    }
+    // #1184/#1222: Private is the only engine — there is no selector to pick native. The new session page
+    // has no `stt-mode-select`; the recorder surface itself is the confirmation. selectTranscriptionEngine
+    // asserts the Private recorder (mic card) is mounted before the deterministic probes run. The mock
+    // engine services Private just as it did native, so the infra probes stay deterministic.
+    await selectTranscriptionEngine(page, 'private');
   });
 
   // 1. App Boot Integrity
@@ -41,16 +40,13 @@ test.describe('Core System Validation (Deterministic)', () => {
 
   // 6. FSM Transition (Async Correctness)
   test('FSM transitions correctly', async ({ page }) => {
-    await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
-    await page.getByTestId('session-start-stop-button').click();
+    await startRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 5000 });
   });
 
   // 7. Transcription Smoke
   test('mock transcription flows through system', async ({ page }) => {
-    await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
-    await page.getByTestId('session-start-stop-button').click();
-    await page.waitForSelector('html[data-runtime-state="RECORDING"]', { timeout: 15000 });
+    await startRecording(page);
 
     await page.evaluate(async () => {
       const e2eWindow = window as unknown as E2EWindow;
@@ -60,26 +56,24 @@ test.describe('Core System Validation (Deterministic)', () => {
       bridge.emitTranscript('Hello from E2E', true);
     });
 
-    await expect(page.getByTestId('transcript-container'))
+    await expect(page.getByTestId('live-transcript'))
       .toContainText(/Hello from E2E/, { timeout: 15000 });
   });
 
   // 8. No Race Conditions (Deterministic Start)
   test('no STT_ENGINE_MISSING errors', async ({ page }) => {
-    await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
-    await page.getByTestId('session-start-stop-button').click();
-    await page.waitForSelector('html[data-runtime-state="RECORDING"]', { timeout: 5000 });
+    await startRecording(page);
     // Log-scraping removed in favor of DOM-based forensic signaling
   });
   // 11. Forensic Audit (Identity Guard Verification)
   test('Forensic Audit: negotiator identity guard is active', async ({ page }) => {
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
 
-    // DOM-anchored deterministic assertion — no log scraping. The selected
-    // product mode remains native; the E2E bridge supplies the lightweight
-    // injected engine behind that mode.
-    await expect(page.locator('html')).toHaveAttribute('data-stt-mode', 'native');
-    await expect(page.locator('html')).toHaveAttribute('data-stt-resolved-mode', 'native');
+    // DOM-anchored deterministic assertion — no log scraping. #1184: Private is the only engine, so the
+    // negotiator resolves Private end-to-end (in E2E the private engine is a mock stub, but it resolves as
+    // Private, not the retired native stub).
+    await expect(page.locator('html')).toHaveAttribute('data-stt-mode', 'private');
+    await expect(page.locator('html')).toHaveAttribute('data-stt-resolved-mode', 'private');
     await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'READY');
     await expect.poll(async () => page.evaluate(() => {
       const win = window as unknown as E2EWindow;

@@ -1,0 +1,110 @@
+name: "Commercial trial DB matrix (disposable Postgres)"
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/2026081204*_1282.sql'
+      - 'tests/db/trial-*'
+      - '.github/workflows/trial-commercial-db-matrix.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trial-commercial-db-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matrix:
+    name: "trial/expiry/ACL (postgres:${{ matrix.pg }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '16', '17']
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: disposable_ci_only
+          POSTGRES_DB: matrix_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: disposable_ci_only
+      PGDATABASE: matrix_test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install psql client and record version
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          psql -XAtc 'select version()' | tee server-version.txt
+
+      - name: Bootstrap and seed pre-activation identities
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f tests/db/trial-journey-bootstrap.sql
+          psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812040000_thirty_day_trial_lifecycle_1282.sql
+          psql -X -v ON_ERROR_STOP=1 -c "
+            CREATE TRIGGER on_auth_user_created_trial
+              AFTER INSERT ON auth.users FOR EACH ROW
+              EXECUTE FUNCTION public.ensure_trial_profile_for_new_user();
+            INSERT INTO public.user_profiles
+              (id, subscription_status, stripe_subscription_id, trial_started_at, trial_expires_at)
+            VALUES
+              ('00000000-0000-4000-8000-000000001283', 'free', NULL, now()-interval '90 days', now()-interval '60 days'),
+              ('00000000-0000-4000-8000-000000001284', 'pro', 'sub_matrix_paid', NULL, NULL);"
+
+      - name: Apply activation and enforcement; prove replay
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812041000_trial_expiry_fail_closed_1282.sql
+          psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812042000_trial_activation_stamp_1282.sql 2>&1 | tee activation-first.txt
+          psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812040000_thirty_day_trial_lifecycle_1282.sql
+          psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812041000_trial_expiry_fail_closed_1282.sql
+          psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812042000_trial_activation_stamp_1282.sql 2>&1 | tee activation-replay.txt
+          grep -q '"remaining_eligible_unpaid": 0' activation-replay.txt
+          echo 'TRIAL MIGRATION REPLAY PASSED' | tee replay-summary.txt
+
+      - name: Run commercial entitlement, expiry, and ACL matrix
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f tests/db/trial-commercial-matrix.sql 2>&1 | tee matrix-output.txt
+          grep -q 'TRIAL COMMERCIAL MATRIX PASSED' matrix-output.txt
+
+      - name: Publish sanitized evidence
+        if: always()
+        run: |
+          {
+            echo "### #1282 commercial trial DB matrix — postgres:${{ matrix.pg }}"
+            echo '```'
+            cat server-version.txt 2>/dev/null || true
+            cat replay-summary.txt 2>/dev/null || true
+            grep -E 'TRIAL COMMERCIAL MATRIX PASSED' matrix-output.txt 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: trial-commercial-db-matrix-pg${{ matrix.pg }}
+          path: |
+            server-version.txt
+            activation-first.txt
+            activation-replay.txt
+            replay-summary.txt
+            matrix-output.txt
+          retention-days: 7
+          if-no-files-found: warn

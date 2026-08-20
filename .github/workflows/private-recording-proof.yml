@@ -1,0 +1,73 @@
+name: "Private recording proof (exact-SHA, mock-free)"
+
+# #1089 / #1129 — dispatchable exact-production-SHA Private recording proof. Drives the DEPLOYED build's real
+# customer loop (signup → /practice → visible entry → /session → Private → mock-free recording → durable save)
+# and FAILS CLOSED unless the deployed window.__APP_RELEASE__ equals the exact SHA passed in `expect_sha`.
+# Private is local (no Cloud, no paid provider). No third-party domain; approved host only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      expect_sha:
+        description: 'Exact deployed SHA the proof must bind to (window.__APP_RELEASE__ must equal this)'
+        required: true
+        type: string
+      base_url:
+        description: 'Deployed app to prove'
+        required: false
+        default: 'https://speaksharp-public.vercel.app/'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-recording-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  private-recording-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # #1151 P1.5(new): default-branch authority — a selectable feature-branch workflow must NEVER become
+      # production-proof authority. Fail closed (exit 1, not a silent skip) unless dispatched from main.
+      - name: Assert default-branch (main) authority
+        run: |
+          echo "ref=${{ github.ref }} sha=${{ github.sha }}"
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "::error::production proof must be dispatched from refs/heads/main, got ${{ github.ref }}"; exit 1
+          fi
+
+      - name: Checkout Code (pinned to the exact dispatch commit)
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Prove checked-out commit equals the dispatch SHA
+        run: |
+          HEAD_SHA="$(git rev-parse HEAD)"
+          echo "checked-out=$HEAD_SHA dispatch=${{ github.sha }}"
+          if [ "$HEAD_SHA" != "${{ github.sha }}" ]; then
+            echo "::error::checked-out commit $HEAD_SHA != dispatch ${{ github.sha }}"; exit 1
+          fi
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Run exact-SHA Private recording proof
+        env:
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          EXPECT_RELEASE_SHA: ${{ github.event.inputs.expect_sha }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }}
+        run: pnpm exec playwright test tests/live/private-recording-proof.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+
+      # P1.4: NO broad report/results/ZIP upload or long retention — the proof emits only content-free
+      # console evidence (ids, booleans), and trace/video/screenshots are disabled in the spec's test.use.
+      # Nothing credential-bearing is produced, so nothing is uploaded.

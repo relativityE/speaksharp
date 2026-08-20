@@ -1,0 +1,101 @@
+import { describe, it, expect } from 'vitest';
+import {
+  TRANSCRIPT_STATE,
+  TRANSCRIPT_STATE_VALUES,
+  TRANSCRIPT_STATE_COPY,
+  hasReadableTranscript,
+  resolveTranscriptState,
+  presentTranscript,
+  transcriptDerivedMetricShowable,
+} from '../transcriptState';
+
+describe('#1047 PR-U1 transcript state contract', () => {
+  it('exposes exactly the closed value set', () => {
+    expect([...TRANSCRIPT_STATE_VALUES].sort()).toEqual(['available', 'expired', 'not_captured']);
+  });
+
+  it('only `available` counts as a readable transcript (text/AI actions gate on this)', () => {
+    expect(hasReadableTranscript(TRANSCRIPT_STATE.AVAILABLE)).toBe(true);
+    expect(hasReadableTranscript(TRANSCRIPT_STATE.EXPIRED)).toBe(false);
+    expect(hasReadableTranscript(TRANSCRIPT_STATE.NOT_CAPTURED)).toBe(false);
+    expect(hasReadableTranscript(undefined)).toBe(false);
+    expect(hasReadableTranscript('anything-else')).toBe(false);
+  });
+
+  it('a present server state always wins over the transcript-presence fallback', () => {
+    // expired MUST survive even though a transcript string is (implausibly) present — server owns it.
+    expect(resolveTranscriptState('expired', 'still here')).toBe('expired');
+    expect(resolveTranscriptState('not_captured', 'still here')).toBe('not_captured');
+    expect(resolveTranscriptState('available', '')).toBe('available');
+  });
+
+  it('legacy rows (no server state) derive available/not_captured from transcript presence — never expired', () => {
+    expect(resolveTranscriptState(undefined, 'hello world')).toBe('available');
+    expect(resolveTranscriptState(undefined, '   ')).toBe('not_captured');
+    expect(resolveTranscriptState(undefined, '')).toBe('not_captured');
+    expect(resolveTranscriptState(undefined, null)).toBe('not_captured');
+    expect(resolveTranscriptState(null, undefined)).toBe('not_captured');
+    // Emptiness is never inferred as expired.
+    expect(resolveTranscriptState(undefined, '')).not.toBe('expired');
+  });
+
+  it('carries the canonical single-source copy for the two non-available states', () => {
+    expect(TRANSCRIPT_STATE_COPY.EXPIRED).toBe('Transcript expired. Your measurements are still available.');
+    expect(TRANSCRIPT_STATE_COPY.NOT_CAPTURED).toBe('No transcript was captured.');
+  });
+
+  describe('presentTranscript (single-source surface decision)', () => {
+    it('renders and enables AI only for a real available transcript', () => {
+      const p = presentTranscript('available', 'hello there');
+      expect(p).toEqual({ state: 'available', canRenderTranscript: true, aiAvailable: true, unavailableMessage: null });
+    });
+
+    it('shows the expired message, hides text, and disables AI', () => {
+      const p = presentTranscript('expired', null);
+      expect(p.canRenderTranscript).toBe(false);
+      expect(p.aiAvailable).toBe(false);
+      expect(p.unavailableMessage).toBe(TRANSCRIPT_STATE_COPY.EXPIRED);
+    });
+
+    it('shows the not-captured message, hides text, and disables AI', () => {
+      const p = presentTranscript('not_captured', '');
+      expect(p.canRenderTranscript).toBe(false);
+      expect(p.aiAvailable).toBe(false);
+      expect(p.unavailableMessage).toBe(TRANSCRIPT_STATE_COPY.NOT_CAPTURED);
+    });
+
+    it('never renders/acts on an available state whose text is actually blank (defensive)', () => {
+      const p = presentTranscript('available', '   ');
+      expect(p.canRenderTranscript).toBe(false);
+      expect(p.aiAvailable).toBe(false);
+      expect(p.unavailableMessage).toBe(TRANSCRIPT_STATE_COPY.NOT_CAPTURED);
+    });
+
+    it('a legacy row (no server state) with text renders; without text is not_captured', () => {
+      expect(presentTranscript(undefined, 'legacy text').canRenderTranscript).toBe(true);
+      expect(presentTranscript(undefined, '').unavailableMessage).toBe(TRANSCRIPT_STATE_COPY.NOT_CAPTURED);
+    });
+  });
+
+  describe('transcriptDerivedMetricShowable (evidence provenance, not numeric presence)', () => {
+    it('available → always showable (readable text backs the metric)', () => {
+      expect(transcriptDerivedMetricShowable('available', false)).toBe(true);
+      expect(transcriptDerivedMetricShowable('available', true)).toBe(true);
+    });
+
+    it('not_captured → NEVER showable, even with a persisted number (0/{} are schema sentinels)', () => {
+      expect(transcriptDerivedMetricShowable('not_captured', true)).toBe(false);
+      expect(transcriptDerivedMetricShowable('not_captured', false)).toBe(false);
+    });
+
+    it('expired → showable only when a genuinely persisted measurement survives', () => {
+      expect(transcriptDerivedMetricShowable('expired', true)).toBe(true);
+      expect(transcriptDerivedMetricShowable('expired', false)).toBe(false);
+    });
+
+    it('legacy/undefined state → only a genuinely persisted value, never a transcript-less recount', () => {
+      expect(transcriptDerivedMetricShowable(undefined, true)).toBe(true);
+      expect(transcriptDerivedMetricShowable(undefined, false)).toBe(false);
+    });
+  });
+});

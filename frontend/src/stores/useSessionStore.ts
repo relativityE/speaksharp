@@ -3,11 +3,25 @@ import { FillerCounts } from '@/utils/fillerWordUtils';
 import type { FinalizedFillerReconciliation } from '@/utils/finalizedSessionAnalysis';
 import logger from '@/lib/logger';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
+import type { CoverageStatus } from '@/services/rehearsal/outcomeScorecard';
 import { SttStatus, HistorySegment } from '@/types/transcription';
 import type { FinalizeEngineKey } from '@/services/transcription/finalizeRateStore';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import { ENV } from '@/config/TestFlags';
+import type { PracticeFocus } from '@/constants/practiceFocus';
+import { isPracticeFocus } from '@/constants/practiceFocus';
 import { syncForensicAnchors } from '@/lib/forensicAnchors';
+
+/**
+ * One Focus Points rail row: the point's brief id, the label to display, and its resolved coverage
+ * status. Structurally matches the CoverageRail component's `CoverageRailPoint` prop (kept independent
+ * so the store never imports a component), so a stored array can be passed straight to the rail.
+ */
+export interface ObjectiveCoverageRow {
+    id: string;
+    label: string;
+    status: CoverageStatus;
+}
 
 interface TranscriptState {
     transcript: string;
@@ -43,6 +57,12 @@ export interface FinalizedAnalysisState {
 
 export interface SessionState {
     runtimeState: RuntimeState;
+    /** #1033 Part-2b: TRUE while the STT engine selection is locked (Start intent, recording lifecycle,
+     *  a pending save/attribution resolution, or a started-but-unresolved recording). Published by the
+     *  controller so the selector UI can never disagree with the runtime about whether it may change. */
+    engineSelectionLocked: boolean;
+    /** #1033 Part-2b: which recovery the user can act on, or null. Drives Retry Save / Discard UI. */
+    pendingResolutionKind: 'initial_save' | 'full_save' | 'attribution' | null;
     isLockHeldByOther: boolean;
     isListening: boolean;
     isInitiating: boolean;
@@ -62,17 +82,71 @@ export interface SessionState {
     chunks: Array<{ transcript: string; timestamp: number; isFinal: boolean }>;
     frozenTranscriptAtStop: string | null;
     isTranscriptFinalizing: boolean;
+    /**
+     * #1089: set once when the engine's hard capture backstop is reached. Non-null means the engine has
+     * stopped accepting audio, so the app MUST perform a controlled stop and finalize what was captured.
+     * Carries only durations — no transcript, no audio, no identity.
+     */
+    captureLimitReached: { bufferedSeconds: number; limitSeconds: number } | null;
+    /**
+     * #1089: the SPOKEN length of the most recently completed recording (start -> stop), published by
+     * the controller at stop entry from the same value that is persisted to the DB.
+     *
+     * This exists because `elapsedTime` has two conflicting jobs: it is the LIVE timer for the NEXT
+     * recording (which must read 00:00 on the Ready surface) and it was also the denominator every
+     * post-save surface used for the take that just finished. Zeroing it for the first job silently
+     * broke the second — WPM, pace and the coaching score all divide by it. They now read this
+     * snapshot instead, so Ready can honestly show 00:00 while the review of the completed session
+     * keeps the correct duration. Cleared when a new recording starts.
+     */
+    completedSessionDurationSeconds: number | null;
+    /**
+     * #1046 slice 3b-ii: the Focus Points brief the CURRENT recording is being made against, or null for
+     * a freeform (Open Mic) recording. Set at objective-session entry (slice 5); read at the stop seam
+     * to finalize per-point coverage; CONSUMED (set null) immediately after finalize fires, so a stale
+     * brief can never leak an Open Mic recording into Focus Points scoring (the isolation invariant).
+     */
+    activeObjectiveBrief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null;
+    /**
+     * #1264 — the optional Open Mic "Practice Focus" intention (or null). Unlike the objective brief, this
+     * is NOT cleared on recording start: it persists so a "Practice this next" repeat keeps the same
+     * intention. It is display-only — never a score, never part of the persisted session analysis, and it
+     * never changes transcript truth or engine policy.
+     */
+    practiceFocus: PracticeFocus | null;
+    /**
+     * #1046 G6/G7 — a SNAPSHOT of the brief captured at save, when `activeObjectiveBrief` is cleared to
+     * preserve the isolation invariant. The after-state (review screen) reads this so its Focus Points
+     * coverage card, delivery strip, and highlights survive the save. Cleared when the next recording
+     * starts, so it can never make a fresh Open Mic session render as Focus Points.
+     */
+    completedObjectiveBrief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null;
+    /**
+     * #1046 slice 5a: per-point Focus Points coverage for the settled Session page, or null when the
+     * completed recording was not a Focus Points session. Mirrors {@link finalizedAnalysis}'s lifecycle
+     * exactly — null until an objective session finalizes, SET at the stop seam after coverage is
+     * computed, and CLEARED at the start of every new recording so a prior brief's rail can never
+     * linger onto a later Open Mic session (the isolation invariant, at the UI layer).
+     */
+    objectiveCoverageResult: ObjectiveCoverageRow[] | null;
     pauseMetrics: PauseMetrics;
     sessionSaved: boolean;
     nativeFormatting: NativeFormattingUiState;
     /** Post-persistence finalized reconciliation for the settled Session page; null until a save. */
     finalizedAnalysis: FinalizedAnalysisState | null;
-    sunsetModal: { type: 'daily' | 'monthly'; open: boolean };
+    /** #1306 Option A: the FINAL metric snapshot captured at the terminal transition, BEFORE the transcript is
+     *  purged, so the metrics-only review shows the true word count + filler breakdown WITHOUT recounting or
+     *  retaining the transcript. `finalizedFillerData` is deliberately SEPARATE from the live `fillerData` (which
+     *  the live useFillerWords sync overwrites to `{}` once the chunks are purged). */
+    finalizedWordCount: number | null;
+    finalizedFillerData: FillerCounts | null;
+    finalizedFillerCount: number | null;
     isBooting: boolean;
 }
 
 interface SessionActions {
     setRuntimeState: (state: RuntimeState) => void;
+    setEngineSelectionLock: (locked: boolean, pendingResolutionKind: 'initial_save' | 'full_save' | 'attribution' | null) => void;
     startSession: () => void;
     stopSession: () => void;
     setReady: (ready: boolean) => void;
@@ -95,19 +169,47 @@ interface SessionActions {
     setChunks: (chunks: Array<{ transcript: string; timestamp: number; isFinal: boolean; isCorrection?: boolean }>) => void;
     freezeTranscriptAtStop: (transcript: string | null) => void;
     setTranscriptFinalizing: (finalizing: boolean) => void;
+    setCaptureLimitReached: (info: { bufferedSeconds: number; limitSeconds: number } | null) => void;
+    setCompletedSessionDuration: (seconds: number | null) => void;
+    setActiveObjectiveBrief: (brief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null) => void;
+    setPracticeFocus: (focus: PracticeFocus | null) => void;
+    setCompletedObjectiveBrief: (brief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null) => void;
+    setObjectiveCoverageResult: (rows: ObjectiveCoverageRow[] | null) => void;
     setPauseMetrics: (metrics: PauseMetrics) => void;
     setLockHeldByOther: (held: boolean) => void;
     setSessionSaved: (saved: boolean) => void;
     setNativeFormatting: (formatting: NativeFormattingUiState) => void;
     setFinalizedAnalysis: (analysis: FinalizedAnalysisState | null) => void;
-    setSunsetModal: (modal: { type: 'daily' | 'monthly'; open: boolean }) => void;
+    setFinalizedWordCount: (wordCount: number | null) => void;
+    setFinalizedFillerData: (data: FillerCounts | null) => void;
+    setFinalizedFillerCount: (count: number | null) => void;
     setIsBooting: (isBooting: boolean) => void;
 }
 
 export type SessionStore = SessionState & SessionActions;
 
+// #1264 — Practice Focus persists in sessionStorage so a "Practice this next" repeat (even one that
+// re-navigates or reloads within the tab) keeps the chosen intention. Session-scoped: it clears when the
+// tab closes, which is the right lifetime for a per-practice-session intention. Fails open (best-effort).
+const PRACTICE_FOCUS_KEY = 'speaksharp_practice_focus_v1';
+const readPracticeFocus = (): PracticeFocus | null => {
+  try {
+    const v = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(PRACTICE_FOCUS_KEY) : null;
+    return isPracticeFocus(v) ? v : null;
+  } catch { return null; }
+};
+const writePracticeFocus = (v: PracticeFocus | null): void => {
+  try {
+    if (typeof sessionStorage === 'undefined') return;
+    if (v) sessionStorage.setItem(PRACTICE_FOCUS_KEY, v);
+    else sessionStorage.removeItem(PRACTICE_FOCUS_KEY);
+  } catch { /* best-effort */ }
+};
+
 const initialState: SessionState = {
     runtimeState: 'IDLE',
+    engineSelectionLocked: false,
+    pendingResolutionKind: null,
     isLockHeldByOther: false,
     isListening: false,
     isInitiating: false,
@@ -128,6 +230,12 @@ const initialState: SessionState = {
     chunks: [],
     frozenTranscriptAtStop: null,
     isTranscriptFinalizing: false,
+    captureLimitReached: null,
+    completedSessionDurationSeconds: null,
+    activeObjectiveBrief: null,
+    practiceFocus: readPracticeFocus(),
+    completedObjectiveBrief: null,
+    objectiveCoverageResult: null,
     pauseMetrics: {
         totalPauses: 0,
         averagePauseDuration: 0,
@@ -140,7 +248,9 @@ const initialState: SessionState = {
     sessionSaved: false,
     nativeFormatting: { status: 'idle', startedAt: null },
     finalizedAnalysis: null,
-    sunsetModal: { type: 'daily', open: false },
+    finalizedWordCount: null,
+    finalizedFillerData: null,
+    finalizedFillerCount: null,
     isBooting: false,
 };
 
@@ -173,6 +283,13 @@ export const useSessionStore = create<SessionStore>((set) => {
     return {
     ...initialState,
 
+    setEngineSelectionLock: (engineSelectionLocked, pendingResolutionKind) => {
+        set((state) => (
+            state.engineSelectionLocked === engineSelectionLocked && state.pendingResolutionKind === pendingResolutionKind
+                ? state
+                : { ...state, engineSelectionLocked, pendingResolutionKind }
+        ));
+    },
     setRuntimeState: (runtimeState) => {
         logger.debug({ runtimeState }, '[useSessionStore] setRuntimeState');
         set((state) => {
@@ -241,13 +358,32 @@ export const useSessionStore = create<SessionStore>((set) => {
     setSTTStatus: (status) => {
         logger.debug({ type: status.type, message: status.message, timestamp: Date.now() }, '[STORE UPDATE]');
         set((state) => {
-            if (
+            // #1089 STALE TIMER (Ready/Idle invariant): "Ready to record" / "idle" with a non-zero elapsed
+            // timer is a contradiction — Ready asserts that no recording is in progress. The visible timer
+            // was only ever reset inside setSTTMode, which skips the reset once sessionSaved is true, so a
+            // prior take's elapsed value could survive into the Ready surface (the observed 00:09 while
+            // Ready). We MUST enforce this on EVERY route into Ready/Idle. Compute it FIRST, before the
+            // duplicate-status no-op below — otherwise republishing the SAME Ready status (a common
+            // re-render/re-subscribe path) returns early and preserves the stale timer. Guarded on
+            // runtimeState so a live recording is never zeroed from under itself. This zeroes ONLY the LIVE
+            // timer (elapsedTime/startTime); completedSessionDurationSeconds, transcript, saved-session
+            // identity and recovery state are deliberately untouched — the just-finished session's review
+            // still needs its real duration.
+            const violatesReadyTimerInvariant =
+                (status.type === 'ready' || status.type === 'idle') &&
+                state.runtimeState !== 'RECORDING' &&
+                (state.elapsedTime !== 0 || state.startTime !== null);
+
+            const isDuplicateStatus =
                 state.sttStatus.type === status.type &&
                 state.sttStatus.message === status.message &&
                 state.sttStatus.progress === status.progress &&
-                state.sttStatus.isFrozen === status.isFrozen
-            ) {
-                return state;
+                state.sttStatus.isFrozen === status.isFrozen;
+
+            if (isDuplicateStatus) {
+                // A genuine no-op UNLESS the stale-timer invariant is violated; if so, normalize only the
+                // LIVE timer while leaving the (unchanged) status and all completed/saved/recovery state.
+                return violatesReadyTimerInvariant ? { elapsedTime: 0, startTime: null } : state;
             }
             // Guard active recordings, but allow recovery once runtime has left RECORDING.
             if (
@@ -257,6 +393,9 @@ export const useSessionStore = create<SessionStore>((set) => {
             ) {
                 logger.warn({ status, currentState: state.sttStatus.type }, '[Store] ⚠️ Attempted to overwrite recording state');
                 return state;
+            }
+            if (violatesReadyTimerInvariant) {
+                return { sttStatus: status, elapsedTime: 0, startTime: null };
             }
             return { sttStatus: status };
         });
@@ -272,10 +411,8 @@ export const useSessionStore = create<SessionStore>((set) => {
                 state.runtimeState !== 'RECORDING' &&
                 !state.isTranscriptFinalizing &&
                 !state.frozenTranscriptAtStop &&
-                // #772: when a Private sample auto-ends + saves, the app force-switches the mode
-                // to native/browser. Don't wipe the just-saved transcript on that switch — keep it
-                // visible on /session until the next recording (which resets via
-                // resetAnalysisStateForNewRecording). Saved data is untouched either way.
+                // Preserve a just-saved transcript across any post-save internal mode normalization.
+                // The next recording resets visible state via resetAnalysisStateForNewRecording.
                 !state.sessionSaved;
             const next = {
                 ...state,
@@ -352,6 +489,12 @@ export const useSessionStore = create<SessionStore>((set) => {
 
     setFinalizedAnalysis: (finalizedAnalysis) =>
         set({ finalizedAnalysis }),
+    setFinalizedWordCount: (finalizedWordCount) =>
+        set({ finalizedWordCount }),
+    setFinalizedFillerData: (finalizedFillerData) =>
+        set({ finalizedFillerData }),
+    setFinalizedFillerCount: (finalizedFillerCount) =>
+        set({ finalizedFillerCount }),
 
     addChunk: (chunk) =>
         set((state) => ({
@@ -373,6 +516,14 @@ export const useSessionStore = create<SessionStore>((set) => {
             frozenTranscriptAtStop,
         }),
 
+    setCaptureLimitReached: (captureLimitReached) => set({ captureLimitReached }),
+
+    setCompletedSessionDuration: (completedSessionDurationSeconds) => set({ completedSessionDurationSeconds }),
+    setActiveObjectiveBrief: (activeObjectiveBrief) => set({ activeObjectiveBrief }),
+    setPracticeFocus: (practiceFocus) => { writePracticeFocus(practiceFocus); set({ practiceFocus }); },
+    setCompletedObjectiveBrief: (completedObjectiveBrief) => set({ completedObjectiveBrief }),
+    setObjectiveCoverageResult: (objectiveCoverageResult) => set({ objectiveCoverageResult }),
+
     setTranscriptFinalizing: (isTranscriptFinalizing) =>
         set({
             isTranscriptFinalizing,
@@ -393,11 +544,6 @@ export const useSessionStore = create<SessionStore>((set) => {
             sessionSaved: saved,
         }),
 
-    setSunsetModal: (sunsetModal) =>
-        set({
-            sunsetModal,
-        }),
-    
     setIsBooting: (isBooting) =>
         set({
             isBooting,

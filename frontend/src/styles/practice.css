@@ -1,0 +1,188 @@
+/*
+ * Practice-entry visual system — the approved warm "Vibrant Confidence / Private Practice" design,
+ * scoped under `.practice-root` so its tokens NEVER affect the rest of the production app (which uses
+ * the shadcn HSL design system in index.css). Ported from the accepted #1017 design reference; no
+ * sandbox infrastructure, fixtures, theme-switching, QA, or comparison machinery comes with it.
+ */
+
+.practice-root {
+  --ss-canvas: #F6F8FF;
+  --ss-surface: #FFFFFF;
+  --ss-text: #16213E;
+  --ss-text-secondary: #45526F;  /* darkened for legible secondary copy */
+  --ss-border: #DCE2F2;
+  --ss-neutral: #47536D;  /* darkened for legible small print (section labels) — AA ≥4.5 on the warm hero */
+  --ss-neutral-soft: #EEF2F7;
+  --ss-neutral-text: #334155;
+  --ss-success: #087A55;
+  --ss-success-soft: #DDF8EC;
+  --ss-success-text: #065F46;
+  --ss-partial: #B96508;
+  --ss-partial-soft: #FFF3D6;
+  --ss-partial-text: #7A4500;
+  --ss-setback: #B42318;
+  --ss-focus: #1677FF;
+  --ss-primary: #5B4CF0;
+  --ss-primary-hover: #4738CD;
+  --ss-primary-soft: #ECEAFE;
+  --ss-primary-soft-text: #4738CD;
+
+  /* Warm SpeakSharp entrance — a soft SLATE page so the white product cards lift clearly, under a LIGHT
+     warm-peach hero WASH (~10-20% orange tint), not a saturated orange block. Orange stays the brand
+     signature through ACCENTS (underline, waveform, illustration nodes, notice edge); navy + teal carry
+     the headline hierarchy. NOT pale yellow, NOT gray, NOT intense orange. */
+  --ss-landing-canvas: #eef1f6;
+  /* #1061 rectification: fade diagonally straight from warm orange to the page grey — NO white waypoint. */
+  --ss-hero-gradient: linear-gradient(102deg, #f2a13a 0%, #f6b761 22%, #f9d3a4 46%, #f2e4d6 70%, #eef1f6 100%);
+  --ss-hero-glow: radial-gradient(120% 90% at 10% -6%, rgba(222,116,28,0.26) 0%, rgba(222,116,28,0) 54%);
+  --ss-amber: #C96608;   /* full-strength warm orange, reserved for accents (underline/waveform/notice) */
+  --ss-amber-surface: #FFF4E6;  /* light warm opaque surface for the contextual Objective notice */
+  --ss-amber-border: #F0C088;   /* soft warm border around that notice */
+  --ss-coral: #FF7657;
+  --ss-sun: #EE9A1F;
+  --ss-teal-title: #055C58;  /* rich saturated teal for the "Public Impact!" half of the split tagline (large-text AA 3.9 on the warm hero top) */
+  --ss-body-slate: #2E4860;  /* prominent deep slate-blue for the hero explanation (AA ≥4.7 at every peach-hero point; distinct from the navy headline, never gray) */
+
+  /* Quick Practice = teal identity (primary action color); Focus Points = violet identity. RICH
+     header bands (not faint pastel) so the two products read as unmistakably different at a glance. */
+  --ss-session-accent: #0B9691; --ss-session-btn: #08746F; --ss-session-soft: #E3F6F3;
+  /* Quick band = a much-lighter TINT of the same #08746F button teal (same hue family, not a different
+     green). Violet band = a bit darker for stronger contrast against the white card body. */
+  --ss-session-panel: linear-gradient(145deg, #84BAB7 0%, #B5D5D4 100%); --ss-session-border: #4C9E99;
+  --ss-exec-accent: #5B4CF0; --ss-exec-btn: #4738CD; --ss-exec-soft: #ECEAFE;
+  --ss-exec-panel: linear-gradient(145deg, #5E43E0 0%, #7C61EE 100%); --ss-exec-border: #5A46E0;
+
+  /* ------------------------------------------------------------------------------------------
+   * #1047 authenticated Home. Declared HERE (the one place practice-surface tokens live) rather
+   * than inline in the component, so the two product identities and the single warm through-line
+   * can be re-tuned without touching TSX.
+   *
+   * Freeform = teal, Objective = violet, and ONE amber thread crosses both cards (the "what to
+   * expect" eyebrow and Freeform's middle tile). Amber is never a text background for white
+   * type: `--ss-home-amber-ink` is the dark brown/amber ink used on every warm surface.
+   * ---------------------------------------------------------------------------------------- */
+  --ss-home-teal: #0d7d74;
+  --ss-home-teal-deep: #0a5f58;
+  /* Band gradients carry WHITE 11px bold eyebrows, so BOTH stops must clear 4.5:1 against white.
+     The original light stops did not (#17a99b = 2.89:1, #9d7cf0 = 3.19:1) — even at full opacity,
+     and even for the 22px title. Each ramp now runs from its deep stop to its brand stop, which
+     keeps a visible gradient while the WORST point still passes AA:
+       teal   #0a5f58 (7.62:1) -> #0d7d74 (4.99:1)
+       violet #5c3fc4 (7.09:1) -> #7b5ce0 (4.71:1)  */
+  --ss-home-teal-band: linear-gradient(135deg, #0a5f58 0%, #0d7d74 100%);
+  --ss-home-teal-tint: #e6f4f2;
+  --ss-home-teal-border: #cfe7e4;
+
+  --ss-home-violet: #7b5ce0;
+  --ss-home-violet-deep: #6a4fd0;
+  --ss-home-violet-band: linear-gradient(135deg, #5c3fc4 0%, #7b5ce0 100%);
+  --ss-home-violet-tint: #f0ecfb;
+  --ss-home-violet-border: #ded8f5;
+
+  /* The warm through-line. `-ink` is deliberately dark brown — NEVER white text on orange. */
+  --ss-home-amber: #C96608;          /* decorative only (rule, waveform bar) — not a text colour */
+  --ss-home-amber-eyebrow: #B25A05;  /* 11px bold TEXT on white: 4.82:1 (#C96608 was 3.88:1) */
+  --ss-home-amber-ink: #6b3f08;      /* on --ss-home-amber-tint: 7.99:1 */
+  --ss-home-amber-tint: #fdf0dc;
+  --ss-home-amber-rule: #f0c088;
+  --ss-home-amber-bar: #f4c77b;
+
+  /* Honest-failure surface — distinct from both the teal "first run" note and the amber streak chip. */
+  --ss-home-warn-tint: #fdecea;
+  --ss-home-warn-ink: #8f2018;       /* on --ss-home-warn-tint: 7.3:1 */
+
+  --ss-home-card-border: #e2e8f4;
+}
+
+/*
+ * The app header is FIXED, so anything scrolled to inside this surface can be tucked underneath it.
+ * The offset is declared ONCE here, derived from the shared --header-height token, instead of being
+ * sprinkled as a magic number on whichever element a test happened to catch.
+ */
+.practice-root .ss-home-surface {
+  padding-top: calc(var(--header-height, 4rem) + 2rem);
+  scroll-padding-top: calc(var(--header-height, 4rem) + 1rem);
+}
+.practice-root .ss-home-anchor {
+  scroll-margin-top: calc(var(--header-height, 4rem) + 1rem);
+  scroll-margin-bottom: calc(var(--bottom-nav-height, 5rem) + 1rem);
+}
+
+/* Product card shell: 16px radius, clipped so the coloured header band bleeds to the edges. */
+.practice-root .ss-home-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--ss-surface);
+  border: 1px solid var(--ss-home-card-border);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
+}
+
+/* Two equal columns; ONE column as soon as side-by-side stops being readable. */
+.practice-root .ss-home-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 30px;
+  align-items: stretch;
+}
+@media (min-width: 900px) {
+  .practice-root .ss-home-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* Accent-matched card edges, so the border belongs to the same identity as the header band. */
+.practice-root .ss-home-card--teal { border-color: var(--ss-home-teal-border); }
+.practice-root .ss-home-card--violet { border-color: var(--ss-home-violet-border); }
+
+.practice-root .ss-home-band-teal { background: var(--ss-home-teal-band); }
+.practice-root .ss-home-band-violet { background: var(--ss-home-violet-band); }
+
+/* CTAs are full-width and pinned to the bottom of the card so both buttons bottom-align
+   regardless of how much copy sits above them. */
+.practice-root .ss-home-cta {
+  margin-top: auto;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 10px;
+  padding: 13px 16px;
+  font-size: 15px;
+  font-weight: 800;
+}
+.practice-root .ss-home-cta-solid { background: var(--ss-home-teal); color: #fff; }
+.practice-root .ss-home-cta-solid:hover { filter: brightness(0.93); }
+.practice-root .ss-home-cta-outline {
+  background: var(--ss-surface);
+  color: var(--ss-home-violet-deep);
+  border: 1.5px solid var(--ss-home-violet);
+}
+.practice-root .ss-home-cta-outline:hover { background: var(--ss-home-violet-tint); }
+
+/* Same-element compound selector (the class sits ON .practice-root, not a descendant). */
+.practice-root.ss-landing-canvas { background: var(--ss-landing-canvas); }
+/* Warm hero: a deep-orange glow anchored at the brand statement (top-left) over the orange→tan
+   gradient, with a subtle bottom fade into the slate page so the seam is soft (not a hard line). */
+.practice-root .ss-theme-hero { background: linear-gradient(to bottom, rgba(231,236,246,0) 82%, var(--ss-landing-canvas) 100%), var(--ss-hero-glow), var(--ss-hero-gradient); }
+.practice-root .ss-card-panel { background: var(--ss-card-panel); }
+
+.practice-root .ss-accent-btn { background: var(--ss-card-btn); color: #fff; }
+.practice-root .ss-accent-btn:hover { filter: brightness(0.92); }
+.practice-root .ss-accent-outline { border: 1px solid var(--ss-card); color: var(--ss-card-btn); background: var(--ss-surface); }
+.practice-root .ss-accent-outline:hover { background: var(--ss-card-soft); }
+
+.practice-root .ss-ring:focus-visible { outline: 2px solid var(--ss-focus); outline-offset: 2px; }
+
+/* Entrance for the contextual Objective notice: a gentle slide that NEVER touches opacity, so the notice is
+   ALWAYS rendered at full opacity (it must stay fully legible the instant it appears, and never be caught
+   half-faded in a screenshot or by assistive tech). */
+@keyframes ss-practice-slide-in {
+  from { transform: translateY(6px); }
+  to { transform: translateY(0); }
+}
+.practice-root .ss-slide-in { animation: ss-practice-slide-in 0.3s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .practice-root .ss-slide-in { animation: none; }
+}

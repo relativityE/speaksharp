@@ -24,6 +24,12 @@ const initialState: SessionState = {
     chunks: [],
     frozenTranscriptAtStop: null,
     isTranscriptFinalizing: false,
+    captureLimitReached: null,
+    completedSessionDurationSeconds: null,
+    activeObjectiveBrief: null,
+    practiceFocus: null,
+    completedObjectiveBrief: null,
+    objectiveCoverageResult: null,
     pauseMetrics: {
         totalPauses: 0,
         averagePauseDuration: 0,
@@ -36,8 +42,12 @@ const initialState: SessionState = {
     sessionSaved: false,
     nativeFormatting: { status: 'idle', startedAt: null },
     finalizedAnalysis: null,
-    sunsetModal: { type: 'daily', open: false },
+    finalizedWordCount: null,
+    finalizedFillerData: null,
+    finalizedFillerCount: null,
     isBooting: false,
+    engineSelectionLocked: false,
+    pendingResolutionKind: null,
 };
 
 /**
@@ -131,6 +141,7 @@ export function createTestSessionStore(
                 history,
             })),
 
+        setEngineSelectionLock: vi.fn(),
         setRuntimeState: vi.fn((state) =>
             set({
                 runtimeState: state,
@@ -161,9 +172,19 @@ export function createTestSessionStore(
                 finalizedAnalysis,
             })),
 
-        setSunsetModal: vi.fn((sunsetModal) =>
+        setFinalizedWordCount: vi.fn((finalizedWordCount) =>
             set({
-                sunsetModal,
+                finalizedWordCount,
+            })),
+
+        setFinalizedFillerData: vi.fn((finalizedFillerData) =>
+            set({
+                finalizedFillerData,
+            })),
+
+        setFinalizedFillerCount: vi.fn((finalizedFillerCount) =>
+            set({
+                finalizedFillerCount,
             })),
 
         resetSession: vi.fn(() =>
@@ -189,6 +210,12 @@ export function createTestSessionStore(
                 frozenTranscriptAtStop,
             })),
 
+        setCaptureLimitReached: vi.fn((captureLimitReached) => set({ captureLimitReached })),
+        setCompletedSessionDuration: vi.fn((completedSessionDurationSeconds) => set({ completedSessionDurationSeconds })),
+        setActiveObjectiveBrief: vi.fn((activeObjectiveBrief) => set({ activeObjectiveBrief })),
+        setPracticeFocus: vi.fn((practiceFocus) => set({ practiceFocus })),
+        setCompletedObjectiveBrief: vi.fn((completedObjectiveBrief) => set({ completedObjectiveBrief })),
+        setObjectiveCoverageResult: vi.fn((objectiveCoverageResult) => set({ objectiveCoverageResult })),
         setTranscriptFinalizing: vi.fn((isTranscriptFinalizing) =>
             set({
                 isTranscriptFinalizing,

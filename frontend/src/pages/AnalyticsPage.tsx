@@ -74,7 +74,7 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
                         <div className="text-left">
                             <span className="font-bold block text-base">Turn practice into progress</span>
                             <span className="text-sm font-medium text-foreground/70 sm:inline">
-                                Pro adds private local transcription, AI coaching, cleaner PDF reports, and deeper session history.
+                                The complete product — full history and coaching included — is free for 30 days, then $10/month to continue. Private transcription is on-device for everyone.
                             </span>
                         </div>
                     </div>
@@ -89,11 +89,8 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
                     </button>
                 </div>
             )}
-            {!isSessionView && isPro && (
-                <div className="inline-flex items-center gap-2 rounded-full border border-primary bg-primary px-4 py-1.5 text-sm font-bold text-primary-foreground cta-shadow">
-                    <span>Pro active</span>
-                </div>
-            )}
+            {/* #G4 chunk 3: the "Pro active" status pill is removed — entitlement is not a headline the
+                analytics page needs to shout, and it competed with the page's actual job (progress). */}
         </div>
     );
 };

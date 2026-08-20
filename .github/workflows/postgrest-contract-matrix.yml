@@ -1,0 +1,105 @@
+name: "PostgREST contract proof (disposable stack)"
+
+# #1314 — the missing rung-2 evidence. A PostgreSQL service container proves LOCKING; it says nothing about what
+# PostgREST does with the same schema, and PostgREST is exactly where this PR's earlier CI failure happened
+# (PGRST202 on an unresolvable function). Production application must not be the first PostgREST experiment, so
+# this proves resolution, ACLs, schema-cache reload and rollback on a disposable stack first.
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/20260819120000_complete_session_v2_atomic_retention_1314.sql'
+      - 'backend/supabase/migrations/20260816223606_metrics_only_additive_1306.sql'
+      - 'scripts/run-postgrest-contract-proof.sh'
+      - 'tests/db/atomic-completion-concurrency-realpg.sql'
+      - '.github/workflows/postgrest-contract-matrix.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postgrest-contract-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: "PostgREST contract (postgres:${{ matrix.pg }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['16', '17']
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: disposable_ci_only
+          POSTGRES_DB: matrix_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: disposable_ci_only
+      PGDATABASE: matrix_test
+      PGRST_JWT_SECRET: disposable-ci-only-secret-at-least-32-chars-long
+      PGRST_PORT: '3999'
+    steps:
+      - uses: actions/checkout@v6
+
+      # BOUNDED, like ci.yml after #1311. An unbounded apt is the un-timed network hang that has already cost
+      # this branch two U3 reruns; #1313 tracks the workflows still exposed. Do not copy a pre-hardening step.
+      - name: Install psql client (bounded)
+        run: |
+          timeout 180 sudo apt-get update -qq || { echo "::error::apt-get update exceeded its 180s bound"; exit 1; }
+          timeout 180 sudo apt-get install -y -qq postgresql-client \
+            || { echo "::error::apt-get install exceeded its 180s bound"; exit 1; }
+          set -o pipefail
+          psql -Atc 'select version()'
+
+      - name: Start disposable PostgREST
+        run: |
+          # Started AFTER the DB exists, and torn down with the runner. Roles are created by the proof script
+          # before any request is made, so PostgREST is only ever asked about a schema that is already set up.
+          docker run -d --name pgrst --network host \
+            -e PGRST_DB_URI="postgres://postgres:disposable_ci_only@127.0.0.1:5432/matrix_test" \
+            -e PGRST_DB_SCHEMAS=public \
+            -e PGRST_DB_ANON_ROLE=postgres \
+            -e PGRST_JWT_SECRET="$PGRST_JWT_SECRET" \
+            -e PGRST_SERVER_PORT="$PGRST_PORT" \
+            postgrest/postgrest:v12.2.3
+          for i in $(seq 1 30); do
+            curl -sf "http://127.0.0.1:${PGRST_PORT}/" >/dev/null && break
+            sleep 2
+          done
+          curl -sf "http://127.0.0.1:${PGRST_PORT}/" >/dev/null || { echo '::error::PostgREST did not become ready'; docker logs pgrst; exit 1; }
+
+      - name: PostgREST contract proof
+        run: |
+          # `set -o pipefail` is REQUIRED. GitHub runs steps with `bash -e`, not `-o pipefail`, so a
+          # pipeline takes TEE's exit status and a failing proof reports SUCCESS. This exact masking
+          # made the first PostgREST run a false green while the script printed FAIL.
+          set -o pipefail
+          bash scripts/run-postgrest-contract-proof.sh | tee pgrst-${{ matrix.pg }}.txt
+
+      - name: PostgREST logs on failure
+        if: failure()
+        run: docker logs pgrst || true
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### PostgREST contract — postgres:${{ matrix.pg }}"
+            echo '```'
+            grep -E '^==|^   |^PASS|^FAIL' pgrst-${{ matrix.pg }}.txt 2>/dev/null || echo 'no result captured'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

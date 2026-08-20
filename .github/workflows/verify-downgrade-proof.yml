@@ -45,9 +45,6 @@ jobs:
             'stripe_subscription_id',
             'subscription_id',
             'stripe_customer_id',
-            'private_sample_seconds_used',
-            'private_sample_limit_seconds',
-            'private_sample_completed_at',
           ];
           const endpoint = `${url}/rest/v1/user_profiles?stripe_customer_id=eq.${encodeURIComponent(cust)}&select=${cols.join(',')}`;
           const res = await fetch(endpoint, {
@@ -69,15 +66,11 @@ jobs:
           for (const k of cols) console.log(`${k} = ${r[k] === null ? 'NULL' : r[k]}`);
 
           const isNull = (v) => v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
-          const used = r.private_sample_seconds_used;
-          const limit = r.private_sample_limit_seconds;
           const checks = [
             ['subscription_status == free', String(r.subscription_status).toLowerCase() === 'free'],
             ['stripe_subscription_id IS NULL', isNull(r.stripe_subscription_id)],
             ['subscription_id IS NULL', isNull(r.subscription_id)],
             ['stripe_customer_id preserved', r.stripe_customer_id === cust],
-            ['private_sample_seconds_used == private_sample_limit_seconds', used != null && limit != null && Number(used) === Number(limit)],
-            ['private_sample_completed_at IS NOT NULL', !isNull(r.private_sample_completed_at)],
           ];
 
           console.log('--- contract ---');

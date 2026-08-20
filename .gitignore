@@ -1,5 +1,9 @@
 # --- Dependencies & Tools ---
-node_modules/
+# No trailing slash: ignores a node_modules DIRECTORY *and* a node_modules SYMLINK (a file).
+# A trailing-slash pattern (node_modules/) matches dirs only, which let local-dev symlinks get
+# committed and broke CI/Vercel (#1195).
+node_modules
+**/node_modules
 patches/
 .pnpm-debug.log*
 .history/
@@ -88,3 +92,6 @@ e2e_errors_detailed.txt
 unit-results.txt
 frontend/test_failures_v7.txt
 private-model-smoke.json
+
+# #1037 generated STT evidence run output (uploaded by CI, never committed)
+stt-evidence-artifacts/

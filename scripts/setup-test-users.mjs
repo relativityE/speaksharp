@@ -7,7 +7,7 @@
  * 2. Renames old users if needed
  * 3. Updates all passwords to shared SOAK_TEST_PASSWORD
  * 4. Creates missing users to meet targets
- * 5. Syncs subscription tiers (Free/Pro; Basic is reserved for future paid plans)
+ * 5. Syncs subscription tiers (Free/Pro only; SpeakSharp has no Basic product)
  * 6. Verifies login for all users
  */
 
@@ -15,6 +15,7 @@ import { createClient } from '@supabase/supabase-js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
+import { provisionCanaryCredential } from './lib/canaryAccountAdmin.mjs';
 
 // Load environment from .env.development (Standard for Soak/Canary tests)
 dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
@@ -25,8 +26,12 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const SOAK_TEST_PASSWORD = process.env.SOAK_TEST_PASSWORD;
 const ACTION = process.env.ACTION || process.env.USER_ADMIN_ACTION || 'setup';
+// Additive create purpose. 'standard' preserves the existing create_email/create_password/create_tier
+// behavior. The canary purposes resolve their credentials strictly from runtime GitHub Secrets.
+const CREATE_PURPOSE = process.env.CREATE_PURPOSE || 'standard';
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error('❌ Missing required env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY');
@@ -73,7 +78,7 @@ function getExpectedAccounts(freeCount, proCount, includeBrowserEnduranceAccount
 
 function getNewUserCounts() {
     return {
-        newFreeCount: parseInt(process.env.NUM_FREE_USERS || process.env.NEW_FREE_COUNT || process.env.NUM_BASIC_USERS || process.env.NEW_BASIC_COUNT || '0', 10),
+        newFreeCount: parseInt(process.env.NUM_FREE_USERS || process.env.NEW_FREE_COUNT || '0', 10),
         newProCount: parseInt(process.env.NUM_PRO_USERS || process.env.NEW_PRO_COUNT || '0', 10)
     };
 }
@@ -85,11 +90,10 @@ async function getConfigCounts() {
 
         // Extract exact numeric constants
         const freeMatch = content.match(/FREE_USER_COUNT = (\d+);/);
-        const legacyBasicMatch = content.match(/BASIC_USER_COUNT = (\d+);/);
         const proMatch = content.match(/PRO_USER_COUNT = (\d+);/);
         const maxMatch = content.match(/MAX_TOTAL_TEST_USERS = (\d+);/);
 
-        const free = freeMatch ? parseInt(freeMatch[1], 10) : legacyBasicMatch ? parseInt(legacyBasicMatch[1], 10) : 30;
+        const free = freeMatch ? parseInt(freeMatch[1], 10) : 30;
         const pro = proMatch ? parseInt(proMatch[1], 10) : 5;
         const max = maxMatch ? parseInt(maxMatch[1], 10) : 50;
 
@@ -204,6 +208,75 @@ function buildProfilePatchForTier(tier, email) {
     };
 }
 
+// #1294 Option 1: the browser-endurance accounts must be GENUINE active-trial via the immutable 30-day
+// foundation (migration 20260812040000). The foundation stamps trial_started_at / trial_expires_at ONLY at
+// account creation, so a pre-foundation account is recreated — never hand-stamped, never extended.
+
+/**
+ * True iff the account's trial is active by the SERVER's definition (public.effective_subscription_tier,
+ * migration 20260812040000): BOTH the immutable commercial grant marker `commercial_trial_granted_at` AND an
+ * unexpired `trial_expires_at` must exist. Checking only trial_expires_at is too weak — a stale account can
+ * have a window but a NULL grant (which the server reports as trial_expired). Logs the fields for diagnosis.
+ */
+async function accountHasActiveTrial(userId, email) {
+    const { data, error } = await supabase
+        .from('user_profiles')
+        .select('trial_started_at, trial_expires_at, commercial_trial_granted_at')
+        .eq('id', userId)
+        .maybeSingle();
+    if (error) {
+        console.log(`      ⚠️ trial read for ${email ?? userId} failed: ${error.message}`);
+        return false;
+    }
+    const grant = data?.commercial_trial_granted_at ?? null;
+    const expiry = data?.trial_expires_at ?? null;
+    const active = !!grant && !!expiry && new Date(expiry).getTime() > Date.now();
+    console.log(`      🔎 ${email ?? userId}: grant=${grant ?? 'NULL'} expiry=${expiry ?? 'NULL'} → active_trial=${active}`);
+    return active;
+}
+
+// Tables that reference auth.users(id) WITHOUT ON DELETE CASCADE (RESTRICT) — deleting the auth user is
+// blocked until these child rows are removed. Enumerated from the schema (usage_checkpoints burned a prior
+// partial delete). user_profiles is deleted last (its own children cascade from it).
+const RESTRICT_USER_CHILD_TABLES = ['sessions', 'usage_checkpoints'];
+
+/** Cascade-safe delete of a single test account: clear RESTRICT children, then the profile, then the auth user. */
+async function deleteAccountCascadeSafe(userId) {
+    for (const table of RESTRICT_USER_CHILD_TABLES) {
+        const { error } = await supabase.from(table).delete().eq('user_id', userId);
+        // A missing table/column in the current schema is benign here; a real delete failure is surfaced by
+        // the deleteUser step below (which fails closed if any residual FK still blocks).
+        if (error && !/does not exist|schema cache/i.test(error.message)) {
+            console.log(`      ⚠️ child cleanup ${table}: ${error.message}`);
+        }
+    }
+    await supabase.from('user_profiles').delete().eq('id', userId);
+    return supabase.auth.admin.deleteUser(userId);
+}
+
+/**
+ * Ensure a browser-endurance identity is a genuine active-trial account. Reuse if already active-trial;
+ * otherwise recreate through the immutable foundation and verify the fresh trial. FAILS CLOSED (returns a
+ * reason) — the caller exits non-zero so Private can never silently run without a real trial entitlement.
+ */
+async function ensureActiveTrialEnduranceAccount(email) {
+    const existing = (await listExistingSoakUsers(false)).find((u) => u.email === email);
+    if (existing && await accountHasActiveTrial(existing.id, email)) {
+        return { email, action: 'reused', ok: true };
+    }
+    if (existing) {
+        console.log(`  ♻️  ${email}: no active trial — recreating through the immutable foundation...`);
+        const { error: delError } = await deleteAccountCascadeSafe(existing.id);
+        if (delError) return { email, action: 'recreate', ok: false, reason: `delete_failed: ${delError.message}` };
+    }
+    const user = await createUserWithTier(email, 'free'); // creation trigger stamps the immutable 30-day trial
+    if (!user) return { email, action: 'create', ok: false, reason: 'create_failed' };
+    if (!await accountHasActiveTrial(user.id, email)) {
+        return { email, action: 'verify', ok: false, reason: 'foundation_trial_not_active_after_create' };
+    }
+    return { email, action: existing ? 'recreated' : 'created', ok: true };
+}
+
 async function printSoakUsers() {
     const soakUsers = await listExistingSoakUsers();
     const results = soakUsers.sort((a, b) => {
@@ -220,6 +293,47 @@ async function printSoakUsers() {
     });
 }
 
+// ============================================
+// Canary account credential creation (additive create_purpose = canary_trial | canary_paid).
+// The security-critical core lives in scripts/lib/canaryAccountAdmin.mjs (injectable + unit-tested). This
+// thin wrapper wires the runtime clients + secrets, prints a masked/content-free result, and maps a BLOCKED
+// outcome to a non-zero exit so a fail-closed refusal is never mistaken for success.
+// ============================================
+async function createCanaryUser(purpose) {
+    // Customer-path authentication MUST use the PUBLIC anon key. A service-role key is not an acceptable
+    // fallback for proving a real customer sign-in — require the anon key and fail closed if it is absent.
+    if (!SUPABASE_ANON_KEY) {
+        console.log('Admin - Test Users canary result: BLOCKED');
+        console.log(JSON.stringify({ result: 'BLOCKED', purpose, email: '***', reason: 'missing_SUPABASE_ANON_KEY' }));
+        process.exit(1);
+    }
+    const outcome = await provisionCanaryCredential({
+        adminClient: supabase,
+        // Read-only sign-in verification uses the PUBLIC anon flow ONLY (the customer path); no service-role.
+        makeSignInClient: () => createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+            auth: { autoRefreshToken: false, persistSession: false },
+        }),
+        secrets: {
+            CANARY_TRIAL_EMAIL: process.env.CANARY_TRIAL_EMAIL,
+            CANARY_TRIAL_PASSWORD: process.env.CANARY_TRIAL_PASSWORD,
+            CANARY_PAID_EMAIL: process.env.CANARY_PAID_EMAIL,
+            CANARY_PAID_PASSWORD: process.env.CANARY_PAID_PASSWORD,
+            FREE_TEST_EMAIL: process.env.FREE_TEST_EMAIL,
+            FREE_TEST_PASSWORD: process.env.FREE_TEST_PASSWORD,
+        },
+        purpose,
+    });
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('👤 Admin - Test Users — canary credential create');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`Admin - Test Users canary result: ${outcome.result}`);
+    console.log(JSON.stringify({ result: outcome.result, purpose: outcome.purpose, email: outcome.maskedEmail, ...outcome.facts }));
+
+    // BLOCKED is a safe, fail-closed refusal — surface it as a non-zero exit so it is never read as success.
+    if (outcome.result === 'BLOCKED') process.exit(1);
+}
+
 async function createSingleUser() {
     const email = process.env.CREATE_USER_EMAIL;
     const tier = process.env.CREATE_USER_TIER || 'free';
@@ -229,8 +343,8 @@ async function createSingleUser() {
         process.exit(1);
     }
 
-    if (!['free', 'basic', 'pro'].includes(tier)) {
-        console.error(`❌ Invalid CREATE_USER_TIER: ${tier}. Expected "free", "basic", or "pro".`);
+    if (!['free', 'pro'].includes(tier)) {
+        console.error(`❌ Invalid CREATE_USER_TIER: ${tier}. Expected "free" or "pro".`);
         process.exit(1);
     }
 
@@ -328,7 +442,14 @@ async function main() {
     }
 
     if (ACTION === 'create') {
-        await createSingleUser();
+        if (['canary_trial', 'canary_paid', 'free_test'].includes(CREATE_PURPOSE)) {
+            await createCanaryUser(CREATE_PURPOSE); // secret-backed purposes (password never a dispatch input)
+        } else if (CREATE_PURPOSE === 'standard') {
+            await createSingleUser();
+        } else {
+            console.error(`❌ Invalid CREATE_PURPOSE: ${CREATE_PURPOSE}. Expected standard, canary_trial, canary_paid, or free_test.`);
+            process.exit(1);
+        }
         return;
     }
 
@@ -414,7 +535,26 @@ async function main() {
     const updatedUsers = await listExistingSoakUsers(false);
     await syncUserTiers(updatedUsers, finalFree, finalPro);
 
-    console.log('\nStep 6: 🔑 Final Login Verification (Skipped - Deferred to Load Test)');
+    // #1294 Option 1: the browser-endurance accounts must run the REAL customer Private engine, which needs a
+    // genuine active-trial entitlement. Reuse if already active-trial; otherwise recreate through the
+    // immutable foundation. Fail closed — never let endurance proceed on a non-trial account.
+    if (MODE === 'soak') {
+        console.log('\nStep 6: 🎟️  Ensuring browser-endurance accounts are genuine active-trial (immutable foundation)...');
+        const results = [];
+        for (const account of DEDICATED_BROWSER_ENDURANCE_ACCOUNTS) {
+            const r = await ensureActiveTrialEnduranceAccount(account.email);
+            console.log(`  ${r.ok ? '✅' : '❌'} ${r.email}: ${r.action}${r.ok ? '' : ` — ${r.reason}`}`);
+            results.push(r);
+        }
+        const failed = results.filter((r) => !r.ok);
+        if (failed.length > 0) {
+            console.error(`\n❌ Browser-endurance active-trial provisioning FAILED for ${failed.length} account(s): ${failed.map((f) => `${f.email} (${f.reason})`).join(', ')}`);
+            console.error('   Endurance requires a genuine Private active-trial; refusing to proceed (no fabricated entitlement, no private_sample fallback).');
+            process.exit(1);
+        }
+    }
+
+    console.log('\nStep 7: 🔑 Final Login Verification (Skipped - Deferred to Load Test)');
 
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`🎉 Setup Complete: Users verified and synchronized successfully!`);

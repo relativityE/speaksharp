@@ -11,10 +11,20 @@ import { PRIV_STT } from '../../sttConstants';
 import { setupStrictZero } from '../../../../../../tests/setupStrictZero';
 
 // Hoist mock factories to top of file
-const { mockPipeline, mockEnv } = vi.hoisted(() => ({
-    mockPipeline: vi.fn(),
-    mockEnv: { allowLocalModels: false, allowRemoteModels: false, localModelPath: '/models/', useBrowserCache: true },
-}));
+const { mockPipeline, mockEnv, mockWasm } = vi.hoisted(() => {
+    const wasm = { wasmPaths: '', numThreads: 0, simd: false };
+    return {
+        mockPipeline: vi.fn(),
+        mockWasm: wasm,
+        mockEnv: {
+            allowLocalModels: false,
+            allowRemoteModels: false,
+            localModelPath: '/models/',
+            useBrowserCache: true,
+            backends: { onnx: { wasm } },
+        },
+    };
+});
 
 // Mock the flagging system - aligned with window.__SS_E2E__
 vi.mock('@/config/TestFlags', () => ({
@@ -62,6 +72,7 @@ describe('TransformersJSEngine (Unit)', () => {
         // Reset defaults
         mockPipeline.mockReset();
         mockEnv.allowLocalModels = false;
+        mockWasm.wasmPaths = '';
 
         // Default mock implementation - mirrors transformers.js ASR output shape.
         mockPipeline.mockImplementation(async (_task, _model, options) => {
@@ -109,6 +120,8 @@ describe('TransformersJSEngine (Unit)', () => {
         expect(callbacks.onModelLoadProgress).toHaveBeenCalledWith(0);
         expect(callbacks.onReady).toHaveBeenCalled();
         expect(mockEnv.allowLocalModels).toBe(true);
+        expect(mockWasm.wasmPaths).toEqual(expect.stringMatching(/\/$/));
+        expect(typeof mockWasm.wasmPaths).toBe('string');
     });
 
     it('should process PCM audio buffer correctly', async () => {

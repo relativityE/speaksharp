@@ -1,0 +1,104 @@
+name: '#1047 U3 Cross-page Evidence'
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'PR number this evidence supports'
+        required: true
+      reviewed_sha:
+        description: 'Exact reviewed head SHA (full lowercase 40-character SHA)'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: 1047-u3-cross-page-${{ inputs.pr || github.event.pull_request.number }}-${{ inputs.reviewed_sha || github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+jobs:
+  cross-page-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout reviewed commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.reviewed_sha || github.event.pull_request.head.sha }}
+
+      - name: Validate exact reviewed SHA
+        shell: bash
+        env:
+          REVIEWED_SHA: ${{ inputs.reviewed_sha || github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "reviewed_sha must be a lowercase 40-character commit SHA" >&2
+            exit 1
+          }
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          test "$ACTUAL_SHA" = "$REVIEWED_SHA" || {
+            echo "checked-out HEAD $ACTUAL_SHA does not match reviewed SHA $REVIEWED_SHA" >&2
+            exit 1
+          }
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Build production app
+        env:
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: pnpm ci:build
+
+      - name: Run U3 evidence matrix
+        env:
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          STT_ENGINE: mock
+        run: pnpm exec playwright test tests/e2e/progress-cross-page.e2e.spec.ts --project=full-suite --reporter=line
+
+      - name: Collect approved screenshots and sanitized manifest
+        if: always()
+        shell: bash
+        env:
+          REVIEWED_SHA: ${{ inputs.reviewed_sha || github.event.pull_request.head.sha }}
+          REVIEW_PR: ${{ inputs.pr || github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          mapfile -t SCREENSHOTS < <(find test-results/1047-u3-cross-page -maxdepth 1 -type f -name '*.png' | sort)
+          ((${#SCREENSHOTS[@]} > 0)) || {
+            echo "No approved U3 screenshots were produced" >&2
+            exit 1
+          }
+          cp "${SCREENSHOTS[@]}" evidence/
+          node -e '
+            const fs = require("node:fs");
+            const crypto = require("node:crypto");
+            const files = fs.readdirSync("evidence").filter((name) => name.endsWith(".png")).sort();
+            const manifest = {
+              schema: "speaksharp.review-evidence.v1",
+              pr: process.env.REVIEW_PR,
+              reviewedSha: process.env.REVIEWED_SHA,
+              files: files.map((name) => ({
+                name,
+                sha256: crypto.createHash("sha256").update(fs.readFileSync(`evidence/${name}`)).digest("hex"),
+              })),
+            };
+            fs.writeFileSync("evidence/manifest.json", JSON.stringify(manifest, null, 2) + "\n");
+          '
+
+      - name: Upload U3 review evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pr${{ inputs.pr || github.event.pull_request.number }}-${{ inputs.reviewed_sha || github.event.pull_request.head.sha }}-1047-u3-cross-page
+          path: evidence/
+          retention-days: 1
+          if-no-files-found: error

@@ -1,46 +1,131 @@
 name: 'Setup Environment'
-description: 'Sets up Node.js, pnpm, dependencies, and Playwright for CI/CD'
+description: 'Sets up Node.js, pnpm and (opt-in) native deps, Playwright and the Supabase CLI for CI/CD'
+
+# CI-PERF: every capability beyond Node/pnpm/dependencies is OPT-IN and defaults to false.
+# Previously this action unconditionally installed ~80 apt packages (Canvas/Sharp build deps) and the
+# Supabase CLI in EVERY job — including jobs that never use them (build, report, Lighthouse, E2E,
+# health). That was removed for CI-PERF.
+#
+# #1195: pnpm is installed via COREPACK, not pnpm/action-setup. GitHub runners now pre-install pnpm
+# v11.19.0; pnpm/action-setup "switches" the runner's pnpm (even v11->v11) and leaves PNPM_HOME in a
+# hybrid layout, causing a flaky `ERR_PNPM_ENOENT: mkdir node_modules/@radix-ui` at install time.
+# Corepack installs the EXACT `packageManager` version into its own clean location, ignoring the
+# runner's pnpm — no switch, deterministic on any runner image. Version is chosen in ONE place
+# (package.json "packageManager"); everything else derives from it.
 inputs:
-  install-playwright:
-    description: 'Whether to install Playwright browsers'
+  install-dependencies:
+    description: 'Run `pnpm install --frozen-lockfile`. Set false for jobs that only aggregate artifacts.'
+    required: false
+    default: 'true'
+  install-native-deps:
+    description: 'Install Canvas/Sharp native build dependencies (apt). Only needed by jobs that execute canvas/image code.'
     required: false
     default: 'false'
+  install-playwright:
+    description: 'Install Playwright browsers.'
+    required: false
+    default: 'false'
+  install-supabase-cli:
+    description: 'Install the Supabase CLI. Only needed by jobs that actually invoke `supabase`.'
+    required: false
+    default: 'false'
+  apt-bundle:
+    description: '#1311 prefetch: install apt deps OFFLINE from the deps-prep bundle (no mirror), replacing the network Canvas/Sharp + Playwright install-deps steps.'
+    required: false
+    default: 'false'
+  apt-bundle-manifest:
+    description: 'Which manifest to install offline when apt-bundle=true: canvas-sharp | playwright.'
+    required: false
+    default: 'canvas-sharp'
+  apt-bundle-artifact:
+    description: 'Name of the same-run artifact holding the prefetched .deb bundle.'
+    required: false
+    default: 'apt-deps-bundle'
 runs:
   using: 'composite'
   steps:
-    - name: Setup pnpm
-      uses: pnpm/action-setup@v6
-      # Version is read from package.json "packageManager" field
-
     - name: Setup Node.js
       uses: actions/setup-node@v6
       with:
         node-version: '22'
-        cache: 'pnpm'
 
-    - name: Get pnpm store directory
+    - name: Activate pnpm via Corepack (single source = packageManager)
+      id: pnpm
       shell: bash
       run: |
-        echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+        # Install the EXACT packageManager pnpm cleanly. Do NOT use pnpm/action-setup (see #1195).
+        export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+        corepack enable
+        PM="$(node -p "require('./package.json').packageManager")"   # e.g. pnpm@10.29.1
+        corepack prepare "$PM" --activate
+        EXPECTED="${PM#pnpm@}"
+        ACTUAL="$(pnpm --version)"
+        echo "pnpm expected=$EXPECTED actual=$ACTUAL path=$(command -v pnpm)"
+        # Guardrail: any drift/switch producing a different version fails loudly HERE, not at a
+        # cryptic ENOENT later. This is the drift tripwire the whole outage was missing.
+        if [ "$EXPECTED" != "$ACTUAL" ]; then
+          echo "::error::pnpm version mismatch — expected $EXPECTED (packageManager) but got $ACTUAL"
+          exit 1
+        fi
+        echo "version=$ACTUAL" >> "$GITHUB_OUTPUT"
+        echo "store=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
-    - name: Setup pnpm cache
-      uses: actions/cache@v5
+    - name: Cache pnpm store
+      id: pnpm-cache
+      uses: actions/cache@v4
       with:
-        path: ${{ env.STORE_PATH }}
-        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+        path: ${{ steps.pnpm.outputs.store }}
+        # Version IN the key: a store from one pnpm version can never restore into another
+        # (that cross-version restore is a documented failure mode — see #1195).
+        key: ${{ runner.os }}-pnpm-${{ steps.pnpm.outputs.version }}-${{ hashFiles('pnpm-lock.yaml') }}
         restore-keys: |
-          ${{ runner.os }}-pnpm-store-
+          ${{ runner.os }}-pnpm-${{ steps.pnpm.outputs.version }}-
 
+    # #1311 prefetch experiment: install apt deps OFFLINE from the deps-prep bundle (checksum-verified,
+    # network-disabled), replacing the network apt steps below. Runs BEFORE `pnpm install` so native
+    # modules (canvas) build against the installed libs. Fail-closed on any missing/invalid bundle input.
+    - name: Download prefetched apt bundle
+      if: runner.os == 'Linux' && inputs.apt-bundle == 'true'
+      uses: actions/download-artifact@v7
+      with:
+        name: ${{ inputs.apt-bundle-artifact }}
+        path: apt-bundle
+    - name: Install apt deps from bundle (offline, no mirror)
+      if: runner.os == 'Linux' && inputs.apt-bundle == 'true'
+      shell: bash
+      run: bash scripts/ci/apt-install-offline.sh apt-bundle "${{ inputs.apt-bundle-manifest }}"
+
+    # #1311 Option A (bounded diagnostic head) — NETWORK apt fallback, used only when apt-bundle != 'true'.
+    # BOTH observed apt hang paths — Canvas/Sharp native deps and Playwright `install-deps` — get a bounded,
+    # FAIL-CLOSED timeout. Safety contract: Linux GitHub-hosted runner only; if the deadline expires the
+    # command may be terminated MID-INSTALL, so the step fails the job immediately — NO retry, NO
+    # `dpkg --configure -a`, NO further apt/dpkg on this disposable runner; the runner is discarded. A
+    # timeout (rc 124/137) is reported DISTINCTLY from a genuine apt/dpkg exit. GNU `timeout` is Linux-only;
+    # every timeout-wrapped step here is `runner.os == 'Linux'`-gated so macOS/self-hosted (#1304) never inherit it.
     - name: Install System Dependencies (Canvas/Sharp)
+      if: runner.os == 'Linux' && inputs.install-native-deps == 'true' && inputs.apt-bundle != 'true'
       shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
-      if: runner.os == 'Linux'
+        echo "[phase] canvas-sharp-apt START $(date -u +%H:%M:%S)"
+        set +e
+        sudo timeout -k 30 300 bash -c 'apt-get update && apt-get install -y --no-install-recommends build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev'
+        rc=$?
+        echo "[phase] canvas-sharp-apt END rc=$rc $(date -u +%H:%M:%S)"
+        if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+          echo "::error::Canvas/Sharp apt hit the 300s deadline and was terminated (rc=$rc = TIMEOUT/CANCEL, not a genuine apt/dpkg exit). Failing job; runner discarded; no retry/repair."
+        elif [ "$rc" != 0 ]; then
+          echo "::error::Canvas/Sharp apt failed with a genuine apt/dpkg exit (rc=$rc)."
+        fi
+        exit $rc
 
     - name: Install Dependencies
+      if: inputs.install-dependencies == 'true'
       shell: bash
-      run: pnpm install --frozen-lockfile
+      run: |
+        echo "[cache] pnpm-store cache-hit=${{ steps.pnpm-cache.outputs.cache-hit }}"
+        echo "[phase] pnpm-install START $(date -u +%H:%M:%S)"
+        pnpm install --frozen-lockfile --prefer-offline
+        echo "[phase] pnpm-install END $(date -u +%H:%M:%S)"
 
     - name: Remove Problematic Package Repositories
       if: inputs.install-playwright == 'true'
@@ -50,13 +135,37 @@ runs:
         sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
         sudo rm -f /etc/apt/sources.list.d/azure-cli.list
         echo "Removed problematic Microsoft package repositories"
-    
-    - name: Install Playwright Browsers
+
+    # #1311 step-1 split: `install --with-deps` is separated into its apt half (bounded, below) and its
+    # CDN browser-binary half (plain, further below) so a future hang NAMES ITSELF (apt vs CDN).
+    - name: Install Playwright system deps (apt)
+      if: runner.os == 'Linux' && inputs.install-playwright == 'true' && inputs.apt-bundle != 'true'
+      shell: bash
+      run: |
+        echo "[phase] playwright-install-deps START $(date -u +%H:%M:%S)"
+        set +e
+        timeout -k 30 300 pnpm exec playwright install-deps chromium
+        rc=$?
+        echo "[phase] playwright-install-deps END rc=$rc $(date -u +%H:%M:%S)"
+        if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+          echo "::error::Playwright install-deps hit the 300s deadline and was terminated (rc=$rc = TIMEOUT/CANCEL, not a genuine apt/dpkg exit). Failing job; runner discarded; no retry/repair."
+        elif [ "$rc" != 0 ]; then
+          echo "::error::Playwright install-deps failed with a genuine apt/dpkg exit (rc=$rc)."
+        fi
+        exit $rc
+
+    - name: Install Playwright browser (chromium)
       if: inputs.install-playwright == 'true'
       shell: bash
-      run: pnpm exec playwright install --with-deps chromium
+      run: |
+        # CDN binary download (not apt). Plain call — no retry/cache in this diagnostic head; the
+        # job-level timeout-minutes is the outer backstop if the CDN itself stalls.
+        echo "[phase] playwright-browser START $(date -u +%H:%M:%S)"
+        pnpm exec playwright install chromium
+        echo "[phase] playwright-browser END $(date -u +%H:%M:%S)"
 
     - name: Setup Supabase CLI
+      if: inputs.install-supabase-cli == 'true'
       uses: supabase/setup-cli@v2
       env:
         SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}

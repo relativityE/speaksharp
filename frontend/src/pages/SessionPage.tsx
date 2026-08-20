@@ -1,29 +1,22 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Settings } from 'lucide-react';
+import React, { useRef, useEffect } from 'react';
 // ... existing imports ...
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useUnresolvedRecovery } from '@/hooks/useUnresolvedRecovery';
+import { useAuthProvider } from '@/contexts/AuthProvider';
 import { Button } from '@/components/ui/button';
-import { UserFillerWordsManager } from '@/components/session/UserFillerWordsManager';
 import { SessionPageSkeleton } from '@/components/session/SessionPageSkeleton';
-import { FillerWordsCard } from '@/components/session/FillerWordsCard';
-import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
-import { LiveCoachingScoreCard } from '@/components/session/LiveCoachingScoreCard';
-import { LiveRecordingCard } from '@/components/session/LiveRecordingCard';
+import { UnresolvedRecoveryBanner } from '@/components/session/UnresolvedRecoveryBanner';
 import { MobileActionBar } from '@/components/session/MobileActionBar';
 import { StatusNotificationBar } from '@/components/session/StatusNotificationBar';
+import { FreeformHelpOverlay } from '@/components/session/FreeformHelpOverlay';
 import { SttStatus } from '@/types/transcription';
-import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
-import { SunsetModals } from '@/components/session/SunsetModals';
+import { SessionOverhaulView } from '@/components/session/SessionOverhaulView';
+import { usePracticeHistory } from '@/hooks/usePracticeHistory';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
-import {
-    getSessionCoachingAssignment,
-} from '@/services/sessionCoachingExperiment';
-import { useUsageLimit } from '@/hooks/useUsageLimit';
-import { clearSessionRecoveryDraft, getSessionRecoveryDraft, type SessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 import { useSessionStore } from '@/stores/useSessionStore';
+import { estimateFinalizeSeconds } from '@/services/transcription/finalizeRateStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
-import { PostSaveToast } from '@/components/session/PostSaveToast';
+import { useNavigate } from 'react-router-dom';
 
 /**
  * ARCHITECTURE:
@@ -32,86 +25,77 @@ import { PostSaveToast } from '@/components/session/PostSaveToast';
  * have been extracted into useSessionLifecycle.
  */
 export const SessionPage: React.FC = () => {
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [recoveryDraft, setRecoveryDraft] = useState<SessionRecoveryDraft | null>(null);
+    // #1222: the session overhaul is the ONLY session page (PO 2026-08-08). The legacy two-column body was
+    // retained behind a never-true flag pending this test-migration ticket (#1231); it and its now-unused
+    // imports have been removed. The live trial-unavailable notice it used to host was relocated into the
+    // live chrome below (never silently dropped).
+    const { session: authSession } = useAuthProvider();
+    // #1033 A5/A6: the resolved authenticated owner. Recovery reads/rehydration are scoped to it and
+    // fail closed while it is unresolved — never an unscoped read.
+    const authUserId = authSession?.user?.id ?? null;
     const { runtimeState } = useTranscriptionContext();
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
     const previousTranscriptScrollHeightRef = useRef(0);
-    const [coachingAssignment] = useState(() => getSessionCoachingAssignment());
-    const { data: usageLimit } = useUsageLimit();
-    const updateRecoveredTranscript = useSessionStore(state => state.updateTranscript);
-    const setRecoveredChunks = useSessionStore(state => state.setChunks);
-    const setRecoveredStatus = useSessionStore(state => state.setSTTStatus);
+    // #1222: real session history feeds the overhaul's Progress card (slot C, aggregate).
+    const { data: practiceHistory } = usePracticeHistory();
+    // #1033 Part-2b: authoritative engine-selection lock + pending recovery, published by the controller.
+    const engineSelectionLocked = useSessionStore(state => state.engineSelectionLocked);
+    const pendingResolutionKind = useSessionStore(state => state.pendingResolutionKind);
     const sessionSaved = useSessionStore(state => state.sessionSaved);
     const isTranscriptFinalizing = useSessionStore(state => state.isTranscriptFinalizing);
-    const nativeFormatting = useSessionStore(state => state.nativeFormatting);
+    // #1089: the duration of the session under review. Falls back to the live timer while recording
+    // (the snapshot is only published at stop); after a stop the live timer is 0 but this is not.
+    const completedSessionDurationSeconds = useSessionStore(state => state.completedSessionDurationSeconds);
     const finalizedAnalysis = useSessionStore(state => state.finalizedAnalysis);
+    // #1306 Option A: the terminal review's word count + filler breakdown come from the FINAL snapshot (captured
+    // before the transcript/chunks were purged), never from the now-empty live transcript or the live fillerData
+    // (which the useFillerWords sync zeroes once the chunks are purged).
+    const finalizedWordCount = useSessionStore(state => state.finalizedWordCount);
+    const finalizedFillerData = useSessionStore(state => state.finalizedFillerData);
+    // #1046 slice 5a: per-point Focus Points coverage, published by the stop seam after an objective
+    // session finalizes; null for Open Mic sessions (and cleared at the next recording start).
+    const objectiveCoverageResult = useSessionStore(state => state.objectiveCoverageResult);
+    // #1046 Focus Points: a bound brief means this is a Focus Points session — slot D shows the declared
+    // points (before/during) then their resolved coverage (after), and the header help reads "How Focus
+    // Points works". null ⇒ an Open Mic session (unchanged).
+    const activeObjectiveBrief = useSessionStore(state => state.activeObjectiveBrief);
+    // #1264 — the optional Open Mic Practice Focus (persists through a "Practice this next" repeat).
+    const practiceFocus = useSessionStore(state => state.practiceFocus);
+    // #1046 G6/G7 — the finished-brief snapshot, so the after-state review keeps its Focus Points coverage
+    // after the live brief is cleared on save (see SpeechRuntimeController / SessionOverhaulView).
+    const completedObjectiveBrief = useSessionStore(state => state.completedObjectiveBrief);
+    const isObjectiveSession = Boolean(activeObjectiveBrief);
+    // #891 — engine-specific finalize RTF (self-corrects from real decodes) for the "Finalizing… ~Ns"
+    // countdown; the estimate itself is computed below once the recording duration is in scope.
+    const activeEngineVersion = useSessionStore(state => state.activeEngineVersion);
 
     const {
         isListening,
-        isReady,
         metrics,
         sttStatus,
         modelLoadingProgress,
         privateModelStatus,
         mode,
-        setMode,
-        recordingIntent,
         elapsedTime,
         handleStartStop,
         showAnalyticsPrompt,
         sessionFeedbackMessage,
-        sunsetModal,
-        setSunsetModal,
-        pauseMetrics,
         micLevel,
-        hasSpeechActivity,
         transcriptContent,
         interimTranscript,
-        isProUser,
         canUsePrivateStt,
-        canUseCloudStt,
-        activeEngine,
         isButtonDisabled,
-        history
     } = useSessionLifecycle();
 
-    const restoreRecoveryDraft = useCallback((draft: SessionRecoveryDraft) => {
-        clearSessionRecoveryDraft(draft.sessionId);
-        updateRecoveredTranscript(draft.transcript, '');
-        setRecoveredChunks([{
-            transcript: draft.transcript,
-            timestamp: new Date(draft.savedAt).getTime() || Date.now(),
-            isFinal: true,
-        }]);
-        setRecoveredStatus({
-            type: 'warning',
-            message: 'Recovered unsaved session draft.',
-            detail: 'Your last transcript was kept on this device after a save issue.',
-        });
-        setRecoveryDraft(null);
-    }, [setRecoveredChunks, setRecoveredStatus, updateRecoveredTranscript]);
-
-    useEffect(() => {
-        if (isListening) {
-            setRecoveryDraft(null);
-            return;
-        }
-        // A successfully-saved session is NOT an orphaned draft to recover. The stop flow writes a
-        // transient crash-safety recovery draft and clears it only after the async save completes;
-        // surfacing it on isListening->false would falsely tell the user their saved work is "unsaved".
-        // Suppress the banner (and drop the stale draft) once the current session is persisted.
-        if (sessionSaved) {
-            clearSessionRecoveryDraft();
-            setRecoveryDraft(null);
-            return;
-        }
-        const draft = getSessionRecoveryDraft();
-        setRecoveryDraft(draft);
-        if (!draft || transcriptContent.trim()) return;
-
-        restoreRecoveryDraft(draft);
-    }, [isListening, sessionSaved, restoreRecoveryDraft, transcriptContent]);
+    // #1033 Part-2b (A5/A6): all owner-scoped recovery orchestration lives in this hook —
+    // owner-scoped read, fail-closed on unresolved auth, same-user rehydrate-once, account-change
+    // isolation, and scoped (never destructive no-arg) draft deletion.
+    const { recoveryDraft, restoreRecoveryDraft, dismissRecoveryDraft } = useUnresolvedRecovery({
+        authUserId,
+        isListening,
+        sessionSaved,
+        transcriptContent,
+    });
 
     // Keep live transcript pinned only while the user is already reading the latest text.
     useEffect(() => {
@@ -129,6 +113,8 @@ export const SessionPage: React.FC = () => {
         }
     }, [transcriptContent, interimTranscript]);
 
+    const navigate = useNavigate();
+
     if (!metrics) return <SessionPageSkeleton />;
 
     // Dual-State Status Derivation (FSM + Service State)
@@ -137,19 +123,56 @@ export const SessionPage: React.FC = () => {
 
     // 1. Determine Primary Status (Session State)
     const isActiveStt = sttStatus.type === 'initializing' || sttStatus.type === 'downloading' || sttStatus.type === 'fallback' || isListening;
+    // #1042 PR2: the "How Rough Drafts works" help overlay is available only when the session is idle
+    // (before recording / after a successful save). It is disabled during starting, initializing, recording,
+    // stopping, finalizing/saving, or an unresolved recovery. This is derived ENTIRELY from the existing
+    // authoritative projection (runtime FSM + isActiveStt + finalizing + pendingResolutionKind) — no second
+    // lock model. The controller's recording lifecycle is INITIATING/ENGINE_INITIALIZING/RECORDING/STOPPING.
+    const scoringDurationSeconds = completedSessionDurationSeconds ?? elapsedTime;
+    // #891 — estimate now that the recording duration is in scope; feeds the "Finalizing… ~Ns" countdown.
+    const finalizeEstimateSeconds = estimateFinalizeSeconds(activeEngineVersion, scoringDurationSeconds);
 
-    // Track 1: the post-save UI (settled copy, Analytics action, Private CTA, toast) is shown only once
+    const helpOverlayAvailable = !(
+        // engineSelectionLocked is set synchronously on Start INTENT (before the FSM reaches INITIATING),
+        // so it closes the start-intent window where runtimeState/isListening/sttStatus are still idle —
+        // the same authoritative lock the mode selector uses; no separate lock model. When it flips true
+        // the overlay's own effect also auto-closes an already-open guide.
+        engineSelectionLocked ||
+        isActiveStt ||
+        isTranscriptFinalizing ||
+        pendingResolutionKind !== null ||
+        runtimeState === 'INITIATING' ||
+        runtimeState === 'ENGINE_INITIALIZING' ||
+        runtimeState === 'RECORDING' ||
+        runtimeState === 'STOPPING'
+    );
+
+    // The post-save UI (settled copy, Analytics action, toast) is shown only once
     // finalization is TERMINAL — the controller publishes finalizedAnalysis after persistence +
-    // reconciliation + the native formatter reaches complete/failed and the final text is applied. Until
+    // reconciliation + formatting reaches complete/failed and the final text is applied. Until
     // then the transcript keeps its finalizing/tidying treatment and no settled/ready claim is made.
     const postSaveReady = showAnalyticsPrompt && !!finalizedAnalysis;
     // Mode-aware reconciliation status copy for the consolidated status bar's left side.
-    // Native discrepancy → "…Browser transcription may omit some…"; Private never gets Browser copy.
     const reconciliationCopy = finalizedAnalysis
         ? reconciliationStatusCopy(finalizedAnalysis.reconciliation, { mode: finalizedAnalysis.mode })
         : null;
-    // After a saved Native session, the status-bar Private CTA replaces the Browser-card nudge — never both.
-    const suppressBrowserCardPrivateNudge = postSaveReady && mode === 'native' && canUsePrivateStt;
+    // #1222 G1: the title block (heading + dynamic subtitle + help entry) renders ONLY in the before-state
+    // (idle: not recording, not finalizing, no post-save prompt). During/after it recedes so the live
+    // workflow owns the frame — matching the PO's G1 mockup.
+    const beforeState = !isListening && !showAnalyticsPrompt && !isTranscriptFinalizing;
+    // Dynamic subtitle from REAL history. practiceHistory is newest-first, so the oldest (baseline) is last.
+    const completedSessions = practiceHistory?.length ?? 0;
+    const baselineIso = completedSessions > 0 ? practiceHistory?.[practiceHistory.length - 1]?.created_at : null;
+    const baselineDateLabel = baselineIso ? new Date(baselineIso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : null;
+    // #1046 Focus Points: the subtitle names the SET, not the session history — "baseline" is an Open-Floor
+    // concept. A Focus Points run reads "Focus Points · N points" (attempt-of-a-set numbering is deferred
+    // with the same-set retry comparison).
+    const objectivePointCount = activeObjectiveBrief?.points?.length ?? 0;
+    const sessionSubtitle = isObjectiveSession
+        ? `Focus Points · ${objectivePointCount} point${objectivePointCount === 1 ? '' : 's'}`
+        : baselineDateLabel
+            ? `Session ${completedSessions + 1} · baseline set ${baselineDateLabel}`
+            : 'Session 1 · your baseline starts here';
 
     // Status resolution logic
     const getBaseStatus = (): SttStatus => {
@@ -208,22 +231,12 @@ export const SessionPage: React.FC = () => {
     };
 
     const baseStatus = getBaseStatus();
-    const privateSampleSecondsRemaining = usageLimit?.private_sample_available
-        ? Math.max(0, usageLimit.private_sample_seconds_remaining ?? 0)
-        : 0;
-    const privateSampleStatusDetail = privateSampleSecondsRemaining > 0
-        ? 'Private sample: up to 5 minutes. We’ll stop and save when the sample ends.'
-        : usageLimit && !usageLimit.is_pro && usageLimit.private_sample_completed_at
-            ? 'Private transcription is part of Early Access. Upgrade to keep using local Private transcription, full session history, and deeper reports. Browser transcription is still available.'
-        : undefined;
-    const shouldShowPrivateSampleDetail = ['idle', 'ready', 'recording', 'info'].includes(baseStatus.type);
-
     const visibleModelLoadingProgress =
         canUsePrivateStt && mode === 'private' ? modelLoadingProgress : null;
     // 2. Compose Final Status (Attach active Private model progress only)
     const displayStatus: SttStatus = {
         ...baseStatus,
-        detail: baseStatus.detail ?? (shouldShowPrivateSampleDetail ? privateSampleStatusDetail : undefined),
+        detail: baseStatus.detail,
         progress: visibleModelLoadingProgress ?? undefined
     };
     return (
@@ -232,27 +245,61 @@ export const SessionPage: React.FC = () => {
             data-testid="session-page" 
             className="min-h-screen bg-background pt-20"
         >
-            {/* Page Header */}
-            <div className="py-4 px-6 max-w-7xl mx-auto">
-                <div className="text-center">
-                    <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
-                    <p className="text-xs font-semibold text-foreground/70">Record, review, and track your speaking patterns</p>
+            {/* Page Header (#1222 G1).
+                The title block renders ONLY in the before-state. It is a ROW: heading + dynamic subtitle on
+                the left, the "How Rough Drafts works" help entry aligned top-right. The subtitle is derived
+                from real history (session number + baseline date), so the page states its progress up front.
+                During/after this block is gone and the live workflow owns the frame. */}
+            {beforeState && (
+                <div className="px-6 pt-4 max-w-7xl mx-auto">
+                    <div className="mb-[34px] flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4" data-testid="session-title-block">
+                        <div>
+                            <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
+                            <p className="text-sm text-foreground/70" data-testid="session-subtitle">{sessionSubtitle}</p>
+                        </div>
+                        <FreeformHelpOverlay available={helpOverlayAvailable} className="shrink-0" variant={isObjectiveSession ? 'objective' : 'freeform'} />
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* Status Bar - Spans full width of the main content area.
-                Post-save, this ONE bar carries the reconciliation copy (left), the quiet Private CTA
-                (Native + eligible), and the Analytics action (rightmost). There is no separate post-save
+                Post-save, this ONE bar carries the reconciliation copy and Analytics action. There is no separate post-save
                 surface — so a deployed state never contains two Analytics actions. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
-                <StatusNotificationBar
-                    status={displayStatus}
-                    analyticsAction={postSaveReady ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
-                    privateCta={
-                        postSaveReady && mode === 'native' && canUsePrivateStt
-                            ? { onSelect: () => setMode('private') }
-                            : undefined
-                    }
+                {/* #1042 PR2's help affordance moved UP into the title block (#1047) — see the header above. */}
+                {/* #1046 E (slice 0): the quiet "Mic ready" green bar said the same thing three times — it
+                    duplicated the recorder pill AND the "Ready on this device" card label. Suppress it ONLY
+                    in the TRULY at-rest state: ready/idle, NOT recording, no post-save actions. The bar
+                    STILL renders for every state it uniquely owns — attention (warming/recording/
+                    downloading/error/warning) and the single post-save surface (Analytics + Private CTA).
+                    The `!isListening` guard is load-bearing: `displayStatus` can read 'ready'/'idle' during
+                    an active recording, and the bar carries `session-status-indicator` (with `data-engine`)
+                    that the recording-signal contract relies on — so it must never be unmounted mid-record.
+                    (Unmounting/remounting it across start also created a slow-CI race where the freshly
+                    mounted indicator briefly reported engine 'none'.) */}
+                {!((displayStatus.type === 'ready' || displayStatus.type === 'idle') && !postSaveReady && !isListening) && (
+                    <StatusNotificationBar
+                        // #1047: the page owns the gap below the status bar, not the shared component.
+                        className="mb-[26px]"
+                        status={displayStatus}
+                        analyticsAction={postSaveReady ? { cueKey: finalizedAnalysis?.sessionId } : undefined}
+                    />
+                )}
+                {/* #1033 Part-2b (A3/A4): unresolved-recording recovery. Driven by the controller's
+                    pendingResolutionKind — NOT by local UI guesses — so what we offer always matches what
+                    the runtime will actually do. Discard is two-step confirmed and reports honestly when
+                    persistence could not be reconciled (outcome 'retryable'), instead of claiming success. */}
+                <UnresolvedRecoveryBanner
+                    pendingResolutionKind={pendingResolutionKind}
+                    hasRecoverableWords={Boolean(
+                        // #1306 content-free: gauge recoverable work by the draft's word COUNT (never a transcript)
+                        // or the live in-memory transcript still on the page.
+                        (recoveryDraft?.metrics?.totalWords ?? 0) > 0 || (transcriptContent ?? '').trim()
+                    )}
+                    onRetry={() => import('@/services/SpeechRuntimeController')
+                        .then(m => m.speechRuntimeController.retryRecordingSave())}
+                    onDiscard={() => import('@/services/SpeechRuntimeController')
+                        .then(m => m.speechRuntimeController.discardUnresolvedRecording())}
                 />
                 {recoveryDraft && !isListening && (
                     <div
@@ -260,7 +307,7 @@ export const SessionPage: React.FC = () => {
                         data-testid="session-recovery-actions"
                     >
                         <span className="font-medium text-foreground/80">
-                            An unsaved transcript draft is available from this browser.
+                            A locally saved transcript draft is available.
                         </span>
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                             <Button
@@ -276,10 +323,7 @@ export const SessionPage: React.FC = () => {
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => {
-                                    clearSessionRecoveryDraft(recoveryDraft.sessionId);
-                                    setRecoveryDraft(null);
-                                }}
+                                onClick={() => dismissRecoveryDraft(recoveryDraft)}
                                 data-testid="session-recovery-dismiss"
                             >
                                 Dismiss
@@ -293,109 +337,55 @@ export const SessionPage: React.FC = () => {
 
             {/* Main Content — one live workflow: controls, transcript + coach, evidence band. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-36 md:pb-6 mt-0">
-                <div className="pt-6">
-                    <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
-                        <div className="grid h-full grid-rows-[auto_minmax(0,1fr)] gap-6">
-                            <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
-                                <LiveRecordingCard
-                                    suppressPrivateNudge={suppressBrowserCardPrivateNudge}
-                                    mode={mode || 'native'}
-                                    isListening={isListening}
-                                    isReady={isReady}
-                                    isPaused={sttStatus.type === 'paused'}
-                                    fsmState={runtimeState}
-                                    sttStatusType={sttStatus.type}
-                                    privateModelStatus={privateModelStatus}
-                                    recordingIntent={recordingIntent}
-                                    isFinalizing={isTranscriptFinalizing}
-                                    canUsePrivate={canUsePrivateStt}
-                                    isPaidProUser={usageLimit?.is_pro === true}
-                                    canUseCloudStt={canUseCloudStt}
-                                    activeEngine={activeEngine}
-                                    statusMessage={sttStatus.message}
-                                    formattedTime={metrics.formattedTime}
-                                    elapsedSeconds={elapsedTime}
-                                    isButtonDisabled={isButtonDisabled}
-                                    onModeChange={setMode}
-                                    onStartStop={() => { void handleStartStop(); }}
-                                    onDownloadModel={() => {
-                                        void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
-                                    }}
-                                />
-                            </LocalErrorBoundary>
-
-                            {/* Transcript wrapper is the positioning context: the one-shot post-save toast is
-                                absolutely anchored to STRADDLE the card boundary (centered near the gap), so it
-                                adds no vertical space and never moves either card. Right-aligned and biased up
-                                so its bottom stays in the transcript card's top padding — above the left
-                                "Live Transcript" heading and clear of the transcript text / sticky bar. */}
-                            <div className="relative">
-                              <PostSaveToast sessionKey={postSaveReady ? finalizedAnalysis?.sessionId ?? null : null} />
-                              <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
-                                <LiveTranscriptPanel
-                                    transcript={transcriptContent}
-                                    interimTranscript={interimTranscript}
-                                    history={history}
-                                    isListening={isListening}
-                                    sttMode={mode}
-                                    micLevel={micLevel}
-                                    hasSpeechActivity={hasSpeechActivity}
-                                    containerRef={transcriptContainerRef}
-                                    isFinalizing={isTranscriptFinalizing}
-                                    recordingDurationSeconds={elapsedTime}
-                                    nativeFormatting={nativeFormatting}
-                                    className="min-h-[340px] h-full"
-                                />
-                              </LocalErrorBoundary>
-                            </div>
-                        </div>
-
-                        <LocalErrorBoundary isolationKey="live-coaching-score" componentName="LiveCoachingScoreCard">
-                            <LiveCoachingScoreCard
-                                transcript={transcriptContent}
-                                wordCount={metrics.wordCount}
-                                wpm={metrics.wpm}
-                                clarityScore={metrics.clarityScore}
-                                fillerCount={metrics.fillerCount}
-                                elapsedSeconds={elapsedTime}
-                                pauseMetrics={pauseMetrics}
-                                engine={mode || 'native'}
-                                isListening={isListening}
-                                experimentAssignment={coachingAssignment}
-                                className="h-full min-h-0 self-stretch"
-                            />
-                        </LocalErrorBoundary>
-                    </div>
-
-                    <div className="mt-6">
-                        <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
-                            <FillerWordsCard
-                                fillerCount={metrics.fillerCount}
-                                fillerData={metrics.fillerData}
-                                fillerExplanation={metrics.fillerExplanation}
-                                className="min-h-0"
-                                headerAction={
-                                    <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                                        <PopoverTrigger asChild>
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="text-primary underline-offset-4 hover:bg-primary/10 hover:text-primary"
-                                                data-testid="add-custom-word-button"
-                                            >
-                                                <Settings className="h-4 w-4" />
-                                                Custom
-                                            </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-80 bg-white border-[hsl(var(--border-strong))] surface-shadow mr-6">
-                                            <UserFillerWordsManager onWordAdded={() => setIsSettingsOpen(false)} />
-                                        </PopoverContent>
-                                    </Popover>
-                                }
-                            />
-                        </LocalErrorBoundary>
-                    </div>
-                </div>
+                {/* #1222: the session page is the fixed 4-slot overhaul shell driven by the live runtime
+                    (before/during/after). The surrounding chrome — header, status bar, recovery banner,
+                    access modals, mobile action bar — wraps it. This is the only session page. */}
+                <SessionOverhaulView
+                    authUserId={authUserId}
+                    isListening={isListening}
+                    sttStatus={sttStatus}
+                    elapsedTime={elapsedTime}
+                    scoringElapsedSeconds={scoringDurationSeconds}
+                    micLevel={micLevel}
+                    transcriptContent={transcriptContent}
+                    finalizedWordCount={finalizedWordCount}
+                    finalizedFillerData={finalizedFillerData}
+                    showAnalyticsPrompt={showAnalyticsPrompt}
+                    metricsFillerCount={metrics.fillerCount}
+                    onStartStop={() => { void handleStartStop(); }}
+                    history={practiceHistory ?? []}
+                    privateModelStatus={privateModelStatus}
+                    modelLoadingProgress={visibleModelLoadingProgress}
+                    onDownloadModel={() => {
+                        void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
+                    }}
+                    isButtonDisabled={isButtonDisabled}
+                    fillerData={metrics.fillerData}
+                    wpm={metrics.wpm}
+                    aiSuggestions={undefined} /* #1306: coaching prose retired; next action replaces it */
+                    onSeeAllSessions={() => navigate('/analytics')}
+                    interimTranscript={interimTranscript}
+                    isFinalizing={isTranscriptFinalizing}
+                    finalizeEstimateSeconds={finalizeEstimateSeconds}
+                    objectivePoints={activeObjectiveBrief?.points ?? null}
+                    objectiveTopic={activeObjectiveBrief?.topic ?? null}
+                    objectivePaceGuideSecPerPoint={activeObjectiveBrief?.paceGuideSecPerPoint ?? null}
+                    completedObjectivePoints={completedObjectiveBrief?.points ?? null}
+                    completedObjectiveTopic={completedObjectiveBrief?.topic ?? null}
+                    completedObjectivePaceGuideSecPerPoint={completedObjectiveBrief?.paceGuideSecPerPoint ?? null}
+                    objectiveCoverage={objectiveCoverageResult}
+                    practiceFocus={practiceFocus}
+                    onSelectFocus={(focus) => useSessionStore.getState().setPracticeFocus(focus)}
+                    // #1256 P1 — "Retry these points" must REBIND the finished brief before starting, or the
+                    // retry becomes an Open Mic take (the live brief was cleared on save) and can never
+                    // finalize the saved point set. Rebinding restores it as the active Focus Points brief.
+                    onRetryPoints={() => {
+                        if (completedObjectiveBrief) {
+                            useSessionStore.getState().setActiveObjectiveBrief(completedObjectiveBrief);
+                        }
+                        void handleStartStop();
+                    }}
+                />
             </div>
 
             {/* Mobile Sticky Action Bar */}
@@ -404,19 +394,9 @@ export const SessionPage: React.FC = () => {
                 isButtonDisabled={isButtonDisabled}
                 modelLoadingProgress={visibleModelLoadingProgress}
                 onStartStop={() => { void handleStartStop(); }}
-                isFrozen={sttStatus.isFrozen}
-                onSwitchToNative={() => { void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.switchToNative()); }}
                 mode={mode}
                 privateModelStatus={privateModelStatus}
                 onDownloadModel={() => { void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private')); }}
-            />
-
-            {/* Sunset Modals */}
-            <SunsetModals
-                open={sunsetModal.open}
-                onOpenChange={(open) => setSunsetModal({ ...sunsetModal, open })}
-                type={sunsetModal.type}
-                isPro={isProUser}
             />
 
         </main>

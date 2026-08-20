@@ -8,7 +8,7 @@
  * 
  * 1. `VISUAL_TEST_EMAIL` - (Optional) Email for the test user. Defaults to a timestamped email.
  * 2. `VISUAL_TEST_PASSWORD` - (Optional) Password for that user. Defaults to a timestamped password.
- * 3. `VISUAL_TEST_USER_TYPE` - (Optional) 'pro' (default), 'free', or 'basic' for future paid Basic tests. Determines seeded user tier.
+ * 3. `VISUAL_TEST_USER_TYPE` - (Optional) 'pro' (default) or 'free'. Determines seeded access state.
  * 4. `VISUAL_TEST_BASE_URL` - (Optional) Base URL to test against (defaults to localhost:5173)
  * 
  * ## How to Run
@@ -31,7 +31,7 @@ import { TEST_IDS, ROUTES } from '../constants';
 const TIMESTAMP = Date.now();
 const EMAIL = process.env.VISUAL_TEST_EMAIL || `test-user-${TIMESTAMP}@test.com`;
 const PASSWORD = process.env.VISUAL_TEST_PASSWORD || `password-${TIMESTAMP}`;
-const USER_TYPE = (process.env.VISUAL_TEST_USER_TYPE || 'pro') as 'free' | 'basic' | 'pro';
+const USER_TYPE = (process.env.VISUAL_TEST_USER_TYPE || 'pro') as 'free' | 'pro';
 const BASE_URL = process.env.VISUAL_TEST_BASE_URL || 'http://localhost:5173';
 
 test.use({
@@ -119,12 +119,9 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
         await expect(page.getByTestId(TEST_IDS.APP_MAIN)).toBeVisible({ timeout: 10000 });
 
         // 2. Run Private STT Session
-        await runSession(page, 'private', 1);
+        await runSession(page, 1);
 
-        // 3. Run Cloud STT Session
-        await runSession(page, 'cloud', 2);
-
-        // 4. Verify Analytics
+        // 3. Verify Analytics
         await navigateToRoute(page, ROUTES.ANALYTICS, { waitForMocks: false });
         await page.waitForTimeout(3000); // Allow data fetch
 
@@ -136,34 +133,21 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
 
         // Assertions
         const rowCount = await rows.count();
-        expect(rowCount).toBeGreaterThanOrEqual(2);
+        expect(rowCount).toBeGreaterThanOrEqual(1);
     });
 });
 
-async function runSession(page: Page, mode: 'private' | 'cloud' | 'native', index: number): Promise<void> {
+async function runSession(page: Page, index: number): Promise<void> {
     await navigateToRoute(page, ROUTES.SESSION, { waitForMocks: false });
     await page.waitForSelector(`[data-testid="${TEST_IDS.APP_MAIN}"]`, { timeout: 15000 });
-
-    // Select Mode
-    const modeTrigger = page.getByRole('button', { name: /native|cloud|private/i });
-    const currentMode = await modeTrigger.textContent();
-    if (!currentMode?.toLowerCase().includes(mode)) {
-        await modeTrigger.click();
-        await page.getByRole('menuitemradio', { name: new RegExp(mode, 'i') }).click();
-    }
 
     // Start Recording
     await page.getByTestId('session-start-stop-button').click();
 
-    // Handle Private Model Loading
-    if (mode === 'private') {
-        await expect(page.getByTestId('session-status-indicator')).toContainText('Recording', { timeout: 30000 });
-    } else {
-        await expect(page.getByTestId('session-status-indicator')).toContainText('Recording', { timeout: 30000 });
-    }
+    await expect(page.getByTestId('session-status-indicator')).toContainText('Recording', { timeout: 30000 });
 
     // Evidence Screenshot
-    await page.screenshot({ path: `test-results/session-${index}-${mode}-recording.png` });
+    await page.screenshot({ path: `test-results/session-${index}-private-recording.png` });
 
     // Record for 5 seconds
     await page.waitForTimeout(5000);

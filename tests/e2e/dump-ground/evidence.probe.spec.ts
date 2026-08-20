@@ -71,10 +71,8 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
       await page.addInitScript(() => {
         (window as unknown as Record<string, unknown>).__E2E_DEPS__ = {
           fetchUsageLimit: async () => ({
-            can_start: true, daily_remaining: 3600, daily_limit: 3600,
-            monthly_remaining: 90000, monthly_limit: 90000,
-            remaining_seconds: 3600, subscription_status: 'pro',
-            is_pro: true, streak_count: 5
+            can_start: true, subscription_status: 'pro', is_pro: true,
+            streak_count: 5, trial_active: false,
           })
         };
       });

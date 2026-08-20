@@ -31,6 +31,14 @@ export interface Transcript {
 
 export interface TranscriptionModeOptions {
   onTranscriptUpdate: (update: { transcript: Transcript }) => void;
+  /**
+   * #1089: the capture buffer reached its hard memory backstop (MAX_UTTERANCE_SECONDS). Fired ONCE per
+   * recording. The engine has stopped accepting new audio, so the app MUST stop the recording and
+   * finalize what was captured — continuing to display "Recording" while audio is discarded is a
+   * data-integrity defect. Everything captured BEFORE the guard remains intact and is finalized normally.
+   */
+  onCaptureLimitReached?: (info: { bufferedSeconds: number; limitSeconds: number }) => void;
+
   onModelLoadProgress?: (progress: number | null) => void;
   onReady: () => void;
   onError?: (error: TranscriptionError) => void;

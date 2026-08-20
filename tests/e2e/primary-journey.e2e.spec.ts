@@ -2,13 +2,12 @@
  * Primary User Journey Matrix
  * 
  * This spec handles the complete lifecycle (Auth -> Session -> Analytics)
- * for both Free and Pro tiers using a parameterized matrix. It ensures 
- * deterministic tier-gating and persistent data flow using behavioral signals.
+ * for active-trial and paid fixtures using a parameterized matrix. It ensures
+ * deterministic Private-only behavior and persistent data flow using behavioral signals.
  * 
  * Coverage:
  * - Core Features: Recording lifecycle, deterministic persistence, and session history.
- * - Free Features: Native Browser STT, Marketing/Upgrade funnels, and simplified analytics.
- * - Pro Features: Engine toggling (Whisper/Cloud), advanced analytics details, and PDF exports.
+ * - The complete product is identical during the trial and after payment.
  */
 import { test, expect } from './fixtures';
 import {
@@ -16,28 +15,20 @@ import {
   mockLiveTranscript,
   selectTranscriptionEngine,
   programmaticLoginWithRoutes,
+  startRecording,
+  stopRecording,
 } from './helpers';
 import { TEST_IDS } from '../constants';
-import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
+import { MOCK_TRANSCRIPTS_WITH_FILLERS } from './fixtures/mockData';
 
 const SCENARIOS = [
   {
-    name: 'Free Tier (Native)',
+    name: 'Active Trial (Private)',
     userType: 'free' as const,
-    mode: 'native' as const,
-    expectedModePattern: /native|browser/i
   },
   {
-    name: 'Pro Tier (Cloud)',
+    name: 'Paid Continuation (Private)',
     userType: 'pro' as const,
-    mode: 'cloud' as const,
-    expectedModePattern: /cloud/i
-  },
-  {
-    name: 'Pro Tier (Private)',
-    userType: 'pro' as const,
-    mode: 'private' as const,
-    expectedModePattern: /private|on-device/i
   }
 ];
 
@@ -53,65 +44,40 @@ test.describe('Primary User Journey Matrix', () => {
 
 
 
-      // 3. Verify Tier Gating & Mode Selection (SUBTLE UX BRANCHING)
-      const modeButton = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
-      await expect(modeButton).toBeVisible();
+      // 3. Verify the engine surface: Private is the only engine for every tier — there is no selector
+      // on the new session page; the recorder surface (mic card) IS the confirmation. (#1184/#1222)
+      await selectTranscriptionEngine(page, 'private');
+      await expect(page.getByTestId(TEST_IDS.MIC_CARD)).toBeVisible();
 
-      if (scenario.userType === 'pro') {
-        // Pro users: Verify full engine toggling logic
-        await selectTranscriptionEngine(page, scenario.mode);
-        // Verify selected mode persistence on the authoritative control.
-        await expect(modeButton).toHaveAttribute('data-state', scenario.mode, { timeout: 10000 });
-      } else {
-        // Free users: Verify Marketing Funnel (Options are visible but disabled)
-        await modeButton.click();
-        const privateOption = page.getByRole('menuitemradio', { name: /private/i });
-        const cloudOption = page.getByRole('menuitemradio', { name: /cloud/i });
+      // 4. Recording Lifecycle (#1231): start (before-state `mic-start`) and stop (during-state
+      // `recorder-stop`) are split — no single toggle, no `data-recording` attribute. `startRecording`
+      // waits for the model + the RECORDING runtime signal.
+      await startRecording(page);
 
-        await expect(privateOption).toBeVisible();
-        await expect(privateOption).toHaveAttribute('aria-disabled', 'true');
-        await expect(cloudOption).toHaveAttribute('aria-disabled', 'true');
+      // 5. Simulate Speech using the central file transcript fixture. This fixture carries real tracked
+      // fillers so the after-state per-word breakdown (below) is driven by genuine evidence.
+      await mockLiveTranscript(page, MOCK_TRANSCRIPTS_WITH_FILLERS as unknown as string[]);
 
-        // Close menu & verify current selection is the only one allowed
-        await page.keyboard.press('Escape');
-        const buttonText = await modeButton.textContent();
-        expect(buttonText).toMatch(scenario.expectedModePattern);
-      }
-
-      // 4. Recording Lifecycle (Accessibility Label Logic)
-      const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-      await expect(page.getByLabel(/Start Recording/i)).toBeVisible();
-
-      // Deterministic Sync: Wait for engine handshake before clicking start
-      await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
-
-      await startButton.click();
-
-      // Verify recording state via attribute & Accessibility Label
-      await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
-      await expect(page.getByLabel(/Stop Recording/i)).toBeVisible();
-
-      // 5. Simulate Speech using the central file transcript fixture
-      await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
-
-      // Verify the session page story is live: transcript plus the current
-      // evidence band, rather than the legacy standalone metric cards.
-      await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).not.toContainText('Listening...');
-      await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText(/simulating multiple lines/i);
-      await expect(page.getByTestId('filler-words-list')).toBeVisible({ timeout: 15000 });
+      // The live transcript renders the streamed words (#1222 slot B → `live-transcript`).
+      await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toContainText(/simulating multiple lines/i);
 
       // The product intentionally refuses to persist sub-5-second sessions.
       // Keep this proof aligned with the user-facing save contract instead of
       // expecting persistence from an invalidly short recording.
       await page.waitForTimeout(5200);
 
-      // 6. Stop Recording
-      await startButton.click();
-      await expect(page.getByLabel(/Start Recording/i)).toBeVisible({ timeout: 10000 });
+      // 6. Stop Recording → the review (after) state.
+      await stopRecording(page);
 
       // 7. Verify Deterministic Persistence Signal
       const html = page.locator('html');
       await expect(html).toHaveAttribute('data-session-persisted', 'true', { timeout: 15000 });
+
+      // #1231 R2: the retired `filler-words-card` state machine is replaced by the after-state
+      // `FillerBreakdown` — a ranked per-word list. The fixture produced real fillers, so the list shows.
+      await expect(page.getByTestId('filler-breakdown')).toBeVisible({ timeout: 15000 });
+      await expect(page.getByTestId('filler-breakdown-list')).toBeVisible({ timeout: 15000 });
+      await expect(page.getByTestId('filler-breakdown-word').first()).toBeVisible({ timeout: 15000 });
       // 8. Navigation to Analytics through the canonical route helper. The
       // persistence signal above proves the session write path completed; this
       // avoids racing the route-transition shell under parallel workers.
@@ -123,7 +89,9 @@ test.describe('Primary User Journey Matrix', () => {
         // Free users do not see dead upgrade buttons.
         await expect(page.getByTestId('analytics-page-upgrade-button')).toHaveCount(0);
       } else {
-        await expect(page.getByText(/Pro active/i)).toBeVisible();
+        // #G4 chunk 3: the "Pro active" pill was removed; a Pro user's signal is simply the ABSENCE of
+        // any upgrade CTA (entitlement is not a headline the analytics page needs to shout).
+        await expect(page.getByTestId('analytics-page-upgrade-button')).toHaveCount(0);
       }
 
       // 10. Persistence Check (History count increment)

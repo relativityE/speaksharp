@@ -177,8 +177,6 @@ Deno.serve(async (req: Request) => {
                 subscription_status: tier,
                 trial_started_at: null,
                 trial_expires_at: null,
-                private_sample_limit_seconds: 300,
-                private_sample_seconds_used: 0,
             }, { onConflict: 'id' })
             .select('*')
             .single();

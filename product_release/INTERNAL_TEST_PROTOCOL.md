@@ -1,6 +1,10 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+> **Current authority:** [`TESTER_OPERATIONS.md`](./TESTER_OPERATIONS.md), [`TESTER_GUIDE.md`](./TESTER_GUIDE.md), and [`RELEASE_PROCESS.md`](./RELEASE_PROCESS.md).
+
 # Internal Test Protocol — Soft Release (operators / dev / test agents)
 
-**Last updated:** 2026-06-26
+**Last updated:** 2026-07-20
 **Audience:** operators, dev, and test agents only. **Not for testers.**
 The tester-facing guide is **`SOFT_RELEASE_TESTER_INSTRUCTIONS.md`** — keep all technical
 detail (flags, model variants, telemetry, evidence, acceptance criteria) out of that file.
@@ -12,10 +16,11 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
 
 ## Release posture
 
-- **Controlled private beta / early-access — non-payment.** Payments are hidden
-  (`stripeKeyClass="test"`). Not broad public launch; not paid public.
-- Live paid checkout is a separate **Ops config cutover** (live Stripe key swap), not a code
-  blocker for this beta. See `RELEASE_CLOSEOUT_LEDGER.md` §D and `ROADMAP.operational.md`.
+- **Controlled private beta / early-access — non-payment.** Checkout is closed by the payment
+  switches, **NOT** by the Stripe key class: it stays closed unless BOTH `VITE_PAYMENTS_ENABLED=true`
+  and `PAYMENTS_ENABLED=true` (either OFF keeps it closed). Not broad public launch; not paid public.
+- **Opening paid checkout requires ALL of:** both switches ON, correctly aligned live Stripe
+  keys/webhook/prices, and entitlement verification — **not merely a key swap.**
 - **Final pre-invite check:** re-run `gate=all` on the exact signoff SHA and confirm green
   (Final-SHA freshness — every merge to `main` resets the signoff clock). Record the run in
   `RELEASE_STATUS.md`.
@@ -31,15 +36,16 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
 - Confirm Vercel production does **not** set `VITE_TEST_MODE` or other E2E/test flags before sending invites.
 - Confirm sample fields appear on new profiles: `private_sample_limit_seconds`,
   `private_sample_seconds_used`, and that no legacy timestamp grants paid access.
-- Keep the tester path standard-mode-first with one intentional Private sample. Cloud STT is a
-  paid Early Access feature and is **not** part of free-account sample testing.
+- Keep the tester path **Private-first**: Private is the **Recommended** main experience being
+  evaluated (on-device model, one intentional sample); Browser is a brief **Quick preview**. Cloud
+  STT is a paid Pro feature, **outside the Free beta path** (no new billing during the beta) — existing accounts with a valid paid-Pro entitlement retain access.
 
 ---
 
 ## Entitlement / scope rules
 
 - **Free-path tester scope** must prove: standard (Browser) transcription, the one Private
-  sample, and that Cloud is unavailable without paid entitlement. Use a known Free account with
+  sample, and that Cloud is unavailable to Free testers (only existing paid-Pro accounts retain access). Use a known Free account with
   the sample in both unused and used states when testing both sides.
 - **Pro/admin/dev Cloud scope** (only if explicitly included): must prove Cloud recording,
   transcript, save/history/detail, analytics, and PDF export. Do **not** ask automatic-trial
@@ -75,6 +81,43 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
 
 ---
 
+## Session UI truth (what the deployed session screen actually shows)
+
+- **Mode selector is Private-first.** The pre-record mode list is ordered Private (**Recommended**)
+  → Browser (**Quick preview**) → Cloud (**Pro**); only Private carries the "Recommended" tag and
+  only Browser carries the "Quick preview" tag (`LiveRecordingCard.tsx`, tags
+  `stt-mode-tag-recommended` / `stt-mode-tag-quick-preview`). Cloud is presented as Pro and is out
+  of scope for the beta.
+- **Mode help is ONE surface.** Desktop (hover + fine pointer) may show a single disjoint
+  description flyout next to the open dropdown; when no non-overlapping placement fits, the flyout
+  is suppressed and the single **"About transcription modes"** help panel is the fallback. **Touch
+  devices get the About panel — exactly one description surface, never stacked bubbles**
+  (`ModeDescriptionFlyout.tsx`; `STT_FLYOUT_ID`). The About panel and the mode dropdown are mutually
+  exclusive (only one open at a time).
+- **Post-save is ONE consolidated status bar, one Analytics action.** After a saved session the
+  single `StatusNotificationBar` carries the reconciliation copy (left), an optional quiet Private
+  CTA (Native + eligible only), and **one** Analytics action (rightmost). The separate
+  post-save-review-actions surface was removed and folded in, so a deployed state never contains two
+  Analytics actions (`SessionPage.tsx`, `postSaveReady`).
+- **No completion toast / "Next: Analytics" overlay.** There is no separate celebratory toast or
+  overlay after save; the consolidated status bar owns the "Session saved / review in Analytics"
+  message. Do not describe or test for a post-save toast.
+
+## Data provenance / observability truth
+
+- **Supabase is authoritative** for saved sessions and for submitted issue reports. Verify
+  persistence and issue-report capture against Supabase, not analytics.
+- **PostHog is observability only.** A **missing PostHog event does NOT imply data loss or a
+  persistence failure** — confirm the Supabase row before concluding a session did not save.
+- **Sentry** carries failures and sanitized alerts only; no transcript/audio/raw model output.
+- **Report Issue is the feedback channel**, but it does **not** (yet) generate a real-time owner
+  notification — that path is DRAFT (#1006) and **not deployed**. Do not tell testers or assume
+  operationally that submitting an issue pings the owner in real time.
+- **Provenance terminology — keep sources separate.** Distinguish **automated / seed / owner /
+  tester** accounts and sessions explicitly. **Do NOT call active accounts "testers"** without
+  correlating them to an authoritative invitation roster; use "active accounts" or "non-seed
+  candidate sessions" until roster correlation is done.
+
 ## Browser-support wording
 
 - Chrome is recommended. Browser (standard) transcription uses the browser's built-in speech
@@ -89,26 +132,25 @@ detail (flags, model variants, telemetry, evidence, acceptance criteria) out of 
 - Run `.github/workflows/live-release-matrix.yml` with the first-time tester / sample suite.
   It clears browser model storage, creates a fresh account, prepares Private STT, records,
   stops, and verifies save/history like a first-time tester.
-- This suite owns its own cleanup (fresh account is deleted in `afterEach`). The reusable
-  live-test accounts (`*-reuse@speaksharp.app`) are intentional and must **not** be deleted by
-  hygiene tooling. Confirm persistent `auth.users` Δ = 0 around any live run.
+- This suite owns its own cleanup (fresh account is deleted in `afterEach`). Historical reusable
+  accounts on unaffiliated domains must not be used by new runs. Inventory them read-only, preserve
+  them for forensics until deletion is separately authorized, and use only protected identities on
+  an operator-controlled domain. Confirm persistent `auth.users` Δ = 0 around any live run.
 
 ---
 
 ## Private v4 rollout posture (internal — never in the tester guide)
 
-**v2 is the primary Private engine — the proven default users get.** **v4 is a first-class,
-gated candidate** that — *with enough real-world data* — could be reviewed for primary. v4 is
-**not "off" and not a second-class experiment**: it is built into the *same* telemetry spine,
-saved-session metadata, Report Issue context, and live e2e coverage as v2. But **v2 holds primary
-until v4 demonstrably earns promotion**; gating v4 is not a demotion of v4, and promoting v4 is
-not yet on the table without the data.
+**v2 is the primary Private engine — the proven default users get.** **v4 is OFF for the release
+path** — all v4 flags default OFF (`VITE_PRIVATE_STT_V4_DISABLED` hard-kill available;
+`frontend/src/services/transcription/privateV4Flags.ts`). v4's code shares the *same* telemetry
+spine, saved-session metadata, Report Issue context, and e2e coverage as v2, but it is **not
+currently active or promoted**. v2 holds primary; any move toward v4 primary needs real-world data.
 
-The free 5-minute Private sample is the v2/v4 measurement window. **v2 is the default for broad
-beta traffic; broad/random v4 rollout is held (currently 0%) pending real-user evidence** — but
-**targeted v4 exposure is ready immediately after launch** (allowlist / small cohort) so we begin
-collecting real-world v4 data deliberately, narrowly, and reversibly. The goal is to give v4 a
-fair, evidence-based path toward primary — while v2 stays primary until that evidence exists.
+The free 5-minute Private sample is the v2/v4 measurement window. **v2 is the default for all beta
+traffic; v4 rollout is OFF (0%).** Any targeted v4 exposure (allowlist / small cohort) is a
+**future, separately authorized rollout — not currently ready or active** — to collect real-world
+v4 data deliberately, narrowly, and reversibly once approved. v2 stays primary until that evidence exists.
 
 **Assignment + attribution.** Every `private_sample_*` event carries `engine_variant`
 (`private_v2`/`private_v4`) and `assignment_source` (`default | posthog_flag | allowlist |

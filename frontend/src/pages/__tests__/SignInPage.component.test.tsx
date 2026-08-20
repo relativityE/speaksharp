@@ -38,8 +38,8 @@ describe('SignInPage', () => {
         } as unknown as ReturnType<typeof supabaseClient.getSupabaseClient>);
     });
 
-    const renderSignInPage = () => {
-        return render(<SignInPage />);
+    const renderSignInPage = (options?: Parameters<typeof render>[1]) => {
+        return render(<SignInPage />, options);
     };
 
     describe('Rendering', () => {
@@ -267,7 +267,7 @@ describe('SignInPage', () => {
             });
         });
 
-        it('preserves intended path when sending a sign-in link', async () => {
+        it('defaults the sign-in-link target to the authenticated continuation route (no anonymous flag decision)', async () => {
             const user = userEvent.setup();
             mockSignInWithOtp.mockResolvedValue({ error: null });
 
@@ -281,7 +281,49 @@ describe('SignInPage', () => {
                     email: 'test@example.com',
                     options: {
                         shouldCreateUser: false,
-                        emailRedirectTo: `${window.location.origin}/session`,
+                        // /auth/continue defers the /practice-vs-/session decision until AFTER authentication —
+                        // the email is generated anonymously and must not bake in a flag value.
+                        emailRedirectTo: `${window.location.origin}/auth/continue`,
+                    },
+                });
+            });
+        });
+
+        it('preserves a valid protected deep-link as the sign-in-link target', async () => {
+            const user = userEvent.setup();
+            mockSignInWithOtp.mockResolvedValue({ error: null });
+
+            renderSignInPage({ route: { pathname: '/auth/signin', state: { from: { pathname: '/analytics/xyz', search: '?tab=1' } } } });
+
+            await user.type(screen.getByLabelText(/email/i), 'test@example.com');
+            await user.click(screen.getByTestId('magic-link-button'));
+
+            await waitFor(() => {
+                expect(mockSignInWithOtp).toHaveBeenCalledWith({
+                    email: 'test@example.com',
+                    options: {
+                        shouldCreateUser: false,
+                        emailRedirectTo: `${window.location.origin}/analytics/xyz?tab=1`,
+                    },
+                });
+            });
+        });
+
+        it('rejects an unsafe/external deep-link and falls back to the continuation route', async () => {
+            const user = userEvent.setup();
+            mockSignInWithOtp.mockResolvedValue({ error: null });
+
+            renderSignInPage({ route: { pathname: '/auth/signin', state: { from: { pathname: '//evil.com' } } } });
+
+            await user.type(screen.getByLabelText(/email/i), 'test@example.com');
+            await user.click(screen.getByTestId('magic-link-button'));
+
+            await waitFor(() => {
+                expect(mockSignInWithOtp).toHaveBeenCalledWith({
+                    email: 'test@example.com',
+                    options: {
+                        shouldCreateUser: false,
+                        emailRedirectTo: `${window.location.origin}/auth/continue`,
                     },
                 });
             });
@@ -317,7 +359,7 @@ describe('SignInPage', () => {
                     email: 'stranger@example.com',
                     options: {
                         shouldCreateUser: false,
-                        emailRedirectTo: `${window.location.origin}/session`,
+                        emailRedirectTo: `${window.location.origin}/auth/continue`,
                     },
                 });
             });

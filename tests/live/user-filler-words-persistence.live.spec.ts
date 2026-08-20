@@ -11,13 +11,13 @@ test.describe('Live user filler words persistence', () => {
             return;
         }
 
-        if (!(process.env.FREE_TEST_EMAIL ?? process.env.E2E_FREE_EMAIL ?? process.env.BASIC_TEST_EMAIL ?? process.env.E2E_BASIC_EMAIL) || !(process.env.FREE_TEST_PASSWORD ?? process.env.E2E_FREE_PASSWORD ?? process.env.BASIC_TEST_PASSWORD ?? process.env.E2E_BASIC_PASSWORD)) {
-            throw new Error('Spec failed: FREE_TEST_EMAIL/FREE_TEST_PASSWORD are required for live custom words persistence. BASIC_TEST_EMAIL/BASIC_TEST_PASSWORD remain supported as legacy aliases.');
+        if (!(process.env.FREE_TEST_EMAIL ?? process.env.E2E_FREE_EMAIL) || !(process.env.FREE_TEST_PASSWORD ?? process.env.E2E_FREE_PASSWORD)) {
+            throw new Error('Spec failed: FREE_TEST_EMAIL/FREE_TEST_PASSWORD are required for live custom words persistence.');
         }
     });
 
-    const email = process.env.FREE_TEST_EMAIL ?? process.env.E2E_FREE_EMAIL ?? process.env.BASIC_TEST_EMAIL ?? process.env.E2E_BASIC_EMAIL ?? '';
-    const password = process.env.FREE_TEST_PASSWORD ?? process.env.E2E_FREE_PASSWORD ?? process.env.BASIC_TEST_PASSWORD ?? process.env.E2E_BASIC_PASSWORD ?? '';
+    const email = process.env.FREE_TEST_EMAIL ?? process.env.E2E_FREE_EMAIL ?? '';
+    const password = process.env.FREE_TEST_PASSWORD ?? process.env.E2E_FREE_PASSWORD ?? '';
 
     async function signIn(page: Page) {
         await goToPublicRoute(page, ROUTES.SIGN_IN);

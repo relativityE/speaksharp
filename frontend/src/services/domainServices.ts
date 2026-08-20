@@ -59,6 +59,32 @@ export const sessionService = {
     },
 
     /**
+     * #1042 PR4: NARROW read for the Practice Home continuity card. Selects ONLY the fields that card
+     * renders (id, created_at, duration, status), restricted to the newest REVIEWABLE row (legacy `null`
+     * status or `completed`) for this user. It never fetches transcript, AI suggestions, scores, WPM,
+     * engine data, or full history — the card must not pull a large transcript to render four lines.
+     */
+    async getRecentReviewable(
+        userId: string,
+    ): Promise<Array<Pick<PracticeSession, 'id' | 'created_at' | 'duration' | 'status'>>> {
+        const supabase = getClient();
+        const { data, error } = await supabase
+            .from('sessions')
+            .select('id, created_at, duration, status')
+            .eq('user_id', userId)
+            .or('status.is.null,status.eq.completed')
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (error) {
+            logger.error({ error }, '[sessionService.getRecentReviewable]');
+            throw error;
+        }
+
+        return (data ?? []) as Array<Pick<PracticeSession, 'id' | 'created_at' | 'duration' | 'status'>>;
+    },
+
+    /**
      * Get a single session by ID
      */
     async getById(sessionId: string): Promise<PracticeSession | null> {

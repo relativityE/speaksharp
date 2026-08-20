@@ -1,25 +1,15 @@
 # Active Coordination (tracked SSOT)
 
-**Owner:** relativityE · **Last updated:** 2026-07-15
+**Owner:** Prod Owner (relativityE)
 
-This is the **tracked, reviewable** active-coordination board — the current working subset of
-`BACKLOG.md` (active items + the next self-assigned pull-forward task). It replaces the former
-untracked `/private/tmp/ACTIVE_COORDINATION.md`, which was not reviewable in the repository.
+The current active-coordination board — the working subset of `BACKLOG.md`. It is **not** a second backlog and **not** a historical ping log: the exhaustive backlog stays in `BACKLOG.md`; current ship/deployment posture stays in `RELEASE_STATUS.md`. No secrets, PII, transcripts, or audio — reference PRs and file paths only.
 
-Rules:
-- This file is the **only** current active-coordination source. It must not become a second
-  full backlog or a historical ping log — the exhaustive backlog stays in `BACKLOG.md`, and
-  current ship status/go-no-go stays in `RELEASE_STATUS.md`.
-- Pull the highest-priority incomplete `BACKLOG.md` item here when starting it; move it back to
-  `BACKLOG.md` (marked done, with evidence) when complete.
-- No secrets, PII, transcripts, or audio. Reference issues/PRs and file paths only.
+## Current baseline
+- **Product code baseline:** `main` `65e58a62` (the #1010 CORS config fix on top of the private-first UX milestone `e9040464`, #1007/#1008). The frozen `v0.9.0-rc4` tag (`df909805`) is historical and is **not** the current baseline.
 
-## Current active items
+## Current work
+- **Open draft:** **#1006** — reliable data-retrieval / observability / durable delivery (outbox + provenance + owner-alert + protected retrieval). **DRAFT, not activated.**
+- **Current task:** #1006 corrections + independent review (see `BACKLOG.md` P0.4). Pre-approval blockers: concurrent-run-safe time-bounded provenance; queue-depth/age/dead-letter monitoring; executable rollback + worker-disable; privacy-safe pseudonymous (HMAC) PostHog identity; exact client-event retirement sequence.
+- **Next task:** P0.4 completion → controlled #1006 activation review (Prod Owner-gated: migrations, workers, crons, reconciliation each require separate authorization).
 
-| Item | Owner | State | Notes |
-|---|---|---|---|
-| PR #986 — product_release doc sync | relativityE | In review | Corrected head; all required CI green. Do not merge without owner sign-off. |
-| PR #981 — Wave-1 Pro availability | relativityE | In review (stacked on #986) | Rebase onto main after #986 merges. |
-| Attribution history sanitation | relativityE | Done (executed 2026-07-15) | main `84f720d2`; crosswalk in `attribution-sanitation-crosswalk.md`. |
-
-Held (owner decision, not started): controlled-beta invites, rc4, paid cutover.
+_This file lists only current work. Merged PRs live in git history; deployment posture lives in `RELEASE_STATUS.md`._

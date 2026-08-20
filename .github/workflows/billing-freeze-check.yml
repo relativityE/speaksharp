@@ -23,11 +23,14 @@ jobs:
         env:
           # LIVE key — the deployed app runs live keys; read-only use here (GET only).
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_LIVE_SECRET_KEY }}
+          # Non-destructive deployed-checkout probe (P0.1): the guard runs before auth/Stripe, so an
+          # anonymous POST proves checkout is closed. Anon key only — never a user token.
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           # Preferred: an explicit audit list (repo/org variable). Falls back to the test-email secrets.
           BILLING_FREEZE_EMAILS: ${{ vars.BILLING_FREEZE_EMAILS }}
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
           CHECKOUT_TEST_EMAIL: ${{ secrets.CHECKOUT_TEST_EMAIL }}
-          BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
           # Sanitized (masked-email) JSON report path + a rendered run-page step summary,
           # so the full audit is auditable without grepping truncated step logs.
           BILLING_FREEZE_REPORT_PATH: billing-freeze-report.json

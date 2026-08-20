@@ -4,6 +4,11 @@ import { saveAs } from 'file-saver';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PracticeSession as Session } from '../../types/session';
 
+const loadSessionProgress = vi.fn();
+vi.mock('@/services/progress/loadSessionProgress', () => ({
+  loadSessionProgress: (...args: unknown[]) => loadSessionProgress(...args),
+}));
+
 vi.mock('jspdf', async (importOriginal) => {
   return await importOriginal<typeof import('jspdf')>();
 });
@@ -42,6 +47,7 @@ const mockRemoveChild = vi.fn();
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  loadSessionProgress.mockResolvedValue({ status: 'insufficient', sessionId: '123' });
   // Mock document methods
   vi.spyOn(document, 'createElement').mockImplementation(mockCreateElement as unknown as typeof document.createElement);
   vi.spyOn(document.body, 'appendChild').mockImplementation(mockAppendChild);
@@ -67,38 +73,48 @@ const getSavedPdf = async () => {
 };
 
 describe('generateSessionPdf', () => {
+  // #1306 metrics-only: a saved session carries persisted measurements and a flat filler_counts map — NO
+  // transcript, NO free-form AI prose, NO per-session custom words ever cross into the export.
   const mockSession: Session = {
     id: '123',
     user_id: 'user1',
     created_at: '2025-09-23T10:00:00Z',
     duration: 300,
-    transcript: 'This is a test transcript.',
-    filler_words: { um: { count: 5 }, like: { count: 3 } },
-    accuracy: 95,
-  };
+    total_words: 120,
+    wpm: 140,
+    clarity_score: 88,
+    filler_counts: { um: 5, like: 3 },
+  } as unknown as Session;
 
-  it('should generate a PDF with correct content', async () => {
+  it('generates a metrics-only PDF (persisted measurements + filler table, never a transcript or custom-word rows)', async () => {
     await generateSessionPdf(mockSession, 'TestUser');
     const savedPdf = await getSavedPdf();
 
-    // Verify first call: Vocal Analytics
+    // Verify first call: Vocal Analytics — every value is a persisted measurement, not a transcript recount.
     expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
       startY: 70,
       body: expect.arrayContaining([
         ['Metric', 'Value'],
         ['Session ID', '123'],
-        ['Total Words', '5'],
-        ['Speaking Pace (WPM)', '1 (Too Slow)'],
-        ['Clear Delivery', '0% (Keep practicing)'],
-        ['Total Filler Words', '8'],
-        ['Tracked Custom Words', 'None'],
-        ['Custom Words Detected', '0'],
+        ['Total Words', '120'],
+        ['Speaking Pace (WPM)', '140 (Optimal Range)'],
+        // The read model classifies this session `insufficient`, so the PDF must NOT claim "Available for
+        // comparable Progress" — it uses neutral wording derived from eligibility.
+        ['Clear-delivery evidence', 'Recorded — not yet comparable'],
+        // #1306 + #1231: the headline is the TRUE-filler tier — um(5). "like"(3) is a discourse marker, shown
+        // in the per-word breakdown below but excluded from the headline.
+        ['Total Filler Words', '5'],
         ['Transcription Mode', 'Not recorded'],
         ['Engine Details', 'Not recorded'],
       ])
     }));
 
-    // Verify second call: Filler words table
+    // The retired per-session custom-word rows must never appear.
+    const analyticsBody = vi.mocked(autoTable).mock.calls[0][1].body as string[][];
+    expect(analyticsBody.flat()).not.toContain('Tracked Custom Words');
+    expect(analyticsBody.flat()).not.toContain('Custom Words Detected');
+
+    // Verify second call: Filler words table (breakdown of the stored flat map).
     expect(autoTable).toHaveBeenNthCalledWith(2, expect.anything(), expect.objectContaining({
       head: [['Filler Word', 'Frequency']],
       body: [['um', 5], ['like', 3]]
@@ -108,9 +124,47 @@ describe('generateSessionPdf', () => {
     expect(savedPdf.text).toContain('(SpeakSharp Session Report) Tj');
     expect(savedPdf.text).toContain('(Date: September 23rd, 2025) Tj');
     expect(savedPdf.text).toContain('(Duration: 5 minutes) Tj');
-    expect(savedPdf.text).toContain('(Transcript) Tj');
-    expect(savedPdf.text).toContain('(This is a test transcript.) Tj');
+    // No transcript ever crosses into the export.
+    expect(savedPdf.text).not.toContain('(Transcript) Tj');
     expect(savedPdf.filename).toBe('TestUser_session_0_20250923.pdf');
+  });
+
+  it('exports the same persisted comparable Progress action and contexts as saved review', async () => {
+    loadSessionProgress.mockResolvedValue({
+      status: 'eligible',
+      sessionId: '123',
+      comparison: 'previous',
+      direction: { direction: 'improved', deltaPoints: 6, deltaPercent: 7.14, reason: null, text: 'Clear delivery improved 7.1% vs your previous comparable session.' },
+      baselineContext: 'Clear delivery improved 12.5% vs your first comparable session.',
+      disclosure: {
+        referenceSessionId: 'prev-1', referenceRole: 'previous comparable session', alsoFirstComparable: false,
+        cohortKey: 'private|v2|base|clarity_v1', currentClarityPoints: 90, referenceClarityPoints: 84,
+        deltaPoints: 6, deltaPercent: 7.14, units: 'clear-delivery points',
+      },
+      takeaways: {
+        whatWorked: 'Very few filler words',
+        practiceThisNext: 'Cut filler words toward 3%',
+        target: { metric: 'filler_rate', direction: 'decrease', targetValue: 3, units: 'percent of words' },
+      },
+      recommendationId: 'rec-123',
+      latestAttempt: null,
+    });
+
+    await generateSessionPdf(mockSession, 'TestUser');
+    const savedPdf = await getSavedPdf();
+    expect(savedPdf.text).toContain('(Comparable Progress) Tj');
+    expect(savedPdf.text).toContain('(Practice this next) Tj');
+    expect(savedPdf.text).toContain('(Cut filler words toward 3%) Tj');
+    expect(savedPdf.text).toContain('(Clear delivery improved 7.1% vs your previous comparable session.) Tj');
+    expect(savedPdf.text).toContain('(Clear delivery improved 12.5% vs your first comparable session.) Tj');
+  });
+
+  it('still exports the session when comparable Progress cannot be loaded', async () => {
+    loadSessionProgress.mockRejectedValue(new Error('offline'));
+    await expect(generateSessionPdf(mockSession, 'TestUser')).resolves.toBeUndefined();
+    const savedPdf = await getSavedPdf();
+    expect(savedPdf.text).toContain('(SpeakSharp Session Report) Tj');
+    expect(savedPdf.text).not.toContain('(Comparable Progress) Tj');
   });
 
   it('names same-day sessions by user, session number, and date', () => {
@@ -155,10 +209,9 @@ describe('generateSessionPdf', () => {
       model_name: 'whisper-tiny.en',
       engine_version: 'transformers-js-2.17',
       device_type: 'cpu',
-      filler_words: {
-        um: { count: 2 },
-        like: { count: 3 },
-        total: { count: 5 },
+      filler_counts: {
+        um: 2,
+        like: 3,
       },
       pause_metrics: {
         silencePercentage: 0,
@@ -183,112 +236,81 @@ describe('generateSessionPdf', () => {
     }));
   });
 
-  it('handles sessions with no filler words', async () => {
-    const noFillers = { ...mockSession, filler_words: null };
+  it('handles sessions with no measured filler map (NULL → no filler table)', async () => {
+    const noFillers = { ...mockSession, filler_counts: null };
     await generateSessionPdf(noFillers as unknown as Session);
 
-    // autoTable should be called ONCE for analytics even when no filler_words
+    // autoTable is called ONCE for analytics — an unmeasured filler map produces no filler table.
     expect(autoTable).toHaveBeenCalledTimes(1);
     expect(autoTable).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       body: expect.arrayContaining([['Metric', 'Value']])
     }));
   });
 
-  it('SSOT: a valid persisted filler ZERO renders NO filler table (does not recount stale zeros from transcript)', async () => {
+  it('a measured filler ZERO ({}) renders NO filler table and a headline of 0', async () => {
     await generateSessionPdf({
       ...mockSession,
-      transcript: "So this is a test. Yeah, so it is highlighting filler words.",
-      filler_words: {
-        so: { count: 0 },
-        like: { count: 0 },
-        total: { count: 0 },
-      }, // canonical live zero — must NOT be recounted up from the transcript
+      filler_counts: {}, // measured zero — a genuine "no fillers", never recounted from anything
     } as unknown as Session);
 
-    // No autoTable call carries a "Filler Word" head, because the canonical zero yields no filler rows.
+    // Measured zero is the headline, but there are no per-word rows to tabulate.
+    expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
+      body: expect.arrayContaining([['Total Filler Words', '0']]),
+    }));
     const fillerTableRendered = vi.mocked(autoTable).mock.calls.some(
       ([, opts]) => JSON.stringify((opts as { head?: unknown })?.head ?? null).includes('Filler Word'),
     );
     expect(fillerTableRendered).toBe(false);
   });
 
-  it('includes custom-word analytics in the PDF report', async () => {
+  it('#1306: NEVER renders a transcript page or free-form AI coaching page (metrics-only)', async () => {
     await generateSessionPdf({
       ...mockSession,
-      transcript: 'Um, the stale smell of old beer lingers.',
-      duration: 10,
-      custom_words: {
-        stale: { count: 1 },
-      },
-      filler_words: {
-        stale: { count: 1 },
-        um: { count: 1 },
-        total: { count: 2 },
+      next_action_signal: {
+        reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate',
+        value: 0.08, comparator: 'above_baseline', templateVersion: 'rec_v1',
       },
     } as unknown as Session);
-
-    expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
-      body: expect.arrayContaining([
-        ['Tracked Custom Words', 'stale'],
-        ['Custom Words Detected', '1'],
-        ['Total Filler Words', '2'],
-      ]),
-    }));
-
-    expect(autoTable).toHaveBeenNthCalledWith(2, expect.anything(), expect.objectContaining({
-      head: [['Filler Word', 'Frequency']],
-      body: expect.arrayContaining([['stale', 1], ['um', 1]]),
-    }));
-  });
-
-  it('handles sessions with no transcript', async () => {
-    const noTranscript = { ...mockSession, transcript: null };
-    await generateSessionPdf(noTranscript as unknown as Session);
     const savedPdf = await getSavedPdf();
 
-    expect(savedPdf.text).toContain('(Transcript) Tj');
-    expect(savedPdf.text).toContain('(No transcript available.) Tj');
+    // No transcript page, no AI coaching page — content never crosses into the export.
+    expect(savedPdf.text).not.toContain('(Transcript) Tj');
+    expect(savedPdf.text).not.toContain('(AI Coaching Suggestions) Tj');
+    // The structured next action IS rendered (copy comes from code, not the database).
+    expect(savedPdf.text).toContain('(Your Next Action) Tj');
+    expect(savedPdf.text).toContain('(Trim the filler words) Tj');
   });
 
-  it('paginates long transcripts instead of drawing them off the page', async () => {
-    const longTranscript = Array.from({ length: 180 }, (_, index) => `Line ${index + 1} of the transcript.`).join('\n');
+  it('#1306: omits the next-action page when a non-completed session has no next_action_signal', async () => {
+    await generateSessionPdf({ ...mockSession } as unknown as Session);
+    const savedPdf = await getSavedPdf();
+    expect(savedPdf.text).not.toContain('(Your Next Action) Tj');
+    expect(savedPdf.text).not.toContain('(Transcript) Tj');
+  });
 
+  it('#1306: a COMPLETED session missing its next action prints a data-integrity failure, never hides it', async () => {
     await generateSessionPdf({
       ...mockSession,
-      transcript: longTranscript,
-    });
+      status: 'completed',
+      next_action_signal: undefined,
+    } as unknown as Session);
     const savedPdf = await getSavedPdf();
-
-    expect(savedPdf.text).toContain('(Line 1 of the transcript.) Tj');
-    expect(savedPdf.text).toContain('(Line 180 of the transcript.) Tj');
-    expect(savedPdf.text).toContain('(Page 4 of');
-  });
-
-  it('includes AI suggestions when they exist on the session', async () => {
-    await generateSessionPdf({
-      ...mockSession,
-      ai_suggestions: {
-        summary: 'You used a clear opening and can improve pacing.',
-        suggestions: [
-          {
-            title: 'Pause with intent',
-            description: 'Replace filler words with a short pause before the next idea.',
-          },
-        ],
-      },
-    });
-    const savedPdf = await getSavedPdf();
-
-    expect(savedPdf.text).toContain('(AI Coaching Suggestions) Tj');
-    expect(savedPdf.text).toContain('(You used a clear opening and can improve pacing.) Tj');
-    expect(savedPdf.text).toContain('(1. Pause with intent) Tj');
+    expect(savedPdf.text).toContain('(Your Next Action) Tj');
+    expect(savedPdf.text).toContain('(Data integrity error: this completed session is missing its next action.) Tj');
   });
 
   it.each([
     ['Free', false],
     ['Pro', true],
   ])('adds the SpeakSharp watermark to every generated page for %s exports', async (_tier, isPro) => {
-    await generateSessionPdf(mockSession, 'TestUser', isPro);
+    // A next action gives the report a second page, so the watermark must appear across multiple pages.
+    await generateSessionPdf({
+      ...mockSession,
+      next_action_signal: {
+        reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none',
+        value: 0, comparator: 'within_target', templateVersion: 'rec_v1',
+      },
+    } as unknown as Session, 'TestUser', isPro);
     const savedPdf = await getSavedPdf();
 
     const visibleWatermarkCommands = savedPdf.text.match(/\(SpeakSharp\) Tj/g) ?? [];
@@ -298,35 +320,81 @@ describe('generateSessionPdf', () => {
   });
 });
 
-describe('getPdfFillerTableData — SSOT: persisted canonical wins, no recount of a valid zero', () => {
+describe('getPdfFillerTableData — the stored flat filler_counts is authoritative (no transcript to recount)', () => {
   const base = {
     id: 's', user_id: 'u', created_at: '', updated_at: '', title: 't', duration: 60,
   } as unknown as Session;
 
-  it('valid persisted ZERO renders NO filler rows (does NOT recount the transcript)', () => {
+  it('a measured ZERO ({}) renders NO filler rows', () => {
     const rows = getPdfFillerTableData({
       ...base,
-      transcript: 'um uh like the transcript clearly contains fillers here',
-      filler_words: { total: { count: 0, color: '' } }, // canonical live zero
+      filler_counts: {}, // measured zero
     } as unknown as Session);
-    expect(rows).toEqual([]); // not recounted up from the transcript
+    expect(rows).toEqual([]);
   });
 
-  it('persisted fillers are rendered from the saved canonical data', () => {
+  it('persisted fillers render from the saved flat map', () => {
     const rows = getPdfFillerTableData({
       ...base,
-      transcript: 'whatever the transcript says',
-      filler_words: { total: { count: 3, color: '' }, um: { count: 3, color: '' } },
+      filler_counts: { um: 3 },
     } as unknown as Session);
     expect(rows).toEqual([['um', 3]]);
   });
 
-  it('recounts the transcript ONLY when persisted filler data is absent/malformed', () => {
+  it('an UNMEASURED map (null) renders NO rows (there is no transcript fallback to recount)', () => {
     const rows = getPdfFillerTableData({
       ...base,
-      transcript: 'um and uh are here',
-      filler_words: null, // absent → fallback recount
+      filler_counts: null,
     } as unknown as Session);
-    expect(rows.length).toBeGreaterThan(0);
+    expect(rows).toEqual([]);
+  });
+
+  it('an INVALID / prose-bearing map fails closed to NO rows (never smuggles a key through)', () => {
+    const rows = getPdfFillerTableData({
+      ...base,
+      filler_counts: { 'a confidential phrase': 1 } as unknown as Record<string, number>,
+    } as unknown as Session);
+    expect(rows).toEqual([]);
+  });
+});
+
+describe('generateSessionPdf — metric-presence: unmeasured metrics render N/A, never a sentinel zero', () => {
+  const base = (over: Partial<Session>): Session => ({
+    id: 'mp', user_id: 'user1', created_at: '2025-09-23T10:00:00Z', duration: 300,
+    ...over,
+  } as unknown as Session);
+
+  it('renders N/A (not measured zero) for absent words and an unmeasured filler map', async () => {
+    await generateSessionPdf(base({ total_words: undefined, filler_counts: undefined }), 'TestUser');
+    expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
+      body: expect.arrayContaining([
+        ['Total Words', 'N/A'],
+        ['Total Filler Words', 'N/A'],
+      ]),
+    }));
+  });
+
+  it('renders persisted measurements when they exist', async () => {
+    await generateSessionPdf(base({ total_words: 120, filler_counts: { um: 2 } }), 'TestUser');
+    expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
+      body: expect.arrayContaining([
+        ['Total Words', '120'],
+        ['Total Filler Words', '2'],
+      ]),
+    }));
+  });
+
+  it('a measured filler ZERO ({}) renders a headline 0, but an absent word count stays N/A', async () => {
+    await generateSessionPdf(base({ total_words: undefined, filler_counts: {} }), 'TestUser');
+    expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
+      body: expect.arrayContaining([
+        ['Total Words', 'N/A'],
+        ['Total Filler Words', '0'],
+      ]),
+    }));
+    // No legacy universal-score / coaching rows for any session.
+    const body = vi.mocked(autoTable).mock.calls[0][1].body as string[][];
+    expect(body.flat()).not.toContain('SpeakSharp Score');
+    expect(body.flat()).not.toContain('Coaching Suggestion');
   });
 });

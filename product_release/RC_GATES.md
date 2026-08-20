@@ -1,3 +1,7 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+> **Current authority:** [`RELEASE_PROCESS.md`](./RELEASE_PROCESS.md) and [`QUALITY.md`](./QUALITY.md).
+
 # Release Candidate Gates
 
 > Gate definitions, not release status.
@@ -54,6 +58,8 @@ Real-mic engine-liveness + metadata are NOT sufficient: they passed 3/3 while th
 
 For a **v4-targeted** session also confirm `engine_version=private_v4`, runtime/backend/assignment metadata, and no visible/saved phrase loop.
 
+**Private v4 status for this release: ACTIVATION OFF.** Default Private is `private_v2:whisper-base.en`; the PostHog `private_stt_v4_*` flags default off and `VITE_PRIVATE_STT_V4_DISABLED='true'` is the build-time hard kill. The automated **`.github/workflows/private-model-smoke.yml`** ("Private v4 model-pipeline smoke") is a **dependency + deterministic-inference REGRESSION GUARD for the DORMANT v4 stack** (`@huggingface/transformers`) — it fetches the pinned base_q4 model, runs deterministic inference, and asserts token overlap. It is **repaired and green**, but it is **NOT a release proof**, NOT coverage of production Private v2 (`@xenova/transformers`), and does NOT prove browser/WebGPU/mic UX. It is non-blocking (manual dispatch + weekly schedule only) and does not activate v4.
+
 ### Ship Signal Rule
 
 RC gate status is the ship/no-ship signal. Quality score, coverage, Lighthouse, benchmarks, backend stress, and browser endurance results are advisory unless explicitly named as a blocking gate item. A high quality score cannot override a red or stale RC gate item.
@@ -61,6 +67,8 @@ RC gate status is the ship/no-ship signal. Quality score, coverage, Lighthouse, 
 ### Same-SHA Release Candidate Rule
 
 Any commit considered a release candidate must pass full CI, production canary, and Service-Level Evidence on the same commit SHA before it can be called release-ready. CI optimizations may reduce wasted runs while iterating, but they do not lower the final release bar. A Vercel canary must test the deployed production URL because users receive Vercel's deployed artifact, not CI's internal build artifact.
+
+**Canary cadence — daily active-trial ≠ complete release qualification (#1294).** The production canary runs on two automated cadences: a **daily active-trial** lane proving the complete Pro product path, and a **weekly Stripe test-mode/test-clock billing qualification** (checkout → webhook → renewal → payment failure → cancellation → continuation) that never charges a live card. A green **daily active-trial** result proves the product path only; it must **not** be consumed as complete release qualification. Release-readiness requires **both** a green daily active-trial result **and** a current (most-recent-weekly, not stale) green billing qualification. Neither cadence may be reported as the other, and neither may cancel the other. The strict production paid verifier (real Stripe-backed entitlement) is reserved for a separately authorized live commercial-readiness proof and is **not** the scheduled no-charge qualification.
 
 ### Raw Artifact Source Rule
 
@@ -87,7 +95,7 @@ Glossary:
 
 | RC Gate | Name | Blocks Tester Release? | Maintained Regression Evidence |
 |---|---|---:|---|
-| Gate 1 | Product truth gate | Yes | `pnpm rc:gate:1:product`, `CI - Test Audit`, `Expired Trial Live Smoke`, `Pro STT Artifact Matrix`, deploy/canary workflows, Native Chrome mic proof |
+| Gate 1 | Product truth gate | Yes | `pnpm rc:gate:1:product`, `CI - Test Audit`, `Live Release Matrix` (entitlement/sample suites), `Pro STT Artifact Matrix`, deploy/canary workflows, Native Chrome mic proof |
 | Gate 2 | SAST / code review | Yes if P0 found | `pnpm rc:gate:2:sast`, `pnpm quality`, `pnpm test:edge`, entitlement/token/quota unit tests, env/test-mode tests, frontend secret scan, production E2E/test-branch hardening check |
 | Gate 3 | DAST / running app review | Yes if P0 found | `pnpm rc:gate:3:dast`, live Playwright tests against production URLs and Supabase Edge Functions |
 | Gate 4 | SCA / dependency review | Yes only for critical exploitable risk | `pnpm audit --audit-level critical` plus GitHub Actions/runtime warning review |
@@ -197,6 +205,7 @@ Required maintained live workflows:
 | Legacy trial downgrade trap | Entitlement/sample smoke | Legacy trial timestamps do not grant Pro; effective tier is `free`, stored status is `free`, mode is Browser unless sample/paid entitlement is present |
 | Invalid auth | `tests/live/cloud-token-gates.live.spec.ts`, `backend/supabase/functions/assemblyai-token/index.test.ts` | Missing/invalid auth returns 401 and no token issued |
 | Cloud token denied for Free/sample/over-quota | `tests/live/cloud-token-gates.live.spec.ts` | Free and Private-sample users return 403, over-quota returns 429, no token issued |
+| Exact-origin CORS (deployed, fail-closed) | `tests/live/cors-exact-origin.live.spec.ts` (in `pnpm rc:dast:live`) | Against the DEPLOYED edge functions: the approved origin is echoed exactly; hostile lookalikes/wrong-protocol/unapproved-port/localhost-lookalike get 403 with NO `Access-Control-Allow-Origin`. **Non-skipping / fail-closed** — no capability probe, no config-based skip; missing `SUPABASE_URL` throws (never silently passes). No checkout/charge/token/v4 activation occurs. |
 | Private sample reuse | sample entitlement live/unit proof | A second unpaid Private session is denied after the one sample is claimed/completed |
 | Cloud Pro artifact path | `Pro STT Artifact Matrix` with `mode=cloud` | Transcript -> save -> history/detail -> AI -> PDF text |
 | Stripe checkout/webhook readiness | `tests/live/stripe-checkout-readiness.live.spec.ts`, `tests/live/stripe-webhook-readiness.live.spec.ts` | Test-mode checkout/webhook path completes without production-charge assumptions |
@@ -240,6 +249,8 @@ Required maintained checks:
 | Native support expectations | Tester instructions and manual Native proof | Native is explicitly Chrome/browser-dependent and included only with Chrome proof. If Edge has no passing proof, UI/tester copy must say Chrome recommended instead of implying Edge parity. |
 | Errors are actionable | `tests/e2e/error-states.e2e.spec.ts` | User sees recoverable state, not only internal diagnostics |
 | Private first-use setup | `tests/e2e/user-features.e2e.spec.ts`, `tests/live/private-cache.live.spec.ts` | Private setup/cache path is understandable enough to start and rerun without stale cache failure |
+| Private-first mode selector (responsive/opaque/single-surface) | `tests/e2e/mode-selector-private-first.e2e.spec.ts` | Selector order Private (Recommended) → Browser (Quick preview) → Cloud (Pro) across 320/375/390/1280px; the mode description is ONE controlled flyout (never 3 overlapping bubbles), geometrically disjoint from menu/Live Coaching and in-viewport; the open menu is fully opaque at every animation frame; the touch "About" help and the dropdown are mutually exclusive (never both open); no horizontal overflow. |
+| Post-save one-surface + persistent Analytics cue | `tests/e2e/post-save-consolidation.e2e.spec.ts` | Settled post-save Session page has ONE saved-state surface (single status bar "Session saved · …"), exactly one Analytics action (→ `/analytics`) with a bounded pulse → PERSISTENT green cue (reduced-motion: straight to persistent), a quiet Private CTA only for eligible Native, and NO separate "Next: Analytics" toast / no duplicated pill message; validated 320/375/390/1280px; AA contrast on the rendered cue. |
 
 Manual Native/Safari/browser wording check:
 
@@ -249,6 +260,8 @@ Manual Native/Safari/browser wording check:
 - **Fail:** unsupported or weak browsers silently fail, or the user only sees internal diagnostics without a clear next action.
 
 Automated UX smoke is green when `pnpm rc:gate:5:ux` passes. Subjective copy polish can continue as P2, but it should not reopen release-critical code unless the smoke finds an unusable onboarding/core-flow issue.
+
+**UX review screenshots are NOT product/STT evidence.** The mode-selector and post-save specs write PNGs (`test-results/mode-selector/*`, `test-results/post-save-consolidation/*`) that `.github/workflows/ci.yml` uploads as `ux-review-screenshots-shard-*` with **`retention-days: 1`** (mirrored by `review-evidence.yml`). These are short-lived visual aids for PR/layout review only — they are ephemeral and must never be cited as STT accuracy, transcript-fidelity, or product-truth evidence. The pass/fail signal is the spec assertions themselves, not the images.
 
 ## Observability API Readback Requirements
 
@@ -292,9 +305,22 @@ LIVE_OBSERVABILITY_API_EVIDENCE {
 }
 ```
 
-Latest recorded green workflow evidence:
+Current run IDs and pass/fail status for this gate live only in `RELEASE_STATUS.md` (the status SSOT).
+This document defines the stable gate; it does not record changing run IDs.
 
-```text
-Observability API Smoke run 25764783852: passed
-Release Candidate Gates run 25769178359 on e73408c0: all five gates passed
-```
+## Evidence Freshness Contract
+
+Each release gate is green only when the definition of green is backed by a named artifact that a reviewer can inspect without relying on operator memory. The active artifact is always the latest complete passing run. If a newer run fails any required criterion, the parent gate returns to red until a later complete run passes every criterion. Every artifact update must record `Last updated by: [initials] [date] [artifact path]`.
+
+## Named STT Gate Artifacts
+
+The STT binary gates fold into their parent RC gates with these named artifacts (current run/status posture lives in `RELEASE_STATUS.md`; these stable requirements live here).
+
+| Gate | Required Current Artifact |
+|---|---|
+| Fresh Trial Private sample recording — Transcript/Save/History Path | `/private/tmp/speaksharp-private-human-[timestamp].json`; must include `SESSION_LIFECYCLE_WARMUP`, model setup/download state, chunk RMS/duration rows, first partial timestamp/text, console events, save result, and history/detail proof. |
+| Native Browser Chrome human-mic proof | `/private/tmp/speaksharp-native-[timestamp].json`; must include event order from `onspeechstart -> first onresult`, selected transcript on stop, save/history/detail proof, analytics proof, and no unintended 4-word sequence appearing more than once. |
+| Cloud Pro proof | `/private/tmp/cloud-artifact-[timestamp].log`; must show AssemblyAI token HTTP 200, transcript/save/history/detail proof, AI suggestions, PDF export, and Pro entitlement context. |
+| Custom word analytics proof | Browser/session artifact showing words such as `like = 1` or `basically = 1` after adding the custom word through the UI, then saving and opening detail/analytics. |
+| PDF export proof | Saved-session PDF artifact whose transcript, duration, WPM, filler/custom word counts, and session metadata match the saved detail view within ±15%. |
+| Session Status UX | Screenshot/video or browser trace showing one clear status/progress surface (`StatusNotificationBar`), Private setup/download/ready states, and no duplicate or internal FSM/debug status obstructing the user flow. |

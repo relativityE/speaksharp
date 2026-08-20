@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe('nativeAsyncFormatter — raw-first Native saved transcript formatting', () => {
-  it('updates the saved session only after a word-preserving formatter succeeds', async () => {
+  it('#1306: a word-preserving formatter surfaces cleaned text to memory but NEVER persists a transcript', async () => {
     registerNativeTranscriptFormatter(async () => 'Um, basically the puppy chewed the shoes.');
     const updateSessionFn = vi.fn(async () => ({ success: true }));
     const onUpdated = vi.fn();
@@ -30,20 +30,20 @@ describe('nativeAsyncFormatter — raw-first Native saved transcript formatting'
       onUpdated,
     });
 
-    expect(updateSessionFn).toHaveBeenCalledWith('sess-native-1', {
-      transcript: 'Um, basically the puppy chewed the shoes.',
-    });
+    // Metrics-only: the formatted transcript is ephemeral working memory — surfaced to the live caller
+    // for display, but the DB is NEVER written (no transcript crosses the persistence boundary).
+    expect(updateSessionFn).not.toHaveBeenCalled();
     expect(onUpdated).toHaveBeenCalledWith('Um, basically the puppy chewed the shoes.');
     expect(result).toMatchObject({
       sessionId: 'sess-native-1',
       status: 'complete',
       changed: true,
-      savedTranscriptUpdated: true,
+      savedTranscriptUpdated: false,
     } satisfies Partial<NativeFormattingState>);
     expect(window.__NATIVE_FORMATTING_STATUS__).toMatchObject({
       status: 'complete',
       changed: true,
-      savedTranscriptUpdated: true,
+      savedTranscriptUpdated: false,
     });
   });
 

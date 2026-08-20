@@ -1,0 +1,20 @@
+name: Deploy Supabase Edge release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/supabase/functions/**'
+      - 'backend/supabase/config.toml'
+      - 'backend/supabase/import_map.json'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-reviewed-edge-release:
+    uses: ./.github/workflows/deploy-supabase-migrations.yml
+    with:
+      deploy_edge_functions: true
+      operation: edge-functions
+    secrets: inherit

@@ -12,8 +12,8 @@ declare const __APP_MODE_META__:
   | { command: string; viteMode: string; port: number; authMode: string; releaseProofEligible: boolean }
   | undefined;
 
-/** Build/release id injected by Vite `define` — the git commit SHA in production (PROD-CONFIG-1). */
-declare const __BUILD_ID__: string | undefined;
+/** Build/release id injected into index.html (window.__APP_RELEASE__) — the git commit SHA in production
+ * (PROD-CONFIG-1). NOT a JS `define`, so the volatile SHA never rotates chunk hashes across deploys. */
 
 export interface AppModeMeta {
   viteMode: string;
@@ -51,9 +51,31 @@ export function arePaymentsEnabledFor(key: string | undefined | null): boolean {
   return classifyStripeKey(key) === 'live';
 }
 
-/** Runtime convenience wrapper reading the live Stripe publishable key. */
+/**
+ * Explicit beta billing kill-switch, defaulting OFF. A live Stripe publishable key must NOT, on its
+ * own, enable checkout: payments require a deliberate `VITE_PAYMENTS_ENABLED=true` in addition to a
+ * valid live key. This makes the no-billing beta fail closed even if a live key is present in prod.
+ */
+export function isPaymentsExplicitlyEnabled(): boolean {
+  return (import.meta.env.VITE_PAYMENTS_ENABLED as string | undefined) === 'true';
+}
+
+/**
+ * Pure, testable: public payment/checkout surfaces are enabled ONLY when BOTH conditions hold —
+ * payments are explicitly enabled AND the Stripe publishable key classifies as `live`. Anything
+ * else (flag off, missing/test/unknown key) is disabled. Frontend hiding is not the security
+ * boundary; the `stripe-checkout` edge function enforces the same rule server-side.
+ */
+export function paymentsEnabled(explicitlyEnabled: boolean, key: string | undefined | null): boolean {
+  return explicitlyEnabled === true && arePaymentsEnabledFor(key);
+}
+
+/** Runtime convenience wrapper: explicit enablement flag AND a live publishable key. */
 export function arePaymentsEnabled(): boolean {
-  return arePaymentsEnabledFor(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined);
+  return paymentsEnabled(
+    isPaymentsExplicitlyEnabled(),
+    import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined,
+  );
 }
 
 export interface AppRuntimeConfig {
@@ -73,7 +95,42 @@ export interface AppRuntimeConfig {
 declare global {
   interface Window {
     __APP_RUNTIME_CONFIG__?: AppRuntimeConfig;
+    /** Release id (commit SHA in prod) injected into index.html by the release-inject Vite plugin. */
+    __APP_RELEASE__?: string;
   }
+}
+
+/**
+ * The ONLY AppRuntimeConfig fields that may be PERSISTED (e.g. in an issue report's metadata blob).
+ * Deliberately EXCLUDES every URL-bearing / environment-locating field:
+ *   - `url`         — the raw `window.location.href`; carries dynamic route ids (session UUIDs), query
+ *                     strings, and fragments (emails / reset+invite tokens can appear in any of these).
+ *   - `port`        — noise, no support value.
+ *   - `supabaseUrl` — a raw origin, and redundant: the environment is already conveyed by
+ *                     `stripeKeyClass` + `release`.
+ * NEVER widen this to include any raw URL, pathname, query string, fragment, or dynamic identifier.
+ */
+export type PersistedRuntimeConfig = Pick<
+  AppRuntimeConfig,
+  'viteMode' | 'authMode' | 'mockAuth' | 'stripeKeyClass' | 'releaseProofEligible' | 'release'
+>;
+
+/**
+ * Reduce a full runtime config to the persistence allowlist. Explicit field-by-field pick (not a
+ * denylist) so a future field added to AppRuntimeConfig can never silently leak into persisted metadata.
+ */
+export function pickPersistedRuntimeConfig(
+  cfg: AppRuntimeConfig | undefined | null,
+): PersistedRuntimeConfig | undefined {
+  if (!cfg) return undefined;
+  return {
+    viteMode: cfg.viteMode,
+    authMode: cfg.authMode,
+    mockAuth: cfg.mockAuth,
+    stripeKeyClass: cfg.stripeKeyClass,
+    releaseProofEligible: cfg.releaseProofEligible,
+    release: cfg.release,
+  };
 }
 
 const USES_REAL_SUPABASE = /\.supabase\.co\/?$/;
@@ -139,7 +196,7 @@ export function publishAppRuntimeConfig(): AppRuntimeConfig {
       typeof window !== 'undefined' && window.location.port ? Number(window.location.port) : meta.port,
     url: typeof window !== 'undefined' ? window.location.href : '',
     stripeKey: import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined,
-    release: typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : undefined,
+    release: typeof window !== 'undefined' ? window.__APP_RELEASE__ : undefined,
   });
   if (typeof window !== 'undefined') {
     window.__APP_RUNTIME_CONFIG__ = cfg;

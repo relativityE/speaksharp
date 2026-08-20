@@ -37,7 +37,7 @@ describe('useBrowserSupport', () => {
     setMedia({ getUserMedia: () => Promise.resolve() });
     const { result } = renderHook(() => useBrowserSupport());
     expect(result.current.isSupported).toBe(false);
-    expect(result.current.error).toMatch(/Browser transcription isn't available/i);
+    expect(result.current.error).toMatch(/On-device Private transcription needs a supported browser/i);
   });
 
   it('reports the microphone message when speech is present but mediaDevices is missing', () => {

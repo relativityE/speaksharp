@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, ReactNode } from 'react';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
-import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus } from '@/constants/subscriptionTiers';
 import { syncProfileReady } from '@/lib/forensicAnchors';
 import logger from '@/lib/logger';
 import ProfileContext from '@/contexts/ProfileContext';
@@ -70,27 +70,15 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
 
         const tier = getEffectiveSubscriptionStatus(null, policyProfile);
 
-        const currentSelectedMode = useSessionStore.getState().sttMode;
-
         logger.info({
             subscriptionStatus: tier,
-            selectedMode: currentSelectedMode,
+            selectedMode: 'private',
             intent: 'Syncing policy and setting E2E gate'
         }, '[TranscriptionProvider] Syncing policy');
 
-        const isPro = tier === 'pro';
-        const canUseCloud = isPro && hasCloudSttEntitlement(policyProfile);
-        const requestedMode = isPro ? currentSelectedMode : null;
-        const safeMode = requestedMode === 'cloud' && !canUseCloud ? 'private' : requestedMode;
-        // NOTE (P2, tracked in BACKLOG): this writer intentionally remains TIER-ONLY for now —
-        // it passes `isPro`, not the sample-aware `isPro || hasPrivateSampleEntitlement` capability.
-        // The sample entitlement lives in `usageLimit` (the check_usage_limit RPC), which this
-        // provider deliberately does not consume; modeful/sample policy is owned by the Session
-        // lifecycle. This stays safe because (a) `startRecording` overwrites the controller policy
-        // with the lifecycle's sample-aware policy at record time, and (b) this resync only re-fires
-        // on profile-tier fields, never on mode/record/sample state. Full sample-aware unification of
-        // all policy writers is deferred (do NOT "fix" by changing this to raw isPro elsewhere).
-        const newPolicy = buildPolicyForUser(isPro, safeMode, { allowCloud: canUseCloud });
+        // Profile hydration may change commercial state, but it cannot widen the customer engine set.
+        // Recording access remains the session lifecycle's server-authoritative can_start decision.
+        const newPolicy = buildPolicyForUser(true, 'private');
         const policyKey = JSON.stringify(newPolicy);
         if (lastPolicyKeyRef.current !== policyKey) {
             lastPolicyKeyRef.current = policyKey;

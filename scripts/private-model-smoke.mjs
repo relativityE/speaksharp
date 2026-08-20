@@ -1,4 +1,4 @@
-// Automated Private model-pipeline smoke (B2).
+// Automated Private v4 model-pipeline smoke (B2).
 //
 // PURPOSE: prove the pinned Private STT model dependency (v4 base_q4 floor) can be fetched,
 // initialized, cached, and produce deterministic inference in automation. This is a DEPENDENCY +
@@ -190,14 +190,14 @@ async function main() {
   fs.writeFileSync(OUT_JSON, JSON.stringify(result, null, 2));
 
   // Human-readable console block
-  console.log('--- Automated Private model-pipeline smoke (B2) ---');
+  console.log('--- Automated Private v4 model-pipeline smoke (B2) ---');
   console.log(JSON.stringify(result, null, 2));
   console.log(`CAVEAT: ${CAVEAT}`);
 
   // GitHub job summary (when running in Actions)
   if (process.env.GITHUB_STEP_SUMMARY) {
     const md = [
-      `## 🔊 Automated Private model-pipeline smoke — **${result.result}**`,
+      `## 🔊 Automated Private v4 model-pipeline smoke — **${result.result}**`,
       '',
       '> Dependency + deterministic-inference guard for the v4 base_q4 Private model.',
       `> **${CAVEAT}**`,

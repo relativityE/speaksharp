@@ -31,6 +31,7 @@ export interface Database {
           model_name: string | null
           device_type: string | null
           status: string | null
+          attribution_status: string
         }
         Insert: {
           id?: string
@@ -53,6 +54,7 @@ export interface Database {
           model_name?: string | null
           device_type?: string | null
           status?: string | null
+          attribution_status?: string
         }
         Update: {
           id?: string

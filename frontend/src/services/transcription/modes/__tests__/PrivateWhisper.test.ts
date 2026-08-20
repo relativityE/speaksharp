@@ -1261,4 +1261,67 @@ describe('buildPrivateTimingSummary (window.__PRIVATE_TIMING__, Quality-Push Sli
         // RTF must be based on the decoded ruler (24346 / (93.88*1000) ≈ 0.259), not the inflated raw.
         expect(s.finalizeDecodeMs! / (s.decodedUtteranceSeconds * 1000)).toBeCloseTo(0.259, 2);
     });
+
+    // #1089 hard capture backstop at the REAL crossing boundary: a frame begins BELOW the cap and would
+    // cross it. Production must CLAMP that frame to the remaining head so the buffer never exceeds
+    // MAX_UTTERANCE_SAMPLES, drop the overrun tail, fire the duration-only signal exactly once, and preserve
+    // the first/middle/final ACCEPTED samples.
+    describe('#1089 capture backstop — crossing frame is clamped, never exceeds MAX', () => {
+        it('clamps a frame that crosses MAX to the remaining head, drops the overrun, signals once, preserves sentinels', async () => {
+            const onCaptureLimitReached = vi.fn();
+            // Self-sufficient mock setup (this describe is outside the facade beforeEach), so the test also
+            // passes when run in isolation.
+            mocks.init.mockResolvedValue(Result.ok('transformers-js'));
+            mocks.checkAvailability.mockResolvedValue({ isAvailable: true });
+            const capped = new PrivateWhisper({
+                onTranscriptUpdate: vi.fn(), onModelLoadProgress: vi.fn(), onReady: vi.fn(),
+                onStatusChange: vi.fn(), onCaptureLimitReached,
+            });
+            await capped.init();
+            const engine = capped as unknown as {
+                utteranceSampleCount: number;
+                utteranceAudioChunks: Float32Array[];
+                appendFrameToUtteranceAudio: (frame: Float32Array, energy: { rms: number; peak: number }) => void;
+            };
+            const MAX = PRIV_STT_DERIVED.MAX_UTTERANCE_SAMPLES;
+            const realSpeech = { rms: PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS + 0.02, peak: 0.4 };
+
+            // Fill to MAX - n with two frames (n samples of headroom remain), then send a frame LARGER than n
+            // so it must be clamped to exactly n.
+            const n = 1000;
+            expect((MAX - n) % 2).toBe(0);
+            const F = (MAX - n) / 2;
+            const frame1 = new Float32Array(F).fill(0.3); frame1[0] = 0.111;      // first accepted sample
+            const frame2 = new Float32Array(F).fill(0.3); frame2[0] = 0.222;      // a middle accepted sample
+            engine.appendFrameToUtteranceAudio(frame1, realSpeech);
+            engine.appendFrameToUtteranceAudio(frame2, realSpeech);
+            expect(engine.utteranceSampleCount).toBe(MAX - n); // still below the cap; headroom = n
+
+            const crossing = new Float32Array(5000).fill(0.3); // 5000 > n → must clamp to n
+            crossing[n - 1] = 0.333;  // becomes the FINAL accepted sample after clamp
+            crossing[n] = 0.999;      // the FIRST overrun sample — must be DROPPED
+            engine.appendFrameToUtteranceAudio(crossing, realSpeech);
+
+            // Never exceeds MAX; the crossing frame contributed exactly its remaining head (n samples).
+            expect(engine.utteranceSampleCount).toBe(MAX);
+            expect(engine.utteranceAudioChunks.length).toBe(3);
+            expect(engine.utteranceAudioChunks[2].length).toBe(n); // overrun tail dropped, only the head kept
+            expect(onCaptureLimitReached).toHaveBeenCalledTimes(1);
+            expect(onCaptureLimitReached).toHaveBeenCalledWith({
+                bufferedSeconds: expect.any(Number),
+                limitSeconds: PRIV_STT.MAX_UTTERANCE_SECONDS,
+            });
+
+            // A further frame after the cap is refused entirely and does not re-signal.
+            engine.appendFrameToUtteranceAudio(new Float32Array(1024).fill(0.3), realSpeech);
+            expect(engine.utteranceSampleCount).toBe(MAX);
+            expect(onCaptureLimitReached).toHaveBeenCalledTimes(1);
+
+            // First / middle / final ACCEPTED sentinels preserved; the dropped overrun sample is absent.
+            expect(engine.utteranceAudioChunks[0][0]).toBeCloseTo(0.111, 5);
+            expect(engine.utteranceAudioChunks[1][0]).toBeCloseTo(0.222, 5);
+            expect(engine.utteranceAudioChunks[2][n - 1]).toBeCloseTo(0.333, 5); // final accepted sample
+            expect(engine.utteranceAudioChunks[2][n]).toBeUndefined();           // 0.999 overrun never stored
+        });
+    });
 });

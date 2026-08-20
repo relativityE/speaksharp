@@ -131,11 +131,11 @@ describe('native browser strategies', () => {
     expect(strategy.userMessage).toMatch(/compatibility mode/i);
   });
 
-  it('routes browsers without SpeechRecognition to unsupported with explicit message', () => {
+  it('keeps an unavailable internal Native hook out of the customer path', () => {
     const strategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: false, userAgent: genericUa });
     expect(strategy.browserFamily).toBe('unsupported');
     expect(strategy.compatibilityMode).toBe('unsupported');
-    expect(strategy.userMessage).toMatch(/does not provide a usable SpeechRecognition API/i);
+    expect(strategy.userMessage).toMatch(/internal deterministic transcription hook is unavailable.*Private customer path/i);
   });
 
   it('applies non-production Native diagnostic URL overrides', () => {

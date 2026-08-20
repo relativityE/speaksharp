@@ -3,11 +3,12 @@ import autoTable from 'jspdf-autotable';
 import { saveAs } from 'file-saver';
 import { PracticeSession as Session } from '../types/session';
 import { format, parseISO } from 'date-fns';
+import { validateNextActionSignal, renderNextActionCopy } from '@/contracts/nextActionSignal';
 import logger from './logger';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
-import { countFillerWords } from '@/utils/fillerWordUtils';
-import { getSessionAnalysisMetrics, isUsableFillerCounts } from '@/utils/sessionAnalysis';
-import { calculateSpeakingScore } from '@/utils/speakingScore';
+import { getSessionAnalysisMetrics } from '@/utils/sessionAnalysis';
+import { readPersistedFillerCounts } from '@/contracts/fillerCounts';
+import { loadSessionProgress } from '@/services/progress/loadSessionProgress';
 
 // A more specific type for the internal, undocumented API
 interface jsPDFInternal {
@@ -25,21 +26,12 @@ const PDF_WATERMARK_TEXT = 'SpeakSharp';
 const formatOptionalNumber = (value: number | null | undefined, formatter: (value: number) => string, fallback = 'N/A') =>
   typeof value === 'number' ? formatter(value) : fallback;
 
-const getFillerTableData = (fillerWords: Session['filler_words']) =>
-  Object.entries(fillerWords || {})
+// #1306 metrics-only: read the STORED flat filler_counts ({ um: 3 }); never a nested map or a transcript.
+const getFillerTableData = (fillerCounts?: Record<string, number> | null): Array<[string, number]> =>
+  Object.entries(fillerCounts || {})
     .filter(([word]) => word !== 'total')
-    .filter(([, data]) => data.count > 0)
-    .map(([word, data]) => [word, data.count]);
-
-const getCustomWordList = (customWords: Session['custom_words']): string[] => {
-  if (!customWords) return [];
-  if (Array.isArray(customWords)) {
-    return customWords
-      .map((item) => typeof item === 'string' ? item : '')
-      .filter(Boolean);
-  }
-  return Object.keys(customWords);
-};
+    .filter(([, count]) => typeof count === 'number' && count > 0)
+    .map(([word, count]) => [word, count as number]);
 
 const formatDuration = (seconds: number): string => {
   if (!Number.isFinite(seconds) || seconds <= 0) return '0 seconds';
@@ -54,19 +46,9 @@ const formatDuration = (seconds: number): string => {
 };
 
 export const getPdfFillerTableData = (session: Session): Array<[string, number]> => {
-  // #SSOT: persisted canonical filler data is authoritative. When it exists (even a valid ZERO), use it
-  // and DO NOT recount — a saved zero must render as no fillers. Recount the transcript ONLY when the
-  // saved filler data is absent/malformed.
-  if (isUsableFillerCounts(session.filler_words)) {
-    return getFillerTableData(session.filler_words) as Array<[string, number]>;
-  }
-
-  const transcript = session.transcript?.trim();
-  if (!transcript) return [];
-
-  const customWords = getCustomWordList(session.custom_words);
-  const derivedCounts = countFillerWords(transcript, customWords);
-  return getFillerTableData(derivedCounts) as Array<[string, number]>;
+  // #1306 metrics-only: the stored flat filler_counts is authoritative; there is no transcript to recount.
+  if (readPersistedFillerCounts(session.filler_counts) === null) return [];
+  return getFillerTableData(session.filler_counts);
 };
 
 const sanitizeFilenamePart = (value: string): string => {
@@ -141,29 +123,25 @@ export const generateSessionPdf = async (
     toast.info("Generating PDF...", { id: 'pdf-gen' });
     const doc = new jsPDF();
     const metrics = getSessionAnalysisMetrics(session);
-    const scoreResult = calculateSpeakingScore({
-      transcript: session.transcript || '',
-      wordCount: metrics.wordCount,
-      wpm: metrics.wpm,
-      clarityScore: metrics.clarityScore,
-      fillerCount: metrics.fillerCount,
-      elapsedSeconds: session.duration || 0,
-      pauseMetrics: session.pause_metrics || {
-        silencePercentage: 0,
-        transitionPauses: 0,
-        extendedPauses: 0,
-        longestPause: 0,
-      },
-      engine: session.engine,
-    });
-    const customWords = getCustomWordList(session.custom_words);
-    const customWordsDetected = customWords.reduce((sum, word) => {
-      const savedCount = session.custom_words?.[word];
-      if (savedCount && typeof savedCount === 'object' && 'count' in savedCount && typeof savedCount.count === 'number') {
-        return sum + savedCount.count;
-      }
-      return sum + (metrics.fillerData[word]?.count ?? 0);
-    }, 0);
+    // Reuse the exact persisted Progress read model used by the saved review (loaded ONCE). A PDF must
+    // never recompute its own comparison, and it must not label evidence "comparable" unless this
+    // authoritative read model actually classifies the session eligible.
+    const progress = await loadSessionProgress(session.id).catch(() => null);
+    const clarityComparable = progress?.status === 'eligible';
+    // #1306 metrics-only: a metric shows iff its own value is persisted (metric-presence provenance).
+    const derivedCell = (persistedIsRealNumber: boolean, render: () => string): string =>
+      persistedIsRealNumber ? render() : 'N/A';
+    const wordsCell = derivedCell(typeof session.total_words === 'number', () => `${metrics.wordCount}`);
+    const wpmCell = derivedCell(typeof session.wpm === 'number', () => `${metrics.wpm} (${metrics.wpmLabel})`);
+    // `clarity_score` is an internal evidence input, not a user-facing universal score. Only claim it is
+    // "Available for comparable Progress" when the authoritative read model classifies the session
+    // eligible; when it is insufficient/ineligible/unavailable, say so neutrally rather than implying a
+    // comparison the Progress model would not make.
+    const clarityCell = derivedCell(
+      typeof session.clarity_score === 'number',
+      () => clarityComparable ? 'Available for comparable Progress' : 'Recorded — not yet comparable',
+    );
+    const fillerCell = derivedCell(metrics.fillerCount !== null, () => `${metrics.fillerCount}`);
     const engineDetails = [
       session.model_name,
       session.engine_version,
@@ -194,20 +172,16 @@ export const generateSessionPdf = async (
     const analyticsData = [
       ['Metric', 'Value'],
       ['Session ID', session.id],
-      ['Total Words', `${metrics.wordCount}`],
-      ['Speaking Pace (WPM)', `${metrics.wpm} (${metrics.wpmLabel})`],
-      ['Clear Delivery', `${Math.round(metrics.clarityScore)}% (${metrics.clarityLabel})`],
-      ['Total Filler Words', `${metrics.fillerCount}`],
-      ['Tracked Custom Words', customWords.length > 0 ? customWords.join(', ') : 'None'],
-      ['Custom Words Detected', `${customWordsDetected}`],
+      ['Total Words', wordsCell],
+      ['Speaking Pace (WPM)', wpmCell],
+      ['Clear-delivery evidence', clarityCell],
+      ['Total Filler Words', fillerCell],
       ['Transcription Mode', formatSessionRecordingMode(session)],
       ['Engine Details', engineDetails || 'Not recorded'],
       ['Silence Percentage', formatOptionalNumber(session.pause_metrics?.silencePercentage, value => `${value.toFixed(1)}%`)],
       ['Short Pauses (0.5-1.5s)', formatOptionalNumber(session.pause_metrics?.transitionPauses, value => value.toString(), '0')],
       ['Long Pauses (>1.5s)', formatOptionalNumber(session.pause_metrics?.extendedPauses, value => value.toString(), '0')],
       ['Longest Pause', formatOptionalNumber(session.pause_metrics?.longestPause, value => `${value.toFixed(1)}s`)],
-      ['SpeakSharp Score', scoreResult.confidence === 'warming-up' ? '-- / 10 (Warming up)' : `${scoreResult.score.toFixed(1)} / 10 (${scoreResult.label})`],
-      ['Coaching Suggestion', scoreResult.actions.slice(0, 2).join('; ')],
     ];
 
     autoTable(doc, {
@@ -228,36 +202,44 @@ export const generateSessionPdf = async (
       });
     }
 
-    // --- Transcript ---
-    doc.addPage();
-    doc.setFontSize(16);
-    doc.text('Transcript', 14, 22);
-    doc.setFontSize(10);
-    writePaginatedText(doc, session.transcript || 'No transcript available.', 14, 32, 180);
-
-    if (session.ai_suggestions) {
+    // #1306 metrics-only: NO transcript page and NO free-form AI coaching page. The exported report contains
+    // metrics + the ONE structured next action (rendered from next_action_signal below / the Progress section).
+    const naSignal = session.next_action_signal;
+    const naValidated = naSignal ? validateNextActionSignal(naSignal) : null;
+    if (naValidated?.ok) {
+      const copy = renderNextActionCopy(naValidated.value);
       doc.addPage();
       doc.setFontSize(16);
-      doc.text('AI Coaching Suggestions', 14, 22);
+      doc.text('Your Next Action', 14, 22);
+      doc.setFontSize(12);
+      doc.text(copy.title, 14, 34);
+      doc.setFontSize(10);
+      writePaginatedText(doc, copy.body, 14, 42, 180, 5);
+    } else if (session.status === 'completed') {
+      // #1306: a COMPLETED session MUST carry exactly one valid next action — its absence is a data-integrity
+      // failure that the export records honestly, never hides.
+      doc.addPage();
+      doc.setFontSize(16);
+      doc.text('Your Next Action', 14, 22);
+      doc.setFontSize(10);
+      doc.text('Data integrity error: this completed session is missing its next action.', 14, 34);
+    }
+
+    // The Progress read model was loaded once above (reused here) — the PDF must never recompute its own
+    // comparison or substitute AI coaching for the one durable next action.
+    if (progress?.status === 'eligible') {
+      doc.addPage();
+      doc.setFontSize(16);
+      doc.text('Comparable Progress', 14, 22);
       doc.setFontSize(11);
-
-      let y = 34;
-      if (session.ai_suggestions.summary) {
-        y = writePaginatedText(doc, session.ai_suggestions.summary, 14, y, 180, 6) + 8;
-      }
-
-      session.ai_suggestions.suggestions?.forEach((suggestion, index) => {
-        if (y > 260) {
-          doc.addPage();
-          y = 22;
-        }
-
-        doc.setFontSize(12);
-        doc.text(`${index + 1}. ${suggestion.title}`, 14, y);
-        y += 7;
-        doc.setFontSize(10);
-        y = writePaginatedText(doc, suggestion.description, 18, y, 180, 5) + 6;
-      });
+      doc.text('Practice this next', 14, 34);
+      doc.setFontSize(10);
+      let progressY = writePaginatedText(doc, progress.takeaways.practiceThisNext, 18, 41, 180, 5) + 8;
+      doc.setFontSize(11);
+      doc.text('Supporting comparison', 14, progressY);
+      doc.setFontSize(10);
+      progressY = writePaginatedText(doc, progress.direction.text, 18, progressY + 7, 180, 5) + 5;
+      writePaginatedText(doc, progress.baselineContext, 18, progressY, 180, 5);
     }
 
     // --- Footer & Watermark ---

@@ -25,11 +25,13 @@ test.describe('Analytics Suite & Data Matrix', () => {
     await expect(mainHeading).toBeVisible();
     await expect(mainHeading).toHaveText('Your Analytics');
 
-    // Verify the default analytics story explains why these signals are grouped.
-    await expect(page.getByText('Analytics Focus')).toBeVisible();
+    // #G4: the focus explanation boxes + "selected together" subtitle are gone; the signals section leads
+    // with a position-based heading instead.
+    // exact:true — "Working on" (the focus eyebrow) must not collide with the goals encouragement
+    // sentence ("…Keep working on clarity"), which contains the same substring.
+    await expect(page.getByText('Working on', { exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Sound Confident', exact: true })).toBeVisible();
-    await expect(page.getByText('Your Sound Confident signals')).toBeVisible();
-    await expect(page.getByText(/These cards are selected together because they support the current focus/i)).toBeVisible();
+    await expect(page.getByText(/that.s based on/i)).toBeVisible();
     await expect(page.getByTestId('stat-card-speaking_pace')).toBeVisible();
     await expect(page.getByTestId('stat-card-filler_words_per_min')).toBeVisible();
     await expect(page.getByTestId('stat-card-clarity_score')).toBeVisible();

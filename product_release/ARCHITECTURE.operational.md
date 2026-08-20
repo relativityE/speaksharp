@@ -18,9 +18,13 @@ This document defines the structural invariants and authoritative sources of tru
 | :--- | :--- | :--- |
 | **Billing Limits** | Postgres Migration Schema + RPC Logic | Frontend Constants / Roadmap |
 | **Transcript State** | `useSessionStore` and same-session client memory | Component Local State |
-| **Session History** | DB `sessions` table transcript/analysis snapshot: transcript text, duration, counts, custom words, filler words, pause metrics, AI suggestions, engine/mode fields | Ephemeral UI-only metrics |
+| **Session History (saved sessions)** | Supabase DB `sessions` table transcript/analysis snapshot: transcript text, duration, counts, custom words, filler words, pause metrics, AI suggestions, engine/mode fields | Ephemeral UI-only metrics |
+| **Issue / Feedback Reports** | Supabase DB `user_issue_reports` table (insert via `frontend/src/services/issueReportService.ts`) | PostHog capture / Sentry event id |
 | **Quota Enforcement** | Edge Function + `check_usage_limit` RPC | Frontend Pre-checks |
 | **Session Lifecycle** | `TranscriptionFSM` State | Browser Mount/Unmount Events |
+| **Telemetry / Observability** | — (observability only, never a persistence source of truth) | PostHog client capture (best-effort), Sentry events |
+
+**Persistence vs observability.** Supabase is the authoritative persistence layer for saved sessions and issue/feedback reports. PostHog is best-effort client-side observability capture — its events are NOT proof that a session or report persisted. Sentry carries failures and sanitized alerts (e.g. `sentryLastEventId` attached to an issue report), NOT full feedback storage. A successful client capture MUST NOT be read as a durable-write guarantee.
 
 ---
 
@@ -34,9 +38,10 @@ This document defines the structural invariants and authoritative sources of tru
 > **Transcription cannot enter RECORDING before engine initialization succeeds.**
 - The finite state machine MUST gate the recording pulse behind a verified `READY` engine handshake.
 
-### 2a. Finalized-Producer Invariant (#982)
+### 2a. Finalized-Producer Invariant
 > **The "finalized" signal is published exactly once, only at the terminal join, and is session-guarded.**
-- Post-save UI (single `StatusNotificationBar`, completion toast, filler disclosure) MUST consume the finalized snapshot published only after the terminal join completes (persist → reconcile → formatter terminal). It MUST NOT react to a mid-finalization or stale buffer, and a signal from a superseded session MUST be discarded.
+- The finalized producer feeds exactly ONE authoritative post-save status surface: `StatusNotificationBar` (`frontend/src/components/session/StatusNotificationBar.tsx`). There is NO completion toast and NO "Next: Analytics" overlay — `PostSaveToast` is deleted from the codebase. That single bar owns the "Session saved" message, the persistent accessible Analytics action, the quiet secondary Private CTA, and the filler disclosure; the recording-card pill resets to its ready state so there is no duplicate saved-state signal (`frontend/src/pages/SessionPage.tsx`).
+- The post-save surface MUST consume the finalized snapshot published only after the terminal join completes (persist → reconcile → formatter terminal). It MUST NOT react to a mid-finalization or stale buffer, and a signal from a superseded session MUST be discarded.
 
 ### 3. Billing Invariant
 > **Quota enforcement must fail closed.**
@@ -71,6 +76,14 @@ This document defines the structural invariants and authoritative sources of tru
 - Public Edge Functions MUST use the shared request-aware CORS helper unless a documented exception exists.
 - Secrets SHOULD be loaded lazily inside handlers or guarded with actionable error responses; module-scope non-null assertions create cold-start crash risk.
 
+#### Exact-origin CORS contract (`_shared/cors.ts`)
+- **Exact allowlist, no matching tricks.** Allowed browser origins are an exact set. Every candidate origin (request `Origin` header AND each `ALLOWED_ORIGIN` entry) is parsed with the WHATWG `URL` parser and reduced to its canonical `URL.origin`; comparison is exact string equality. There is NO `includes`/`endsWith`/`startsWith`/substring/wildcard matching. Only `http:`/`https:` are considered; credentials (userinfo), path, query, fragment, `Origin: null`, multiple/comma-separated values, control characters, and malformed URLs are rejected.
+- **Fail-closed rejection.** A browser request whose `Origin` is present but not allowed is rejected with **403** (`origin_not_allowed`) BEFORE any auth, database, provider, Stripe, or token side effect, and receives **no** `Access-Control-Allow-Origin` (never a fallback, never a reflected value). Allowed origins get exactly their own origin echoed plus `Vary: Origin`; approved preflights return **204**, hostile preflights **403**.
+- **No-Origin = server-to-server.** A request with NO `Origin` header (Stripe/webhooks, health checks, trusted secret-gated automation) is allowed to proceed and never receives a fabricated `Access-Control-Allow-Origin`. CORS is not authentication — each function keeps its own JWT/secret checks.
+- **Built-in allowlist:** the active production host (`https://speaksharp-public.vercel.app`) and exact local-dev origins (`http://localhost:5173/5174`, `http://127.0.0.1:5173/5174`). No arbitrary localhost ports, no localhost subdomains, no `*.vercel.app`.
+- **Preview must be explicit.** Preview deployments are NOT matched by pattern; each must be added as an exact origin — fail closed otherwise.
+- **Adding an approved origin safely:** append the precise `scheme://host[:port]` value to the comma-separated `ALLOWED_ORIGIN` env (Supabase Dashboard). Never add a suffix/wildcard; malformed entries are ignored observably (logged) and never allowed. Changing `ALLOWED_ORIGIN` is a configuration action taken outside the code PR.
+
 ### Ops Health Data Path
 
 SpeakSharp ops health is split into a detailed machine record and a simplified operator view:
@@ -88,3 +101,9 @@ Future Vercel protected admin page renders a simplified view from the JSON
 - `ops-health.md` is the interim operator summary for GitHub workflow summaries and artifacts.
 - A future protected Vercel admin page should render the simple human dashboard from the JSON, not run vendor checks from the browser.
 - Vendor secrets MUST remain server-side in GitHub Actions, Supabase, or a future server-side admin endpoint; they MUST NOT be exposed to frontend code.
+
+### Durable telemetry/alert outbox + provenance registry — DRAFT (NOT SHIPPED)
+
+> **Status: DRAFT design only (PR #1006). NOT SHIPPED, NOT activated. Do not describe as current behavior.**
+
+A proposed durable telemetry/alert **outbox**, a server-assigned **provenance** registry, owner-alerting, and a protected retrieval path are captured as a draft design. None of it is deployed or active. Until it ships and is proven, the persistence/observability invariants above stand unchanged: Supabase remains the only authoritative persistence layer for saved sessions and issue reports, and PostHog/Sentry remain best-effort observability — not a durable-delivery guarantee. Do not cite the outbox/provenance registry as if it were live.

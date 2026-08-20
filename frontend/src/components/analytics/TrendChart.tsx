@@ -1,14 +1,32 @@
 import React from 'react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceArea } from 'recharts';
 import { Card } from '@/components/ui/card';
 import { ANALYTICS_THRESHOLDS } from '@/utils/sessionAnalysis';
 import { useChartContainerReady } from './useChartContainerReady';
 
+// #G4 §3: trend x-axis tick labels come through as the app's long date ("August 10, 2026"), which crowd
+// and overlap. Collapse each tick to a compact "Aug 10". Falls back to the raw label if it won't parse.
+function shortenTrendDate(label: string): string {
+    if (!label) return '';
+    const d = new Date(label);
+    if (isNaN(d.getTime())) return label;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 interface TrendDataPoint {
     date: string;
-    wpm: number;
-    clarity: number;
-    fillers: number;
+    // #1047: `null` = this session's transcript-state provenance says the metric is not measured
+    // (not_captured / expired-without-persisted). A null point is omitted from the trend (never a
+    // fabricated zero), matching the corrected clarity gating below.
+    wpm: number | null;
+    /**
+     * #1091: `null` = this session carries no scorable clarity evidence. An unscorable session's
+     * `clarityScore` is 0 BY DESIGN, so plotting it drew a fabricated zero on the trend line — the same
+     * evidence-integrity defect fixed in the aggregate and in the server chart series. `<Area>` leaves
+     * `connectNulls` at its default `false`, so a null renders as a GAP rather than a point.
+     */
+    clarity: number | null;
+    fillers: number | null;
     pauses: number;
 }
 
@@ -30,6 +48,19 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
 
     const config = metricConfig[metric];
 
+    // #G4 §3: pace is the one signal with an explicit "good" band (WPM min–max). Shade that band directly
+    // on the trend so the line reads against a target, not just an axis. Derived internally — no other
+    // metric carries an equivalent two-sided target, so band support is scoped to WPM.
+    const band = metric === 'wpm'
+        ? { min: ANALYTICS_THRESHOLDS.TARGET_WPM_MIN, max: ANALYTICS_THRESHOLDS.TARGET_WPM_MAX }
+        : null;
+
+    // #1047: sufficiency is per-metric NON-NULL points, not total session count. A provenance-gated metric
+    // is null for not_captured/expired sessions, so a history of 5 sessions may carry <2 real WPM points —
+    // charting that would draw a misleading near-empty trend. Require ≥2 genuine (non-null) points.
+    const nonNullPoints = data.filter((d) => d[metric] != null).length;
+    const insufficient = nonNullPoints < 2;
+
     return (
         <Card className="rounded-xl p-6" data-testid={`${metric}-trend-chart`}>
             <div className="mb-6">
@@ -38,7 +69,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
             </div>
 
             <div ref={chartContainer.ref} className="h-[240px] w-full">
-                {data.length < 2 ? (
+                {insufficient ? (
                     <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-[hsl(var(--border-strong))] bg-muted/70 px-6 text-center text-foreground/75">
                         <p className="font-bold text-foreground">Not enough data yet</p>
                         <p className="text-sm font-medium">Complete at least 2 sessions to see your {config.label.toLowerCase()} trend.</p>
@@ -46,6 +77,19 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
                 ) : chartContainer.isReady ? (
                     <AreaChart width={chartContainer.size.width} height={chartContainer.size.height} data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.1} />
+                            {/* #G4 §3: target band. ifOverflow="extendDomain" forces the Y axis to include the
+                                band even when every session sits above/below it, so the target is always visible. */}
+                            {band && (
+                                <ReferenceArea
+                                    y1={band.min}
+                                    y2={band.max}
+                                    ifOverflow="extendDomain"
+                                    fill={config.color}
+                                    fillOpacity={0.08}
+                                    strokeOpacity={0}
+                                    label={{ value: `Target ${band.min}–${band.max}`, position: 'insideTopRight', fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                                />
+                            )}
                             <XAxis
                                 dataKey="date"
                                 stroke="hsl(var(--muted-foreground))"
@@ -53,6 +97,8 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
                                 tickLine={false}
                                 axisLine={false}
                                 tickMargin={10}
+                                minTickGap={16}
+                                tickFormatter={shortenTrendDate}
                             />
                             <YAxis
                                 stroke="hsl(var(--muted-foreground))"

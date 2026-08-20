@@ -1,7 +1,7 @@
 import { analyticsBuffer } from './AnalyticsBuffer';
 import { getSessionCoachingExperimentProperties } from './sessionCoachingExperiment';
 
-export type BillingPlan = 'free' | 'basic' | 'pro';
+export type BillingPlan = 'free' | 'pro';
 export type CheckoutPlan = 'pro';
 
 export type ConversionSource =

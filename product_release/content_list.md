@@ -1,77 +1,47 @@
-**Owner:** [unassigned]
-**Last Reviewed:** 2026-05-26
-**Version:** v0.6.19-rc0
-**Last Updated:** 2026-05-26
+# Product Release — Document Index
 
-# Operational Release Artifacts (product_release/)
+> Directory index, **not** release status. Current ship/deployment posture, blockers, and run IDs live only in [RELEASE_STATUS.md](./RELEASE_STATUS.md). Precedence on conflict: [PRECEDENCE.md](./PRECEDENCE.md).
+> Product baseline at last reconcile: `main` `65e58a62` (the #1010 CORS config fix on top of the `e9040464` #1007/#1008 UX milestone). Not every file here is equally authoritative — the sections below control precedence.
 
-> Directory inventory, not release status.
-> Current ship posture, blockers, and latest run IDs live only in `RELEASE_STATUS.md`.
+## Current SSOT / status
+- [RELEASE_STATUS.md](./RELEASE_STATUS.md) — current go/no-go, deployment posture, latest run IDs.
+- [ACTIVE_COORDINATION.md](./ACTIVE_COORDINATION.md) — current working board (open draft + current/next task).
+- [BACKLOG.md](./BACKLOG.md) — unfinished work only (completion lives in git history).
+- [PRECEDENCE.md](./PRECEDENCE.md) — truth hierarchy / conflict resolution.
 
-This directory contains both current release controls and historical evidence packets. The most important cleanup rule is simple: do not treat every file in this directory as equally authoritative.
+## Developer breadcrumb map
+- [CODEBASE_MAP.md](./CODEBASE_MAP.md) — product intent → code path → protecting test → doc. Start here as a new developer.
 
-## Canonical Current Artifacts
+## Product / architecture contracts
+- [PRD.operational.md](./PRD.operational.md) — user-visible guarantees and failure behaviors.
+- [PRODUCT_FEATURES.operational.md](./PRODUCT_FEATURES.operational.md) — capability inventory + product-claim boundaries.
+- [ARCHITECTURE.operational.md](./ARCHITECTURE.operational.md) — structural invariants + authoritative sources of truth.
+- [STT_BASELINE_CONTRACTS.operational.md](./STT_BASELINE_CONTRACTS.operational.md) — vendor/reference STT behavior + proof tests.
+- [SPEAKSHARP_SESSION_PROGRESS.operational.md](./SPEAKSHARP_SESSION_PROGRESS.operational.md) — the canonical Session Progress contract (Part A: approved Personal Progress direction; Part B: legacy 0.0–10.0 score implementation on a staged retirement path).
+- [SERVICE_LEVELS.operational.md](./SERVICE_LEVELS.operational.md) — SLO/SLC/SLA terms and targets.
+- [SOFTWARE_QUALITY.operational.md](./SOFTWARE_QUALITY.operational.md) / [QUALITY_METRICS.md](./QUALITY_METRICS.md) — quality-evidence interpretation + digest.
 
-| Artifact | Current Role | Redundancy Status |
-|---|---|---|
-| [RELEASE_STATUS.md](./RELEASE_STATUS.md) | Current go/no-go posture, blockers, latest run IDs, and current STT release claims. | Single source of truth for changing release status. |
-| [PRECEDENCE.md](./PRECEDENCE.md) | Defines truth hierarchy and conflict resolution. | Canonical. |
-| [PRODUCT_FEATURES.operational.md](./PRODUCT_FEATURES.operational.md) | Working inventory of current capabilities, product gaps, future feature candidates, and product-claim boundaries. | Canonical product-feature inventory. |
-| [STT_BASELINE_CONTRACTS.operational.md](./STT_BASELINE_CONTRACTS.operational.md) | Defines vendor/reference STT behavior, SpeakSharp divergence, proof tests, and release-quality STT acceptance language. | Canonical STT baseline contract. |
-| [RC_GATES.md](./RC_GATES.md) | Defines release gates, evidence freshness, SAST/DAST/SCA terms, and STT corpus policy. | Canonical procedure; current run state belongs in `RELEASE_STATUS.md`. |
-| [RC_TEST_INVENTORY.md](./RC_TEST_INVENTORY.md) | Maps counted tests/workflows to RC gates. | Canonical inventory. |
-| [SOFTWARE_QUALITY.operational.md](./SOFTWARE_QUALITY.operational.md) | Defines quality evidence sources, generated artifact rules, and interpretation of coverage/Lighthouse/bundle/flaky metrics. | Canonical quality-evidence interpretation. |
-| [QUALITY_METRICS.md](./QUALITY_METRICS.md) | Release-facing alias and quick digest for quality metrics targets and latest generated evidence file names. | Canonical alias; defer detailed interpretation to `SOFTWARE_QUALITY.operational.md`. |
-| [SERVICE_LEVELS.operational.md](./SERVICE_LEVELS.operational.md) | Defines SLO/SLC/SLA terms, soft-release service targets, stress/endurance evidence, and industry comparison. | Canonical service-level interpretation. |
-| [SPEAKSHARP_SESSION_SCORE.operational.md](./SPEAKSHARP_SESSION_SCORE.operational.md) | Defines the research-backed proprietary 0.0-10.0 SpeakSharp Score, references, weights, formula, and shared implementation source of truth. | Canonical score-model interpretation. |
-| [SOFT_RELEASE_TESTER_INSTRUCTIONS.md](./SOFT_RELEASE_TESTER_INSTRUCTIONS.md) | Plain-language tester guide (what you send testers): intro, invitation copy, getting started, what to try, feedback. No implementation detail. | Canonical tester-facing copy. |
-| [INTERNAL_TEST_PROTOCOL.md](./INTERNAL_TEST_PROTOCOL.md) | Operator/dev/test protocol: environment rules, entitlement/scope checks, per-tester acceptance criteria, browser-support wording, first-time-tester proof. Not for testers. | Canonical internal soft-release protocol. |
-| [OPS_HEALTH_DASHBOARD.md](./OPS_HEALTH_DASHBOARD.md) | Simple vendor/tool health dashboard scope. | Canonical ops monitoring scope. |
-| [LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md) | Runtime secrets/config checklist. | Canonical for env/config only; snapshot is older and should not be used for ship status. |
-| [PUBLIC_LAUNCH_LEDGER.md](./PUBLIC_LAUNCH_LEDGER.md) | Broad public-launch evidence ledger. | Canonical for broad public launch only, not soft tester status. |
+## Release / test procedures
+- [RC_GATES.md](./RC_GATES.md) — release gate definitions + evidence requirements.
+- [RC_TEST_INVENTORY.md](./RC_TEST_INVENTORY.md) — counted tests/workflows mapped to gates.
+- [MANUAL_HARDWARE_VALIDATION.md](./MANUAL_HARDWARE_VALIDATION.md) — manual hardware/browser protocols.
 
-## Historical Or Superseded Artifacts
+## Operator / security runbooks
+- [LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md) / [ENV_INVENTORY.md](./ENV_INVENTORY.md) — runtime env/secrets/config (env only, not ship status).
+- [SECRET_ROTATION_RUNBOOK.md](./SECRET_ROTATION_RUNBOOK.md) · [PAID_OPS_HARDENING_RUNBOOK.md](./PAID_OPS_HARDENING_RUNBOOK.md) · [RELEASE_RECOVERY.md](./RELEASE_RECOVERY.md) — rotation, paid-ops, recovery.
+- [OPS_HEALTH_DASHBOARD.md](./OPS_HEALTH_DASHBOARD.md) — vendor/tool health scope.
+- [SCA_EXCEPTIONS.md](./SCA_EXCEPTIONS.md) — dependency-scanner exceptions.
 
-These are intentionally retained because they contain useful evidence, root-cause analysis, or reviewer context. They are redundant as current launch-status sources.
+## Tester / operator copy
+- [SOFT_RELEASE_TESTER_INSTRUCTIONS.md](./SOFT_RELEASE_TESTER_INSTRUCTIONS.md) — plain-language tester guide (what you send testers).
+- [INTERNAL_TEST_PROTOCOL.md](./INTERNAL_TEST_PROTOCOL.md) — operator/dev acceptance protocol (not for testers).
 
-| Artifact | Why It Is Historical/Superseded |
-|---|---|
-| [archive/release-status/RELEASE_READINESS.md](./archive/release-status/RELEASE_READINESS.md) | Older master gate that conflicts with `RELEASE_STATUS.md` and `RC_GATES.md`. |
-| [archive/release-status/TESTER_RELEASE_MATRIX.md](./archive/release-status/TESTER_RELEASE_MATRIX.md) | Older tester evidence rollup. Current tester protocol lives in `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`; current go/no-go lives in `RELEASE_STATUS.md`. |
-| [archive/release-status/LIVE_TEST_COMBINATIONS.md](./archive/release-status/LIVE_TEST_COMBINATIONS.md) | Older live-test matrix; useful context, but current STT posture lives in `RELEASE_STATUS.md`, `RC_GATES.md`, and `RC_TEST_INVENTORY.md`. |
-| [archive/workflows/GITHUB_WORKFLOWS_AUDIT.md](./archive/workflows/GITHUB_WORKFLOWS_AUDIT.md) | Older workflow audit; current workflow health is visible through RC gates, CI/canary, and ops health. |
-| [archive/audits/release_audit.md](./archive/audits/release_audit.md) | Forensic audit snapshot. Useful history, not current ship signal. |
-| [archive/rehearsals/SOFT_RELEASE_REHEARSAL_BUG_INVENTORY.md](./archive/rehearsals/SOFT_RELEASE_REHEARSAL_BUG_INVENTORY.md) | Rehearsal bug ledger; many items are closed or superseded. |
-| [archive/stt/](./archive/stt/) | Native/Private/Cloud reviewer reports and browser evidence packets. Cite them for rationale, not current release status. |
+## Public launch (broad, separately gated)
+- [PUBLIC_LAUNCH_LEDGER.md](./PUBLIC_LAUNCH_LEDGER.md) — broad public-launch evidence ledger (not soft-tester status).
 
-## Legacy Index
-
-The sections below are kept for navigation, but the canonical/historical split above controls precedence.
-
-### 📜 Requirements & Invariants
-- **[PRECEDENCE.md](./PRECEDENCE.md)**: The authoritative hierarchy of truth. Defines the precedence order for all release decisions.
-- **[PRD.operational.md](./PRD.operational.md)**: The contract-oriented release gate. Defines user-visible guarantees and failure behaviors.
-- **[PRODUCT_FEATURES.operational.md](./PRODUCT_FEATURES.operational.md)**: The product feature inventory. Use it to vet current offering, product gaps, future feature candidates, and product-claim boundaries.
-- **[STT_BASELINE_CONTRACTS.operational.md](./STT_BASELINE_CONTRACTS.operational.md)**: The STT baseline contract. Defines reference behavior, SpeakSharp divergence, and proof tests for Native, Cloud, and Private transcription modes.
-- **[SOFTWARE_QUALITY.operational.md](./SOFTWARE_QUALITY.operational.md)**: The software quality evidence guide. Defines how coverage, Lighthouse, bundle metrics, flaky counts, and generated quality artifacts should be interpreted.
-- **[QUALITY_METRICS.md](./QUALITY_METRICS.md)**: Short quality metrics alias/digest for target numbers and generated evidence file names.
-- **[SERVICE_LEVELS.operational.md](./SERVICE_LEVELS.operational.md)**: The service-level guide. Defines SLO/SLC/SLA terminology, soft-release service targets, stress/endurance evidence, and current measurement gaps.
-- **[SPEAKSHARP_SESSION_SCORE.operational.md](./SPEAKSHARP_SESSION_SCORE.operational.md)**: The proprietary coaching score guide. Defines score references, formula, labels, confidence levels, and the shared source of truth for Session, Analytics, and PDF surfaces.
-- **[ARCHITECTURE.operational.md](./ARCHITECTURE.operational.md)**: The structural invariants and authoritative sources of truth. Defines the non-negotiable technical rules.
-- **[ROADMAP.operational.md](./ROADMAP.operational.md)**: The release risk tracker and launch triaging tool. Tracks launch-critical risks vs. deferred features.
-- **[BACKLOG.md](./BACKLOG.md)**: Deferred known issues, tech debt, and workflow cleanup that should not interrupt active P0/P1 stabilization unless promoted.
-
-### ✅ Verification Gates
-- **[LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md)**: The runtime configuration verification gate. Ensures environment variables and secrets are correctly set.
-- **[MANUAL_HARDWARE_VALIDATION.md](./MANUAL_HARDWARE_VALIDATION.md)**: Manual hardware/browser test protocols. Validates the "Hardware Blindspot" (Safari/Microphone/Bluetooth).
-- **[RC_GATES.md](./RC_GATES.md)**: Release candidate gate definitions and evidence requirements.
-- **[SOFT_RELEASE_TESTER_INSTRUCTIONS.md](./SOFT_RELEASE_TESTER_INSTRUCTIONS.md)**: Plain-language tester guide to send testers — intro, invitation copy, getting started, what to try, feedback questions. No implementation detail.
-- **[INTERNAL_TEST_PROTOCOL.md](./INTERNAL_TEST_PROTOCOL.md)**: Operator/dev/test protocol for the controlled soft release — environment rules, entitlement/scope checks, per-tester acceptance criteria, browser-support wording, and the automated first-time-tester proof. Not for testers.
-
-### 🛠️ Decision & Recovery
-- **[RELEASE_STATUS.md](./RELEASE_STATUS.md)**: The current go/no-go gate for controlled tester release decisions.
-- **[PUBLIC_LAUNCH_LEDGER.md](./PUBLIC_LAUNCH_LEDGER.md)**: Broad public-launch gate ledger and public evidence tracker.
-- **[RELEASE_RECOVERY.md](./RELEASE_RECOVERY.md)**: The launch-window forward-fix recovery playbook and emergency triage table.
-
-### 🗄️ Historical Context
-- **[archive/](./archive/)**: Historical evidence and superseded release packets, grouped by audits, recovery, rehearsals, release status, STT, and workflows.
+## Historical evidence / lower-authority (retained, cite for rationale not current status)
+- [attribution-sanitation-crosswalk.md](./attribution-sanitation-crosswalk.md) — old→new SHA crosswalk (2026-07-15 history sanitation).
+- [ENTITLEMENT_PRO_LIMIT_EVIDENCE.md](./ENTITLEMENT_PRO_LIMIT_EVIDENCE.md) — entitlement audit evidence (has an open ops-verification item; overlaps active BACKLOG P1.3).
+- [RELEASE_CLOSEOUT_LEDGER.md](./RELEASE_CLOSEOUT_LEDGER.md) · [ROADMAP.operational.md](./ROADMAP.operational.md) — older closeout/risk trackers (stale; superseded by BACKLOG + RELEASE_STATUS; archiving deferred pending cross-reference cleanup).
+- [PRIVATE_STT_ACCURACY_LEVERS.md](./PRIVATE_STT_ACCURACY_LEVERS.md) · [stt-perf-proof-protocol.md](./stt-perf-proof-protocol.md) — STT accuracy/perf reference material.
+- [archive/](./archive/) — historical evidence and superseded packets (audits, recovery, rehearsals, release-status, stt, workflows). See [archive/README.md](./archive/README.md).

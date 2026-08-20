@@ -2,7 +2,10 @@ import { test, expect } from './fixtures';
 import {
   navigateToRoute,
   programmaticLoginWithRoutes,
+  selectTranscriptionEngine,
   simulateTranscription,
+  startRecording,
+  stopRecording,
 } from './helpers';
 import { TEST_IDS } from '../constants';
 
@@ -12,37 +15,31 @@ const TRUST_SMOKE_TRANSCRIPT = [
 ].join(' ');
 
 test.describe('Paid invite trust smoke', () => {
-  test('starts a fresh Pro session on Browser, saves, and offers review plus Private setup', async ({ page }) => {
+  test('starts a fresh Pro session on Private, saves, and offers review (no Browser→Private upsell)', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
 
-    const modeButton = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
-    await expect(modeButton).toBeVisible();
-    await expect(modeButton).toHaveAttribute('data-state', 'native');
-    await expect(modeButton).toContainText(/Browser/i);
+    // #1184/#1222: Private is the only engine — no selector to choose; the recorder surface confirms it.
+    await selectTranscriptionEngine(page, 'private');
     await expect(page.getByText(/Private model setup required/i)).toHaveCount(0);
 
-    const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-    await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
-    await startButton.click();
-    await expect(startButton).toHaveAttribute('data-recording', 'true');
+    await startRecording(page);
+    await expect(page.locator('html')).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 15_000 });
 
     await simulateTranscription(page, TRUST_SMOKE_TRANSCRIPT, true);
-    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText(/paid invite trust smoke/i);
+    await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toContainText(/paid invite trust smoke/i);
 
     await page.waitForTimeout(5_200);
-    await startButton.click();
+    await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
 
-    // Consolidated post-save experience: ONE status bar carries the reconciliation copy, the Analytics
-    // action, and the quiet Private CTA (Native + eligible) — the separate post-save surface is gone.
+    // Consolidated post-save experience: ONE status bar carries the reconciliation copy and the Analytics
+    // action — the separate post-save surface is gone.
     await expect(page.getByTestId('post-save-review-actions')).toHaveCount(0);
     await expect(page.getByTestId('live-session-header')).toContainText(/Session saved ·/);
     await expect(page.getByTestId('post-save-review-session-link')).toHaveAttribute('href', '/analytics');
-    await expect(page.getByTestId('post-save-private-cta')).toContainText(/Private/i);
-
-    await page.getByTestId('post-save-private-cta').click();
-    await expect(modeButton).toHaveAttribute('data-state', 'private');
+    // #1184: no Browser→Private upsell CTA after save — the session was already Private.
+    await expect(page.getByTestId('post-save-private-cta')).toHaveCount(0);
   });
 
   test('shows the account-linked support-follow-up disclosure for authenticated reports', async ({ page }) => {
@@ -65,9 +62,9 @@ test.describe('Paid invite trust smoke', () => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/pricing');
 
-    await expect(page.getByText(/Core practice feedback metrics/i)).toBeVisible();
-    await expect(page.getByText(/Semantic AI coaching and expanded PDF export capacity/i)).toBeVisible();
+    await expect(page.getByText(/The complete Private Practice product, free for 30 days/i)).toBeVisible();
+    await expect(page.getByText(/Everything in the trial — the same complete product/i)).toBeVisible();
     await expect(page.getByText(/AI-assisted feedback/i)).toHaveCount(0);
-    await expect(page.getByText(/Pro unlocks.*Stripe confirmation/i).first()).toBeVisible();
+    await expect(page.getByText(/Pro unlocks only after Stripe confirmation/i).first()).toBeVisible();
   });
 });

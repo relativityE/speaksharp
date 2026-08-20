@@ -10,7 +10,7 @@
  * This spec is the runtime before/after proof for the false-unsaved-banner fix.
  */
 import { test, expect } from './fixtures';
-import { navigateToRoute, mockLiveTranscript, programmaticLoginWithRoutes, selectTranscriptionEngine } from './helpers';
+import { navigateToRoute, mockLiveTranscript, programmaticLoginWithRoutes, startRecording, stopRecording } from './helpers';
 import { TEST_IDS } from '../constants';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
 
@@ -22,19 +22,15 @@ test.describe('Session recovery draft', () => {
     await navigateToRoute(page, '/session');
     await expect(page.getByText(/Practice Session/i)).toBeVisible();
 
-    const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-    await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
-
     // Record a >=5s session so it is persisted (sub-5s sessions are intentionally not saved).
-    await startButton.click();
-    await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
+    await startRecording(page);
     await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
-    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText(/simulating multiple lines/i);
+    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CARD)).toContainText(/simulating multiple lines/i);
     await page.waitForTimeout(5200);
 
-    // Stop -> triggers save.
-    await startButton.click();
-    await expect(page.getByLabel(/Start Recording/i)).toBeVisible({ timeout: 10000 });
+    // Stop -> triggers save. The persistence signal (below) is the deterministic post-save barrier;
+    // the new page splits start/stop, so there is no single toggle flipping back to a "Start" label.
+    await stopRecording(page);
 
     // Deterministic persistence signal: the session write path completed.
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15000 });
@@ -55,26 +51,26 @@ test.describe('Session recovery draft', () => {
     await expect(page.getByTestId(RECOVERY_BANNER)).toHaveCount(0);
   });
 
-  // Issue B: a prior session's transcript must not carry into a new mode after an STT mode switch.
-  test('does not carry a stale transcript across an STT mode switch', async ({ page }) => {
+  // Issue B: a prior session's transcript must not carry into a fresh session.
+  // #1184: Private is the only engine, so there is no STT mode switch to trigger this — the isolation is
+  // now proven by re-entering /session (a fresh mount), which must present an empty transcript.
+  test('does not carry a stale transcript into a fresh session', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
     await expect(page.getByText(/Practice Session/i)).toBeVisible();
 
-    const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
-    await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
-
     // Record + persist a session in the default mode, producing a visible transcript.
-    await startButton.click();
-    await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
+    await startRecording(page);
     await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
-    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText(/simulating multiple lines/i);
+    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CARD)).toContainText(/simulating multiple lines/i);
     await page.waitForTimeout(5200);
-    await startButton.click();
+    await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15000 });
 
-    // Switch STT mode -> the prior transcript must NOT be carried into the new mode/session.
-    await selectTranscriptionEngine(page, 'cloud');
-    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).not.toContainText(/simulating multiple lines/i);
+    // Re-enter /session (a fresh mount) -> the prior transcript must NOT be carried into the new session.
+    await navigateToRoute(page, '/analytics');
+    await navigateToRoute(page, '/session');
+    await expect(page.getByText(/Practice Session/i)).toBeVisible();
+    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CARD)).not.toContainText(/simulating multiple lines/i);
   });
 });

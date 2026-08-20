@@ -1,130 +1,95 @@
 import { test, expect } from './fixtures';
-import { navigateToRoute, mockLiveTranscript, attachLiveTranscript, waitForE2EEvent, waitForModelReady } from './helpers';
+import {
+  navigateToRoute,
+  mockLiveTranscript,
+  attachLiveTranscript,
+  startRecording,
+  stopRecording,
+} from './helpers';
 import { ROUTES, TEST_IDS } from '../constants';
 
 test.describe('User Filler Words UI & Detection (Local)', () => {
     test.describe.configure({ mode: 'serial' }); // Serial mode to avoid state pollution
 
     test('should allow adding and removing filler words', async ({ userPage }) => {
-        // 1. Navigate to Session
+        // 1. Navigate to Session (before-state).
         await navigateToRoute(userPage, ROUTES.SESSION);
 
         // Ensure app settlement and bridge readiness
         await userPage.waitForFunction(() => window.__e2eProfileLoaded__ === true, null, { timeout: 30000 });
         await userPage.waitForFunction(() => window.__e2eBridgeReady__ === true, null, { timeout: 10000 });
-
         await userPage.waitForSelector('[data-testid="nav-sign-out-button"]', { timeout: 5000 });
 
-        // 3. Wait for and scroll to Filler Words card
-        const fillerCard = userPage.getByText('Filler Words', { exact: true }).first();
-        await expect(fillerCard).toBeVisible({ timeout: 10000 });
-        await fillerCard.scrollIntoViewIfNeeded();
-
-        // 4. Open filler words popover using unique testid
+        // 2. #1231 (PO 2026-08-09): custom filler words are declared BEFORE recording — the manager lives in
+        //    the before-state MicCard (`add-custom-word-button`). No recording is needed to add words.
         const settingsBtn = userPage.getByTestId(TEST_IDS.SESSION_SETTINGS_BUTTON);
-        await expect(settingsBtn).toBeVisible({ timeout: 10000 });
+        await expect(settingsBtn).toBeVisible({ timeout: 15000 });
         await settingsBtn.click();
 
-        // 4. Wait for popover to open - check for the input placeholder from UserFillerWordsManager
+        // 3. Wait for popover to open - check for the input placeholder from UserFillerWordsManager
         await expect(userPage.getByPlaceholder(/literally/i)).toBeVisible({ timeout: 10000 });
 
-        // 5. Add a new word
+        // 4. Add a new word
         const word = 'AntigravityUI';
         const input = userPage.getByPlaceholder(/literally/i);
-        await expect(input).toBeVisible();
         await input.fill(word);
-
-        // Click the Add button (Plus icon)
         await userPage.getByRole('button', { name: /add word/i }).click();
 
-        // Ensure the popover closes before proceeding
-        await expect(userPage.getByPlaceholder(/literally/i)).toBeHidden({ timeout: 10000 });
+        // 5. #1047: the popover STAYS OPEN, and that is the confirmation — the new word must show up in the
+        //    manager's own list, in front of the user.
+        await expect(userPage.getByPlaceholder(/literally/i)).toBeVisible({ timeout: 10000 });
+        await expect(
+            userPage.getByTestId('filler-word-badge').filter({ hasText: word })
+        ).toBeVisible({ timeout: 10000 });
 
-        // Verify word appears in the main FillerWordsCard below
-        await expect(userPage.getByTestId('filler-words-list').getByText(word, { exact: false })).toBeVisible({ timeout: 10000 });
-
-        // 7. Re-open popover to remove the word
-        const settingsBtn2 = userPage.getByTestId(TEST_IDS.SESSION_SETTINGS_BUTTON);
-        await expect(settingsBtn2).toBeVisible({ timeout: 5000 });
-        await settingsBtn2.click();
-
-        // Wait for popover to open again
-        await expect(userPage.getByPlaceholder(/literally/i)).toBeVisible({ timeout: 5000 });
-
-        // 8. Remove the word using aria-label in the popover
+        // 6. Remove the word using aria-label in the popover (already open).
         const popoverContent = userPage.locator('[role="dialog"]').or(userPage.locator('.popover-content')).first();
         const removeBtn = popoverContent.getByRole('button', { name: new RegExp(`remove ${word}`, 'i') });
         await expect(removeBtn).toBeVisible({ timeout: 5000 });
         await removeBtn.click();
 
-        // 9. Verify word is removed from popover list
+        // 7. Verify word is removed from popover list
         await expect(popoverContent.getByText(word, { exact: false })).not.toBeVisible();
     });
 
     test('should detect user filler words in transcript (Analysis)', async ({ userPage }) => {
-        // This test proves that custom words are passed to the Analysis logic shared by Native/Private modes.
+        // This test proves that custom words are passed to the Analysis logic used by the Private path.
 
-        // 2. Attach Bridge for Mock Speech Recognition (CRITICAL for Native Mode tests)
+        // 1. Attach Bridge for Mock Speech Recognition logging.
         await attachLiveTranscript(userPage);
 
-        // 3. Navigate to Session
+        // 2. Navigate to Session (before-state)
         await navigateToRoute(userPage, ROUTES.SESSION);
-
-        // Ensure app settlement and bridge readiness
         await userPage.waitForFunction(() => window.__e2eProfileLoaded__ === true, null, { timeout: 30000 });
         await userPage.waitForFunction(() => window.__e2eBridgeReady__ === true, null, { timeout: 10000 });
 
-        // 4. Add custom word "detectiontest"
+        // 3. #1231 (PO 2026-08-09): declare the custom word BEFORE recording (before-state MicCard manager)
+        //    so it is tracked in the session's live filler count. A word added AFTER a session can never be
+        //    counted in it — that is why the manager is a before-state control.
         const settingsBtn = userPage.getByTestId(TEST_IDS.SESSION_SETTINGS_BUTTON);
+        await expect(settingsBtn).toBeVisible({ timeout: 15000 });
         await settingsBtn.click();
         await userPage.getByPlaceholder(/literally/i).fill('detectiontest');
         await userPage.getByRole('button', { name: /add word/i }).click();
 
-        // 4. Verification: Wait for word to be added to FillerWordsCard (not popover)
-        await expect(userPage.getByTestId('filler-words-list').getByText('detectiontest', { exact: false })).toBeVisible();
+        // 4. Verification: the word is accepted into the tracked list (manager stays open on add).
+        await expect(
+            userPage.getByTestId('filler-word-badge').filter({ hasText: 'detectiontest' })
+        ).toBeVisible({ timeout: 10000 });
 
-        await userPage.keyboard.press('Escape'); // Close settings
+        await userPage.keyboard.press('Escape'); // Close popover
 
-        // 5. Ensure Native Mode is selected
-        // Forensic Readiness Gate (Invariant I3)
-        await waitForModelReady(userPage, 15000);
-
-        const modeTrigger = userPage.getByTestId(TEST_IDS.STT_MODE_SELECT);
-        if (await modeTrigger.isVisible()) {
-            const currentMode = await modeTrigger.getAttribute('data-state');
-            if (currentMode !== 'native') {
-                const bboxFW = await modeTrigger.boundingBox();
-                if (bboxFW) {
-                    await userPage.mouse.click(bboxFW.x + bboxFW.width / 2, bboxFW.y + bboxFW.height / 2);
-                } else {
-                    await modeTrigger.click({ force: true });
-                }
-                await userPage.getByRole('menuitemradio', { name: /Native/i }).click();
-            }
-        }
-
-        // 6. Start Session (Native Mode) and Wait for Bridge Ready
-        // Use Promise.all to setup listener BEFORE triggering the action that causes the event
-        await Promise.all([
-            waitForE2EEvent(userPage, 'e2e:speech-recognition-ready'),
-            userPage.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click()
-        ]);
-
-        await expect(userPage.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toHaveAttribute('data-recording', 'true', { timeout: 10000 });
-
-        // 6. Inject Transcript containing the custom word "detectiontest"
+        // 5. Record a session whose transcript contains the custom word, so it produces a real count.
+        await startRecording(userPage);
         await mockLiveTranscript(userPage, ['This is a detectiontest for antigravity.']);
+        await userPage.waitForTimeout(5200);
+        await stopRecording(userPage);
 
-        // 7. Assert "Filler Words" count increased (custom word detected)
-        // Scroll to FillerWordsCard using test ID for reliability
-        const fillerWordsCard = userPage.getByTestId('filler-words-list').locator('..'); // Get parent card
-        await fillerWordsCard.scrollIntoViewIfNeeded();
-
-        // Verification of asynchronous filler detection count
-        // The following assertion with generous timeout replaces the fixed delay.
-
-        // Use the reliable testid instead of badge text which can be flaky
-        const fillerCountValue = userPage.getByTestId(TEST_IDS.FILLER_COUNT_VALUE);
-        await expect(fillerCountValue).not.toHaveText('0', { timeout: 10000 });
+        // 6. The after-state per-word breakdown lists the custom word with a real (non-zero) count. The
+        //    `data-word` attribute lives on the `filler-breakdown-word` element itself.
+        await expect(userPage.getByTestId('filler-breakdown')).toBeVisible({ timeout: 15000 });
+        const customWord = userPage.locator('[data-testid="filler-breakdown-word"][data-word="detectiontest"]');
+        await expect(customWord).toBeVisible({ timeout: 15000 });
+        await expect(customWord.getByTestId('filler-breakdown-count')).not.toHaveText('×0');
     });
 });

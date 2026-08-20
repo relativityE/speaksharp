@@ -11,13 +11,7 @@ on:
         options:
           - all
           - custom-words
-          - native-preflight
-          - cloud-token-gates
-          - cloud-artifact
-          - stt-switching-contract
           - private-cache
-          - first-time-tester-private-trial
-          - private-sample-telemetry
           - stripe-webhook-readiness
           - stripe-checkout-readiness
           - stripe-billing-portal-readiness
@@ -50,9 +44,10 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
-          BASIC_TEST_PASSWORD: ${{ secrets.BASIC_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
+          # Canonical Free-account credentials (the spec authenticates as an ordinary Free-fixture user).
+          FREE_TEST_EMAIL: ${{ vars.FREE_TEST_EMAIL }}
+          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD }}
         run: pnpm exec playwright test tests/live/user-filler-words-persistence.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
       - name: Upload Custom Words Artifacts
@@ -64,152 +59,6 @@ jobs:
             blob-report/live/
             playwright-report/
             test-results/live/
-          retention-days: 14
-
-  live-native-preflight:
-    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'native-preflight' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-environment
-        with:
-          install-playwright: 'true'
-
-      - name: Run Native Live Preflight Probe
-        env:
-          VITE_USE_LIVE_DB: 'true'
-          VITE_SKIP_MSW: 'true'
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
-          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
-          BASE_URL: https://speaksharp-public.vercel.app/
-        run: pnpm exec playwright test tests/live/analytics-live-native-probe.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
-
-      - name: Upload Native Artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: live-native-preflight-artifacts
-          path: |
-            blob-report/live/
-            playwright-report/
-            test-results/live/
-          retention-days: 14
-
-  live-cloud-token-gates:
-    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'cloud-token-gates' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-environment
-        with:
-          install-playwright: 'true'
-
-      - name: Run Cloud Token Gate Proof
-        env:
-          VITE_USE_LIVE_DB: 'true'
-          VITE_SKIP_MSW: 'true'
-          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          BASE_URL: https://speaksharp-public.vercel.app/
-        run: pnpm exec playwright test tests/live/cloud-token-gates.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
-
-      - name: Upload Cloud Token Gate Artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: live-cloud-token-gates-artifacts
-          path: |
-            blob-report/live/
-            playwright-report/
-            test-results/live/
-          retention-days: 14
-
-  live-cloud-artifact:
-    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'cloud-artifact' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    concurrency:
-      group: live-cloud-assemblyai-streaming
-      cancel-in-progress: false
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-environment
-        with:
-          install-playwright: 'true'
-
-      - name: Run Cloud Live Artifact Proof
-        env:
-          VITE_USE_LIVE_DB: 'true'
-          VITE_SKIP_MSW: 'true'
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
-          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
-          BASE_URL: https://speaksharp-public.vercel.app/
-        # Cloud streaming is provider-limited. Keep one smoke, one worker, no immediate retries.
-        # After AssemblyAI 1008/3009 "Too many concurrent sessions", wait 5-10 minutes before rerun.
-        run: pnpm exec playwright test tests/live/cloud-artifact.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
-
-      - name: Upload Cloud Artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: live-cloud-artifacts
-          path: |
-            blob-report/live/
-            playwright-report/
-            test-results/live/
-          retention-days: 14
-
-  live-stt-switching-contract:
-    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'stt-switching-contract' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    concurrency:
-      group: live-stt-switching-contract
-      cancel-in-progress: false
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-environment
-        with:
-          install-playwright: 'true'
-
-      - name: Run Live STT Switching Contract
-        env:
-          VITE_USE_LIVE_DB: 'true'
-          VITE_SKIP_MSW: 'true'
-          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
-          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
-          BASE_URL: https://speaksharp-public.vercel.app/
-        run: pnpm exec playwright test tests/live/stt-switching-contract.live.spec.ts --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=list --workers=1
-
-      - name: Upload STT Switching Artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: live-stt-switching-contract-artifacts
-          path: |
-            blob-report/deployed-live/
-            playwright-report/deployed-live/
-            test-results/deployed-live/
           retention-days: 14
 
   live-private-cache:
@@ -229,7 +78,7 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
           ZERO_HF_AUDIT_REQUIRED: ${{ github.event.inputs.zero_hf_audit || 'false' }}
@@ -240,75 +89,6 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: live-private-cache-artifacts
-          path: |
-            blob-report/live/
-            playwright-report/
-            test-results/live/
-          retention-days: 14
-
-  live-first-time-tester-private-trial:
-    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'first-time-tester-private-trial' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-environment
-        with:
-          install-playwright: 'true'
-
-      - name: Run First-Time Tester Private Trial Proof
-        env:
-          VITE_USE_LIVE_DB: 'true'
-          VITE_SKIP_MSW: 'true'
-          BASE_URL: https://speaksharp-public.vercel.app/
-          # Required so the spec's afterEach can delete the fresh first-time account it mints
-          # (otherwise it accumulates as first-time-tester-* residue).
-          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: pnpm exec playwright test tests/live/first-time-tester-private-trial.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
-
-      - name: Upload First-Time Tester Private Trial Artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: live-first-time-tester-private-trial-artifacts
-          path: |
-            blob-report/live/
-            playwright-report/
-            test-results/live/
-
-  live-private-sample-telemetry:
-    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'private-sample-telemetry' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-environment
-        with:
-          install-playwright: 'true'
-
-      - name: Run Private-Sample Telemetry Live Wiring Proof
-        env:
-          VITE_USE_LIVE_DB: 'true'
-          VITE_SKIP_MSW: 'true'
-          BASE_URL: https://speaksharp-public.vercel.app/
-          # Required: the spec mints a fresh free account (unused Private sample), reads the saved
-          # session's engine_version, and deletes the account in afterEach (so it never accumulates).
-          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: pnpm exec playwright test tests/live/private-sample-telemetry.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
-
-      - name: Upload Private-Sample Telemetry Artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: live-private-sample-telemetry-artifacts
           path: |
             blob-report/live/
             playwright-report/
@@ -361,7 +141,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
         run: pnpm exec playwright test tests/live/stripe-checkout-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
@@ -394,7 +174,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           # TEST proof (PRO_TEST is a test-mode customer) → explicit test-scoped key.
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
-          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
         run: pnpm exec playwright test tests/live/stripe-billing-portal-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
@@ -460,16 +240,7 @@ jobs:
 
       - name: Audit Stripe Price Configuration
         env:
-          # TEST price audit: Pro is required (active product). Basic is future-reserved — pass the
-          # test-scoped basic price ONLY if provisioned; when absent the audit skips Basic (reserved),
-          # not a failure. No generic fallback — generic basic is not a launch gate.
+          # TEST price audit: one active SpeakSharp product at exactly $10/month.
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
-          STRIPE_BASIC_PRICE_ID: ${{ secrets.STRIPE_TEST_BASIC_PRICE_ID }}
           STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_TEST_PRO_PRICE_ID }}
-          EXPECTED_STRIPE_BASIC_AMOUNT: '499'
-          EXPECTED_STRIPE_PRO_AMOUNT: '999'
-          EXPECTED_STRIPE_BASIC_CURRENCY: usd
-          EXPECTED_STRIPE_PRO_CURRENCY: usd
-          EXPECTED_STRIPE_BASIC_INTERVAL: month
-          EXPECTED_STRIPE_PRO_INTERVAL: month
         run: node scripts/stripe-price-audit.mjs

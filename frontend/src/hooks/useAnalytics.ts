@@ -10,11 +10,75 @@ import {
     calculateOverallStats,
     calculateFillerWordTrends,
     calculateTopFillerWords,
-    calculateAccuracyData
 } from '../lib/analyticsUtils';
 import type { PracticeSession } from '../types/session';
 import { DASHBOARD_PAGINATION_LIMIT } from '../config/env';
 import { useReadinessStore } from '../stores/useReadinessStore';
+
+/**
+ * #1045 finding 3: derive the canonical duration fields from what `get_analytics_summary` actually
+ * returns (`totalPracticeTime` in rounded minutes + `totalSessions`).
+ *
+ * Precision caveat, handled honestly: the RPC rounds to whole minutes, so a total under 30 seconds
+ * arrives as 0. Reporting that as "0 mins" would repeat the very defect this PR fixes, and inventing
+ * a sub-minute number would be false precision. In that one case the duration is reported as unknown
+ * — we know practice happened, but not to a precision this path can express.
+ */
+const adaptRpcDurations = (rpc: Record<string, unknown>): {
+totalPracticeTimeSeconds: number;
+averageSessionLength: number | null;
+averageSessionLengthSeconds: number | null;
+} => {
+const minutes = firstFiniteOrNull(rpc.totalPracticeTime);
+const sessions = firstFiniteOrNull(rpc.totalSessions);
+if (minutes === null || minutes <= 0 || sessions === null || sessions <= 0) {
+    return { totalPracticeTimeSeconds: 0, averageSessionLength: null, averageSessionLengthSeconds: null };
+}
+const totalSeconds = minutes * 60;
+return {
+    totalPracticeTimeSeconds: totalSeconds,
+    averageSessionLength: minutes / sessions,
+    averageSessionLengthSeconds: totalSeconds / sessions,
+};
+};
+
+/**
+ * #1045 / #1091: read an RPC aggregate ONLY when the RPC also told us how many sessions actually
+ * contributed evidence to it.
+ *
+ * Two distinct failure modes are collapsed into one honest answer here:
+ *
+ *  1. Zero contributors. `get_analytics_summary` (v4) reports the aggregate as JSON null in this case,
+ *     but the count is what makes the distinction explicit: "the average is genuinely low" vs "there is
+ *     no evidence". With no contributors the metric is unknown, not zero.
+ *
+ *  2. A database on which the v4 migration has NOT been applied. Then the contributor key is simply
+ *     absent, and the legacy value on the wire is the CONTAMINATED one — v3 averaged clarity (and pace,
+ *     and filler rate) over every session while folding each missing measurement in as a hard zero.
+ *     That is precisely the "Clear Delivery 0%" defect. A client guard cannot repair it: the server has
+ *     already summed and divided by the wrong denominator, and a collapsed average cannot be
+ *     un-collapsed downstream. So we degrade to unknown — the dashboard renders "Not enough data" —
+ *     rather than render a number we know to be wrong.
+ *
+ * This is deliberately fail-closed: until the migration is applied, these cards say "Not enough data".
+ */
+const rpcAggregateWithEvidence = (
+    contributorCount: unknown,
+    ...valueCandidates: unknown[]
+): number | null => {
+    const contributors = firstFiniteOrNull(contributorCount);
+    if (contributors === null || contributors <= 0) return null;
+    return firstFiniteOrNull(...valueCandidates);
+};
+
+/** #1045: first argument that is a real finite number, else null (never a fabricated 0). */
+const firstFiniteOrNull = (...candidates: unknown[]): number | null => {
+for (const c of candidates) {
+    const n = typeof c === 'number' ? c : Number(c);
+    if (c !== null && c !== undefined && c !== '' && Number.isFinite(n)) return n;
+}
+return null;
+};
 
 // Empty fallback array (defined outside hook to prevent re-creation)
 const EMPTY_SESSIONS: PracticeSession[] = [];
@@ -85,10 +149,34 @@ export const useAnalytics = () => {
                 ...summaryData,
                 overallStats: {
                     ...summaryData.overallStats,
-                    averageSessionLength: (rpcOverallStats.averageSessionLength as number)
-                        || (rpcOverallStats.avgSessionLength as number)
-                        || 0,
-                    averageWPM: rpcOverallStats.avgWpm as number || 0
+                    // #1045 finding 3: `get_analytics_summary` never returned `averageSessionLength`
+                    // or any seconds field — the old `|| 0` therefore reported a confident "0 mins"
+                    // for every history large enough to use the RPC path, and naively switching that
+                    // to null would have thrown away duration the RPC DOES return. Adapt the real
+                    // contract instead of migrating it: the RPC gives `totalPracticeTime` in ROUNDED
+                    // MINUTES and `totalSessions`, which is enough to derive both fields.
+                    ...adaptRpcDurations(rpcOverallStats),
+                    averageWPM: rpcAggregateWithEvidence(
+                        rpcOverallStats.wpmContributorCount,
+                        rpcOverallStats.avgWpm,
+                    ),
+                    // The RPC's legacy `avgAccuracy` key holds clarity, not STT accuracy — v4 adds an
+                    // explicit `avgClarity` and keeps `avgAccuracy` as a compatibility alias, so read
+                    // the explicit key first. Both are gated on `clarityContributorCount` because v3
+                    // averaged clarity over ALL sessions, scoring every phase-2c metrics-write failure
+                    // as a zero. Users past the >20-session RPC threshold — the ones who saw
+                    // "Clear Delivery 0%" — are served entirely by this branch.
+                    avgClarity: rpcAggregateWithEvidence(
+                        rpcOverallStats.clarityContributorCount,
+                        rpcOverallStats.avgClarity,
+                        rpcOverallStats.avgAccuracy,
+                    ),
+                    avgFillerWordsPerMin: rpcAggregateWithEvidence(
+                        rpcOverallStats.fillerRateContributorCount,
+                        rpcOverallStats.avgFillerWordsPerMin,
+                    ),
+                    // The RPC does not compute pause rhythm at all — genuinely unknown on this path.
+                    avgPausesPerMin: firstFiniteOrNull(rpcOverallStats.avgPausesPerMin),
                 }
             };
         }
@@ -98,18 +186,21 @@ export const useAnalytics = () => {
             logger.debug('[useAnalytics] No sessions - returning empty analytics data');
             return {
                 overallStats: {
+                    // #1045: a user with no sessions has produced no evidence. Zeros here rendered as
+                    // "0%" / "0.0/min" / "0 mins" — confident statements about speaking that never happened.
                     totalSessions: 0,
                     totalPracticeTime: 0,
-                    averageSessionLength: 0,
-                    averageWPM: 0,
-                    avgFillerWordsPerMin: "0.0",
-                    avgClarity: "0.0",
-                    avgPausesPerMin: "0.0",
+                    totalPracticeTimeSeconds: 0,
+                    averageSessionLength: null,
+                    averageSessionLengthSeconds: null,
+                    averageWPM: null,
+                    avgFillerWordsPerMin: null,
+                    avgClarity: null,
+                    avgPausesPerMin: null,
                     chartData: []
                 },
                 fillerWordTrends: {},
                 topFillerWords: [],
-                accuracyData: [],
                 weeklySessionsCount: 0,
                 weeklyActivity: []
             };
@@ -119,7 +210,6 @@ export const useAnalytics = () => {
         const overallStats = calculateOverallStats(sessionHistory);
         const fillerWordTrends = calculateFillerWordTrends(sessionHistory);
         const topFillerWords = calculateTopFillerWords(sessionHistory);
-        const accuracyData = calculateAccuracyData(sessionHistory);
 
         // Client-side fallback for weekly metrics
         const now = new Date();
@@ -143,7 +233,6 @@ export const useAnalytics = () => {
             overallStats,
             fillerWordTrends,
             topFillerWords,
-            accuracyData,
             weeklySessionsCount,
             weeklyActivity
         };

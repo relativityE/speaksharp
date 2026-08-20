@@ -1,3 +1,7 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+> **Current authority:** [`ENTITLEMENTS_AND_BILLING.md`](./ENTITLEMENTS_AND_BILLING.md) and [`RELEASE_STATUS.md`](./RELEASE_STATUS.md).
+
 # Entitlement Evidence (#1) — Pro daily/monthly limit drift + AI-quota verification
 
 Source-level verification that the **deployed DB entitlement functions / tier configs** match the

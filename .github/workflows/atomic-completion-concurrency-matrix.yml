@@ -1,0 +1,112 @@
+name: "Atomic completion concurrency (disposable Postgres)"
+
+# #1314 RETURN 4 — real MULTI-CONNECTION contention proof for the atomic completion RPC.
+#
+# The PGlite suites cover the deterministic behaviour, but PGlite is single-connection and cannot demonstrate
+# contention: with it alone, "concurrent completions serialize" is a structural argument, not evidence. This job
+# opens two real backends that race to complete sessions for the same user and asserts the at-most-two
+# transcript invariant holds.
+#
+# Mutation-verified locally: with the per-user FOR UPDATE locks removed from BOTH the RPC and the coordinator,
+# the harness reports `retained=3` and exits 1. Removing either lock alone still passes — they are independently
+# sufficient — which is why the proof has to remove both to be meaningful.
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/20260819120000_complete_session_v2_atomic_retention_1314.sql'
+      - 'backend/supabase/migrations/20260816223606_metrics_only_additive_1306.sql'
+      - 'tests/db/atomic-completion-concurrency-realpg.sql'
+      - 'scripts/run-atomic-completion-concurrency.sh'
+      - 'scripts/run-migration-partial-apply-proof.sh'
+      - 'scripts/test-retention-failure-realpg.sh'
+      - '.github/workflows/atomic-completion-concurrency-matrix.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atomic-completion-concurrency-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contention:
+    name: "two-backend contention (postgres:${{ matrix.pg }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '16', '17']
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: disposable_ci_only
+          POSTGRES_DB: matrix_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: disposable_ci_only
+      PGDATABASE: matrix_test
+    steps:
+      - uses: actions/checkout@v6
+
+      # BOUNDED, like ci.yml after #1311. I originally copied a pre-hardening step here; an unbounded apt is
+      # the same un-timed network hang that has already cost this branch two U3 reruns (#1313 tracks the
+      # workflows still exposed).
+      - name: Install psql client and record version (bounded)
+        run: |
+          timeout 180 sudo apt-get update -qq || { echo "::error::apt-get update exceeded its 180s bound"; exit 1; }
+          timeout 180 sudo apt-get install -y -qq postgresql-client \
+            || { echo "::error::apt-get install exceeded its 180s bound"; exit 1; }
+          set -o pipefail
+          psql -Atc 'select version()' | tee server-version.txt
+
+      - name: Two-backend contention proof
+        run: |
+          # `set -o pipefail` is REQUIRED. GitHub runs steps with `bash -e`, not `-o pipefail`, so a
+          # pipeline takes TEE's exit status and a failing proof reports SUCCESS. This exact masking
+          # made the first PostgREST run a false green while the script printed FAIL.
+          set -o pipefail
+          bash scripts/run-atomic-completion-concurrency.sh | tee contention-${{ matrix.pg }}.txt
+
+      - name: Forced partial-apply proof
+        run: |
+          # `set -o pipefail` is REQUIRED (see the contention step above).
+          set -o pipefail
+          bash scripts/run-migration-partial-apply-proof.sh | tee partial-apply-${{ matrix.pg }}.txt
+
+      - name: Retention-failure invariants (blockers 1 & 2)
+        env:
+          DB_URL: postgresql://postgres:disposable_ci_only@127.0.0.1:5432/matrix_test?sslmode=disable
+        run: |
+          set -o pipefail
+          bash scripts/test-retention-failure-realpg.sh | tee retention-failure-${{ matrix.pg }}.txt
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Atomic completion contention — postgres:${{ matrix.pg }}"
+            echo '```'
+            cat contention-${{ matrix.pg }}.txt 2>/dev/null | grep -E '^--|^PASS|^FAIL' || echo 'no result captured'
+            echo '```'
+            echo "### Forced partial-apply — postgres:${{ matrix.pg }}"
+            echo '```'
+            cat partial-apply-${{ matrix.pg }}.txt 2>/dev/null | grep -E '^==|^   |^PASS|^FAIL' || echo 'no result captured'
+            echo '```'
+            echo "### Retention-failure invariants — postgres:${{ matrix.pg }}"
+            echo '```'
+            cat retention-failure-${{ matrix.pg }}.txt 2>/dev/null | grep -E '^==|^  (OK|FAIL)|^PASS|^FAIL' || echo 'no result captured'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

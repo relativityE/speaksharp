@@ -95,30 +95,22 @@ Deno.test('check-usage-limit edge function', async (t) => {
         assertEquals(json.daily_remaining, 0);
     });
 
-    await t.step('should pass through unavailable Private sample results from the RPC source of truth', async () => {
-        const userId = 'sample-used-user';
+    await t.step('passes through an expired trial result from the RPC source of truth', async () => {
+        const userId = 'expired-trial-user';
         const mockCreateSupabaseExpiredTrial = () => ({
             rpc: (name: string) => {
                 if (name === 'check_usage_limit') {
                     return Promise.resolve({
                         data: {
-                            can_start: true,
-                            daily_remaining: 3600,
-                            daily_limit: 3600,
-                            monthly_remaining: 90000,
-                            monthly_limit: 90000,
-                            remaining_seconds: 3600,
+                            can_start: false,
+                            remaining_seconds: 0,
                             subscription_status: 'free',
                             is_pro: false,
                             trial_active: false,
                             trial_started_at: '2026-01-01T00:00:00.000Z',
-                            trial_expires_at: '2026-01-01T01:00:00.000Z',
+                            trial_expires_at: '2026-01-31T00:00:00.000Z',
                             trial_seconds_remaining: 0,
-                            private_sample_available: false,
-                            private_sample_limit_seconds: 300,
-                            private_sample_seconds_used: 300,
-                            private_sample_seconds_remaining: 0,
-                            private_sample_completed_at: '2026-01-01T00:05:00.000Z'
+                            error: 'Your trial has ended'
                         },
                         error: null
                     });
@@ -139,33 +131,25 @@ Deno.test('check-usage-limit edge function', async (t) => {
         assertEquals(json.is_pro, false);
         assertEquals(json.trial_active, false);
         assertEquals(json.trial_seconds_remaining, 0);
-        assertEquals(json.private_sample_available, false);
-        assertEquals(json.private_sample_seconds_remaining, 0);
+        assertEquals(json.can_start, false);
+        assertEquals(json.error, 'Your trial has ended');
     });
 
-    await t.step('should pass through available Private sample Free results from the RPC source of truth', async () => {
-        const userId = 'private-sample-user';
+    await t.step('passes through an active 30-day trial result from the RPC source of truth', async () => {
+        const userId = 'active-trial-user';
         const mockCreateSupabasePaidPro = () => ({
             rpc: (name: string) => {
                 if (name === 'check_usage_limit') {
                     return Promise.resolve({
                         data: {
                             can_start: true,
-                            daily_remaining: 7200,
-                            daily_limit: 7200,
-                            monthly_remaining: 180000,
-                            monthly_limit: 180000,
-                            remaining_seconds: 3600,
+                            remaining_seconds: -1,
                             subscription_status: 'free',
                             is_pro: false,
-                            trial_active: false,
-                            trial_started_at: null,
-                            trial_expires_at: null,
-                            trial_seconds_remaining: 0,
-                            private_sample_available: true,
-                            private_sample_limit_seconds: 300,
-                            private_sample_seconds_used: 0,
-                            private_sample_seconds_remaining: 300
+                            trial_active: true,
+                            trial_started_at: '2026-01-01T00:00:00.000Z',
+                            trial_expires_at: '2026-01-31T00:00:00.000Z',
+                            trial_seconds_remaining: 30 * 24 * 60 * 60
                         },
                         error: null
                     });
@@ -184,9 +168,8 @@ Deno.test('check-usage-limit edge function', async (t) => {
         assertEquals(res.status, 200);
         assertEquals(json.subscription_status, 'free');
         assertEquals(json.is_pro, false);
-        assertEquals(json.trial_active, false);
-        assertEquals(json.private_sample_available, true);
-        assertEquals(json.private_sample_seconds_remaining, 300);
+        assertEquals(json.trial_active, true);
+        assertEquals(json.trial_seconds_remaining, 30 * 24 * 60 * 60);
     });
 
     await t.step('should handle RPC errors by failing closed', async () => {
@@ -214,6 +197,7 @@ Deno.test('check-usage-limit edge function', async (t) => {
         });
         const res = await handler(req, failingMockCreateSupabase);
 
-        assertEquals(res.status, 200);
+        assertEquals(res.status, 204); // preflight → 204 (exact-origin CORS)
+        assertEquals(res.headers.get('Access-Control-Allow-Origin'), null); // no Origin → no fabricated ACAO
     });
 });

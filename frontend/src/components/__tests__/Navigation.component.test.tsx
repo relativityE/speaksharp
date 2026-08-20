@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NAV_ITEM_ACTIVE_CLASS, NAV_ITEM_BASE_CLASS } from '@/config/navSections';
 import { render, screen, fireEvent, waitFor } from '../../../tests/support/test-utils';
 import Navigation from '../Navigation';
 import * as AuthProvider from '../../contexts/AuthProvider';
@@ -46,6 +50,13 @@ vi.mock('react-router-dom', async () => {
 });
 
 const mockUseAuthProvider = vi.mocked(AuthProvider.useAuthProvider);
+
+// jsdom does not apply the app stylesheet, so the no-reflow / focus-visible guarantees are
+// asserted against the shipped CSS that backs the classes the elements carry.
+const navCss = readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../index.css'),
+    'utf8',
+);
 
 describe('Navigation', () => {
     const mockSignOut = vi.fn();
@@ -107,6 +118,25 @@ describe('Navigation', () => {
             renderNavigation();
             expect(screen.getByTestId('nav-sign-out-button')).toBeInTheDocument();
         });
+
+        /*
+         * #1047: the header used to print the full email, which at realistic lengths pushed the
+         * action group into the nav links and overflowed the bar. The avatar has a fixed width — but
+         * an initial is not an accessible name, so the identity must still be announced.
+         */
+        it('shows an avatar with a real accessible name and keeps the email out of the visual header', () => {
+            mockUseAuthProvider.mockReturnValue({
+                session: { user: { id: 'test-user', email: 'averyveryverylongaddress@example.com' } },
+                signOut: mockSignOut,
+            } as unknown as AuthProvider.AuthContextType);
+
+            renderNavigation();
+            const avatar = screen.getByTestId('nav-account-avatar');
+            expect(avatar).toHaveAccessibleName('Signed in as averyveryverylongaddress@example.com');
+            // Visible content is the initial only.
+            expect(avatar).toHaveTextContent('A');
+            expect(screen.queryByText('averyveryverylongaddress@example.com')).not.toBeInTheDocument();
+        });
     });
 
     describe('Authentication Actions', () => {
@@ -152,8 +182,6 @@ describe('Navigation', () => {
                 userId: 'test-user',
                 category: 'recording_transcription',
                 pageUrl: expect.any(String),
-                includeTranscript: false,
-                transcriptExcerpt: null,
                 includeAudio: false,
                 audioAttachmentNote: null,
                 metadata: expect.objectContaining({
@@ -161,14 +189,19 @@ describe('Navigation', () => {
                     sttMode: 'private',
                 }),
             }));
+            // #1306: a live transcript sits in the session store, but the report NEVER offers or carries it.
+            const submitArg = (issueReportService.submit as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0] as Record<string, unknown>;
+            expect(submitArg).not.toHaveProperty('includeTranscript');
+            expect(submitArg).not.toHaveProperty('transcriptExcerpt');
+            expect(JSON.stringify(submitArg)).not.toContain('Sensitive transcript should require opt-in');
         });
 
-        it('includes transcript only after explicit opt-in', async () => {
+        it('#1306: there is no transcript opt-in UI — the live transcript is never offered or sent', async () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user', email: 'user@example.com' } },
                 signOut: mockSignOut,
             } as unknown as AuthProvider.AuthContextType);
-            useSessionStore.getState().updateTranscript('User chose to include this transcript', '');
+            useSessionStore.getState().updateTranscript('This live transcript must never reach a report', '');
 
             renderNavigation('/session');
 
@@ -179,19 +212,18 @@ describe('Navigation', () => {
             fireEvent.change(screen.getByTestId('issue-report-description'), {
                 target: { value: 'The transcript changed after I clicked stop.' },
             });
-            fireEvent.click(screen.getByTestId('issue-report-include-transcript'));
-            fireEvent.change(screen.getByTestId('issue-report-transcript-snippet'), {
-                target: { value: 'User chose to include this transcript' },
-            });
+            // The transcript checkbox + snippet field no longer exist.
+            expect(screen.queryByTestId('issue-report-include-transcript')).not.toBeInTheDocument();
+            expect(screen.queryByTestId('issue-report-transcript-snippet')).not.toBeInTheDocument();
+
             fireEvent.click(screen.getByTestId('issue-report-submit'));
 
             await waitFor(() => {
                 expect(issueReportService.submit).toHaveBeenCalled();
             });
-            expect(issueReportService.submit).toHaveBeenCalledWith(expect.objectContaining({
-                includeTranscript: true,
-                transcriptExcerpt: 'User chose to include this transcript',
-            }));
+            const submitArg = (issueReportService.submit as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0] as Record<string, unknown>;
+            expect(submitArg).not.toHaveProperty('transcriptExcerpt');
+            expect(JSON.stringify(submitArg)).not.toContain('This live transcript must never reach a report');
         });
 
         it('attaches the account id and shows the internal-ID support disclosure for authenticated reports', async () => {
@@ -234,15 +266,32 @@ describe('Navigation', () => {
     });
 
     describe('Navigation Links', () => {
-        it('should have correct href for Home link', () => {
+        it('authenticated Home link points to the authenticated home /practice', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
             } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
-            const homeLinks = screen.getAllByRole('link', { name: /home/i });
-            expect(homeLinks[0]).toHaveAttribute('href', '/');
+            // Precise: the Home NAV link carries the testid (logo shares the "…Home" accessible name).
+            expect(screen.getByTestId('nav-home-link')).toHaveAttribute('href', '/practice');
+        });
+
+        it('authenticated logo points to /practice; anonymous logo points to public /', () => {
+            mockUseAuthProvider.mockReturnValue({
+                session: { user: { id: 'test-user' } },
+                signOut: mockSignOut,
+            } as unknown as AuthProvider.AuthContextType);
+            const authed = renderNavigation();
+            expect(screen.getByRole('link', { name: 'SpeakSharp Home' })).toHaveAttribute('href', '/practice');
+            authed.unmount();
+
+            mockUseAuthProvider.mockReturnValue({
+                session: null,
+                signOut: mockSignOut,
+            } as unknown as AuthProvider.AuthContextType);
+            renderNavigation();
+            expect(screen.getByRole('link', { name: 'SpeakSharp Home' })).toHaveAttribute('href', '/');
         });
 
         it('should have correct href for Session link', () => {
@@ -295,36 +344,161 @@ describe('Navigation', () => {
     });
 
     describe('Active Link Highlighting', () => {
-        it('should highlight Home link when on home page', () => {
+        const authed = () => mockUseAuthProvider.mockReturnValue({
+            session: { user: { id: 'test-user' } },
+            signOut: mockSignOut,
+        } as unknown as AuthProvider.AuthContextType);
+
+        const primaryNav = () => screen.getByRole('navigation', { name: 'Primary' });
+        const mobileNav = () => screen.queryByRole('navigation', { name: 'Primary mobile' });
+
+        it('exposes a labelled navigation landmark for each bar', () => {
+            authed();
+            renderNavigation('/practice');
+            expect(primaryNav()).toBeInTheDocument();
+            expect(mobileNav()).toBeInTheDocument();
+        });
+
+        it('gives signed-out visitors a navigation landmark for their only nav links', () => {
             mockUseAuthProvider.mockReturnValue({
-                session: { user: { id: 'test-user' } },
+                session: null,
                 signOut: mockSignOut,
             } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation('/');
-            // The active link should have 'default' or 'secondary' variant
-            // We can check if the link exists and is rendered
-            expect(screen.getAllByText('Home')).toHaveLength(2);
+            const accountNav = screen.getByRole('navigation', { name: 'Account' });
+            expect(accountNav).toContainElement(screen.getByText('Sign In'));
+            expect(accountNav).toContainElement(screen.getByText('Get Started'));
         });
 
-        it('should highlight Session link when on session page without rendering duplicate mobile nav', () => {
-            mockUseAuthProvider.mockReturnValue({
-                session: { user: { id: 'test-user' } },
-                signOut: mockSignOut,
-            } as unknown as AuthProvider.AuthContextType);
+        it.each([
+            ['/', 'nav-home-link'],
+            ['/practice', 'nav-home-link'],
+            ['/Practice', 'nav-home-link'],
+            ['/practice/', 'nav-home-link'],
+            ['/session', 'nav-session-link'],
+            ['/session/abc123', 'nav-session-link'],
+            ['/analytics', 'nav-analytics-link'],
+            ['/analytics/session-42', 'nav-analytics-link'],
+            ['/ANALYTICS', 'nav-analytics-link'],
+            ['/analytics/', 'nav-analytics-link'],
+        ])('marks exactly one item current in the desktop nav on %s', (route, expectedTestId) => {
+            authed();
+            renderNavigation(route);
 
+            // Asserted PER LANDMARK, not per document: both bars are in the DOM, each owns its
+            // own aria-current, and only one of them is ever displayed.
+            const desktopCurrent = primaryNav().querySelectorAll('[aria-current="page"]');
+            expect(desktopCurrent).toHaveLength(1);
+            expect(desktopCurrent[0]).toBe(screen.getByTestId(expectedTestId));
+            expect(desktopCurrent[0].className).toContain(NAV_ITEM_ACTIVE_CLASS);
+        });
+
+        it.each([
+            ['/', 'Home'],
+            ['/practice', 'Home'],
+            ['/Practice', 'Home'],
+            ['/analytics', 'Analytics'],
+            ['/ANALYTICS', 'Analytics'],
+            ['/analytics/session-42', 'Analytics'],
+        ])('marks exactly one item current in the mobile nav on %s', (route, expectedLabel) => {
+            // The mobile bar is the ONLY bar a mobile screen reader sees: the desktop nav is
+            // `hidden lg:flex`, i.e. display:none there, which drops it from the a11y tree.
+            // (The session routes are excluded because the bottom bar is suppressed there.)
+            authed();
+            renderNavigation(route);
+
+            const mobile = screen.getByRole('navigation', { name: 'Primary mobile' });
+            const mobileCurrent = mobile.querySelectorAll('[aria-current="page"]');
+            expect(mobileCurrent).toHaveLength(1);
+            expect(mobileCurrent[0]).toHaveTextContent(expectedLabel);
+        });
+
+        it.each([
+            ['/session-other'],
+            ['/pricing'],
+            ['/definitely-not-a-page'],
+        ])('marks no item current on the unmapped route %s', (route) => {
+            authed();
+            renderNavigation(route);
+
+            // Boundary rule: /session-other must NOT activate Session.
+            expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
+            expect(screen.getByTestId('nav-session-link').className).not.toContain(NAV_ITEM_ACTIVE_CLASS);
+        });
+
+        it('gives active and inactive items identical geometry classes (no reflow on navigation)', () => {
+            authed();
             renderNavigation('/session');
-            expect(screen.getAllByText('Session')).toHaveLength(1);
+
+            const active = screen.getByTestId('nav-session-link');
+            const inactive = screen.getByTestId('nav-home-link');
+
+            const activeClasses = active.className.split(/\s+/).filter(Boolean);
+            const inactiveClasses = inactive.className.split(/\s+/).filter(Boolean);
+
+            // The ONLY difference between the two states is the colour-only modifier class.
+            expect(activeClasses.filter((c) => c !== NAV_ITEM_ACTIVE_CLASS)).toEqual(inactiveClasses);
+            expect(inactiveClasses).toContain(NAV_ITEM_BASE_CLASS);
+            expect(activeClasses).toContain(NAV_ITEM_ACTIVE_CLASS);
+
+            // …and that modifier declares nothing but background-color and color, so padding /
+            // font-weight / font-size / radius cannot change between states.
+            const modifierBlocks = [...navCss.matchAll(/\.nav-item--active[^{]*\{([^}]*)\}/g)];
+            expect(modifierBlocks.length).toBeGreaterThan(0);
+            for (const [, body] of modifierBlocks) {
+                const properties = body
+                    .split(';')
+                    .map((decl) => decl.split(':')[0].trim())
+                    .filter(Boolean);
+                expect(properties.sort()).toEqual(['background-color', 'color']);
+            }
         });
 
-        it('should highlight Analytics link when on analytics page', () => {
-            mockUseAuthProvider.mockReturnValue({
-                session: { user: { id: 'test-user' } },
-                signOut: mockSignOut,
-            } as unknown as AuthProvider.AuthContextType);
+        it('keeps every item on a single line in both states', () => {
+            const baseBlock = navCss.match(/\.nav-item\s*\{([^}]*)\}/);
+            expect(baseBlock?.[1]).toContain('white-space: nowrap');
+        });
 
+        it('renders a visible keyboard focus style and focuses nav items', () => {
+            authed();
+            renderNavigation('/practice');
+
+            const sessionLink = screen.getByTestId('nav-session-link');
+            sessionLink.focus();
+            expect(document.activeElement).toBe(sessionLink);
+
+            // jsdom applies no stylesheet, so the focus affordance is proven against the
+            // stylesheet that ships with the class the element carries.
+            expect(sessionLink.className).toContain(NAV_ITEM_BASE_CLASS);
+            // Must be a REAL outline: `outline: none` would satisfy a bare /outline:/ match.
+            const focusBlock = navCss.match(/\.nav-item:focus-visible\s*\{([^}]*)\}/);
+            expect(focusBlock?.[1]).toMatch(/outline:\s*\d+px\s+solid\s+\S+/);
+            expect(focusBlock?.[1]).not.toMatch(/outline:\s*(none|0)\b/);
+            expect(focusBlock?.[1]).toMatch(/outline-offset:/);
+        });
+
+        it.each(['/session', '/session/', '/Session', '/session/abc123'])(
+            'suppresses the fixed bottom bar on %s so it cannot cover the recording UI',
+            (route) => {
+                authed();
+                renderNavigation(route);
+                // react-router resolves all of these to the session page, so the raw
+                // `pathname !== '/session'` check used to let the bar cover live recording.
+                expect(mobileNav()).not.toBeInTheDocument();
+                expect(screen.getAllByText('Session')).toHaveLength(1);
+            },
+        );
+
+        it('decorative nav icons are hidden from assistive tech', () => {
+            authed();
             renderNavigation('/analytics');
-            expect(screen.getAllByText('Analytics')).toHaveLength(2);
+            const icons = primaryNav().querySelectorAll('svg');
+            // Home, Session, Analytics — one decorative icon per primary section. FAQ is no
+            // longer a routed section; it is an inline dropdown in the header actions, outside
+            // this Primary landmark.
+            expect(icons.length).toBe(3);
+            icons.forEach((icon) => expect(icon).toHaveAttribute('aria-hidden', 'true'));
         });
     });
 
@@ -363,6 +537,45 @@ describe('Navigation', () => {
 
             expect(screen.getByTestId('nav-upgrade-button')).toBeInTheDocument();
             expect(screen.queryByText('PRO')).not.toBeInTheDocument();
+        });
+
+        it('does not present an active trial as paid Pro', () => {
+            mockUseUserProfile.mockReturnValue({
+                data: { subscription_status: 'free', stripe_subscription_id: null, trial_expires_at: '2999-01-01T00:00:00Z' },
+                isLoading: false,
+                error: null,
+            });
+            mockUseUsageLimit.mockReturnValue({
+                data: { subscription_status: 'pro', is_pro: true, can_start: true, trial_active: true },
+            });
+
+            renderNavigation('/');
+
+            expect(screen.queryByTestId('nav-upgrade-button')).not.toBeInTheDocument();
+            expect(screen.queryByTestId('pro-badge')).not.toBeInTheDocument();
+            expect(screen.queryByText('PRO')).not.toBeInTheDocument();
+        });
+
+        it.each(['/session', '/session/', '/Session', '/session/abc123', '/analytics', '/ANALYTICS', '/analytics/42', '/pricing'])(
+            'hides the upgrade CTA on %s (route checks go through the shared resolver)',
+            (route) => {
+                mockUseUserProfile.mockReturnValue({ data: { subscription_status: 'free' }, isLoading: false, error: null });
+                mockUseUsageLimit.mockReturnValue({ data: { subscription_status: 'free' } });
+
+                renderNavigation(route);
+
+                expect(screen.queryByTestId('nav-upgrade-button')).not.toBeInTheDocument();
+            },
+        );
+
+        it('still shows the upgrade CTA on the prefix-sharing sibling /session-other', () => {
+            // Proof the suppression is boundary-aware and not a blunt prefix match.
+            mockUseUserProfile.mockReturnValue({ data: { subscription_status: 'free' }, isLoading: false, error: null });
+            mockUseUsageLimit.mockReturnValue({ data: { subscription_status: 'free' } });
+
+            renderNavigation('/session-other');
+
+            expect(screen.getByTestId('nav-upgrade-button')).toBeInTheDocument();
         });
 
         it('treats a "pro" status without Stripe evidence as not-yet-paid (CTA still shows)', () => {

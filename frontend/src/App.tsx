@@ -1,16 +1,22 @@
 import React, { Suspense, useEffect } from 'react';
-import { Navigate, Routes, Route, useLocation } from 'react-router-dom';
+import { Routes, Route, useLocation } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
 import { useCheckoutNotifications } from '@/hooks/useCheckoutNotifications';
 import Navigation from './components/Navigation';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { PostAuthContinue } from './components/practice/practiceRouting';
+import { AuthIndexRedirect } from './components/AuthIndexRedirect';
+import { AuthAwareRoot } from './components/AuthAwareRoot';
+import { PracticeSurfaceProvider } from './components/practice/PracticeSurfaceContext';
 import { ProfileGuard } from './components/ProfileGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { StaleChunkBootClear } from '@/components/StaleChunkBootClear';
 import SttIdentityBadge from '@/components/SttIdentityBadge';
 import { AnimatePresence } from 'framer-motion';
 import { PageTransition } from './components/ui/PageTransition';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { useCriticalQueries } from './hooks/useCriticalQueries';
+import { useProgressReconciliation } from './hooks/useProgressReconciliation';
 import { SSE2EWindow } from './config/TestFlags';
 import type { TranscriptionState, TranscriptionEvent } from './services/transcription/TranscriptionFSM';
 import { setAppVisibleReady } from '@/lib/forensicAnchors';
@@ -46,8 +52,18 @@ const RouteReadinessManager: React.FC = () => {
   return null;
 };
 
+/**
+ * #1045 durable Progress recovery — headless. Runs once per authenticated user (after their session list
+ * loads) to record any completed session whose evaluation was dropped at save time. Non-fatal, renders
+ * nothing.
+ */
+const ProgressReconciler: React.FC = () => {
+  useProgressReconciliation();
+  return null;
+};
+
 // Lazy load pages for better performance
-const Index = React.lazy(() => import('./pages/Index'));
+const PracticePage = React.lazy(() => import('./pages/PracticePage'));
 const SessionPage = React.lazy(() => import('./pages/SessionPage'));
 const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage'));
 const SignInPage = React.lazy(() => import('./pages/SignInPage'));
@@ -329,7 +345,11 @@ const App: React.FC = () => {
         offset={toastOffset}
       />
       <ProfileGuard>
+       {/* Provider spans BOTH Navigation (Report Issue button) and the routed page, so the global dialog
+           can read the active /practice surface the page sets. */}
+       <PracticeSurfaceProvider>
         <RouteReadinessManager />
+        <ProgressReconciler />
         <Navigation />
         <main
           id="main-content"
@@ -339,10 +359,17 @@ const App: React.FC = () => {
         >
           <ErrorBoundary>
             <Suspense fallback={<PageLoader />}>
+              {/* Inside Suspense: mounts only once a lazy route chunk resolves → clears the stale-chunk
+                  recovery guard on a genuinely successful post-reload boot (not a frame-count heuristic). */}
+              <StaleChunkBootClear />
               <AnimatePresence mode="wait">
                 <Routes location={location} key={location.pathname}>
-                  <Route path="/" element={<PageTransition><Index /></PageTransition>} />
+                  {/* #1061: ONE canonical auth-aware page. Authenticated → redirect to /practice; anonymous
+                      → render the SAME PracticePage (marketing + product choices, no session history). */}
+                  <Route path="/" element={<AuthAwareRoot><PageTransition><PracticePage /></PageTransition></AuthAwareRoot>} />
                   <Route path="/pricing" element={<PageTransition><PricingPage /></PageTransition>} />
+                  {/* The FAQ is no longer a page: it is an inline dropdown opened from the global nav
+                      (see @/components/faq/FaqMenu), so it never has its own route. */}
                   <Route path="/terms" element={<PageTransition><TermsPage /></PageTransition>} />
                   <Route path="/privacy" element={<PageTransition><PrivacyPage /></PageTransition>} />
                   <Route path="/design" element={<InternalRoute><PageTransition><DesignSystemPage /></PageTransition></InternalRoute>} />
@@ -356,11 +383,19 @@ const App: React.FC = () => {
                       ops page unauthenticated once InternalRoute was removed. Exact-case access stays
                       edge-authed; variants fall through to NotFound. */}
                   <Route path="/admin/ops-status" caseSensitive element={<PageTransition><OpsStatusPage /></PageTransition>} />
-                  <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
-                  <Route path="/signup" element={<Navigate to="/auth/signup" replace />} />
+                  <Route path="/auth" element={<AuthIndexRedirect to="/auth/signin" />} />
+                  <Route path="/signup" element={<AuthIndexRedirect to="/auth/signup" />} />
                   <Route path="/auth/signin" element={<PageTransition><SignInPage /></PageTransition>} />
                   <Route path="/auth/signup" element={<PageTransition><AuthPage /></PageTransition>} />
                   <Route path="/auth/reset" element={<PageTransition><ResetPasswordPage /></PageTransition>} />
+                  {/* PUBLIC authenticated-continuation target for magic-link returns: waits for the
+                      recovered session, then runs the same post-auth rollout decision as password sign-in. */}
+                  <Route path="/auth/continue" element={<PageTransition><PostAuthContinue /></PageTransition>} />
+                  <Route path="/practice" element={
+                    <ProtectedRoute>
+                      <PageTransition><PracticePage /></PageTransition>
+                    </ProtectedRoute>
+                  } />
                   <Route path="/session" element={
                     <ProtectedRoute>
                       <TranscriptionProvider>
@@ -388,6 +423,7 @@ const App: React.FC = () => {
             </Suspense>
           </ErrorBoundary>
         </main>
+       </PracticeSurfaceProvider>
       </ProfileGuard>
     </div>
   );

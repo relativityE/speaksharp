@@ -1,0 +1,191 @@
+**Status:** Authoritative (SSOT for user-visible product requirements)
+**Owner:** Product Owner (relativityE)
+**Last Reviewed:** 2026-08-13
+**Last Verified:** 2026-08-13 — reconciled to the Product Owner-locked Private-only launch contract; implementation and operational proof remain separately gated.
+**Applies To:** The SpeakSharp individual speaking-practice product. Enterprise expansion is future direction, not current scope.
+**Class:** Product requirement.
+**Authority:** User-visible product guarantees, failure behavior, non-goals, and the feature contract.
+**Not Authoritative For:** billing and entitlement implementation mechanics (→ `ENTITLEMENTS_AND_BILLING.md`); Progress calculations (→ `PROGRESS_AND_NEXT_ACTION.md`); STT implementation, baselines, and SLOs (→ `STT.md`); persisted schema and retention (→ `ARCHITECTURE.md`); release sequencing (→ `ROADMAP.md`); deployed status (→ `RELEASE_STATUS.md`).
+**Supersedes:** Earlier multi-product, multi-engine, Free/Pro tier, and accumulated-minute-quota statements in this file are retired.
+**Evidence Sources:** Product Owner launch-contract decisions recorded on #1290; canonical owning documents listed in §12; executable repository contract guard.
+
+# SpeakSharp Product Requirements
+
+SpeakSharp is one **Private Practice** product. It helps an individual rehearse a real speaking moment, receive useful feedback, choose one next action, and see comparable personal progress.
+
+This document defines requirements. It does not activate billing, grant a commercial trial, apply a migration, deploy code, or claim that an unqualified release is live.
+
+---
+
+## 1. Target user and job
+
+The primary user is an individual professional rehearsing an interview, update, presentation, or difficult conversation who wants private practice, immediate actionable feedback, and visible personal progress.
+
+The product must let that user:
+
+- rehearse privately without exposure or judgment;
+- receive one useful next action rather than a wall of metrics;
+- compare progress with their own earlier comparable practice; and
+- understand where their audio and saved records go.
+
+Enterprise and team features are deferred until the individual Practice Loop proves demand.
+
+---
+
+## 2. Private Practice Loop
+
+The repeatable loop is:
+
+> Practice → review feedback → try one focused improvement → see progress → repeat.
+
+Requirements:
+
+- **Open Mic is primary.** A user can begin an unscripted practice without preparing an objective.
+- **Focus Points is optional guidance.** A user may prepare a brief and review point coverage, but Focus Points state must never leak into a later Open Mic take.
+- Every successfully finalized recording persists the user-owned evidence required for review and comparable Progress.
+- Progress is measured against the user's own eligible practice history, never an unexplained universal grade.
+- The product presents one next action at a time.
+
+The detailed comparison and repair rules belong to `PROGRESS_AND_NEXT_ACTION.md`.
+
+---
+
+## 3. Customer surfaces and journey
+
+The active customer journey is:
+
+> Public Home → Account Access → Practice Home → Open Mic or optional Focus Points → Practice Session → saved review and Progress.
+
+Existing authenticated users may skip Account Access. Public, signup, Practice, Pricing, Analytics, legal, and tester surfaces must all describe the same Private-only product.
+
+Guided Rehearsal and Live Meeting Companion are not active customer products. They must not appear as available choices or entitlements.
+
+---
+
+## 4. Transcription contract
+
+- Every customer recording uses **Private**, on-device speech-to-text.
+- Audio used for Private transcription does not leave the user's device.
+- A one-time model download may require a network connection. After setup, transcription runs locally subject to documented platform limitations.
+- A recording has exactly one STT producer. There is no mid-recording engine switch and no silent fallback.
+- Browser and Cloud transcription are not customer choices or entitlements.
+- Native exists only as an isolated deterministic E2E hook. It is not a customer entitlement, production fallback, or public product term.
+- A Private transcription failure must show an honest retry or failure state; it must not route the recording to another provider.
+
+The implementation and attribution contracts belong to `STT.md`.
+
+---
+
+## 5. Recording and feedback contract
+
+- The individual-recording technical safety cap is **10 minutes**.
+- The 10-minute cap is not a commercial quota and does not reduce or accumulate across recordings.
+- Active-trial and paid users have no daily or monthly recording-minute allowance.
+- Usage counters may support sanitized operations or telemetry, but they must never deny, nudge, or auto-stop an entitled user.
+- During a session, the interface may show the transcript and delivery evidence supported by Private STT.
+- After save, the interface shows one authoritative completion/status surface with review and next actions.
+- A recording is evaluated only after the mode-specific save requirements are satisfied. Focus Points evaluation additionally requires confirmed objective registration.
+
+---
+
+## 6. Commercial access contract
+
+SpeakSharp is one product, not a feature-tier ladder:
+
+- A new eligible account receives the complete product free for **30 days**.
+- After the trial, the same complete product costs **$10/month**.
+- Active-trial and paid users receive the same Private-only Practice capabilities.
+- Trial UI must describe a trial, not imply that the user is already paid.
+- Expiry is determined from server-authoritative time. Client-clock changes cannot extend access.
+- At exact expiry, an unpaid user cannot create, record, save, or analyze new practice.
+- An expired user retains exact-session review, History, Progress, PDF/export, account management and deletion, billing management where applicable, and upgrade access.
+- Existing paid users retain the complete product and billing-management access.
+- Commercial-trial grants are immutable and one-time. Activation must not reset, shorten, or extend a prior grant, and paid accounts must not be changed by legacy activation.
+- Payments, checkout, webhook entitlement, and commercial activation remain fail-closed until separately authorized and configured.
+
+Exact database, checkout, webhook, activation, and price-validation mechanics belong to `ENTITLEMENTS_AND_BILLING.md` and their implementation PRs.
+
+---
+
+## 7. Privacy and trust
+
+- Private STT audio stays on the user's device.
+- Saved transcripts, session measurements, and feedback may be persisted so the user can review History and Progress.
+- Audio, transcripts, and raw model output must not enter analytics or error reporting.
+- Any service provider that receives customer content must be disclosed with the content and purpose.
+- Copy must distinguish on-device transcription from any later server processing over saved text. It must not imply that all product processing is local when it is not.
+- Saved evidence is protected by per-user access control and available to the user through the product's review, export, and deletion surfaces.
+- Feedback reports persist independently of best-effort analytics or error-reporting delivery.
+
+Retention duration and schema details belong to `ARCHITECTURE.md`; customer-facing disclosures must match the actual deployed contract.
+
+---
+
+## 8. Required failure behavior
+
+| Scenario | Required behavior |
+| :--- | :--- |
+| Access decision unavailable or uncertain | Fail closed for creation or analysis; do not grant optimistic access. |
+| Private model setup/download failure | Show accurate setup, retry, or failure status; never silently switch providers. |
+| Private runtime unsupported or slow | Use the approved Private fallback within the on-device implementation; do not expose another customer engine. |
+| Billing confirmation delayed or uncertain | Do not grant paid access until authoritative confirmation succeeds. |
+| Save delayed | Show a saving state until persistence is confirmed; do not claim completion early. |
+| Objective registration fails or throws ambiguously | Do not create a Focus Points evaluation. |
+| Trial expires during a journey | Enforce the server-authoritative access boundary while preserving read/export/account/upgrade access. |
+
+---
+
+## 9. Progress contract
+
+- Baseline and previous comparisons use only eligible prior sessions of the same user, cohort, and Practice mode.
+- Chronology is deterministic by `(created_at, session_id)` so equal timestamps cannot create self, future, or cross-mode pointers.
+- Open Mic and Focus Points histories remain separate.
+- Runtime evaluation inputs are immutable after successful creation; deterministic repair may correct historical pointers without rewriting captured measurements.
+- No movement is shown until an eligible predecessor exists.
+
+Formulas, metric eligibility, target selection, and presentation belong to `PROGRESS_AND_NEXT_ACTION.md`.
+
+---
+
+## 10. Product boundaries
+
+- No customer-visible Browser, Cloud, Native, provider, model-variant, or engine-choice entitlement.
+- No retired Private sample, countdown, sample telemetry, quota upsell, or recording-time-remaining message.
+- No daily or monthly accumulated recording-minute gate for active-trial or paid users.
+- No avatars or body-language, facial, gesture, posture, or video analysis.
+- No continuous or verbose coaching while the user speaks.
+- No fabricated or unattributed testimonials.
+
+- Private v4 is OFF unless separately promoted through evidence and Product Owner approval.
+
+- Microphone switching mid-session is not guaranteed; concurrent recording across tabs is blocked.
+
+Future enterprise capabilities, scenario products, or alternative transcription offerings require a new explicit product decision. They are not implied by historical code or documentation.
+
+---
+
+## 11. Release qualification
+
+The product contract is not launch evidence by itself. Launch requires:
+
+- integrated exact-head CI, security, database, and documentation checks;
+- a deployed merge-SHA canary with the active-trial Private journey primary and paid-continuation Private journey secondary;
+- real-device Practice Loop qualification;
+- sanitized telemetry, SLO, canary, and rollback verification;
+- zero unresolved critical residue; and
+- an explicit GO decision and separately authorized release tag.
+
+Green pull-request CI is not acceptance, deployment proof, migration proof, or launch qualification.
+
+---
+
+## 12. Traceability
+
+- Product access and billing mechanics → `ENTITLEMENTS_AND_BILLING.md`
+- Progress calculations and presentation → `PROGRESS_AND_NEXT_ACTION.md`
+- STT implementation and evidence → `STT.md`
+- Persistence, retention, and deletion → `ARCHITECTURE.md`
+- Deferred sequencing → `ROADMAP.md`
+- Integrated release posture and identities → `RELEASE_STATUS.md`
+
+Historical documents and code may explain provenance, but they do not override this Product Owner-approved contract.

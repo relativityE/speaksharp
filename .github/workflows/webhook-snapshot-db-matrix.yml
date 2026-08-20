@@ -1,0 +1,207 @@
+name: "Webhook snapshot DB matrix (disposable Postgres)"
+
+# #1287 — database-only proof. Uses disposable PostgreSQL services, no secrets, and no hosted connection.
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'backend/supabase/migrations/20260812002000_webhook_lifecycle_completeness_1282.sql'
+      - 'backend/supabase/migrations/20260812039500_webhook_duplicate_snapshot_convergence_1282.sql'
+      - 'backend/supabase/migrations/20260812041500_flawless_launch_runtime_convergence_1290.sql'
+      - 'tests/db/webhook-lifecycle-bootstrap.sql'
+      - 'tests/db/webhook-lifecycle.integration.test.ts'
+      - 'tests/db/webhook-snapshot-preflight.sql'
+      - 'tests/db/webhook-snapshot-matrix.sql'
+      - 'tests/db/runtime-cap-matrix.sql'
+      - 'tests/db/runtime-cap.integration.test.ts'
+      - '.github/workflows/webhook-snapshot-db-matrix.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: webhook-snapshot-db-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matrix:
+    name: "snapshot identity/concurrency (postgres:${{ matrix.pg }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['15', '16', '17']
+
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: disposable_ci_only
+          POSTGRES_DB: matrix_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: disposable_ci_only
+      PGDATABASE: matrix_test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install psql client and record server version
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          psql -XAtc 'select version()' | tee server-version.txt
+
+      - name: Bootstrap disposable schema
+        run: psql -X -v ON_ERROR_STOP=1 -f tests/db/webhook-lifecycle-bootstrap.sql
+
+      - name: Clean-state read-only preflight
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f tests/db/webhook-snapshot-preflight.sql 2>&1 | tee preflight-clean.txt
+          grep -q 'WEBHOOK SNAPSHOT IDENTITY PREFLIGHT PASSED' preflight-clean.txt
+
+      - name: Falsification — matrix rejects absent migration
+        run: |
+          set -euo pipefail
+          if psql -X -v ON_ERROR_STOP=1 -f tests/db/webhook-snapshot-matrix.sql > matrix-falsification.txt 2>&1; then
+            echo '::error::VACUOUS — snapshot matrix passed before migration'
+            exit 1
+          fi
+          grep -q 'snapshot RPC is absent' matrix-falsification.txt
+
+      - name: Apply exact migration and prove replay
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812002000_webhook_lifecycle_completeness_1282.sql
+          psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812039500_webhook_duplicate_snapshot_convergence_1282.sql
+          psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812041500_flawless_launch_runtime_convergence_1290.sql
+          psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812002000_webhook_lifecycle_completeness_1282.sql
+          psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812039500_webhook_duplicate_snapshot_convergence_1282.sql
+          psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812041500_flawless_launch_runtime_convergence_1290.sql
+          echo 'MIGRATION REPLAY PASSED' | tee migration-replay.txt
+
+      - name: Run ACL, identity, customer, price, terminal, and compatibility matrix
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f tests/db/webhook-snapshot-matrix.sql 2>&1 | tee matrix-output.txt
+          grep -q 'WEBHOOK SNAPSHOT MATRIX PASSED' matrix-output.txt
+
+      - name: Run 600-second session boundary matrix
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f tests/db/runtime-cap-matrix.sql 2>&1 | tee runtime-cap-output.txt
+          grep -q 'RUNTIME 600-SECOND CAP MATRIX PASSED' runtime-cap-output.txt
+
+      - name: Dirty-state preflight and migration both abort without repair
+        run: |
+          set -euo pipefail
+          createdb dirty_preflight
+          PGDATABASE=dirty_preflight psql -X -v ON_ERROR_STOP=1 -f tests/db/webhook-lifecycle-bootstrap.sql
+          PGDATABASE=dirty_preflight psql -X -v ON_ERROR_STOP=1 -c "
+            INSERT INTO public.user_profiles (id, stripe_subscription_id, stripe_customer_id) VALUES
+              ('00000000-0000-0000-0000-0000000012d1', 'sub_duplicate', 'cus_duplicate'),
+              ('00000000-0000-0000-0000-0000000012d2', 'sub_duplicate', 'cus_duplicate'),
+              ('00000000-0000-0000-0000-0000000012d3', '   ', '   ');"
+
+          if PGDATABASE=dirty_preflight psql -X -v ON_ERROR_STOP=1 -f tests/db/webhook-snapshot-preflight.sql > preflight-dirty.txt 2>&1; then
+            echo '::error::dirty read-only preflight unexpectedly passed'
+            exit 1
+          fi
+          grep -q 'billing identity preflight failed' preflight-dirty.txt
+
+          if PGDATABASE=dirty_preflight psql -X -v ON_ERROR_STOP=1 -f backend/supabase/migrations/20260812002000_webhook_lifecycle_completeness_1282.sql > migration-dirty.txt 2>&1; then
+            echo '::error::dirty migration unexpectedly passed'
+            exit 1
+          fi
+          grep -q 'billing identity preflight failed' migration-dirty.txt
+          dirty_rows=$(PGDATABASE=dirty_preflight psql -XAtc 'select count(*) from public.user_profiles')
+          test "$dirty_rows" = '3'
+          dirty_rpc_absent=$(PGDATABASE=dirty_preflight psql -XAtc "select to_regprocedure('public.apply_stripe_subscription_snapshot(text,text,text,text,boolean,boolean,bigint,uuid,bigint)') is null")
+          test "$dirty_rpc_absent" = 't'
+          echo 'DIRTY PREFLIGHT/MIGRATION ABORT PASSED' | tee preflight-dirty-summary.txt
+
+      - name: Concurrent first binding — unique indexes arbitrate one winner
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -c "
+            INSERT INTO public.user_profiles (id, subscription_status) VALUES
+              ('00000000-0000-0000-0000-0000000012a1', 'free'),
+              ('00000000-0000-0000-0000-0000000012b1', 'free');"
+
+          psql -XAtq -v ON_ERROR_STOP=1 -c "BEGIN;
+            SELECT public.apply_stripe_subscription_snapshot(
+              'evt_concurrent_a', 'sub_concurrent', 'cus_concurrent', 'active', true,
+              false, NULL, '00000000-0000-0000-0000-0000000012a1', 2000
+            )->>'success';
+            SELECT pg_sleep(2);
+            COMMIT;" > concurrent-a.txt &
+          first_pid=$!
+          sleep 0.25
+          psql -XAtq -v ON_ERROR_STOP=1 -c "
+            SELECT public.apply_stripe_subscription_snapshot(
+              'evt_concurrent_b', 'sub_concurrent', 'cus_concurrent', 'active', true,
+              false, NULL, '00000000-0000-0000-0000-0000000012b1', 2000
+            )->>'success';" > concurrent-b.txt &
+          second_pid=$!
+          wait "$first_pid"
+          wait "$second_pid"
+
+          concurrent_results=$(grep -hE '^(true|false)$' concurrent-a.txt concurrent-b.txt | wc -l | tr -d ' ')
+          concurrent_successes=$(grep -hE '^true$' concurrent-a.txt concurrent-b.txt | wc -l | tr -d ' ')
+          concurrent_failures=$(grep -hE '^false$' concurrent-a.txt concurrent-b.txt | wc -l | tr -d ' ')
+          bound_profiles=$(psql -XAtc "select count(*) from public.user_profiles where stripe_subscription_id='sub_concurrent' and stripe_customer_id='cus_concurrent'")
+          retained_markers=$(psql -XAtc "select count(*) from public.processed_webhook_events where event_id in ('evt_concurrent_a','evt_concurrent_b')")
+          test "$concurrent_results" = '2'
+          test "$concurrent_successes" = '1'
+          test "$concurrent_failures" = '1'
+          test "$bound_profiles" = '1'
+          test "$retained_markers" = '1'
+          echo 'CONCURRENT FIRST-BINDING NEGATIVE PASSED' | tee concurrency-summary.txt
+
+      - name: Publish sanitized evidence
+        if: always()
+        run: |
+          {
+            echo "### #1287 webhook snapshot DB matrix — postgres:${{ matrix.pg }}"
+            echo '```'
+            cat server-version.txt 2>/dev/null || true
+            cat preflight-clean.txt 2>/dev/null || true
+            cat migration-replay.txt 2>/dev/null || true
+            cat matrix-output.txt 2>/dev/null || true
+            cat runtime-cap-output.txt 2>/dev/null || true
+            cat preflight-dirty-summary.txt 2>/dev/null || true
+            cat concurrency-summary.txt 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sanitized evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: webhook-snapshot-db-matrix-pg${{ matrix.pg }}
+          path: |
+            server-version.txt
+            preflight-clean.txt
+            matrix-falsification.txt
+            migration-replay.txt
+            matrix-output.txt
+            runtime-cap-output.txt
+            preflight-dirty.txt
+            migration-dirty.txt
+            preflight-dirty-summary.txt
+            concurrency-summary.txt
+          retention-days: 1
+          if-no-files-found: warn

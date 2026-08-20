@@ -40,7 +40,7 @@ describe('Analytics Math Integrity', () => {
                 total_words: 150,
                 duration: 60, // 1 minute
                 created_at: new Date().toISOString(),
-                filler_words: {}
+                filler_counts: {},
             } as Partial<PracticeSession>;
 
             const stats = calculateOverallStats([session as PracticeSession]);
@@ -52,7 +52,7 @@ describe('Analytics Math Integrity', () => {
                 total_words: 100,
                 duration: 30, // 0.5 minutes
                 created_at: new Date().toISOString(),
-                filler_words: {}
+                filler_counts: {},
             } as Partial<PracticeSession>;
 
             const stats = calculateOverallStats([session as PracticeSession]);
@@ -66,10 +66,7 @@ describe('Analytics Math Integrity', () => {
                 total_words: 100,
                 duration: 60,
                 created_at: new Date().toISOString(),
-                filler_words: {
-                    um: { count: 5 },
-                    total: { count: 5 }
-                }
+                filler_counts: { um: 5 },
             } as Partial<PracticeSession>;
 
             const stats = calculateOverallStats([session as PracticeSession]);
@@ -80,15 +77,15 @@ describe('Analytics Math Integrity', () => {
             const sessions = [
                 {
                     created_at: new Date().toISOString(),
-                    filler_words: { um: { count: 5 }, total: { count: 5 } },
+                    filler_counts: { um: 5 },
                     duration: 60,
-                    total_words: 100
+                    total_words: 100,
                 },
                 {
                     created_at: new Date().toISOString(),
-                    filler_words: { like: { count: 2 }, total: { count: 2 } },
+                    filler_counts: { like: 2 },
                     duration: 60,
-                    total_words: 100
+                    total_words: 100,
                 }
             ] as Partial<PracticeSession>[];
 
@@ -104,10 +101,7 @@ describe('Analytics Math Integrity', () => {
             const sessions = Array.from({ length: 10 }).map((_, i) => ({
                 created_at: new Date(2023, 9, i + 1).toISOString(),
                 duration: 60,
-                filler_words: {
-                    um: { count: i < 5 ? 5 : 10 }, // 10, 10, 10, 10, 10 (prev) vs 5, 5, 5, 5, 5 (curr)
-                    total: { count: i < 5 ? 5 : 10 }
-                }
+                filler_counts: { um: i < 5 ? 5 : 10 }
             })) as Partial<PracticeSession>[];
 
             // Note: slice(0,5) is "current", slice(5,10) is "previous" based on implementation

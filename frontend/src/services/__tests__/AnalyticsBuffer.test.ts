@@ -167,6 +167,32 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     expect(payload).not.toContain('another sensitive');
     expect(payload).not.toContain('nested array transcript');
   });
+
+  // #1259 P2 — a SECOND redaction boundary for Private events: even if a `private_*` event's props bypass
+  // the emitter allowlist, the send boundary re-projects them through the Private allowlist, so no
+  // non-allowlisted field (transcript, email, raw id) can leave the browser on a Private event.
+  it('re-applies the Private allowlist to private_* events at the send boundary (#1259 P2)', () => {
+    vi.mocked(posthog.capture).mockClear();
+    analyticsBuffer.ready = true;
+
+    analyticsBuffer.push('private_error', {
+      error_code: 'SetupError',        // allowlisted → survives
+      transcript: 'um leaked words',   // NOT allowlisted → dropped by the second boundary
+      email: 'user@example.com',       // NOT allowlisted → dropped
+      user_id: '8f14e45f-ceea-467a',   // NOT allowlisted → dropped
+    }, 'CRITICAL');
+
+    const [name, props] = vi.mocked(posthog.capture).mock.calls[0];
+    expect(name).toBe('private_error');
+    expect(props).toMatchObject({ error_code: 'SetupError' });
+    expect(props).not.toHaveProperty('transcript');
+    expect(props).not.toHaveProperty('email');
+    expect(props).not.toHaveProperty('user_id');
+    const payload = JSON.stringify(props);
+    expect(payload).not.toContain('leaked words');
+    expect(payload).not.toContain('user@example.com');
+    expect(payload).not.toContain('8f14e45f');
+  });
 });
 
 describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {

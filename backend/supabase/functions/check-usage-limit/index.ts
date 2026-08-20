@@ -1,13 +1,10 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from '../_shared/errors.ts';
-import { corsHeaders } from '../_shared/cors.ts';
+import { corsGuard, corsHeaders } from '../_shared/cors.ts';
 
 interface UsageLimitResponse {
     can_start: boolean;
-    remaining_seconds: number; // -1 for unlimited (Pro)
-    limit_seconds: number;
-    used_seconds: number;
     subscription_status: string;
     is_pro: boolean;
     streak_count: number;
@@ -15,13 +12,6 @@ interface UsageLimitResponse {
     trial_started_at?: string | null;
     trial_expires_at?: string | null;
     trial_seconds_remaining?: number;
-    private_sample_available?: boolean;
-    private_sample_limit_seconds?: number;
-    private_sample_seconds_used?: number;
-    private_sample_seconds_remaining?: number;
-    private_sample_started_at?: string | null;
-    private_sample_completed_at?: string | null;
-    private_sample_session_id?: string | null;
     error?: string;
 }
 
@@ -65,11 +55,12 @@ function getUserIdFromAuthHeader(authHeader: string | null): string | null {
 
 // Define the handler with dependency injection for testability
 export async function handler(req: Request, createSupabase: SupabaseClientFactory) {
-    const headers = corsHeaders(req);
+    // Exact-origin CORS guard: reject hostile/unapproved origins and answer preflight BEFORE any
+    // auth parsing or Supabase RPC.
+    const corsRejection = corsGuard(req);
+    if (corsRejection) return corsRejection;
 
-    if (req.method === 'OPTIONS') {
-        return new Response('ok', { headers });
-    }
+    const headers = corsHeaders(req);
 
     try {
         const authHeader = req.headers.get('Authorization');
@@ -94,7 +85,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
             console.error('RPC check_usage_limit error:', rpcError);
             return createErrorResponse(
                 ErrorCodes.DATABASE_ERROR,
-                'Unable to verify usage limit',
+                'Unable to verify recording access',
                 headers,
                 {
                     can_start: false,
@@ -109,7 +100,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
         console.error('Error checking usage limit:', error);
         return createErrorResponse(
             ErrorCodes.INTERNAL_ERROR,
-            'Unable to verify usage limit',
+            'Unable to verify recording access',
             headers,
             {
                 can_start: false,

@@ -45,12 +45,10 @@ jobs:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          ASSEMBLYAI_API_KEY: ${{ secrets.ASSEMBLYAI_API_KEY }}
           # Prod monitoring → LIVE Stripe (the deployed app runs live keys). Source the
           # live mode-scoped secrets so the live key can read the live price/webhook objects.
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_LIVE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_LIVE_WEBHOOK_SECRET }}
-          STRIPE_BASIC_PRICE_ID: ${{ secrets.STRIPE_LIVE_BASIC_PRICE_ID }}
           STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_LIVE_PRO_PRICE_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SENTRY_DSN: ${{ vars.SENTRY_DSN }}
@@ -66,7 +64,6 @@ jobs:
           PROMO_GEN_ADMIN_SECRET: ${{ secrets.PROMO_GEN_ADMIN_SECRET }}
           OBSERVABILITY_SMOKE_SECRET: ${{ secrets.OBSERVABILITY_SMOKE_SECRET }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
-          CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
         run: pnpm ops:health
 
       - name: Publish summary

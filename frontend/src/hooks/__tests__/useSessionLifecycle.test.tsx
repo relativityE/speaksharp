@@ -64,7 +64,12 @@ vi.mock('@/services/SpeechRuntimeController', () => ({
             duration: 0 
         } as TranscriptStats)),
         reset: vi.fn(),
-        warmUp: vi.fn(),
+        warmUp: vi.fn().mockResolvedValue(undefined), // real warmUp is async — the return-reload does `.catch()` on it
+        getState: vi.fn(() => 'IDLE'),
+        getIdleReclamationGeneration: vi.fn(() => 0),
+        requestModeChange: vi.fn(() => ({ accepted: true })),
+        updatePolicy: vi.fn(),
+        syncForensicState: vi.fn(),
     },
 }));
 
@@ -73,18 +78,9 @@ import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 // Global mock for useUsageLimit
 const baseUsageLimit: UsageLimitCheck = {
     can_start: true,
-    daily_remaining: 30,
-    daily_limit: 3600,
-    monthly_remaining: 90000,
-    monthly_limit: 90000,
-    remaining_seconds: 30,
     subscription_status: 'free',
     is_pro: false,
     streak_count: 0,
-    private_sample_available: false,
-    private_sample_limit_seconds: 300,
-    private_sample_seconds_used: 0,
-    private_sample_seconds_remaining: 300,
 };
 
 const mockUsageLimitQuery = {
@@ -178,7 +174,6 @@ vi.mock('@/constants/subscriptionTiers', () => ({
     isPro: vi.fn((status: string | undefined) => status === 'pro'),
     isActiveTrialProfile: vi.fn(() => false),
     hasPaidProEntitlement: vi.fn(() => false),
-    hasCloudSttEntitlement: vi.fn(() => false),
     getEffectiveSubscriptionStatus: vi.fn((usageStatus: string | undefined, profile: { subscription_status?: string } | null | undefined) => usageStatus ?? profile?.subscription_status ?? 'free'),
 }));
 
@@ -223,14 +218,9 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
-    it('should trigger handleStartStop when elapsed time exceeds limit', async () => {
+    it('does not stop an entitled recording when accumulated usage exceeds former limits', async () => {
         const mockElapsedTime = 31;
         const mockLimit: UsageLimitCheck = {
-            daily_remaining: 30,
-            daily_limit: 3600,
-            monthly_remaining: 90000,
-            monthly_limit: 90000,
-            remaining_seconds: 30,
             can_start: true,
             subscription_status: 'free',
             is_pro: false,
@@ -286,19 +276,44 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             )
         });
 
-        await waitFor(() => {
-            expect(speechRuntimeController.stopRecording).toHaveBeenCalled();
-        }, { timeout: 2000 });
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+        expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
     });
 
-    it('caps a Private recording at 5 minutes / 300s (auto-stops past the per-recording cap, independent of budget)', async () => {
-        // #891 beta recording length = 5 min. Generous usage budget so ONLY the 5-min cap can trigger the stop.
+    /**
+     * #1089 review finding: `handleStartStop` is a TOGGLE. A backstop event arriving when nothing is
+     * recording (a late frame during teardown) would fall into its START branch and create exactly the
+     * stray recording this issue exists to eliminate. A stale event must be cleared, never toggled.
+     */
+    it('#1089: a stale capture-backstop event while Ready is cleared and NEVER starts a recording', async () => {
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            isListening: false,               // nothing is recording...
+            runtimeState: 'READY',
+            elapsedTime: 0,
+            startTime: null,
+            captureLimitReached: { bufferedSeconds: 900, limitSeconds: 900 }, // ...but the signal is set
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+
+        await waitFor(() => {
+            expect(mockStore.getState().captureLimitReached).toBeNull();
+        }, { timeout: 2000 });
+
+        expect(mockStartListening).not.toHaveBeenCalled();
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+        expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
+    });
+
+    it('caps a Private recording at 10 minutes / 600s (auto-stops past the per-recording cap, independent of budget)', async () => {
+        // The 10-minute technical safety cap is independent of commercial entitlement.
         const mockLimit: UsageLimitCheck = {
-            daily_remaining: 99999,
-            daily_limit: 99999,
-            monthly_remaining: 99999,
-            monthly_limit: 99999,
-            remaining_seconds: 99999,
             can_start: true,
             subscription_status: 'pro',
             is_pro: true,
@@ -307,8 +322,8 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',
             isListening: true,
-            elapsedTime: 301, // past the 300s (5-min) per-recording cap
-            startTime: Date.now() - 301000,
+            elapsedTime: 601, // past the 600s (10-min) per-recording cap
+            startTime: Date.now() - 601000,
         });
         (useSessionStore as unknown as Mock).mockImplementation(mockStore);
         (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
@@ -356,6 +371,125 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         }, { timeout: 2000 });
     });
 
+    /**
+     * #1089 REGRESSION — the observed stray 9-second session.
+     *
+     * A Private take auto-stopped at the cap. The runtime FSM returned to READY while the
+     * whole-utterance decode was still running, so the record control was live and labelled "Start".
+     * The user reached for Stop and instead began a SECOND recording, which they then stopped —
+     * producing a stray 9-second session and a "Ready to record" surface showing 00:09.
+     *
+     * Finalization is the authoritative gate: while it runs, no new recording may begin.
+     */
+    it('#1089: does NOT start a new recording while the previous take is still finalizing (stray-session repro)', async () => {
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            isListening: false,
+            runtimeState: 'READY',            // FSM already back to READY...
+            isTranscriptFinalizing: true,     // ...while the decode is still running
+            elapsedTime: 0,
+            startTime: null,
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+
+        // The control must be non-interactive for the WHOLE finalization window, not just STOPPING.
+        expect(result.current.isButtonDisabled).toBe(true);
+
+        // Defence in depth: even a direct invocation (UI bypass) must not start a recording.
+        await act(async () => {
+            await result.current.handleStartStop();
+        });
+        expect(mockStartListening).not.toHaveBeenCalled();
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+    });
+
+    /**
+     * #1089 — the hard capture backstop. Reaching it means the engine has STOPPED accepting audio.
+     * The old behaviour returned silently and kept showing "Recording" while the audio was discarded.
+     * The app must instead perform a controlled stop so everything captured before the guard is
+     * finalized and saved.
+     */
+    it('#1089: performs a controlled stop when the engine reports the capture backstop', async () => {
+        const generousLimit: UsageLimitCheck = {
+            can_start: true,
+            subscription_status: 'pro',
+            is_pro: true,
+            streak_count: 0,
+        };
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: generousLimit,
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            isListening: true,
+            runtimeState: 'RECORDING',
+            elapsedTime: 120,                 // well under the 600s cap — only the backstop can fire
+            startTime: Date.now() - 120000,
+            captureLimitReached: { bufferedSeconds: 900, limitSeconds: 900 },
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useSpeechRecognition).mockReturnValue({
+            transcript: baseTranscript,
+            chunks: [],
+            interimTranscript: '',
+            fillerData: { total: { count: 0, color: '' } },
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
+            isListening: true,
+            isReady: true,
+            isSupported: true,
+            error: null,
+            reset: mockReset,
+            pauseMetrics: basePauseMetrics,
+            modelLoadingProgress: null,
+            sttStatus: { type: 'recording', message: 'Speak now' },
+            mode: 'private',
+            micWarning: null,
+            micLevel: 0,
+            hasSpeechActivity: false,
+        });
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+
+        await waitFor(() => {
+            expect(speechRuntimeController.stopRecording).toHaveBeenCalled();
+        }, { timeout: 2000 });
+
+        // Provenance: the stop must be attributable to the CAPTURE BACKSTOP. Without this the test
+        // passes for any stop route (budget, cap, VAD) and proves nothing about the feature.
+        await waitFor(() => {
+            expect(mockStore.getState().setSTTStatus).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining('maximum recording length'),
+                }),
+            );
+        }, { timeout: 2000 });
+        // One-shot: a single backstop signal must not produce repeated stops.
+        expect(speechRuntimeController.stopRecording).toHaveBeenCalledTimes(1);
+
+        // vitest has no mockReset here, so restore the file default rather than leaking this
+        // generous budget into later tests (which would silently disable their 30s-limit stops).
+        vi.mocked(useUsageLimit).mockReturnValue(
+            mockUsageLimitQuery as unknown as UseQueryResult<UsageLimitCheck, Error>,
+        );
+    });
+
     it('should NOT trigger stop when time remains', () => {
         const mockStore = createTestSessionStore({
             elapsedTime: 25,
@@ -389,11 +523,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 30,
-                daily_limit: 3600,
-                monthly_remaining: 90000,
-                monthly_limit: 90000,
-                remaining_seconds: 30,
                 can_start: true,
                 subscription_status: 'free',
                 is_pro: false,
@@ -416,13 +545,8 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
     });
 
-    it('keeps enforcing the Private sample window (not the free daily limit) when availability flips false mid-recording', async () => {
-        // Regression for the #770 HOLD: once `private_sample_session_id` is set, the
-        // entitlement refetch returns private_sample_available=false while sample seconds
-        // remain. The countdown/auto-stop must keep using the sample's remaining seconds,
-        // NOT fall back to the free daily remaining (which would prematurely auto-stop the
-        // sample and pop the daily sunset modal).
-        const mockElapsedTime = 31; // past the 30s daily remaining, far under the 300s sample
+    it('ignores exhausted legacy sample fields for an entitled Private recording', async () => {
+        const mockElapsedTime = 31;
         const mockStore = createTestSessionStore({
             sttMode: 'private',
             isListening: true,
@@ -460,10 +584,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 can_start: true,
                 subscription_status: 'free',
                 is_pro: false,
-                remaining_seconds: 30,
-                daily_remaining: 30,
-                private_sample_available: false,        // flips false once session_id is set
-                private_sample_seconds_remaining: 300,  // sample still has the full window left
             },
             isLoading: false,
             isError: false,
@@ -479,17 +599,11 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             )
         });
 
-        // The daily sunset modal only fires for non-sample auto-stops. With the fix the
-        // sample window (300s) governs, so at 31s elapsed nothing stops and the modal stays
-        // closed. Pre-fix, sourceRemaining fell back to daily (30s) and popped it.
-        expect(mockStore.getState().sunsetModal.open).toBe(false);
-
-        // And it must not have auto-stopped the recording.
         await new Promise((resolve) => setTimeout(resolve, 50));
         expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
     });
 
-    it('should warn pro users when they are within five minutes of their daily practice limit', async () => {
+    it('does not show quota warnings for paid users above former accumulated limits', async () => {
         vi.mocked(useProfile).mockReturnValue({
             profile: {
                 id: 'test-user',
@@ -531,11 +645,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 300,
-                daily_limit: 7200,
-                monthly_remaining: 180000,
-                monthly_limit: 180000,
-                remaining_seconds: -1,
                 can_start: true,
                 subscription_status: 'pro',
                 is_pro: true,
@@ -555,15 +664,12 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             )
         });
 
-        await waitFor(() => {
-            expect(mockStore.getState().sttStatus).toEqual({
-                type: 'info',
-                message: "⚠️ Great practice! 5 minutes remaining for today's Pro practice limit."
-            });
-        });
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+        expect(mockStore.getState().sttStatus).toEqual({ type: 'idle', message: 'Ready to record' });
+        expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
     });
 
-    it('should honor can_start=false for stale Pro or unavailable sample users', async () => {
+    it('honors the canonical can_start=false entitlement result', async () => {
         vi.mocked(useProfile).mockReturnValue({
             profile: {
                 id: 'test-user',
@@ -575,16 +681,11 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 0,
-                daily_limit: 7200,
-                monthly_remaining: 0,
-                monthly_limit: 180000,
-                remaining_seconds: 0,
                 can_start: false,
                 subscription_status: 'free',
                 is_pro: false,
                 streak_count: 0,
-                error: 'Private sample unavailable'
+                error: 'Your trial has ended'
             },
             isLoading: false,
             isError: false,
@@ -615,7 +716,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
         expect(mockStore.getState().sttStatus).toEqual({
             type: 'error',
-            message: '⛔ Private sample unavailable'
+            message: '⛔ Your trial has ended'
         });
     });
 
@@ -644,11 +745,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 7200,
-                daily_limit: 7200,
-                monthly_remaining: 180000,
-                monthly_limit: 180000,
-                remaining_seconds: -1,
                 can_start: true,
                 subscription_status: 'pro',
                 is_pro: true,
@@ -710,11 +806,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 7200,
-                daily_limit: 7200,
-                monthly_remaining: 180000,
-                monthly_limit: 180000,
-                remaining_seconds: -1,
                 can_start: true,
                 subscription_status: 'pro',
                 is_pro: true,
@@ -850,14 +941,14 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
 
         await act(async () => {
-            await result.current.handleStartStop({ stopReason: 'Auto-stopped: your 5-minute sample ended.' });
+            await result.current.handleStartStop({ stopReason: 'Auto-stopped at the 10-minute recording cap.' });
         });
 
         // The warning + detail survive: neither the auto-stop stopReason nor the success copy replaced them.
         expect(mockStore.getState().sttStatus).toEqual(warning);
     });
 
-    it('should force downgraded users back to native mode and clear stale private errors', async () => {
+    it('keeps a downgraded/Free user on Private (Private is universal — never a Browser downgrade)', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',
             isListening: false,
@@ -878,11 +969,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 3600,
-                daily_limit: 3600,
-                monthly_remaining: 3600,
-                monthly_limit: 3600,
-                remaining_seconds: 3600,
                 can_start: true,
                 subscription_status: 'free',
                 is_pro: false,
@@ -904,15 +990,12 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
 
         await waitFor(() => {
-            expect(mockStore.getState().sttMode).toBe('native');
-            expect(mockStore.getState().sttStatus).toEqual({
-                type: 'ready',
-                message: 'Ready to record'
-            });
+            // #1184: Free uses Private like everyone — a Free account is never downgraded to Browser/native.
+            expect(mockStore.getState().sttMode).toBe('private');
         });
     });
 
-    it('should ignore legacy future trial timestamps when the server says the Private sample is unavailable', async () => {
+    it('keeps Private as the only customer engine when entitlement is inactive', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',
             isListening: false,
@@ -940,8 +1023,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 is_pro: false,
                 trial_active: false,
                 trial_seconds_remaining: 0,
-                private_sample_available: false,
-                private_sample_seconds_remaining: 0,
             },
             isLoading: false,
             isError: false,
@@ -958,18 +1039,11 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
 
         await waitFor(() => {
-            expect(mockStore.getState().sttMode).toBe('native');
-            expect(mockStore.getState().sttStatus).toEqual({
-                type: 'ready',
-                message: 'Ready to record'
-            });
+            expect(mockStore.getState().sttMode).toBe('private');
         });
     });
 
-    it('should allow a server-backed Private sample user to keep Private selected', async () => {
-        // Option A: the default is the instant Native path, but a user with an
-        // available Private sample who has SELECTED Private must not be forced
-        // back to Native.
+    it('keeps Private selected for an active-trial user', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',
             isListening: false,
@@ -994,12 +1068,8 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 can_start: true,
                 subscription_status: 'free',
                 is_pro: false,
-                trial_active: false,
-                trial_seconds_remaining: 0,
-                private_sample_available: true,
-                private_sample_limit_seconds: 300,
-                private_sample_seconds_used: 0,
-                private_sample_seconds_remaining: 300,
+                trial_active: true,
+                trial_seconds_remaining: 30 * 24 * 60 * 60,
             },
             isLoading: false,
             isError: false,
@@ -1020,10 +1090,9 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
-    it('should keep the implicit Native default for Pro users (Option A: no auto-promotion to Private)', async () => {
-        // Option A first-use trust fix: a fresh Pro user stays on the instant Browser/
-        // Native default and is NOT auto-promoted into the Private model-setup wall before
-        // their first transcript. Private remains an explicit user-selected mode.
+    it('promotes a default-native session to Private (Private is the only engine — #1184)', async () => {
+        // #1184: Private is the sole engine. A session still carrying the legacy 'native' default (not an
+        // explicit user choice) is promoted to Private, so no user is left on a retired Browser engine.
         const mockStore = createTestSessionStore({
             sttMode: 'native',
             isListening: false,
@@ -1043,11 +1112,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 7200,
-                daily_limit: 7200,
-                monthly_remaining: 180000,
-                monthly_limit: 180000,
-                remaining_seconds: -1,
                 can_start: true,
                 subscription_status: 'pro',
                 is_pro: true,
@@ -1068,7 +1132,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
 
         await waitFor(() => {
-            expect(mockStore.getState().sttMode).toBe('native');
+            expect(mockStore.getState().sttMode).toBe('private');
         });
     });
 
@@ -1097,11 +1161,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
-                daily_remaining: 7200,
-                daily_limit: 7200,
-                monthly_remaining: 180000,
-                monthly_limit: 180000,
-                remaining_seconds: -1,
                 can_start: true,
                 subscription_status: 'pro',
                 is_pro: true,
@@ -1167,8 +1226,153 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             },
         );
 
-        it('does not block Native mode regardless of data-model-status', () => {
-            expect(renderWithModelStatus('download-required', 'native', 'READY').current.isButtonDisabled).toBe(false);
+        // #1184: a plain 'native' session is now promoted to Private (Private is the only engine), so
+        // "native stays selectable" is no longer a real user state — the private-model gate above governs
+        // the mic. Native persisting only happens under the E2E force-native bridge, covered separately.
+    });
+});
+
+describe('useSessionLifecycle - engine-selection lock delegation (#1033 A)', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        const mockStore = createTestSessionStore({ sttMode: 'private' });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        vi.mocked(useProfile).mockReturnValue({
+            profile: { id: 'u', subscription_status: 'free', email: 'e@e.com' } as UserProfile,
+            isVerified: true,
         });
+    });
+
+    const renderIt = () => renderHook(() => useSessionLifecycle(), {
+        wrapper: ({ children }) => (<TranscriptionProvider>{children}</TranscriptionProvider>),
+    });
+
+    it('setMode routes through requestModeChange and does NOT apply when the controller rejects (locked)', () => {
+        vi.mocked(speechRuntimeController.requestModeChange).mockReturnValue({ accepted: false, reason: 'engine_selection_locked' });
+        const { result } = renderIt();
+        act(() => { result.current.setMode('native'); });
+        // delegated to the single authoritative decision — and it did NOT independently mutate anything
+        expect(speechRuntimeController.requestModeChange).toHaveBeenCalledWith('native', expect.objectContaining({ preferredMode: 'native' }));
+        expect(speechRuntimeController.updatePolicy).not.toHaveBeenCalled(); // no direct policy write bypassing the gate
+        expect(speechRuntimeController.syncForensicState).not.toHaveBeenCalled(); // early-returned before applying
+    });
+
+    it('setMode applies (syncForensicState) when the controller accepts', () => {
+        vi.mocked(speechRuntimeController.requestModeChange).mockReturnValue({ accepted: true });
+        const { result } = renderIt();
+        act(() => { result.current.setMode('native'); });
+        expect(speechRuntimeController.requestModeChange).toHaveBeenCalled();
+        expect(speechRuntimeController.syncForensicState).toHaveBeenCalled();
+    });
+});
+
+// #1258 EFFECT-LEVEL regression for the foreground-return reload (not just the predicate): drives the real
+// visibilitychange handler mounted by the hook. Reproduces the production condition (store sttMode === null →
+// effective 'private') and proves the reload is tied to an ACTUAL controller-owned reclamation TOKEN — a mere
+// tab switch (token unchanged) never reloads, and each real reclamation reloads exactly once.
+describe('useSessionLifecycle - foreground-return reload after reclamation (#1258)', () => {
+    const setVisibility = (state: 'visible' | 'hidden') => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+        act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    };
+    // Simulate the controller-owned reclamation token advancing because a real idle reclamation happened.
+    const setReclamationGen = (n: number) => {
+        vi.mocked(speechRuntimeController.getIdleReclamationGeneration as Mock).mockReturnValue(n);
+    };
+
+    let mockStore: ReturnType<typeof createTestSessionStore>;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        setVisibility('visible');
+        // The exact production condition: the store leaves sttMode UNSET (null).
+        mockStore = createTestSessionStore(); // sttMode defaults to null
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        vi.mocked(useProfile).mockReturnValue({
+            profile: { id: 'u', subscription_status: 'free', email: 'e@e.com' } as UserProfile,
+            isVerified: true,
+        });
+        setReclamationGen(0); // no reclamation has happened yet at mount
+        vi.mocked(speechRuntimeController.warmUp).mockResolvedValue(undefined); // reset any prior rejection impl
+    });
+
+    afterEach(() => setVisibility('visible'));
+
+    const renderIt = () => renderHook(() => useSessionLifecycle(), {
+        wrapper: ({ children }) => (<TranscriptionProvider>{children}</TranscriptionProvider>),
+    });
+
+    it('reloads with effective private mode after a REAL reclamation, even though the store sttMode is null', () => {
+        renderIt(); // mount observes token=0
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
+
+        setReclamationGen(1); // a genuine idle reclamation occurred while the tab was away
+        setVisibility('visible'); // user returns
+
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(1);
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledWith('private');
+    });
+
+    it('does NOT reload on a quick tab switch that reclaimed nothing (token unchanged)', () => {
+        renderIt();
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
+
+        // Token stays 0 — no reclamation. A hide→show tab switch must not reload.
+        setVisibility('hidden');
+        setVisibility('visible');
+
+        expect(speechRuntimeController.warmUp).not.toHaveBeenCalled();
+    });
+
+    it('issues EXACTLY ONE reload per reclamation across repeated visible events', () => {
+        renderIt();
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
+
+        setReclamationGen(1);
+        setVisibility('visible'); // consumes token 1 → 1 reload
+        setVisibility('visible'); // same token → no re-issue
+        setVisibility('visible');
+
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(1);
+    });
+
+    it('reloads again only when a NEW reclamation advances the token', () => {
+        renderIt();
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
+
+        setReclamationGen(1);
+        setVisibility('visible'); // reload for reclamation #1
+        setReclamationGen(2);      // a second genuine reclamation
+        setVisibility('visible'); // reload for reclamation #2
+
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(2);
+    });
+
+    it('surfaces the Private setup retry UI when the reload FAILS, and does not loop', async () => {
+        vi.mocked(speechRuntimeController.warmUp).mockRejectedValueOnce(new Error('reload boom'));
+        renderIt();
+        vi.mocked(speechRuntimeController.warmUp).mockClear();
+        vi.mocked(speechRuntimeController.warmUp).mockRejectedValue(new Error('reload boom'));
+
+        setReclamationGen(1);
+        await act(async () => {
+            setVisibility('visible');   // triggers the (failing) reload
+            await Promise.resolve();    // let the rejection .catch run
+        });
+
+        // Exactly one reload attempt (the consumed token prevents auto-looping)…
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(1);
+        // …and the failure surfaces the existing Private retry UI instead of being swallowed.
+        expect(mockStore.getState().setSTTStatus).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'init-failed' }),
+        );
+
+        // A repeat visible event with the SAME token must not retry automatically.
+        setVisibility('visible');
+        expect(speechRuntimeController.warmUp).toHaveBeenCalledTimes(1);
     });
 });

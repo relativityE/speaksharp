@@ -6,6 +6,9 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+// #1262 — single coverage-threshold authority, shared with scripts/merge-coverage.mjs so the local gate
+// and the CI (sharded) gate can never drift apart.
+import { toVitestThresholds } from '../scripts/coverage-thresholds.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,7 +40,12 @@ export default defineConfig({
       'frontend/tests/**/*.test.{js,jsx,ts,tsx}',
       'tests/**/*.test.{js,jsx,ts,tsx}'
     ],
-    exclude: ['node_modules/', 'dist/', 'build/', '**/*.spec.{ts,tsx}'],
+    // `test-support/worktrees/**` holds OTHER branches' full checkouts (each with its own tests/ tree and
+    // node_modules). They must never be collected by this suite: their tests describe different code at a
+    // different commit, so any result from them — pass or fail — is misattributed to this branch. The
+    // root-anchored `include` above already excludes them; this is defence in depth for the day someone
+    // widens a glob to `**/`.
+    exclude: ['node_modules/', 'dist/', 'build/', '**/*.spec.{ts,tsx}', 'test-support/**', '**/test-support/**'],
     setupFiles: [
       path.resolve(__dirname, './tests/setup.ts')
     ],
@@ -80,72 +88,24 @@ export default defineConfig({
       // Floor raised 60 -> 75 to lock in current actual coverage (~76.5% lines/stmts, 77.8%
       // functions, 80.2% branches) so regressions are caught. Branches held at 75 (not 80) for
       // headroom; a future sprint can target 80. CI fails with the exact shortfall message.
-      thresholds: {
-        statements: 75,
-        branches: 75,
-        functions: 75,
-        lines: 75,
-        'frontend/src/services/transcription/ModelManager.ts': {
-          statements: 75,
-          branches: 75,
-          functions: 70,
-          lines: 75,
-        },
-        'frontend/src/services/transcription/engines/transformers-js.worker.ts': {
-          statements: 80,
-          branches: 60,
-          functions: 75,
-          lines: 80,
-        },
-        'frontend/src/services/transcription/modes/NativeBrowser.ts': {
-          statements: 55,
-          branches: 45,
-          functions: 40,
-          lines: 55,
-        },
-        'frontend/src/services/transcription/modes/nativeBrowserStrategies.ts': {
-          statements: 90,
-          branches: 85,
-          functions: 90,
-          lines: 90,
-        },
-        'frontend/src/services/transcription/utils/AudioProcessor.ts': {
-          statements: 65,
-          branches: 85,
-          functions: 75,
-          lines: 65,
-        },
-        'frontend/src/services/transcription/utils/audio-processor.worker.ts': {
-          statements: 60,
-          branches: 80,
-          functions: 75,
-          lines: 60,
-        },
-        'frontend/src/utils/sessionAnalysis.ts': {
-          statements: 80,
-          branches: 65,
-          functions: 70,
-          lines: 80,
-        },
-        'frontend/src/utils/fillerWordUtils.ts': {
-          statements: 75,
-          branches: 90,
-          functions: 65,
-          lines: 75,
-        },
-      },
+      // NOTE: We only apply thresholds if CI_SHARD_MODE is not true. In shard mode, each shard
+      // only tests a subset of files, so it would falsely fail coverage thresholds — the merged gate in
+      // scripts/merge-coverage.mjs enforces them instead, from the SAME shared authority.
+      thresholds: process.env.CI_SHARD_MODE === 'true' ? undefined : toVitestThresholds(),
     },
 
-    // ✅ KEY CHANGE: Use maxForks, NOT singleFork
-    // On CI: 1 fork (sequential, low memory)
-    // Locally: 3 forks (parallel, faster)
-    // ✅ SOLUTION: Process Isolation
-    // Each test file runs in its own process, ensuring fresh React/Zustand state.
+    // Process isolation: each test file runs in its own fork so React/Zustand state is fresh.
+    //
+    // CI-PERF: fork count is ENV-CONTROLLED via VITEST_MAX_FORKS (default 1).
+    // It was previously hardcoded to 1 under a comment claiming "Locally: 3 forks" — the code never
+    // did that, and sequential execution is the single largest cost in the full-coverage job.
+    // Raise deliberately (VITEST_MAX_FORKS=2) and prove memory/isolation stability before going higher;
+    // resource-heavy STT suites can still be pinned back to 1 by setting the variable.
     pool: 'forks',
     poolOptions: {
       forks: {
         isolate: true,
-        maxForks: 1, // Phase 1: Strict sequential execution
+        maxForks: Number(process.env.VITEST_MAX_FORKS) > 0 ? Number(process.env.VITEST_MAX_FORKS) : 1,
         execArgv: ['--max-old-space-size=4096']
       }
     },

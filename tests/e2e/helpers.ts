@@ -7,6 +7,7 @@
  */
 
 import { type Locator, type Page, expect } from '@playwright/test';
+import { isExpectedAuthLanding, DEFAULT_AUTH_LANDING, type ExpectedAuthLanding } from './canaryLanding';
 import { setupE2EManifest, type E2EWindow } from './helpers/setupE2EManifest';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
 import { createMockSession } from '../../frontend/src/mocks/test-user-utils';
@@ -217,14 +218,13 @@ export async function waitForRouteControls(page: Page, route: string, timeout: n
 
     await expect(sessionPage).toBeVisible({ timeout });
 
-    const recordingCard = page.getByTestId('live-recording-card');
-    await expect(recordingCard).toBeVisible({ timeout });
-    await expect(recordingCard.getByTestId('stt-mode-select')).toBeVisible({ timeout });
-
-    const startStopControls = page.locator(
-      '[data-testid="session-start-stop-button"], [data-testid="session-start-stop-button-mobile"]'
-    );
-    await expect(startStopControls.first()).toBeVisible({ timeout });
+    // #1222: the session page is the Private-only overhaul shell. The recorder surface is the fixed shell
+    // plus the before-state mic card (or the recorder bar once recording) — there is no engine selector and
+    // start/stop are split (`mic-start` / `recorder-stop`).
+    await expect(page.getByTestId('session-shell')).toBeVisible({ timeout });
+    await expect(
+      page.getByTestId('mic-card').or(page.getByTestId('recorder-bar')),
+    ).toBeVisible({ timeout });
     return;
   }
 
@@ -272,7 +272,22 @@ export async function openSessionDetailFromHistoryItem(page: Page, historyItem: 
 
 
 // 4. Auth & Readiness Helpers (Section 7)
-export async function canaryLogin(page: Page, email?: string, password?: string) {
+/**
+ * Real login for the canary.
+ *
+ * `expectedPath` is the REQUIRED post-login destination and defaults to `/practice` — the authenticated
+ * default for an ordinary login with no requested deep-link (the rollout flag was retired in #1022, and
+ * the canary had retained the pre-/practice assertion). A caller that intentionally begins from a
+ * protected deep-link must pass its explicit destination (e.g. `'/session'`, or `ANALYTICS_SESSION_LANDING`
+ * for `/analytics/:sessionId`). The match is exact (string) or pattern (RegExp) — NEVER a broad
+ * "any authenticated route", so a regression that lands an ordinary login on /session or /analytics fails.
+ */
+export async function canaryLogin(
+  page: Page,
+  email?: string,
+  password?: string,
+  expectedPath: ExpectedAuthLanding = DEFAULT_AUTH_LANDING,
+) {
   if (!email || !password) {
     throw new Error('[CANARY] Missing credentials for canaryLogin');
   }
@@ -283,7 +298,15 @@ export async function canaryLogin(page: Page, email?: string, password?: string)
   await page.getByLabel(/password/i).fill(password);
   await page.getByRole('button', { name: /sign in|log in/i }).click();
 
-  await expect(page).toHaveURL(/\/(session|analytics)/, { timeout: 30000 });
+  // Poll the redirect until it settles on the REQUIRED destination (exact string / RegExp) — never a
+  // broad any-authenticated-route match. On timeout the message names the expected path; the trace/URL
+  // shows where it actually landed.
+  await expect
+    .poll(() => isExpectedAuthLanding(new URL(page.url()).pathname, expectedPath), {
+      message: `[CANARY] ordinary login must land on ${String(expectedPath)} (the authenticated default), not any other authenticated route`,
+      timeout: 30000,
+    })
+    .toBe(true);
   await waitForAppReady(page);
 }
 
@@ -380,10 +403,14 @@ export async function programmaticLoginWithRoutes(
   options: {
     projectRef?: string;
     supabaseUrl?: string;
-    userType?: 'free' | 'basic' | 'pro';
+    userType?: 'free' | 'pro';
     emptySessions?: boolean;
     debug?: boolean;
     mockProfile?: Record<string, unknown>;
+    /** #1047: seed a specific saved-session set (e.g. transcript_state variants). */
+    sessions?: Partial<import('../support/factories/session.factory').MockSession>[];
+    /** #1047 U3: seed Progress rows into the authoritative in-browser Supabase test client. */
+    progressFixtures?: import('./helpers/setupE2EManifest').ProgressFixtures;
   } = {}
 ) {
   const {
@@ -392,7 +419,9 @@ export async function programmaticLoginWithRoutes(
     userType = 'free',
     emptySessions = false,
     debug = false,
-    mockProfile
+    mockProfile,
+    sessions,
+    progressFixtures,
   } = options;
   let projectRef = optRef || 'yxlapjuovrsvjswkwnrk';
   const supabaseUrl = optUrl || process.env.VITE_SUPABASE_URL;
@@ -419,7 +448,7 @@ export async function programmaticLoginWithRoutes(
   };
 
   const { setupE2EMocks } = await import('./mock-routes');
-  await setupE2EMocks(page, { userType, emptySessions, profile: mockProfile });
+  await setupE2EMocks(page, { userType, emptySessions, profile: mockProfile, sessions });
 
   setupBrowserLogging(page);
   setupNetworkTracking(page);
@@ -432,6 +461,10 @@ export async function programmaticLoginWithRoutes(
     userType,
     mockProfile,
     emptySessions,
+    // #1047: the app (mock engine) reads sessions from the manifest's in-browser DB, so the seed must reach
+    // HERE — not only the page.route layer — to appear in getSessionHistory / the /analytics/:id detail.
+    sessions,
+    progressFixtures,
     storage: authStorage
   });
 
@@ -445,7 +478,7 @@ export async function verifyCredentialsAndInjectSession(
   page: Page,
   email: string,
   password: string,
-  userType: 'free' | 'basic' | 'pro' = 'pro'
+  userType: 'free' | 'pro' = 'pro'
 ) {
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
@@ -553,11 +586,42 @@ export async function mockLiveTranscript(
   await simulateTranscription(page, lastPayload, true);
 }
 
-export async function selectTranscriptionEngine(page: Page, mode: 'native' | 'cloud' | 'private') {
-  const select = page.getByTestId('stt-mode-select');
-  await select.click();
-  const option = page.getByTestId(`stt-mode-${mode}`);
-  await option.click();
+/**
+ * #1184: Private is the ONLY transcription engine — the Private/Browser/Cloud selector was removed, so
+ * there is nothing to choose. The recorder card now shows a static Private indicator (the default and
+ * only engine). This helper is retained as a single honest checkpoint that the session is on Private;
+ * the `mode` parameter defaults to 'private' and any stale caller asking for another engine fails loud.
+ */
+export async function selectTranscriptionEngine(page: Page, mode: 'private' = 'private') {
+  if (mode !== 'private') {
+    throw new Error(`[#1184] Private is the only engine — cannot select '${mode}'. Update this test to the Private-only surface.`);
+  }
+  // #1222: the session page is Private-only with NO engine selector — the recorder surface itself is the
+  // confirmation. On the new page the before-state mic card (`mic-card`) is the Private recorder; there is
+  // nothing to select. Confirm the recorder surface is present (mic card before, or the recorder bar once
+  // recording), rather than the removed `stt-mode-select`.
+  await expect(
+    page.getByTestId('mic-card').or(page.getByTestId('recorder-bar')),
+  ).toBeVisible({ timeout: 15_000 });
+}
+
+/**
+ * #1231: start a recording on the new session page. Start (before-state `mic-start`) and stop
+ * (during-state `recorder-stop`) are SPLIT — there is no single toggle and no `data-recording` attribute.
+ * Recording state is read from the runtime signal + the shell's `data-session-state`.
+ */
+export async function startRecording(page: Page) {
+  await waitForModelReady(page);
+  await page.getByTestId('mic-start').click();
+  await Promise.race([
+    page.waitForSelector('html[data-runtime-state="RECORDING"]', { timeout: 15_000 }),
+    page.waitForSelector('[data-testid="session-shell"][data-session-state="during"]', { timeout: 15_000 }),
+  ]);
+}
+
+/** #1231: stop the active recording (during-state `recorder-stop`). Callers assert the post-save surfaces. */
+export async function stopRecording(page: Page) {
+  await page.getByTestId('recorder-stop').click();
 }
 
 export async function waitForToast(page: Page, message: string | RegExp) {

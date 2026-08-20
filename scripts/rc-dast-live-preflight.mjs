@@ -27,12 +27,12 @@ const groups = [
   },
   {
     label: 'Free test email',
-    alternatives: ['FREE_TEST_EMAIL', 'E2E_FREE_EMAIL', 'BASIC_TEST_EMAIL', 'E2E_BASIC_EMAIL'],
+    alternatives: ['FREE_TEST_EMAIL', 'E2E_FREE_EMAIL'],
     reason: 'proves Free-tier live mode restrictions and custom word persistence',
   },
   {
     label: 'Free test password',
-    alternatives: ['FREE_TEST_PASSWORD', 'E2E_FREE_PASSWORD', 'BASIC_TEST_PASSWORD', 'E2E_BASIC_PASSWORD'],
+    alternatives: ['FREE_TEST_PASSWORD', 'E2E_FREE_PASSWORD'],
     reason: 'signs in the Free live test user',
   },
   {

@@ -1,20 +1,39 @@
 import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
 import { computeWasmThreadCount, getHardwareThreads, isCrossOriginIsolated } from '../utils/wasmThreads';
 import { createProgressAggregator, type ProgressEvent } from './progressAggregator';
+import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
 
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
 type WhisperDecodeOptions = Record<string, unknown>;
 
 type WorkerRequest =
     | { id: number; type: 'init'; isE2E: boolean; model?: { key: string; localId: string; remoteId: string } }
-    | { id: number; type: 'transcribe'; audio: Float32Array; decodeOptions?: WhisperDecodeOptions }
+    | { id: number; type: 'transcribe'; audio: Float32Array; decodeOptions?: WhisperDecodeOptions; captureEvidence?: boolean }
     | { id: number; type: 'destroy' };
 
 type WorkerResponse =
     | { id: number; type: 'ready' }
     | { id: number; type: 'progress'; progress: number }
-    | { id: number; type: 'loaded'; loadTimeMs: number; model: string; device: string; threads: number; crossOriginIsolated: boolean }
-    | { id: number; type: 'result'; transcript: string; latencyMs: number; audioLengthSeconds: number; resultShape: string }
+    | {
+        id: number;
+        type: 'loaded';
+        loadTimeMs: number;
+        model: string;
+        device: string;
+        requestedThreads: number | null;
+        configuredThreads: number | null;
+        workerReportedThreads: null;
+        crossOriginIsolated: boolean;
+      }
+    | {
+        id: number;
+        type: 'result';
+        transcript: string;
+        latencyMs: number;
+        audioLengthSeconds: number;
+        resultShape: string;
+        inputEvidence?: { sha256: string; samples: number; bytes: number };
+      }
     | { id: number; type: 'destroyed' }
     | { id: number; type: 'error'; errorName: string; errorMessage: string };
 
@@ -26,6 +45,12 @@ interface TranscriptionResult {
 let transcriber: Pipeline | null = null;
 
 const WARMUP_AUDIO_SECONDS = 1;
+
+async function sha256Float32(audio: Float32Array): Promise<string> {
+    const bytes = new Uint8Array(audio.buffer, audio.byteOffset, audio.byteLength);
+    const digest = await crypto.subtle.digest('SHA-256', bytes.slice().buffer);
+    return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
 
 async function warmUpTranscriber(): Promise<void> {
     if (!transcriber) return;
@@ -74,18 +99,24 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
     // policy degrades to 1 thread (the guaranteed CPU floor) when isolation is
     // unavailable, so this is safe everywhere. Telemetry below reports the actual
     // device/threads so release proof can confirm which CPU tier ran.
-    let cpuThreads = 1;
+    let requestedThreads: number | null = null;
+    let configuredThreads: number | null = null;
     const cpuIsolated = isCrossOriginIsolated();
     try {
         const wasmBackend = env.backends?.onnx?.wasm;
         if (wasmBackend) {
-            cpuThreads = computeWasmThreadCount(cpuIsolated, getHardwareThreads());
-            wasmBackend.numThreads = cpuThreads;
+            wasmBackend.wasmPaths = TRANSFORMERS_V2_WASM_PATH_PREFIX;
+            const desiredThreads = computeWasmThreadCount(cpuIsolated, getHardwareThreads());
+            requestedThreads = desiredThreads;
+            wasmBackend.numThreads = desiredThreads;
             wasmBackend.simd = true;
+            configuredThreads = desiredThreads;
         }
     } catch {
-        // Non-fatal: fall back to library defaults (single-threaded).
-        cpuThreads = 1;
+        // Non-fatal: the library may continue with its defaults, but those
+        // defaults are not observable here. Never relabel an unknown runtime
+        // configuration as explicit single-thread evidence.
+        configuredThreads = null;
     }
 
     // MAXDEPTH FIX (Part 4): whisper-base.en is a SPLIT model (separate encoder +
@@ -131,15 +162,26 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
         type: 'loaded',
         loadTimeMs: Math.round(performance.now() - loadStart),
         model: loadedModelKey,
-        device: cpuThreads > 1 ? 'wasm-multithread' : 'wasm-singlethread',
-        threads: cpuThreads,
+        device: configuredThreads == null
+            ? 'wasm-default-unverified'
+            : configuredThreads > 1 ? 'wasm-multithread' : 'wasm-singlethread',
+        requestedThreads,
+        configuredThreads,
+        // ORT v1.14 accepts numThreads configuration but does not expose an
+        // independent effective-thread count. Never relabel configuration as proof.
+        workerReportedThreads: null,
         crossOriginIsolated: cpuIsolated,
     });
     await warmUpTranscriber();
     post({ id, type: 'ready' });
 }
 
-async function transcribe(id: number, audio: Float32Array, decodeOptions?: WhisperDecodeOptions): Promise<void> {
+async function transcribe(
+    id: number,
+    audio: Float32Array,
+    decodeOptions?: WhisperDecodeOptions,
+    captureEvidence = false,
+): Promise<void> {
     if (!transcriber) {
         throw new Error('TransformersJS worker engine not initialized. Call init() first.');
     }
@@ -153,6 +195,13 @@ async function transcribe(id: number, audio: Float32Array, decodeOptions?: Whisp
     };
     Object.assign(options, decodeOptions);
 
+    // Hash only when the dedicated evidence harness explicitly opts in. Ordinary
+    // Private sessions avoid the full-buffer copy and digest cost entirely.
+    const inputEvidence = captureEvidence ? {
+        sha256: await sha256Float32(audio),
+        samples: audio.length,
+        bytes: audio.byteLength,
+    } : undefined;
     const result = await (transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options);
     const transcript = typeof result === 'string'
         ? result
@@ -165,6 +214,7 @@ async function transcribe(id: number, audio: Float32Array, decodeOptions?: Whisp
         latencyMs: Math.round(performance.now() - start),
         audioLengthSeconds,
         resultShape: typeof result === 'string' ? 'string' : Object.keys(result).sort().join(','),
+        ...(inputEvidence ? { inputEvidence } : {}),
     });
 }
 
@@ -177,7 +227,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
                     await init(request.id, request.isE2E, request.model);
                     break;
                 case 'transcribe':
-                    await transcribe(request.id, request.audio, request.decodeOptions);
+                    await transcribe(request.id, request.audio, request.decodeOptions, request.captureEvidence);
                     break;
                 case 'destroy':
                     transcriber = null;

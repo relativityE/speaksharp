@@ -20,8 +20,9 @@ export type SessionRow = Database['public']['Tables']['sessions']['Row'];
 export interface MockSession extends Omit<SessionRow, 'filler_words' | 'ai_suggestions' | 'pause_metrics'> {
     filler_words: Record<string, { count: number }>;
     ai_suggestions?: {
-        summary: string;
-        suggestions: Array<{ title: string; description: string }>;
+        version: 'gemini_coaching_v1';
+        what_worked: string;
+        what_to_try_next: string;
     } | null;
     pause_metrics?: {
         silencePercentage: number;
@@ -33,6 +34,10 @@ export interface MockSession extends Omit<SessionRow, 'filler_words' | 'ai_sugge
     // Explicitly casting types that are strings in DB but enums in app
     engine: STTEngine | null;
     status: SessionStatus | null;
+
+    // #1047 PR-U1 server-owned transcript state. Not yet in the generated Database types, so declared here.
+    // Defaults are DERIVED from transcript presence unless a test sets it explicitly.
+    transcript_state?: 'available' | 'expired' | 'not_captured';
 }
 
 /**
@@ -43,8 +48,8 @@ export function createMockSession(
     overrides: Partial<MockSession> = {}
 ): MockSession {
     const now = new Date().toISOString();
-    
-    return {
+
+    const merged = {
         id: crypto.randomUUID(),
         user_id: 'mock-user-id',
         title: 'Test Session',
@@ -74,7 +79,15 @@ export function createMockSession(
         // Optional UI fields
         ai_suggestions: null,
         pause_metrics: null,
-        
+
         ...overrides,
-    };
+    } as MockSession;
+    // #1047 PR-U1: derive transcript_state from the (possibly overridden) transcript unless set explicitly,
+    // so existing fixtures stay correct (non-blank → available) without any per-test change.
+    if (merged.transcript_state === undefined) {
+        merged.transcript_state = typeof merged.transcript === 'string' && merged.transcript.trim().length > 0
+            ? 'available'
+            : 'not_captured';
+    }
+    return merged;
 }

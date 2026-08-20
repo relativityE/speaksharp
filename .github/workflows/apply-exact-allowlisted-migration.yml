@@ -1,0 +1,257 @@
+name: Apply one allowlisted migration (exact)
+
+# One target per dispatch. Checked-in ordering, hashes, and classification keep every unselected pending
+# migration apply-invisible. Source merge never authorizes a dispatch or production mutation.
+on:
+  workflow_dispatch:
+    inputs:
+      target_version:
+        description: 'One checked-in migration target'
+        required: true
+        type: choice
+        options:
+          - '20260811143000'
+          - '20260812030000'
+          - '20260812039500'
+          - '20260812040000'
+          - '20260812041000'
+          - '20260812041500'
+          - '20260812041600'
+          - '20260819120000'
+          - '20260812042000'
+      expected_head_sha:
+        description: 'Exact 40-character main SHA authorized by the Product Owner'
+        required: true
+        type: string
+      confirm:
+        description: 'Exact allowlist-derived phrase, including filename, SHA-256, and main SHA'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: production-database-migrations
+  cancel-in-progress: false
+
+jobs:
+  apply-one-allowlisted-migration:
+    environment: production-db
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GH_TOKEN: ${{ github.token }}
+      SELECTED_TARGET_VERSION: ${{ inputs.target_version }}
+    steps:
+      - name: Checkout the dispatched commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Validate exact main identity and authorization phrase
+        env:
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          CONFIRM: ${{ inputs.confirm }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RESOLVED_SHA: ${{ github.sha }}
+          RESOLVED_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          sha_re='^[0-9a-f]{40}$'
+          [[ "$EXPECTED_HEAD_SHA" =~ $sha_re ]] || { echo '::error::expected_head_sha must be a full lowercase SHA'; exit 1; }
+          [ "$RESOLVED_REF" = "$DEFAULT_BRANCH" ] || { echo '::error::workflow must be dispatched from the default branch'; exit 1; }
+          [ "$RESOLVED_SHA" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::dispatch resolved a different SHA'; exit 1; }
+          expected_phrase="$(node scripts/exact-migration-gate.mjs phrase "$EXPECTED_HEAD_SHA" | jq -r '.phrase')"
+          [ "$CONFIRM" = "$expected_phrase" ] || { echo '::error::exact allowlist-derived authorization phrase missing'; exit 1; }
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
+          [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced before execution'; exit 1; }
+
+          for status in in_progress queued waiting pending requested; do
+            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=$status&per_page=100")"
+            others="$(jq --argjson current "$GITHUB_RUN_ID" '[.workflow_runs[] | select(.id != $current) | select(.name == "Deploy Supabase" or .name == "Apply webhook DB prerequisite (exact migration)" or .name == "Apply one allowlisted migration (exact)" or .name == "Migrations Preflight (read-only)")] | length' <<<"$runs")"
+            [ "$others" = '0' ] || { echo '::error::another migration-capable or migration-preflight workflow is active or pending'; exit 1; }
+          done
+
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: 2.101.0
+
+      - name: Verify checked-in allowlist and source identities
+        id: contract
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          contract="$(node ../../scripts/exact-migration-gate.mjs source .)"
+          echo "$contract"
+          echo "target_version=$(jq -r '.targetVersion' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "target_file=$(jq -r '.targetFile' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "target_sha256=$(jq -r '.targetSha256' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "classification=$(jq -r '.classification' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "requires_include_all=$(jq -r '.requiresIncludeAll' <<<"$contract")" >> "$GITHUB_OUTPUT"
+          echo "excluded_versions=$(jq -r '.excludedVersions | join(" ")' <<<"$contract")" >> "$GITHUB_OUTPUT"
+
+      - name: Establish exact pre-apply state
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$SUPABASE_PROJECT_ID"
+          supabase migration list 2>&1 | tee "$RUNNER_TEMP/migrations-before.txt"
+          node ../../scripts/exact-migration-gate.mjs before "$RUNNER_TEMP/migrations-before.txt"
+
+      - name: Establish read-only production lint baseline
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase db lint --linked --schema public --level warning 2>&1 | tee "$RUNNER_TEMP/lint-before.txt"
+
+      - name: Build isolated target-only migration workspace
+        run: |
+          set -euo pipefail
+          node scripts/exact-migration-gate.mjs prepare-workspace backend/supabase "$RUNNER_TEMP"
+
+      - name: Prove dry-run is target-only
+        working-directory: ${{ runner.temp }}/exact-backend
+        run: |
+          set -euo pipefail
+          push_args=()
+          if [ '${{ steps.contract.outputs.requires_include_all }}' = 'true' ]; then
+            push_args+=(--include-all)
+          fi
+          supabase link --project-ref "$SUPABASE_PROJECT_ID"
+          supabase db push --dry-run "${push_args[@]}" 2>&1 | tee "$RUNNER_TEMP/exact-dry-run.txt"
+          node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" dry-run "$RUNNER_TEMP/exact-dry-run.txt"
+
+      - name: Revalidate main immediately before apply
+        env:
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
+          [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced after dry-run'; exit 1; }
+
+      - name: Preflight #1314 postflight credentials (before the irreversible apply)
+        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          [ -n "${SUPABASE_URL:-}" ] || missing+=(SUPABASE_URL)
+          [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || missing+=(SUPABASE_SERVICE_ROLE_KEY)
+          [ -n "${SUPABASE_PROJECT_ID:-}" ] || missing+=(SUPABASE_PROJECT_ID)
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::#1314 postflight credentials missing BEFORE apply: ${missing[*]} — refusing to apply, as the postflight could not run"
+            exit 1
+          fi
+          echo "#1314 postflight credentials present"
+
+      - name: Apply the exact reviewed migration
+        id: apply
+        continue-on-error: true
+        working-directory: ${{ runner.temp }}/exact-backend
+        run: |
+          set -euo pipefail
+          push_args=()
+          if [ '${{ steps.contract.outputs.requires_include_all }}' = 'true' ]; then
+            push_args+=(--include-all)
+          fi
+          supabase db push --yes "${push_args[@]}"
+
+      - name: Verify target applied and every unselected pending migration remained pending
+        id: verify
+        if: ${{ always() && steps.apply.outcome != 'skipped' }}
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase migration list 2>&1 | tee "$RUNNER_TEMP/migrations-after.txt"
+          node ../../scripts/exact-migration-gate.mjs after "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"
+
+      - name: Verify migration introduced no production lint change
+        id: lint_verify
+        if: ${{ always() && steps.apply.outcome != 'skipped' }}
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase db lint --linked --schema public --level warning 2>&1 | tee "$RUNNER_TEMP/lint-after.txt"
+          node ../../scripts/exact-migration-gate.mjs lint-delta "$RUNNER_TEMP/lint-before.txt" "$RUNNER_TEMP/lint-after.txt"
+
+      # #1314-KEYED POSTFLIGHT. The generic gate above verifies the migration LIST (which migrations are
+      # pending/applied); it does NOT verify the objects, ACLs, trigger or PostgREST resolution this migration is
+      # reviewed to produce. For the #1314 migration specifically, run the SAME mutation-proven postflight gate
+      # used by the disposable proof, then confirm the PostgREST reload, against the linked production database.
+      # Read-only: the gate issues SELECTs; the reload probe sends a full-args call with a NONEXISTENT session id
+      # (an empty {} cannot resolve an RPC that has no defaultable p_session_id — that was a false-green probe).
+      - name: Enforce reviewed #1314 operation (postflight gate + reload proof)
+        id: postflight_1314
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          DB_URL="postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.${SUPABASE_PROJECT_ID}.supabase.co:5432/postgres?sslmode=require"
+          # 1) postflight gate (read-only SELECTs) against the linked production DB.
+          DB_URL="$DB_URL" bash scripts/postflight-gate-1314.sh after
+          # 2) reload PostgREST and CONFIRM resolution — FAIL-CLOSED. `{}` cannot resolve an RPC that has no
+          #    defaultable p_session_id, so we send the FULL arg set with a nonexistent session id. A RESOLVED
+          #    function returns the frozen non-mutating contract: HTTP 200 with a body containing
+          #    "profile_not_found" (auth.uid() has no profile for the service-role token) OR "session_not_found".
+          #    Anything else — curl/network failure, non-200, PGRST202, malformed/empty body, any other error —
+          #    is a FAILURE. Absence-of-PGRST202 is NOT sufficient.
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -qAtc "NOTIFY pgrst, 'reload schema';"
+          BOGUS='{"p_session_id":"00000000-0000-0000-0000-000000000000","p_status":"completed","p_final_duration":1,"p_reason":null,"p_next_action":null,"p_total_words":null,"p_clarity_score":null,"p_wpm":null,"p_filler_counts":null,"p_pause_metrics":null,"p_final_transcript":null}'
+          ok=no
+          for i in $(seq 1 15); do
+            code=$(curl -sS -o /tmp/probe.json -w '%{http_code}' \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H 'Content-Type: application/json' \
+              -X POST "${SUPABASE_URL}/rest/v1/rpc/complete_session_v2" -d "$BOGUS") || { sleep 2; continue; }
+            # Shared fail-closed decision (scripts/postgrest-reload-confirmed.sh), mutation-tested.
+            if bash scripts/postgrest-reload-confirmed.sh "$code" /tmp/probe.json; then ok=yes; break; fi
+            sleep 2
+          done
+          if [ "$ok" != yes ]; then
+            echo "::error::reload probe did not observe the frozen resolved-function response (last http=$code, body: $(head -c 200 /tmp/probe.json))"
+            exit 1
+          fi
+          echo "postflight gate + reload proof passed on production"
+
+      - name: Require #1314 postflight when applicable
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') }}
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.postflight_1314.outcome }}'
+          if [ "$outcome" != 'success' ]; then
+            echo "::error::#1314 applied but its postflight gate outcome was '$outcome' (must be success)"
+            exit 1
+          fi
+          echo "#1314 postflight enforced: success"
+
+      - name: Require unambiguous exact-operation success
+        id: terminal
+        if: always()
+        run: node scripts/exact-migration-gate.mjs final "${{ steps.apply.outcome }}" "${{ steps.verify.outcome }}" "${{ steps.lint_verify.outcome }}" "${{ steps.postflight_1314.outcome }}"
+
+      - name: Publish sanitized result
+        if: always()
+        run: |
+          echo '## Exact allowlisted migration gate' >> "$GITHUB_STEP_SUMMARY"
+          echo "- Checked-out SHA: \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Authorized target: \`${{ steps.contract.outputs.target_version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Filename: \`${{ steps.contract.outputs.target_file }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SHA-256: \`${{ steps.contract.outputs.target_sha256 }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Classification: \`${{ steps.contract.outputs.classification }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Isolated out-of-order flag required: \`${{ steps.contract.outputs.requires_include_all }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Excluded pending migrations: \`${{ steps.contract.outputs.excluded_versions }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Apply step outcome: \`${{ steps.apply.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Post-apply verification outcome: \`${{ steps.verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Baseline-relative lint outcome: \`${{ steps.lint_verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Terminal exact-operation gate: \`${{ steps.terminal.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo '- The selected migration is the only authorized mutation. `--include-all` is permitted only for the isolated #1276 target and must be disclosed by its exact authorization phrase. No repair, broad-directory application, Edge deployment, payment configuration, or secrets/config change is performed.' >> "$GITHUB_STEP_SUMMARY"

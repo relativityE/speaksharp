@@ -59,7 +59,9 @@ const NATIVE_PUNCTUATION_RESTORE_DEFAULT = true;
 export function isNativePunctuationRestoreEnabled(): boolean {
   let override: unknown;
   try {
-    override = (import.meta as unknown as { env?: Record<string, unknown> })?.env?.VITE_NATIVE_PUNCTUATION_RESTORE;
+    // DIRECT static access — casting import.meta / optional-chaining `?.env` defeats Vite's static
+    // replacement and inlines the WHOLE env object (incl. the Vercel deploy SHA) into this chunk.
+    override = import.meta.env.VITE_NATIVE_PUNCTUATION_RESTORE;
   } catch {
     override = undefined;
   }

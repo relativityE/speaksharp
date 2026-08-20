@@ -3,6 +3,7 @@ import posthog from 'posthog-js';
 import * as Sentry from "@sentry/react";
 import logger from '../lib/logger';
 import { redactTranscript } from '../lib/logRedaction';
+import { sanitizePrivateTelemetryProps } from './transcription/privateTelemetry';
 
 
 /**
@@ -189,8 +190,17 @@ class AnalyticsBuffer {
    */
   private send(event: AnalyticsEvent): void {
     try {
+      // #1259 P2 — SECOND redaction boundary for Private events. The first boundary is the emitter
+      // allowlist (`sanitizePrivateTelemetryProps`). Here, at the send boundary,
+      // any `private_*` event's props are re-projected through that SAME allowlist, so a Private event can
+      // never carry a non-allowlisted field even if a caller bypassed the emitter. Non-Private events use
+      // the general transcript/audio key redaction.
+      const isPrivateEvent = event.event.startsWith('private_');
+      const sanitized = isPrivateEvent
+        ? sanitizePrivateTelemetryProps(event.properties)
+        : sanitizeAnalyticsProperties(event.properties);
       posthog.capture(event.event, {
-        ...sanitizeAnalyticsProperties(event.properties),
+        ...sanitized,
         $priority: event.priority,
         $ts: event.timestamp
       });

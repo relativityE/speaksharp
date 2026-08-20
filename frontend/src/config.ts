@@ -17,10 +17,18 @@ export const FILLER_WORD_KEYS = {
   SORT_OF: 'Sort Of',
 } as const;
 
-// NOTE: session/usage limits are NOT defined here. The authoritative source is the DB
-// `tier_configs` reconciled with `constants/subscriptionTiers.ts` (Pro = 7200s/day, NOT
-// unlimited). A former `SESSION_LIMITS` constant here was dead code carrying a stale
-// "unlimited for pro users" claim; it was removed to avoid drift from the real limits.
+// #1046 filler two-tier (reviewer-approved): only three of the tracked words are TRUE, non-lexical
+// fillers ("hesitation sounds") — um/uh/ah (uh also matches er). The other ten are DISCOURSE MARKERS
+// (like/so/actually/…) that are legitimate in most speech; flagging every occurrence produced false
+// coaching (e.g. reading "…who is actually in the arena…"). Coaching is gated to true fillers + the
+// user's own words unless a discourse marker is genuinely overused (see the coaching guard in
+// liveCoaching). 3 true + 10 discourse = the 13 tracked patterns.
+export const TRUE_FILLER_WORDS: readonly string[] = [FILLER_WORD_KEYS.UM, FILLER_WORD_KEYS.UH, FILLER_WORD_KEYS.AH];
+export const DISCOURSE_MARKER_WORDS: readonly string[] = [
+  FILLER_WORD_KEYS.LIKE, FILLER_WORD_KEYS.YOU_KNOW, FILLER_WORD_KEYS.SO, FILLER_WORD_KEYS.ACTUALLY,
+  FILLER_WORD_KEYS.OH, FILLER_WORD_KEYS.I_MEAN, FILLER_WORD_KEYS.BASICALLY, FILLER_WORD_KEYS.LITERALLY,
+  FILLER_WORD_KEYS.KIND_OF, FILLER_WORD_KEYS.SORT_OF,
+];
 
 // Pause detection configuration
 export const PAUSE_DETECTION = {
@@ -42,16 +50,6 @@ export const AUDIO_CONFIG = {
 
 export const API_CONFIG = {
   ASSEMBLYAI_TOKEN_ENDPOINT: 'assemblyai-token',
-} as const;
-
-export const SUBSCRIPTION_LIMITS = {
-  FREE_MONTHLY_MINUTES: 30,
-  BASIC_MONTHLY_MINUTES: 30,
-} as const;
-
-export const FREE_PLAN_SUPPORT_CONFIG = {
-  // Soft release keeps free-plan support surfaces dark until explicitly enabled.
-  ENABLE_FREE_PLAN_SUPPORT: import.meta.env.VITE_ENABLE_FREE_PLAN_SUPPORT === 'true',
 } as const;
 
 export const STT_CONFIG = {

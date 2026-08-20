@@ -4,6 +4,8 @@ import { AnalyticsPage } from '../AnalyticsPage';
 import * as AnalyticsHook from '../../hooks/useAnalytics';
 import * as AuthProvider from '../../contexts/AuthProvider';
 import * as UserProfileHook from '@/hooks/useUserProfile';
+import * as conversionFunnel from '@/services/conversionFunnel';
+import { enablePaymentsForTest } from '../../../tests/support/payments';
 
 // Mock modules
 vi.mock('../../hooks/useAnalytics');
@@ -177,7 +179,21 @@ describe('AnalyticsPage', () => {
     });
 
     describe('Upgrade Banner', () => {
-        it('should render upgrade banner for Free users on dashboard', () => {
+        it('renders NO upgrade banner and emits NO checkout_started for a Free user when payments are disabled (beta default)', () => {
+            const checkoutSpy = vi.spyOn(conversionFunnel, 'trackCheckoutStarted');
+            mockUseUserProfile.mockReturnValue({
+                data: { subscription_status: 'free' },
+                isLoading: false,
+                error: null,
+            } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
+
+            renderAnalyticsPage('/analytics'); // no opt-in → fail-closed default
+            expect(screen.queryByTestId('analytics-page-upgrade-button')).not.toBeInTheDocument();
+            expect(checkoutSpy).not.toHaveBeenCalled();
+        });
+
+        it('should render upgrade banner for Free users on dashboard (payments enabled — local opt-in)', () => {
+            enablePaymentsForTest();
             mockUseUserProfile.mockReturnValue({
                 data: { subscription_status: 'free' },
                 isLoading: false,
@@ -187,7 +203,7 @@ describe('AnalyticsPage', () => {
             renderAnalyticsPage('/analytics');
             expect(screen.getByTestId('analytics-page-upgrade-button')).toBeInTheDocument();
             expect(screen.getByText(/turn practice into progress/i)).toBeInTheDocument();
-            expect(screen.getByText(/pro adds private local transcription/i)).toBeInTheDocument();
+            expect(screen.getByText(/is free for 30 days, then \$10\/month to continue\. Private transcription is on-device for everyone/i)).toBeInTheDocument();
         });
 
         it('should NOT render upgrade banner for pro users', () => {

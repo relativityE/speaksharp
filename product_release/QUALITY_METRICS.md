@@ -1,3 +1,7 @@
+> **Status:** Historical — superseded
+> **Not authoritative for:** current product policy or GO/HOLD gates.
+> **Current authority:** [`QUALITY.md`](./QUALITY.md).
+
 # SpeakSharp Quality Metrics
 
 This is the canonical release-facing alias for software quality metrics.

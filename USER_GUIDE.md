@@ -1,85 +1,53 @@
-# 🎙️ SpeakSharp User Guide
+# SpeakSharp User Guide
 
-Welcome to SpeakSharp! This guide will help you get the most out of your real-time speech analysis coach. Whether you're preparing for a keynote, a job interview, or a team meeting, SpeakSharp is here to help you communicate with confidence.
+SpeakSharp is one Private Practice product. Open Mic is the primary practice flow; Focus Points adds an
+optional brief when you want specific guidance.
 
----
+## Quick start
 
-## 🚀 Quick Start
+1. Create an account. The complete product is free for 30 days.
+2. Open **Practice** and choose **Open Mic** or **Focus Points**.
+3. Allow microphone access and complete the one-time Private model setup if prompted.
+4. Start recording. Your audio is transcribed on this device.
+5. Stop to save the session and review transcript, pace, filler words, coaching, History, and Progress.
 
-1.  **Sign Up:** Create an account at [speaksharp-public.vercel.app/auth/signup](https://speaksharp-public.vercel.app/auth/signup). New accounts include a one-hour Pro trial automatically.
-2.  **Grant Microphone Access:** When you start your first session, your browser will ask for permission to use your microphone. Click **Allow**.
-3.  **Start Recording:** Click the **"Start Session"** button and begin speaking.
-4.  **Real-Time Feedback:** Watch your transcript appear live, along with real-time stats like your current **WPM (Words Per Minute)** and **Filler Word Count**.
-5.  **Finish & Analyze:** Click **"Stop Session"** to save your recording and view your detailed analysis.
+Each recording has a ten-minute technical cap. Active-trial and paid accounts have no accumulated daily or
+monthly recording-minute gate.
 
----
+## Open Mic and Focus Points
 
-## 🎙️ Recording Best Practices
+- **Open Mic** is a clean, freeform take.
+- **Focus Points** lets you enter a topic and points to cover. Detection indicates whether those points were
+  heard; it does not judge truth or quality.
+- Starting a new Open Mic take clears completed Focus Points review state from the new recording.
 
-To get the most accurate analysis, follow these tips:
+## Your 30-day trial and subscription
 
-*   **Quiet Environment:** Minimize background noise (fans, air conditioning, distant chatter).
-*   **Good Microphone:** While laptop mics work, a dedicated headset or USB microphone significantly improves transcription accuracy.
-*   **Natural Pace:** Speak as you would in a real setting. Our AI is designed to handle natural conversational flow.
-*   **Browser Selection:** For the best experience, we recommend using **Chrome** or **Edge**, which have superior built-in Speech Recognition support.
+The complete product is free for 30 days. After the trial, the same product costs **$10/month**—there is no
+feature-limited permanent free plan and no paid feature tier.
 
----
+At exact expiry, you cannot create or analyze a new recording until you subscribe. You can still read prior
+sessions, History and Progress; export reports; manage or delete your account; and upgrade.
 
-## 📊 Understanding Your Analytics
+Payments remain unavailable until SpeakSharp separately activates the commercial configuration. An
+unavailable checkout never grants access.
 
-After every session, SpeakSharp provides a deep dive into your speaking patterns:
+## Privacy
 
-### 1. Clarity Score
-A score from 0-100% based primarily on your filler word usage. 
-*   **90%+**: Professional and polished.
-*   **75-90%**: Good conversational clarity.
-*   **Under 75%**: Consider slowing down and focusing on pausing instead of using "um" or "uh".
+Customer recordings use on-device Private transcription. Audio is not sent to a transcription provider.
+Saved transcripts and derived practice metrics follow the retention terms described in the Privacy Policy.
 
-### 2. Speaking Pace (WPM)
-*   **Slow (<110 WPM)**: May sound overly cautious or tentative.
-*   **Ideal (110-150 WPM)**: The "Sweet Spot" for presentations and meetings.
-*   **Fast (>160 WPM)**: Can be difficult for audiences to follow. Try adding more pauses.
+## Recording tips
 
-### 3. Filler Word Analysis
-We track "um", "uh", "like", "so", and "you know". Our **Top 2 Filler Words** indicator helps you identify your most frequent crutch words so you can intentionally phase them out.
+- Use a quiet room and a close microphone.
+- Speak naturally; pauses are useful.
+- Chrome or Edge provide the most consistently tested experience.
+- If the on-device model cannot initialize, retry setup or report the issue; SpeakSharp does not silently
+  switch customer audio to another transcription engine.
 
----
+## Analytics
 
-## 💎 Basic vs. Pro Plans
+After each saved session, SpeakSharp shows speaking pace, filler-word counts, transcript, and one next action.
+Progress compares like with like: Open Mic history remains separate from Focus Points history.
 
-| Feature | Basic | Pro |
-| :--- | :--- | :--- |
-| **Daily Practice** | 1 Hour | **Unlimited** |
-| **Cloud AI Transcription** | ❌ No | ✅ **High Accuracy** |
-| **On-Device (Privacy) Mode** | ❌ No | ✅ **Enabled** |
-| **User Filler Words** | 100 Words | **100 Words** |
-| **PDF Exports** | ✅ Yes | ✅ **Priority Support** |
-
----
-
-## ❓ Frequently Asked Questions
-
-**Q: Is my audio stored?**
-A: We take privacy seriously. If you use **Pro: On-Device Mode**, your audio never leaves your computer. For other modes, audio is processed in real-time and deleted immediately after transcription.
-
-**Q: Can I use SpeakSharp on my phone?**
-A: Yes! SpeakSharp is a responsive web app. For the best "on-the-go" experience, add it to your home screen!
-
-**Q: How do I upgrade to Pro?**
-A: Navigate to your **Settings** or click the **"Upgrade to Pro"** button in the top navigation bar.
-
----
-
-## 🧪 Special Instructions for Early Testers
-
-Early tester access is automatic for new accounts.
-
-1.  Navigate to the [Sign Up page](https://speaksharp-public.vercel.app/auth/signup).
-2.  Create a fresh account.
-3.  Your one-hour Pro trial starts automatically after account creation.
-
-> **Note:** Once the trial expires, your account follows the standard Basic tier limits.
-
----
-
-*Need more help? Join our community or contact support at support@speaksharp.app.*
+For support, use **Report issue** inside SpeakSharp.

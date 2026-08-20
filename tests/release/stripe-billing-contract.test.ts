@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const readRepoFile = (...parts: string[]) =>
   readFileSync(resolve(process.cwd(), ...parts), 'utf8');
@@ -15,6 +16,53 @@ describe('paid soft-launch billing contract', () => {
     expect(workflow).toMatch(/supabase functions deploy stripe-billing-portal/);
     expect(config).toMatch(/\[functions\.stripe-billing-portal\]/);
     expect(config).toMatch(/functions\/stripe-billing-portal\/index\.ts/);
+  });
+
+  it('parameterizes Edge deployment by explicit use case without coupling migrations', () => {
+    const reusable = readRepoFile('.github', 'workflows', 'deploy-supabase-migrations.yml');
+    const releaseCaller = readRepoFile('.github', 'workflows', 'deploy-supabase-edge-release.yml');
+    const scopeValidator = readRepoFile('scripts', 'validate-edge-deploy-scope.sh');
+
+    expect(reusable).toMatch(/workflow_call:[\s\S]*deploy_edge_functions:[\s\S]*type: boolean[\s\S]*required: true/);
+    expect(reusable).not.toMatch(/deploy_edge_functions:[\s\S]{0,120}default:/);
+    expect(reusable).not.toMatch(/edge_changes_present:\s*[\s\S]{0,80}type: boolean/);
+    expect(scopeValidator).toMatch(/Edge source\/shared configuration changed but deploy_edge_functions=false/);
+    expect(reusable).toMatch(/git diff --name-only "\$BEFORE_SHA" "\$HEAD_SHA"/);
+    expect(reusable).toMatch(/deploy-edge-functions:[\s\S]*needs: \[validate-edge-configuration, deploy-production-db\][\s\S]*deploy_edge_functions == 'true'/);
+    expect(reusable).toMatch(/needs\.deploy-production-db\.result == 'success'/);
+    expect(reusable).toMatch(/verify-edge-functions:[\s\S]*deploy_edge_functions == 'true'/);
+    expect(releaseCaller).toMatch(/uses: \.\/\.github\/workflows\/deploy-supabase-migrations\.yml/);
+    expect(releaseCaller).toMatch(/deploy_edge_functions: true/);
+    expect(releaseCaller).toMatch(/backend\/supabase\/functions\/\*\*/);
+    expect(releaseCaller).not.toMatch(/tests\/|docs\/|frontend\//);
+    expect(releaseCaller).not.toMatch(/- ['"]\.github\/workflows\//);
+    expect(releaseCaller).not.toMatch(/- ['"]scripts\/validate-edge-deploy-scope\.sh/);
+
+    // Migration/secrets decisions remain tied to the explicit operation, not the Edge Boolean.
+    expect(reusable).toMatch(/inputs\.operation == 'migrations'/);
+    expect(reusable).toMatch(/inputs\.operation == 'secrets'/);
+    expect(reusable).toMatch(/inputs\.confirm/);
+
+    const validate = (paths: string[], deployEdge: boolean) => spawnSync(
+      'bash',
+      [resolve(process.cwd(), 'scripts', 'validate-edge-deploy-scope.sh'), String(deployEdge)],
+      { input: `${paths.join('\n')}\n`, encoding: 'utf8' },
+    );
+    expect(validate(['backend/supabase/functions/get-ai-suggestions/index.ts'], false).status).toBe(1);
+    expect(validate(['backend/supabase/config.toml'], false).status).toBe(1);
+    expect(validate(['backend/supabase/import_map.json'], false).status).toBe(1);
+    expect(validate([
+      'tests/unit/example.test.ts',
+      'docs/release.md',
+      'frontend/src/App.tsx',
+      '.github/workflows/deploy-supabase-migrations.yml',
+      '.github/workflows/deploy-supabase-edge-release.yml',
+      'scripts/validate-edge-deploy-scope.sh',
+    ], false).status).toBe(0);
+    expect(validate(['backend/supabase/functions/get-ai-suggestions/index.ts'], true).status).toBe(0);
+
+    expect(reusable.match(/supabase functions deploy attest-session-engine /g)).toHaveLength(1);
+    expect(reusable.match(/for function_name in[^\n]*attest-session-engine/g)).toHaveLength(1);
   });
 
   it('persists Stripe customer ids through the webhook RPC contract', () => {

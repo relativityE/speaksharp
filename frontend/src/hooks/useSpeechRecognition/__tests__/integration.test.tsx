@@ -200,14 +200,21 @@ describe('useSpeechRecognition Integration', () => {
             service!.simulateTranscript('Final State', true);
         });
 
-        // 4. Stop — must capture the transcript emitted above, not a stale value
+        // #1306 Option A: while recording/finalizing, the LATEST emitted transcript is captured and visible
+        // (this is the no-stale-closure guarantee — a stale capture would show an earlier/empty value).
+        await waitForAsync(() => {
+            expect(result.current.transcript.transcript).toBe('Final State.');
+        });
+
+        // 4. Stop — captures the latest transcript for metrics, then purges the ephemeral working memory.
         await act(async () => {
             await result.current.stopListening();
         });
 
-        // 5. Assert — the stop handler must have captured 'Final State'
+        // 5. Assert — after terminal finalization the transcript is PURGED from the store (metrics-only review;
+        // no transcript text is retained). The capture above proves the stop consumed the latest, not a stale, value.
         await waitForAsync(() => {
-            expect(result.current.transcript.transcript).toBe('Final State.');
+            expect(result.current.transcript.transcript).toBe('');
         });
     });
 
@@ -235,7 +242,7 @@ describe('useSpeechRecognition Integration', () => {
         expect(status.message).toBe('Microphone access is denied. Please grant permission in your browser settings.');
     });
 
-    it('should capture usage limit exceeded state mid-session', async () => {
+    it('should capture an entitlement denial state mid-session', async () => {
         const { result } = renderHookWithProviders(
             () => useSpeechRecognition(),
             { store: speechRuntimeController.getStore() }
@@ -252,7 +259,7 @@ describe('useSpeechRecognition Integration', () => {
             if (currentService) {
                 currentService.simulateStatusChange({
                     type: 'error',
-                    message: 'Daily usage limit reached'
+                    message: 'Your trial has ended'
                 });
             }
         });
@@ -260,7 +267,7 @@ describe('useSpeechRecognition Integration', () => {
         await waitForAsync(() => {
             const status = result.current.sttStatus;
             expect(status.type).toBe('error');
-            expect(status.message).toBe('Daily usage limit reached');
+            expect(status.message).toBe('Your trial has ended');
         });
     });
 
@@ -309,7 +316,8 @@ describe('useSpeechRecognition Integration', () => {
         await act(async () => { });
 
         await act(async () => {
-            await speechRuntimeController.warmUp('native');
+            // #1184: Private is the only engine — warm Private (this test exercises buffer/flush, not the engine).
+            await speechRuntimeController.warmUp('private');
         });
 
         await waitForReady();
@@ -344,12 +352,17 @@ describe('useSpeechRecognition Integration', () => {
         });
     });
 
-    it('should reclaim resources after 5 minutes of inactivity', async () => {
+    it('should reclaim resources after 5 minutes of BACKGROUND inactivity (#1258)', async () => {
         vi.useFakeTimers();
         const resetSpy = vi.spyOn(speechRuntimeController, 'reset');
 
         speechRuntimeController.reset();
         expect(speechRuntimeController.getState()).toBe('IDLE');
+
+        // #1258: a ready Private engine is PRESERVED while the session page is foreground (so `mic-start` is
+        // never reclaimed out from under a waiting user — the deployed-canary hang). Resource reclamation is
+        // retained, but only after genuine BACKGROUND inactivity, so background the page for this assertion.
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
 
         await act(async () => {
             await speechRuntimeController.warmUp();
@@ -359,6 +372,7 @@ describe('useSpeechRecognition Integration', () => {
 
         expect(resetSpy).toHaveBeenCalled();
 
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
         vi.useRealTimers();
     });
 });

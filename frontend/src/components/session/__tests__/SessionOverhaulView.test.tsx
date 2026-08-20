@@ -1,0 +1,345 @@
+import { render, screen } from '../../../../tests/support/test-utils';
+import { fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { SessionOverhaulView, type SessionOverhaulViewProps } from '../SessionOverhaulView';
+import type { SttStatus } from '@/types/transcription';
+import type { FillerCounts } from '@/utils/fillerWordUtils';
+
+const base: SessionOverhaulViewProps = {
+    authUserId: 'user-1',
+    isListening: false,
+    sttStatus: { type: 'idle' } as SttStatus,
+    elapsedTime: 0,
+    micLevel: 0,
+    transcriptContent: '',
+    showAnalyticsPrompt: false,
+    metricsFillerCount: 0,
+    onStartStop: vi.fn(),
+    history: [],
+};
+
+// #1222 S11 — the view maps the live runtime onto the correct state through the shared shell.
+describe('SessionOverhaulView (#1222 S11)', () => {
+    it('idle runtime → before state (mic + prompt offer) through the shell', () => {
+        render(<SessionOverhaulView {...base} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        expect(screen.getByTestId('mic-card')).toBeInTheDocument();
+        expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
+        expect(screen.getByTestId('comparable-progress-notice')).toHaveTextContent('No universal score');
+    });
+
+    it('listening runtime → during state (recorder bar + live transcript)', () => {
+        render(<SessionOverhaulView {...base} isListening transcriptContent="so um hello" elapsedTime={30} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
+        expect(screen.getByTestId('recorder-bar')).toBeInTheDocument();
+        expect(screen.getByTestId('live-transcript')).toBeInTheDocument();
+        expect(screen.getAllByTestId('live-filler').length).toBeGreaterThan(0); // "um" highlighted
+    });
+
+    it('stopped runtime → after state, transcript-only (no audio play/time)', () => {
+        render(<SessionOverhaulView {...base} showAnalyticsPrompt transcriptContent="so um hello" />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+        expect(screen.getByTestId('playback-scrubber')).toBeInTheDocument();
+        // Transcript-only: no audio playback affordances.
+        expect(screen.queryByTestId('scrubber-play')).toBeNull();
+        expect(screen.queryByTestId('scrubber-time')).toBeNull();
+        // Open Mic retains the filler legend, but no inert seek/playback control is exposed.
+        expect(screen.getByTestId('scrubber-legend')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /seek/i })).toBeNull();
+    });
+
+    // PO 2026-08-10: the post-Stop FINALIZING window must resolve to `after`, never `before` — otherwise the
+    // "Not sure what to say?" prompt offer flashed back AND the captured mic envelope got wiped (flat waveform).
+    it('finalizing (stopped, decode running, analytics not yet shown) resolves to AFTER, not the offer', () => {
+        render(<SessionOverhaulView {...base} isFinalizing showAnalyticsPrompt={false} transcriptContent="so um hello" />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+        expect(screen.getByTestId('playback-scrubber')).toBeInTheDocument();
+        // The before-state prompt offer must NOT appear during finalizing.
+        expect(screen.queryByTestId('prompt-offer')).toBeNull();
+    });
+
+    it('a mic-permission error keeps the before state and surfaces the error in the mic card', () => {
+        render(<SessionOverhaulView {...base} sttStatus={{ type: 'error', message: 'Mic blocked' } as SttStatus} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        expect(screen.getByTestId('mic-error')).toHaveTextContent('Mic blocked');
+    });
+
+    // #1306 Option A: at the terminal review the transcript/chunks are purged and the live fillerData is zeroed
+    // by the useFillerWords sync. The review MUST render the FINAL snapshot (breakdown + counts + words) instead
+    // of recounting the (empty) transcript — proving the metrics-only review needs no retained transcript.
+    it('renders the FINALIZED filler/word snapshot in the after-state with the transcript purged', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                showAnalyticsPrompt
+                transcriptContent=""                    /* transcript purged at terminal */
+                metricsFillerCount={0}                    /* live headline zeroed after purge */
+                fillerData={{} as unknown as FillerCounts} /* live fillerData zeroed by the useFillerWords sync */
+                finalizedWordCount={14}
+                finalizedFillerData={{ um: { count: 3 }, like: { count: 2 }, total: { count: 5 } } as unknown as FillerCounts}
+            />,
+        );
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+        // Breakdown renders from the snapshot (NOT the empty live data / purged transcript).
+        expect(screen.getByTestId('filler-breakdown-list')).toBeInTheDocument();
+        expect(screen.queryByTestId('filler-breakdown-empty')).toBeNull();
+        const words = screen.getAllByTestId('filler-breakdown-word').map((w) => w.getAttribute('data-word'));
+        // #1314 C3 (PM ruling): true fillers are preserved and discourse markers ("like") are EXCLUDED from
+        // the chips AND the total, so both come from one map and agree: um×3 = 3, and "like" is not a chip.
+        expect(words).toEqual(['um']);
+        expect(screen.getByTestId('after-stats')).toHaveTextContent('3 fillers · 14 words');
+    });
+});
+
+// #1314 C3 — the filler total and the per-word chips must never contradict: both derive from ONE
+// validated snapshot, and the displayed total is the sum of the rendered chips. Reproduces the actual
+// defect sequence (independent sources feed the count vs the breakdown).
+describe('SessionOverhaulView filler consistency (#1314 C3)', () => {
+    const afterProps = {
+        showAnalyticsPrompt: true,
+        transcriptContent: '',
+        metricsFillerCount: 0,
+        fillerData: {} as unknown as FillerCounts,
+        finalizedWordCount: 20,
+    };
+    function renderedTotal(): number {
+        const stats = screen.getByTestId('after-stats').textContent || '';
+        const m = stats.match(/(\d+)\s+fillers/);
+        return m ? Number(m[1]) : NaN;
+    }
+    function renderedChipSum(): number {
+        return screen.queryAllByTestId('filler-breakdown-count')
+            .reduce((sum, el) => sum + Number((el.textContent || '').replace(/[^0-9]/g, '')), 0);
+    }
+
+    it('displayed total equals the sum of the rendered chips (measured nonzero)', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                {...afterProps}
+                finalizedFillerData={{ um: { count: 2 }, like: { count: 1 }, total: { count: 9 } } as unknown as FillerCounts}
+            />,
+        );
+        expect(renderedChipSum()).toBe(2); // um(2) only; discourse "like" excluded from chips and total
+        expect(renderedTotal()).toBe(renderedChipSum());
+    });
+
+    it('measured zero renders zero with no chips', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                {...afterProps}
+                finalizedFillerData={{} as unknown as FillerCounts}
+            />,
+        );
+        expect(screen.getByTestId('filler-breakdown-empty')).toBeInTheDocument();
+        expect(renderedTotal()).toBe(0);
+    });
+
+    it('unavailable snapshot makes no numeric filler claim', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                {...afterProps}
+                finalizedFillerData={null}
+            />,
+        );
+        expect(screen.getByTestId('after-stats').textContent || '').not.toMatch(/\d+\s+fillers/);
+    });
+});
+
+// #1046 Focus Points — a distinct product on the shared shell (spec: "slots are shared; semantics are
+// not"). A bound brief (objectivePoints) turns slot C into live coverage, slot D into the points, strips
+// the prompt offer + filler chrome, and highlights coverage in the transcript. Coverage is derived from
+// the transcript by the local keyword matcher, so these tests drive it with real covering text.
+describe('SessionOverhaulView Focus Points (#1046)', () => {
+    const POINTS = ['Name the price', 'State the guarantee'];
+
+    // #1255: Focus Points `before` renders the fixed Slot C (guide-only Coverage & pace), like Open Mic.
+    it('objective before (no guide) → Slot C Coverage & pace = 0/N points covered, NO pace half; rail present', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={POINTS} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        expect(screen.getByTestId('session-slot-c')).toContainElement(screen.getByTestId('coverage-pace'));
+        // Dominant numerator 0, smaller denominator /2 as SEPARATE elements.
+        expect(screen.getByTestId('coverage-pace-covered')).toHaveTextContent('0');
+        expect(screen.getByTestId('coverage-pace-total')).toHaveTextContent('/2');
+        expect(screen.getByTestId('coverage-pace-covered').className).toContain('text-[40px]');
+        expect(screen.getByTestId('coverage-pace-total').className).toContain('text-[26px]');
+        // No guide → no pace half at all; and NEVER a measured/current pace, projection, bar, or nudge.
+        for (const id of ['coverage-pace-guide', 'coverage-pace-planned', 'coverage-pace-perpoint', 'coverage-pace-projection', 'coverage-pace-bar', 'coverage-pace-nudge']) {
+            expect(screen.queryByTestId(id)).toBeNull();
+        }
+        expect(screen.queryByText(/current pace|at this pace/i)).toBeNull();
+        expect(screen.getByTestId('focus-points-rail')).toBeInTheDocument();
+        expect(screen.getByTestId('focus-point-0')).toHaveTextContent('Name the price');
+        expect(screen.queryByTestId('prompt-offer')).toBeNull();
+        // Slot D owns the ordered list; it must NOT repeat the aggregate fraction.
+        expect(screen.queryByText(/of 2 points covered/i)).toBeNull();
+    });
+
+    it('objective before WITH a pace guide → guide value + "pace guide" + planned total; never a measured pace/projection', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={POINTS} objectivePaceGuideSecPerPoint={60} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        const guide = screen.getByTestId('coverage-pace-guide');
+        expect(guide).toHaveTextContent('1:00');
+        expect(guide).toHaveTextContent('/point');
+        expect(guide).toHaveTextContent(/pace guide/i);
+        expect(guide).not.toHaveTextContent(/current pace/i);
+        expect(screen.getByTestId('coverage-pace-planned')).toHaveTextContent('2:00 guide'); // 60s guide × 2 points
+        expect(screen.getByTestId('coverage-pace-covered')).toHaveTextContent('0');
+        // No measured pace, projection, progress bar, countdown, over-guide, or nudge before recording.
+        for (const id of ['coverage-pace-perpoint', 'coverage-pace-projection', 'coverage-pace-bar', 'coverage-pace-nudge']) {
+            expect(screen.queryByTestId(id)).toBeNull();
+        }
+        expect(screen.queryByText(/current pace|at this pace|actual|remaining|left\b/i)).toBeNull();
+    });
+
+    it('objective during → Coverage & pace shows the count and a covered point ticks in slot D', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={POINTS} isListening transcriptContent="I will name the price now." elapsedTime={20} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'covered');
+        expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
+    });
+
+    it('objective after → coverage count, missed-point reason, retry + delivery strip', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={POINTS} showAnalyticsPrompt transcriptContent="I will name the price now." elapsedTime={84} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        // §Duplication acceptance check: the coverage fraction appears EXACTLY ONCE (Slot C). The transcript
+        // header must NOT repeat it as a second "n of m points covered" scoreboard.
+        expect(screen.queryByText(/of 2 points covered/i)).toBeNull();
+        // The missed point is the most important line — it names the honest cause + the forward move.
+        expect(screen.getByTestId('focus-point-1-not-detected')).toBeInTheDocument();
+        expect(screen.getByTestId('focus-points-retry')).toBeInTheDocument();
+        expect(screen.getByTestId('focus-delivery-strip')).toBeInTheDocument();
+        expect(screen.queryByTestId('scrubber-legend')).toBeNull();
+        expect(screen.queryByRole('button', { name: /seek/i })).toBeNull();
+        expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
+    });
+
+    it('no brief (Open Mic) → no coverage/pace card / points rail; the prompt offer is present', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={null} />);
+        expect(screen.queryByTestId('coverage-pace')).toBeNull();
+        expect(screen.queryByTestId('focus-points-rail')).toBeNull();
+        expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
+    });
+
+    // #1046 G6/G7 — on save the LIVE brief is cleared (isolation invariant), so the after-state must fall
+    // back to the finished-brief SNAPSHOT or the whole FP review screen (coverage card, delivery strip,
+    // highlights) silently reverts to the generic Open-Mic screen. This is the bug the width-regression
+    // e2e caught in the real save→render flow.
+    it('objective after via the completed SNAPSHOT (live brief cleared on save) → FP review still renders', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={null}
+                completedObjectivePoints={POINTS}
+                showAnalyticsPrompt
+                transcriptContent="I will name the price now."
+                elapsedTime={84}
+            />,
+        );
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('focus-delivery-strip')).toBeInTheDocument();
+        expect(screen.getByTestId('focus-points-rail')).toBeInTheDocument();
+    });
+
+    // Isolation: the snapshot must NEVER make a fresh before/during session look like Focus Points — only
+    // the after-state consults it. A new Open Mic session with a lingering snapshot stays Open Mic.
+    it('completed snapshot is IGNORED in before/during (fresh Open Mic stays Open Mic)', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={null} completedObjectivePoints={POINTS} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        expect(screen.queryByTestId('coverage-pace')).toBeNull();
+        expect(screen.queryByTestId('focus-points-rail')).toBeNull();
+        expect(screen.getByTestId('prompt-offer')).toBeInTheDocument();
+    });
+
+    // #1256 P1 — the snapshot-only after-state scores the FINISHED take, whose duration lives in
+    // `scoringElapsedSeconds`. The live `elapsedTime` normalizes to 0 once idle, so without this the
+    // "<duration> actual" pace line (and per-point timing) rendered 0:00.
+    it('after-state shows the recorded duration from scoringElapsedSeconds (not the reset live timer)', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={null}
+                completedObjectivePoints={POINTS}
+                completedObjectivePaceGuideSecPerPoint={60}
+                showAnalyticsPrompt
+                transcriptContent="I will name the price now."
+                elapsedTime={0}
+                scoringElapsedSeconds={84}
+            />,
+        );
+        // The after-state pace card reports "<duration> actual" — must reflect the finished 1:24 take.
+        expect(screen.getByTestId('coverage-pace-projection')).toHaveTextContent('1:24 actual');
+    });
+
+    // Contrast/regression guard: with no scoring duration it falls back to the live timer, and a reset
+    // live timer (0) is exactly the 0:00 defect — proving `scoringElapsedSeconds` is the fix lever.
+    it('after-state duration falls back to the live timer without scoringElapsedSeconds (0:00 guard)', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={null}
+                completedObjectivePoints={POINTS}
+                completedObjectivePaceGuideSecPerPoint={60}
+                showAnalyticsPrompt
+                transcriptContent="I will name the price now."
+                elapsedTime={0}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-projection')).toHaveTextContent('0:00 actual');
+    });
+
+    // #1256 P1 — "Retry these points" must route to the rebinding onRetryPoints handler, never the generic
+    // onStartStop (which starts an Open Mic take because the live brief was cleared on save).
+    it('Retry these points invokes onRetryPoints (rebind), not onStartStop', () => {
+        const onRetryPoints = vi.fn();
+        const onStartStop = vi.fn();
+        render(
+            <SessionOverhaulView
+                {...base}
+                onStartStop={onStartStop}
+                onRetryPoints={onRetryPoints}
+                objectivePoints={null}
+                completedObjectivePoints={POINTS}
+                showAnalyticsPrompt
+                transcriptContent="I will name the price now."
+                elapsedTime={0}
+                scoringElapsedSeconds={84}
+            />,
+        );
+        fireEvent.click(screen.getByTestId('focus-points-retry'));
+        expect(onRetryPoints).toHaveBeenCalledTimes(1);
+        expect(onStartStop).not.toHaveBeenCalled();
+    });
+});
+
+// #1264 — optional Open Mic Practice Focus. The chooser lives in the before-state coaching slot (Open Mic
+// only), the chosen intention shows as a non-scoring reminder while recording, and it never appears on a
+// Focus Points session (which owns slot D with its rail).
+describe('SessionOverhaulView Practice Focus (#1264)', () => {
+    it('Open Mic before → the focus chooser is present and selecting calls onSelectFocus', () => {
+        const onSelectFocus = vi.fn();
+        render(<SessionOverhaulView {...base} onSelectFocus={onSelectFocus} practiceFocus={null} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        expect(screen.getByTestId('practice-focus-chooser')).toBeInTheDocument();
+        fireEvent.click(screen.getByTestId('practice-focus-reduce_fillers'));
+        expect(onSelectFocus).toHaveBeenCalledWith('reduce_fillers');
+    });
+
+    it('Open Mic during → the chosen focus shows as a non-scoring reminder', () => {
+        render(<SessionOverhaulView {...base} isListening transcriptContent="so hello there" elapsedTime={30} practiceFocus="steady_pace" />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'during');
+        expect(screen.getByTestId('practice-focus-reminder')).toHaveTextContent(/Steady pace/i);
+    });
+
+    it('Focus Points before → NO focus chooser (slot D is the points rail, not coaching)', () => {
+        render(<SessionOverhaulView {...base} objectivePoints={['Name the price']} onSelectFocus={vi.fn()} />);
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'before');
+        expect(screen.queryByTestId('practice-focus-chooser')).toBeNull();
+        expect(screen.getByTestId('focus-points-rail')).toBeInTheDocument();
+    });
+});

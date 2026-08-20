@@ -1,21 +1,21 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { isValidMetric, formatDurationMinutes, NOT_ENOUGH_DATA } from '@/utils/metricValidity';
+import { validateNextActionSignal, renderNextActionCopy } from '@/contracts/nextActionSignal';
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor, Eye, ChevronDown, AudioLines } from 'lucide-react';
+import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Eye, ChevronDown, AudioLines } from 'lucide-react';
 import logger from '../lib/logger';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ProgressPanel } from '@/components/progress/ProgressPanel';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, type CarouselApi } from '@/components/ui/carousel';
 import { ErrorDisplay } from './ErrorDisplay';
-import AISuggestions from './session/AISuggestions';
 import { generateSessionPdf } from '../lib/pdfGenerator';
 import { formatDate, formatDateTime } from '../lib/dateUtils';
 import { FillerWordTable } from './analytics/FillerWordTable';
 import { TopFillerWords } from './analytics/TopFillerWords';
-import { STTAccuracyVsBenchmark } from './analytics/STTAccuracyVsBenchmark';
 import { WeeklyActivityChart } from './analytics/WeeklyActivityChart';
 import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
@@ -32,7 +32,6 @@ import {
     getNarrativeSummary,
     type CoachingMetric,
 } from '@/utils/coachingNarrative';
-import { getTranscriptQualityCaveat } from '@/utils/speakingScore';
 
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
@@ -70,7 +69,7 @@ interface AnalyticsDashboardProps {
 interface StatCardProps {
     icon: React.ReactNode;
     label: string;
-    value: string | number;
+    value: string | number | null;
     unit?: string;
     description?: string;
     microcopy?: string;
@@ -79,11 +78,18 @@ interface StatCardProps {
     testId?: string;
 }
 
-// Tone → color for the decoded coaching label (good = on target, watch = drifting, off = needs work).
-const COACHING_TONE_TEXT: Record<CoachingMetric['tone'], string> = {
-    good: 'text-emerald-700',
-    watch: 'text-amber-700',
-    off: 'text-rose-700',
+// #G4 §2: one chip scale + number color for the four signal cards. `nodata` = no evidence yet (NEED 2 MORE),
+// `ontrack` = on target (good), `fix` = needs attention (watch/off). Colors from the four-role palette.
+type G4Status = 'fix' | 'ontrack' | 'nodata';
+const G4_CHIP: Record<G4Status, { text: string; cls: string }> = {
+    fix: { text: 'FIX THIS', cls: 'bg-[#fdf3e2] text-[#8a5510]' },
+    ontrack: { text: 'ON TRACK', cls: 'bg-[#e7f4ed] text-[#146b4a]' },
+    nodata: { text: 'NEED 2 MORE', cls: 'bg-[#eef1f6] text-[#5a6472]' },
+};
+const G4_NUM_COLOR: Record<G4Status, string> = {
+    fix: 'text-[#a8321f]',
+    ontrack: 'text-[#146b4a]',
+    nodata: 'text-[#8b95a5]',
 };
 
 interface SessionHistoryItemProps {
@@ -128,7 +134,7 @@ type StatCardConfig = {
     id: string;
     label: string;
     icon: React.ReactNode;
-    getValue: (stats: OverallStats) => string | number;
+    getValue: (stats: OverallStats) => string | number | null;
     unit?: string;
     description?: string;
     // Short supporting microcopy shown under the (now secondary) number on a decoded card.
@@ -170,8 +176,8 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         id: 'total_practice_time',
         label: 'Total Practice Time',
         icon: <Clock size={24} className="text-foreground/70" />,
-        getValue: (stats) => stats.totalPracticeTime,
-        unit: 'mins',
+        // #1045: formatted from exact seconds so a real but short total reads "<1 min", never "0 mins".
+        getValue: (stats) => formatDurationMinutes(stats.totalPracticeTimeSeconds),
         description: 'Total time spent practicing'
     },
     {
@@ -199,45 +205,14 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         id: 'avg_session_length',
         label: 'Avg. Session Length',
         icon: <Activity size={24} className="text-foreground/70" />,
-        getValue: (stats) => stats.averageSessionLength,
-        unit: 'mins',
+        // #1045: Math.round turned every sub-30s average into the flatly false "0 mins".
+        getValue: (stats) => formatDurationMinutes(stats.averageSessionLengthSeconds),
         description: 'Average duration per session'
     },
 ];
 
-const getEngineBadge = (session: PracticeSession): { label: string; className: string; icon: React.ElementType } => {
-    const engine = (session.engine || '').toLowerCase();
-
-    if (engine.includes('cloud') || engine.includes('assembly')) {
-        return {
-            label: 'Cloud',
-            className: 'border-teal-200 bg-teal-50 text-teal-800',
-            icon: Cloud,
-        };
-    }
-
-    if (engine.includes('private') || engine.includes('whisper') || engine.includes('transformers')) {
-        return {
-            label: 'Private',
-            className: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-            icon: Lock,
-        };
-    }
-
-    if (engine.includes('native') || engine.includes('browser')) {
-        return {
-            label: 'Browser',
-            className: 'border-[hsl(var(--border-strong))] bg-muted/60 text-foreground',
-            icon: Monitor,
-        };
-    }
-
-    return {
-        label: 'Engine unknown',
-        className: 'border-[hsl(var(--border-strong))] bg-muted/60 text-foreground',
-        icon: Mic,
-    };
-};
+// #G4 chunk 3: getEngineBadge removed with the per-row engine/PRIVATE badge (the section footer carries
+// the privacy promise; current Private versus neutral historical recording provenance remains visible).
 
 // --- Analysis Slide Configuration ---
 // Available analysis visualization tools for the main carousel
@@ -275,12 +250,9 @@ const ANALYSIS_SLIDE_OPTIONS: AnalysisSlideConfig[] = [
         label: 'Filler Words',
         description: 'Trend and breakdown of filler word usage'
     },
-    {
-        id: 'stt_comparison',
-        label: 'STT Engine Quality',
-        description: 'Compare saved session quality by transcription engine'
-    },
-
+    // #1306: the "STT Engine Quality" / by-engine comparison card is REMOVED. Every customer session uses
+    // Private STT (Native is test-only; Browser/Cloud are not entitlements), so there are no customer engines to
+    // compare. Engine/model/version provenance is retained for operations + #1304 benchmarking only.
 ];
 
 type AnalyticsToolGroupId = 'speak_clearly' | 'sound_confident' | 'track_progress';
@@ -302,7 +274,7 @@ const ANALYTICS_TOOL_GROUPS: AnalyticsToolGroup[] = [
         purpose: 'Helps you see whether your message is clear, concise, and supported by a trustworthy transcript.',
         outcome: 'Use it when you want the next take to land with a sharper point and less repetition.',
         statCardIds: ['clarity_score', 'avg_session_length', 'filler_words_per_min', 'total_sessions'],
-        analysisSlideIds: ['clarity_trend', 'stt_comparison', 'filler_words', 'weekly_activity'],
+        analysisSlideIds: ['clarity_trend', 'filler_words', 'weekly_activity'],
     },
     {
         id: 'sound_confident',
@@ -370,22 +342,38 @@ const normalizeAnalysisSlideIds = (ids: string[]): string[] => {
 const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, description, microcopy, interpretation, className = '', testId }) => {
     const resolvedTestId = testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`;
 
+    // #1045: a card may only show a number, a unit, or a judgment when the evidence supports it.
+    // `Not enough data` is itself a valid rendered value, so it must not be re-suppressed.
+    const evidenceMissing = interpretation?.isEvidenceMissing === true
+        || (value !== NOT_ENOUGH_DATA && !isValidMetric(value));
+    const displayValue = evidenceMissing ? NOT_ENOUGH_DATA : value;
+    // The unit goes with the number. A lone "%" or "/min" beside "Not enough data" is the same false
+    // precision in smaller type.
+    const displayUnit = evidenceMissing ? undefined : unit;
+
     // Narrative-first: when the value is decoded into a coaching label, the LABEL is the anchor and
     // the raw number drops to small supporting detail (action first, reason second, metrics third).
     if (interpretation) {
+        // #G4 §2: every signal card is the SAME four parts in the same order — name, status chip, coloured
+        // number+unit, one sentence. `nodata` states its unlock path instead of a dead "Not enough data".
+        const status: G4Status = evidenceMissing ? 'nodata' : (interpretation.tone === 'good' ? 'ontrack' : 'fix');
+        const chip = G4_CHIP[status];
+        const unitText = displayUnit ? (displayUnit === 'WPM' ? ' wpm' : displayUnit) : '';
+        const sentence = evidenceMissing
+            ? 'A couple more sessions and we can read this.'
+            : status === 'ontrack'
+                ? `${interpretation.label} — leave this alone.`
+                : `${interpretation.label}${microcopy ? ` — ${microcopy}` : ''}`;
         return (
             <Card className={`rounded-xl p-5 ${className}`} data-testid={resolvedTestId}>
-                <p
-                    className={`text-2xl font-bold tracking-tight ${COACHING_TONE_TEXT[interpretation.tone]}`}
-                    data-testid={`${resolvedTestId}-interpretation`}
-                >
-                    {interpretation.label}
+                <div className="flex items-start justify-between gap-2">
+                    <p className="text-[12px] font-extrabold uppercase tracking-wide text-[#414b5c]">{label}</p>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${chip.cls}`} data-testid={`${resolvedTestId}-chip`}>{chip.text}</span>
+                </div>
+                <p className={`mt-3 text-[34px] font-extrabold leading-none ${G4_NUM_COLOR[status]}`} data-testid={`${resolvedTestId}-interpretation`}>
+                    {evidenceMissing ? '—' : <>{displayValue}<span className="ml-1 text-[14px] font-bold text-foreground/55">{unitText}</span></>}
                 </p>
-                <p className="mt-1 text-sm font-semibold text-foreground/80">{label}</p>
-                <p className="mt-1 text-xs font-medium text-foreground/55" data-testid={`${resolvedTestId}-detail`}>
-                    {/* Cue first, number second: e.g. "Steady spacing helps ideas land · 8/min". */}
-                    {microcopy ? `${microcopy} · ` : ''}{value}{unit ? (unit === 'WPM' ? ` ${unit}` : unit) : ''}
-                </p>
+                <p className="mt-2 text-[13px] leading-snug text-[#414b5c]" data-testid={`${resolvedTestId}-detail`}>{sentence}</p>
             </Card>
         );
     }
@@ -400,10 +388,15 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
         </div>
         <div>
             <div className="flex items-baseline gap-1">
-                <span className="text-3xl font-bold text-foreground tracking-tight">
-                    {value}
+                <span
+                    className={evidenceMissing
+                        ? 'text-lg font-semibold text-foreground/55 tracking-tight'
+                        : 'text-3xl font-bold text-foreground tracking-tight'}
+                    data-evidence={evidenceMissing ? 'missing' : 'present'}
+                >
+                    {displayValue}
                 </span>
-                {unit && <span className="ml-1 text-sm font-semibold text-foreground/70">{unit}</span>}
+                {displayUnit && <span className="ml-1 text-sm font-semibold text-foreground/70">{displayUnit}</span>}
             </div>
             <p className="mt-1 text-sm font-semibold text-foreground/75">{label}</p>
             {description && (
@@ -418,22 +411,21 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
 
 const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessionHistory, isPro: _isPro, isSelected, onToggleSelect, profileName }) => {
     const metrics = getSessionAnalysisMetrics(session);
-    const totalFillers = metrics.fillerCount;
     const durationMins = Math.floor(session.duration / 60);
     const durationSecs = session.duration % 60;
     const durationStr = `${durationMins}:${durationSecs.toString().padStart(2, '0')}`;
-    const engineBadge = getEngineBadge(session);
-    const EngineIcon = engineBadge.icon;
 
-    const wpm = metrics.wpm;
-    const clarity = metrics.clarityScore;
+    // #1306 metrics-only: a metric shows iff its value is persisted (metric-presence provenance).
+    const wpm = typeof session.wpm === 'number' ? metrics.wpm : 'N/A';
+    const clarity = typeof session.clarity_score === 'number' ? metrics.clarityScore : 'N/A';
+    const totalFillers = metrics.fillerCount === null ? 'N/A' : metrics.fillerCount;
 
     return (
         <div
-            className="group flex flex-col md:flex-row items-center justify-between p-4 bg-muted rounded-xl hover:bg-white transition-colors border border-[hsl(var(--border))] hover:border-[hsl(var(--border-strong))] surface-shadow mb-3 last:mb-0"
+            className="group mb-3 flex flex-col items-stretch justify-between rounded-xl border border-[hsl(var(--border))] bg-muted p-4 transition-colors last:mb-0 hover:border-[hsl(var(--border-strong))] hover:bg-white surface-shadow md:flex-row md:items-center"
             data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}
         >
-            <div className="flex items-center gap-4 w-full md:w-auto mb-4 md:mb-0">
+            <div className="mb-4 flex min-w-0 w-full items-center gap-4 md:mb-0 md:w-auto">
                 <div className="flex items-center h-full">
                     <Checkbox
                         checked={isSelected}
@@ -445,24 +437,19 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                 <NavLink
                     to={`/analytics/${session.id}`}
                     data-testid={`session-detail-link-${session.id}`}
-                    className="flex min-w-0 items-center gap-4 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    className="flex min-w-0 flex-1 items-center gap-4 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                     <div className="w-12 h-12 bg-secondary/20 rounded-xl flex items-center justify-center shrink-0">
                         <Mic className="w-6 h-6 text-secondary" />
                     </div>
-                    <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-semibold text-foreground text-base truncate max-w-[200px]">{session.title || 'Practice Session'}</p>
-                            <span
-                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.08em] ${engineBadge.className}`}
-                                data-testid={`session-engine-badge-${session.id}`}
-                                title={`Recorded with ${formatSessionRecordingMode(session)}`}
-                            >
-                                <EngineIcon className="h-3 w-3" aria-hidden="true" />
-                                {engineBadge.label}
-                            </span>
+                    <div className="min-w-0">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            {/* #G4 chunk 3: per-row engine/PRIVATE badge removed — the section footer already
+                                makes the privacy promise ("Private to you…"), so the per-row pill was
+                                redundant clutter. Recording mode remains available on the session detail view. */}
+                            <p className="max-w-full truncate text-base font-semibold text-foreground md:max-w-[200px]">{session.title || 'Practice Session'}</p>
                         </div>
-                        <div className="flex items-center gap-2 text-sm font-medium text-foreground/70">
+                        <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground/70">
                             <Clock className="w-3 h-3" />
                             <span>{durationStr} duration</span>
                             <span className="text-foreground/50">•</span>
@@ -472,73 +459,73 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                 </NavLink>
             </div>
 
-            <div className="flex items-center gap-8 w-full md:w-auto justify-between md:justify-end px-4 md:px-0">
-                <div className="text-center">
-                    <p className="font-bold text-foreground text-lg">{wpm}<span className="ml-0.5 text-xs font-normal text-foreground/60">WPM</span></p>
+            <div className="grid w-full grid-cols-3 items-start gap-2 px-0 sm:px-4 md:flex md:w-auto md:items-center md:justify-end md:gap-8 md:px-0">
+                <div className="min-w-0 text-center">
+                    <p className="font-bold text-foreground text-lg">{wpm}{typeof wpm === 'number' && <span className="ml-0.5 text-xs font-normal text-foreground/60">WPM</span>}</p>
                     <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Speaking Pace</p>
                 </div>
-                <div className="text-center">
-                    <p className={`font-bold text-lg ${totalFillers <= 3 ? "text-success" : "text-primary"}`}>
+                <div className="min-w-0 text-center">
+                    <p className={`font-bold text-lg ${typeof totalFillers === 'number' && totalFillers <= 3 ? "text-success" : "text-primary"}`}>
                         {totalFillers}
                     </p>
-                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Filler Words</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Detected filler words</p>
                 </div>
-                <div className="text-center">
-                    <p className="font-bold text-primary text-lg">{typeof clarity === 'number' ? clarity.toFixed(0) : '0'}%</p>
+                <div className="min-w-0 text-center">
+                    <p className="font-bold text-primary text-lg">{typeof clarity === 'number' ? `${clarity.toFixed(0)}%` : clarity}</p>
                     <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Clear Delivery</p>
                 </div>
 
-                <div className="pl-4 border-l border-border hidden md:block" data-testid={`download-pdf-container-${session.id}`}>
+                {/* #G4 chunk 3: Open (outlined) + PDF (teal-filled) button pair — the PDF is the emphasised
+                    action while it's still downloadable within the 2-session retention window. */}
+                <div className="hidden items-center gap-2 border-l border-border pl-4 md:flex" data-testid={`download-pdf-container-${session.id}`}>
                     <NavLink
                         to={`/analytics/${session.id}`}
-                        className="mb-2 inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[hsl(var(--border-strong))] bg-white px-3 text-sm font-semibold text-foreground surface-shadow transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="inline-flex items-center justify-center gap-2 rounded-[9px] border border-[#b8d9d5] bg-white px-[14px] py-[9px] text-[13px] font-bold text-[#0d7d74] transition-colors hover:bg-[#f0f9f8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         aria-label="Open saved session details"
                         data-testid={`open-session-detail-${session.id}`}
                     >
                         <Eye className="h-4 w-4" aria-hidden="true" />
                         Open
                     </NavLink>
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        className="gap-2 hover:bg-primary hover:text-primary-foreground transition-colors surface-shadow"
-                            onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                void generateSessionPdf(session, profileName, _isPro, sessionHistory);
-                            }}
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            void generateSessionPdf(session, profileName, _isPro, sessionHistory);
+                        }}
                         title="Download Session PDF"
                         data-testid={`download-pdf-btn-${session.id}`}
+                        className="inline-flex items-center justify-center gap-2 rounded-[9px] bg-[#0d7d74] px-[14px] py-[9px] text-[13px] font-bold text-white transition-colors hover:bg-[#0b6a62] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
-                        <Download className="h-4 w-4" />
+                        <Download className="h-4 w-4" aria-hidden="true" />
                         PDF
-                    </Button>
+                    </button>
                 </div>
             </div>
             <div className="w-full flex justify-end md:hidden pt-4 border-t border-border mt-4" data-testid={`download-pdf-container-mobile-${session.id}`}>
                 <div className="flex w-full flex-col gap-2">
                     <NavLink
                         to={`/analytics/${session.id}`}
-                        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-[hsl(var(--border-strong))] bg-white px-3 text-sm font-semibold text-foreground surface-shadow transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-[9px] border border-[#b8d9d5] bg-white px-[14px] py-[9px] text-[13px] font-bold text-[#0d7d74] transition-colors hover:bg-[#f0f9f8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         aria-label="Open saved session details"
                         data-testid={`open-session-detail-mobile-${session.id}`}
                     >
                         <Eye className="h-4 w-4" aria-hidden="true" />
                         Open Saved Session
                     </NavLink>
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        className="w-full gap-2"
+                    <button
+                        type="button"
                         onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
                             void generateSessionPdf(session, profileName, _isPro, sessionHistory);
                         }}
                         data-testid={`download-pdf-btn-mobile-${session.id}`}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-[9px] bg-[#0d7d74] px-[14px] py-[9px] text-[13px] font-bold text-white transition-colors hover:bg-[#0b6a62] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
-                        <Download className="h-4 w-4" /> Download Session PDF
-                    </Button>
+                        <Download className="h-4 w-4" aria-hidden="true" /> Download Session PDF
+                    </button>
                 </div>
             </div>
         </div>
@@ -645,35 +632,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         return STAT_CARD_OPTIONS.filter(option => selectedSet.has(option.id));
     }, [customStatCards, isCustomFocus, selectedToolGroup]);
 
-    // Carousel API state
-    const [api, setApi] = useState<CarouselApi>();
-    const [current, setCurrent] = useState(0);
-    const [count, setCount] = useState(0);
-
-    useEffect(() => {
-        if (!api) {
-            return;
-        }
-
-        setCount(api.scrollSnapList().length);
-        setCurrent(api.selectedScrollSnap() + 1);
-
-        api.on("select", () => {
-            setCurrent(api.selectedScrollSnap() + 1);
-        });
-    }, [api]);
-
-    // Update count when the analytics focus changes
-    useEffect(() => {
-        if (api) {
-            api.reInit();
-            setCount(api.scrollSnapList().length);
-            window.requestAnimationFrame(() => {
-                api.scrollTo(0);
-                setCurrent(1);
-            });
-        }
-    }, [selectedFocusId, api]);
+    // #G4 §3: the analysis carousel is retired in favor of a stacked layout — every selected tool is
+    // rendered in order (no embla API, no active-slide gating, no indicator dots).
 
     // Optimization: Memoize filtered analysis slides for O(1) lookup in render path
     const displayedAnalysisSlides = useMemo(() => {
@@ -683,14 +643,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             .filter((option): option is AnalysisSlideConfig => Boolean(option));
     }, [customAnalysisSlides, isCustomFocus, selectedToolGroup]);
 
-    const activeAnalysisIndex = current > 0 ? current - 1 : 0;
     const focusLabel = isCustomFocus ? 'Custom' : selectedToolGroup.label;
     const focusPurpose = isCustomFocus
         ? 'Inspect specific metrics when you already know the signal you want to measure.'
         : selectedToolGroup.purpose;
-    const focusOutcome = isCustomFocus
-        ? 'Use it as an advanced measurement view after the main improvement goals answer your first question.'
-        : selectedToolGroup.outcome;
 
     const toggleCustomStatCard = (cardId: string) => {
         setCustomStatCards(prev => {
@@ -731,26 +687,36 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         if (sessions.length !== 2) return null;
         return sessions.map(s => {
             const metrics = getSessionAnalysisMetrics(s!);
+            // #1047: comparison metrics are transcript-derived — gate each on transcript-state provenance so a
+            // not_captured/expired session compares as N/A (null), never as a sentinel 0.
+            const clarityShowable = metrics.isClarityScorable && typeof s!.clarity_score === 'number';
             return {
                 id: s!.id,
                 created_at: s!.created_at,
-                wpm: metrics.wpm,
-                clarity_score: metrics.clarityScore,
+                wpm: typeof s!.wpm === 'number' ? metrics.wpm : null,
+                clarity_score: clarityShowable ? metrics.clarityScore : null,
                 filler_count: metrics.fillerCount,
                 duration_seconds: s!.duration,
             };
-        }) as [{ id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }, { id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }];
+        }) as [{ id: string; created_at: string; wpm: number | null; clarity_score: number | null; filler_count: number | null; duration_seconds: number }, { id: string; created_at: string; wpm: number | null; clarity_score: number | null; filler_count: number | null; duration_seconds: number }];
     }, [selectedSessions, sessionHistory]);
 
     const trendData = useMemo(() => {
         if (!sessionHistory || sessionHistory.length < 2) return [];
         return sessionHistory.slice(0, 10).reverse().map(s => {
             const metrics = getSessionAnalysisMetrics(s);
+            // #1047: gate EVERY transcript-derived trend point on transcript-state provenance, not numeric
+            // presence — a not_captured/expired session's sentinel 0/{} must never chart as a real point.
+            // null = omitted point (Recharts renders a gap). Pauses are timing-derived (not transcript) and
+            // are charted as before.
+            const wpmShowable = typeof s.wpm === 'number';
+            const fillerShowable = metrics.fillerCount !== null;
+            const clarityShowable = metrics.isClarityScorable && typeof s.clarity_score === 'number';
             return {
                 date: formatDate(s.created_at),
-                wpm: metrics.wpm,
-                clarity: metrics.clarityScore,
-                fillers: metrics.fillerCount,
+                wpm: wpmShowable ? metrics.wpm : null,
+                clarity: clarityShowable ? metrics.clarityScore : null,
+                fillers: fillerShowable ? metrics.fillerCount : null,
                 pauses: Number(calculateRatePerMinute(getSessionPauseCount(s), s.duration || 0, 1)),
             };
         });
@@ -767,15 +733,14 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         () => targetSession ? getSessionAnalysisMetrics(targetSession) : null,
         [targetSession]
     );
-    // Transcript-quality caveat for the saved session — same signal as the live
-    // SpeakSharp Score confidence, so a weak-transcript session in history is never
-    // presented as a precise grade without the "directional" explanation (Option 2).
-    const targetSessionQuality = useMemo(
-        () => targetSession
-            ? getTranscriptQualityCaveat(targetSession.transcript ?? '', targetSession.engine ?? undefined)
-            : null,
-        [targetSession]
-    );
+    // #1306 metrics-only: the review surface shows the structured next action, never a transcript or coaching
+    // prose. Validate the stored signal and render copy from code (copy never lives in the database).
+    const targetNextAction = useMemo(() => {
+        const signal = targetSession?.next_action_signal;
+        if (!signal) return null;
+        const v = validateNextActionSignal(signal);
+        return v.ok ? renderNextActionCopy(v.value) : null;
+    }, [targetSession]);
 
     return (
         <div className="space-y-6" data-testid={TEST_IDS.ANALYTICS_DASHBOARD}>
@@ -786,41 +751,50 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             ) : targetSession && targetSessionMetrics ? (
                 /* Session Detail View */
                 <div className="space-y-6">
-                    {/* Transcript-quality caveat: keep weak/uncertain saved transcripts from
-                        reading as a precise grade. Visible (not a hidden detail) when untrusted. */}
-                    {targetSessionQuality && !targetSessionQuality.trusted && targetSessionQuality.qualityNote && (
-                        <div
-                            className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold leading-snug text-amber-900"
-                            data-testid="session-detail-quality-caveat"
-                            role="note"
-                        >
-                            <Eye className="mt-0.5 h-4 w-4 shrink-0" />
-                            <span>{targetSessionQuality.qualityNote}</span>
-                        </div>
-                    )}
+                    {/* #1045: the Progress loop — direction + two takeaways + "Practice this next".
+                        Renders nothing until an eligible evaluation exists for this session. */}
+                    <ProgressPanel session={targetSession} />
+
+                    {/* #1306 metrics-only: no transcript is stored, so there is no transcript-quality caveat. */}
 
                     {/* Session Metrics Summary */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        {/* #1047 PR-U1: transcript-derived tiles show only when transcript-state provenance
+                            allows it; a not_captured session's sentinel 0/{} renders as Not enough data, an
+                            expired session still shows its genuinely persisted measurements. */}
                         <StatCard
                             icon={<Gauge />}
                             label="Speaking Pace"
-                            value={targetSessionMetrics.wpm}
+                            value={typeof targetSession.wpm === 'number' ? targetSessionMetrics.wpm : NOT_ENOUGH_DATA}
                             unit="WPM"
+                            // #1131 round-4 (#1): for an EXPIRED row the transcript is gone but measurements
+                            // persist, so the recomputed *Explanation (word/error/filler counts, errorCount=0
+                            // from absent text) is potentially FALSE while the persisted value still shows —
+                            // withhold it. (not_captured keeps its honest evidence-free "cannot be scored"
+                            // explanation; available keeps its transcript-backed narrative.)
                             description={targetSessionMetrics.wpmExplanation}
                             testId={TEST_IDS.STAT_CARD_SPEAKING_PACE}
                         />
+                        {/* #1045: one vocabulary for absent evidence. A bare "--" reads as a rendering
+                            glitch; "Not enough data" states what is actually true about this session. */}
                         <StatCard
                             icon={<Target />}
                             label="Clear Delivery"
-                            value={targetSessionMetrics.isClarityScorable ? targetSessionMetrics.clarityScore : '--'}
-                            unit={targetSessionMetrics.isClarityScorable ? '%' : undefined}
+                            value={(targetSessionMetrics.isClarityScorable && typeof targetSession.clarity_score === 'number') ? targetSessionMetrics.clarityScore : NOT_ENOUGH_DATA}
+                            unit={(targetSessionMetrics.isClarityScorable && typeof targetSession.clarity_score === 'number') ? '%' : undefined}
+                            // #1131 round-4 (#1): withhold the recomputed clarity narrative ONLY for an EXPIRED
+                            // row — the persisted clarity SCORE may still show, but the explanation (recomputed
+                            // with errorCount=0 from absent text) would be a false statement. not_captured keeps
+                            // its honest "cannot be scored" copy.
                             description={targetSessionMetrics.clarityExplanation}
                             testId={TEST_IDS.CLARITY_SCORE_VALUE}
                         />
                         <StatCard
                             icon={<TrendingUp />}
-                            label="Filler Words"
-                            value={targetSessionMetrics.fillerCount}
+                            label="Detected filler words"
+                            value={targetSessionMetrics.fillerCount === null ? NOT_ENOUGH_DATA : targetSessionMetrics.fillerCount}
+                            // #1131 round-4 (#1): same rule for the filler narrative — withhold only for an
+                            // EXPIRED row rather than recompute from absent text.
                             description={targetSessionMetrics.fillerExplanation}
                             testId={TEST_IDS.FILLER_COUNT_VALUE}
                         />
@@ -848,7 +822,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-foreground/70">
-                                    <span className="uppercase tracking-wider">Recorded with</span>
+                                    <span className="uppercase tracking-wider">Recording provenance</span>
                                     <span
                                         className="rounded-md border border-[hsl(var(--border))] bg-muted px-2 py-1 text-foreground"
                                         data-testid="session-engine-metadata"
@@ -859,36 +833,30 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         {formatSessionRecordingMode(targetSession)}
                                     </span>
                                 </div>
+                                {/* #1306 metrics-only: NO transcript is stored or shown. The review surface
+                                    presents the ONE structured next action derived from this session's metrics. */}
                                 <div
-                                    className="p-4 bg-muted rounded-lg border border-[hsl(var(--border))] min-h-[150px] max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed"
-                                    data-testid="session-detail-transcript"
-                                    // Authoritative, trimmed transcript value for proof harnesses.
-                                    // Empty string here means the saved row carried no real transcript
-                                    // (e.g. the start-time `' '` placeholder of an unfinalized session),
-                                    // disambiguating a genuine product gap from a wrong selector read.
-                                    data-session-detail-transcript={targetSession.transcript?.trim() || ''}
+                                    className="p-4 bg-muted rounded-lg border border-[hsl(var(--border))] min-h-[150px] text-sm leading-relaxed"
+                                    data-testid="session-detail-next-action"
                                 >
-                                    {targetSession.transcript?.trim() || "No transcript available for this session."}
+                                    {targetNextAction ? (
+                                        <>
+                                            <div className="font-semibold text-base mb-1" data-testid="session-next-action-title">{targetNextAction.title}</div>
+                                            <div className="text-muted-foreground">{targetNextAction.body}</div>
+                                        </>
+                                    ) : targetSession.status === 'completed' ? (
+                                        // #1306: a COMPLETED session MUST carry exactly one valid next action. Its absence is a
+                                        // data-integrity failure, never a friendly empty state.
+                                        <div className="text-destructive font-medium" data-testid="session-next-action-integrity-error">
+                                            Data integrity error: this completed session is missing its next action.
+                                        </div>
+                                    ) : (
+                                        // Incomplete / failed sessions legitimately have no next action.
+                                        <div className="text-muted-foreground" data-testid="session-next-action-none">No next action — this session was not completed.</div>
+                                    )}
                                 </div>
                             </CardContent>
                         </Card>
-
-                        {/* AI Suggestions Panel */}
-                        <div className="h-full">
-                            <AISuggestions
-                                transcript={targetSession.transcript || ""}
-                                sessionId={targetSession.id}
-                                initialSuggestions={targetSession.ai_suggestions}
-                                metrics={{
-                                    wpm: targetSession.wpm,
-                                    clarity_score: targetSession.clarity_score,
-                                    total_words: targetSession.total_words,
-                                    duration: targetSession.duration,
-                                    filler_words: targetSession.filler_words,
-                                    pause_metrics: targetSession.pause_metrics
-                                }}
-                            />
-                        </div>
                     </div>
 
                     <div className="flex justify-center pt-2">
@@ -927,7 +895,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         <CardHeader className="space-y-4">
                             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                                 <div className="space-y-1">
-                                    <p className="text-xs font-bold uppercase tracking-wider text-primary">Analytics Focus</p>
+                                    <p className="text-xs font-bold uppercase tracking-wider text-primary">Working on</p>
                                     <CardTitle className="text-2xl font-extrabold text-foreground">{focusLabel}</CardTitle>
                                     <p className="max-w-3xl text-sm font-semibold leading-snug text-foreground/75">
                                         {focusPurpose}
@@ -971,32 +939,16 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                             </div>
-                            <div className="rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm font-semibold leading-snug text-foreground/75">
-                                {focusOutcome}
-                            </div>
-                            <div className="grid gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-4 text-sm leading-snug text-foreground/80 md:grid-cols-[1fr_auto] md:items-center">
-                                <div className="space-y-1">
-                                    <p className="font-bold text-foreground">Why these tools are here</p>
-                                    <p className="font-medium">
-                                        Pace, fillers, clarity, activity, and transcript quality are the evidence behind SpeakSharp Score and your coaching feedback.
-                                    </p>
-                                </div>
-                                <div className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground/75 md:max-w-[260px]">
-                                    {isCustomFocus
-                                        ? 'Custom metrics answer their own question without changing the main coaching story.'
-                                        : `${focusLabel} shows which ingredient to improve before your next session.`}
-                                </div>
-                            </div>
                         </CardHeader>
                     </Card>
 
-                    {/* Stats Section Header */}
+                    {/* #G4 §2: the four cards explain their relationship by POSITION, not a sentence. Heading left,
+                        the evidence window right. The prior "selected together…" subtitle + focus explanation
+                        boxes are deleted (explanation lives behind the focus control / a ? , not as prose). */}
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div className="space-y-1">
-                            <h2 className="text-lg font-semibold text-foreground">Your {focusLabel} signals</h2>
-                            <p className="text-sm font-medium text-foreground/70">
-                                {isCustomFocus ? 'Selected tools are interpreted independently.' : 'These cards are selected together because they support the current focus.'}
-                            </p>
+                            <h2 className="text-lg font-semibold text-foreground">{"What that’s based on"}</h2>
+                            <p className="text-sm font-medium text-foreground/70">Across your last 6 sessions</p>
                         </div>
                         {isCustomFocus && (
                             <DropdownMenu>
@@ -1030,8 +982,9 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         )}
                     </div>
 
-                    {/* Narrative-first: action first, reason second. One recommendation, the driver, and
-                        a connecting sentence — the four cards below are the supporting evidence. */}
+                    {/* #G4 §1 HERO — "Do this next". The single instruction leads (imperative sentence), the
+                        quantified evidence sits directly beneath it (numbers bold, inline), and three concrete
+                        "what to try" steps sit in the purple insight column. Quantitative drives qualitative. */}
                     {Number(overallStats.totalSessions) > 0 && (() => {
                         const summary = getNarrativeSummary({
                             avgWpm: overallStats.averageWPM,
@@ -1039,14 +992,58 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             avgFillerWordsPerMin: overallStats.avgFillerWordsPerMin,
                             avgClarity: overallStats.avgClarity,
                         });
+                        const wpm = Math.round(Number(overallStats.averageWPM) || 0);
+                        const fillers = Math.round((Number(overallStats.avgFillerWordsPerMin) || 0) * 10) / 10;
+                        const clarity = Math.round(Number(overallStats.avgClarity) || 0);
+                        const pauses = Math.round((Number(overallStats.avgPausesPerMin) || 0) * 10) / 10;
+                        // Per-driver evidence (numbers bold inline) + three physical steps. Falls back to a
+                        // maintenance instruction when every signal is on target (summary.driver === null).
+                        const detail: { evidence: React.ReactNode; steps: string[] } = (() => {
+                            switch (summary.driver) {
+                                case 'pace':
+                                    return { evidence: <>You&rsquo;re averaging <strong>{wpm} wpm</strong> against your <strong>130&ndash;150</strong> target. {summary.why}</>,
+                                        steps: ['Read your opening 20% faster than feels right.', 'Slow down only for the one line you most want remembered.', 'Stop at 60 seconds and check the pace band.'] };
+                                case 'filler words':
+                                    return { evidence: <>You&rsquo;re at <strong>{fillers}/min</strong> filler words. {summary.why}</>,
+                                        steps: ['Swap one filler for a half-second silent pause.', 'Slow the sentence you rush most — fillers cluster there.', 'Re-record the same 30 seconds and count them out loud.'] };
+                                case 'pause rhythm':
+                                    return { evidence: <>Your pauses run <strong>{pauses}/min</strong>. {summary.why}</>,
+                                        steps: ['Finish the whole phrase before you pause.', 'Take one deliberate breath before the key point.', 'Cut mid-word restarts — pause, then continue.'] };
+                                case 'clear delivery':
+                                    return { evidence: <>Your clarity is <strong>{clarity}%</strong>. {summary.why}</>,
+                                        steps: ['Say the main point first, the context second.', 'One idea per sentence — split the long ones.', 'End each thought on a falling tone, not a trailing one.'] };
+                                default:
+                                    return { evidence: <>{summary.why}</>,
+                                        steps: ['Keep the pace steady.', 'Land the takeaway cleanly.', 'Record another take to hold the trend.'] };
+                            }
+                        })();
                         return (
-                            <div className="rounded-xl border border-primary/20 bg-primary/5 p-5" data-testid="try-this-next">
-                                <p className="text-xs font-bold uppercase tracking-wide text-primary">Try this next</p>
-                                <p className="mt-1 text-base font-semibold text-foreground" data-testid="try-this-next-action">{summary.action}</p>
-                                {summary.driverDisplay && (
-                                    <p className="mt-2 text-sm font-semibold text-foreground/80" data-testid="try-this-next-driver">Main driver: {summary.driverDisplay}</p>
-                                )}
-                                <p className="mt-0.5 text-xs font-medium text-foreground/65" data-testid="try-this-next-why">{summary.why}</p>
+                            <div className="rounded-xl border border-[#dbe2ec] border-t-[3px] border-t-[#6d28d9] bg-white p-6 shadow-sm" data-testid="try-this-next">
+                                <div className="grid gap-6 md:grid-cols-[1fr_300px] md:items-start">
+                                    <div>
+                                        <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-[#6d28d9]">◎ Do this next</p>
+                                        <p className="mt-2 text-[30px] font-extrabold leading-[1.1] tracking-[-0.02em] text-[#1f2733]" data-testid="try-this-next-action">{summary.action}</p>
+                                        <p className="mt-3 text-[16px] leading-relaxed text-[#232c3a]" data-testid="try-this-next-why">{detail.evidence}</p>
+                                        <div className="mt-5 flex items-center gap-4">
+                                            <a href="/session" className="inline-flex items-center rounded-[10px] bg-[#0d7d74] px-4 py-2.5 text-[15px] font-bold text-white hover:bg-[#0a5f58]" data-testid="hero-practise-now">Practise this now</a>
+                                            <details className="text-[13px] font-bold text-[#0d7d74]">
+                                                <summary className="cursor-pointer list-none hover:underline" data-testid="hero-method">How we worked this out</summary>
+                                                <p className="mt-2 max-w-md text-[13px] font-normal leading-snug text-[#414b5c]">We compare each delivery signal (pace, fillers, clarity, pause rhythm) against its target across your last 6 sessions and surface the one with the largest, most persistent gap — never more than one at a time.</p>
+                                            </details>
+                                        </div>
+                                    </div>
+                                    <div className="rounded-lg bg-[#f5f0ff] p-4" data-testid="hero-what-to-try">
+                                        <p className="text-[11px] font-extrabold uppercase tracking-wide text-[#5b21b6]">What to try</p>
+                                        <ol className="mt-3 space-y-3">
+                                            {detail.steps.map((step, i) => (
+                                                <li key={i} className="flex gap-2.5 text-[13px] leading-snug text-[#232c3a]">
+                                                    <span className="font-extrabold text-[#6d28d9]">{i + 1}</span>
+                                                    <span>{step}</span>
+                                                </li>
+                                            ))}
+                                        </ol>
+                                    </div>
+                                </div>
                             </div>
                         );
                     })()}
@@ -1109,109 +1106,72 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         )}
                     </div>
 
-                    {/* Analysis Carousel */}
-                    <div className="space-y-2">
-                        <Carousel className="w-full" opts={{ loop: true }} setApi={setApi}>
-                            <CarouselContent>
-                                {displayedAnalysisSlides.map((option, index) => (
-                                    <CarouselItem key={option.id} className="basis-full">
-                                        <div>
-                                            {index === activeAnalysisIndex ? (
-                                                <>
-                                                    {/* Render content based on ID */}
-                                                    {option.id === 'pace_trend' && (
-                                                        <div>
-                                                            <TrendChart
-                                                                title="Speaking Pace Trend"
-                                                                description="Track your words per minute over time"
-                                                                data={trendData}
-                                                                metric="wpm"
-                                                            />
-                                                        </div>
-                                                    )}
-                                                    {option.id === 'clarity_trend' && (
-                                                        <div>
-                                                            <TrendChart
-                                                                title="Clarity Trend"
-                                                                description="Monitor your speech clarity percentage"
-                                                                data={trendData}
-                                                                metric="clarity"
-                                                            />
-                                                        </div>
-                                                    )}
-                                                    {option.id === 'pause_trend' && (
-                                                        <div>
-                                                            <TrendChart
-                                                                title="Pause Rhythm Trend"
-                                                                description="Pauses per minute across your sessions"
-                                                                data={trendData}
-                                                                metric="pauses"
-                                                            />
-                                                        </div>
-                                                    )}
-                                                    {option.id === 'weekly_activity' && (
-                                                        <WeeklyActivityChart />
-                                                    )}
-                                                    {option.id === 'filler_words' && (
-                                                        <Card>
-                                                            <CardHeader><CardTitle>Filler Words</CardTitle></CardHeader>
-                                                            <CardContent className="space-y-6">
-                                                                {overallStats.chartData.length > 1 ? (
-                                                                    <FillerWordsTrendChart data={overallStats.chartData} />
-                                                                ) : (
-                                                                    <div className="flex h-[150px] items-center justify-center rounded-lg border border-dashed border-[hsl(var(--border-strong))] bg-muted/70 px-6 text-center text-sm font-semibold text-foreground/75"><p>Complete at least two sessions to see your filler word trend.</p></div>
-                                                                )}
-                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                                    <TopFillerWords />
-                                                                    <FillerWordTable trendData={fillerWordTrends} />
-                                                                </div>
-                                                            </CardContent>
-                                                        </Card>
-                                                    )}
-                                                    {option.id === 'stt_comparison' && (
-                                                        <STTAccuracyVsBenchmark />
-                                                    )}
-                                                </>
+                    {/* #G4 §3: Analysis tools — stacked (carousel retired). Every selected tool renders in full,
+                        in order, so nothing hides behind a swipe and each chart is scannable at once. */}
+                    <div className="space-y-6">
+                        {displayedAnalysisSlides.map((option) => (
+                            <div key={option.id}>
+                                {option.id === 'pace_trend' && (
+                                    <TrendChart
+                                        title="Speaking Pace Trend"
+                                        description="Track your words per minute over time"
+                                        data={trendData}
+                                        metric="wpm"
+                                    />
+                                )}
+                                {option.id === 'clarity_trend' && (
+                                    <TrendChart
+                                        title="Clarity Trend"
+                                        description="Monitor your speech clarity percentage"
+                                        data={trendData}
+                                        metric="clarity"
+                                    />
+                                )}
+                                {option.id === 'pause_trend' && (
+                                    <TrendChart
+                                        title="Pause Rhythm Trend"
+                                        description="Pauses per minute across your sessions"
+                                        data={trendData}
+                                        metric="pauses"
+                                    />
+                                )}
+                                {option.id === 'weekly_activity' && (
+                                    <WeeklyActivityChart />
+                                )}
+                                {option.id === 'filler_words' && (
+                                    <Card>
+                                        <CardHeader><CardTitle>Filler Words</CardTitle></CardHeader>
+                                        <CardContent className="space-y-6">
+                                            {overallStats.chartData.length > 1 ? (
+                                                <FillerWordsTrendChart data={overallStats.chartData} />
                                             ) : (
-                                                <div className="min-h-[240px]" aria-hidden="true" />
+                                                <div className="flex h-[150px] items-center justify-center rounded-lg border border-dashed border-[hsl(var(--border-strong))] bg-muted/70 px-6 text-center text-sm font-semibold text-foreground/75"><p>Complete at least two sessions to see your filler word trend.</p></div>
                                             )}
-
-                                        </div>
-                                    </CarouselItem>
-                                ))
-                                }
-                            </CarouselContent>
-                            <CarouselPrevious />
-                            <CarouselNext />
-                        </Carousel>
-                        {/* Carousel Indicators */}
-                        <div className="flex justify-center gap-2 py-1">
-                            {Array.from({ length: count }).map((_, index) => (
-                                <button
-                                    key={index}
-                                    className={`h-2 rounded-full transition-all duration-300 ${index + 1 === current ? 'w-8 bg-secondary' : 'w-2 bg-muted-foreground/30'}`}
-                                    onClick={() => api?.scrollTo(index)}
-                                    aria-label={`Go to slide ${index + 1}`}
-                                />
-                            ))}
-                        </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                <TopFillerWords />
+                                                <FillerWordTable trendData={fillerWordTrends} />
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                )}
+                            </div>
+                        ))}
 
                         {/* Session History Section - Moved below carousel */}
                         <div id="session-history-section">
                             <Card className="rounded-xl p-5">
-                                <div className="flex items-center justify-between mb-4">
+                                {/* #G4 §5: "Recent sessions" — exactly the 2 most recent (the retention window, not a
+                                    truncation). Transcripts + audio purge beyond 2 (R1/R2 live in prod), metrics rows
+                                    persist permanently — so the "we keep only 2" promise is now honest. */}
+                                <div className="mb-4 flex items-start justify-between gap-3">
                                     <div>
-                                        <h2 className="text-xl font-bold text-foreground">Download PDF Reports</h2>
-                                        <p className="mt-1 text-sm font-medium text-foreground/70">Generate local PDF downloads from your saved session data.</p>
-                                        <div className="mt-3 flex items-center gap-2 text-[10px] md:text-xs font-semibold uppercase tracking-wider bg-secondary/10 text-secondary border border-secondary/20 px-3 py-1.5 rounded-full inline-flex">
-                                            <Activity className="h-3 w-3" />
-                                            <span>Rolling History: Last 50 Sessions Kept</span>
-                                        </div>
+                                        <h2 className="text-xl font-bold text-foreground">Recent sessions</h2>
+                                        <p className="mt-1 text-sm font-medium text-foreground/70">We only keep the 2 most recent transcripts. Download the PDF while available.</p>
                                     </div>
                                     {selectedSessions.length === 2 && (
                                         <Button
                                             onClick={() => setShowComparison(true)}
-                                            className="bg-primary text-primary-foreground hover:bg-primary/90"
+                                            className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
                                         >
                                             Compare Selected (2)
                                         </Button>
@@ -1219,7 +1179,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 </div>
                                 <div className="space-y-3" data-testid={TEST_IDS.SESSION_HISTORY_LIST}>
                                     {sessionHistory && sessionHistory.length > 0 ? (
-                                        sessionHistory.map((session) => (
+                                        sessionHistory.slice(0, 2).map((session) => (
                                             <SessionHistoryItem
                                                 key={session.id}
                                                 session={session}
@@ -1236,6 +1196,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         </div>
                                     )}
                                 </div>
+                                {sessionHistory && sessionHistory.length > 0 && (
+                                    <p className="mt-4 border-t border-[#eef1f6] pt-3 text-xs font-medium text-foreground/60">
+                                        Private to you. Transcripts are never stored beyond your two most recent sessions.
+                                    </p>
+                                )}
                             </Card>
                         </div>
                     </div>
