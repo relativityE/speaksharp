@@ -13,8 +13,6 @@ import {
   parseBreakGlass,
   breakGlassValid,
   selfTestData,
-  BLOCK_START,
-  BLOCK_END,
 } from '../../scripts/pr-evidence-contract.mjs';
 
 const HEAD = 'a'.repeat(40);
