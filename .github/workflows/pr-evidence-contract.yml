@@ -1,0 +1,82 @@
+name: PR Evidence Contract
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: pr-evidence-contract-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Exact artifact and issue contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Use repository Node version
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+
+      - name: Prove validator rejects broken evidence
+        run: node scripts/pr-evidence-contract.mjs --self-test
+
+      - name: Validate PR evidence body
+        env:
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: node scripts/pr-evidence-contract.mjs
+
+      - name: Verify linked governing issue exists and predates the PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pullRequest = context.payload.pull_request;
+            const body = pullRequest.body || '';
+            const matches = [...body.matchAll(/\b(?:Refs|Fixes|Closes)\s+#(\d+)\b/gi)];
+            const numbers = [...new Set(matches.map((match) => Number(match[1])))];
+
+            if (numbers.length === 0) {
+              core.setFailed('No governing issue reference was found.');
+              return;
+            }
+
+            const failures = [];
+            for (const issueNumber of numbers) {
+              try {
+                const { data: issue } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                });
+
+                if (issue.pull_request) {
+                  failures.push('#' + issueNumber + ' is a pull request, not a governing issue.');
+                  continue;
+                }
+
+                if (new Date(issue.created_at) > new Date(pullRequest.created_at)) {
+                  failures.push('#' + issueNumber + ' was created after this PR; issue-first intake is required.');
+                }
+              } catch (error) {
+                failures.push('#' + issueNumber + ' could not be verified: ' + error.message);
+              }
+            }
+
+            if (failures.length > 0) {
+              core.setFailed(failures.join('\n'));
+              return;
+            }
+
+            core.info('PASS: linked governing issue exists and predates the PR.');
