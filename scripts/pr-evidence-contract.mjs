@@ -210,7 +210,7 @@ export function runSelfTest() {
   const mutations = [
     ['missing issue link', fixture.replace('Refs #1316', 'No issue')],
     ['stale remote SHA', fixture.replace('Remote PR head SHA: abcdef123456', 'Remote PR head SHA: fedcba654321')],
-    ['pending evidence', fixture.replace('None.', 'PENDING')],
+    ['pending evidence', fixture.replace('\nNone.\n## Mutation / failure proof', '\nPENDING\n## Mutation / failure proof')],
     ['unchecked readiness', fixture.replace('- [x] Complete', '- [ ] Complete')],
     ['unverified browser', fixture.replace('NOT REQUIRED — repository metadata only', 'PENDING')],
   ];
