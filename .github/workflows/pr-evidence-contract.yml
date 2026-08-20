@@ -2,7 +2,7 @@ name: PR Evidence Contract
 
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft]
+    types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft, review_requested]
 
 permissions:
   contents: read
@@ -43,7 +43,9 @@ jobs:
         with:
           script: |
             const pullRequest = context.payload.pull_request;
-            const body = pullRequest.body || '';
+            // Strip HTML comments so the template's example reference cannot be verified
+            // as a governing issue; only author-supplied references count.
+            const body = (pullRequest.body || '').replace(/<!--[\s\S]*?-->/g, '');
             const matches = [...body.matchAll(/\b(?:Refs|Fixes|Closes)\s+#(\d+)\b/gi)];
             const numbers = [...new Set(matches.map((match) => Number(match[1])))];
 

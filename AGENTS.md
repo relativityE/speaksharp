@@ -101,6 +101,26 @@ inspect the PR's Edge-function/config diff and disclose the resulting production
 The repository issue form, pull-request template, and `PR Evidence Contract` workflow
 are mandatory controls, not optional documentation.
 
+The lifecycle below is fixed. Every PR names its current phase and single next transition
+in the `PR lifecycle gate`. Implemented, merged, deployed, and customer-proven are distinct
+phases; never report a later phase's confidence from an earlier phase's evidence.
+
+- Phase 0 — Governing issue defined: outcome, falsifiable acceptance criteria, risk, allowlist, authorization gates.
+- Phase 1 — Draft PR linked; implementation in progress; evidence may be pending.
+- Phase 2 — Review-ready: exact-head source + required CI green, evidence complete, pending `None.`, status `QUALIFIED`.
+- Phase 3 — Under review; one consolidated PM/consultant return being resolved.
+- Phase 4 — Merge authorized and merged to `main` (separate Product Owner authorization).
+- Phase 5 — Production application/apply + readback (migration/deploy; separate authorization).
+- Phase 6 — Deployed; release identity re-read from `window.__APP_RELEASE__` and matched to the intended SHA.
+- Phase 7 — Real-device/customer acceptance proven; governing issue CLOSED.
+
+Velocity rules: do not restate a moving SHA or run ID as if fixed; a claim binds only to the
+pushed SHA it names. Do not write per-commit essays — post one blocker/authority note or one
+complete review-ready return, not a narrative per push. One consolidated PM review resolves a
+review-ready PR; the consultant is engaged only for security/privacy, qualification-void, or
+product-contract escalation. A second failed return on the same increment forces regenerate or
+rescope, not a third patch.
+
 - Create the governing issue first. Open a linked Draft PR before substantive
   implementation and use `Refs #<issue>` for an increment or `Closes #<issue>` only
   for the final accepted increment. Do not implement issue-only work.

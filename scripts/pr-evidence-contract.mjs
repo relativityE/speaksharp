@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 
 const REQUIRED_HEADINGS = [
+  '## PR lifecycle gate',
   '## Governing issue',
   '## User outcome',
   '## Scope and allowlist',
@@ -16,6 +17,10 @@ const REQUIRED_HEADINGS = [
 ];
 
 const REQUIRED_FIELDS = [
+  'Current phase',
+  'Allowed next transition',
+  'Active review return',
+  'Correction round count',
   'Changed-file allowlist',
   'PR head SHA',
   'Remote PR head SHA',
@@ -81,7 +86,10 @@ export function validatePrBody(body, { draft = true } = {}) {
     if (!body.includes(heading)) errors.push('Missing required heading: ' + heading);
   }
 
-  if (!/\b(?:Refs|Fixes|Closes)\s+#\d+\b/i.test(body)) {
+  // Strip HTML comments so the template's example (e.g. "Refs #123") cannot satisfy the
+  // governing-issue requirement; only an author-supplied reference counts.
+  const visibleBody = body.replace(/<!--[\s\S]*?-->/g, '');
+  if (!/\b(?:Refs|Fixes|Closes)\s+#\d+\b/i.test(visibleBody)) {
     errors.push('A governing issue reference is required: Refs/Fixes/Closes #<number>.');
   }
 
@@ -153,11 +161,52 @@ export function validatePrBody(body, { draft = true } = {}) {
     }
   }
 
+  // Lifecycle gate — a review-ready PR must be exactly Phase 2 with a resolved return
+  // and a valid correction-round count.
+  const phase = field(body, 'Current phase') ?? '';
+  if (!/^phase\s*2\b/i.test(phase)) {
+    errors.push('Current phase must be "Phase 2 — Review-ready" for a non-draft PR.');
+  }
+
+  const nextTransition = field(body, 'Allowed next transition') ?? '';
+  if (!/^phase\s*3\b/i.test(nextTransition)) {
+    errors.push('Allowed next transition from a review-ready PR must be "Phase 3 — Under review".');
+  }
+
+  const activeReturn = field(body, 'Active review return') ?? '';
+  if (!/^(?:none\.?|resolved\b)/i.test(activeReturn)) {
+    errors.push('Active review return must be resolved (None. or Resolved — <ref>) before review.');
+  }
+
+  const correctionRaw = field(body, 'Correction round count') ?? '';
+  if (!/^\d+$/.test(correctionRaw)) {
+    errors.push('Correction round count must be a non-negative integer.');
+  } else {
+    const correctionCount = Number.parseInt(correctionRaw, 10);
+    if (correctionCount > 2) {
+      errors.push('Correction round count exceeds the two-loop cap; regenerate or rescope the increment.');
+    } else if (correctionCount >= 2) {
+      const disposition = field(body, 'Correction disposition') ?? '';
+      if (!/(?:regenerat|rescope)/i.test(disposition)) {
+        errors.push('A second correction loop requires Correction disposition to state Regenerate or Rescope.');
+      }
+    }
+  }
+
   return errors;
 }
 
 function validFixture() {
   return `<!-- speaksharp-pr-contract:v1 -->
+## PR lifecycle gate
+- Current phase: Phase 2 — Review-ready
+- Allowed next transition: Phase 3 — Under review
+- Active review return: None.
+- Correction round count: 0
+- Correction disposition: N/A — not yet at the second correction loop
+- Review cadence: One consolidated PM review per review-ready state.
+- Stop rule: Missing preconditions => VOID; a second correction loop forces regenerate or rescope.
+- Separate authorities: Merge, migration, deployment, activation, and production proof are separately authorized.
 ## Governing issue
 Refs #1316
 ## User outcome
@@ -213,12 +262,38 @@ export function runSelfTest() {
     ['pending evidence', fixture.replace('\nNone.\n## Mutation / failure proof', '\nPENDING\n## Mutation / failure proof')],
     ['unchecked readiness', fixture.replace('- [x] Complete', '- [ ] Complete')],
     ['unverified browser', fixture.replace('NOT REQUIRED — repository metadata only', 'PENDING')],
+    ['wrong phase', fixture.replace('Current phase: Phase 2 — Review-ready', 'Current phase: Phase 1 — Draft')],
+    ['wrong next transition', fixture.replace('Allowed next transition: Phase 3 — Under review', 'Allowed next transition: Phase 5 — Apply')],
+    ['unresolved active return', fixture.replace('Active review return: None.', 'Active review return: PM return open')],
+    ['non-integer correction count', fixture.replace('Correction round count: 0', 'Correction round count: three')],
+    ['second correction loop without disposition', fixture
+      .replace('Correction round count: 0', 'Correction round count: 2')
+      .replace('Correction disposition: N/A — not yet at the second correction loop', 'Correction disposition: patched again')],
+    ['correction count over cap', fixture.replace('Correction round count: 0', 'Correction round count: 3')],
   ];
 
   for (const [name, mutated] of mutations) {
     if (validatePrBody(mutated, { draft: false }).length === 0) {
       throw new Error('Mutation was not detected: ' + name);
     }
+  }
+
+  // Valid Draft control: the same body, evaluated as a draft with fields still PENDING,
+  // must pass (drafts are allowed unresolved evidence).
+  const draftFixture = fixture
+    .replace('- Status: QUALIFIED', '- Status: OPEN')
+    .replace('\nNone.\n## Mutation / failure proof', '\nPENDING\n## Mutation / failure proof');
+  const draftErrors = validatePrBody(draftFixture, { draft: true });
+  if (draftErrors.length) {
+    throw new Error('Validator rejected a valid draft:\n' + draftErrors.join('\n'));
+  }
+
+  // A second correction loop that correctly regenerates/rescopes must pass.
+  const regenerated = fixture
+    .replace('Correction round count: 0', 'Correction round count: 2')
+    .replace('Correction disposition: N/A — not yet at the second correction loop', 'Correction disposition: Regenerated from authoritative sources');
+  if (validatePrBody(regenerated, { draft: false }).length) {
+    throw new Error('Validator rejected a correctly regenerated second-loop increment.');
   }
 }
 
