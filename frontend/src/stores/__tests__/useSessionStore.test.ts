@@ -301,7 +301,7 @@ describe('useSessionStore', () => {
 
         it('preserves a just-saved transcript on post-save normalization', () => {
             seedSavedSession(true);
-            useSessionStore.getState().setSTTMode('cloud');
+            useSessionStore.getState().setSTTMode('native');
             const state = useSessionStore.getState();
             expect(state.sttMode).toBe('cloud');
             expect(state.transcript.transcript).toBe('just saved transcript');
@@ -311,7 +311,7 @@ describe('useSessionStore', () => {
 
         it('RESETS the visible session on a normal (unsaved) mode switch (sessionSaved=false)', () => {
             seedSavedSession(false);
-            useSessionStore.getState().setSTTMode('cloud');
+            useSessionStore.getState().setSTTMode('native');
             const state = useSessionStore.getState();
             expect(state.sttMode).toBe('cloud');
             expect(state.transcript.transcript).toBe('');

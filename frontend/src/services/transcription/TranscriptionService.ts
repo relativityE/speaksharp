@@ -451,7 +451,7 @@ export default class TranscriptionService {
         // `this.currentTranscript` — the post sanitize/merge/dedupe text the store sees, NOT the raw
         // segment — marked replacesRollingTranscript so TranscriptProcessor REPLACES (never re-accumulates
         // overlapping finals → no double-count). Gated on the shadow flag; publishTelemetry swallows errors.
-        if (isShadowMetricsEngineEnabled() && (this.mode === 'private' || this.mode === 'cloud')) {
+        if (isShadowMetricsEngineEnabled() && this.mode === 'private') {
           if (hadFinal) {
             publishTelemetry({ type: 'transcript.final', mode: this.mode, t: performance.now(), text: this.currentTranscript, sequence: this.telemetrySeq++, replacesRollingTranscript: true });
           } else if (hadPartial) {
@@ -1064,14 +1064,14 @@ export default class TranscriptionService {
     if (!this.mic || typeof this.mic.onFrame !== 'function') return;
 
     const strategy = this.strategy as (STTStrategy & { processAudio?: (data: Float32Array) => void }) | null;
-    const shouldForwardToStrategy = mode === 'cloud' && typeof strategy?.processAudio === 'function';
+    const shouldForwardToStrategy = false;
     const shouldAnalyzeFrames = mode !== 'private';
 
     if (!shouldForwardToStrategy && !shouldAnalyzeFrames) return;
 
     // #891 Phase 5.6 (SHADOW): resolve the dev-gate ONCE here, not per frame, so production does zero
     // per-frame work for the passive Cloud audio diagnostic. Native never emits production audio.frame.
-    const publishShadowFrames = mode === 'cloud' && isShadowMetricsEngineEnabled();
+    const publishShadowFrames = false;
 
     this.micFramePumpCount = 0;
     this.micFrameDisposer = this.mic.onFrame((frame: Float32Array) => {

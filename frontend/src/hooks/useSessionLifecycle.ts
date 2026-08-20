@@ -42,10 +42,6 @@ const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string
         return 'Private transcription could not finish setup. Check microphone permission and browser storage, then retry setup. Your audio stays on your machine.';
     }
 
-    if (mode === 'cloud') {
-        return 'Transcription could not start. Retry Private transcription or refresh the page.';
-    }
-
     return rawMessage || 'Recording could not start. Try again.';
 };
 
@@ -364,8 +360,8 @@ export const useSessionLifecycle = () => {
 
                 // SpeechRuntimeController.startRecording() handles FSM, Service Init, and DB Session
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
-                const latestMode = requestedMode === 'cloud' && !canUseCloudStt ? defaultMode : requestedMode;
-                const selectedPolicy = buildPolicyForUser(canUsePrivateStt, latestMode, { allowCloud: canUseCloudStt });
+                const latestMode = requestedMode;
+                const selectedPolicy = buildPolicyForUser(canUsePrivateStt, latestMode);
                 await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                 analyticsBuffer.push('session_started', {
                     mode: latestMode,
@@ -376,7 +372,7 @@ export const useSessionLifecycle = () => {
             } catch (error) {
                 const err = error as Error;
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
-                const latestMode = requestedMode === 'cloud' && !canUseCloudStt ? defaultMode : requestedMode;
+                const latestMode = requestedMode;
                 const message = getStartFailureMessage(err, latestMode);
                 // #P1-observability: compute the sanitized engine-start leaf ONCE so both the Sentry
                 // scope AND the PostHog recording_start_failed event carry the root-cause name. This
@@ -725,7 +721,7 @@ export const useSessionLifecycle = () => {
         activeMode,
         mode: effectiveMode,
         setMode: (m: TranscriptionMode) => {
-            const safeMode = m === 'cloud' && !canUseCloudStt ? defaultMode : m;
+            const safeMode = m;
             // #1033 (A): route EVERY engine change through the controller's single authoritative decision.
             // While a recording is locked/unresolved the change is rejected BEFORE the store is touched, so the
             // UI store mode, the controller policy, and the service policy all stay on the active engine — the
@@ -734,7 +730,7 @@ export const useSessionLifecycle = () => {
             const store = useSessionStore.getState();
             const prevMode = store.sttMode;
             const prevSaved = store.sessionSaved;
-            const nextPolicy = buildPolicyForUser(canUsePrivateStt, safeMode, { allowCloud: canUseCloudStt });
+            const nextPolicy = buildPolicyForUser(canUsePrivateStt, safeMode);
             const result = speechRuntimeController.requestModeChange(safeMode, nextPolicy);
             if (!result.accepted) {
                 setSTTStatus({ type: 'info', message: 'Finish or discard your current recording before switching the transcription engine.' });

@@ -74,7 +74,6 @@ describe('TranscriptionService - Zombie Prevention', () => {
         policy: {
             ...PROD_FREE_POLICY,
             allowNative: true,
-            allowCloud: true,
             allowPrivate: true,
             preferredMode: 'native'
         }
@@ -117,51 +116,7 @@ describe('TranscriptionService - Zombie Prevention', () => {
         vi.restoreAllMocks();
     });
 
-    it('should terminate old instance before switching modes (Behavior-based)', async () => {
-        // Arrange
-        const cloudEngine = new MockEngine('cloud');
-        sttRegistryInstance.register('assemblyai', (opts: TranscriptionModeOptions) => { (cloudEngine as unknown as { options: TranscriptionModeOptions }).options = opts; return cloudEngine; });
-        
-        // Spies on the newly created Cloud mock 
-        const cloudSpy = vi.spyOn(cloudEngine, 'terminate');
 
-        // 1. Initialize Cloud mode
-        await service.startTranscription({ ...mockOptions.policy!, preferredMode: 'cloud' });
-        expect(service.getState()).toBe('RECORDING');
-
-        // 2. Initialize Private mode (should trigger terminate on cloud)
-        await service.startTranscription({ ...mockOptions.policy!, preferredMode: 'private' });
-
-        // ASSERT BEHAVIOR: Old instance terminated
-        expect(cloudSpy).toHaveBeenCalled();
-        expect(service.getMode()).toBe('private');
-    });
-
-    it('should handle concurrent terminate calls gracefully (Behavior-based)', async () => {
-        // Arrange
-        const cloudEngine = new MockEngine('cloud');
-        sttRegistryInstance.register('assemblyai', (opts: TranscriptionModeOptions) => { (cloudEngine as unknown as { options: TranscriptionModeOptions }).options = opts; return cloudEngine; });
-        
-        // Make terminate take some time
-        cloudEngine.terminate.mockImplementation(() => new Promise(res => setTimeout(res, 50)));
-
-        await service.startTranscription({ ...PROD_FREE_POLICY, allowCloud: true, allowPrivate: true, preferredMode: 'cloud' });
-        expect(service.getState()).toBe('RECORDING');
-
-        // RAPID DESTROY CALLS
-        const p1 = service.destroy();
-        const p2 = service.destroy();
-        const p3 = service.destroy();
-
-        // Advance timers to allow the mocked terminate promise to resolve
-        await vi.advanceTimersByTimeAsync(100);
-
-        await Promise.all([p1, p2, p3]);
-
-        // Terminate should only be fully executed once, but concurrent promises resolve safely
-        expect(cloudEngine.terminate).toHaveBeenCalled();
-        expect(service.isServiceDestroyed()).toBe(true);
-    });
 
     it('should keep policy updates mode-neutral until warm-up or start selects the engine', async () => {
         await service.updatePolicy({
@@ -181,20 +136,4 @@ describe('TranscriptionService - Zombie Prevention', () => {
         expect(mockOptions.onModeChange).not.toHaveBeenCalled();
     });
 
-    it('should be idempotent: additional destroy calls are safe', async () => {
-        // Arrange
-        const cloudEngine = new MockEngine('cloud');
-
-        // 1. Inject into STTRegistry - share the same instance
-        sttRegistryInstance.register('assemblyai', (opts: TranscriptionModeOptions) => { (cloudEngine as unknown as { options: TranscriptionModeOptions }).options = opts; return cloudEngine; });
-
-        await service.startTranscription({ ...mockOptions.policy!, preferredMode: 'cloud' });
-        await service.destroy();
-
-        expect(service.isServiceDestroyed()).toBe(true);
-
-        // Call again
-        await expect(service.destroy()).resolves.not.toThrow();
-        expect(cloudEngine.terminate).toHaveBeenCalledTimes(1);
-    });
 });

@@ -11,7 +11,7 @@
 import logger from '@/lib/logger';
 import { emitEngineRequestCollapsedToPrivate, isRetiredEngineRequest } from './sttExclusivityTelemetry';
 
-export type TranscriptionMode = 'native' | 'cloud' | 'private' | 'mock';
+export type TranscriptionMode = 'native' | 'private' | 'mock';
 
 /**
  * Policy object that defines which transcription modes are permitted
@@ -20,8 +20,6 @@ export type TranscriptionMode = 'native' | 'cloud' | 'private' | 'mock';
 export interface TranscriptionPolicy {
     /** Whether Native Browser (Web Speech API) is allowed */
     allowNative: boolean;
-    /** Whether Cloud (AssemblyAI) is allowed */
-    allowCloud: boolean;
     /** Whether Private (On-Device Whisper) is allowed */
     allowPrivate: boolean;
     /** The preferred mode to use (if allowed). Null means use first allowed. */
@@ -42,7 +40,6 @@ export interface TranscriptionPolicy {
  */
 export const PROD_FREE_POLICY: TranscriptionPolicy = {
     allowNative: false,
-    allowCloud: false,
     allowPrivate: true,
     preferredMode: 'private',
     allowFallback: false,
@@ -54,7 +51,6 @@ export const PROD_FREE_POLICY: TranscriptionPolicy = {
  */
 export const PROD_PRO_POLICY: TranscriptionPolicy = {
     allowNative: false,
-    allowCloud: false,
     allowPrivate: true,
     preferredMode: 'private',
     allowFallback: false,
@@ -71,24 +67,10 @@ export const PROD_PRO_POLICY: TranscriptionPolicy = {
  */
 export const E2E_DETERMINISTIC_NATIVE: TranscriptionPolicy = {
     allowNative: true,
-    allowCloud: false,
     allowPrivate: false,
     preferredMode: 'native',
     allowFallback: false,
     executionIntent: 'e2e-deterministic-native',
-};
-
-/**
- * E2E policy for deterministic Cloud mode testing.
- * Forces Cloud (AssemblyAI), no fallback.
- */
-export const E2E_DETERMINISTIC_CLOUD: TranscriptionPolicy = {
-    allowNative: false,
-    allowCloud: true,
-    allowPrivate: false,
-    preferredMode: 'cloud',
-    allowFallback: false,
-    executionIntent: 'e2e-deterministic-cloud',
 };
 
 /**
@@ -97,7 +79,6 @@ export const E2E_DETERMINISTIC_CLOUD: TranscriptionPolicy = {
  */
 export const E2E_DETERMINISTIC_PRIVATE: TranscriptionPolicy = {
     allowNative: false,
-    allowCloud: false,
     allowPrivate: true,
     preferredMode: 'private',
     allowFallback: false,
@@ -125,12 +106,11 @@ export function resolveMode(
         userPref: userPreference,
         policyPref: policy.preferredMode,
         allowNative: policy.allowNative,
-        allowCloud: policy.allowCloud,
         allowPrivate: policy.allowPrivate
     }, '[TranscriptionPolicy] Resolving mode:');
 
     // 0. Safety Check: If absolutely no modes are allowed, throw standardized error
-    if (!policy.allowNative && !policy.allowCloud && !policy.allowPrivate) {
+    if (!policy.allowNative && !policy.allowPrivate) {
         throw new Error('No allowed transcription mode');
     }
 
@@ -152,7 +132,6 @@ export function resolveMode(
         return policy.preferredMode;
     }
     if (policy.allowNative) return 'native';
-    if (policy.allowCloud) return 'cloud';
     if (policy.allowPrivate) return 'private';
 
     throw new Error(`[TranscriptionPolicy] Requested mode '${userPreference || policy.preferredMode}' is not allowed by current policy.`);
@@ -167,7 +146,6 @@ export function isModeAllowed(
 ): boolean {
     switch (mode) {
         case 'native': return policy.allowNative;
-        case 'cloud': return policy.allowCloud;
         case 'private': return policy.allowPrivate;
         case 'mock': return true; // Always allow mock
         default: return false;
@@ -185,7 +163,7 @@ export function isModeAllowed(
 export function buildPolicyForUser(
     hasPrivateSttAccess: boolean,
     uiMode?: TranscriptionMode | null,
-    options?: { allowCloud?: boolean }
+    options?: Record<string, never>
 ): TranscriptionPolicy {
     // #1184 STT exclusivity: Private is the ONLY engine. The tier flag and `allowCloud` are retained for
     // call-site compatibility but can NO LONGER widen the engine set — a Free user, a Pro user, and any
@@ -206,7 +184,6 @@ export function buildPolicyForUser(
     return {
         ...base,
         allowNative: false,
-        allowCloud: false,
         allowPrivate: true,
         preferredMode: 'private',
         // Disable fallback if the caller passed an explicit mode (Privacy Guard); Private's only

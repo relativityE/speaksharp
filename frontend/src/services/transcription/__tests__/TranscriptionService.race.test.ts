@@ -77,7 +77,6 @@ describe('TranscriptionService - Race Conditions', () => {
         registry.register('mock', () => engine);
 
         const policy: TranscriptionPolicy = {
-            allowCloud: false,
             allowPrivate: true,
             allowNative: false,
             allowFallback: false,

@@ -36,7 +36,6 @@ describe('TranscriptionService Max Attempts', () => {
             getAssemblyAIToken: vi.fn().mockResolvedValue('token'),
             policy: {
                 allowNative: true,
-                allowCloud: false,
                 allowPrivate: true,
                 preferredMode: 'private',
                 executionIntent: 'test',

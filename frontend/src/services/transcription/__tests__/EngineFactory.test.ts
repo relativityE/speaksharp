@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EngineFactory } from '../EngineFactory';
 import NativeBrowser from '../modes/NativeBrowser';
-import CloudAssemblyAI from '../modes/CloudAssemblyAI';
 import { PROD_FREE_POLICY, TranscriptionMode } from '../TranscriptionPolicy';
 import { TranscriptionModeOptions } from '../modes/types';
 import { NavigateFunction } from 'react-router-dom';
@@ -42,7 +41,6 @@ describe('EngineFactory', () => {
         vi.clearAllMocks();
         (STT_MODE_PROVIDER_CONFIG.native as { defaultProvider: string }).defaultProvider = 'auto-browser';
         (STT_MODE_PROVIDER_CONFIG.private as { defaultProvider: string }).defaultProvider = 'transformers-js';
-        (STT_MODE_PROVIDER_CONFIG.cloud as { defaultProvider: string }).defaultProvider = 'assemblyai';
         if (typeof window !== 'undefined') {
             const win = window as unknown as Record<string, unknown>;
             win.__SS_E2E__ = undefined;
@@ -56,10 +54,6 @@ describe('EngineFactory', () => {
             expect(NativeBrowser).toHaveBeenCalledWith(mockConfig);
         });
 
-        it('should create CloudAssemblyAI for cloud mode', async () => {
-            await EngineFactory.create('cloud', mockConfig, PROD_FREE_POLICY);
-            expect(CloudAssemblyAI).toHaveBeenCalledWith(mockConfig);
-        });
 
         it('should throw error for unsupported mode', async () => {
             // Cast to TranscriptionMode to test runtime validation
@@ -67,12 +61,6 @@ describe('EngineFactory', () => {
             await expect(EngineFactory.create(unsupportedMode, mockConfig, PROD_FREE_POLICY)).rejects.toThrow('Unsupported transcription mode');
         });
 
-        it('should fail loudly when config selects an unavailable cloud provider', async () => {
-            (STT_MODE_PROVIDER_CONFIG.cloud as { defaultProvider: string }).defaultProvider = 'deepgram';
-
-            await expect(EngineFactory.create('cloud', mockConfig, PROD_FREE_POLICY)).rejects.toThrow('Provider "deepgram" for mode "cloud" is not available');
-            expect(CloudAssemblyAI).not.toHaveBeenCalled();
-        });
 
         it('matrix: constructs every implemented native provider without provider-routing errors', async () => {
             const implementedNativeProviders = STT_MODE_PROVIDER_CONFIG.native.providers
@@ -101,31 +89,7 @@ describe('EngineFactory', () => {
             }
         });
 
-        it('matrix: constructs implemented cloud providers', async () => {
-            const implementedCloudProviders = STT_MODE_PROVIDER_CONFIG.cloud.providers
-                .filter((provider) => 'registryKey' in provider && provider.registryKey === 'assemblyai');
 
-            for (const provider of implementedCloudProviders) {
-                vi.clearAllMocks();
-                (STT_MODE_PROVIDER_CONFIG.cloud as { defaultProvider: string }).defaultProvider = provider.id;
-
-                await expect(EngineFactory.create('cloud', mockConfig, PROD_FREE_POLICY)).resolves.toBeDefined();
-                expect(CloudAssemblyAI).toHaveBeenCalledWith(mockConfig);
-            }
-        });
-
-        it('matrix: rejects unavailable cloud providers', async () => {
-            const unavailableCloudProviders = STT_MODE_PROVIDER_CONFIG.cloud.providers
-                .filter((provider) => !('registryKey' in provider));
-
-            for (const provider of unavailableCloudProviders) {
-                vi.clearAllMocks();
-                (STT_MODE_PROVIDER_CONFIG.cloud as { defaultProvider: string }).defaultProvider = provider.id;
-
-                await expect(EngineFactory.create('cloud', mockConfig, PROD_FREE_POLICY)).rejects.toThrow(`Provider "${provider.id}" for mode "cloud" is not available`);
-                expect(CloudAssemblyAI).not.toHaveBeenCalled();
-            }
-        });
 
         it('matrix: rejects explicitly unavailable native providers', async () => {
             (STT_MODE_PROVIDER_CONFIG.native as { defaultProvider: string }).defaultProvider = 'unsupported';

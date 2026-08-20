@@ -849,11 +849,9 @@ export class SpeechRuntimeController {
      */
     private resolveEntitledMode(p: TranscriptionPolicy): TranscriptionMode {
         const allowed = (m: TranscriptionMode): boolean =>
-            m === 'cloud' ? Boolean(p.allowCloud)
-                : m === 'private' ? Boolean(p.allowPrivate)
-                    : Boolean(p.allowNative);
+            m === 'private' ? Boolean(p.allowPrivate) : Boolean(p.allowNative);
         if (p.preferredMode && allowed(p.preferredMode)) return p.preferredMode;
-        const fallback: TranscriptionMode[] = ['private', 'native', 'cloud'];
+        const fallback: TranscriptionMode[] = ['private', 'native'];
         return fallback.find(allowed) ?? 'native';
     }
 
@@ -1077,7 +1075,7 @@ export class SpeechRuntimeController {
     }
 
     /** Closed allowlist of engine tokens eligible for a VERIFIED attribution. Anything else → unverified. */
-    private static readonly VERIFIABLE_ENGINES: ReadonlySet<string> = new Set(['native', 'private', 'cloud']);
+    private static readonly VERIFIABLE_ENGINES: ReadonlySet<string> = new Set(['native', 'private']);
 
     /**
      * #1033 — Snapshot the finalizing engine's durable identity from the LIVE engine.
@@ -1330,7 +1328,6 @@ export class SpeechRuntimeController {
                 ? { ...this.policy, preferredMode: mode }
                 : {
                     allowNative: mode === 'native',
-                    allowCloud: mode === 'cloud',
                     allowPrivate: mode === 'private',
                     preferredMode: mode,
                     allowFallback: false,
@@ -1507,7 +1504,6 @@ export class SpeechRuntimeController {
         if (!cur) return false;
         return p.preferredMode !== cur.preferredMode
             || p.allowNative !== cur.allowNative
-            || p.allowCloud !== cur.allowCloud
             || p.allowPrivate !== cur.allowPrivate
             || p.allowFallback !== cur.allowFallback;
     }
@@ -1521,7 +1517,7 @@ export class SpeechRuntimeController {
         // all three allow-flags, AND `allowFallback` (which decides who produces speech after a failure).
         // Only non-producer metadata (executionIntent) from the incoming policy passes through. A rejected
         // entitlement/profile change is QUEUED and applied at the next recording's start boundary.
-        const normalized = this.preserveAllowedCloudSelection(policy);
+        const normalized = policy;
         let effectivePolicy = normalized;
         if (this.isEngineSelectionLocked() && this.policy && this.wouldChangeActiveProducer(normalized)) {
             logger.warn({ from: this.policy.preferredMode, to: normalized.preferredMode, state: this.state }, '[controller] updatePolicy: producer change rejected — engine selection locked (#1033)');
@@ -1530,7 +1526,6 @@ export class SpeechRuntimeController {
                 ...normalized,
                 preferredMode: this.policy.preferredMode,
                 allowNative: this.policy.allowNative,
-                allowCloud: this.policy.allowCloud,
                 allowPrivate: this.policy.allowPrivate,
                 allowFallback: this.policy.allowFallback,
             };
@@ -1558,28 +1553,6 @@ export class SpeechRuntimeController {
         }
     }
 
-    private preserveAllowedCloudSelection(policy: TranscriptionPolicy): TranscriptionPolicy {
-        const selectedMode = useSessionStore.getState().sttMode;
-        if (selectedMode !== 'cloud' || !policy.allowCloud || policy.preferredMode === 'cloud') {
-            return policy;
-        }
-
-        const effectivePolicy = {
-            ...policy,
-            preferredMode: 'cloud' as const,
-            allowFallback: false,
-            executionIntent: `${policy.executionIntent ?? 'policy'}-cloud-preserved`,
-        };
-
-        logger.info({
-            from: policy.executionIntent,
-            to: effectivePolicy.executionIntent,
-            previousPreferredMode: policy.preferredMode,
-            selectedMode,
-        }, '[SpeechRuntimeController] Preserving allowed Cloud mode selection');
-
-        return effectivePolicy;
-    }
 
     public startLockWatchdog(): void {
         if (typeof window === 'undefined') return;
@@ -2046,7 +2019,6 @@ export class SpeechRuntimeController {
         }
 
         if (mode === 'native') return this.policy.allowNative;
-        if (mode === 'cloud') return this.policy.allowCloud;
         if (mode === 'private') return this.policy.allowPrivate;
 
         return false;
@@ -2904,9 +2876,7 @@ export class SpeechRuntimeController {
                     const metadata = service.getMetadata?.() || (
                         negMode === 'private'
                             ? { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' }
-                            : negMode === 'cloud'
-                                ? { engineVersion: 'assemblyai', modelName: 'universal-streaming', deviceType: 'cloud' }
-                                : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
+                            : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
                     );
 
                     // #1161 (finding 6): enrich the initial-save recovery context with the SAME engine provenance
@@ -3062,18 +3032,6 @@ export class SpeechRuntimeController {
         // is always disposed by the next startShadowMetricsEngine.
         return this.enqueue(async (token) => {
             const stopEntryMode = this.service?.getMode?.() ?? this.policy?.preferredMode ?? null;
-            if (stopEntryMode === 'cloud') {
-                logger.warn({
-                    controllerState: this.state,
-                    mode: stopEntryMode,
-                    hasService: Boolean(this.service),
-                    serviceState: this.service?.getState?.() ?? null,
-                    wasRecording: this.state === 'RECORDING',
-                    sessionId: this.sessionId,
-                    transcriptLength: this.getStoreTranscriptLength(),
-                    lifecycleVersion: this.lifecycleVersion,
-                }, '[CLOUD_STOP_ENTRY]');
-            }
 
             const canStop =
                 this.state === 'RECORDING' ||
@@ -3083,17 +3041,6 @@ export class SpeechRuntimeController {
                 this.state === 'FAILED_VISIBLE';
 
             if (!canStop) {
-                if (stopEntryMode === 'cloud') {
-                    logger.warn({
-                        willSave: false,
-                        reasonIfNot: 'cannot_stop_from_current_state',
-                        mode: stopEntryMode,
-                        controllerState: this.state,
-                        serviceState: this.service?.getState?.() ?? null,
-                        transcriptLength: this.getStoreTranscriptLength(),
-                        sessionId: this.sessionId,
-                    }, '[CLOUD_SAVE_DECISION]');
-                }
                 return null;
             }
             const stopSnapshotStore = useSessionStore.getState();
@@ -3127,17 +3074,6 @@ export class SpeechRuntimeController {
                 const service = this.service;
                 let sessionCompleted = false;
                 if (!service) {
-                    if (stopEntryMode === 'cloud') {
-                        logger.warn({
-                            willSave: false,
-                            reasonIfNot: 'missing_service',
-                            mode: stopEntryMode,
-                            controllerState: this.state,
-                            serviceState: null,
-                            transcriptLength: this.getStoreTranscriptLength(),
-                            sessionId: this.sessionId,
-                        }, '[CLOUD_SAVE_DECISION]');
-                    }
                     await this.transition('READY', undefined, token);
                     useSessionStore.getState().setTranscriptFinalizing(false);
                     useSessionStore.getState().freezeTranscriptAtStop(null);
@@ -3252,9 +3188,7 @@ export class SpeechRuntimeController {
                             const metadata = service.getMetadata?.() || (
                                 mode === 'private'
                                     ? { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' }
-                                    : mode === 'cloud'
-                                        ? { engineVersion: 'assemblyai', modelName: 'universal-streaming', deviceType: 'cloud' }
-                                        : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
+                                    : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
                             );
                             this.syncTranscriptLifecycleFromStore();
                             const fallbackTranscript =
@@ -3430,27 +3364,6 @@ export class SpeechRuntimeController {
                             repeatedSpanSummary: repetitionRisk.repeatedSpanSummary,
                             capturedAt: Date.now(),
                         };
-                        if ((service.getMode?.() ?? stopEntryMode) === 'cloud') {
-                            logger.warn({
-                                willSave: Boolean(result && sessionId && finalTranscript),
-                                reasonIfNot: !result ? 'missing_stop_result' : !sessionId ? 'missing_session_id' : !finalTranscript ? 'empty_transcript' : null,
-                                transcriptLength: finalTranscript.length,
-                                duration,
-                                mode: service.getMode?.() ?? stopEntryMode,
-                                serviceState: service.getState?.() ?? null,
-                                controllerState: this.state,
-                                wasRecording,
-                                resultSuccess: result.success ?? null,
-                                resultTranscriptLength: resultTranscript.length,
-                                chunkTranscriptLength: chunkTranscript.length,
-                                storeTranscriptLength: storeTranscript.length,
-                                storePartialTranscriptLength: storePartialTranscript.length,
-                                visibleStoreTranscriptLength: visibleStoreTranscript.length,
-                                frozenStopTranscriptLength: frozenStopTranscript.length,
-                                saveCandidateReason,
-                                sessionId,
-                            }, '[CLOUD_SAVE_DECISION]');
-                        }
                         pushTranscriptLifecycleTrace('save:candidate', {
                             mode: service.getMode?.() ?? stopEntryMode,
                             selectedLength: finalTranscript.length,
@@ -4289,7 +4202,7 @@ export class SpeechRuntimeController {
             // engine for the NEXT recording; a recording begins only via the explicit Start control. (No
             // mid-recording segmented handoff / auto-restart — one engine per recording.)
             const nativePolicy: TranscriptionPolicy = {
-                allowNative: true, allowCloud: false, allowPrivate: false,
+                allowNative: true, allowPrivate: false,
                 preferredMode: 'native', allowFallback: false, executionIntent: 'native-selection'
             };
             this.updatePolicy(nativePolicy);
