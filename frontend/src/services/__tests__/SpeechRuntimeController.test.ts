@@ -1529,6 +1529,39 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setLock(false, 'IDLE', null);
     });
 
+    // #1320 GUARD (controller boundary): `allowNative` is an inert compatibility field. This falsifies the
+    // exact defect the policy-helper test missed — the controller's OWN mode resolution must never let
+    // allowNative gate mock/private selection or resolve to the retired Native engine.
+    it('#1320: allowNative can never affect controller mode selection or select Native', () => {
+        const resolve = (p: TranscriptionPolicy): string =>
+            (controller as unknown as { resolveEntitledMode: (p: TranscriptionPolicy) => string }).resolveEntitledMode(p);
+
+        // (a) Flipping allowNative must NOT change the resolved mode for a mock-preferred policy.
+        //     (Under the old ad-hoc helper, allowNative:false made mock inadmissible → wrong result.)
+        const mockBase = { allowPrivate: false, preferredMode: 'mock' as TranscriptionMode, allowFallback: false, executionIntent: 'guard' };
+        expect(resolve({ ...mockBase, allowNative: false })).toBe('mock');
+        expect(resolve({ ...mockBase, allowNative: true })).toBe('mock');
+
+        // (b) A hostile/stale 'native' preference with allowNative:true must NEVER resolve to Native.
+        //     (Under the old helper this returned 'native'.)
+        const hostile = {
+            allowNative: true, allowPrivate: true,
+            preferredMode: 'native' as unknown as TranscriptionMode,
+            allowFallback: false, executionIntent: 'guard',
+        } as TranscriptionPolicy;
+        expect(resolve(hostile)).not.toBe('native');
+        expect(['private', 'mock']).toContain(resolve(hostile));
+
+        // (c) isModeAllowedByCurrentPolicy defers to the authoritative helper — never reads allowNative.
+        const isAllowed = (mode: TranscriptionMode | null, p: TranscriptionPolicy): boolean => {
+            (controller as unknown as { policy: TranscriptionPolicy }).policy = p;
+            return (controller as unknown as { isModeAllowedByCurrentPolicy: (m: TranscriptionMode | null) => boolean }).isModeAllowedByCurrentPolicy(mode);
+        };
+        expect(isAllowed('mock', { ...mockBase, allowNative: false } as TranscriptionPolicy)).toBe(true);
+        expect(isAllowed('mock', { ...mockBase, allowNative: true } as TranscriptionPolicy)).toBe(true);
+        expect(isAllowed('native' as unknown as TranscriptionMode, hostile)).toBe(false);
+    });
+
     // #1033 item 5 — a HARD reset (navigation/logout/account change) must clear the lock + pending retry so
     // no engine-selection state leaks across users/sessions; the soft subscriber_unmount reset preserves it.
     it('#1033: hard reset clears engine-selection lock + pending attribution retry (no cross-session leak)', () => {

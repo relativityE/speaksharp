@@ -31,6 +31,7 @@ import { getSupabaseClient } from '../lib/supabaseClient';
 import type { UserProfile } from '@/types/user';
 import type { TranscriptUpdate, HistorySegment, SttStatus } from '@/types/transcription';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
+import { isModeAllowed } from '@/services/transcription/TranscriptionPolicy';
 import { emitEngineRequestCollapsedToPrivate, isRetiredEngineRequest } from '@/services/transcription/sttExclusivityTelemetry';
 import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
@@ -801,12 +802,14 @@ export class SpeechRuntimeController {
      * (e.g. Cloud/Private chosen before entitlement was revoked) can never override a newly restricted policy.
      */
     private resolveEntitledMode(p: TranscriptionPolicy): TranscriptionMode {
-        const allowed = (m: TranscriptionMode): boolean =>
-            m === 'private' ? Boolean(p.allowPrivate) : Boolean(p.allowNative);
-        if (p.preferredMode && allowed(p.preferredMode)) return p.preferredMode;
-        // #1320: Private is the only customer engine — the fallback chain no longer includes Native/Web-Speech.
+        // #1320: mode admissibility is decided ONLY by the authoritative policy helper (private→allowPrivate,
+        // mock→always, everything else→false). `allowNative` is inert and MUST NOT influence selection — the
+        // old ad-hoc `m === 'private' ? allowPrivate : allowNative` let allowNative gate mock and even a stale
+        // native preference; a controller-boundary guard test locks this.
+        if (p.preferredMode && isModeAllowed(p.preferredMode, p)) return p.preferredMode;
+        // Private is the only customer engine — the fallback chain no longer includes Native/Web-Speech.
         const fallback: TranscriptionMode[] = ['private'];
-        return fallback.find(allowed) ?? 'private';
+        return fallback.find((m) => isModeAllowed(m, p)) ?? 'private';
     }
 
     /**
@@ -1970,10 +1973,8 @@ export class SpeechRuntimeController {
         if (!mode || !this.policy) {
             return true;
         }
-
-        if (mode === 'private') return this.policy.allowPrivate;
-
-        return false;
+        // #1320: defer to the authoritative policy helper — never read `allowNative` for a mode decision.
+        return isModeAllowed(mode, this.policy);
     }
 
     /**
