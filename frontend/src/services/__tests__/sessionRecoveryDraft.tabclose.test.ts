@@ -23,7 +23,7 @@ describe('UX-NAV-1 tab-close recovery contract (content-free, deterministic)', (
       userId: 'u-1',
       recoveryState: 'active_interrupted',
       durationSeconds: 12,
-      mode: 'native',
+      mode: 'private',
       metrics: { totalWords: 7 },
     });
 
@@ -33,19 +33,19 @@ describe('UX-NAV-1 tab-close recovery contract (content-free, deterministic)', (
     expect(restored?.recoveryState).toBe('active_interrupted');
     expect(restored?.metrics.totalWords).toBe(7);
     expect(restored).not.toHaveProperty('transcript');
-    expect(restored?.mode).toBe('native');
+    expect(restored?.mode).toBe('private');
     expect(restored?.durationSeconds).toBe(12);
     expect(typeof restored?.savedAt).toBe('string');
   });
 
   it('a normal stop+save clears the draft so it never resurrects a saved session', () => {
-    saveSessionRecoveryDraft({ sessionId: 's-2', recoveryState: 'active_interrupted', durationSeconds: 3, mode: 'native', metrics: { totalWords: 1 } });
+    saveSessionRecoveryDraft({ sessionId: 's-2', recoveryState: 'active_interrupted', durationSeconds: 3, mode: 'private', metrics: { totalWords: 1 } });
     clearSessionRecoveryDraft('s-2');
     expect(getSessionRecoveryDraft()).toBeNull();
   });
 
   it('clear is scoped: a draft for a DIFFERENT session is not wiped', () => {
-    saveSessionRecoveryDraft({ sessionId: 's-keep', recoveryState: 'active_interrupted', durationSeconds: 5, mode: 'native', metrics: { totalWords: 2 } });
+    saveSessionRecoveryDraft({ sessionId: 's-keep', recoveryState: 'active_interrupted', durationSeconds: 5, mode: 'private', metrics: { totalWords: 2 } });
     clearSessionRecoveryDraft('s-other');
     expect(getSessionRecoveryDraft()?.sessionId).toBe('s-keep');
   });

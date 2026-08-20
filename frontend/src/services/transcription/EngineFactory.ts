@@ -1,34 +1,9 @@
 import type { ITranscriptionEngine, TranscriptionModeOptions } from './modes/types';
 import type { TranscriptionMode, TranscriptionPolicy } from './TranscriptionPolicy';
-import NativeBrowser from './modes/NativeBrowser';
 import PrivateWhisper from './modes/PrivateWhisper';
 import logger from '../../lib/logger';
 import { getDefaultProviderEntry } from './providers/sttProviderConfig';
 import type { PrivateSttProvider, SttMode, SttProviderEntry } from './providers/types';
-import { registerNativeProductionFormatter } from './modes/nativeDeterministicCleanup';
-import { registerNativeTranscriptFormatter } from './modes/nativeTranscriptFormatter';
-
-/**
- * Activate (or clear) the API-backed saved-transcript formatter for the active
- * production engine. The formatter is Native ONLY:
- *   - native  -> register the deterministic word-preserving cleanup ($0, no LLM)
- *   - cloud   -> clear (Cloud has provider punctuation; must not depend on it)
- *   - private -> clear (Private formatting must stay local; never API)
- * Never throws — a formatter wiring failure must not block engine construction.
- * The seam itself falls back to the raw transcript if the backend is absent.
- */
-function configureNativeFormatter(mode: SttMode): void {
-  try {
-    if (mode === 'native') {
-      registerNativeProductionFormatter('native');
-    } else {
-      // Defensive: ensure no Native formatter lingers for cloud/private.
-      registerNativeTranscriptFormatter(null);
-    }
-  } catch (error) {
-    logger.warn({ error, mode }, '[EngineFactory] Native formatter activation skipped');
-  }
-}
 
 /**
  * EngineFactory:
@@ -50,9 +25,8 @@ export class EngineFactory {
     _policy: TranscriptionPolicy
   ): Promise<ITranscriptionEngine> {
 
-    let engine: ITranscriptionEngine;
-
-    if (mode !== 'native' && mode !== 'private') {
+    // #1320: Private (on-device Whisper) is the only production engine. Native/Web-Speech is retired.
+    if (mode !== 'private') {
       throw new Error(`[EngineFactory] Unsupported transcription mode: ${mode}`);
     }
 
@@ -61,26 +35,9 @@ export class EngineFactory {
     const registryKey = EngineFactory.assertProviderAvailable(mode as SttMode, provider);
     logger.info({ mode, provider: providerId, registryKey }, '[EngineFactory] Constructing production engine');
 
-    // Native-only: wire (or clear) the API-backed saved-transcript formatter.
-    configureNativeFormatter(mode as SttMode);
-
-    switch (mode) {
-      case 'native':
-        if (registryKey !== 'native-browser') {
-          throw new Error(`[EngineFactory] Native provider "${providerId}" is not wired to NativeBrowser.`);
-        }
-        engine = new NativeBrowser(options);
-        break;
-      case 'private':
-        engine = new PrivateWhisper({
-          ...options,
-          forceEngine: providerId as PrivateSttProvider,
-        } as TranscriptionModeOptions);
-        break;
-      default:
-        throw new Error(`[EngineFactory] Unsupported transcription mode: ${mode}`);
-    }
-
-    return engine;
+    return new PrivateWhisper({
+      ...options,
+      forceEngine: providerId as PrivateSttProvider,
+    } as TranscriptionModeOptions);
   }
 }

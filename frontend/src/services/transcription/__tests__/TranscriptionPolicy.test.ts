@@ -5,7 +5,6 @@ import {
     buildPolicyForUser,
     PROD_FREE_POLICY,
     PROD_PRO_POLICY,
-    E2E_DETERMINISTIC_NATIVE,
     E2E_DETERMINISTIC_PRIVATE,
     TranscriptionPolicy,
     TranscriptionMode
@@ -21,18 +20,22 @@ describe('TranscriptionPolicy', () => {
     });
 
     describe('isModeAllowed', () => {
+        // #1320 GUARD: allowNative is an inert compatibility field. Even set true, it cannot make the
+        // retired 'native' mode selectable — 'native' is no longer a TranscriptionMode.
         const policy: TranscriptionPolicy = {
             allowNative: true,
             allowPrivate: true,
-            preferredMode: 'native',
+            preferredMode: 'private',
             allowFallback: false
         };
 
-        it('should correctly identify allowed modes', () => {
-            expect(isModeAllowed('native', policy)).toBe(true);
+        it('allows the surviving Private mode', () => {
             expect(isModeAllowed('private', policy)).toBe(true);
         });
 
+        it('never allows retired native even when allowNative is true', () => {
+            expect(isModeAllowed('native' as unknown as TranscriptionMode, policy)).toBe(false);
+        });
 
         it('should return false for unknown modes (type safety)', () => {
             expect(isModeAllowed('unknown' as unknown as TranscriptionMode, policy)).toBe(false);
@@ -44,31 +47,31 @@ describe('TranscriptionPolicy', () => {
             const policy: TranscriptionPolicy = {
                 allowNative: true,
                 allowPrivate: true,
-                preferredMode: 'native',
+                preferredMode: 'private',
                 allowFallback: true
             };
             expect(resolveMode(policy, 'private')).toBe('private');
         });
 
-        it('should ignore disallowed user preference', () => {
+        it('#1320 GUARD: a native request never resolves to native, even with allowNative true', () => {
             const policy: TranscriptionPolicy = {
-                allowNative: false,
+                allowNative: true,
                 allowPrivate: true,
                 preferredMode: 'private',
                 allowFallback: true
             };
-            // Preference is native, but not allowed, so fallback to preferredMode 'private'
-            expect(resolveMode(policy, 'native')).toBe('private');
+            // A stale 'native' preference can never select Native — it collapses to Private.
+            expect(resolveMode(policy, 'native' as unknown as TranscriptionMode)).toBe('private');
         });
 
-        it('should use policy preferredMode if no user preference', () => {
+        it('#1320 GUARD: allowNative true with preferredMode native still resolves to Private', () => {
             const policy: TranscriptionPolicy = {
                 allowNative: true,
-                allowPrivate: false,
-                preferredMode: 'native',
+                allowPrivate: true,
+                preferredMode: 'native' as unknown as TranscriptionMode,
                 allowFallback: true
             };
-            expect(resolveMode(policy, null)).toBe('native');
+            expect(resolveMode(policy, null)).toBe('private');
         });
 
 
@@ -109,7 +112,8 @@ describe('TranscriptionPolicy', () => {
         it('keeps alternative STT choices manual instead of enabling automatic fallback', () => {
             expect(buildPolicyForUser(true).allowFallback).toBe(false);
             expect(buildPolicyForUser(true, 'private').allowFallback).toBe(false);
-            expect(buildPolicyForUser(true, 'native').allowFallback).toBe(false);
+            // #1320: a stale native UI request collapses to Private and never enables fallback.
+            expect(buildPolicyForUser(true, 'native' as unknown as TranscriptionMode).allowFallback).toBe(false);
         });
 
     });
@@ -148,10 +152,9 @@ describe('TranscriptionPolicy', () => {
             expect(PROD_PRO_POLICY.allowFallback).toBe(false);
         });
 
-        // The deterministic native E2E policy still EXISTS as code (native engine removal is a later slice);
-        // it is simply no longer reachable through the user-facing resolution path.
+        // #1320: the deterministic native E2E policy has been removed with the Native engine — only the
+        // deterministic Private E2E policy remains.
         it('E2E policies should be deterministic', () => {
-            expect(E2E_DETERMINISTIC_NATIVE.preferredMode).toBe('native');
             expect(E2E_DETERMINISTIC_PRIVATE.preferredMode).toBe('private');
         });
     });

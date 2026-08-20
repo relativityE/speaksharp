@@ -63,7 +63,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         const stubService = {
             updatePolicy: vi.fn().mockResolvedValue(undefined),
             warmUp: vi.fn().mockResolvedValue(undefined),
-            getMode: vi.fn().mockReturnValue('native'),
+            getMode: vi.fn().mockReturnValue('private'),
             getStrategy: vi.fn().mockReturnValue({ start: vi.fn(), stop: vi.fn() }),
             fsm: { is: vi.fn().mockReturnValue(false) },
             subscribe: vi.fn(() => vi.fn()),
@@ -166,7 +166,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('should allow isExitTransition to recognize TERMINATED as a cleanup state', () => {
         // We verify this by seeing if transition('TERMINATED') clears the engine
         const store = useSessionStore.getState();
-        store.setActiveEngine('native');
+        store.setActiveEngine('private');
 
         (controller as unknown as { transition: (s: string) => void }).transition('TERMINATED');
 
@@ -199,7 +199,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         controller.updatePolicy({
             allowNative: true,
             allowPrivate: false,
-            preferredMode: 'native',
+            preferredMode: 'private',
             allowFallback: false,
             executionIntent: 'prod-free',
         });
@@ -212,25 +212,25 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
 
     it('ignores stale disallowed mode callbacks from an old strategy', () => {
         const store = useSessionStore.getState();
-        store.setSTTMode('native');
+        store.setSTTMode('private');
         (controller as unknown as { policy: unknown }).policy = {
             allowNative: true,
             allowPrivate: false,
-            preferredMode: 'native',
+            preferredMode: 'private',
             allowFallback: false,
             executionIntent: 'prod-free',
         };
 
         (controller as unknown as { handleModeChange: (mode: string) => void }).handleModeChange('private');
 
-        expect(useSessionStore.getState().sttMode).toBe('native');
+        expect(useSessionStore.getState().sttMode).toBe('private');
     });
 
     it('applies the requested warm-up mode to the service policy before readiness checks', async () => {
         (controller as unknown as { policy: unknown }).policy = {
             allowNative: true,
             allowPrivate: true,
-            preferredMode: 'native',
+            preferredMode: 'private',
             allowFallback: false,
             executionIntent: 'prod-pro-native',
         };
@@ -402,7 +402,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         });
     });
 
-    it.each(['native', 'private'] as const)(
+    it.each(['private'] as const)(
         'consumes the visible partial for a content-free save, then PURGES the transcript from the store after stop for %s',
         async (mode) => {
             const storage = await import('../../lib/storage');
@@ -506,7 +506,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     const lastBody = () => { const b = attestBodies(); return b[b.length - 1]; };
     const lastEvidence = () => lastBody()?.runtimeEvidence;
 
-    it.each(['native', 'private'] as const)(
+    it.each(['private'] as const)(
         '#1161: finalization ATTESTS a %s session via the trusted producer (Progress-eligible)',
         async (mode) => {
             attestInvoke.mockClear();
@@ -561,8 +561,8 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         { label: 'blank device_type', svc: { getMetadata: () => ({ engineVersion: 'web-speech-api', modelName: 'm', deviceType: '' }) } },
     ])('#1033/#1161 P1: $label → NO trusted identity → RESOLVED unattributed via server (op:resolve, no authority)', async ({ svc }) => {
         attestInvoke.mockClear();
-        const base = mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' });
-        await driveStopWithService({ ...base, ...svc }, 'sess-attr-unv', 'native');
+        const base = mkService('private', { engineVersion: 'transformers-js', modelName: 'whisper-base', deviceType: 'browser' });
+        await driveStopWithService({ ...base, ...svc }, 'sess-attr-unv', 'private');
         // An unverifiable local identity produces no evidence → the client posts op:'resolve_unattributed' so the server writes
         // the terminal unattributed marker (P1: convergence, never a silent skip). No runtimeEvidence.
         expect(attestInvoke).toHaveBeenCalledTimes(1);
@@ -572,8 +572,8 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
 
     it('#1033/#1161 P1: an engine token outside the allowlist → RESOLVED unattributed via server (op:resolve)', async () => {
         attestInvoke.mockClear();
-        const svc = { ...mkService('native', { engineVersion: 'x', modelName: 'y', deviceType: 'z' }), getMode: vi.fn().mockReturnValue('some-unknown-engine') };
-        await driveStopWithService(svc, 'sess-attr-badtoken', 'native');
+        const svc = { ...mkService('private', { engineVersion: 'x', modelName: 'y', deviceType: 'z' }), getMode: vi.fn().mockReturnValue('some-unknown-engine') };
+        await driveStopWithService(svc, 'sess-attr-badtoken', 'private');
         expect(attestInvoke).toHaveBeenCalledTimes(1);
         expect(lastBody()).toMatchObject({ op: 'resolve_unattributed', sessionId: 'sess-attr-badtoken' });
         expect(lastEvidence()).toBeUndefined();
@@ -583,10 +583,10 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         const storage = await import('../../lib/storage');
         vi.mocked(storage.updateSession).mockClear();
         const order: string[] = [];
-        const svc = mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' });
+        const svc = mkService('private', { engineVersion: 'transformers-js', modelName: 'whisper-base', deviceType: 'browser' });
         svc.getMetadata = vi.fn(() => { order.push('getMetadata'); return { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }; });
         svc.stopTranscription = vi.fn(async () => { order.push('stopTranscription'); return { success: true, transcript: '', stats: { total_words: 0, filler_words: {}, speaking_rate: 0, duration: 10, accuracy: 1 } }; });
-        await driveStopWithService(svc, 'sess-attr-order', 'native');
+        await driveStopWithService(svc, 'sess-attr-order', 'private');
         expect(order.indexOf('getMetadata')).toBeLessThan(order.indexOf('stopTranscription'));
     });
 
@@ -599,7 +599,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         attestInvoke.mockClear();
         attestInvoke.mockResolvedValueOnce({ data: null, error: { message: 'producer down' } });
         const saveCallsBefore = vi.mocked(storage.saveSession).mock.calls.length;
-        await expect(driveStopWithService(mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }), 'sess-attr-retry', 'native')).resolves.not.toThrow();
+        await expect(driveStopWithService(mkService('private', { engineVersion: 'transformers-js', modelName: 'whisper-base', deviceType: 'browser' }), 'sess-attr-retry', 'private')).resolves.not.toThrow();
         // transcript survived the attribution failure
         expect(storage.completeSession).toHaveBeenCalledWith('sess-attr-retry', expect.objectContaining({ status: 'completed' }));
         expect((controller as unknown as { pendingAttributionRetry: { progressMetrics: { persisted: boolean } } }).pendingAttributionRetry
@@ -610,7 +610,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         await expect((controller as unknown as { retryPendingAttribution: () => Promise<boolean> }).retryPendingAttribution()).resolves.toBe(true);
         const retryCall = attestInvoke.mock.calls.find(c => (c[1] as { body?: { sessionId?: string } })?.body?.sessionId === 'sess-attr-retry');
         expect(retryCall).toBeTruthy();
-        expect((retryCall![1] as { body: { runtimeEvidence: Record<string, unknown> } }).body.runtimeEvidence).toMatchObject({ provider: 'web-speech', engine: 'native' });
+        expect((retryCall![1] as { body: { runtimeEvidence: Record<string, unknown> } }).body.runtimeEvidence).toMatchObject({ provider: 'transformers-js', engine: 'private' });
         expect(vi.mocked(storage.saveSession).mock.calls.length).toBe(saveCallsBefore); // no duplicate session created
     });
 
@@ -625,9 +625,9 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             .mockResolvedValue({ data: { attributed: true }, error: null });
 
         await expect(driveStopWithService(
-            mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }),
+            mkService('private', { engineVersion: 'transformers-js', modelName: 'whisper-base', deviceType: 'browser' }),
             'sess-attr-metrics-failed',
-            'native',
+            'private',
         )).resolves.not.toThrow();
         const pending = (controller as unknown as {
             pendingAttributionRetry: { progressMetrics: { payload: unknown; persisted: boolean } };
@@ -654,9 +654,9 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             .mockResolvedValue({ data: { attributed: true }, error: null });
 
         const stopping = driveStopWithService(
-            mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }),
+            mkService('private', { engineVersion: 'transformers-js', modelName: 'whisper-base', deviceType: 'browser' }),
             'sess-attr-metrics-inflight',
-            'native',
+            'private',
         );
         await vi.waitFor(() => expect(storage.updateSession).toHaveBeenCalled());
 
@@ -671,41 +671,13 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     });
 
     // #1033 Part 2 — runtime enforcement (controller-level, not UI-only).
-    it('#1033: switchToNative is REJECTED while a recording is active (no engine change)', async () => {
-        const updatePolicySpy = vi.spyOn(controller, 'updatePolicy');
-        const startSpy = vi.spyOn(controller, 'startRecording');
-        (controller as unknown as { state: string }).state = 'RECORDING';
-        expect(controller.isEngineSelectionLocked()).toBe(true);
-        await controller.switchToNative();
-        await controller.whenStable();
-        expect(updatePolicySpy).not.toHaveBeenCalled(); // engine unchanged while locked
-        expect(startSpy).not.toHaveBeenCalled();
-        updatePolicySpy.mockRestore();
-        startSpy.mockRestore();
-    });
-
-    it('#1033: switchToNative does NOT auto-start the microphone — selecting Browser only sets the NEXT-recording engine (item 6)', async () => {
-        (controller as unknown as { state: string }).state = 'READY';
-        (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
-        (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = false;
-        (controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked = false;
-        expect(controller.isEngineSelectionLocked()).toBe(false);
-        const updatePolicySpy = vi.spyOn(controller, 'updatePolicy');
-        const startSpy = vi.spyOn(controller, 'startRecording');
-        await controller.switchToNative();
-        await controller.whenStable();
-        expect(startSpy).not.toHaveBeenCalled(); // selecting an engine ≠ Start
-        expect(updatePolicySpy).toHaveBeenCalledWith(expect.objectContaining({ preferredMode: 'native' }));
-        updatePolicySpy.mockRestore();
-        startSpy.mockRestore();
-    });
 
     it('#1033: startRecording is BLOCKED while a prior attribution retry is pending', async () => {
         const storage = await import('../../lib/storage');
         vi.mocked(storage.saveSession).mockClear();
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'sess-A', patch: { attribution_status: 'verified' } };
         (controller as unknown as { state: string }).state = 'IDLE';
-        await controller.startRecording(buildPolicyForUser(false, 'native'));
+        await controller.startRecording(buildPolicyForUser(false, 'private'));
         await controller.whenStable();
         expect(storage.saveSession).not.toHaveBeenCalled();
         expect(useSessionStore.getState().sttStatus).toEqual(expect.objectContaining({ type: 'error' }));
@@ -716,7 +688,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         const storage = await import('../../lib/storage');
         vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'sess-A', patch: { attribution_status: 'verified' } };
-        await driveStopWithService(mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }), 'sess-B', 'native');
+        await driveStopWithService(mkService('private', { engineVersion: 'transformers-js', modelName: 'whisper-base', deviceType: 'browser' }), 'sess-B', 'private');
         expect((controller as unknown as { pendingAttributionRetry: { sessionId: string } | null }).pendingAttributionRetry).toMatchObject({ sessionId: 'sess-A' });
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
     });
@@ -765,28 +737,6 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setLock(false, 'IDLE', null);
     });
 
-    it.each(['INITIATING', 'ENGINE_INITIALIZING', 'RECORDING', 'STOPPING'] as const)(
-        '#1033: switchToNative is rejected in locked lifecycle state %s (no engine change)',
-        async (st) => {
-            const updatePolicySpy = vi.spyOn(controller, 'updatePolicy');
-            setLock(false, st, null);
-            await controller.switchToNative();
-            await controller.whenStable();
-            expect(updatePolicySpy).not.toHaveBeenCalled();
-            updatePolicySpy.mockRestore();
-        }
-    );
-
-    it('#1033: switchToNative is rejected while an attribution retry is pending (even at READY)', async () => {
-        const updatePolicySpy = vi.spyOn(controller, 'updatePolicy');
-        setLock(false, 'READY', { sessionId: 'A', patch: { attribution_status: 'verified' } });
-        expect(controller.isEngineSelectionLocked()).toBe(true);
-        await controller.switchToNative();
-        await controller.whenStable();
-        expect(updatePolicySpy).not.toHaveBeenCalled();
-        updatePolicySpy.mockRestore();
-        setLock(false, 'READY', null);
-    });
 
     it('#1033: a FAILED session-B write does NOT overwrite pending session A', async () => {
         const storage = await import('../../lib/storage');
@@ -795,14 +745,14 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             if (patch && Object.prototype.hasOwnProperty.call(patch, 'attribution_status')) throw new Error('DB down');
             return { success: true };
         });
-        await driveStopWithService(mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }), 'sess-B', 'native');
+        await driveStopWithService(mkService('private', { engineVersion: 'transformers-js', modelName: 'whisper-base', deviceType: 'browser' }), 'sess-B', 'private');
         expect((controller as unknown as { pendingAttributionRetry: { sessionId: string } }).pendingAttributionRetry).toMatchObject({ sessionId: 'sess-A' }); // A preserved
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
         vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
     });
 
     it('#1033: retry of session A does not clear a pending that changed to session B mid-flight (compare-and-clear)', async () => {
-        const ev = { provider: 'web-speech', engine: 'native', fallback_occurred: false, cloud_used: false };
+        const ev = { provider: 'transformers-js', engine: 'private', fallback_occurred: false, cloud_used: false };
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'A', evidence: ev };
         attestInvoke.mockImplementationOnce(async () => {
             (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'B', evidence: ev };
@@ -1033,7 +983,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         clearDraft(); resetLifecycle();
         setLock(false, 'RECORDING', null); setUnresolved(true);
         (controller as unknown as { sessionId: string | null }).sessionId = null;
-        setOwner('user-early'); setInitialCtx({ userId: 'user-early', recordingId: 'rec-p', mode: 'native' });
+        setOwner('user-early'); setInitialCtx({ userId: 'user-early', recordingId: 'rec-p', mode: 'private' });
         useSessionStore.getState().setChunks([]);
         useSessionStore.getState().updateTranscript('', 'only a partial utterance so far');
         await doTransition('FAILED');
@@ -1113,8 +1063,8 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
 
     // (2) A mismatched engine callback is FATAL, not merely ignored.
     it.each([
-        { latched: 'private', reported: 'native' },
-        { latched: 'native', reported: 'private' },
+        { latched: 'private', reported: 'mock' },
+        { latched: 'mock', reported: 'private' },
     ] as const)('#1033 (2): $latched → $reported callback terminates the recording and forces unverified', async ({ latched, reported }) => {
         clearDraft(); resetLifecycle();
         // #1306: recovery armed = a FINALIZED draft. Seed one so the mixed-engine teardown stays locked +
@@ -1161,12 +1111,12 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { producerIntegrityTeardown: unknown }).producerIntegrityTeardown = null;
         (controller as unknown as { state: string }).state = 'RECORDING';
         useSessionStore.getState().setSTTMode('private');
-        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'native');
-        (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange('native');
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private');
+        (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange('private');
         await (controller as unknown as { producerIntegrityTeardown: Promise<void> | null }).producerIntegrityTeardown;
         // after the fatal handling the latch is released with the recording; a stale repeat is inert
         const callsAfterFirst = stop.mock.calls.length;
-        (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange('native');
+        (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange('private');
         await (controller as unknown as { producerIntegrityTeardown: Promise<void> | null }).producerIntegrityTeardown;
         expect(stop.mock.calls.length).toBeLessThanOrEqual(callsAfterFirst + 1);
         (controller as unknown as { producerIntegrityCompromised: boolean }).producerIntegrityCompromised = false;
@@ -1186,7 +1136,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setLock(false, 'RECORDING', null);
         setUnresolved(true);
         // A hostile/stale entitlement change requesting cloud arrives mid-recording — neutralized to Private.
-        controller.updatePolicy(buildPolicyForUser(true, 'native'));
+        controller.updatePolicy(buildPolicyForUser(true, 'private'));
         expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe('private'); // stays Private while locked
         // resolve the recording — the engine is unchanged (Private), so nothing was queued to swap.
         (controller as unknown as { state: string }).state = 'READY';
@@ -1289,13 +1239,13 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setOwner('user-1');
         useSessionStore.getState().setSTTMode('private');
         useSessionStore.getState().updateTranscript('some words', '');
-        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'native');
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private');
         const hmc = (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange.bind(controller);
         // three CONCURRENT duplicates before the teardown settles
-        hmc('native'); hmc('native'); hmc('cloud');
+        hmc('private'); hmc('private'); hmc('cloud');
         await (controller as unknown as { producerIntegrityTeardown: Promise<void> | null }).producerIntegrityTeardown;
         // ...and a stale one AFTER completion
-        hmc('native');
+        hmc('private');
         await (controller as unknown as { producerIntegrityTeardown: Promise<void> | null }).producerIntegrityTeardown;
         expect(stop).toHaveBeenCalledTimes(1); // exactly one engine stop
         expect(controller.isEngineSelectionLocked()).toBe(true);
@@ -1317,7 +1267,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { policy: TranscriptionPolicy }).policy = prior;
         useSessionStore.getState().setSTTMode('private');
         setLock(false, 'RECORDING', null); setUnresolved(true);
-        controller.updatePolicy(buildPolicyForUser(false, 'native')); // neutralized to Private → not a producer change
+        controller.updatePolicy(buildPolicyForUser(false, 'private')); // neutralized to Private → not a producer change
         expect((controller as unknown as { queuedProducerPolicy: unknown }).queuedProducerPolicy).toBeNull(); // nothing to queue
         (controller as unknown as { state: string }).state = 'READY';
         (controller as unknown as { markRecordingResolved: () => void }).markRecordingResolved();
@@ -1329,7 +1279,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     });
 
     // Finding 4 — the producing engine is latched; a mid-recording service callback cannot change identity.
-    it.each(['native', 'private'] as const)('#1033 (4): a mid-recording callback reporting another engine NEVER silently continues (latched %s)', async (latched) => {
+    it.each(['private', 'mock'] as const)('#1033 (4): a mid-recording callback reporting another engine NEVER silently continues (latched %s)', async (latched) => {
         const stop = vi.fn().mockResolvedValue(undefined);
         (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, stopTranscription: stop, getMode: () => latched };
         (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = latched;
@@ -1337,7 +1287,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { producerIntegrityTeardown: unknown }).producerIntegrityTeardown = null;
         (controller as unknown as { state: string }).state = 'RECORDING';
         useSessionStore.getState().setSTTMode(latched);
-        const other = latched === 'native' ? 'private' : 'native';
+        const other = latched === 'private' ? 'mock' : 'private';
         (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, other); // even if policy would allow it
         (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange(other);
         await (controller as unknown as { producerIntegrityTeardown: Promise<void> | null }).producerIntegrityTeardown;
@@ -1354,7 +1304,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033 (4): finalizing with a mode that differs from the latch yields UNVERIFIED (never mis-attributed)', () => {
         (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = 'private';
         const patch = (controller as unknown as { captureFinalizingIdentity: (s: unknown, m: string) => { attribution_status: string } })
-            .captureFinalizingIdentity({ getMetadata: () => ({ engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }) }, 'native');
+            .captureFinalizingIdentity({ getMetadata: () => ({ engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }) }, 'mock');
         expect(patch.attribution_status).toBe('unverified');
         (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = null;
     });
@@ -1451,7 +1401,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         const storage = await import('../../lib/storage');
         vi.mocked(storage.updateSession).mockResolvedValue({ success: true });
         setUnresolved(true); // recording had begun
-        await driveStopWithService(mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }), 'sess-unlock', 'native');
+        await driveStopWithService(mkService('private', { engineVersion: 'transformers-js', modelName: 'whisper-base', deviceType: 'browser' }), 'sess-unlock', 'private');
         expect((controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved).toBe(false);
         expect(controller.isEngineSelectionLocked()).toBe(false);
     });
@@ -1471,7 +1421,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         vi.mocked(storage.saveSession).mockClear();
         setLock(false, 'IDLE', null);
         setUnresolved(true); // prior recording failed post-start, not yet saved/retried/discarded
-        await controller.startRecording(buildPolicyForUser(false, 'native'));
+        await controller.startRecording(buildPolicyForUser(false, 'private'));
         await controller.whenStable();
         expect(storage.saveSession).not.toHaveBeenCalled();
         setUnresolved(false);
@@ -1482,7 +1432,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033: updatePolicy REJECTS a preferredMode engine change while locked (active engine unchanged)', () => {
         (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private');
         setLock(false, 'RECORDING', null); // locked via recording lifecycle
-        controller.updatePolicy(buildPolicyForUser(true, 'native'));
+        controller.updatePolicy(buildPolicyForUser(true, 'private'));
         expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe('private');
         setLock(false, 'IDLE', null);
     });
@@ -1495,7 +1445,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(controller.isEngineSelectionLocked()).toBe(false);
         // The update is ALLOWED when unlocked (mechanism), but buildPolicyForUser has already neutralized the
         // native request to Private — the engine never leaves Private.
-        controller.updatePolicy(buildPolicyForUser(true, 'native'));
+        controller.updatePolicy(buildPolicyForUser(true, 'private'));
         expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe('private');
     });
 
@@ -1516,7 +1466,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         const svcUpdate = vi.fn().mockResolvedValue(undefined);
         armLockedPrivate(svcUpdate);
         const before = producerOf(readPolicyA());
-        const res = controller.requestModeChange('native', buildPolicyForUser(true, 'native'));
+        const res = controller.requestModeChange('private', buildPolicyForUser(true, 'private'));
         expect(res.accepted).toBe(false);
         expect(res.reason).toBe('engine_selection_locked');
         expect(useSessionStore.getState().sttMode).toBe('private'); // store NOT mutated
@@ -1530,7 +1480,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { service: unknown }).service = null;
         useSessionStore.getState().setSTTMode('private');
         setLock(false, 'READY', null);
-        const res = controller.requestModeChange('native', buildPolicyForUser(true, 'native'));
+        const res = controller.requestModeChange('private', buildPolicyForUser(true, 'private'));
         expect(res.accepted).toBe(true);
         // fail-closed: neither the store nor the controller policy can leave Private for a native request.
         expect(useSessionStore.getState().sttMode).toBe('private');
@@ -1541,7 +1491,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         // The historical bypass: the store mode was flipped to cloud first, then preserveAllowedCloudSelection
         // read it and forced preferredMode back to cloud after the gate. Simulate that residual store state.
         (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private');
-        useSessionStore.getState().setSTTMode('native'); // hostile/residual store state
+        useSessionStore.getState().setSTTMode('mock'); // hostile/residual store state (distinct from the locked Private engine)
         setLock(false, 'RECORDING', null);
         controller.updatePolicy(buildPolicyForUser(true, 'private')); // any policy w/ allowCloud
         expect(readPolicyA().preferredMode).toBe('private'); // NOT restored to cloud
@@ -1553,7 +1503,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         armLockedPrivate();
         const before = producerOf(readPolicyA());
         // an entitlement/profile sync that would drop Private and switch to native
-        controller.updatePolicy(buildPolicyForUser(false, 'native'));
+        controller.updatePolicy(buildPolicyForUser(false, 'private'));
         expect(producerOf(readPolicyA())).toEqual(before); // engine + allowPrivate/allowCloud/allowNative all kept
         setLock(false, 'IDLE', null);
     });
@@ -1562,7 +1512,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         armLockedPrivate();
         const cur = readPolicyA();
         // __E2E_SET_MODE__ is exactly `updatePolicy({ ...this.policy, preferredMode: mode })` — exercise it.
-        controller.updatePolicy({ ...cur, preferredMode: 'native' });
+        controller.updatePolicy({ ...cur, preferredMode: 'private' });
         expect(readPolicyA().preferredMode).toBe('private');
         setLock(false, 'IDLE', null);
     });
@@ -1574,7 +1524,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { readyPromise: Promise<void> }).readyPromise = Promise.resolve();
         useSessionStore.getState().setSTTMode('private');
         setLock(false, 'RECORDING', null);
-        await controller.warmUp('native');
+        await controller.warmUp('mock');
         expect(readPolicyA().preferredMode).toBe('private');
         setLock(false, 'IDLE', null);
     });
@@ -1626,13 +1576,13 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         vi.mocked(storage.completeSession).mockResolvedValueOnce({ success: false });
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = null;
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
-        const svc = mkService('native', { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' });
+        const svc = mkService('private', { engineVersion: 'transformers-js', modelName: 'whisper-base', deviceType: 'browser' });
         (controller as unknown as { service: unknown }).service = svc;
         (controller as unknown as { state: string }).state = 'RECORDING';
         (controller as unknown as { sessionId: string }).sessionId = 'sess-fullsave';
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true; // recording had begun
         useSessionStore.getState().setRuntimeState('RECORDING');
-        useSessionStore.getState().setSTTMode('native');
+        useSessionStore.getState().setSTTMode('private');
         (controller as unknown as { handleTranscriptUpdate: (d: { transcript: { partial: string } }) => void }).handleTranscriptUpdate({ transcript: { partial: 'today i expect live transcript text to remain after stop' } });
         await controller.stopRecording().catch(() => undefined); // the full-save failure rejects the stop
         await controller.whenStable().catch(() => undefined);
@@ -1655,7 +1605,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         attestInvoke.mockResolvedValue({ data: { attributed: true }, error: null });
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
             sessionId: 'sess-fs', completeArgs: { status: 'completed', transcript: 'hello world', duration: 12 },
-            attributionEvidence: { provider: 'web-speech', engine: 'native', fallback_occurred: false, cloud_used: false },
+            attributionEvidence: { provider: 'transformers-js', engine: 'private', fallback_occurred: false, cloud_used: false },
         };
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
         expect(controller.isEngineSelectionLocked()).toBe(true);
@@ -1688,7 +1638,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         vi.mocked(storage.saveSession).mockClear();
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'A', completeArgs: { status: 'completed', transcript: 'x', duration: 1 }, attributionEvidence: null };
         (controller as unknown as { state: string }).state = 'IDLE';
-        await controller.startRecording(buildPolicyForUser(false, 'native'));
+        await controller.startRecording(buildPolicyForUser(false, 'private'));
         await controller.whenStable();
         expect(storage.saveSession).not.toHaveBeenCalled();
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
@@ -1699,7 +1649,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         vi.mocked(storage.completeSession).mockClear();
         vi.mocked(storage.completeSession).mockResolvedValue({ success: true });
         const svc = {
-            getMode: vi.fn().mockReturnValue('native'),
+            getMode: vi.fn().mockReturnValue('private'),
             getState: vi.fn().mockReturnValue('RECORDING'),
             getStartTime: vi.fn().mockReturnValue(Date.now() - 3000),
             stopTranscription: vi.fn().mockResolvedValue({ success: true, transcript: '', stats: { total_words: 0, filler_words: {}, speaking_rate: 0, duration: 3, accuracy: 1 } }),
@@ -1715,7 +1665,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { sessionId: string }).sessionId = 'sess-nospeech';
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
         useSessionStore.getState().setRuntimeState('RECORDING');
-        useSessionStore.getState().setSTTMode('native');
+        useSessionStore.getState().setSTTMode('private');
         await controller.stopRecording().catch(() => undefined);
         await controller.whenStable().catch(() => undefined);
         // Whatever non-error terminal an empty recording takes, it must RESOLVE (no retry stashed) and release
@@ -1785,7 +1735,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     // #metrics-duration: the persisted session duration must be the SPOKEN recording length
     // (start → Stop), NOT the save-time wall-clock — the post-Stop finalize decode (tens of
     // seconds on Private) must not inflate the denominator that pace/WPM and the detail view use.
-    it.each(['native', 'private'] as const)(
+    it.each(['private'] as const)(
         'persists the SPOKEN recording duration for %s — excludes the post-Stop finalize decode (completeSession path)',
         async (mode) => {
             const storage = await import('../../lib/storage');
@@ -1977,7 +1927,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
                 capturedOptions.onTranscriptUpdate?.({ transcript: { partial: 'native live text appears now' } });
             }),
             getState: vi.fn().mockReturnValue('RECORDING'),
-            getMode: vi.fn().mockReturnValue('native'),
+            getMode: vi.fn().mockReturnValue('private'),
             getMetadata: vi.fn().mockReturnValue({ engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }),
             setSessionId: vi.fn(),
             isServiceDestroyed: () => false,
@@ -1989,7 +1939,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             return service as never;
         });
 
-        await controller.startRecording({ preferredMode: 'native' } as never);
+        await controller.startRecording({ preferredMode: 'private' } as never);
         await controller.whenStable();
 
         expect(getOrCreateSpy).toHaveBeenCalled();

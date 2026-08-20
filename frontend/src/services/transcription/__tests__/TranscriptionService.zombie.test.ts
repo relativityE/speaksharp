@@ -75,7 +75,7 @@ describe('TranscriptionService - Zombie Prevention', () => {
             ...PROD_FREE_POLICY,
             allowNative: true,
             allowPrivate: true,
-            preferredMode: 'native'
+            preferredMode: 'private'
         }
     };
 
@@ -121,18 +121,18 @@ describe('TranscriptionService - Zombie Prevention', () => {
     it('should keep policy updates mode-neutral until warm-up or start selects the engine', async () => {
         await service.updatePolicy({
             ...mockOptions.policy!,
-            preferredMode: 'native',
-            executionIntent: 'prod-pro-native',
-        });
-        expect(service.getMode()).toBe('native');
-
-        await service.updatePolicy({
-            ...mockOptions.policy!,
             preferredMode: 'private',
             executionIntent: 'prod-pro-private',
         });
+        expect(service.getMode()).toBe('private');
 
-        expect(service.getMode()).toBe('native');
+        await service.updatePolicy({
+            ...mockOptions.policy!,
+            preferredMode: 'mock',
+            executionIntent: 'prod-pro-mock',
+        });
+
+        expect(service.getMode()).toBe('private');
         expect(mockOptions.onModeChange).not.toHaveBeenCalled();
     });
 

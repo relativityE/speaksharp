@@ -7,12 +7,11 @@ import {
 
 describe('STT provider config', () => {
   it('keeps mode defaults in the canonical provider config', () => {
-    expect(getDefaultProviderForMode('native')).toBe('auto-browser');
+    // #1320: Native/Web-Speech is retired — Private is the only mode in the config.
     expect(getDefaultProviderForMode('private')).toBe('transformers-js');
   });
 
   it('maps mode defaults to the registry or factory key used at runtime', () => {
-    expect(getRegistryKeyForMode('native')).toBe('native-browser');
     expect(getRegistryKeyForMode('private')).toBe('transformers-js');
   });
 

@@ -11,7 +11,7 @@
 import logger from '@/lib/logger';
 import { emitEngineRequestCollapsedToPrivate, isRetiredEngineRequest } from './sttExclusivityTelemetry';
 
-export type TranscriptionMode = 'native' | 'private' | 'mock';
+export type TranscriptionMode = 'private' | 'mock';
 
 /**
  * Policy object that defines which transcription modes are permitted
@@ -60,18 +60,6 @@ export const PROD_PRO_POLICY: TranscriptionPolicy = {
 // ============================================================================
 // E2E TEST POLICIES
 // ============================================================================
-
-/**
- * E2E policy for deterministic Native mode testing.
- * Forces Native Browser, no fallback.
- */
-export const E2E_DETERMINISTIC_NATIVE: TranscriptionPolicy = {
-    allowNative: true,
-    allowPrivate: false,
-    preferredMode: 'native',
-    allowFallback: false,
-    executionIntent: 'e2e-deterministic-native',
-};
 
 /**
  * E2E policy for deterministic Private mode testing.
@@ -131,7 +119,9 @@ export function resolveMode(
     if (policy.preferredMode && isModeAllowed(policy.preferredMode, policy)) {
         return policy.preferredMode;
     }
-    if (policy.allowNative) return 'native';
+    // #1320: Native/Web-Speech is retired. `allowNative` is an inert compatibility field (always false;
+    // scheduled for removal in the N2 narrowing) and can NO LONGER resolve to a Native engine — the only
+    // customer engine is Private. A guard test asserts allowNative cannot influence engine selection.
     if (policy.allowPrivate) return 'private';
 
     throw new Error(`[TranscriptionPolicy] Requested mode '${userPreference || policy.preferredMode}' is not allowed by current policy.`);
@@ -145,7 +135,6 @@ export function isModeAllowed(
     policy: TranscriptionPolicy
 ): boolean {
     switch (mode) {
-        case 'native': return policy.allowNative;
         case 'private': return policy.allowPrivate;
         case 'mock': return true; // Always allow mock
         default: return false;

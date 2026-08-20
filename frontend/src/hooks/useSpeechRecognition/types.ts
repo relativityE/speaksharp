@@ -38,6 +38,5 @@ export {
   buildPolicyForUser,
   PROD_FREE_POLICY,
   PROD_PRO_POLICY,
-  E2E_DETERMINISTIC_NATIVE,
   E2E_DETERMINISTIC_PRIVATE,
 } from '../../services/transcription/TranscriptionPolicy';

@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 
 import type { useTranscriptionService as useTranscriptionServiceType } from '../useTranscriptionService';
-import { E2E_DETERMINISTIC_NATIVE } from '../types';
+import { E2E_DETERMINISTIC_PRIVATE } from '../types';
 import type { TranscriptionProvider as ProviderType } from '@/providers/TranscriptionProvider';
 import type { SpeechRuntimeController } from '@/services/SpeechRuntimeController';
 import type { useSessionStore as useSessionStoreType } from '@/stores/useSessionStore';
@@ -123,7 +123,7 @@ describe('useTranscriptionService (Contract Verification)', () => {
 
     await act(async () => {
       await speechRuntimeController.warmUp();
-      await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
+      await result.current.startListening(E2E_DETERMINISTIC_PRIVATE);
     });
 
     const stateAfterStart = speechRuntimeController.getStore().getState().runtimeState;
@@ -141,7 +141,7 @@ describe('useTranscriptionService (Contract Verification)', () => {
 
     await act(async () => {
       await speechRuntimeController.warmUp();
-      await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
+      await result.current.startListening(E2E_DETERMINISTIC_PRIVATE);
     });
     await speechRuntimeController.whenStable();
     expect(result.current.isListening).toBe(true);
@@ -160,7 +160,7 @@ describe('useTranscriptionService (Contract Verification)', () => {
 
     await act(async () => {
       await speechRuntimeController.warmUp();
-      await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
+      await result.current.startListening(E2E_DETERMINISTIC_PRIVATE);
     });
     await speechRuntimeController.whenStable();
     expect(speechRuntimeController.getStore().getState().runtimeState).toBe('RECORDING');
