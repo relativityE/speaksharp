@@ -2,7 +2,6 @@ import { STTStrategy } from './STTStrategy';
 import type { TranscriptionMode, TranscriptionPolicy } from './TranscriptionPolicy';
 import type { TranscriptionModeOptions } from './modes/types';
 import NativeBrowser from './modes/NativeBrowser';
-import CloudAssemblyAI from './modes/CloudAssemblyAI';
 import PrivateWhisper from './modes/PrivateWhisper';
 import { PrivateSTT } from './engines/PrivateSTT';
 import logger from '../../lib/logger';
@@ -68,9 +67,6 @@ export class STTStrategyFactory {
     switch (mode) {
       case 'native':
         strategy = new NativeBrowser(options, mockEngine) as unknown as STTStrategy;
-        break;
-      case 'cloud':
-        strategy = new CloudAssemblyAI(options, mockEngine) as unknown as STTStrategy;
         break;
       case 'private':
         strategy = new PrivateWhisper(options, new PrivateSTT(options, mockEngine)) as unknown as STTStrategy;

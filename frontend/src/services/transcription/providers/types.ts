@@ -22,11 +22,7 @@ export type PrivateSttProvider =
   | 'transformers-js'
   | 'transformers-js-v4';
 
-export type CloudSttProvider =
-  | 'assemblyai'
-  | 'deepgram';
-
-export type SttProvider = NativeSttProvider | PrivateSttProvider | CloudSttProvider;
+export type SttProvider = NativeSttProvider | PrivateSttProvider;
 
 export type ProviderStatus = 'active' | 'available' | 'future' | 'unsupported';
 

@@ -193,54 +193,11 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         }));
     });
 
-    it('preserves an allowed explicit Cloud selection during late Pro policy sync', async () => {
-        const store = useSessionStore.getState();
-        store.setSTTMode('cloud');
 
-        controller.updatePolicy({
-            allowNative: true,
-            allowCloud: true,
-            allowPrivate: true,
-            preferredMode: 'private',
-            allowFallback: true,
-            executionIntent: 'prod-pro-default',
-        });
-        await controller.whenStable();
-
-        const service = (controller as unknown as { service: { updatePolicy: ReturnType<typeof vi.fn> } }).service;
-        expect(service.updatePolicy).toHaveBeenCalledWith(expect.objectContaining({
-            preferredMode: 'cloud',
-            allowFallback: false,
-            executionIntent: 'prod-pro-default-cloud-preserved',
-        }));
-    });
-
-    it('does not preserve Cloud when the effective policy disallows it', async () => {
-        const store = useSessionStore.getState();
-        store.setSTTMode('cloud');
-
-        controller.updatePolicy({
-            allowNative: true,
-            allowCloud: false,
-            allowPrivate: false,
-            preferredMode: 'native',
-            allowFallback: false,
-            executionIntent: 'prod-free',
-        });
-        await controller.whenStable();
-
-        const service = (controller as unknown as { service: { updatePolicy: ReturnType<typeof vi.fn> } }).service;
-        expect(service.updatePolicy).toHaveBeenCalledWith(expect.objectContaining({
-            preferredMode: 'native',
-            allowFallback: false,
-            executionIntent: 'prod-free',
-        }));
-    });
 
     it('delegates policy changes once and avoids duplicate warm-up loops', async () => {
         controller.updatePolicy({
             allowNative: true,
-            allowCloud: false,
             allowPrivate: false,
             preferredMode: 'native',
             allowFallback: false,
@@ -258,7 +215,6 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         store.setSTTMode('native');
         (controller as unknown as { policy: unknown }).policy = {
             allowNative: true,
-            allowCloud: false,
             allowPrivate: false,
             preferredMode: 'native',
             allowFallback: false,
@@ -273,7 +229,6 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('applies the requested warm-up mode to the service policy before readiness checks', async () => {
         (controller as unknown as { policy: unknown }).policy = {
             allowNative: true,
-            allowCloud: true,
             allowPrivate: true,
             preferredMode: 'native',
             allowFallback: false,
@@ -447,7 +402,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         });
     });
 
-    it.each(['native', 'private', 'cloud'] as const)(
+    it.each(['native', 'private'] as const)(
         'consumes the visible partial for a content-free save, then PURGES the transcript from the store after stop for %s',
         async (mode) => {
             const storage = await import('../../lib/storage');
@@ -567,16 +522,6 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         }
     );
 
-    it('#1161 P1: a CLOUD session is RESOLVED unattributed via the server (op:resolve, no evidence, no authority)', async () => {
-        attestInvoke.mockClear();
-        (controller as unknown as { resolvedPrivateEngineVersion: string | null }).resolvedPrivateEngineVersion = null;
-        await driveStopWithService(mkService('cloud', { engineVersion: 'v-c', modelName: 'm-c', deviceType: 'd-c' }), 'sess-attr-cloud', 'cloud');
-        // P1: definitive no-local-evidence is NOT a silent skip — it posts op:'resolve_unattributed' so the server writes the
-        // terminal unattributed marker (Progress/retention converge). No runtimeEvidence is sent (nothing to attest).
-        expect(attestInvoke).toHaveBeenCalledTimes(1);
-        expect(lastBody()).toMatchObject({ op: 'resolve_unattributed', sessionId: 'sess-attr-cloud' });
-        expect(lastEvidence()).toBeUndefined();
-    });
 
     it('#1045: the completed-save journey wires the Progress evaluation seam (metrics persisted + terminal attribution)', async () => {
         const { wireProgressEvaluationOnSave } = await import('../progress/recordProgress');
@@ -760,7 +705,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         vi.mocked(storage.saveSession).mockClear();
         (controller as unknown as { pendingAttributionRetry: unknown }).pendingAttributionRetry = { sessionId: 'sess-A', patch: { attribution_status: 'verified' } };
         (controller as unknown as { state: string }).state = 'IDLE';
-        await controller.startRecording(buildPolicyForUser(false, 'native', { allowCloud: false }));
+        await controller.startRecording(buildPolicyForUser(false, 'native'));
         await controller.whenStable();
         expect(storage.saveSession).not.toHaveBeenCalled();
         expect(useSessionStore.getState().sttStatus).toEqual(expect.objectContaining({ type: 'error' }));
@@ -787,7 +732,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033: engine selection locks SYNCHRONOUSLY at Start intent (before INITIATING)', async () => {
         setLock(false, 'IDLE', null);
         expect(controller.isEngineSelectionLocked()).toBe(false);
-        const p = controller.startRecording(buildPolicyForUser(true, 'private', { allowCloud: false })); // not awaited
+        const p = controller.startRecording(buildPolicyForUser(true, 'private')); // not awaited
         expect(controller.isEngineSelectionLocked()).toBe(true); // locked immediately, before any await resolves
         await controller.whenStable().catch(() => undefined);
         await p.catch(() => undefined);
@@ -804,12 +749,12 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setLock(false, 'IDLE', null);
         // #1184: tier no longer gates the engine — the former tier-only "DENIES Private" divergence is gone;
         // every buildPolicyForUser result grants Private.
-        const tierOnlyPolicy = buildPolicyForUser(false, 'private', { allowCloud: false });
+        const tierOnlyPolicy = buildPolicyForUser(false, 'private');
         controller.updatePolicy(tierOnlyPolicy);
         expect((controller as unknown as { policy: TranscriptionPolicy | null }).policy?.allowPrivate).toBe(true);
 
         // The record-authority MECHANISM still holds: startRecording's policy overwrites the stored one.
-        const capabilityPolicy = buildPolicyForUser(true, 'private', { allowCloud: false });
+        const capabilityPolicy = buildPolicyForUser(true, 'private');
         const p = controller.startRecording(capabilityPolicy); // not awaited — this.policy is assigned synchronously
         const stored = (controller as unknown as { policy: TranscriptionPolicy | null }).policy;
         expect(stored).toBe(capabilityPolicy);        // stored policy overwritten at record time
@@ -1169,7 +1114,6 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     // (2) A mismatched engine callback is FATAL, not merely ignored.
     it.each([
         { latched: 'private', reported: 'native' },
-        { latched: 'private', reported: 'cloud' },
         { latched: 'native', reported: 'private' },
     ] as const)('#1033 (2): $latched → $reported callback terminates the recording and forces unverified', async ({ latched, reported }) => {
         clearDraft(); resetLifecycle();
@@ -1187,7 +1131,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         useSessionStore.getState().setSTTMode(latched);
         useSessionStore.getState().setChunks([]);
         useSessionStore.getState().updateTranscript('words produced before the engine changed', '');
-        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, reported, { allowCloud: true });
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, reported);
 
         (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange(reported);
         await (controller as unknown as { producerIntegrityTeardown: Promise<void> | null }).producerIntegrityTeardown;
@@ -1217,7 +1161,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { producerIntegrityTeardown: unknown }).producerIntegrityTeardown = null;
         (controller as unknown as { state: string }).state = 'RECORDING';
         useSessionStore.getState().setSTTMode('private');
-        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'native', { allowCloud: true });
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'native');
         (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange('native');
         await (controller as unknown as { producerIntegrityTeardown: Promise<void> | null }).producerIntegrityTeardown;
         // after the fatal handling the latch is released with the recording; a stale repeat is inert
@@ -1237,12 +1181,12 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033 (3)/#1184: a mid-recording entitlement change stays Private across store + controller (fail-closed)', async () => {
         const svcUpdate = vi.fn().mockResolvedValue(undefined);
         (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, updatePolicy: svcUpdate, warmUp: vi.fn() };
-        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: true });
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private');
         useSessionStore.getState().setSTTMode('private');
         setLock(false, 'RECORDING', null);
         setUnresolved(true);
         // A hostile/stale entitlement change requesting cloud arrives mid-recording — neutralized to Private.
-        controller.updatePolicy(buildPolicyForUser(true, 'cloud', { allowCloud: true }));
+        controller.updatePolicy(buildPolicyForUser(true, 'native'));
         expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe('private'); // stays Private while locked
         // resolve the recording — the engine is unchanged (Private), so nothing was queued to swap.
         (controller as unknown as { state: string }).state = 'READY';
@@ -1290,7 +1234,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setLock(false, 'IDLE', null); setUnresolved(false);
         (controller as unknown as { sessionId: string | null }).sessionId = null;
         setOwner(null); setInitialCtx(null);
-        await controller.startRecording(buildPolicyForUser(true, 'private', { allowCloud: false })).catch(() => undefined);
+        await controller.startRecording(buildPolicyForUser(true, 'private')).catch(() => undefined);
         await controller.whenStable().catch(() => undefined);
         expect(svc.startTranscription).toHaveBeenCalled();
         // The owner was already resolved when the very first transcript could be produced.
@@ -1345,7 +1289,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setOwner('user-1');
         useSessionStore.getState().setSTTMode('private');
         useSessionStore.getState().updateTranscript('some words', '');
-        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'native', { allowCloud: true });
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'native');
         const hmc = (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange.bind(controller);
         // three CONCURRENT duplicates before the teardown settles
         hmc('native'); hmc('native'); hmc('cloud');
@@ -1369,11 +1313,11 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         // change: there is nothing to queue and nothing for the service to reject. The engine stays Private.
         const svcUpdate = vi.fn().mockRejectedValue(new Error('service refused policy'));
         (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, updatePolicy: svcUpdate, warmUp: vi.fn() };
-        const prior = buildPolicyForUser(true, 'private', { allowCloud: true });
+        const prior = buildPolicyForUser(true, 'private');
         (controller as unknown as { policy: TranscriptionPolicy }).policy = prior;
         useSessionStore.getState().setSTTMode('private');
         setLock(false, 'RECORDING', null); setUnresolved(true);
-        controller.updatePolicy(buildPolicyForUser(false, 'native', { allowCloud: false })); // neutralized to Private → not a producer change
+        controller.updatePolicy(buildPolicyForUser(false, 'native')); // neutralized to Private → not a producer change
         expect((controller as unknown as { queuedProducerPolicy: unknown }).queuedProducerPolicy).toBeNull(); // nothing to queue
         (controller as unknown as { state: string }).state = 'READY';
         (controller as unknown as { markRecordingResolved: () => void }).markRecordingResolved();
@@ -1385,7 +1329,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     });
 
     // Finding 4 — the producing engine is latched; a mid-recording service callback cannot change identity.
-    it.each(['native', 'private', 'cloud'] as const)('#1033 (4): a mid-recording callback reporting another engine NEVER silently continues (latched %s)', async (latched) => {
+    it.each(['native', 'private'] as const)('#1033 (4): a mid-recording callback reporting another engine NEVER silently continues (latched %s)', async (latched) => {
         const stop = vi.fn().mockResolvedValue(undefined);
         (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, stopTranscription: stop, getMode: () => latched };
         (controller as unknown as { recordingEngineMode: string | null }).recordingEngineMode = latched;
@@ -1394,7 +1338,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { state: string }).state = 'RECORDING';
         useSessionStore.getState().setSTTMode(latched);
         const other = latched === 'native' ? 'private' : 'native';
-        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, other, { allowCloud: true }); // even if policy would allow it
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, other); // even if policy would allow it
         (controller as unknown as { handleModeChange: (m: string) => void }).handleModeChange(other);
         await (controller as unknown as { producerIntegrityTeardown: Promise<void> | null }).producerIntegrityTeardown;
         // The recording is torn down and permanently unverifiable — the label is NOT merely repainted.
@@ -1425,11 +1369,11 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     // Finding 5 — allowFallback is producer-affecting and is frozen with the rest while locked; then queued.
     it('#1033 (5): allowFallback CANNOT change while locked, and the change is applied at the next boundary', async () => {
         (controller as unknown as { service: unknown }).service = null;
-        (controller as unknown as { policy: TranscriptionPolicy }).policy = { ...buildPolicyForUser(true, 'private', { allowCloud: false }), allowFallback: false };
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = { ...buildPolicyForUser(true, 'private'), allowFallback: false };
         useSessionStore.getState().setSTTMode('private');
         setLock(false, 'RECORDING', null);
         setUnresolved(true);
-        controller.updatePolicy({ ...buildPolicyForUser(true, 'private', { allowCloud: false }), allowFallback: true });
+        controller.updatePolicy({ ...buildPolicyForUser(true, 'private'), allowFallback: true });
         expect((controller as unknown as { policy: TranscriptionPolicy }).policy.allowFallback).toBe(false); // frozen
         // resolve the recording → the queued producer policy is applied for the NEXT recording
         (controller as unknown as { state: string }).state = 'READY';
@@ -1527,7 +1471,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         vi.mocked(storage.saveSession).mockClear();
         setLock(false, 'IDLE', null);
         setUnresolved(true); // prior recording failed post-start, not yet saved/retried/discarded
-        await controller.startRecording(buildPolicyForUser(false, 'native', { allowCloud: false }));
+        await controller.startRecording(buildPolicyForUser(false, 'native'));
         await controller.whenStable();
         expect(storage.saveSession).not.toHaveBeenCalled();
         setUnresolved(false);
@@ -1536,9 +1480,9 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     // #1033 item 1 — updatePolicy is the single authoritative engine-selection gate. Every preferred-engine
     // writer (UI setMode, profile/entitlement sync, __E2E_SET_MODE__, native selection) funnels through it.
     it('#1033: updatePolicy REJECTS a preferredMode engine change while locked (active engine unchanged)', () => {
-        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: false });
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private');
         setLock(false, 'RECORDING', null); // locked via recording lifecycle
-        controller.updatePolicy(buildPolicyForUser(true, 'native', { allowCloud: false }));
+        controller.updatePolicy(buildPolicyForUser(true, 'native'));
         expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe('private');
         setLock(false, 'IDLE', null);
     });
@@ -1547,11 +1491,11 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setLock(false, 'READY', null);
         setUnresolved(false);
         (controller as unknown as { engineSelectionIntentLocked: boolean }).engineSelectionIntentLocked = false;
-        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: false });
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private');
         expect(controller.isEngineSelectionLocked()).toBe(false);
         // The update is ALLOWED when unlocked (mechanism), but buildPolicyForUser has already neutralized the
         // native request to Private — the engine never leaves Private.
-        controller.updatePolicy(buildPolicyForUser(true, 'native', { allowCloud: false }));
+        controller.updatePolicy(buildPolicyForUser(true, 'native'));
         expect((controller as unknown as { policy: TranscriptionPolicy }).policy.preferredMode).toBe('private');
     });
 
@@ -1559,20 +1503,20 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     // controller policy (engine + all allow-flags), and the service policy must ALL stay on the active engine.
     const readPolicyA = () => (controller as unknown as { policy: TranscriptionPolicy }).policy;
     const armLockedPrivate = (svcUpdate?: ReturnType<typeof vi.fn>) => {
-        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: true });
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private');
         (controller as unknown as { service: unknown }).service = svcUpdate
             ? { isServiceDestroyed: () => false, updatePolicy: svcUpdate, warmUp: vi.fn().mockResolvedValue(undefined) }
             : null;
         useSessionStore.getState().setSTTMode('private');
         setLock(false, 'RECORDING', null); // locked via active recording
     };
-    const producerOf = (p: TranscriptionPolicy) => ({ preferredMode: p.preferredMode, allowNative: p.allowNative, allowCloud: p.allowCloud, allowPrivate: p.allowPrivate });
+    const producerOf = (p: TranscriptionPolicy) => ({ preferredMode: p.preferredMode, allowNative: p.allowNative, allowPrivate: p.allowPrivate });
 
     it('#1033 (A): requestModeChange REJECTS while locked WITHOUT mutating the store, controller, or service', () => {
         const svcUpdate = vi.fn().mockResolvedValue(undefined);
         armLockedPrivate(svcUpdate);
         const before = producerOf(readPolicyA());
-        const res = controller.requestModeChange('native', buildPolicyForUser(true, 'native', { allowCloud: true }));
+        const res = controller.requestModeChange('native', buildPolicyForUser(true, 'native'));
         expect(res.accepted).toBe(false);
         expect(res.reason).toBe('engine_selection_locked');
         expect(useSessionStore.getState().sttMode).toBe('private'); // store NOT mutated
@@ -1582,11 +1526,11 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     });
 
     it('#1033 (A)/#1184: requestModeChange ACCEPTS when unlocked but a native request collapses to Private in BOTH layers (fail-closed)', () => {
-        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: true });
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private');
         (controller as unknown as { service: unknown }).service = null;
         useSessionStore.getState().setSTTMode('private');
         setLock(false, 'READY', null);
-        const res = controller.requestModeChange('native', buildPolicyForUser(true, 'native', { allowCloud: true }));
+        const res = controller.requestModeChange('native', buildPolicyForUser(true, 'native'));
         expect(res.accepted).toBe(true);
         // fail-closed: neither the store nor the controller policy can leave Private for a native request.
         expect(useSessionStore.getState().sttMode).toBe('private');
@@ -1596,10 +1540,10 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     it('#1033 (A): Cloud-preservation CANNOT restore a rejected engine while locked (the exact bypass)', () => {
         // The historical bypass: the store mode was flipped to cloud first, then preserveAllowedCloudSelection
         // read it and forced preferredMode back to cloud after the gate. Simulate that residual store state.
-        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: true });
-        useSessionStore.getState().setSTTMode('cloud'); // hostile/residual store state
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private');
+        useSessionStore.getState().setSTTMode('native'); // hostile/residual store state
         setLock(false, 'RECORDING', null);
-        controller.updatePolicy(buildPolicyForUser(true, 'private', { allowCloud: true })); // any policy w/ allowCloud
+        controller.updatePolicy(buildPolicyForUser(true, 'private')); // any policy w/ allowCloud
         expect(readPolicyA().preferredMode).toBe('private'); // NOT restored to cloud
         useSessionStore.getState().setSTTMode('private');
         setLock(false, 'IDLE', null);
@@ -1609,7 +1553,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         armLockedPrivate();
         const before = producerOf(readPolicyA());
         // an entitlement/profile sync that would drop Private and switch to native
-        controller.updatePolicy(buildPolicyForUser(false, 'native', { allowCloud: false }));
+        controller.updatePolicy(buildPolicyForUser(false, 'native'));
         expect(producerOf(readPolicyA())).toEqual(before); // engine + allowPrivate/allowCloud/allowNative all kept
         setLock(false, 'IDLE', null);
     });
@@ -1625,7 +1569,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
 
     it('#1033 (A): warmUp cannot change the active engine while locked', async () => {
         const svcWarm = vi.fn().mockResolvedValue(undefined);
-        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private', { allowCloud: true });
+        (controller as unknown as { policy: TranscriptionPolicy }).policy = buildPolicyForUser(true, 'private');
         (controller as unknown as { service: unknown }).service = { isServiceDestroyed: () => false, warmUp: svcWarm, updatePolicy: vi.fn() };
         (controller as unknown as { readyPromise: Promise<void> }).readyPromise = Promise.resolve();
         useSessionStore.getState().setSTTMode('private');
@@ -1654,7 +1598,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         setLock(false, 'RECORDING', null); // a recording is already active
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = false;
         (controller as unknown as { service: unknown }).service = null;
-        await controller.startRecording(buildPolicyForUser(true, 'private', { allowCloud: false }));
+        await controller.startRecording(buildPolicyForUser(true, 'private'));
         await controller.whenStable();
         // The Start aborts on the bad state; the transient intent flag is cleared so it cannot pin selection
         // beyond this recording, while the active recording keeps selection locked via its lifecycle state.
@@ -1744,7 +1688,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         vi.mocked(storage.saveSession).mockClear();
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = { sessionId: 'A', completeArgs: { status: 'completed', transcript: 'x', duration: 1 }, attributionEvidence: null };
         (controller as unknown as { state: string }).state = 'IDLE';
-        await controller.startRecording(buildPolicyForUser(false, 'native', { allowCloud: false }));
+        await controller.startRecording(buildPolicyForUser(false, 'native'));
         await controller.whenStable();
         expect(storage.saveSession).not.toHaveBeenCalled();
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = null;
@@ -1841,7 +1785,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     // #metrics-duration: the persisted session duration must be the SPOKEN recording length
     // (start → Stop), NOT the save-time wall-clock — the post-Stop finalize decode (tens of
     // seconds on Private) must not inflate the denominator that pace/WPM and the detail view use.
-    it.each(['native', 'private', 'cloud'] as const)(
+    it.each(['native', 'private'] as const)(
         'persists the SPOKEN recording duration for %s — excludes the post-Stop finalize decode (completeSession path)',
         async (mode) => {
             const storage = await import('../../lib/storage');
@@ -2181,18 +2125,17 @@ describe('SpeechRuntimeController — Private-only policy-writer convergence', (
 
     it('#1184: both writers yield Private-capable — the former tier/writer divergence is gone (convergence)', () => {
         // 1) Profile resync with a non-paid compatibility label remains Private.
-        controller.updatePolicy(buildPolicyForUser(false, null, { allowCloud: false }));
+        controller.updatePolicy(buildPolicyForUser(false, null));
         expect(readPolicy().allowPrivate).toBe(true);
 
         // 2) Session lifecycle write agrees.
-        controller.updatePolicy(buildPolicyForUser(true, 'private', { allowCloud: false }));
+        controller.updatePolicy(buildPolicyForUser(true, 'private'));
         expect(readPolicy().allowPrivate).toBe(true);
         expect(readPolicy().preferredMode).toBe('private');
     });
 
     it('updatePolicy never downgrades allowPrivate (Cloud-preservation only touches Cloud)', () => {
-        controller.updatePolicy(buildPolicyForUser(true, 'private', { allowCloud: false }));
+        controller.updatePolicy(buildPolicyForUser(true, 'private'));
         expect(readPolicy().allowPrivate).toBe(true);
-        expect(readPolicy().allowCloud).toBe(false);
     });
 });

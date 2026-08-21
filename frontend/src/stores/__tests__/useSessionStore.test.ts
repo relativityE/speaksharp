@@ -299,11 +299,11 @@ describe('useSessionStore', () => {
             });
         };
 
-        it('preserves a just-saved transcript on post-save normalization', () => {
+        it('PRESERVES a just-saved transcript on a post-save force-switch (sessionSaved=true) — #772 intact', () => {
             seedSavedSession(true);
-            useSessionStore.getState().setSTTMode('cloud');
+            useSessionStore.getState().setSTTMode('private');
             const state = useSessionStore.getState();
-            expect(state.sttMode).toBe('cloud');
+            expect(state.sttMode).toBe('private');
             expect(state.transcript.transcript).toBe('just saved transcript');
             expect(state.chunks).toHaveLength(1);
             expect(state.sessionSaved).toBe(true);
@@ -311,9 +311,9 @@ describe('useSessionStore', () => {
 
         it('RESETS the visible session on a normal (unsaved) mode switch (sessionSaved=false)', () => {
             seedSavedSession(false);
-            useSessionStore.getState().setSTTMode('cloud');
+            useSessionStore.getState().setSTTMode('private');
             const state = useSessionStore.getState();
-            expect(state.sttMode).toBe('cloud');
+            expect(state.sttMode).toBe('private');
             expect(state.transcript.transcript).toBe('');
             expect(state.chunks).toHaveLength(0);
         });

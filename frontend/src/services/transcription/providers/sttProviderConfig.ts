@@ -1,5 +1,4 @@
 import type {
-  CloudSttProvider,
   NativeSttProvider,
   PrivateSttProvider,
   SttMode,
@@ -120,22 +119,6 @@ const privateProviders = [
   },
 ] as const satisfies readonly SttProviderEntry<PrivateSttProvider>[];
 
-const cloudProviders = [
-  {
-    id: 'assemblyai',
-    status: 'active',
-    registryKey: 'assemblyai',
-    displayName: 'AssemblyAI Universal Streaming English',
-    intent: 'Current Cloud STT provider using AssemblyAI v3 Begin/Turn streaming protocol.',
-  },
-  {
-    id: 'deepgram',
-    status: 'future',
-    displayName: 'Deepgram Streaming',
-    intent: 'Selectable future Cloud STT provider. If chosen before implementation, the factory must fail loudly.',
-  },
-] as const satisfies readonly SttProviderEntry<CloudSttProvider>[];
-
 export const STT_MODE_PROVIDER_CONFIG = {
   native: {
     mode: 'native',
@@ -146,11 +129,6 @@ export const STT_MODE_PROVIDER_CONFIG = {
     mode: 'private',
     defaultProvider: 'transformers-js',
     providers: privateProviders,
-  },
-  cloud: {
-    mode: 'cloud',
-    defaultProvider: 'assemblyai',
-    providers: cloudProviders,
   },
 } as const satisfies Record<SttMode, SttModeProviderConfig>;
 

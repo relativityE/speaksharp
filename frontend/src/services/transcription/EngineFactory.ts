@@ -1,7 +1,6 @@
 import type { ITranscriptionEngine, TranscriptionModeOptions } from './modes/types';
 import type { TranscriptionMode, TranscriptionPolicy } from './TranscriptionPolicy';
 import NativeBrowser from './modes/NativeBrowser';
-import CloudAssemblyAI from './modes/CloudAssemblyAI';
 import PrivateWhisper from './modes/PrivateWhisper';
 import logger from '../../lib/logger';
 import { getDefaultProviderEntry } from './providers/sttProviderConfig';
@@ -53,7 +52,7 @@ export class EngineFactory {
 
     let engine: ITranscriptionEngine;
 
-    if (mode !== 'native' && mode !== 'cloud' && mode !== 'private') {
+    if (mode !== 'native' && mode !== 'private') {
       throw new Error(`[EngineFactory] Unsupported transcription mode: ${mode}`);
     }
 
@@ -71,12 +70,6 @@ export class EngineFactory {
           throw new Error(`[EngineFactory] Native provider "${providerId}" is not wired to NativeBrowser.`);
         }
         engine = new NativeBrowser(options);
-        break;
-      case 'cloud':
-        if (registryKey !== 'assemblyai') {
-          throw new Error(`[EngineFactory] Cloud provider "${providerId}" is not available.`);
-        }
-        engine = new CloudAssemblyAI(options);
         break;
       case 'private':
         engine = new PrivateWhisper({

@@ -38,7 +38,6 @@ describe('STT Safeguards Unit Tests', () => {
     const mockNavigate = vi.fn();
     const mockPolicy: TranscriptionPolicy = {
         allowNative: true,
-        allowCloud: false,
         allowPrivate: true,
         preferredMode: 'mock',
         allowFallback: false,

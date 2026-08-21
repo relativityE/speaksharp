@@ -105,7 +105,6 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
             mockMic,
             policy: {
                 allowNative: true,
-                allowCloud: false,
                 allowPrivate: true,
                 preferredMode: 'mock',
                 allowFallback: false,
@@ -150,7 +149,6 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
             mockMic,
             policy: {
                 allowNative: true,
-                allowCloud: false,
                 allowPrivate: false,
                 preferredMode: 'native',
                 allowFallback: false,
@@ -182,7 +180,6 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
             mockMic,
             policy: {
                 allowNative: true,
-                allowCloud: false,
                 allowPrivate: true,
                 preferredMode: 'private',
                 allowFallback: true,
