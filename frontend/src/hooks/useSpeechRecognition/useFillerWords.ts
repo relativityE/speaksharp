@@ -1,6 +1,77 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { countFillerWords, FillerCounts, createInitialFillerData } from '../../utils/fillerWordUtils';
 import { Chunk } from './types';
+import { FILLER_WORD_KEYS } from '../../config';
+import {
+  isFillerCountTraceEnabled,
+  pushFillerCountTransition,
+  registerFillerTraceResetHook,
+  type FillerCountPhase,
+} from '../../lib/fillerCountTrace';
+
+/**
+ * #1325: project a FillerCounts map onto the privacy-safe trace snapshot.
+ *
+ * `custom_total` sums ONLY the explicitly configured custom filler words. Built-in discourse markers
+ * (like / so / oh / you know) are counted by the product but are NOT custom words, so including them
+ * would inflate `custom_total` and make the evidence untruthful — a "so" in "So um I think" must never
+ * be reported as a custom-word hit. Raw custom LABELS never leave this hook; only their sum does. No
+ * transcript, hypothesis, or token text is read here — only counts.
+ */
+const CANONICAL_TRACE_KEYS: ReadonlySet<string> = new Set([
+  FILLER_WORD_KEYS.UM,
+  FILLER_WORD_KEYS.UH,
+  FILLER_WORD_KEYS.AH,
+]);
+
+function toTraceSnapshot(counts: FillerCounts, userWords: readonly string[]) {
+  // Only the caller-configured custom set may contribute, matched case-insensitively against the
+  // count-map keys the product actually produced.
+  const configured = new Set(userWords.map((word) => word.trim().toLowerCase()).filter(Boolean));
+  let customTotal = 0;
+  for (const key in counts) {
+    if (key === 'total' || CANONICAL_TRACE_KEYS.has(key)) continue;
+    if (!configured.has(key.trim().toLowerCase())) continue;
+    customTotal += counts[key]?.count ?? 0;
+  }
+  return {
+    um: counts[FILLER_WORD_KEYS.UM]?.count ?? 0,
+    uh: counts[FILLER_WORD_KEYS.UH]?.count ?? 0,
+    ah: counts[FILLER_WORD_KEYS.AH]?.count ?? 0,
+    custom_total: customTotal,
+  };
+}
+
+/**
+ * Record one transition. Inert unless the controlled trace flag is explicitly enabled.
+ *
+ * Emits only when a phase's canonical payload CHANGES. React may re-run an effect many times with an
+ * identical payload; without change detection a rerender storm would fill the bounded 256-event ring
+ * and evict the earliest `interim_observed` transition — destroying exactly the evidence #1324 needs.
+ * `lastByPhase` is a module-level, per-phase memo of the last emitted payload (reset with the buffer).
+ */
+const lastEmittedByPhase = new Map<FillerCountPhase, string>();
+
+// Clearing the trace between replays must also clear this memo, or replay N could suppress an event
+// identical to replay N-1's and silently inherit the previous fixture's state.
+registerFillerTraceResetHook(() => lastEmittedByPhase.clear());
+
+function traceCounts(
+  phase: FillerCountPhase,
+  counts: FillerCounts | null | undefined,
+  userWords: readonly string[],
+): void {
+  // Flag check FIRST: with tracing off this returns before any allocation, projection, or window
+  // access, so the observer cannot cost anything or touch state in production.
+  if (!isFillerCountTraceEnabled() || !counts) return;
+
+  const snapshot = toTraceSnapshot(counts, userWords);
+  const fingerprint = `${snapshot.um}|${snapshot.uh}|${snapshot.ah}|${snapshot.custom_total}`;
+  if (lastEmittedByPhase.get(phase) === fingerprint) return;
+  lastEmittedByPhase.set(phase, fingerprint);
+
+  pushFillerCountTransition(phase, snapshot);
+}
 
 /**
  * Hook: useFillerWords (Optimized)
@@ -18,6 +89,10 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
   // Preserve observed interim filler evidence so live metrics do not snap back to
   // an unrealistically clean score.
   const [observedInterimCounts, setObservedInterimCounts] = useState<FillerCounts>(() => createInitialFillerData(userWords));
+  // #1325: the trace observers read the configured custom set through a ref so they never add a
+  // dependency to (or change the timing of) any existing effect.
+  const userWordsForTraceRef = useRef<string[]>(userWords);
+  userWordsForTraceRef.current = userWords;
 
   // 1. Handle Final Chunks (Incremental)
   useEffect(() => {
@@ -111,6 +186,10 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
   useEffect(() => {
     if (!interimCounts) return;
 
+    // #1325: the interim hypothesis produced these counts. Recording this transition is what lets the
+    // qualification harness prove a true filler WAS counted from interim even if the final drops it.
+    traceCounts('interim_observed', interimCounts, userWordsForTraceRef.current);
+
     setObservedInterimCounts(prev => {
       const observed = { ...prev };
 
@@ -131,6 +210,19 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
       return observed;
     });
   }, [interimCounts]);
+
+  // #1325 §9: observe the FINAL-derived accumulation as its own phase. A separate read-only effect
+  // keeps the emission out of the accumulation logic above, so tracing cannot perturb counts/timing.
+  //
+  // ZERO IS EVIDENCE. The gate is whether the final phase actually EXECUTED — i.e. real final chunks
+  // arrived — never `count > 0`. Suppressing a zero would make "recognized speech containing no
+  // fillers" indistinguishable from "the phase never ran", which is exactly the rung B vs D/E
+  // distinction #1324 depends on. A mount-time zero render has no final chunks, so it stays silent
+  // and an executed-zero phase remains distinguishable from a never-executed one.
+  useEffect(() => {
+    if (finalChunks.length === 0) return;
+    traceCounts('final_observed', accumulatedCounts, userWordsForTraceRef.current);
+  }, [accumulatedCounts, finalChunks.length]);
 
   // 3. Combine Accumulated, observed interim, and current interim counts
   const combinedCounts = useMemo(() => {
@@ -160,6 +252,19 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
   }, [accumulatedCounts, interimCounts, observedInterimCounts]);
 
   const totalCount = useMemo(() => combinedCounts.total.count, [combinedCounts]);
+
+  // #1325 §9: the canonical user-facing map. Comparing it against the interim/final phases shows
+  // whether observed evidence survived into the value the session actually reports.
+  //
+  // ZERO IS EVIDENCE here too: once recognition has actually executed (an interim was observed or
+  // final chunks arrived), a combined ZERO must be emitted — "the session reported 0 fillers" is a
+  // materially different claim from "the combined phase never ran". Change-deduplication still
+  // collapses repeated identical zero renders, so a mount-time zero cannot fill the ring.
+  const combinedPhaseExecuted = finalChunks.length > 0 || interimCounts !== null;
+  useEffect(() => {
+    if (!combinedPhaseExecuted) return;
+    traceCounts('combined', combinedCounts, userWordsForTraceRef.current);
+  }, [combinedCounts, combinedPhaseExecuted]);
 
   return {
     counts: combinedCounts,
