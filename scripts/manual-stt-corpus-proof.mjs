@@ -718,47 +718,68 @@ async function assertModePreflight(page, mode) {
  */
 async function readFillerChainTotals(page) {
   return page.evaluate(() => {
-    const sum = (map) => (map && typeof map === 'object'
+    const sumMap = (map) => (map && typeof map === 'object'
       ? Object.entries(map).reduce(
           (total, [key, value]) => (key === 'total' ? total : total + (Number(value?.count ?? value) || 0)),
           0,
         )
       : null);
 
-    // Store-side maps via the diagnostic accessor (numbers only — never transcript text).
+    // FINALIZED: the controller's finalized store map. There is currently NO production-build surface
+    // for this (window.__SPEECH_RUNTIME_DEBUG__() exposes lengths only, and fillerDivergence is
+    // DEV/test-gated). We attempt it and record null on absence — the strict gate then FAILS CLOSED
+    // with chain_member_missing:finalized rather than silently ignoring it.
     let finalized = null;
-    let persisted = null;
     try {
       const debug = typeof window.__SPEECH_RUNTIME_DEBUG__ === 'function'
         ? window.__SPEECH_RUNTIME_DEBUG__()
         : null;
-      finalized = sum(debug?.finalizedFillerData ?? null);
-      persisted = sum(debug?.persistedFillerData ?? null);
-    } catch {
-      finalized = null;
-      persisted = null;
+      finalized = sumMap(debug?.finalizedFillerData ?? debug?.fillerDivergence?.finalized ?? null);
+    } catch { finalized = null; }
+
+    // DISPLAYED HEADLINE: rendered review total. NOTE the component renders "(N)" only when N > 0 and
+    // an EMPTY span at zero, so an empty-but-present element is a genuine numeric ZERO, not "missing".
+    const totalEl = document.querySelector('[data-testid="filler-count-value"]');
+    let displayedTotal = null;
+    if (totalEl) {
+      const digits = (totalEl.textContent || '').replace(/[^\d]/g, '');
+      displayedTotal = digits.length > 0 ? Number(digits) : 0;
     }
 
-    // Rendered chips.
+    // DISPLAYED CHIPS: a distinct render path from the headline (this is how the C3 defect surfaced).
     const chips = [...document.querySelectorAll('[data-testid="filler-badge"]')];
-    const chipSum = chips.length > 0
+    const displayedChipSum = chips.length > 0
       ? chips.reduce((total, chip) => {
           const countEl = chip.querySelector('[data-testid="filler-badge-count"]');
           const count = Number((countEl?.textContent || '').trim());
           return total + (Number.isFinite(count) ? count : 0);
         }, 0)
+      : (totalEl ? 0 : null);
+
+    // OBSERVED/COMBINED terminal value, from the numeric trace (authoritative filler surface).
+    const events = window.__FILLER_COUNT_TRACE__ ?? [];
+    const observedCombined = events.length > 0
+      ? events.reduce((max, event) => {
+          const total = (event.counts?.um ?? 0) + (event.counts?.uh ?? 0) + (event.counts?.ah ?? 0);
+          return total > max ? total : max;
+        }, 0)
       : null;
 
-    // Rendered headline total, when present.
-    const totalEl = document.querySelector('[data-testid="filler-count-value"]');
-    const displayedTotal = totalEl ? Number((totalEl.textContent || '').replace(/[^\d.-]/g, '')) : null;
+    return { finalizedFillerTotal: finalized, displayedFillerTotal: displayedTotal, displayedChipSum, observedCombinedTotal: observedCombined };
+  });
+}
 
-    return {
-      finalizedFillerTotal: finalized,
-      persistedFillerTotal: persisted,
-      displayedFillerTotal: Number.isFinite(displayedTotal) ? displayedTotal : null,
-      displayedChipSum: chipSum,
-    };
+/**
+ * PERSISTED: read the saved value back through the DB round-trip by rendering the session DETAIL view.
+ * This is a genuinely distinct source from the review render (different navigation + a database load),
+ * so equality between them is a real check rather than the same DOM compared to itself.
+ */
+async function readPersistedFillerTotal(page) {
+  return page.evaluate(() => {
+    const totalEl = document.querySelector('[data-testid="filler-count-value"]');
+    if (!totalEl) return null;
+    const digits = (totalEl.textContent || '').replace(/[^\d]/g, '');
+    return digits.length > 0 ? Number(digits) : 0;
   });
 }
 
@@ -1919,6 +1940,9 @@ async function runFixture(page, mode, fixture) {
         : 'zero_filler_recall_with_audible_fillers';
     }
   }
+  // #1325 §11: PERSISTED value read through the DB round-trip on the detail view — a genuinely
+  // distinct source from the review render (different navigation + database load).
+  result.persistedFillerTotal = result.detailVisible ? await readPersistedFillerTotal(page) : null;
   result.journeyPass = Boolean(result.sessionPersisted && result.historyVisible && result.detailVisible && result.firstText.timestampMs != null);
   result.processingSpeechLocallyShown = Array.isArray(result.phases)
     ? result.phases.some((phase) => /Processing speech locally/i.test(phase.statusText || ''))
@@ -1968,6 +1992,183 @@ async function runFixture(page, mode, fixture) {
 }
 
 /**
+ * #1325 §10/§11: the harness's own copy of the COMPLETE qualification semantics.
+ *
+ * The harness runs under plain `node` and cannot import the TypeScript evaluator, so it reimplements
+ * the rules here. `--evaluator-selftest` executes this over a shared adversarial row table and the
+ * TypeScript test compares complete outputs, so drift in either implementation fails parity.
+ *
+ * Everything is numeric/content-free. Missing values FAIL with a specific reason; they are never
+ * filtered away. A genuine numeric zero is valid evidence and compares normally.
+ */
+const FILLER_EVENT_VERSION = 'filler_count_trace_v1';
+const REQUIRED_TRACE_PHASES = ['final_observed', 'combined'];
+const QUAL_THRESHOLDS = { maxFinalWer: 0.5, minFillerRecall: 0.8, minFillerPrecision: 0.9 };
+const MIN_HUMAN_FILLERS = 30;
+const MIN_REPLAYS = 3;
+
+export function isValidTraceEvent(event) {
+  if (!event || typeof event !== 'object') return false;
+  const allowedTop = ['seq', 'relativeMs', 'phase', 'counts', 'version'];
+  for (const key of Object.keys(event)) if (!allowedTop.includes(key)) return false;
+  if (event.version !== FILLER_EVENT_VERSION) return false;
+  if (!Number.isInteger(event.seq) || event.seq < 0) return false;
+  if (typeof event.relativeMs !== 'number' || event.relativeMs < 0) return false;
+  if (!REQUIRED_TRACE_PHASES.includes(event.phase) && event.phase !== 'interim_observed') return false;
+  const counts = event.counts;
+  if (!counts || typeof counts !== 'object') return false;
+  const allowedCounts = ['um', 'uh', 'ah', 'custom_total'];
+  for (const key of Object.keys(counts)) if (!allowedCounts.includes(key)) return false;
+  for (const key of allowedCounts) {
+    const value = counts[key];
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) return false;
+  }
+  return true;
+}
+
+export function validateTraceStream(events) {
+  const reasons = [];
+  if (!Array.isArray(events) || events.length === 0) return ['no_count_transitions_captured'];
+  const valid = [];
+  events.forEach((event, index) => {
+    if (!isValidTraceEvent(event)) reasons.push(`invalid_event_at_index_${index}`);
+    else valid.push(event);
+  });
+  for (let i = 1; i < valid.length; i += 1) {
+    if (valid[i].seq <= valid[i - 1].seq) reasons.push(`sequence_regression_at_${i}`);
+    if (valid[i].relativeMs < valid[i - 1].relativeMs) reasons.push(`time_regression_at_${i}`);
+  }
+  const phases = new Set(valid.map((event) => event.phase));
+  for (const required of REQUIRED_TRACE_PHASES) {
+    if (!phases.has(required)) reasons.push(`missing_required_phase:${required}`);
+  }
+  return reasons;
+}
+
+export function maxObservedPerKey(events) {
+  const out = { um: 0, uh: 0, ah: 0, custom_total: 0 };
+  for (const event of events ?? []) {
+    for (const key of ['um', 'uh', 'ah', 'custom_total']) {
+      const value = event?.counts?.[key] ?? 0;
+      if (value > out[key]) out[key] = value;
+    }
+  }
+  return out;
+}
+
+export function evaluateChainStrictHarness(members) {
+  const reasons = [];
+  for (const member of members) {
+    if (member.value === null || member.value === undefined) reasons.push(`chain_member_missing:${member.name}`);
+    else if (!Number.isFinite(member.value)) reasons.push(`chain_member_not_finite:${member.name}`);
+  }
+  if (reasons.length === 0) {
+    const first = members[0].value;
+    for (const member of members) {
+      if (member.value !== first) {
+        reasons.push(`chain_value_disagreement:${member.name}=${member.value}!=${members[0].name}=${first}`);
+      }
+    }
+  }
+  return { ok: reasons.length === 0, reasons };
+}
+
+/** Evaluate ONE controlled row. Returns every failure reason (never a bare boolean). */
+export function evaluateRowHarness(row) {
+  const reasons = [];
+  reasons.push(...validateTraceStream(row.fillerCountEvents));
+
+  const expected = row.expectedByKey ?? { um: 0, uh: 0, ah: 0, custom_total: 0 };
+  const observed = maxObservedPerKey(row.fillerCountEvents);
+
+  if (typeof row.wer === 'number' && row.wer >= QUAL_THRESHOLDS.maxFinalWer) {
+    reasons.push(`final_wer_ge_${QUAL_THRESHOLDS.maxFinalWer}`);
+  }
+
+  let tp = 0; let fp = 0; let fn = 0;
+  for (const key of ['um', 'uh', 'ah']) {
+    tp += Math.min(expected[key], observed[key]);
+    fp += Math.max(0, observed[key] - expected[key]);
+    fn += Math.max(0, expected[key] - observed[key]);
+    if (expected[key] !== observed[key]) {
+      reasons.push(`per_key_mismatch:${key} expected=${expected[key]} observed=${observed[key]}`);
+    }
+  }
+  if (expected.custom_total !== observed.custom_total) {
+    reasons.push(`custom_total_mismatch expected=${expected.custom_total} observed=${observed.custom_total}`);
+  }
+
+  const expectedTrue = expected.um + expected.uh + expected.ah;
+  const observedTrue = observed.um + observed.uh + observed.ah;
+  if (expectedTrue > 0 && tp === 0) reasons.push('zero_filler_recall_with_audible_fillers');
+  if (expectedTrue === 0 && observedTrue > 0) reasons.push('false_filler_on_negative');
+
+  const chain = evaluateChainStrictHarness([
+    { name: 'observedCombined', value: observedTrue },
+    { name: 'finalized', value: row.finalizedFillerTotal ?? null },
+    { name: 'persisted', value: row.persistedFillerTotal ?? null },
+    { name: 'displayedTotal', value: row.displayedFillerTotal ?? null },
+    { name: 'displayedChipSum', value: row.displayedChipSum ?? null },
+  ]);
+  reasons.push(...chain.reasons);
+
+  if (row.lifecycleComplete === false) reasons.push('incomplete_stop_finalize_save_review');
+  if (row.zeroRetiredProviderRequests === false) reasons.push('retired_provider_request_observed');
+
+  return { pass: reasons.length === 0, reasons, tp, fp, fn };
+}
+
+/** Evaluate the whole SET: replay counts, fixture contract, and aggregate thresholds. */
+export function evaluateSetHarness(rows, options = {}) {
+  const reasons = [];
+  const authoritative = (rows ?? []).filter((row) => row.evidenceClass === 'deployed-authoritative');
+  if (options.requireDeployed !== false && authoritative.length === 0) {
+    reasons.push('no_deployed_authoritative_rows');
+  }
+  const considered = options.requireDeployed === false ? (rows ?? []) : authoritative;
+
+  const byFixture = new Map();
+  for (const row of considered) {
+    byFixture.set(row.fixtureId, (byFixture.get(row.fixtureId) ?? 0) + 1);
+  }
+  for (const [id, count] of byFixture) {
+    if (count < MIN_REPLAYS) reasons.push(`fixture_${id}_replays_${count}_lt_${MIN_REPLAYS}`);
+  }
+
+  let tp = 0; let fp = 0; let fn = 0;
+  for (const row of considered) {
+    const result = evaluateRowHarness(row);
+    tp += result.tp; fp += result.fp; fn += result.fn;
+    if (!result.pass) reasons.push(`row:${row.fixtureId}#${row.replay}:${result.reasons.join('|')}`);
+  }
+
+  const humanRows = considered.filter((row) => row.consentedHuman);
+  if (options.requireHumanCorpus !== false) {
+    if (humanRows.length === 0) reasons.push('no_consented_human_fixture');
+    if (humanRows.some((row) => row.naturalHesitation === false)) reasons.push('scripted_um_reading_not_acceptable');
+    const distinct = new Map();
+    for (const row of humanRows) distinct.set(row.fixtureId, row.expectedByKey);
+    let annotated = 0;
+    for (const expected of distinct.values()) annotated += expected.um + expected.uh + expected.ah;
+    if (annotated < MIN_HUMAN_FILLERS) reasons.push(`annotated_human_fillers_${annotated}_lt_${MIN_HUMAN_FILLERS}`);
+    if (!considered.some((row) => (row.expectedByKey.um + row.expectedByKey.uh + row.expectedByKey.ah) === 0)) {
+      reasons.push('missing_matched_no_filler_negative');
+    }
+  }
+
+  const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
+  const precision = tp + fp > 0 ? tp / (tp + fp) : 0;
+  if (tp + fn > 0 && recall < QUAL_THRESHOLDS.minFillerRecall) {
+    reasons.push(`aggregate_recall_${recall.toFixed(3)}_lt_${QUAL_THRESHOLDS.minFillerRecall}`);
+  }
+  if (tp + fp > 0 && precision < QUAL_THRESHOLDS.minFillerPrecision) {
+    reasons.push(`aggregate_precision_${precision.toFixed(3)}_lt_${QUAL_THRESHOLDS.minFillerPrecision}`);
+  }
+
+  return { accepted: reasons.length === 0, reasons, recall, precision };
+}
+
+/**
  * #1325 §13 self-test entry. Runs the shared adversarial case table through THIS harness's classifier
  * and prints normalized JSON, then exits BEFORE any browser automation. The TypeScript parity test
  * executes the same table against `classifyHarnessTarget` and compares complete outputs.
@@ -1990,6 +2191,76 @@ export function runClassifierSelfTest(allowlist = ['speaksharp-public.vercel.app
     name: testCase.name,
     result: classifyTargetForSelfTest({ ...testCase, deployedHostAllowlist: allowlist }),
   }));
+}
+
+/**
+ * §10 shared adversarial ROW table for evaluator parity. The TypeScript test runs the identical rows
+ * and compares complete outputs, so a change to only one implementation fails parity.
+ */
+const V = 'filler_count_trace_v1';
+const ev = (phase, um, uh = 0, ah = 0, custom = 0, seq = 0, ms = 0) =>
+  ({ version: V, seq, relativeMs: ms, phase, counts: { um, uh, ah, custom_total: custom } });
+
+export const EVALUATOR_PARITY_ROWS = [
+  { name: 'clean_pass', row: {
+    fixtureId: 'f1', replay: 1, evidenceClass: 'deployed-authoritative', consentedHuman: true, naturalHesitation: true,
+    expectedByKey: { um: 1, uh: 0, ah: 0, custom_total: 0 }, wer: 0.1, lifecycleComplete: true, zeroRetiredProviderRequests: true,
+    fillerCountEvents: [ev('interim_observed', 1, 0, 0, 0, 0, 10), ev('final_observed', 1, 0, 0, 0, 1, 20), ev('combined', 1, 0, 0, 0, 2, 30)],
+    finalizedFillerTotal: 1, persistedFillerTotal: 1, displayedFillerTotal: 1, displayedChipSum: 1 } },
+  { name: 'missing_finalized', row: {
+    fixtureId: 'f2', replay: 1, evidenceClass: 'deployed-authoritative', consentedHuman: true, naturalHesitation: true,
+    expectedByKey: { um: 1, uh: 0, ah: 0, custom_total: 0 }, wer: 0.1, lifecycleComplete: true, zeroRetiredProviderRequests: true,
+    fillerCountEvents: [ev('final_observed', 1, 0, 0, 0, 0, 10), ev('combined', 1, 0, 0, 0, 1, 20)],
+    finalizedFillerTotal: null, persistedFillerTotal: 1, displayedFillerTotal: 1, displayedChipSum: 1 } },
+  { name: 'missing_persisted', row: {
+    fixtureId: 'f3', replay: 1, evidenceClass: 'deployed-authoritative', consentedHuman: true, naturalHesitation: true,
+    expectedByKey: { um: 1, uh: 0, ah: 0, custom_total: 0 }, wer: 0.1, lifecycleComplete: true, zeroRetiredProviderRequests: true,
+    fillerCountEvents: [ev('final_observed', 1, 0, 0, 0, 0, 10), ev('combined', 1, 0, 0, 0, 1, 20)],
+    finalizedFillerTotal: 1, persistedFillerTotal: null, displayedFillerTotal: 1, displayedChipSum: 1 } },
+  { name: 'observed_one_downstream_zero', row: {
+    fixtureId: 'f4', replay: 1, evidenceClass: 'deployed-authoritative', consentedHuman: true, naturalHesitation: true,
+    expectedByKey: { um: 1, uh: 0, ah: 0, custom_total: 0 }, wer: 0.1, lifecycleComplete: true, zeroRetiredProviderRequests: true,
+    fillerCountEvents: [ev('final_observed', 1, 0, 0, 0, 0, 10), ev('combined', 1, 0, 0, 0, 1, 20)],
+    finalizedFillerTotal: 0, persistedFillerTotal: 0, displayedFillerTotal: 0, displayedChipSum: 0 } },
+  { name: 'per_key_substitution_same_total', row: {
+    fixtureId: 'f5', replay: 1, evidenceClass: 'deployed-authoritative', consentedHuman: true, naturalHesitation: true,
+    expectedByKey: { um: 1, uh: 1, ah: 0, custom_total: 0 }, wer: 0.1, lifecycleComplete: true, zeroRetiredProviderRequests: true,
+    fillerCountEvents: [ev('final_observed', 2, 0, 0, 0, 0, 10), ev('combined', 2, 0, 0, 0, 1, 20)],
+    finalizedFillerTotal: 2, persistedFillerTotal: 2, displayedFillerTotal: 2, displayedChipSum: 2 } },
+  { name: 'wrong_custom_total', row: {
+    fixtureId: 'f6', replay: 1, evidenceClass: 'deployed-authoritative', consentedHuman: true, naturalHesitation: true,
+    expectedByKey: { um: 1, uh: 0, ah: 0, custom_total: 2 }, wer: 0.1, lifecycleComplete: true, zeroRetiredProviderRequests: true,
+    fillerCountEvents: [ev('final_observed', 1, 0, 0, 0, 0, 10), ev('combined', 1, 0, 0, 0, 1, 20)],
+    finalizedFillerTotal: 1, persistedFillerTotal: 1, displayedFillerTotal: 1, displayedChipSum: 1 } },
+  { name: 'missing_required_phase', row: {
+    fixtureId: 'f7', replay: 1, evidenceClass: 'deployed-authoritative', consentedHuman: true, naturalHesitation: true,
+    expectedByKey: { um: 1, uh: 0, ah: 0, custom_total: 0 }, wer: 0.1, lifecycleComplete: true, zeroRetiredProviderRequests: true,
+    fillerCountEvents: [ev('interim_observed', 1, 0, 0, 0, 0, 10)],
+    finalizedFillerTotal: 1, persistedFillerTotal: 1, displayedFillerTotal: 1, displayedChipSum: 1 } },
+  { name: 'malformed_event_unversioned', row: {
+    fixtureId: 'f8', replay: 1, evidenceClass: 'deployed-authoritative', consentedHuman: true, naturalHesitation: true,
+    expectedByKey: { um: 1, uh: 0, ah: 0, custom_total: 0 }, wer: 0.1, lifecycleComplete: true, zeroRetiredProviderRequests: true,
+    fillerCountEvents: [{ seq: 0, relativeMs: 10, phase: 'final_observed', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } }, ev('combined', 1, 0, 0, 0, 1, 20)],
+    finalizedFillerTotal: 1, persistedFillerTotal: 1, displayedFillerTotal: 1, displayedChipSum: 1 } },
+  { name: 'wer_at_threshold_fails', row: {
+    fixtureId: 'f9', replay: 1, evidenceClass: 'deployed-authoritative', consentedHuman: true, naturalHesitation: true,
+    expectedByKey: { um: 1, uh: 0, ah: 0, custom_total: 0 }, wer: 0.5, lifecycleComplete: true, zeroRetiredProviderRequests: true,
+    fillerCountEvents: [ev('final_observed', 1, 0, 0, 0, 0, 10), ev('combined', 1, 0, 0, 0, 1, 20)],
+    finalizedFillerTotal: 1, persistedFillerTotal: 1, displayedFillerTotal: 1, displayedChipSum: 1 } },
+  { name: 'negative_false_filler', row: {
+    fixtureId: 'f10', replay: 1, evidenceClass: 'deployed-authoritative', consentedHuman: true, naturalHesitation: true,
+    expectedByKey: { um: 0, uh: 0, ah: 0, custom_total: 0 }, wer: 0.1, lifecycleComplete: true, zeroRetiredProviderRequests: true,
+    fillerCountEvents: [ev('final_observed', 1, 0, 0, 0, 0, 10), ev('combined', 1, 0, 0, 0, 1, 20)],
+    finalizedFillerTotal: 1, persistedFillerTotal: 1, displayedFillerTotal: 1, displayedChipSum: 1 } },
+];
+
+export function runEvaluatorSelfTest() {
+  return EVALUATOR_PARITY_ROWS.map(({ name, row }) => ({ name, result: evaluateRowHarness(row) }));
+}
+
+if (process.argv.includes('--evaluator-selftest')) {
+  console.log(JSON.stringify(runEvaluatorSelfTest(), null, 2));
+  process.exit(0);
 }
 
 if (process.argv.includes('--classifier-selftest')) {
@@ -2240,20 +2511,53 @@ try {
     evidence.runnerPass = evidence.sandboxEperm === true
       ? false
       : evidence.results.length > 0 && evidence.results.every((result) => !result.error);
-    // #1325 §11: qualification is driven by the NUMERIC count-transition evidence, not the legacy
-    // transcript regex. A fixture that declares expectedFillers must produce an explicit `true` —
-    // `!== false` would let an undefined (never-evaluated) filler result pass silently.
-    evidence.gatePass = evidence.runnerPass && evidence.results.every((result) => {
-      const fillerQualified = result.expectedTrueFillers === undefined
-        ? true                       // fixture declares no filler expectation
-        : result.fillerPass === true; // must be explicitly qualified from the trace
-      return (
-        result.journeyPass === true &&
-        result.inputLikelyContaminated !== true &&
-        fillerQualified &&
-        (MAX_WER == null || result.meetsWerThreshold === true)
-      );
-    });
+    // #1325 §10/§11: qualification DERIVES from the shared evaluator semantics (same rules the
+    // TypeScript evaluator applies, proven by --evaluator-selftest parity), not from a local
+    // nonzero check and not from the legacy transcript regex.
+    const evaluatorRows = evidence.results
+      .filter((result) => result.expectedByKey)
+      .map((result) => ({
+        fixtureId: result.fixture,
+        replay: result.replay ?? 1,
+        evidenceClass: evidence.environmentProof?.evidenceClass ?? 'local-preflight',
+        consentedHuman: result.consentedHuman === true,
+        naturalHesitation: result.naturalHesitation !== false,
+        expectedByKey: result.expectedByKey,
+        wer: result.wer,
+        lifecycleComplete: result.journeyPass === true,
+        zeroRetiredProviderRequests: result.retiredProviderRequests ? false : true,
+        fillerCountEvents: result.fillerCountTrace ?? [],
+        finalizedFillerTotal: result.finalizedFillerTotal ?? null,
+        persistedFillerTotal: result.persistedFillerTotal ?? null,
+        displayedFillerTotal: result.displayedFillerTotal ?? null,
+        displayedChipSum: result.displayedChipSum ?? null,
+      }));
+
+    // Per-row qualification is recorded on each result so a failure names its own reason.
+    for (const [index, row] of evaluatorRows.entries()) {
+      const verdict = evaluateRowHarness(row);
+      const target = evidence.results.find((r) => r.fixture === row.fixtureId) ?? evidence.results[index];
+      if (target) {
+        target.evaluatorPass = verdict.pass;
+        target.evaluatorReasons = verdict.reasons;
+      }
+    }
+
+    // Set-level qualification (replays, fixture contract, aggregate thresholds). The human-corpus
+    // contract only applies to a deployed acceptance run; a local preflight still enforces per-row rules.
+    const setVerdict = evaluatorRows.length > 0
+      ? evaluateSetHarness(evaluatorRows, {
+          requireDeployed: evidence.environmentProof?.deployedAcceptanceEligible === true,
+          requireHumanCorpus: evidence.environmentProof?.deployedAcceptanceEligible === true,
+        })
+      : { accepted: true, reasons: [], recall: null, precision: null };
+    evidence.fillerQualification = setVerdict;
+
+    evidence.gatePass = evidence.runnerPass && setVerdict.accepted && evidence.results.every((result) => (
+      result.journeyPass === true &&
+      result.inputLikelyContaminated !== true &&
+      (MAX_WER == null || result.meetsWerThreshold === true)
+    ));
     evidence.pass = evidence.gatePass;
     // Deployed acceptance is a STRICTER claim than gatePass: it additionally requires an
     // authoritative (non-preflight) evidence class. Recorded explicitly so a local preflight

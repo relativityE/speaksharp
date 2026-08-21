@@ -50,9 +50,9 @@ const stages = (over: Partial<StageTrace> = {}): StageTrace => ({
   pcmDurationSeconds: 3,
   finalHypothesis: 'um I think we should review the plan today',
   fillerCountEvents: [
-    { seq: 0, relativeMs: 10, phase: 'interim_observed', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
-    { seq: 1, relativeMs: 20, phase: 'final_observed', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
-    { seq: 2, relativeMs: 30, phase: 'combined', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
+    { version: 'filler_count_trace_v1' as const, seq: 0, relativeMs: 10, phase: 'interim_observed', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
+    { version: 'filler_count_trace_v1' as const, seq: 1, relativeMs: 20, phase: 'final_observed', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
+    { version: 'filler_count_trace_v1' as const, seq: 2, relativeMs: 30, phase: 'combined', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
   ],
   stopSnapshot: { um: 1 },
   usedLiveSnapshot: true,
@@ -235,15 +235,23 @@ describe('#1325 fillerTraceSchema — evidence classification and stop rules', (
     });
 
     it('rejects string-valued counts and unknown phases at the schema boundary', () => {
+      const V = 'filler_count_trace_v1';
       expect(isValidFillerCountEvent({
-        seq: 0, relativeMs: 0, phase: 'combined', counts: { um: 'um', uh: 0, ah: 0, custom_total: 0 },
+        version: V, seq: 0, relativeMs: 0, phase: 'combined', counts: { um: 'um', uh: 0, ah: 0, custom_total: 0 },
       })).toBe(false);
       expect(isValidFillerCountEvent({
-        seq: 0, relativeMs: 0, phase: 'transcript', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 },
+        version: V, seq: 0, relativeMs: 0, phase: 'transcript', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 },
       })).toBe(false);
+      expect(isValidFillerCountEvent({
+        version: V, seq: 0, relativeMs: 0, phase: 'combined', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 },
+      })).toBe(true);
+      // §10: the version is REQUIRED — a stripped or wrong version is not evidence.
       expect(isValidFillerCountEvent({
         seq: 0, relativeMs: 0, phase: 'combined', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 },
-      })).toBe(true);
+      })).toBe(false);
+      expect(isValidFillerCountEvent({
+        version: 'filler_count_trace_v0', seq: 0, relativeMs: 0, phase: 'combined', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 },
+      })).toBe(false);
     });
 
     it('scores recall from COUNTS, so a misheard-but-uncounted filler is a false negative regardless of transcript', () => {
@@ -266,7 +274,7 @@ describe('#1325 fillerTraceSchema — evidence classification and stop rules', (
         replay: 1,
         stages: stages({
           fillerCountEvents: [
-            { seq: 0, relativeMs: 10, phase: 'combined', counts: { um: 3, uh: 0, ah: 0, custom_total: 0 } },
+            { version: 'filler_count_trace_v1' as const, seq: 0, relativeMs: 10, phase: 'combined', counts: { um: 3, uh: 0, ah: 0, custom_total: 0 } },
           ],
           stopSnapshot: { um: 3 },
           finalizedSnapshot: { um: 3 },
@@ -289,8 +297,134 @@ describe('#1325 fillerTraceSchema — evidence classification and stop rules', (
       stages: stages({ finalizedSnapshot: { um: 5 } }),
     });
     expect(row.chainConsistent).toBe(false);
-    expect(row.stopRuleViolations).toContain('chain_value_disagreement');
+    expect(row.stopRuleViolations.join(' ')).toMatch(/chain_value_disagreement/);
     expect(row.failureBoundary).toBe('display-or-save');
+  });
+
+  /**
+   * §10 EVALUATOR PARITY — the real harness gate must reach the same verdict as this evaluator.
+   *
+   * The harness runs under plain `node` and cannot import this module, so it reimplements the
+   * qualification semantics. `--evaluator-selftest` executes the harness's evaluator over a shared
+   * adversarial ROW table; here we assert each row's PASS/FAIL verdict matches what this evaluator
+   * concludes for the equivalent stage trace. Changing only one implementation breaks this.
+   */
+  describe('§10 harness evaluator parity + required falsification rows', () => {
+    const harnessVerdicts = (): Array<{ name: string; result: { pass: boolean; reasons: string[] } }> => {
+      const harnessPath = resolve(testDir, '../../../scripts/manual-stt-corpus-proof.mjs');
+      return JSON.parse(execFileSync('node', [harnessPath, '--evaluator-selftest'], {
+        encoding: 'utf8', timeout: 60_000,
+      }));
+    };
+
+    it('the real harness kills every required break and passes the clean row', () => {
+      const byName = new Map(harnessVerdicts().map((v) => [v.name, v.result]));
+
+      // The clean control must PASS — otherwise the gate is unfalsifiable in the other direction.
+      expect(byName.get('clean_pass')?.pass).toBe(true);
+
+      // Each required break must FAIL, with a specific reason (never a bare boolean).
+      const required: Array<[string, RegExp]> = [
+        ['missing_finalized', /chain_member_missing:finalized/],
+        ['missing_persisted', /chain_member_missing:persisted/],
+        ['observed_one_downstream_zero', /chain_value_disagreement/],
+        ['per_key_substitution_same_total', /per_key_mismatch/],
+        ['wrong_custom_total', /custom_total_mismatch/],
+        ['missing_required_phase', /missing_required_phase/],
+        ['malformed_event_unversioned', /invalid_event_at_index_0/],
+        ['wer_at_threshold_fails', /final_wer_ge/],
+        ['negative_false_filler', /false_filler_on_negative/],
+      ];
+      for (const [name, reason] of required) {
+        const verdict = byName.get(name);
+        expect(verdict, `harness row missing: ${name}`).toBeDefined();
+        expect(verdict!.pass, `${name} must FAIL`).toBe(false);
+        expect(verdict!.reasons.join(' '), `${name} reason`).toMatch(reason);
+      }
+    });
+
+    it('parity: this evaluator reaches the same verdict as the harness on every parity row', () => {
+      for (const { name, result } of harnessVerdicts()) {
+        // Rebuild the equivalent stage trace for the TypeScript evaluator.
+        const isClean = name === 'clean_pass';
+        const row = buildFillerTraceRow({
+          fixture: humanFixture(
+            name === 'negative_false_filler'
+              ? { expectedFillers: [] }
+              : name === 'per_key_substitution_same_total'
+                ? { expectedFillers: ['um', 'uh'] }
+                : name === 'wrong_custom_total'
+                  ? { expectedFillers: ['um'], expectedCustomTotal: 2 }
+                  : {},
+          ),
+          route: deployedRoute(),
+          replay: 1,
+          stages: stages(
+            name === 'missing_finalized' ? { finalizedSnapshot: null }
+              : name === 'missing_persisted' ? { persistedSnapshot: null }
+                : name === 'observed_one_downstream_zero'
+                  ? { finalizedSnapshot: {}, persistedSnapshot: {}, displayedTotal: 0, displayedChipSum: 0 }
+                  : name === 'per_key_substitution_same_total'
+                    ? {
+                        fillerCountEvents: [
+                          { version: 'filler_count_trace_v1' as const, seq: 0, relativeMs: 10, phase: 'final_observed', counts: { um: 2, uh: 0, ah: 0, custom_total: 0 } },
+                          { version: 'filler_count_trace_v1' as const, seq: 1, relativeMs: 20, phase: 'combined', counts: { um: 2, uh: 0, ah: 0, custom_total: 0 } },
+                        ],
+                        stopSnapshot: { um: 2 }, finalizedSnapshot: { um: 2 }, persistedSnapshot: { um: 2 },
+                        displayedTotal: 2, displayedChipSum: 2,
+                      }
+                    : name === 'wer_at_threshold_fails'
+                      // WER is a STRICT threshold: exactly 0.500 must FAIL, never pass.
+                      ? { finalHypothesis: 'totally unrelated replacement wording appears throughout' }
+                    : name === 'malformed_event_unversioned'
+                      ? {
+                          fillerCountEvents: [
+                            // Deliberately UNVERSIONED — the closed schema must reject it.
+                            { seq: 0, relativeMs: 10, phase: 'final_observed', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
+                            { version: 'filler_count_trace_v1' as const, seq: 1, relativeMs: 20, phase: 'combined', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
+                          ] as unknown as StageTrace['fillerCountEvents'],
+                        }
+                    : name === 'missing_required_phase'
+                      ? {
+                          fillerCountEvents: [
+                            { version: 'filler_count_trace_v1' as const, seq: 0, relativeMs: 10, phase: 'interim_observed', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
+                          ],
+                        }
+                      : {},
+          ),
+        });
+
+        const tsPass = row.stopRuleViolations.length === 0;
+        expect(tsPass, `parity mismatch on ${name}: harness=${result.pass} ts=${tsPass} (${row.stopRuleViolations.join('|')})`)
+          .toBe(isClean ? true : result.pass);
+      }
+    });
+
+    it('aggregate-threshold failure fails the SET even though every row has nonzero recall', () => {
+      // Each row detects 1 of 2 expected fillers → per-row nonzero recall (the old local check would
+      // pass), but aggregate recall is 0.50 < 0.80 → the set must fail.
+      const rows = [1, 2, 3].map((replay) =>
+        buildFillerTraceRow({
+          fixture: humanFixture({ expectedFillers: ['um', 'uh'] }),
+          route: deployedRoute(),
+          replay,
+          stages: stages({
+            fillerCountEvents: [
+              { version: 'filler_count_trace_v1' as const, seq: 0, relativeMs: 10, phase: 'final_observed', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
+              { version: 'filler_count_trace_v1' as const, seq: 1, relativeMs: 20, phase: 'combined', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
+            ],
+            stopSnapshot: { um: 1 }, finalizedSnapshot: { um: 1 }, persistedSnapshot: { um: 1 },
+            displayedTotal: 1, displayedChipSum: 1,
+          }),
+        }),
+      );
+      // Per-row recall is nonzero...
+      expect(rows[0].filler?.recall).toBeGreaterThan(0);
+      // ...but the aggregate floor still rejects the set.
+      const verdict = evaluateTraceSet(rows);
+      expect(verdict.accepted).toBe(false);
+      expect(verdict.reasons.join(' ')).toMatch(/aggregate_recall_/);
+    });
   });
 
   // ---- Mutant 10: downstream disagreement must fail, never pass ----
@@ -307,7 +441,7 @@ describe('#1325 fillerTraceSchema — evidence classification and stop rules', (
         stages: stages(override as Partial<StageTrace>),
       });
       expect(row.chainConsistent).toBe(false);
-      expect(row.stopRuleViolations).toContain('chain_value_disagreement');
+      expect(row.stopRuleViolations.join(' ')).toMatch(/chain_value_disagreement/);
       expect(row.failureBoundary).toBe('display-or-save');
       expect(evaluateTraceSet([row]).accepted).toBe(false);
     });
@@ -346,9 +480,9 @@ describe('#1325 fillerTraceSchema — evidence classification and stop rules', (
           finalHypothesis: "So I'm I think we should review the plan today",
           // Executed, but NEVER counted a filler at any phase → recognition boundary.
           fillerCountEvents: [
-            { seq: 0, relativeMs: 10, phase: 'interim_observed', counts: { um: 0, uh: 0, ah: 0, custom_total: 0 } },
-            { seq: 1, relativeMs: 20, phase: 'final_observed', counts: { um: 0, uh: 0, ah: 0, custom_total: 0 } },
-            { seq: 2, relativeMs: 30, phase: 'combined', counts: { um: 0, uh: 0, ah: 0, custom_total: 0 } },
+            { version: 'filler_count_trace_v1' as const, seq: 0, relativeMs: 10, phase: 'interim_observed', counts: { um: 0, uh: 0, ah: 0, custom_total: 0 } },
+            { version: 'filler_count_trace_v1' as const, seq: 1, relativeMs: 20, phase: 'final_observed', counts: { um: 0, uh: 0, ah: 0, custom_total: 0 } },
+            { version: 'filler_count_trace_v1' as const, seq: 2, relativeMs: 30, phase: 'combined', counts: { um: 0, uh: 0, ah: 0, custom_total: 0 } },
           ],
           stopSnapshot: { um: 0 },
           finalizedSnapshot: { um: 0 },
@@ -368,8 +502,8 @@ describe('#1325 fillerTraceSchema — evidence classification and stop rules', (
         stages: stages({
           // The filler WAS counted in an interim transition...
           fillerCountEvents: [
-            { seq: 0, relativeMs: 10, phase: 'interim_observed', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
-            { seq: 1, relativeMs: 20, phase: 'final_observed', counts: { um: 0, uh: 0, ah: 0, custom_total: 0 } },
+            { version: 'filler_count_trace_v1' as const, seq: 0, relativeMs: 10, phase: 'interim_observed', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
+            { version: 'filler_count_trace_v1' as const, seq: 1, relativeMs: 20, phase: 'final_observed', counts: { um: 0, uh: 0, ah: 0, custom_total: 0 } },
           ],
           // ...the final dropped it, and the canonical snapshot kept nothing.
           finalHypothesis: 'I think we should review the plan today',
@@ -408,7 +542,7 @@ describe('#1325 fillerTraceSchema — evidence classification and stop rules', (
         stages: stages({
           finalHypothesis: 'I think we should review the plan today',
           fillerCountEvents: [
-            { seq: 0, relativeMs: 10, phase: 'combined', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
+            { version: 'filler_count_trace_v1' as const, seq: 0, relativeMs: 10, phase: 'combined', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
           ],
           stopSnapshot: { um: 1 },
           finalizedSnapshot: { um: 1 },

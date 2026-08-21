@@ -125,6 +125,8 @@ export interface FixtureProvenance {
   referenceTranscript: string;
   /** Annotated true fillers expected in the reference (position-tagged where known). */
   expectedFillers: readonly string[];
+  /** Annotated expected custom-word total for the controlled custom case (defaults to 0). */
+  expectedCustomTotal?: number;
   /** True when the clip is purpose-recorded, consented, non-customer human speech. */
   consentedHuman: boolean;
   /** Natural hesitation vs a scripted reading of "um" — scripted readings cannot satisfy acceptance. */
@@ -147,11 +149,23 @@ export interface RouteProvenance {
  * One canonical count transition emitted by `useFillerWords`. NUMBERS ONLY — this is the authoritative
  * filler-qualification surface (#1325 §10). No transcript, hypothesis, or token text may appear here.
  */
+export const FILLER_COUNT_EVENT_VERSION = 'filler_count_trace_v1';
+
 export interface FillerCountEvent {
+  /** REQUIRED and exact — an unversioned or wrong-versioned event is not evidence. */
+  version: typeof FILLER_COUNT_EVENT_VERSION;
   seq: number;
   relativeMs: number;
   phase: 'interim_observed' | 'final_observed' | 'combined';
   counts: { um: number; uh: number; ah: number; custom_total: number };
+}
+
+/** Canonical per-key filler map. Grand totals must never hide per-category disagreement. */
+export interface FillerKeyCounts {
+  um: number;
+  uh: number;
+  ah: number;
+  custom_total: number;
 }
 
 const VALID_EVENT_PHASES: ReadonlySet<string> = new Set([
@@ -167,6 +181,10 @@ export function isValidFillerCountEvent(candidate: unknown): candidate is Filler
 
   const allowedTop = ['seq', 'relativeMs', 'phase', 'counts', 'version'];
   for (const key of Object.keys(event)) if (!allowedTop.includes(key)) return false;
+
+  // §10: the version is REQUIRED and must match exactly. An unversioned or wrong-versioned event is
+  // not evidence — previously `version` was merely *allowed*, so a stripped version still validated.
+  if (event.version !== FILLER_COUNT_EVENT_VERSION) return false;
 
   if (typeof event.seq !== 'number' || !Number.isInteger(event.seq) || event.seq < 0) return false;
   if (typeof event.relativeMs !== 'number' || event.relativeMs < 0) return false;
@@ -251,6 +269,148 @@ export function maxObservedForPhase(
 }
 
 /**
+ * §10: PER-KEY observed maxima. Scoring on grand totals alone lets a category substitution pass —
+ * expected {um:1, uh:1} vs observed {um:2, uh:0} both total 2. Per-key scoring catches it.
+ */
+export function maxObservedByKey(events: readonly FillerCountEvent[]): FillerKeyCounts {
+  const out: FillerKeyCounts = { um: 0, uh: 0, ah: 0, custom_total: 0 };
+  for (const event of events) {
+    for (const key of ['um', 'uh', 'ah', 'custom_total'] as const) {
+      if (event.counts[key] > out[key]) out[key] = event.counts[key];
+    }
+  }
+  return out;
+}
+
+/** Per-key TP/FP/FN, aggregated. `custom_total` must match EXACTLY (it is an annotated expectation). */
+export function scoreFillerByKey(expected: FillerKeyCounts, observed: FillerKeyCounts): {
+  prf: PrfResult;
+  perKey: Record<keyof FillerKeyCounts, { expected: number; observed: number; exact: boolean }>;
+  customTotalExact: boolean;
+} {
+  const keys = ['um', 'uh', 'ah'] as const;
+  let tp = 0; let fp = 0; let fn = 0;
+  const perKey = {} as Record<keyof FillerKeyCounts, { expected: number; observed: number; exact: boolean }>;
+
+  for (const key of keys) {
+    const e = expected[key];
+    const o = observed[key];
+    tp += Math.min(e, o);
+    fp += Math.max(0, o - e);
+    fn += Math.max(0, e - o);
+    perKey[key] = { expected: e, observed: o, exact: e === o };
+  }
+  perKey.custom_total = {
+    expected: expected.custom_total,
+    observed: observed.custom_total,
+    exact: expected.custom_total === observed.custom_total,
+  };
+
+  const precision = tp + fp > 0 ? tp / (tp + fp) : null;
+  const recall = tp + fn > 0 ? tp / (tp + fn) : null;
+  const f1 = precision !== null && recall !== null && precision + recall > 0
+    ? (2 * precision * recall) / (precision + recall)
+    : null;
+
+  return {
+    prf: {
+      version: FILLER_METRIC_VERSION,
+      truePositives: tp,
+      falsePositives: fp,
+      falseNegatives: fn,
+      precision,
+      recall,
+      f1,
+      referenceCount: keys.reduce((s, k) => s + expected[k], 0),
+      hypothesisCount: keys.reduce((s, k) => s + observed[k], 0),
+    },
+    perKey,
+    customTotalExact: perKey.custom_total.exact,
+  };
+}
+
+/** Derive per-key expected counts from the annotated filler list (e.g. ['um','uh','um'] -> um:2, uh:1). */
+export function expectedCountsFromAnnotation(
+  expectedFillers: readonly string[],
+  expectedCustomTotal = 0,
+): FillerKeyCounts {
+  const out: FillerKeyCounts = { um: 0, uh: 0, ah: 0, custom_total: expectedCustomTotal };
+  for (const raw of expectedFillers) {
+    const key = raw.trim().toLowerCase();
+    if (key === 'um' || key === 'uh' || key === 'ah') out[key] += 1;
+  }
+  return out;
+}
+
+/** One member of the downstream chain. `null` means NOT CAPTURED — which is a failure, never ignorable. */
+export interface ChainMember { name: string; value: number | null }
+
+/**
+ * §11: strict chain equality. Every member must be PRESENT and FINITE, then all must be exactly equal.
+ * Missing values are NEVER filtered out — the previous `.filter(v => v != null).every(...)` passed
+ * vacuously when zero or one value was captured, which is the defect this replaces. A genuine numeric
+ * zero IS valid evidence and must compare normally.
+ */
+export function evaluateChainStrict(members: readonly ChainMember[]): {
+  ok: boolean;
+  reasons: string[];
+  values: Record<string, number | null>;
+} {
+  const reasons: string[] = [];
+  const values: Record<string, number | null> = {};
+
+  for (const member of members) {
+    values[member.name] = member.value;
+    if (member.value === null || member.value === undefined) {
+      reasons.push(`chain_member_missing:${member.name}`);
+    } else if (!Number.isFinite(member.value)) {
+      reasons.push(`chain_member_not_finite:${member.name}`);
+    }
+  }
+
+  if (reasons.length === 0) {
+    const first = members[0].value as number;
+    for (const member of members) {
+      if (member.value !== first) {
+        reasons.push(`chain_value_disagreement:${member.name}=${member.value}!=${members[0].name}=${first}`);
+      }
+    }
+  }
+
+  return { ok: reasons.length === 0, reasons, values };
+}
+
+/** §10: an executed run must contain these phases; their absence is a failure, not an empty pass. */
+export const REQUIRED_PHASES: ReadonlyArray<FillerCountEvent['phase']> = ['final_observed', 'combined'];
+
+/** Validate the whole event stream: schema, ordering, and required executed phases. */
+export function validateEventStream(events: readonly unknown[]): string[] {
+  const reasons: string[] = [];
+  if (events.length === 0) return ['no_count_transitions_captured'];
+
+  const valid: FillerCountEvent[] = [];
+  for (const [index, candidate] of events.entries()) {
+    if (!isValidFillerCountEvent(candidate)) {
+      reasons.push(`invalid_event_at_index_${index}`);
+      continue;
+    }
+    valid.push(candidate);
+  }
+
+  for (let i = 1; i < valid.length; i += 1) {
+    if (valid[i].seq <= valid[i - 1].seq) reasons.push(`sequence_regression_at_${i}`);
+    if (valid[i].relativeMs < valid[i - 1].relativeMs) reasons.push(`time_regression_at_${i}`);
+  }
+
+  const phases = new Set(valid.map((event) => event.phase));
+  for (const required of REQUIRED_PHASES) {
+    if (!phases.has(required)) reasons.push(`missing_required_phase:${required}`);
+  }
+
+  return reasons;
+}
+
+/**
  * Filler precision/recall computed from ANNOTATED EXPECTED COUNTS versus OBSERVED CANONICAL COUNTS.
  * No regex, no transcript strings. Over-counting is a false positive; under-counting a false negative.
  */
@@ -331,26 +491,43 @@ export function evaluateStopRules(fixture: FixtureProvenance, stages: StageTrace
   const violations: string[] = [];
   const expected = fixture.expectedFillers.length;
 
-  if (wer && wer.wer >= 0.5) violations.push(`final_wer_ge_0.500 (${wer.wer.toFixed(3)})`);
+  // §11: WER is a STRICT threshold — >= 0.500 fails. Never `<=`.
+  if (wer && wer.wer >= QUALIFICATION_THRESHOLDS.maxFinalWer) {
+    violations.push(`final_wer_ge_${QUALIFICATION_THRESHOLDS.maxFinalWer} (${wer.wer.toFixed(3)})`);
+  }
 
-  // §10: recall is scored from observed canonical COUNTS, never transcript regex.
-  const prf = expected > 0
-    ? scoreFillerCounts(expected, maxObservedTrueFillers(stages.fillerCountEvents))
-    : null;
+  // §10: the event stream itself must be schema-valid, ordered, and contain the executed phases.
+  violations.push(...validateEventStream(stages.fillerCountEvents));
+
+  // §10: recall is scored PER KEY from observed canonical COUNTS, never transcript regex.
+  const expectedByKey = expectedCountsFromAnnotation(fixture.expectedFillers, fixture.expectedCustomTotal ?? 0);
+  const observedByKey = maxObservedByKey(stages.fillerCountEvents);
+  const scored = scoreFillerByKey(expectedByKey, observedByKey);
+  const prf = expected > 0 ? scored.prf : null;
   if (expected > 0 && prf && prf.recall === 0) violations.push('zero_filler_recall_with_audible_fillers');
+  // A category substitution with an equal grand total must still fail.
+  for (const key of ['um', 'uh', 'ah'] as const) {
+    if (!scored.perKey[key].exact) {
+      violations.push(`per_key_mismatch:${key} expected=${scored.perKey[key].expected} observed=${scored.perKey[key].observed}`);
+    }
+  }
+  if (!scored.customTotalExact) {
+    violations.push(`custom_total_mismatch expected=${expectedByKey.custom_total} observed=${observedByKey.custom_total}`);
+  }
 
   // A matched no-filler negative must not manufacture a filler.
   if (expected === 0 && (sumCounts(stages.stopSnapshot) ?? 0) > 0) violations.push('false_filler_on_negative');
 
-  // §10: the enforced chain is observed/combined -> FINALIZED -> persisted -> displayed.
-  const snapshotTotal = sumCounts(stages.stopSnapshot);
-  const mismatch = [
-    sumCounts(stages.finalizedSnapshot),
-    sumCounts(stages.persistedSnapshot),
-    stages.displayedTotal,
-    stages.displayedChipSum,
-  ].some((v) => snapshotTotal !== null && v !== null && v !== snapshotTotal);
-  if (mismatch) violations.push('chain_value_disagreement');
+  // §11: STRICT chain — every member must be present and finite, then all exactly equal.
+  // Missing members FAIL with a specific reason; they are never filtered away.
+  const chain = evaluateChainStrict([
+    { name: 'observedCombined', value: maxObservedTrueFillers(stages.fillerCountEvents) },
+    { name: 'finalized', value: sumCounts(stages.finalizedSnapshot) },
+    { name: 'persisted', value: sumCounts(stages.persistedSnapshot) },
+    { name: 'displayedTotal', value: stages.displayedTotal },
+    { name: 'displayedChipSum', value: stages.displayedChipSum },
+  ]);
+  if (!chain.ok) violations.push(...chain.reasons);
 
   if (!stages.lifecycleComplete) violations.push('incomplete_stop_finalize_save_review');
 
@@ -370,19 +547,21 @@ export function buildFillerTraceRow(args: {
     ? wordErrorRate(fixture.referenceTranscript, stages.finalHypothesis)
     : null;
 
-  const filler = fixture.expectedFillers.length > 0
-    ? scoreFillerCounts(fixture.expectedFillers.length, maxObservedTrueFillers(stages.fillerCountEvents))
-    : null;
+  const expectedByKey = expectedCountsFromAnnotation(fixture.expectedFillers, fixture.expectedCustomTotal ?? 0);
+  const observedByKey = maxObservedByKey(stages.fillerCountEvents);
+  const scoredByKey = scoreFillerByKey(expectedByKey, observedByKey);
+  const filler = fixture.expectedFillers.length > 0 ? scoredByKey.prf : null;
 
   const detectedFillerTotal = sumCounts(stages.stopSnapshot);
-  const snapshotTotal = detectedFillerTotal;
 
-  const chainConsistent = [
-    sumCounts(stages.finalizedSnapshot),
-    sumCounts(stages.persistedSnapshot),
-    stages.displayedTotal,
-    stages.displayedChipSum,
-  ].every((v) => snapshotTotal === null || v === null || v === snapshotTotal);
+  // §11: STRICT — present + finite + exactly equal. Missing is failure, never ignorable.
+  const chainConsistent = evaluateChainStrict([
+    { name: 'observedCombined', value: maxObservedTrueFillers(stages.fillerCountEvents) },
+    { name: 'finalized', value: sumCounts(stages.finalizedSnapshot) },
+    { name: 'persisted', value: sumCounts(stages.persistedSnapshot) },
+    { name: 'displayedTotal', value: stages.displayedTotal },
+    { name: 'displayedChipSum', value: stages.displayedChipSum },
+  ]).ok;
 
   const stopRuleViolations = evaluateStopRules(fixture, stages, wer);
   if (!route.zeroRetiredProviderRequests) stopRuleViolations.push('retired_provider_request_observed');
