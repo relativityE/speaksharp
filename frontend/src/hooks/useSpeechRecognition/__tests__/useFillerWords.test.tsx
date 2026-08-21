@@ -293,6 +293,66 @@ describe('#1325 useFillerWords — privacy-safe count-transition trace at the re
     expect(trace[0]).toEqual(firstEvent);
   });
 
+  // ---- §9: ZERO IS EVIDENCE. Executed-with-zero must be distinguishable from never-executed. ----
+  describe('§9 executed zero-count phases are observable', () => {
+    it('(b) recognized all-zero speech emits explicit final-zero AND combined-zero events', () => {
+      traceWindow().__PRIVATE_TRANSCRIPT_TRACE__ = true;
+
+      // Speech with NO fillers at all — the phases still executed.
+      runInterimThenFinal('I think we should review', 'I think we should review the plan today.');
+
+      const trace = readFillerCountTrace();
+      const finalZero = trace.filter((e) => e.phase === 'final_observed');
+      const combinedZero = trace.filter((e) => e.phase === 'combined');
+
+      expect(finalZero.length).toBeGreaterThan(0);
+      expect(combinedZero.length).toBeGreaterThan(0);
+      expect(finalZero.every((e) => e.counts.um === 0 && e.counts.uh === 0 && e.counts.ah === 0)).toBe(true);
+    });
+
+    it('(a) a positive interim followed by a zero final still preserves the interim count in combined', () => {
+      traceWindow().__PRIVATE_TRANSCRIPT_TRACE__ = true;
+
+      // Interim contains "um"; the final hypothesis is cleaned.
+      runInterimThenFinal('um I think', 'I think we should review the plan today.');
+
+      const trace = readFillerCountTrace();
+      const interimMax = Math.max(0, ...trace.filter((e) => e.phase === 'interim_observed').map((e) => e.counts.um));
+      const combinedMax = Math.max(0, ...trace.filter((e) => e.phase === 'combined').map((e) => e.counts.um));
+
+      expect(interimMax).toBeGreaterThan(0);
+      // The max-observed rule means the canonical combined value keeps the interim evidence.
+      expect(combinedMax).toBeGreaterThanOrEqual(interimMax);
+    });
+
+    it('(c) a phase that never executed emits nothing (mount-time zero is not phase completion)', () => {
+      traceWindow().__PRIVATE_TRANSCRIPT_TRACE__ = true;
+
+      // Render with no interim and no final chunks: nothing has executed.
+      renderHook(() => useFillerWords([], '', []));
+
+      expect(readFillerCountTrace()).toEqual([]);
+    });
+  });
+
+  // ---- §12: captured evidence must be immutable ----
+  it('§12 a captured trace is frozen and unaffected by later emissions or a clear', () => {
+    traceWindow().__PRIVATE_TRANSCRIPT_TRACE__ = true;
+
+    runInterimThenFinal('um I think', 'Um I think.');
+    const captured = readFillerCountTrace();
+    const snapshot = JSON.stringify(captured);
+    expect(captured.length).toBeGreaterThan(0);
+    expect(Object.isFrozen(captured)).toBe(true);
+    vi.useRealTimers();
+
+    // More emissions, then a clear — the earlier capture must not change.
+    runInterimThenFinal('uh another', 'Uh another.');
+    clearFillerCountTrace();
+
+    expect(JSON.stringify(captured)).toBe(snapshot);
+  });
+
   // ---- Per-replay isolation: fixture N must not inherit fixture N-1's tail events ----
   it('replay isolation: a cleared trace cannot let replay N inherit replay N-1 events', () => {
     traceWindow().__PRIVATE_TRANSCRIPT_TRACE__ = true;

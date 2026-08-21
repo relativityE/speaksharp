@@ -211,12 +211,18 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
     });
   }, [interimCounts]);
 
-  // #1325: observe the FINAL-derived accumulation as its own phase. A separate read-only effect keeps
-  // the emission out of the accumulation logic above, so tracing cannot perturb counts or timing.
+  // #1325 §9: observe the FINAL-derived accumulation as its own phase. A separate read-only effect
+  // keeps the emission out of the accumulation logic above, so tracing cannot perturb counts/timing.
+  //
+  // ZERO IS EVIDENCE. The gate is whether the final phase actually EXECUTED — i.e. real final chunks
+  // arrived — never `count > 0`. Suppressing a zero would make "recognized speech containing no
+  // fillers" indistinguishable from "the phase never ran", which is exactly the rung B vs D/E
+  // distinction #1324 depends on. A mount-time zero render has no final chunks, so it stays silent
+  // and an executed-zero phase remains distinguishable from a never-executed one.
   useEffect(() => {
-    if (accumulatedCounts.total.count <= 0) return;
+    if (finalChunks.length === 0) return;
     traceCounts('final_observed', accumulatedCounts, userWordsForTraceRef.current);
-  }, [accumulatedCounts]);
+  }, [accumulatedCounts, finalChunks.length]);
 
   // 3. Combine Accumulated, observed interim, and current interim counts
   const combinedCounts = useMemo(() => {
@@ -247,12 +253,18 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
 
   const totalCount = useMemo(() => combinedCounts.total.count, [combinedCounts]);
 
-  // #1325: the canonical user-facing map. Comparing this against the interim/final phases shows
+  // #1325 §9: the canonical user-facing map. Comparing it against the interim/final phases shows
   // whether observed evidence survived into the value the session actually reports.
+  //
+  // ZERO IS EVIDENCE here too: once recognition has actually executed (an interim was observed or
+  // final chunks arrived), a combined ZERO must be emitted — "the session reported 0 fillers" is a
+  // materially different claim from "the combined phase never ran". Change-deduplication still
+  // collapses repeated identical zero renders, so a mount-time zero cannot fill the ring.
+  const combinedPhaseExecuted = finalChunks.length > 0 || interimCounts !== null;
   useEffect(() => {
-    if (combinedCounts.total.count <= 0) return;
+    if (!combinedPhaseExecuted) return;
     traceCounts('combined', combinedCounts, userWordsForTraceRef.current);
-  }, [combinedCounts]);
+  }, [combinedCounts, combinedPhaseExecuted]);
 
   return {
     counts: combinedCounts,

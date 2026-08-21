@@ -113,43 +113,23 @@ function buildEnvironmentProof(baseUrl) {
     /^mock_/i.test(SUPABASE_ANON_KEY)
   );
   const authMode = mockAuth ? 'mock' : 'real';
-  // Shared requirements for BOTH classes: a real Supabase target and real auth.
-  const commonInvalid = [
-    ...(!SUPABASE_URL ? ['missing_supabase_url'] : []),
-    ...(!SUPABASE_ANON_KEY ? ['missing_supabase_anon_key'] : []),
-    ...(authMode !== 'real' ? [`auth_${authMode}`] : []),
-    ...(mockAuth ? ['mock_auth_detected'] : []),
-  ];
-
-  // #1325 item 3: the deployed path must be REACHABLE, not blocked behind a hard localhost assert —
-  // otherwise `deployed-authoritative` can never be produced and mutant 9 is unfalsifiable. Each class
-  // has its own fail-closed requirements; a target that satisfies neither is invalid.
-  const isHttps = url.protocol === 'https:';
-  const hostAllowed = DEPLOYED_HOST_ALLOWLIST.includes(hostname);
-
-  const localInvalid = [
-    ...(!isLocalhost ? ['not_localhost'] : []),
-    ...(port !== 5174 ? [`port_${Number.isFinite(port) ? port : 'unknown'}_not_5174`] : []),
-  ];
-  const deployedInvalid = [
-    ...(isLocalhost ? ['localhost_is_not_deployed'] : []),
-    ...(!isHttps ? ['not_https'] : []),
-    ...(!hostAllowed ? [`host_${hostname}_not_allowlisted`] : []),
-    ...(!EXPECTED_RELEASE_SHA ? ['missing_expected_release_sha'] : []),
-  ];
-
-  const localEligible = commonInvalid.length === 0 && localInvalid.length === 0;
-  const deployedEligible = commonInvalid.length === 0 && deployedInvalid.length === 0;
-
-  // Report the reasons for whichever class the target was CLOSEST to, so failures stay diagnosable.
-  const invalidReasons = localEligible || deployedEligible
-    ? []
-    : [...commonInvalid, ...(isLocalhost ? localInvalid : deployedInvalid)];
+  // #1325 §13: ONE classifier inside this harness — the same function the self-test executes, so
+  // behavioral parity with the TypeScript schema is provable rather than grep-asserted.
+  const classification = classifyTargetForSelfTest({
+    url: baseUrl,
+    authMode,
+    supabaseConfigured: Boolean(SUPABASE_URL) && Boolean(SUPABASE_ANON_KEY),
+    deployedHostAllowlist: DEPLOYED_HOST_ALLOWLIST,
+    expectedReleaseSha: EXPECTED_RELEASE_SHA || null,
+  });
+  const localEligible = classification.localPreflightEligible;
+  const deployedEligible = classification.deployedAcceptanceEligible;
+  const invalidReasons = classification.invalidReasons;
 
   // A LOCAL run is harness preflight and can NEVER satisfy deployed acceptance. Deployed-authoritative
   // additionally requires live `window.__APP_RELEASE__` equality, asserted at runtime (see
   // assertDeployedReleaseMatches) — classification alone is not acceptance.
-  const evidenceClass = deployedEligible ? 'deployed-authoritative' : 'local-preflight';
+  const evidenceClass = classification.evidenceClass;
 
   return {
     url: `${url.origin}/session`,
@@ -167,6 +147,61 @@ function buildEnvironmentProof(baseUrl) {
     expectedReleaseSha: EXPECTED_RELEASE_SHA || null,
     // Explicit, so a preflight artifact can never be mistaken for release acceptance downstream.
     deployedAcceptanceEligible: deployedEligible,
+  };
+}
+
+/**
+ * #1325 §13: classifier-only self-test mode.
+ *
+ * This harness runs under plain `node` and cannot import the TypeScript schema, so it necessarily
+ * reimplements the classification rules. Token-grepping the source proves nothing about BEHAVIOR, so
+ * this mode executes the harness's own classifier over a shared adversarial case table and prints the
+ * normalized results. The TypeScript test runs the identical table through `classifyHarnessTarget` and
+ * compares complete outputs — a change to only one implementation breaks parity.
+ *
+ *   node scripts/manual-stt-corpus-proof.mjs --classifier-selftest
+ */
+export function classifyTargetForSelfTest({
+  url,
+  authMode,
+  supabaseConfigured,
+  deployedHostAllowlist,
+  expectedReleaseSha,
+  liveReleaseSha,
+}) {
+  const parsed = new URL(url);
+  const hostname = parsed.hostname;
+  const port = Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80));
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+
+  const common = [
+    ...(supabaseConfigured ? [] : ['missing_supabase_config']),
+    ...(authMode === 'real' ? [] : [`auth_${authMode}`]),
+  ];
+  const local = [
+    ...(isLocalhost ? [] : ['not_localhost']),
+    ...(port === 5174 ? [] : [`port_${Number.isFinite(port) ? port : 'unknown'}_not_5174`]),
+  ];
+  const deployed = [
+    ...(isLocalhost ? ['localhost_is_not_deployed'] : []),
+    ...(parsed.protocol === 'https:' ? [] : ['not_https']),
+    ...(deployedHostAllowlist.includes(hostname) ? [] : [`host_${hostname}_not_allowlisted`]),
+    ...(expectedReleaseSha ? [] : ['missing_expected_release_sha']),
+    ...(liveReleaseSha !== undefined && liveReleaseSha !== expectedReleaseSha
+      ? ['release_sha_mismatch']
+      : []),
+  ];
+
+  const localPreflightEligible = common.length === 0 && local.length === 0;
+  const deployedAcceptanceEligible = common.length === 0 && deployed.length === 0;
+
+  return {
+    evidenceClass: deployedAcceptanceEligible ? 'deployed-authoritative' : 'local-preflight',
+    localPreflightEligible,
+    deployedAcceptanceEligible,
+    invalidReasons: localPreflightEligible || deployedAcceptanceEligible
+      ? []
+      : [...common, ...(isLocalhost ? local : deployed)],
   };
 }
 
@@ -674,6 +709,57 @@ async function assertModePreflight(page, mode) {
     throw error;
   }
   return preflight;
+}
+
+/**
+ * #1325 §11: capture the DOWNSTREAM canonical chain — finalized/persisted store maps and the rendered
+ * total/chip sum — so the harness can mechanically enforce observed → finalized → persisted → displayed
+ * equality instead of merely recording the trace. Numbers only; no transcript text is read.
+ */
+async function readFillerChainTotals(page) {
+  return page.evaluate(() => {
+    const sum = (map) => (map && typeof map === 'object'
+      ? Object.entries(map).reduce(
+          (total, [key, value]) => (key === 'total' ? total : total + (Number(value?.count ?? value) || 0)),
+          0,
+        )
+      : null);
+
+    // Store-side maps via the diagnostic accessor (numbers only — never transcript text).
+    let finalized = null;
+    let persisted = null;
+    try {
+      const debug = typeof window.__SPEECH_RUNTIME_DEBUG__ === 'function'
+        ? window.__SPEECH_RUNTIME_DEBUG__()
+        : null;
+      finalized = sum(debug?.finalizedFillerData ?? null);
+      persisted = sum(debug?.persistedFillerData ?? null);
+    } catch {
+      finalized = null;
+      persisted = null;
+    }
+
+    // Rendered chips.
+    const chips = [...document.querySelectorAll('[data-testid="filler-badge"]')];
+    const chipSum = chips.length > 0
+      ? chips.reduce((total, chip) => {
+          const countEl = chip.querySelector('[data-testid="filler-badge-count"]');
+          const count = Number((countEl?.textContent || '').trim());
+          return total + (Number.isFinite(count) ? count : 0);
+        }, 0)
+      : null;
+
+    // Rendered headline total, when present.
+    const totalEl = document.querySelector('[data-testid="filler-count-value"]');
+    const displayedTotal = totalEl ? Number((totalEl.textContent || '').replace(/[^\d.-]/g, '')) : null;
+
+    return {
+      finalizedFillerTotal: finalized,
+      persistedFillerTotal: persisted,
+      displayedFillerTotal: Number.isFinite(displayedTotal) ? displayedTotal : null,
+      displayedChipSum: chipSum,
+    };
+  });
 }
 
 async function readCustomWordCount(page, word) {
@@ -1663,6 +1749,8 @@ async function runFixture(page, mode, fixture) {
     // #1325: ordered, text-free filler count transitions (interim_observed / final_observed / combined).
     // This is what separates "counted from interim then lost" (rung B) from "never recognized" (rung D/E).
     fillerCountTrace: await readFillerCountTrace(page),
+    // #1325 §11: downstream canonical chain values, so the gate can enforce equality.
+    ...(await readFillerChainTotals(page)),
     privateTiming,
     firstText,
     sessionPersisted: await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false),
@@ -1781,8 +1869,55 @@ async function runFixture(page, mode, fixture) {
   }
   if (fixture.expectedFillers) {
     const expectedKeys = Object.keys(fixture.expectedFillers);
+    // #1325 §11: transcript-derived filler counting is DIAGNOSTIC ONLY. It is retained for
+    // comparison but must never be the authoritative qualification surface.
     result.observedFillers = countFillerOccurrences(selectedForSaveTranscript, [...new Set([...expectedKeys, ...DEFAULT_FILLER_WORDS])]);
-    result.fillerPass = expectedKeys.every((filler) => result.observedFillers[filler] === fixture.expectedFillers[filler]);
+    result.fillerPassDiagnosticTranscript = expectedKeys.every((filler) => result.observedFillers[filler] === fixture.expectedFillers[filler]);
+
+    // AUTHORITATIVE: qualify from the numeric count transitions the app actually produced.
+    const expectedTrueFillers = ['um', 'uh', 'ah']
+      .reduce((sum, key) => sum + (fixture.expectedFillers[key] ?? 0), 0);
+    const observedTrueFillers = (result.fillerCountTrace ?? []).reduce((max, event) => {
+      const total = (event.counts?.um ?? 0) + (event.counts?.uh ?? 0) + (event.counts?.ah ?? 0);
+      return total > max ? total : max;
+    }, 0);
+    result.expectedTrueFillers = expectedTrueFillers;
+    result.observedTrueFillers = observedTrueFillers;
+    result.fillerRecall = expectedTrueFillers > 0
+      ? Math.min(expectedTrueFillers, observedTrueFillers) / expectedTrueFillers
+      : null;
+    result.fillerPrecision = observedTrueFillers > 0
+      ? Math.min(expectedTrueFillers, observedTrueFillers) / observedTrueFillers
+      : null;
+
+    // A phase that never emitted anything cannot qualify — fail closed rather than score a silent zero.
+    const tracePresent = (result.fillerCountTrace ?? []).length > 0;
+    // Downstream chain equality: stop -> finalized -> persisted -> displayed must agree.
+    const chainValues = [
+      result.finalizedFillerTotal,
+      result.persistedFillerTotal,
+      result.displayedFillerTotal,
+      result.displayedChipSum,
+    ].filter((value) => value !== undefined && value !== null);
+    const chainConsistent = chainValues.every((value) => value === chainValues[0]);
+    result.fillerChainConsistent = chainConsistent;
+
+    result.fillerPass = Boolean(
+      tracePresent &&
+      chainConsistent &&
+      (expectedTrueFillers === 0
+        // Matched negative: must NOT manufacture a filler.
+        ? observedTrueFillers === 0
+        // Positive clip: must have nonzero recall (thresholds aggregate at the set level).
+        : (result.fillerRecall ?? 0) > 0),
+    );
+    if (!tracePresent) result.fillerFailReason = 'no_count_transitions_captured';
+    else if (!chainConsistent) result.fillerFailReason = 'chain_value_disagreement';
+    else if (!result.fillerPass) {
+      result.fillerFailReason = expectedTrueFillers === 0
+        ? 'false_filler_on_negative'
+        : 'zero_filler_recall_with_audible_fillers';
+    }
   }
   result.journeyPass = Boolean(result.sessionPersisted && result.historyVisible && result.detailVisible && result.firstText.timestampMs != null);
   result.processingSpeechLocallyShown = Array.isArray(result.phases)
@@ -1830,6 +1965,36 @@ async function runFixture(page, mode, fixture) {
       : 'journey-incomplete';
 
   return result;
+}
+
+/**
+ * #1325 §13 self-test entry. Runs the shared adversarial case table through THIS harness's classifier
+ * and prints normalized JSON, then exits BEFORE any browser automation. The TypeScript parity test
+ * executes the same table against `classifyHarnessTarget` and compares complete outputs.
+ */
+export const CLASSIFIER_PARITY_CASES = [
+  { name: 'valid_localhost', url: 'http://localhost:5174/session', authMode: 'real', supabaseConfigured: true, expectedReleaseSha: 'sha-expected' },
+  { name: 'valid_deployed', url: 'https://speaksharp-public.vercel.app/session', authMode: 'real', supabaseConfigured: true, expectedReleaseSha: 'sha-expected', liveReleaseSha: 'sha-expected' },
+  { name: 'mock_auth_local', url: 'http://localhost:5174/session', authMode: 'mock', supabaseConfigured: true, expectedReleaseSha: 'sha-expected' },
+  { name: 'mock_auth_deployed', url: 'https://speaksharp-public.vercel.app/session', authMode: 'mock', supabaseConfigured: true, expectedReleaseSha: 'sha-expected', liveReleaseSha: 'sha-expected' },
+  { name: 'http_deployed', url: 'http://speaksharp-public.vercel.app/session', authMode: 'real', supabaseConfigured: true, expectedReleaseSha: 'sha-expected', liveReleaseSha: 'sha-expected' },
+  { name: 'unallowlisted_host', url: 'https://evil.example.com/session', authMode: 'real', supabaseConfigured: true, expectedReleaseSha: 'sha-expected', liveReleaseSha: 'sha-expected' },
+  { name: 'missing_expected_sha', url: 'https://speaksharp-public.vercel.app/session', authMode: 'real', supabaseConfigured: true, expectedReleaseSha: null, liveReleaseSha: 'sha-live' },
+  { name: 'missing_live_sha', url: 'https://speaksharp-public.vercel.app/session', authMode: 'real', supabaseConfigured: true, expectedReleaseSha: 'sha-expected', liveReleaseSha: null },
+  { name: 'mismatched_live_sha', url: 'https://speaksharp-public.vercel.app/session', authMode: 'real', supabaseConfigured: true, expectedReleaseSha: 'sha-expected', liveReleaseSha: 'sha-other' },
+  { name: 'wrong_local_port', url: 'http://localhost:5173/session', authMode: 'real', supabaseConfigured: true, expectedReleaseSha: 'sha-expected' },
+];
+
+export function runClassifierSelfTest(allowlist = ['speaksharp-public.vercel.app']) {
+  return CLASSIFIER_PARITY_CASES.map((testCase) => ({
+    name: testCase.name,
+    result: classifyTargetForSelfTest({ ...testCase, deployedHostAllowlist: allowlist }),
+  }));
+}
+
+if (process.argv.includes('--classifier-selftest')) {
+  console.log(JSON.stringify(runClassifierSelfTest(), null, 2));
+  process.exit(0);
 }
 
 const evidence = {
@@ -2075,13 +2240,27 @@ try {
     evidence.runnerPass = evidence.sandboxEperm === true
       ? false
       : evidence.results.length > 0 && evidence.results.every((result) => !result.error);
-    evidence.gatePass = evidence.runnerPass && evidence.results.every((result) => (
-      result.journeyPass === true &&
-      result.inputLikelyContaminated !== true &&
-      result.fillerPass !== false &&
-      (MAX_WER == null || result.meetsWerThreshold === true)
-    ));
+    // #1325 §11: qualification is driven by the NUMERIC count-transition evidence, not the legacy
+    // transcript regex. A fixture that declares expectedFillers must produce an explicit `true` —
+    // `!== false` would let an undefined (never-evaluated) filler result pass silently.
+    evidence.gatePass = evidence.runnerPass && evidence.results.every((result) => {
+      const fillerQualified = result.expectedTrueFillers === undefined
+        ? true                       // fixture declares no filler expectation
+        : result.fillerPass === true; // must be explicitly qualified from the trace
+      return (
+        result.journeyPass === true &&
+        result.inputLikelyContaminated !== true &&
+        fillerQualified &&
+        (MAX_WER == null || result.meetsWerThreshold === true)
+      );
+    });
     evidence.pass = evidence.gatePass;
+    // Deployed acceptance is a STRICTER claim than gatePass: it additionally requires an
+    // authoritative (non-preflight) evidence class. Recorded explicitly so a local preflight
+    // artifact can never be read as release acceptance.
+    evidence.deployedAcceptance = Boolean(
+      evidence.gatePass && evidence.environmentProof?.deployedAcceptanceEligible === true,
+    );
   };
 
   markEvidence();

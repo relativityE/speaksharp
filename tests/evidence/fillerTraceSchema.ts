@@ -8,17 +8,21 @@
  * Scope discipline:
  *  - Authoritative evidence comes from the DEPLOYED exact candidate; local runs are harness preflight
  *    only. `route.evidenceClass` records which, so a preflight row can never be read as acceptance.
- *  - Fillers are counted by the app as regex/word-match over Whisper TEXT (interim + final), with the
- *    max observed interim count preserved per key (useFillerWords). Therefore the trace MUST capture
- *    interim hypotheses: a filler present ONLY in an interim is legitimately counted, and final-only
- *    evidence cannot decide recall.
+ *  - §10 NUMBERS-ONLY: filler precision/recall is computed from ANNOTATED EXPECTED COUNTS versus the
+ *    OBSERVED canonical count transitions emitted by `useFillerWords` — never by regex over transcript
+ *    text. The app preserves the max observed interim count per key, so a filler present only in an
+ *    interim is legitimately counted; the numeric transitions capture that without any hypothesis text.
+ *    A controlled whole-utterance `finalHypothesis` is retained for WER/edit-alignment evidence ONLY.
+ *  - §9 ZERO IS EVIDENCE: an executed phase emits a canonical zero event, so "ran and observed zero"
+ *    stays distinguishable from "never ran".
+ *  - §12 IMMUTABLE: captured evidence is deep-frozen so later emissions cannot mutate a stored artifact.
  *  - Token probabilities are OPTIONAL follow-up instrumentation (the worker does not expose them
  *    today); their absence must never block or invalidate a run.
  *  - Privacy: only pinned, consented, content-free fixtures. Never customer audio/transcripts.
  */
 
 import { wordErrorRate, type WerResult } from './werMetric';
-import { fillerPrf, type PrfResult } from './qualityMetrics';
+import { FILLER_METRIC_VERSION, type PrfResult } from './qualityMetrics';
 
 export const FILLER_TRACE_VERSION = 'filler_trace_v1';
 
@@ -139,20 +143,66 @@ export interface RouteProvenance {
   zeroRetiredProviderRequests: boolean;
 }
 
-/** The observable stage chain, in order. Empty/absent stages are meaningful, so they are explicit. */
+/**
+ * One canonical count transition emitted by `useFillerWords`. NUMBERS ONLY — this is the authoritative
+ * filler-qualification surface (#1325 §10). No transcript, hypothesis, or token text may appear here.
+ */
+export interface FillerCountEvent {
+  seq: number;
+  relativeMs: number;
+  phase: 'interim_observed' | 'final_observed' | 'combined';
+  counts: { um: number; uh: number; ah: number; custom_total: number };
+}
+
+const VALID_EVENT_PHASES: ReadonlySet<string> = new Set([
+  'interim_observed',
+  'final_observed',
+  'combined',
+]);
+
+/** Strict validation: unknown keys, non-integer/negative counts, or ANY string field are rejected. */
+export function isValidFillerCountEvent(candidate: unknown): candidate is FillerCountEvent {
+  if (!candidate || typeof candidate !== 'object') return false;
+  const event = candidate as Record<string, unknown>;
+
+  const allowedTop = ['seq', 'relativeMs', 'phase', 'counts', 'version'];
+  for (const key of Object.keys(event)) if (!allowedTop.includes(key)) return false;
+
+  if (typeof event.seq !== 'number' || !Number.isInteger(event.seq) || event.seq < 0) return false;
+  if (typeof event.relativeMs !== 'number' || event.relativeMs < 0) return false;
+  if (typeof event.phase !== 'string' || !VALID_EVENT_PHASES.has(event.phase)) return false;
+
+  const counts = event.counts as Record<string, unknown> | undefined;
+  if (!counts || typeof counts !== 'object') return false;
+  const allowedCounts = ['um', 'uh', 'ah', 'custom_total'];
+  for (const key of Object.keys(counts)) if (!allowedCounts.includes(key)) return false;
+  for (const key of allowedCounts) {
+    const value = counts[key];
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) return false;
+  }
+  return true;
+}
+
+/**
+ * The observable stage chain, in order. Empty/absent stages are meaningful, so they are explicit.
+ *
+ * §10: interim evidence is carried ONLY as numeric count events. The controlled whole-utterance
+ * `finalHypothesis` remains for WER/edit-alignment evidence and must never be used to qualify fillers.
+ */
 export interface StageTrace {
   pcmSha256: string | null;
   pcmSampleCount: number | null;
   pcmDurationSeconds: number | null;
-  /** Rolling/interim hypotheses in emission order — REQUIRED to decide recall (see header). */
-  interimHypotheses: readonly string[];
+  /** Controlled whole-utterance final hypothesis — WER/edit-alignment ONLY, never filler scoring. */
   finalHypothesis: string | null;
-  /** Observed/combined filler-count transitions from useFillerWords, in order. */
-  fillerCountTransitions: ReadonlyArray<Record<string, number>>;
+  /** Authoritative filler evidence: ordered numeric count transitions from useFillerWords. */
+  fillerCountEvents: readonly FillerCountEvent[];
   /** Deep-cloned stop snapshot (liveFillerDataAtStop). */
   stopSnapshot: Record<string, number> | null;
   /** True when the save used the live stop snapshot; false when it fell back to recounting the final. */
   usedLiveSnapshot: boolean | null;
+  /** §10: the finalized map, so the enforced chain is observed/combined → finalized → persisted → displayed. */
+  finalizedSnapshot: Record<string, number> | null;
   persistedSnapshot: Record<string, number> | null;
   displayedTotal: number | null;
   displayedChipSum: number | null;
@@ -177,9 +227,57 @@ export interface FillerTraceRow {
   stopRuleViolations: readonly string[];
 }
 
-/** Text the APP counted fillers over: interim hypotheses are counted, so recall must consider them. */
-export function countedText(stages: StageTrace): string {
-  return [...stages.interimHypotheses, stages.finalHypothesis ?? ''].join(' ').trim();
+/**
+ * §10: the MAXIMUM canonical true-filler count the recognizer ever produced, taken from the numeric
+ * count transitions. This is the authoritative "was a filler ever counted?" surface — deliberately not
+ * derived from transcript text, so a misheard-but-counted (or counted-then-cleaned) filler is scored
+ * from what the app actually observed.
+ */
+export function maxObservedTrueFillers(events: readonly FillerCountEvent[]): number {
+  let max = 0;
+  for (const event of events) {
+    const total = event.counts.um + event.counts.uh + event.counts.ah;
+    if (total > max) max = total;
+  }
+  return max;
+}
+
+/** The maximum observed count for a single phase (used to separate interim evidence from final). */
+export function maxObservedForPhase(
+  events: readonly FillerCountEvent[],
+  phase: FillerCountEvent['phase'],
+): number {
+  return maxObservedTrueFillers(events.filter((event) => event.phase === phase));
+}
+
+/**
+ * Filler precision/recall computed from ANNOTATED EXPECTED COUNTS versus OBSERVED CANONICAL COUNTS.
+ * No regex, no transcript strings. Over-counting is a false positive; under-counting a false negative.
+ */
+export function scoreFillerCounts(expectedCount: number, observedCount: number): PrfResult {
+  const truePositives = Math.min(expectedCount, observedCount);
+  const falsePositives = Math.max(0, observedCount - expectedCount);
+  const falseNegatives = Math.max(0, expectedCount - observedCount);
+  const precision = truePositives + falsePositives > 0
+    ? truePositives / (truePositives + falsePositives)
+    : null;
+  const recall = truePositives + falseNegatives > 0
+    ? truePositives / (truePositives + falseNegatives)
+    : null;
+  const f1 = precision !== null && recall !== null && precision + recall > 0
+    ? (2 * precision * recall) / (precision + recall)
+    : null;
+  return {
+    version: FILLER_METRIC_VERSION,
+    truePositives,
+    falsePositives,
+    falseNegatives,
+    precision,
+    recall,
+    f1,
+    referenceCount: expectedCount,
+    hypothesisCount: observedCount,
+  };
 }
 
 function sumCounts(counts: Record<string, number> | null): number | null {
@@ -198,24 +296,29 @@ export function classifyFailureBoundary(fixture: FixtureProvenance, stages: Stag
   if (!stages.pcmSha256 || !stages.pcmSampleCount || stages.pcmSampleCount <= 0) return 'pcm-capture';
 
   // Nothing was recognized at all → cannot attribute; fail closed rather than claim a measured zero.
-  if (stages.interimHypotheses.length === 0 && !stages.finalHypothesis) return 'unmeasurable';
+  // §9: an EXECUTED phase emits a canonical zero event, so "no events at all" genuinely means the
+  // pipeline never ran — distinct from "ran and observed zero".
+  if (stages.fillerCountEvents.length === 0 && !stages.finalHypothesis) return 'unmeasurable';
 
   if (expected > 0) {
-    // Did the recognizer EVER emit a filler (interim or final)? This is the question final-only
-    // evidence cannot answer, and it separates rung D/E from rung B.
-    const prf = fillerPrf(fixture.referenceTranscript, countedText(stages));
-    const recognizerEmittedFiller = prf.truePositives > 0;
-    if (!recognizerEmittedFiller) return 'recognition';
+    // §10: did the recognizer EVER count a filler? Answered from the numeric transitions, not text.
+    // This is what final-only evidence cannot answer, and it separates rung D/E from rung B.
+    const everCounted = maxObservedTrueFillers(stages.fillerCountEvents);
+    if (everCounted <= 0) return 'recognition';
 
-    // Emitted, but the canonical stop snapshot lost it → rung B.
+    // Counted at some phase, but the canonical stop snapshot lost it → rung B.
     const snapshotTotal = sumCounts(stages.stopSnapshot) ?? 0;
     if (snapshotTotal <= 0) return 'interim-evidence-lost';
   }
 
   // Snapshot correct but a downstream consumer disagrees → rung C.
   const snapshotTotal = sumCounts(stages.stopSnapshot);
-  const persistedTotal = sumCounts(stages.persistedSnapshot);
-  const downstream = [persistedTotal, stages.displayedTotal, stages.displayedChipSum];
+  const downstream = [
+    sumCounts(stages.finalizedSnapshot),
+    sumCounts(stages.persistedSnapshot),
+    stages.displayedTotal,
+    stages.displayedChipSum,
+  ];
   if (snapshotTotal !== null && downstream.some((v) => v !== null && v !== snapshotTotal)) {
     return 'display-or-save';
   }
@@ -230,16 +333,23 @@ export function evaluateStopRules(fixture: FixtureProvenance, stages: StageTrace
 
   if (wer && wer.wer >= 0.5) violations.push(`final_wer_ge_0.500 (${wer.wer.toFixed(3)})`);
 
-  const prf = expected > 0 ? fillerPrf(fixture.referenceTranscript, countedText(stages)) : null;
+  // §10: recall is scored from observed canonical COUNTS, never transcript regex.
+  const prf = expected > 0
+    ? scoreFillerCounts(expected, maxObservedTrueFillers(stages.fillerCountEvents))
+    : null;
   if (expected > 0 && prf && prf.recall === 0) violations.push('zero_filler_recall_with_audible_fillers');
 
   // A matched no-filler negative must not manufacture a filler.
   if (expected === 0 && (sumCounts(stages.stopSnapshot) ?? 0) > 0) violations.push('false_filler_on_negative');
 
+  // §10: the enforced chain is observed/combined -> FINALIZED -> persisted -> displayed.
   const snapshotTotal = sumCounts(stages.stopSnapshot);
-  const persistedTotal = sumCounts(stages.persistedSnapshot);
-  const mismatch = [persistedTotal, stages.displayedTotal, stages.displayedChipSum]
-    .some((v) => snapshotTotal !== null && v !== null && v !== snapshotTotal);
+  const mismatch = [
+    sumCounts(stages.finalizedSnapshot),
+    sumCounts(stages.persistedSnapshot),
+    stages.displayedTotal,
+    stages.displayedChipSum,
+  ].some((v) => snapshotTotal !== null && v !== null && v !== snapshotTotal);
   if (mismatch) violations.push('chain_value_disagreement');
 
   if (!stages.lifecycleComplete) violations.push('incomplete_stop_finalize_save_review');
@@ -261,15 +371,18 @@ export function buildFillerTraceRow(args: {
     : null;
 
   const filler = fixture.expectedFillers.length > 0
-    ? fillerPrf(fixture.referenceTranscript, countedText(stages))
+    ? scoreFillerCounts(fixture.expectedFillers.length, maxObservedTrueFillers(stages.fillerCountEvents))
     : null;
 
   const detectedFillerTotal = sumCounts(stages.stopSnapshot);
   const snapshotTotal = detectedFillerTotal;
-  const persistedTotal = sumCounts(stages.persistedSnapshot);
 
-  const chainConsistent = [persistedTotal, stages.displayedTotal, stages.displayedChipSum]
-    .every((v) => snapshotTotal === null || v === null || v === snapshotTotal);
+  const chainConsistent = [
+    sumCounts(stages.finalizedSnapshot),
+    sumCounts(stages.persistedSnapshot),
+    stages.displayedTotal,
+    stages.displayedChipSum,
+  ].every((v) => snapshotTotal === null || v === null || v === snapshotTotal);
 
   const stopRuleViolations = evaluateStopRules(fixture, stages, wer);
   if (!route.zeroRetiredProviderRequests) stopRuleViolations.push('retired_provider_request_observed');

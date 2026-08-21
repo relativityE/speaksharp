@@ -119,9 +119,25 @@ export function pushFillerCountTransition(phase: FillerCountPhase, counts: Fille
   while (buffer.length > MAX_FILLER_TRACE_EVENTS) buffer.shift();
 }
 
-/** Read the current trace (empty when disabled or never written). */
+/**
+ * Read the current trace (empty when disabled or never written).
+ *
+ * #1325 §12: returns an IMMUTABLE DEEP SNAPSHOT, never the live buffer. Evidence captured for fixture N
+ * must be byte-for-byte stable even if later emissions append to (or a clear deletes) the live array —
+ * a stored artifact that can mutate after capture is not evidence.
+ */
 export function readFillerCountTrace(): readonly FillerCountTraceEvent[] {
-  return traceWindow()?.__FILLER_COUNT_TRACE__ ?? [];
+  const live = traceWindow()?.__FILLER_COUNT_TRACE__;
+  if (!live) return Object.freeze([]);
+  return Object.freeze(
+    live.map((event) => Object.freeze({
+      version: event.version,
+      seq: event.seq,
+      relativeMs: event.relativeMs,
+      phase: event.phase,
+      counts: Object.freeze({ ...event.counts }),
+    })),
+  ) as readonly FillerCountTraceEvent[];
 }
 
 /**

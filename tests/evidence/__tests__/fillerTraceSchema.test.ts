@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   buildFillerTraceRow,
   classifyHarnessTarget,
+  isValidFillerCountEvent,
   evaluateTraceSet,
   type FixtureProvenance,
   type RouteProvenance,
@@ -46,11 +48,15 @@ const stages = (over: Partial<StageTrace> = {}): StageTrace => ({
   pcmSha256: 'b'.repeat(64),
   pcmSampleCount: 48_000,
   pcmDurationSeconds: 3,
-  interimHypotheses: ['um I think', 'um I think we should'],
   finalHypothesis: 'um I think we should review the plan today',
-  fillerCountTransitions: [{ um: 1 }],
+  fillerCountEvents: [
+    { seq: 0, relativeMs: 10, phase: 'interim_observed', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
+    { seq: 1, relativeMs: 20, phase: 'final_observed', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
+    { seq: 2, relativeMs: 30, phase: 'combined', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
+  ],
   stopSnapshot: { um: 1 },
   usedLiveSnapshot: true,
+  finalizedSnapshot: { um: 1 },
   persistedSnapshot: { um: 1 },
   displayedTotal: 1,
   displayedChipSum: 1,
@@ -144,26 +150,64 @@ describe('#1325 fillerTraceSchema — evidence classification and stop rules', (
     });
 
     /**
-     * The harness (`scripts/manual-stt-corpus-proof.mjs`) runs under plain `node` and cannot import
-     * this TypeScript module, so it necessarily reimplements the same rules inline. This guard fails
-     * if the two ever drift: every rule token asserted here must still exist in the harness source.
+     * §13 BEHAVIORAL PARITY (replaces token-grep as the authority).
+     *
+     * The harness runs under plain `node` and cannot import this TypeScript module, so it
+     * reimplements the classification rules. Grepping its source proves nothing about behavior, so we
+     * EXECUTE its classifier over a shared adversarial case table (`--classifier-selftest`) and
+     * compare complete normalized outputs. Changing only one implementation breaks this test.
+     *
+     * Running the real script also exercises harness module initialization, so a TDZ/runtime defect
+     * cannot hide behind `node --check` (which proves syntax only).
      */
-    it('harness source implements the same fail-closed rule tokens (drift guard)', () => {
+    it('harness classifier is BEHAVIORALLY identical to the TypeScript classifier', () => {
+      const harnessPath = resolve(testDir, '../../../scripts/manual-stt-corpus-proof.mjs');
+      const raw = execFileSync('node', [harnessPath, '--classifier-selftest'], {
+        encoding: 'utf8',
+        timeout: 60_000,
+      });
+      const harnessResults = JSON.parse(raw) as Array<{
+        name: string;
+        result: ReturnType<typeof classifyHarnessTarget>;
+      }>;
+
+      expect(harnessResults.length).toBeGreaterThanOrEqual(8);
+
+      // Same case table, evaluated by the TypeScript classifier.
+      const cases: Record<string, Parameters<typeof classifyHarnessTarget>[0]> = {
+        valid_localhost: { url: 'http://localhost:5174/session', authMode: 'real', supabaseConfigured: true, deployedHostAllowlist: ['speaksharp-public.vercel.app'], expectedReleaseSha: 'sha-expected' },
+        valid_deployed: { url: 'https://speaksharp-public.vercel.app/session', authMode: 'real', supabaseConfigured: true, deployedHostAllowlist: ['speaksharp-public.vercel.app'], expectedReleaseSha: 'sha-expected', liveReleaseSha: 'sha-expected' },
+        mock_auth_local: { url: 'http://localhost:5174/session', authMode: 'mock', supabaseConfigured: true, deployedHostAllowlist: ['speaksharp-public.vercel.app'], expectedReleaseSha: 'sha-expected' },
+        mock_auth_deployed: { url: 'https://speaksharp-public.vercel.app/session', authMode: 'mock', supabaseConfigured: true, deployedHostAllowlist: ['speaksharp-public.vercel.app'], expectedReleaseSha: 'sha-expected', liveReleaseSha: 'sha-expected' },
+        http_deployed: { url: 'http://speaksharp-public.vercel.app/session', authMode: 'real', supabaseConfigured: true, deployedHostAllowlist: ['speaksharp-public.vercel.app'], expectedReleaseSha: 'sha-expected', liveReleaseSha: 'sha-expected' },
+        unallowlisted_host: { url: 'https://evil.example.com/session', authMode: 'real', supabaseConfigured: true, deployedHostAllowlist: ['speaksharp-public.vercel.app'], expectedReleaseSha: 'sha-expected', liveReleaseSha: 'sha-expected' },
+        missing_expected_sha: { url: 'https://speaksharp-public.vercel.app/session', authMode: 'real', supabaseConfigured: true, deployedHostAllowlist: ['speaksharp-public.vercel.app'], expectedReleaseSha: null, liveReleaseSha: 'sha-live' },
+        missing_live_sha: { url: 'https://speaksharp-public.vercel.app/session', authMode: 'real', supabaseConfigured: true, deployedHostAllowlist: ['speaksharp-public.vercel.app'], expectedReleaseSha: 'sha-expected', liveReleaseSha: null },
+        mismatched_live_sha: { url: 'https://speaksharp-public.vercel.app/session', authMode: 'real', supabaseConfigured: true, deployedHostAllowlist: ['speaksharp-public.vercel.app'], expectedReleaseSha: 'sha-expected', liveReleaseSha: 'sha-other' },
+        wrong_local_port: { url: 'http://localhost:5173/session', authMode: 'real', supabaseConfigured: true, deployedHostAllowlist: ['speaksharp-public.vercel.app'], expectedReleaseSha: 'sha-expected' },
+      };
+
+      for (const { name, result } of harnessResults) {
+        const input = cases[name];
+        expect(input, `harness case ${name} must exist in the TS table`).toBeDefined();
+        const expected = classifyHarnessTarget(input);
+        expect(result, `parity mismatch for case: ${name}`).toEqual({
+          evidenceClass: expected.evidenceClass,
+          localPreflightEligible: expected.localPreflightEligible,
+          deployedAcceptanceEligible: expected.deployedAcceptanceEligible,
+          invalidReasons: expected.invalidReasons,
+        });
+      }
+    });
+
+    // Source-token presence is retained ONLY as a smoke check; parity above is the authority.
+    it('smoke: harness source still mentions the fail-closed rule tokens', () => {
       const harness = readFileSync(
         resolve(testDir, '../../../scripts/manual-stt-corpus-proof.mjs'),
         'utf8',
       );
-      for (const token of [
-        'localhost_is_not_deployed',
-        'not_https',
-        '_not_allowlisted',
-        'missing_expected_release_sha',
-        'deployed-authoritative',
-        'local-preflight',
-        'DEPLOYED_RELEASE_MISMATCH',
-        '__APP_RELEASE__',
-      ]) {
-        expect(harness, `harness must still enforce: ${token}`).toContain(token);
+      for (const token of ['DEPLOYED_RELEASE_MISMATCH', '__APP_RELEASE__']) {
+        expect(harness).toContain(token);
       }
     });
 
@@ -175,6 +219,78 @@ describe('#1325 fillerTraceSchema — evidence classification and stop rules', (
         expect(r.invalidReasons).toContain('auth_mock');
       }
     });
+  });
+
+  // ---- §10 mutants: the numbers-only contract is the filler authority ----
+  describe('§10 numbers-only contract', () => {
+    it('rejects an event carrying interim transcript text (schema is closed)', () => {
+      const leaked = {
+        seq: 0,
+        relativeMs: 10,
+        phase: 'interim_observed',
+        counts: { um: 1, uh: 0, ah: 0, custom_total: 0 },
+        interimHypothesis: 'so um I think',
+      };
+      expect(isValidFillerCountEvent(leaked)).toBe(false);
+    });
+
+    it('rejects string-valued counts and unknown phases at the schema boundary', () => {
+      expect(isValidFillerCountEvent({
+        seq: 0, relativeMs: 0, phase: 'combined', counts: { um: 'um', uh: 0, ah: 0, custom_total: 0 },
+      })).toBe(false);
+      expect(isValidFillerCountEvent({
+        seq: 0, relativeMs: 0, phase: 'transcript', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 },
+      })).toBe(false);
+      expect(isValidFillerCountEvent({
+        seq: 0, relativeMs: 0, phase: 'combined', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 },
+      })).toBe(true);
+    });
+
+    it('scores recall from COUNTS, so a misheard-but-uncounted filler is a false negative regardless of transcript', () => {
+      // The final hypothesis contains no filler text at all, but the counts say one was observed.
+      // Transcript-regex scoring would report 0 recall; count-based scoring correctly reports 1/1.
+      const row = buildFillerTraceRow({
+        fixture: humanFixture(),
+        route: deployedRoute(),
+        replay: 1,
+        stages: stages({ finalHypothesis: "So I'm I think we should review the plan today" }),
+      });
+      expect(row.filler?.truePositives).toBe(1);
+      expect(row.filler?.recall).toBe(1);
+    });
+
+    it('counts over-reporting as a false positive (precision is measured, not assumed)', () => {
+      const row = buildFillerTraceRow({
+        fixture: humanFixture(), // expects exactly 1
+        route: deployedRoute(),
+        replay: 1,
+        stages: stages({
+          fillerCountEvents: [
+            { seq: 0, relativeMs: 10, phase: 'combined', counts: { um: 3, uh: 0, ah: 0, custom_total: 0 } },
+          ],
+          stopSnapshot: { um: 3 },
+          finalizedSnapshot: { um: 3 },
+          persistedSnapshot: { um: 3 },
+          displayedTotal: 3,
+          displayedChipSum: 3,
+        }),
+      });
+      expect(row.filler?.falsePositives).toBe(2);
+      expect(row.filler?.precision).toBeCloseTo(1 / 3);
+    });
+  });
+
+  // ---- §10: the FINALIZED snapshot is part of the enforced chain ----
+  it('§10 fails when the finalized snapshot disagrees with the stop snapshot', () => {
+    const row = buildFillerTraceRow({
+      fixture: humanFixture(),
+      route: deployedRoute(),
+      replay: 1,
+      stages: stages({ finalizedSnapshot: { um: 5 } }),
+    });
+    expect(row.chainConsistent).toBe(false);
+    expect(row.stopRuleViolations).toContain('chain_value_disagreement');
+    expect(row.failureBoundary).toBe('display-or-save');
   });
 
   // ---- Mutant 10: downstream disagreement must fail, never pass ----
@@ -227,9 +343,15 @@ describe('#1325 fillerTraceSchema — evidence classification and stop rules', (
         route: deployedRoute(),
         replay: 1,
         stages: stages({
-          interimHypotheses: ["so I'm I think"],
           finalHypothesis: "So I'm I think we should review the plan today",
+          // Executed, but NEVER counted a filler at any phase → recognition boundary.
+          fillerCountEvents: [
+            { seq: 0, relativeMs: 10, phase: 'interim_observed', counts: { um: 0, uh: 0, ah: 0, custom_total: 0 } },
+            { seq: 1, relativeMs: 20, phase: 'final_observed', counts: { um: 0, uh: 0, ah: 0, custom_total: 0 } },
+            { seq: 2, relativeMs: 30, phase: 'combined', counts: { um: 0, uh: 0, ah: 0, custom_total: 0 } },
+          ],
           stopSnapshot: { um: 0 },
+          finalizedSnapshot: { um: 0 },
           persistedSnapshot: { um: 0 },
           displayedTotal: 0,
           displayedChipSum: 0,
@@ -244,11 +366,15 @@ describe('#1325 fillerTraceSchema — evidence classification and stop rules', (
         route: deployedRoute(),
         replay: 1,
         stages: stages({
-          // The filler WAS recognized in an interim hypothesis...
-          interimHypotheses: ['um I think'],
+          // The filler WAS counted in an interim transition...
+          fillerCountEvents: [
+            { seq: 0, relativeMs: 10, phase: 'interim_observed', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
+            { seq: 1, relativeMs: 20, phase: 'final_observed', counts: { um: 0, uh: 0, ah: 0, custom_total: 0 } },
+          ],
           // ...the final dropped it, and the canonical snapshot kept nothing.
           finalHypothesis: 'I think we should review the plan today',
           stopSnapshot: { um: 0 },
+          finalizedSnapshot: { um: 0 },
           persistedSnapshot: { um: 0 },
           displayedTotal: 0,
           displayedChipSum: 0,
@@ -262,7 +388,7 @@ describe('#1325 fillerTraceSchema — evidence classification and stop rules', (
         fixture: humanFixture(),
         route: deployedRoute(),
         replay: 1,
-        stages: stages({ interimHypotheses: [], finalHypothesis: null }),
+        stages: stages({ fillerCountEvents: [], finalHypothesis: null }),
       });
       expect(row.failureBoundary).toBe('unmeasurable');
     });
@@ -280,9 +406,12 @@ describe('#1325 fillerTraceSchema — evidence classification and stop rules', (
         route: deployedRoute(),
         replay: 1,
         stages: stages({
-          interimHypotheses: ['I think'],
           finalHypothesis: 'I think we should review the plan today',
+          fillerCountEvents: [
+            { seq: 0, relativeMs: 10, phase: 'combined', counts: { um: 1, uh: 0, ah: 0, custom_total: 0 } },
+          ],
           stopSnapshot: { um: 1 },
+          finalizedSnapshot: { um: 1 },
           persistedSnapshot: { um: 1 },
           displayedTotal: 1,
           displayedChipSum: 1,

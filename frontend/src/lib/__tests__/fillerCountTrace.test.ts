@@ -147,6 +147,44 @@ describe('#1325 fillerCountTrace — privacy-safe count transitions', () => {
     });
   });
 
+  // ---- §12: captured evidence is an immutable deep snapshot, never the live buffer ----
+  describe('immutable capture mutant: a stored artifact must not mutate after capture', () => {
+    it('returns a frozen snapshot that later emissions cannot change', () => {
+      enableTrace();
+      pushFillerCountTransition('interim_observed', counts(1, 0, 0));
+      const captured = readFillerCountTrace();
+      const snapshot = JSON.stringify(captured);
+
+      expect(Object.isFrozen(captured)).toBe(true);
+      expect(Object.isFrozen(captured[0])).toBe(true);
+      expect(Object.isFrozen(captured[0].counts)).toBe(true);
+
+      // Later emissions must not extend or alter the earlier capture.
+      pushFillerCountTransition('final_observed', counts(9, 9, 9));
+      expect(captured.length).toBe(1);
+      expect(JSON.stringify(captured)).toBe(snapshot);
+
+      // ...and a clear must not empty it either.
+      clearFillerCountTrace();
+      expect(JSON.stringify(captured)).toBe(snapshot);
+    });
+
+    it('mutating the returned snapshot cannot corrupt the live buffer', () => {
+      enableTrace();
+      pushFillerCountTransition('interim_observed', counts(2, 0, 0));
+      const captured = readFillerCountTrace();
+
+      // Frozen objects silently ignore writes in sloppy mode and throw in strict mode; either way the
+      // underlying evidence must remain intact.
+      try {
+        (captured[0].counts as { um: number }).um = 99;
+      } catch {
+        /* strict-mode TypeError is an acceptable outcome */
+      }
+      expect(readFillerCountTrace()[0].counts.um).toBe(2);
+    });
+  });
+
   // ---- Mutant 6: bounded ring buffer ----
   describe('bound mutant: the buffer may not grow beyond the cap', () => {
     it(`retains at most ${MAX_FILLER_TRACE_EVENTS} events and keeps the most recent`, () => {
