@@ -1,6 +1,45 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { countFillerWords, FillerCounts, createInitialFillerData } from '../../utils/fillerWordUtils';
 import { Chunk } from './types';
+import { FILLER_WORD_KEYS } from '../../config';
+import {
+  isFillerCountTraceEnabled,
+  pushFillerCountTransition,
+  type FillerCountPhase,
+} from '../../lib/fillerCountTrace';
+
+/**
+ * #1325: project a FillerCounts map onto the privacy-safe trace snapshot.
+ *
+ * Canonical true-filler keys are emitted individually; every other key (user-defined custom words) is
+ * summed into `custom_total` so a raw custom-word LABEL can never leave this hook. No transcript,
+ * hypothesis, or token text is read here — only counts.
+ */
+const CANONICAL_TRACE_KEYS: ReadonlySet<string> = new Set([
+  FILLER_WORD_KEYS.UM,
+  FILLER_WORD_KEYS.UH,
+  FILLER_WORD_KEYS.AH,
+]);
+
+function toTraceSnapshot(counts: FillerCounts) {
+  let customTotal = 0;
+  for (const key in counts) {
+    if (key === 'total' || CANONICAL_TRACE_KEYS.has(key)) continue;
+    customTotal += counts[key]?.count ?? 0;
+  }
+  return {
+    um: counts[FILLER_WORD_KEYS.UM]?.count ?? 0,
+    uh: counts[FILLER_WORD_KEYS.UH]?.count ?? 0,
+    ah: counts[FILLER_WORD_KEYS.AH]?.count ?? 0,
+    custom_total: customTotal,
+  };
+}
+
+/** Record one transition. Inert unless the controlled trace flag is explicitly enabled. */
+function traceCounts(phase: FillerCountPhase, counts: FillerCounts | null | undefined): void {
+  if (!counts || !isFillerCountTraceEnabled()) return;
+  pushFillerCountTransition(phase, toTraceSnapshot(counts));
+}
 
 /**
  * Hook: useFillerWords (Optimized)
@@ -111,6 +150,10 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
   useEffect(() => {
     if (!interimCounts) return;
 
+    // #1325: the interim hypothesis produced these counts. Recording this transition is what lets the
+    // qualification harness prove a true filler WAS counted from interim even if the final drops it.
+    traceCounts('interim_observed', interimCounts);
+
     setObservedInterimCounts(prev => {
       const observed = { ...prev };
 
@@ -131,6 +174,13 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
       return observed;
     });
   }, [interimCounts]);
+
+  // #1325: observe the FINAL-derived accumulation as its own phase. A separate read-only effect keeps
+  // the emission out of the accumulation logic above, so tracing cannot perturb counts or timing.
+  useEffect(() => {
+    if (accumulatedCounts.total.count <= 0) return;
+    traceCounts('final_observed', accumulatedCounts);
+  }, [accumulatedCounts]);
 
   // 3. Combine Accumulated, observed interim, and current interim counts
   const combinedCounts = useMemo(() => {
@@ -160,6 +210,13 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
   }, [accumulatedCounts, interimCounts, observedInterimCounts]);
 
   const totalCount = useMemo(() => combinedCounts.total.count, [combinedCounts]);
+
+  // #1325: the canonical user-facing map. Comparing this against the interim/final phases shows
+  // whether observed evidence survived into the value the session actually reports.
+  useEffect(() => {
+    if (combinedCounts.total.count <= 0) return;
+    traceCounts('combined', combinedCounts);
+  }, [combinedCounts]);
 
   return {
     counts: combinedCounts,

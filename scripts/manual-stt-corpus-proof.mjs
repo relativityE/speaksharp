@@ -117,6 +117,12 @@ function buildEnvironmentProof(baseUrl) {
     ...(mockAuth ? ['mock_auth_detected'] : []),
   ];
 
+  // #1325/#1324: a LOCAL run is harness preflight and can never be read as deployed acceptance.
+  // Deployed-authoritative requires a non-localhost target AND real auth; anything else is preflight.
+  const evidenceClass = (!isLocalhost && authMode === 'real')
+    ? 'deployed-authoritative'
+    : 'local-preflight';
+
   return {
     url: `${url.origin}/session`,
     port: Number.isFinite(port) ? port : null,
@@ -127,6 +133,9 @@ function buildEnvironmentProof(baseUrl) {
     releaseProofEligible: invalidReasons.length === 0,
     cdpSameTab: true,
     invalidReasons,
+    evidenceClass,
+    // Explicit, so a preflight artifact can never be mistaken for release acceptance downstream.
+    deployedAcceptanceEligible: evidenceClass === 'deployed-authoritative',
   };
 }
 
@@ -248,6 +257,30 @@ async function buildPaddedFakeAudioWav(srcPath, trailingSilenceMs) {
     paddedDurationMs: Math.ceil((totalData / byteRate) * 1000),
     silenceMs: Math.round((silence.length / byteRate) * 1000),
   };
+}
+
+/**
+ * #1325: enable the privacy-safe filler count trace BEFORE app code runs, so the qualification run can
+ * distinguish "a true filler was counted from interim and later lost" (rung B) from "never recognized"
+ * (rung D/E). Records COUNT TRANSITIONS only — never interim/final transcript text.
+ */
+async function installFillerCountTrace(page) {
+  await page.addInitScript(() => {
+    window.__PRIVATE_TRANSCRIPT_TRACE__ = true;
+  });
+}
+
+/**
+ * Read the count-transition timeline. Text-free by construction: each event carries only
+ * {version, seq, relativeMs, phase, counts:{um,uh,ah,custom_total}}.
+ */
+async function readFillerCountTrace(page) {
+  return page.evaluate(() => (window.__FILLER_COUNT_TRACE__ ?? []).map((event) => ({
+    seq: event.seq,
+    relativeMs: event.relativeMs,
+    phase: event.phase,
+    counts: event.counts,
+  })));
 }
 
 async function installInjectedMicAudio(page, audioPath) {
@@ -1433,6 +1466,9 @@ async function runFixture(page, mode, fixture) {
     console.warn('⚠️  STT_INJECT_MIC_AUDIO is NON-AUTHORITATIVE for proof (nondeterministic in automated Chrome: silence/partial). Use STT_USE_FAKE_AUDIO_CAPTURE for trusted Gate-2 results.');
     await installInjectedMicAudio(page, fixture.audioPath);
   }
+  // #1325: privacy-safe filler count trace — install for EVERY run and audio route (independent of the
+  // deprecated mic-injection path), so interim-vs-final count transitions are always capturable.
+  await installFillerCountTrace(page);
   if (mode === 'private' && PRIVATE_MODEL) {
     await page.addInitScript((model) => {
       window.__PRIVATE_MODEL__ = model;
@@ -1449,6 +1485,8 @@ async function runFixture(page, mode, fixture) {
     window.__SS_TRANSCRIPT_TRACE_SEQ__ = 0;
     window.__NATIVE_BROWSER_TRACE__ = [];
     window.__PRIVATE_TRANSCRIPT_TRACE__ = true;
+    // #1325: reset the bounded filler count-transition buffer so each controlled replay is independent.
+    delete window.__FILLER_COUNT_TRACE__;
     window.__NATIVE_PARALLEL_CAPTURE_TRACE__ = true;
     window.__NATIVE_PARALLEL_CAPTURE__ = [];
     window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__ = [];
@@ -1565,6 +1603,9 @@ async function runFixture(page, mode, fixture) {
     selectedForSaveWer: selectedForSaveMetric.wer,
     selectedForSaveAccuracyPct: selectedForSaveMetric.accuracyPct,
     rtf, // ONE canonical RTF + its timing inputs (see rtf.rtfDefinition) — use this for bakeoff/A-B records
+    // #1325: ordered, text-free filler count transitions (interim_observed / final_observed / combined).
+    // This is what separates "counted from interim then lost" (rung B) from "never recognized" (rung D/E).
+    fillerCountTrace: await readFillerCountTrace(page),
     privateTiming,
     firstText,
     sessionPersisted: await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false),
