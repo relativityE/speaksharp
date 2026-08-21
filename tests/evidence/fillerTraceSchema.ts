@@ -38,6 +38,73 @@ export const QUALIFICATION_THRESHOLDS = {
 /** Where the measurement ran. Only `deployed` may satisfy #1324 acceptance. */
 export type EvidenceClass = 'deployed-authoritative' | 'local-preflight';
 
+/**
+ * Classify a harness target. Shared by `scripts/manual-stt-corpus-proof.mjs` so there is ONE source of
+ * truth (and so the boundary is directly testable — the harness itself self-executes on import).
+ *
+ * Fail-closed rules:
+ *  - `local-preflight` requires localhost:5174 + real auth. It can NEVER satisfy deployed acceptance.
+ *  - `deployed-authoritative` requires HTTPS, an allowlisted host, a non-empty expected release SHA,
+ *    real auth, and (asserted separately at runtime) live `__APP_RELEASE__` equality.
+ *  - A target satisfying neither is invalid; localhost can never be relabeled authoritative.
+ */
+export interface TargetClassificationInput {
+  url: string;
+  authMode: 'real' | 'mock';
+  supabaseConfigured: boolean;
+  deployedHostAllowlist: readonly string[];
+  expectedReleaseSha: string | null;
+  /** Live window.__APP_RELEASE__, when already known. Null when not yet read. */
+  liveReleaseSha?: string | null;
+}
+
+export interface TargetClassification {
+  evidenceClass: EvidenceClass;
+  localPreflightEligible: boolean;
+  deployedAcceptanceEligible: boolean;
+  invalidReasons: string[];
+}
+
+export function classifyHarnessTarget(input: TargetClassificationInput): TargetClassification {
+  const parsed = new URL(input.url);
+  const hostname = parsed.hostname;
+  const port = Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80));
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+
+  const common = [
+    ...(input.supabaseConfigured ? [] : ['missing_supabase_config']),
+    ...(input.authMode === 'real' ? [] : [`auth_${input.authMode}`]),
+  ];
+
+  const local = [
+    ...(isLocalhost ? [] : ['not_localhost']),
+    ...(port === 5174 ? [] : [`port_${Number.isFinite(port) ? port : 'unknown'}_not_5174`]),
+  ];
+
+  const deployed = [
+    ...(isLocalhost ? ['localhost_is_not_deployed'] : []),
+    ...(parsed.protocol === 'https:' ? [] : ['not_https']),
+    ...(input.deployedHostAllowlist.includes(hostname) ? [] : [`host_${hostname}_not_allowlisted`]),
+    ...(input.expectedReleaseSha ? [] : ['missing_expected_release_sha']),
+    // When the live release is known it must match exactly — a stale bundle never qualifies.
+    ...(input.liveReleaseSha !== undefined && input.liveReleaseSha !== input.expectedReleaseSha
+      ? ['release_sha_mismatch']
+      : []),
+  ];
+
+  const localPreflightEligible = common.length === 0 && local.length === 0;
+  const deployedAcceptanceEligible = common.length === 0 && deployed.length === 0;
+
+  return {
+    evidenceClass: deployedAcceptanceEligible ? 'deployed-authoritative' : 'local-preflight',
+    localPreflightEligible,
+    deployedAcceptanceEligible,
+    invalidReasons: localPreflightEligible || deployedAcceptanceEligible
+      ? []
+      : [...common, ...(isLocalhost ? local : deployed)],
+  };
+}
+
 /** Which stage of the chain a failure is attributable to → selects the remediation rung. */
 export type FailureBoundary =
   | 'none'

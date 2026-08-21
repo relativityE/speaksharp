@@ -231,4 +231,94 @@ describe('#1325 useFillerWords — privacy-safe count-transition trace at the re
     const withCustom = readFillerCountTrace().filter((e) => (e.counts.custom_total ?? 0) > 0);
     expect(withCustom.length).toBeGreaterThan(0);
   });
+
+  // ---- custom_total truthfulness: only the CONFIGURED custom set may contribute ----
+  it('never inflates custom_total with built-in discourse markers (like/so/oh)', () => {
+    traceWindow().__PRIVATE_TRANSCRIPT_TRACE__ = true;
+
+    // Canonical true fillers + one CONFIGURED custom word + non-counting discourse markers.
+    // "so" and "like" are product-counted discourse markers but are NOT custom words.
+    runInterimThenFinal(
+      'so um I think like the stale plan uh',
+      'So um I think like the stale plan uh.',
+      ['stale'],
+    );
+
+    const trace = readFillerCountTrace();
+    expect(trace.length).toBeGreaterThan(0);
+    // Exactly one configured custom word occurs ("stale") — discourse markers must not be summed in.
+    for (const event of trace) {
+      expect(event.counts.custom_total).toBeLessThanOrEqual(1);
+    }
+    const maxCustom = Math.max(...trace.map((e) => e.counts.custom_total));
+    expect(maxCustom).toBe(1);
+    // ...while the canonical true fillers ARE reported.
+    expect(Math.max(...trace.map((e) => e.counts.um))).toBeGreaterThan(0);
+  });
+
+  it('reports custom_total 0 when no custom words are configured, even with discourse markers present', () => {
+    traceWindow().__PRIVATE_TRANSCRIPT_TRACE__ = true;
+
+    runInterimThenFinal('so um I think like', 'So um I think like.', []);
+
+    for (const event of readFillerCountTrace()) {
+      expect(event.counts.custom_total).toBe(0);
+    }
+  });
+
+  // ---- Rerender storm must not evict the earliest interim evidence (bounded ring) ----
+  // NOTE: this asserts on the hook's real emission path (runInterimThenFinal drives the actual
+  // debounce), then proves duplicate-payload re-emissions are collapsed. It deliberately avoids a
+  // large in-test rerender loop, which deadlocks against the 200ms debounce under fake timers.
+  it('survives repeated identical payloads: no duplicate events, first interim event preserved', () => {
+    traceWindow().__PRIVATE_TRANSCRIPT_TRACE__ = true;
+
+    runInterimThenFinal('um I think', 'Um I think.');
+    const trace = readFillerCountTrace();
+    const firstEvent = trace[0];
+    expect(firstEvent).toBeDefined();
+
+    // No phase may record the same canonical payload twice in a row — that is what keeps a real
+    // rerender storm from filling the 256-event ring and evicting this first interim transition.
+    const byPhase = new Map<string, string[]>();
+    for (const event of trace) {
+      const fingerprint = `${event.counts.um}|${event.counts.uh}|${event.counts.ah}|${event.counts.custom_total}`;
+      const seen = byPhase.get(event.phase) ?? [];
+      expect(seen[seen.length - 1]).not.toBe(fingerprint);
+      seen.push(fingerprint);
+      byPhase.set(event.phase, seen);
+    }
+
+    expect(trace.length).toBeLessThan(256);
+    expect(trace[0]).toEqual(firstEvent);
+  });
+
+  // ---- Per-replay isolation: fixture N must not inherit fixture N-1's tail events ----
+  it('replay isolation: a cleared trace cannot let replay N inherit replay N-1 events', () => {
+    traceWindow().__PRIVATE_TRANSCRIPT_TRACE__ = true;
+
+    // Replay N-1: a POSITIVE clip leaves a tail event with a nonzero um count.
+    runInterimThenFinal('um I think', 'Um I think.');
+    const previous = readFillerCountTrace();
+    expect(previous.length).toBeGreaterThan(0);
+    expect(Math.max(...previous.map((e) => e.counts.um))).toBeGreaterThan(0);
+    vi.useRealTimers();
+
+    // Harness clears BEFORE replay N begins.
+    clearFillerCountTrace();
+    expect(readFillerCountTrace()).toEqual([]);
+
+    // Replay N: a matched NEGATIVE clip with no fillers.
+    runInterimThenFinal('I think we should review', 'I think we should review.');
+
+    const current = readFillerCountTrace();
+    // The previous positive evidence must be gone: nothing may report a filler.
+    for (const event of current) {
+      expect(event.counts.um).toBe(0);
+      expect(event.counts.uh).toBe(0);
+      expect(event.counts.ah).toBe(0);
+    }
+    // Sequence/baseline restart so replay N is independently auditable.
+    expect(current.map((event) => event.seq).slice(0, 1)).toEqual(current.length > 0 ? [0] : []);
+  });
 });

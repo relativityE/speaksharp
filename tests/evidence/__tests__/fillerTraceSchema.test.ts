@@ -1,11 +1,17 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   buildFillerTraceRow,
+  classifyHarnessTarget,
   evaluateTraceSet,
   type FixtureProvenance,
   type RouteProvenance,
   type StageTrace,
 } from '../fillerTraceSchema';
+
+const testDir = dirname(fileURLToPath(import.meta.url));
 
 /**
  * #1325 falsification tests for the evidence schema.
@@ -77,6 +83,97 @@ describe('#1325 fillerTraceSchema — evidence classification and stop rules', (
         stages: stages(),
       });
       expect(row.route.evidenceClass).toBe('local-preflight');
+    });
+  });
+
+  // ---- Mutant 9 at the REAL harness boundary: classification must be reachable AND fail closed ----
+  describe('harness target classification (the boundary the proof script uses)', () => {
+    const base = {
+      authMode: 'real' as const,
+      supabaseConfigured: true,
+      deployedHostAllowlist: ['speaksharp-public.vercel.app'],
+      expectedReleaseSha: '54195a5e7460aa1678e4029f2113e28024aacd15',
+    };
+
+    it('classifies a valid localhost:5174 target as local-preflight, never authoritative', () => {
+      const r = classifyHarnessTarget({ ...base, url: 'http://localhost:5174/session' });
+      expect(r.evidenceClass).toBe('local-preflight');
+      expect(r.localPreflightEligible).toBe(true);
+      expect(r.deployedAcceptanceEligible).toBe(false);
+      expect(r.invalidReasons).toEqual([]);
+    });
+
+    it('DEPLOYED classification is reachable for a valid https allowlisted target', () => {
+      const r = classifyHarnessTarget({
+        ...base,
+        url: 'https://speaksharp-public.vercel.app/session',
+        liveReleaseSha: base.expectedReleaseSha,
+      });
+      expect(r.evidenceClass).toBe('deployed-authoritative');
+      expect(r.deployedAcceptanceEligible).toBe(true);
+      expect(r.invalidReasons).toEqual([]);
+    });
+
+    it('rejects a release SHA mismatch (a stale bundle never qualifies)', () => {
+      const r = classifyHarnessTarget({
+        ...base,
+        url: 'https://speaksharp-public.vercel.app/session',
+        liveReleaseSha: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
+      });
+      expect(r.deployedAcceptanceEligible).toBe(false);
+      expect(r.invalidReasons).toContain('release_sha_mismatch');
+    });
+
+    it.each([
+      ['http (not https)', 'http://speaksharp-public.vercel.app/session', 'not_https'],
+      ['unallowlisted host', 'https://evil.example.com/session', 'host_evil.example.com_not_allowlisted'],
+    ])('rejects a deployed target with %s', (_label, url, reason) => {
+      const r = classifyHarnessTarget({ ...base, url, liveReleaseSha: base.expectedReleaseSha });
+      expect(r.deployedAcceptanceEligible).toBe(false);
+      expect(r.invalidReasons).toContain(reason);
+    });
+
+    it('rejects a deployed target with no expected release SHA configured', () => {
+      const r = classifyHarnessTarget({
+        ...base,
+        url: 'https://speaksharp-public.vercel.app/session',
+        expectedReleaseSha: null,
+      });
+      expect(r.deployedAcceptanceEligible).toBe(false);
+      expect(r.invalidReasons).toContain('missing_expected_release_sha');
+    });
+
+    /**
+     * The harness (`scripts/manual-stt-corpus-proof.mjs`) runs under plain `node` and cannot import
+     * this TypeScript module, so it necessarily reimplements the same rules inline. This guard fails
+     * if the two ever drift: every rule token asserted here must still exist in the harness source.
+     */
+    it('harness source implements the same fail-closed rule tokens (drift guard)', () => {
+      const harness = readFileSync(
+        resolve(testDir, '../../../scripts/manual-stt-corpus-proof.mjs'),
+        'utf8',
+      );
+      for (const token of [
+        'localhost_is_not_deployed',
+        'not_https',
+        '_not_allowlisted',
+        'missing_expected_release_sha',
+        'deployed-authoritative',
+        'local-preflight',
+        'DEPLOYED_RELEASE_MISMATCH',
+        '__APP_RELEASE__',
+      ]) {
+        expect(harness, `harness must still enforce: ${token}`).toContain(token);
+      }
+    });
+
+    it('rejects mock auth for BOTH classes', () => {
+      for (const url of ['http://localhost:5174/session', 'https://speaksharp-public.vercel.app/session']) {
+        const r = classifyHarnessTarget({ ...base, url, authMode: 'mock', liveReleaseSha: base.expectedReleaseSha });
+        expect(r.localPreflightEligible).toBe(false);
+        expect(r.deployedAcceptanceEligible).toBe(false);
+        expect(r.invalidReasons).toContain('auth_mock');
+      }
     });
   });
 

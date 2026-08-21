@@ -84,7 +84,50 @@ describe('#1325 fillerCountTrace — privacy-safe count transitions', () => {
       expect(JSON.stringify(event)).not.toMatch(/basically|transcript|think/i);
     });
 
-    it('serialized trace contains no alphabetic transcript payload beyond the fixed schema words', () => {
+    // The MECHANICAL control is the closed schema: exact keys, non-negative integer values.
+    // Vocabulary scanning is only a secondary smoke check — a leak whose text happens to be a
+    // permitted word (`um: "um"`) would pass it, so these cases are the real authority.
+    it('rejects a canonical count carrying a STRING filler value (um: "um")', () => {
+      enableTrace();
+      pushFillerCountTransition('interim_observed', {
+        um: 'um', uh: 0, ah: 0, custom_total: 0,
+      } as unknown as Parameters<typeof pushFillerCountTransition>[1]);
+      expect(readFillerCountTrace()).toEqual([]);
+    });
+
+    it('rejects a raw configured custom LABEL smuggled in as a count value', () => {
+      enableTrace();
+      pushFillerCountTransition('final_observed', {
+        um: 0, uh: 0, ah: 0, custom_total: 'stale',
+      } as unknown as Parameters<typeof pushFillerCountTransition>[1]);
+      expect(readFillerCountTrace()).toEqual([]);
+    });
+
+    it('rejects every string-valued canonical key, one at a time', () => {
+      enableTrace();
+      for (const key of ['um', 'uh', 'ah', 'custom_total'] as const) {
+        const payload = { um: 0, uh: 0, ah: 0, custom_total: 0, [key]: 'leaked-transcript-text' };
+        pushFillerCountTransition(
+          'combined',
+          payload as unknown as Parameters<typeof pushFillerCountTransition>[1],
+        );
+      }
+      expect(readFillerCountTrace()).toEqual([]);
+    });
+
+    it('rejects object/array count payloads (no nested structure can carry text)', () => {
+      enableTrace();
+      pushFillerCountTransition('combined', {
+        um: { count: 1, word: 'um' }, uh: 0, ah: 0, custom_total: 0,
+      } as unknown as Parameters<typeof pushFillerCountTransition>[1]);
+      pushFillerCountTransition('combined', {
+        um: [1], uh: 0, ah: 0, custom_total: 0,
+      } as unknown as Parameters<typeof pushFillerCountTransition>[1]);
+      expect(readFillerCountTrace()).toEqual([]);
+    });
+
+    // SECONDARY smoke check only — the strict schema above is the authority.
+    it('smoke: serialized trace contains no alphabetic payload beyond the fixed schema words', () => {
       enableTrace();
       pushFillerCountTransition('interim_observed', counts(1, 1, 1, 2));
       pushFillerCountTransition('combined', counts(2, 1, 1, 2));

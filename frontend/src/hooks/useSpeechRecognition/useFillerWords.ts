@@ -5,15 +5,18 @@ import { FILLER_WORD_KEYS } from '../../config';
 import {
   isFillerCountTraceEnabled,
   pushFillerCountTransition,
+  registerFillerTraceResetHook,
   type FillerCountPhase,
 } from '../../lib/fillerCountTrace';
 
 /**
  * #1325: project a FillerCounts map onto the privacy-safe trace snapshot.
  *
- * Canonical true-filler keys are emitted individually; every other key (user-defined custom words) is
- * summed into `custom_total` so a raw custom-word LABEL can never leave this hook. No transcript,
- * hypothesis, or token text is read here — only counts.
+ * `custom_total` sums ONLY the explicitly configured custom filler words. Built-in discourse markers
+ * (like / so / oh / you know) are counted by the product but are NOT custom words, so including them
+ * would inflate `custom_total` and make the evidence untruthful — a "so" in "So um I think" must never
+ * be reported as a custom-word hit. Raw custom LABELS never leave this hook; only their sum does. No
+ * transcript, hypothesis, or token text is read here — only counts.
  */
 const CANONICAL_TRACE_KEYS: ReadonlySet<string> = new Set([
   FILLER_WORD_KEYS.UM,
@@ -21,10 +24,14 @@ const CANONICAL_TRACE_KEYS: ReadonlySet<string> = new Set([
   FILLER_WORD_KEYS.AH,
 ]);
 
-function toTraceSnapshot(counts: FillerCounts) {
+function toTraceSnapshot(counts: FillerCounts, userWords: readonly string[]) {
+  // Only the caller-configured custom set may contribute, matched case-insensitively against the
+  // count-map keys the product actually produced.
+  const configured = new Set(userWords.map((word) => word.trim().toLowerCase()).filter(Boolean));
   let customTotal = 0;
   for (const key in counts) {
     if (key === 'total' || CANONICAL_TRACE_KEYS.has(key)) continue;
+    if (!configured.has(key.trim().toLowerCase())) continue;
     customTotal += counts[key]?.count ?? 0;
   }
   return {
@@ -35,10 +42,35 @@ function toTraceSnapshot(counts: FillerCounts) {
   };
 }
 
-/** Record one transition. Inert unless the controlled trace flag is explicitly enabled. */
-function traceCounts(phase: FillerCountPhase, counts: FillerCounts | null | undefined): void {
-  if (!counts || !isFillerCountTraceEnabled()) return;
-  pushFillerCountTransition(phase, toTraceSnapshot(counts));
+/**
+ * Record one transition. Inert unless the controlled trace flag is explicitly enabled.
+ *
+ * Emits only when a phase's canonical payload CHANGES. React may re-run an effect many times with an
+ * identical payload; without change detection a rerender storm would fill the bounded 256-event ring
+ * and evict the earliest `interim_observed` transition — destroying exactly the evidence #1324 needs.
+ * `lastByPhase` is a module-level, per-phase memo of the last emitted payload (reset with the buffer).
+ */
+const lastEmittedByPhase = new Map<FillerCountPhase, string>();
+
+// Clearing the trace between replays must also clear this memo, or replay N could suppress an event
+// identical to replay N-1's and silently inherit the previous fixture's state.
+registerFillerTraceResetHook(() => lastEmittedByPhase.clear());
+
+function traceCounts(
+  phase: FillerCountPhase,
+  counts: FillerCounts | null | undefined,
+  userWords: readonly string[],
+): void {
+  // Flag check FIRST: with tracing off this returns before any allocation, projection, or window
+  // access, so the observer cannot cost anything or touch state in production.
+  if (!isFillerCountTraceEnabled() || !counts) return;
+
+  const snapshot = toTraceSnapshot(counts, userWords);
+  const fingerprint = `${snapshot.um}|${snapshot.uh}|${snapshot.ah}|${snapshot.custom_total}`;
+  if (lastEmittedByPhase.get(phase) === fingerprint) return;
+  lastEmittedByPhase.set(phase, fingerprint);
+
+  pushFillerCountTransition(phase, snapshot);
 }
 
 /**
@@ -57,6 +89,10 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
   // Preserve observed interim filler evidence so live metrics do not snap back to
   // an unrealistically clean score.
   const [observedInterimCounts, setObservedInterimCounts] = useState<FillerCounts>(() => createInitialFillerData(userWords));
+  // #1325: the trace observers read the configured custom set through a ref so they never add a
+  // dependency to (or change the timing of) any existing effect.
+  const userWordsForTraceRef = useRef<string[]>(userWords);
+  userWordsForTraceRef.current = userWords;
 
   // 1. Handle Final Chunks (Incremental)
   useEffect(() => {
@@ -152,7 +188,7 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
 
     // #1325: the interim hypothesis produced these counts. Recording this transition is what lets the
     // qualification harness prove a true filler WAS counted from interim even if the final drops it.
-    traceCounts('interim_observed', interimCounts);
+    traceCounts('interim_observed', interimCounts, userWordsForTraceRef.current);
 
     setObservedInterimCounts(prev => {
       const observed = { ...prev };
@@ -179,7 +215,7 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
   // the emission out of the accumulation logic above, so tracing cannot perturb counts or timing.
   useEffect(() => {
     if (accumulatedCounts.total.count <= 0) return;
-    traceCounts('final_observed', accumulatedCounts);
+    traceCounts('final_observed', accumulatedCounts, userWordsForTraceRef.current);
   }, [accumulatedCounts]);
 
   // 3. Combine Accumulated, observed interim, and current interim counts
@@ -215,7 +251,7 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
   // whether observed evidence survived into the value the session actually reports.
   useEffect(() => {
     if (combinedCounts.total.count <= 0) return;
-    traceCounts('combined', combinedCounts);
+    traceCounts('combined', combinedCounts, userWordsForTraceRef.current);
   }, [combinedCounts]);
 
   return {

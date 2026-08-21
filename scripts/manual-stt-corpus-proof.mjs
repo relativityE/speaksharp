@@ -94,6 +94,11 @@ function resetAudioFrameStats() {
 const DISABLE_WEBGPU = process.env.STT_DISABLE_WEBGPU === 'true';
 const INCLUDE_AUDIO_DATA_URL = process.env.STT_INCLUDE_AUDIO_DATA_URL === 'true';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+// #1325 item 3: deployed-authoritative targets must be HTTPS AND on this allowlist, and the live
+// window.__APP_RELEASE__ must equal STT_EXPECTED_RELEASE_SHA. Localhost is always preflight-only.
+const DEPLOYED_HOST_ALLOWLIST = (process.env.STT_DEPLOYED_HOSTS || 'speaksharp-public.vercel.app')
+  .split(',').map((host) => host.trim()).filter(Boolean);
+const EXPECTED_RELEASE_SHA = (process.env.STT_EXPECTED_RELEASE_SHA || '').trim();
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 
 function buildEnvironmentProof(baseUrl) {
@@ -108,20 +113,43 @@ function buildEnvironmentProof(baseUrl) {
     /^mock_/i.test(SUPABASE_ANON_KEY)
   );
   const authMode = mockAuth ? 'mock' : 'real';
-  const invalidReasons = [
-    ...(!isLocalhost ? ['not_localhost'] : []),
-    ...(port !== 5174 ? [`port_${Number.isFinite(port) ? port : 'unknown'}_not_5174`] : []),
+  // Shared requirements for BOTH classes: a real Supabase target and real auth.
+  const commonInvalid = [
     ...(!SUPABASE_URL ? ['missing_supabase_url'] : []),
     ...(!SUPABASE_ANON_KEY ? ['missing_supabase_anon_key'] : []),
     ...(authMode !== 'real' ? [`auth_${authMode}`] : []),
     ...(mockAuth ? ['mock_auth_detected'] : []),
   ];
 
-  // #1325/#1324: a LOCAL run is harness preflight and can never be read as deployed acceptance.
-  // Deployed-authoritative requires a non-localhost target AND real auth; anything else is preflight.
-  const evidenceClass = (!isLocalhost && authMode === 'real')
-    ? 'deployed-authoritative'
-    : 'local-preflight';
+  // #1325 item 3: the deployed path must be REACHABLE, not blocked behind a hard localhost assert —
+  // otherwise `deployed-authoritative` can never be produced and mutant 9 is unfalsifiable. Each class
+  // has its own fail-closed requirements; a target that satisfies neither is invalid.
+  const isHttps = url.protocol === 'https:';
+  const hostAllowed = DEPLOYED_HOST_ALLOWLIST.includes(hostname);
+
+  const localInvalid = [
+    ...(!isLocalhost ? ['not_localhost'] : []),
+    ...(port !== 5174 ? [`port_${Number.isFinite(port) ? port : 'unknown'}_not_5174`] : []),
+  ];
+  const deployedInvalid = [
+    ...(isLocalhost ? ['localhost_is_not_deployed'] : []),
+    ...(!isHttps ? ['not_https'] : []),
+    ...(!hostAllowed ? [`host_${hostname}_not_allowlisted`] : []),
+    ...(!EXPECTED_RELEASE_SHA ? ['missing_expected_release_sha'] : []),
+  ];
+
+  const localEligible = commonInvalid.length === 0 && localInvalid.length === 0;
+  const deployedEligible = commonInvalid.length === 0 && deployedInvalid.length === 0;
+
+  // Report the reasons for whichever class the target was CLOSEST to, so failures stay diagnosable.
+  const invalidReasons = localEligible || deployedEligible
+    ? []
+    : [...commonInvalid, ...(isLocalhost ? localInvalid : deployedInvalid)];
+
+  // A LOCAL run is harness preflight and can NEVER satisfy deployed acceptance. Deployed-authoritative
+  // additionally requires live `window.__APP_RELEASE__` equality, asserted at runtime (see
+  // assertDeployedReleaseMatches) — classification alone is not acceptance.
+  const evidenceClass = deployedEligible ? 'deployed-authoritative' : 'local-preflight';
 
   return {
     url: `${url.origin}/session`,
@@ -130,13 +158,40 @@ function buildEnvironmentProof(baseUrl) {
     mockAuth,
     supabaseUrlPresent: Boolean(SUPABASE_URL),
     supabaseAnonKeyPresent: Boolean(SUPABASE_ANON_KEY),
-    releaseProofEligible: invalidReasons.length === 0,
+    releaseProofEligible: localEligible || deployedEligible,
     cdpSameTab: true,
     invalidReasons,
     evidenceClass,
+    localPreflightEligible: localEligible,
+    // Expected SHA is recorded so a mismatch is auditable; runtime equality is enforced separately.
+    expectedReleaseSha: EXPECTED_RELEASE_SHA || null,
     // Explicit, so a preflight artifact can never be mistaken for release acceptance downstream.
-    deployedAcceptanceEligible: evidenceClass === 'deployed-authoritative',
+    deployedAcceptanceEligible: deployedEligible,
   };
+}
+
+/**
+ * #1325 item 3: deployed acceptance requires the LIVE build to be the expected SHA. Fail closed on a
+ * missing or mismatched `window.__APP_RELEASE__` — a stale bundle must never qualify a release.
+ */
+async function assertDeployedReleaseMatches(page, environmentProof) {
+  if (environmentProof.evidenceClass !== 'deployed-authoritative') return null;
+
+  const liveRelease = await page.evaluate(() => window.__APP_RELEASE__ ?? null);
+  const matches = Boolean(liveRelease) && liveRelease === environmentProof.expectedReleaseSha;
+  const result = {
+    expected: environmentProof.expectedReleaseSha,
+    live: liveRelease,
+    matches,
+  };
+  if (!matches) {
+    const error = new Error(
+      `DEPLOYED_RELEASE_MISMATCH expected=${environmentProof.expectedReleaseSha} live=${liveRelease ?? 'missing'}`,
+    );
+    error.releaseCheck = result;
+    throw error;
+  }
+  return result;
 }
 
 function compact(text) {
@@ -1476,6 +1531,8 @@ async function runFixture(page, mode, fixture) {
   }
   await page.goto(sessionUrl.toString(), { waitUntil: 'domcontentloaded' });
   await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 });
+  // #1325 item 3: fail closed on a stale/mismatched deployed bundle before any evidence is captured.
+  await assertDeployedReleaseMatches(page, buildEnvironmentProof(BASE_URL));
   await assertModePreflight(page, mode);
   await selectMode(page, mode);
 
@@ -1830,8 +1887,10 @@ const evidence = {
 if (!evidence.environmentProof.releaseProofEligible) {
   evidence.blockers = [
     `INVALID_SETUP setup.env RELEASE_PROOF_INELIGIBLE manual-stt-corpus-proof ` +
-    `Manual STT corpus proof must run on localhost:5174 with real auth. ` +
-    `localhost:5173, .env.test/mock auth, deployed URLs, and wrong CDP tabs are invalid evidence.`,
+    `Target must be EITHER local preflight (localhost:5174, real auth) OR deployed-authoritative ` +
+    `(https, allowlisted host, STT_EXPECTED_RELEASE_SHA set, live __APP_RELEASE__ equal). ` +
+    `localhost:5173, .env.test/mock auth, and wrong CDP tabs are invalid evidence. ` +
+    `Reasons: ${evidence.environmentProof.invalidReasons.join(',')}`,
   ];
   evidence.completedAt = new Date().toISOString();
   evidence.pass = false;

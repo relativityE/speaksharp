@@ -124,10 +124,25 @@ export function readFillerCountTrace(): readonly FillerCountTraceEvent[] {
   return traceWindow()?.__FILLER_COUNT_TRACE__ ?? [];
 }
 
-/** Explicitly reset before each controlled replay so runs are independent. */
+/**
+ * Per-replay reset hooks. Emitters register a callback so their change-detection memo is cleared
+ * together with the buffer — otherwise replay N could suppress an event identical to replay N-1's,
+ * silently inheriting the previous fixture's state.
+ */
+const resetHooks = new Set<() => void>();
+
+export function registerFillerTraceResetHook(hook: () => void): void {
+  resetHooks.add(hook);
+}
+
+/**
+ * Explicitly reset BEFORE each controlled replay so runs are independent: buffer, sequence,
+ * relative-time baseline, and every registered emitter memo.
+ */
 export function clearFillerCountTrace(): void {
   const win = traceWindow();
   if (win) delete win.__FILLER_COUNT_TRACE__;
   seqCounter = 0;
   originMs = null;
+  for (const hook of resetHooks) hook();
 }
