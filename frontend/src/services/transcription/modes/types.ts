@@ -44,7 +44,6 @@ export interface TranscriptionModeOptions {
   onError?: (error: TranscriptionError) => void;
   session?: Session | null;
   navigate?: NavigateFunction;
-  getAssemblyAIToken?: () => Promise<string | null>;
   userWords?: string[];
   onConnectionStateChange?: (state: 'connected' | 'reconnecting' | 'disconnected' | 'error') => void;
   onAudioData?: (data: Float32Array) => void;

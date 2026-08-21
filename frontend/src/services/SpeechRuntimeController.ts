@@ -434,7 +434,6 @@ export class SpeechRuntimeController {
     // Runtime rehydration fields (Fix 2)
     private navigate?: NavigateFunction;
     private session: Session | null = null;
-    private getAssemblyAIToken?: () => Promise<string | null>;
 
     private constructor() {
         this.lock = new DistributedLock();
@@ -1460,7 +1459,6 @@ export class SpeechRuntimeController {
 
         if (callbacks.navigate) this.navigate = callbacks.navigate;
         if (callbacks.session) this.session = callbacks.session;
-        if (callbacks.getAssemblyAIToken) this.getAssemblyAIToken = callbacks.getAssemblyAIToken;
 
         if (this.service) {
             this.service.updateCallbacks(
@@ -3994,7 +3992,6 @@ export class SpeechRuntimeController {
                 createControllerOwnedServiceCallbacks({
                     navigate: this.navigate,
                     session: this.session,
-                    getAssemblyAIToken: this.getAssemblyAIToken,
                     userWords: this.userWords
                 }, this.serviceCallbacks as Required<typeof this.serviceCallbacks>),
                 this.lock

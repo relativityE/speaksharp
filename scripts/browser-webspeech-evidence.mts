@@ -82,7 +82,7 @@ async function main(): Promise<void> {
       const method = request.method();
       const url = request.url();
       allRequests.push(`${method} ${url}`);
-      if (/assemblyai|gemini|cloud-stt|assemblyai-token|process-transcript/i.test(url)) {
+      if (/assemblyai|gemini|cloud-stt|process-transcript/i.test(url)) {
         cloudProviderCalls.push(`${method} ${url}`);
       }
       const hostname = new URL(url).hostname;

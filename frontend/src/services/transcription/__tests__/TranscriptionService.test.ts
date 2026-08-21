@@ -29,7 +29,6 @@ describe('TranscriptionService', () => {
     const mockOnTranscriptUpdate = vi.fn();
     const mockOnModelLoadProgress = vi.fn();
     const mockOnReady = vi.fn();
-    const mockGetToken = vi.fn().mockResolvedValue('mock-token');
 
     beforeEach(async () => {
         vi.useFakeTimers();
@@ -62,7 +61,6 @@ describe('TranscriptionService', () => {
             onReady: mockOnReady,
             session: null,
             navigate: vi.fn(),
-            getAssemblyAIToken: mockGetToken,
             policy: {
                 allowNative: true,
                 allowPrivate: true,
@@ -109,7 +107,6 @@ describe('TranscriptionService', () => {
             onReady: mockOnReady,
             session: null,
             navigate: vi.fn(),
-            getAssemblyAIToken: mockGetToken,
             policy: {
                 allowNative: true,
                 allowPrivate: true,
@@ -147,7 +144,6 @@ describe('TranscriptionService', () => {
             onReady: vi.fn(),
             session: null,
             navigate: vi.fn(),
-            getAssemblyAIToken: mockGetToken,
         });
         const p = (svc as unknown as { processModelLoadProgress: (n: number | null) => void });
         // Worker floods the SAME integer percent many times; only DISTINCT percents should emit.
@@ -513,7 +509,6 @@ describe('TranscriptionService', () => {
             onStatusChange: (s) => statuses.push(s.type),
             session: null,
             navigate: vi.fn(),
-            getAssemblyAIToken: mockGetToken,
             policy: {
                 allowNative: true, allowCloud: false, allowPrivate: false,
                 preferredMode: 'native', allowFallback: false, executionIntent: intent,
@@ -597,7 +592,6 @@ describe('TranscriptionService', () => {
             onReady: mockOnReady,
             session: null,
             navigate: vi.fn(),
-            getAssemblyAIToken: mockGetToken,
             policy: {
                 allowNative: false,
                 allowPrivate: true,

@@ -60,7 +60,6 @@ describe('TranscriptionService - Zombie Prevention', () => {
         onReady: vi.fn(),
         session: null,
         navigate: vi.fn() as unknown as NavigateFunction,
-        getAssemblyAIToken: vi.fn().mockResolvedValue('mock-token'),
         onModeChange: vi.fn(),
         onStatusChange: vi.fn(),
         mockMic: {

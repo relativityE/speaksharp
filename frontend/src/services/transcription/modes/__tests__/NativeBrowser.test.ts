@@ -80,7 +80,6 @@ describe('NativeBrowser Transcription Mode', () => {
       onModelLoadProgress: vi.fn(),
       session: null,
       navigate: vi.fn(),
-      getAssemblyAIToken: vi.fn(),
     });
   });
 
@@ -292,7 +291,6 @@ describe('NativeBrowser Transcription Mode', () => {
         onModelLoadProgress: vi.fn(),
         session: null,
         navigate: vi.fn(),
-        getAssemblyAIToken: vi.fn(),
       }, mockEngine as never);
 
       const result = await nativeWithMock.transcribe(audio);

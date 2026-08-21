@@ -28,8 +28,8 @@ describe('sanitizeStartError', () => {
   });
 
   it('scrubs URL query strings (may carry tokens/ids)', () => {
-    const out = sanitizeStartError(new Error('GET https://x.supabase.co/functions/v1/assemblyai-token?apikey=SECRETVALUE123 failed'));
-    expect(out!.message).toContain('assemblyai-token?[redacted]');
+    const out = sanitizeStartError(new Error('GET https://x.supabase.co/functions/v1/check-usage-limit?apikey=SECRETVALUE123 failed'));
+    expect(out!.message).toContain('check-usage-limit?[redacted]');
     expect(out!.message).not.toContain('SECRETVALUE123');
   });
 

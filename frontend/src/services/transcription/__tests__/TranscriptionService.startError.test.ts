@@ -43,7 +43,6 @@ describe('TranscriptionService — engine-start leaf capture (#P1 observability)
       onStatusChange: (s: SttStatus) => statusUpdates.push(s),
       session: null,
       navigate: vi.fn() as unknown as NavigateFunction,
-      getAssemblyAIToken: vi.fn(),
     });
   });
 

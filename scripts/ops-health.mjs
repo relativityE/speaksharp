@@ -52,17 +52,9 @@ await row('Supabase API', 'Can clients reach Auth and SpeakSharp Edge Functions?
     headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
   });
   const usageLimitEdge = await edgePreflight('check-usage-limit');
-  const tokenEdge = await edgeExpectedStatus('assemblyai-token', {
-    method: 'POST',
-    // Unauthenticated remains 401; authenticated customer denial/no-provider-call is covered by
-    // the Edge contract tests and deployed canary.
-    expectedStatus: 401,
-    detailPrefix: 'assemblyai-token',
-  });
   return combined([
     { ok: auth.ok, detail: `auth=${auth.status}` },
     usageLimitEdge,
-    tokenEdge,
   ], 'https://supabase.com/dashboard');
 });
 

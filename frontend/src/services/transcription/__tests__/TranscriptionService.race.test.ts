@@ -19,7 +19,6 @@ const mockOnReady = vi.fn();
 const mockOnStatusChange = vi.fn();
 const mockOnModeChange = vi.fn();
 const mockNavigate = vi.fn() as unknown as NavigateFunction;
-const mockGetToken = vi.fn().mockResolvedValue('mock-token');
 
 class MockRaceEngine extends STTEngine {
     public readonly type = 'transformers-js' as const;
@@ -92,7 +91,6 @@ describe('TranscriptionService - Race Conditions', () => {
             onModeChange: mockOnModeChange,
             session: null,
             navigate: mockNavigate,
-            getAssemblyAIToken: mockGetToken,
             policy,
             mockMic: {
                 stream: {} as MediaStream,
@@ -149,7 +147,6 @@ describe('TranscriptionService - Race Conditions', () => {
             onModeChange: mockOnModeChange,
             session: null,
             navigate: mockNavigate,
-            getAssemblyAIToken: mockGetToken,
             policy: service.getPolicy(),
             mockMic: {
                 stream: {} as MediaStream,

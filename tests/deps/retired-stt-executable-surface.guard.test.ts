@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 /**
  * #1314 Cloud/Native cleanup — executable-surface guard (slice 1).
@@ -71,5 +74,63 @@ describe('#1314 retired-STT executable-surface guard', () => {
     // "browser" delivery words are fine; only the NativeBrowser STT class is retired.
     expect(scanForRetiredSurface([{ path: 'x.ts', content: 'const useBrowser = true; // browser delivery' }])).toEqual([]);
     expect(scanForRetiredSurface([{ path: 'y.ts', content: 'new NativeBrowser(options)' }]).length).toBe(1);
+  });
+});
+
+/**
+ * #1314 LIVE tracked-tree scan (wired now that Cloud/AssemblyAI removal is complete).
+ *
+ * Scope: CLOUD only. Native/Web-Speech removal is #1321, so NativeBrowser and friends still exist in
+ * this tree and are NOT scanned here. This proves ZERO active AssemblyAI cloud-provider executable
+ * references remain across every git-tracked file.
+ *
+ * Allowlist rationale:
+ *  - the guard file itself owns the forbidden literals as detection data;
+ *  - docs/markdown/release notes legitimately record the removal in prose;
+ *  - scripts/rc-secret-scan.mjs is a defensive LEAK detector for ASSEMBLYAI_API_KEY — the hosted
+ *    function/secret still exist until a separate PO-authorized production deletion, so its pattern
+ *    is intentionally retained. (It matches only ASSEMBLYAI_API_KEY, not the provider/function tokens
+ *    scanned below, so it is not even a hit — listed here for auditor clarity.)
+ */
+const ACTIVE_CLOUD_TOKENS: readonly { id: string; re: RegExp }[] = [
+  { id: 'cloud-provider-class', re: /\b(CloudAssemblyAI|AssemblyAICloudProvider)\b/ },
+  { id: 'assemblyai-token-fn', re: /assemblyai-token/i },
+  { id: 'assemblyai-token-endpoint', re: /ASSEMBLYAI_TOKEN_ENDPOINT/ },
+  { id: 'get-assemblyai-token', re: /getAssemblyAIToken/ },
+  { id: 'cloud-stt-const', re: /\bCLOUD_STT\b/ },
+  { id: 'cloud-assemblyai-const', re: /\bCLOUD_ASSEMBLYAI\b/ },
+];
+
+const ALLOWLISTED = (path: string): boolean =>
+  path === 'tests/deps/retired-stt-executable-surface.guard.test.ts' ||
+  path === 'scripts/rc-secret-scan.mjs' ||
+  /\.md$/.test(path) ||
+  path.startsWith('docs/') ||
+  path.startsWith('product_release/');
+
+describe('#1314 LIVE tree scan — zero active Cloud/AssemblyAI executable references', () => {
+  it('has no active AssemblyAI cloud-provider token in any tracked file', () => {
+    const repoRoot = execFileSync('git', ['rev-parse', '--show-toplevel']).toString().trim();
+    const tracked = execFileSync('git', ['ls-files'], { cwd: repoRoot, maxBuffer: 64 * 1024 * 1024 })
+      .toString()
+      .split('\n')
+      .filter(Boolean)
+      .filter((p) => !ALLOWLISTED(p))
+      // text sources only — never scan binaries / lockfiles / audio / models
+      .filter((p) => /\.(ts|tsx|js|jsx|mjs|mts|cjs|json|yml|yaml|sh|env|example|html|css)$/.test(p) || /\.env\./.test(p));
+
+    const hits: Array<{ path: string; id: string }> = [];
+    for (const p of tracked) {
+      let content: string;
+      try {
+        content = readFileSync(resolve(repoRoot, p), 'utf8');
+      } catch {
+        continue; // unreadable/binary — skip
+      }
+      for (const t of ACTIVE_CLOUD_TOKENS) {
+        if (t.re.test(content)) hits.push({ path: p, id: t.id });
+      }
+    }
+    expect(hits).toEqual([]);
   });
 });

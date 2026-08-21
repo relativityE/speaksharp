@@ -101,7 +101,6 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
             onStatusChange,
             session: null,
             navigate: vi.fn() as unknown as NavigateFunction,
-            getAssemblyAIToken: vi.fn().mockResolvedValue('token'),
             mockMic,
             policy: {
                 allowNative: true,
@@ -145,7 +144,6 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
             onStatusChange,
             session: null,
             navigate: vi.fn() as unknown as NavigateFunction,
-            getAssemblyAIToken: vi.fn().mockResolvedValue('token'),
             mockMic,
             policy: {
                 allowNative: true,
@@ -176,7 +174,6 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
             onReady: vi.fn(),
             session: null,
             navigate: vi.fn() as unknown as NavigateFunction,
-            getAssemblyAIToken: vi.fn().mockResolvedValue('token'),
             mockMic,
             policy: {
                 allowNative: true,

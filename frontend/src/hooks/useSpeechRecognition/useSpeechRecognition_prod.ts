@@ -104,7 +104,6 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     // timer logic is centralized in useSessionStore.tick (driven by useSessionLifecycle)
 
     // 2. Specialized Callbacks (Controller Auth)
-    const getAssemblyAIToken = useCallback(async (): Promise<string | null> => null, []);
 
     // 3. Callback Synchronization with Authoritative Controller
     useTranscriptionCallbacks({
@@ -113,7 +112,6 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
             // This hook and the UI it serves will react via useSessionStore reactivity.
         },
         onAudioData: vocal.processAudioFrame,
-        getAssemblyAIToken,
         session: session ?? null,
         navigate,
         userWords: userVocabulary,

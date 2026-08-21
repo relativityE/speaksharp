@@ -39,7 +39,7 @@ const HOSTILE_ORIGINS = [
 ];
 
 // Browser-callable functions probed non-destructively.
-const FUNCTIONS = ['assemblyai-token', 'check-usage-limit', 'stripe-checkout'];
+const FUNCTIONS = ['check-usage-limit', 'stripe-checkout'];
 
 function fnPath(name: string): string {
   return `/functions/v1/${name}`;
@@ -102,8 +102,8 @@ test.describe.serial('Live exact-origin CORS @live', () => {
   test('allowed production request still works (approved origin is not collateral-damaged)', async () => {
     // Approved origin, no auth → the function's OWN response (401 / 403 payments_disabled), never a
     // CORS 403 origin_not_allowed — and it still carries the exact approved ACAO.
-    const { status, acao } = await probe(ctx, 'assemblyai-token', APPROVED_ORIGIN, 'POST');
+    const { status, acao } = await probe(ctx, 'check-usage-limit', APPROVED_ORIGIN, 'POST');
     expect(acao).toBe(APPROVED_ORIGIN);
-    expect(status).not.toBe(403); // assemblyai-token's own gate is 401 (missing auth), not a CORS 403
+    expect(status).not.toBe(403); // the function's own gate (401/402), never a CORS 403
   });
 });

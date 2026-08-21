@@ -1,9 +1,8 @@
 /**
  * AudioProcessor - Shared audio conversion utilities for STT modes.
  *
- * This module extracts common audio processing patterns used by:
- * - CloudAssemblyAI (Float32 → Int16)
- * - OnDeviceWhisper (Float32 → WAV)
+ * This module extracts common audio processing patterns used by the
+ * on-device Whisper path (Float32 → WAV) and shared PCM conversions.
  *
  * Centralizing these utilities reduces code duplication and ensures
  * consistent audio handling across all transcription modes.
@@ -14,7 +13,7 @@ import audioWorkerUrl from './audio-processor.worker.ts?worker&url';
 
 /**
  * Convert Float32Array audio samples to Int16Array.
- * Used by CloudAssemblyAI for WebSocket streaming.
+ * Used for Int16 PCM conversion.
  *
  * @param float32Array - Audio samples in Float32 format (-1.0 to 1.0)
  * @returns Int16Array suitable for WebSocket transmission
@@ -113,7 +112,7 @@ export function concatenateFloat32Arrays(arrays: Float32Array[]): Float32Array {
 
 /**
  * Audio buffer manager for accumulating samples until a minimum threshold.
- * Used by CloudAssemblyAI for buffering before WebSocket send.
+ * Used for buffering samples before downstream processing.
  */
 export class AudioBuffer {
     private buffer: Int16Array = new Int16Array(0);

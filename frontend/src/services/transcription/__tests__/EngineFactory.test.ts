@@ -10,7 +10,6 @@ const privateWhisperMock = vi.hoisted(() => vi.fn());
 
 // Mock dependencies
 vi.mock('../modes/NativeBrowser');
-vi.mock('../modes/CloudAssemblyAI');
 vi.mock('../modes/PrivateWhisper', () => ({
     default: privateWhisperMock,
 }));
@@ -34,7 +33,6 @@ describe('EngineFactory', () => {
         onReady: vi.fn(),
         session: null,
         navigate: vi.fn() as unknown as NavigateFunction,
-        getAssemblyAIToken: vi.fn().mockResolvedValue('token')
     };
 
     beforeEach(() => {

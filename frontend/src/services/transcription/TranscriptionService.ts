@@ -144,7 +144,6 @@ export interface TranscriptionServiceOptions {
   onHistoryUpdate?: (history: HistorySegment[]) => void;
   session: Session | null;
   navigate: NavigateFunction;
-  getAssemblyAIToken: () => Promise<string | null>;
   userWords?: string[];
   policy?: TranscriptionPolicy;
   mockMic?: MicStream;
@@ -411,7 +410,6 @@ export default class TranscriptionService {
       onReady: options.onReady || (() => { }),
       session: options.session || null,
       navigate: options.navigate || ((() => { }) as unknown as NavigateFunction),
-      getAssemblyAIToken: options.getAssemblyAIToken || (async () => null),
       userWords: options.userWords || [],
       policy: this.policy,
       mockMic: options.mockMic,
@@ -514,7 +512,6 @@ export default class TranscriptionService {
       },
       session: options.session || null,
       navigate: options.navigate || ((() => { }) as unknown as NavigateFunction),
-      getAssemblyAIToken: options.getAssemblyAIToken || (async () => null),
       userWords: options.userWords || [],
       serviceId: this.serviceId,
       runId: this.runId || 'unknown'
@@ -1458,13 +1455,11 @@ export default class TranscriptionService {
 
     this.strategyCallbacks.session = this.options.session;
     this.strategyCallbacks.navigate = this.options.navigate;
-    this.strategyCallbacks.getAssemblyAIToken = this.options.getAssemblyAIToken;
     this.strategyCallbacks.userWords = this.options.userWords ?? [];
     const updateableStrategy = this.strategy as (STTStrategy & { updateOptions?: (options: Partial<TranscriptionModeOptions>) => void }) | null;
     updateableStrategy?.updateOptions?.({
       session: this.options.session,
       navigate: this.options.navigate,
-      getAssemblyAIToken: this.options.getAssemblyAIToken,
       userWords: this.options.userWords ?? [],
     });
 

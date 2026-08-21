@@ -11,7 +11,6 @@ declare -a test_files=(
   "src/services/transcription/utils/__tests__/AudioProcessor.test.ts"
   "src/hooks/__tests__/useSessionLifecycle.test.tsx"
   "src/pages/__tests__/SessionPage.timer.component.test.tsx"
-  "src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts"
   "src/pages/__tests__/SignUpPage.component.test.tsx"
   "src/hooks/useSpeechRecognition/__tests__/index.component.test.tsx"
 )

@@ -19,7 +19,6 @@ const workflow = readFileSync(
 
 // Functions a browser calls cross-origin — the exact-origin CORS guard must be able to run first.
 const BROWSER_CALLABLE = [
-  'assemblyai-token',
   'attest-session-engine',
   'check-usage-limit',
   'get-ai-suggestions',
