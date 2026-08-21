@@ -1,0 +1,147 @@
+name: Postflight only (exact #1314, read-only)
+
+# RECOVERY PATH for run 32505310970: migration 20260819120000 APPLIED cleanly (target applied, held
+# 20260812042000 stayed pending, zero lint delta) but its postflight step died before its first SELECT,
+# because the connection URI mangled a password containing a URI-reserved character. The reviewed
+# operation is therefore UNVERIFIED — not proven broken — and re-running the apply workflow cannot
+# re-verify it (its `before` gate requires the target still pending, which it no longer is).
+#
+# This workflow runs ONLY the verification half, against production, read-only:
+#   1. exact main SHA + PO authorization phrase,
+#   2. `supabase migration list` -> target applied AND every held migration still pending,
+#   3. scripts/postflight-gate-1314.sh after  (object/signature/ACL SELECTs),
+#   4. NOTIFY pgrst reload + the frozen fail-closed reload decision.
+#
+# It CANNOT apply, repair, push, roll back, or broaden a migration: `supabase db push`,
+# `migration repair`, `migration up`, `--include-all`, and `--yes` appear nowhere below, and
+# tests/unit/postflightOnlyWorkflowContract.test.js fails if any of them is ever introduced.
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_head_sha:
+        description: 'Exact 40-character main SHA authorized by the Product Owner'
+        required: true
+        type: string
+      confirm:
+        description: 'POSTFLIGHT <target_file> AT <main SHA>'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  # Shared with the apply workflow: verification must never overlap a migration mutation.
+  group: production-database-migrations
+  cancel-in-progress: false
+
+env:
+  TARGET_VERSION: '20260819120000'
+  TARGET_FILE: '20260819120000_complete_session_v2_atomic_retention_1314.sql'
+  HELD_VERSION: '20260812042000'
+
+jobs:
+  postflight-only:
+    environment: production-db
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout the dispatched commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Validate exact main identity and authorization phrase
+        env:
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          CONFIRM: ${{ inputs.confirm }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RESOLVED_SHA: ${{ github.sha }}
+          RESOLVED_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          sha_re='^[0-9a-f]{40}$'
+          [[ "$EXPECTED_HEAD_SHA" =~ $sha_re ]] || { echo '::error::expected_head_sha must be a full lowercase SHA'; exit 1; }
+          [ "$RESOLVED_REF" = "$DEFAULT_BRANCH" ] || { echo '::error::workflow must be dispatched from the default branch'; exit 1; }
+          [ "$RESOLVED_SHA" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::dispatch resolved a different SHA'; exit 1; }
+          expected_phrase="POSTFLIGHT ${TARGET_FILE} AT ${EXPECTED_HEAD_SHA}"
+          [ "$CONFIRM" = "$expected_phrase" ] || { echo '::error::exact postflight authorization phrase missing'; exit 1; }
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
+          [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced before execution'; exit 1; }
+
+          for status in in_progress queued waiting pending requested; do
+            runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=$status&per_page=100")"
+            others="$(jq --argjson current "$GITHUB_RUN_ID" '[.workflow_runs[] | select(.id != $current) | select(.name == "Deploy Supabase" or .name == "Apply webhook DB prerequisite (exact migration)" or .name == "Apply one allowlisted migration (exact)" or .name == "Migrations Preflight (read-only)")] | length' <<<"$runs")"
+            [ "$others" = '0' ] || { echo '::error::a migration-capable workflow is active or pending'; exit 1; }
+          done
+
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: 2.101.0
+
+      - name: Assert target applied and held migrations still pending (read-only)
+        working-directory: backend/supabase
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$SUPABASE_PROJECT_ID"
+          supabase migration list 2>&1 | tee "$RUNNER_TEMP/migrations-now.txt"
+          bash "$GITHUB_WORKSPACE/scripts/postflight-migration-state.sh" \
+            "$RUNNER_TEMP/migrations-now.txt" "$TARGET_VERSION" "$HELD_VERSION"
+
+      - name: Enforce reviewed #1314 operation (postflight gate + reload proof)
+        id: postflight_1314
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # CONNECTION — libpq environment, never a connection URI. See SEC-001: a password containing a
+          # URI-reserved character both breaks parsing and gets ECHOED back by psql into the public log,
+          # past GitHub's secret masking. libpq env vars are never re-parsed or re-emitted.
+          unset DB_URL   # postflight-gate-1314.sh prefers DB_URL when set; force the ambient PG* path.
+          export PGHOST="db.${SUPABASE_PROJECT_ID}.supabase.co"
+          export PGPORT=5432
+          export PGUSER=postgres
+          export PGDATABASE=postgres
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          export PGSSLMODE=require
+          # 1) reviewed object/signature/ACL contract (read-only SELECTs).
+          bash scripts/postflight-gate-1314.sh after
+          # 2) reload PostgREST and CONFIRM resolution — FAIL-CLOSED. `{}` cannot resolve an RPC with no
+          #    defaultable p_session_id, so send the FULL arg set with a nonexistent session id. A RESOLVED
+          #    function returns the frozen non-mutating contract: HTTP 200 whose body contains
+          #    "profile_not_found" or "session_not_found". Anything else — network failure, non-200,
+          #    PGRST202, malformed/empty body — FAILS. Absence-of-PGRST202 is NOT sufficient.
+          psql -v ON_ERROR_STOP=1 -qAtc "NOTIFY pgrst, 'reload schema';"
+          BOGUS='{"p_session_id":"00000000-0000-0000-0000-000000000000","p_status":"completed","p_final_duration":1,"p_reason":null,"p_next_action":null,"p_total_words":null,"p_clarity_score":null,"p_wpm":null,"p_filler_counts":null,"p_pause_metrics":null,"p_final_transcript":null}'
+          ok=no
+          for i in $(seq 1 15); do
+            code=$(curl -sS -o /tmp/probe.json -w '%{http_code}' \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H 'Content-Type: application/json' \
+              -X POST "${SUPABASE_URL}/rest/v1/rpc/complete_session_v2" -d "$BOGUS") || { sleep 2; continue; }
+            if bash scripts/postgrest-reload-confirmed.sh "$code" /tmp/probe.json; then ok=yes; break; fi
+            sleep 2
+          done
+          if [ "$ok" != yes ]; then
+            echo "::error::reload probe did not observe the frozen resolved-function response (last http=$code)"
+            exit 1
+          fi
+          echo "postflight gate + reload proof passed on production"
+
+      - name: Require unambiguous postflight success
+        if: always()
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.postflight_1314.outcome }}'
+          [ "$outcome" = 'success' ] || { echo "::error::postflight outcome was '$outcome' (must be success)"; exit 1; }
+          echo "#1314 postflight verified on production"
