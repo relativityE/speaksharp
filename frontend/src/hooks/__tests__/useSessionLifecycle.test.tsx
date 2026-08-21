@@ -7,6 +7,7 @@ import { useUsageLimit } from '../useUsageLimit';
 import type { UseQueryResult } from '@tanstack/react-query';
 import type { TranscriptStats } from '../useSpeechRecognition/types';
 import { SttStatus } from '@/types/transcription';
+import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 
 import type { UsageLimitCheck } from '../useUsageLimit';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
@@ -179,17 +180,13 @@ vi.mock('@/constants/subscriptionTiers', () => ({
 
 vi.mock('@/services/transcription/TranscriptionPolicy', () => ({
     buildPolicyForUser: vi.fn(() => ({
-        allowNative: true,
+        allowNative: false,
         allowCloud: false,
-        allowPrivate: false,
-        preferredMode: 'native',
+        allowPrivate: true,
+        preferredMode: 'private',
         allowFallback: false,
         executionIntent: 'test'
     })),
-    TranscriptionMode: {
-        NATIVE: 'native',
-        CLOUD: 'cloud',
-    },
 }));
 
 vi.mock('@/config/env', () => ({
@@ -1091,10 +1088,11 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
     });
 
     it('promotes a default-native session to Private (Private is the only engine — #1184)', async () => {
-        // #1184: Private is the sole engine. A session still carrying the legacy 'native' default (not an
-        // explicit user choice) is promoted to Private, so no user is left on a retired Browser engine.
+        // #1184/#1320: Private is the sole engine. A session still carrying the legacy 'native' default
+        // (not an explicit user choice) is promoted to Private. 'native' is no longer a TranscriptionMode,
+        // so it is cast here to simulate a stale persisted value the migration must clean up.
         const mockStore = createTestSessionStore({
-            sttMode: 'native',
+            sttMode: 'native' as unknown as TranscriptionMode,
             isListening: false,
         });
         (useSessionStore as unknown as Mock).mockImplementation(mockStore);
@@ -1136,54 +1134,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
-    it('should honor the E2E native-mode bridge even for Pro-capable users', async () => {
-        window.__SS_E2E__ = {
-            isActive: true,
-            forceNativeMode: true,
-        };
-
-        const mockStore = createTestSessionStore({
-            sttMode: 'native',
-            isListening: false,
-        });
-        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
-        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
-        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
-
-        vi.mocked(useProfile).mockReturnValue({
-            profile: {
-                id: 'test-user',
-                subscription_status: 'pro',
-                email: 'test@example.com'
-            } as UserProfile,
-            isVerified: true
-        });
-
-        vi.mocked(useUsageLimit).mockReturnValue({
-            data: {
-                can_start: true,
-                subscription_status: 'pro',
-                is_pro: true,
-                streak_count: 0,
-            },
-            isLoading: false,
-            isError: false,
-            error: null,
-            status: 'success',
-        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
-
-        renderHook(() => useSessionLifecycle(), {
-            wrapper: ({ children }) => (
-                <TranscriptionProvider>
-                    {children}
-                </TranscriptionProvider>
-            )
-        });
-
-        await waitFor(() => {
-            expect(mockStore.getState().sttMode).toBe('native');
-        });
-    });
 
     // #957 safety branch: mic start-ability is gated on the DURABLE privateModelStatus
     // (data-model-status), not the transient sttStatus. This is the exact logic whose absence
@@ -1252,9 +1202,9 @@ describe('useSessionLifecycle - engine-selection lock delegation (#1033 A)', () 
     it('setMode routes through requestModeChange and does NOT apply when the controller rejects (locked)', () => {
         vi.mocked(speechRuntimeController.requestModeChange).mockReturnValue({ accepted: false, reason: 'engine_selection_locked' });
         const { result } = renderIt();
-        act(() => { result.current.setMode('native'); });
+        act(() => { result.current.setMode('private'); });
         // delegated to the single authoritative decision — and it did NOT independently mutate anything
-        expect(speechRuntimeController.requestModeChange).toHaveBeenCalledWith('native', expect.objectContaining({ preferredMode: 'native' }));
+        expect(speechRuntimeController.requestModeChange).toHaveBeenCalledWith('private', expect.objectContaining({ preferredMode: 'private' }));
         expect(speechRuntimeController.updatePolicy).not.toHaveBeenCalled(); // no direct policy write bypassing the gate
         expect(speechRuntimeController.syncForensicState).not.toHaveBeenCalled(); // early-returned before applying
     });
@@ -1262,7 +1212,7 @@ describe('useSessionLifecycle - engine-selection lock delegation (#1033 A)', () 
     it('setMode applies (syncForensicState) when the controller accepts', () => {
         vi.mocked(speechRuntimeController.requestModeChange).mockReturnValue({ accepted: true });
         const { result } = renderIt();
-        act(() => { result.current.setMode('native'); });
+        act(() => { result.current.setMode('private'); });
         expect(speechRuntimeController.requestModeChange).toHaveBeenCalled();
         expect(speechRuntimeController.syncForensicState).toHaveBeenCalled();
     });

@@ -13,7 +13,7 @@ describe('buildPolicyForUser production convergence', () => {
     });
 
     it('cannot widen the customer engine set for any commercial label or stale request', () => {
-        const requested: Array<TranscriptionMode | null> = [null, 'native', 'private'];
+        const requested: Array<TranscriptionMode | null> = [null, 'native' as unknown as TranscriptionMode, 'private'];
         for (const paid of [false, true]) {
             for (const mode of requested) {
                 const policy = buildPolicyForUser(paid, mode);

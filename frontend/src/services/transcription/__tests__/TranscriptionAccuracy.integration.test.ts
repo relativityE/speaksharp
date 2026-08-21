@@ -39,7 +39,7 @@ describe('Transcription Accuracy Multi-Engine Integration', () => {
         }
     });
 
-    const modes: ('native' | 'private')[] = ['native', 'private'];
+    const modes: ('private')[] = ['private'];
 
     modes.forEach(mode => {
         it(`should produce accurate transcript for ${mode} mode`, async () => {
@@ -104,9 +104,9 @@ describe('Transcription Accuracy Multi-Engine Integration', () => {
                     }),
                 } as unknown as import('../utils/types').MicStream,
                 policy: {
-                    allowNative: mode === 'native',
+                    allowNative: false,
                     allowPrivate: mode === 'private',
-                    preferredMode: mode === 'private' ? 'mock' : mode,
+                    preferredMode: 'mock',
                     allowFallback: false,
                     executionIntent: 'test'
                 }

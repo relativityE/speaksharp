@@ -140,10 +140,10 @@ describe('useSessionStore', () => {
                 frozenTranscriptAtStop: null,
             });
 
-            useSessionStore.getState().setSTTMode('native');
+            useSessionStore.getState().setSTTMode('mock');
 
             const state = useSessionStore.getState();
-            expect(state.sttMode).toBe('native');
+            expect(state.sttMode).toBe('mock');
             expect(state.transcript).toEqual({
                 transcript: 'We should literally like, wait, um, basically.',
                 partial: '',
@@ -155,7 +155,7 @@ describe('useSessionStore', () => {
             // No save has happened yet: switching modes should reset the in-progress draft as before.
             useSessionStore.setState({
                 runtimeState: 'READY',
-                sttMode: 'native',
+                sttMode: 'mock',
                 sessionSaved: false,
                 transcript: { transcript: 'unsaved draft text', partial: 'still going' },
                 isTranscriptFinalizing: false,
@@ -289,7 +289,7 @@ describe('useSessionStore', () => {
     describe('setSTTMode visible-session reset guard (#772)', () => {
         const seedSavedSession = (sessionSaved: boolean) => {
             useSessionStore.setState({
-                sttMode: 'native',
+                sttMode: 'mock',
                 sessionSaved,
                 runtimeState: 'READY',
                 isTranscriptFinalizing: false,

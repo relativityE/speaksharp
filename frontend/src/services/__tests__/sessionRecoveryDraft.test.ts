@@ -21,7 +21,7 @@ describe('sessionRecoveryDraft (content-free, #1306)', () => {
       userId: 'user-1',
       recoveryState: 'finalized_pending_save',
       durationSeconds: 42,
-      mode: 'native',
+      mode: 'private',
       metrics: { totalWords: 120, wpm: 140, fillerCounts: finalized },
       nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
     });
@@ -32,7 +32,7 @@ describe('sessionRecoveryDraft (content-free, #1306)', () => {
       userId: 'user-1',
       recoveryState: 'finalized_pending_save',
       durationSeconds: 42,
-      mode: 'native',
+      mode: 'private',
     }));
     expect(draft?.metrics).toEqual({ totalWords: 120, wpm: 140, fillerCounts: finalized });
     expect(draft?.nextActionSignal?.actionCode).toBe('MAINTAIN');
@@ -43,7 +43,7 @@ describe('sessionRecoveryDraft (content-free, #1306)', () => {
   it('an active_interrupted draft carries only partial counters and NEVER a next action', () => {
     saveSessionRecoveryDraft({
       sessionId: 's-int', userId: 'user-1', recoveryState: 'active_interrupted',
-      durationSeconds: 8, mode: 'native', metrics: { totalWords: 12 },
+      durationSeconds: 8, mode: 'private', metrics: { totalWords: 12 },
       // A next action is invalid for an interrupted draft — the module must strip it.
       nextActionSignal: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
     });
@@ -53,7 +53,7 @@ describe('sessionRecoveryDraft (content-free, #1306)', () => {
   });
 
   it('does not store a draft with no elapsed time', () => {
-    saveSessionRecoveryDraft({ sessionId: 's0', recoveryState: 'active_interrupted', durationSeconds: 0, mode: 'native', metrics: {} });
+    saveSessionRecoveryDraft({ sessionId: 's0', recoveryState: 'active_interrupted', durationSeconds: 0, mode: 'private', metrics: {} });
     expect(getSessionRecoveryDraft()).toBeNull();
   });
 
@@ -62,7 +62,7 @@ describe('sessionRecoveryDraft (content-free, #1306)', () => {
   it('NEVER writes a transcript to localStorage even when a caller tries to smuggle one', () => {
     const sneaky = {
       sessionId: 's-sneaky', userId: 'user-1', recoveryState: 'finalized_pending_save' as const,
-      durationSeconds: 30, mode: 'native' as const, metrics: { totalWords: 5 },
+      durationSeconds: 30, mode: 'private' as const, metrics: { totalWords: 5 },
       transcript: 'um so today I talked about my weekend trip in detail',
     };
     saveSessionRecoveryDraft(sneaky as unknown as Parameters<typeof saveSessionRecoveryDraft>[0]);
@@ -76,7 +76,7 @@ describe('sessionRecoveryDraft (content-free, #1306)', () => {
   // AND it is physically DELETED on detection — refusing to load it would leave the transcript in localStorage.
   it('DELETES a legacy transcript-bearing draft on read (rejection + physical removal)', () => {
     window.localStorage.setItem(RECOVERY_DRAFT_KEY, JSON.stringify({
-      sessionId: 's-legacy', userId: 'user-1', transcript: 'the exact words I said out loud', durationSeconds: 20, mode: 'native', savedAt: new Date(0).toISOString(),
+      sessionId: 's-legacy', userId: 'user-1', transcript: 'the exact words I said out loud', durationSeconds: 20, mode: 'private', savedAt: new Date(0).toISOString(),
     }));
     expect(getSessionRecoveryDraft()).toBeNull();                     // rejected
     expect(window.localStorage.getItem(RECOVERY_DRAFT_KEY)).toBeNull(); // AND physically removed
@@ -85,7 +85,7 @@ describe('sessionRecoveryDraft (content-free, #1306)', () => {
 
   it('DELETES a legacy draft that hides content under ai_suggestions/ground_truth', () => {
     window.localStorage.setItem(RECOVERY_DRAFT_KEY, JSON.stringify({
-      sessionId: 's-legacy2', userId: 'user-1', recoveryState: 'finalized_pending_save', durationSeconds: 20, mode: 'native',
+      sessionId: 's-legacy2', userId: 'user-1', recoveryState: 'finalized_pending_save', durationSeconds: 20, mode: 'private',
       ai_suggestions: { what_to_try_next: 'slow down when you said the part about the budget' }, savedAt: new Date(0).toISOString(),
     }));
     expect(getSessionRecoveryDraft()).toBeNull();

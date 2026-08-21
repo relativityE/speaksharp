@@ -93,9 +93,9 @@ export const useSessionLifecycle = () => {
     // server's can_start result; accumulated usage never changes the engine or auto-stops a recording.
     const canUsePrivateStt = true;
     const canUseCloudStt = false;
-    // Native (Browser) is never a user destination now. The only remaining E2E force-native hook is honored
-    // so the deterministic infra probes can still exercise the instant path; product users always get Private.
-    const shouldForceNativeMode = ENV.isE2E && typeof window !== 'undefined' && window.__SS_E2E__?.forceNativeMode === true;
+    // #1320: Native/Web-Speech is retired — there is no force-native path and no Native engine. Any
+    // residually-persisted legacy 'native' store value is migrated to Private below (and the policy layer
+    // independently collapses it for the engine), so product users always get Private.
     const profileReadyForStt = isVerified && !!profile?.id && typeof profile?.subscription_status === 'string';
 
     const sttStatus = useSessionStore(state => state.sttStatus);
@@ -151,9 +151,11 @@ export const useSessionLifecycle = () => {
     // probe, and never over an explicit user choice (modeSourceRef==='user'). A fresh (unset) session is
     // handled by the `!sttMode` default path. (The #1120 flag no longer gates this — there is no Browser to
     // stay on; the flag is reserved for the future v2↔v4 variant selection.)
+    // Migration only: a legacy persisted 'native' value (never an explicit user choice) is promoted to
+    // Private. `sttMode` is typed 'private' | 'mock', but a stale stored string can still arrive at runtime,
+    // so the check is against the raw value. This routes AWAY from Native — it can never select a Native engine.
     const shouldPromoteNativeDefaultToPrivate =
-        !shouldForceNativeMode &&
-        sttMode === 'native' &&
+        (sttMode as string) === 'native' &&
         modeSourceRef.current !== 'user';
 
     const speechRecognition = useSpeechRecognition(speechConfig);
@@ -599,15 +601,6 @@ export const useSessionLifecycle = () => {
     useEffect(() => {
         if (!profileReadyForStt) return;
 
-        if (isVerified && !isListening && shouldForceNativeMode && sttMode && sttMode !== 'native') {
-            modeSourceRef.current = 'default';
-            setSTTMode('native');
-            if (sttStatus.type === 'error') {
-                setSTTStatus({ type: 'ready', message: 'Ready to record' });
-            }
-            return;
-        }
-
         if (
             isVerified &&
             !isListening &&
@@ -618,7 +611,7 @@ export const useSessionLifecycle = () => {
             modeSourceRef.current = 'default';
             setSTTMode(defaultMode);
         }
-    }, [profileReadyForStt, isVerified, isListening, shouldForceNativeMode, sttMode, sttStatus.type, defaultMode, shouldPromoteNativeDefaultToPrivate, setSTTMode, setSTTStatus]);
+    }, [profileReadyForStt, isVerified, isListening, sttMode, defaultMode, shouldPromoteNativeDefaultToPrivate, setSTTMode]);
 
     useEffect(() => {
         if (isListening && activeEngine && activeEngine !== 'none' && activeEngine !== effectiveMode) {

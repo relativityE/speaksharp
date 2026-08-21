@@ -150,7 +150,7 @@ describe('#1258 idle reclamation — a READY Private engine is never reclaimed/r
         priv.state = 'READY';
         priv.isEngineReady = true;
         priv.service = { getMode: () => 'native' };
-        useSessionStore.setState({ sttMode: 'native' });
+        useSessionStore.setState({ sttMode: 'private' });
 
         priv.startIdleTimer();
         await vi.advanceTimersByTimeAsync(IDLE_RECLAMATION_MS + 1000);

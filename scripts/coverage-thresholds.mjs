@@ -31,8 +31,6 @@ export const COVERAGE_THRESHOLDS = {
   files: {
     'frontend/src/services/transcription/ModelManager.ts': { statements: 75, branches: 75, functions: 70, lines: 75 },
     'frontend/src/services/transcription/engines/transformers-js.worker.ts': { statements: 80, branches: 60, functions: 75, lines: 80 },
-    'frontend/src/services/transcription/modes/NativeBrowser.ts': { statements: 55, branches: 45, functions: 40, lines: 55 },
-    'frontend/src/services/transcription/modes/nativeBrowserStrategies.ts': { statements: 90, branches: 85, functions: 90, lines: 90 },
     'frontend/src/services/transcription/utils/AudioProcessor.ts': { statements: 65, branches: 85, functions: 75, lines: 65 },
     'frontend/src/services/transcription/utils/audio-processor.worker.ts': { statements: 60, branches: 80, functions: 75, lines: 60 },
     'frontend/src/utils/sessionAnalysis.ts': { statements: 80, branches: 65, functions: 70, lines: 80 },

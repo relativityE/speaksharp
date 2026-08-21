@@ -13,7 +13,7 @@ import { useVocalAnalysis } from '../useVocalAnalysis';
 import { useUsageLimit } from '../useUsageLimit';
 import type { UseSpeechRecognitionProps, TranscriptStats, TranscriptionPolicy, Chunk } from './types';
 import type { SttStatus } from '@/types/transcription';
-import { E2E_DETERMINISTIC_NATIVE, buildPolicyForUser } from './types';
+import { E2E_DETERMINISTIC_PRIVATE, buildPolicyForUser } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '../../services/SpeechRuntimeController';
@@ -174,7 +174,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         }
     }, []);
 
-    const startListening = useCallback(async (policy: TranscriptionPolicy = E2E_DETERMINISTIC_NATIVE) => {
+    const startListening = useCallback(async (policy: TranscriptionPolicy = E2E_DETERMINISTIC_PRIVATE) => {
         await speechRuntimeController.startRecording(policy);
     }, []);
 

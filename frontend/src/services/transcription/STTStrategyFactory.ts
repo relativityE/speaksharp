@@ -1,7 +1,6 @@
 import { STTStrategy } from './STTStrategy';
 import type { TranscriptionMode, TranscriptionPolicy } from './TranscriptionPolicy';
 import type { TranscriptionModeOptions } from './modes/types';
-import NativeBrowser from './modes/NativeBrowser';
 import PrivateWhisper from './modes/PrivateWhisper';
 import { PrivateSTT } from './engines/PrivateSTT';
 import logger from '../../lib/logger';
@@ -37,10 +36,10 @@ export class STTStrategyFactory {
       if (ENV.isTest && typeof mockEngine?.checkAvailability !== 'function') {
         throw new Error(`[STTStrategyFactory] 🚨 CONTRACT VIOLATION: Mock for "${engineKey}" must implement checkAvailability().`);
       }
-    // The real-engine escape hatch (engineType==='real') is scoped to the Browser/Web Speech route ONLY,
-    // so a test manifest can never omit a mock and silently construct a real paid Cloud or Private engine.
-    // Any non-native-browser key still requires a registered mock or fails closed below.
-    } else if (ENV.isTest && !(ENV.engineType === 'real' && engineKey === 'native-browser')) {
+    // #1320: Native/Web-Speech is retired, so there is no real-engine escape hatch — every test mode
+    // (private/mock) requires a registered mock or fails closed below, so a manifest can never omit a mock
+    // and silently construct a real Private engine.
+    } else if (ENV.isTest) {
       if (options.isValidation) {
         logger.info({ engineKey }, '[STTStrategyFactory] 🛡️ E2E Validation Phase: Using minimal stub for unregistered mock');
         // Minimal Stub that satisfies STTEngine/IPrivateSTTEngine contract for validation only
@@ -65,9 +64,6 @@ export class STTStrategyFactory {
     let strategy: STTStrategy;
 
     switch (mode) {
-      case 'native':
-        strategy = new NativeBrowser(options, mockEngine) as unknown as STTStrategy;
-        break;
       case 'private':
         strategy = new PrivateWhisper(options, new PrivateSTT(options, mockEngine)) as unknown as STTStrategy;
         break;

@@ -31,6 +31,7 @@ import { getSupabaseClient } from '../lib/supabaseClient';
 import type { UserProfile } from '@/types/user';
 import type { TranscriptUpdate, HistorySegment, SttStatus } from '@/types/transcription';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
+import { isModeAllowed } from '@/services/transcription/TranscriptionPolicy';
 import { emitEngineRequestCollapsedToPrivate, isRetiredEngineRequest } from '@/services/transcription/sttExclusivityTelemetry';
 import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
@@ -46,7 +47,6 @@ import { FillerCounts, countFillerWords } from '@/utils/fillerWordUtils';
 import { calculateCoreSessionMetrics, getFillerTotal, isUsableFillerCounts } from '@/utils/sessionAnalysis';
 import { detectRepetitionRisk } from '@/utils/repetitionRisk';
 import { updateSession } from '@/lib/storage';
-import { formatNativeSessionInBackground } from '@/services/transcription/nativeAsyncFormatter';
 import { reconcileFinalizedFillers } from '@/utils/finalizedSessionAnalysis';
 import { shouldPublishFinalized } from '@/services/transcription/finalizeGate';
 // #1033 (2): the controller deliberately imports ONLY the owner-scoped reader — the unscoped
@@ -231,52 +231,6 @@ const NATIVE_NOISE_TRANSCRIPTS = new Set([
     'the',
     'on the',
 ]);
-
-const NATIVE_SAVE_STOPWORDS = new Set([
-    'a',
-    'an',
-    'and',
-    'but',
-    'in',
-    'of',
-    'on',
-    'or',
-    'the',
-    'to',
-    'uh',
-    'um',
-]);
-
-const getNativeMeaningfulWordCount = (transcript: string): number => {
-    const words = transcript
-        .toLowerCase()
-        .replace(/[^a-z0-9'\s]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .split(' ')
-        .filter(Boolean);
-
-    return words.filter((word) => !NATIVE_SAVE_STOPWORDS.has(word)).length;
-};
-
-const getNativeSaveQualityFailureReason = (transcript: string): string | null => {
-    const normalized = transcript
-        .toLowerCase()
-        .replace(/[^a-z0-9'\s]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-    if (!normalized) return 'empty_transcript';
-    if (NATIVE_NOISE_TRANSCRIPTS.has(normalized)) return 'command_or_noise_transcript';
-
-    const totalWords = normalized.split(' ').filter(Boolean).length;
-    const meaningfulWords = getNativeMeaningfulWordCount(normalized);
-
-    if (totalWords < 3) return 'too_few_words';
-    if (meaningfulWords < 2) return 'too_few_meaningful_words';
-
-    return null;
-};
 
 export type RuntimeState =
     | 'IDLE'
@@ -848,11 +802,14 @@ export class SpeechRuntimeController {
      * (e.g. Cloud/Private chosen before entitlement was revoked) can never override a newly restricted policy.
      */
     private resolveEntitledMode(p: TranscriptionPolicy): TranscriptionMode {
-        const allowed = (m: TranscriptionMode): boolean =>
-            m === 'private' ? Boolean(p.allowPrivate) : Boolean(p.allowNative);
-        if (p.preferredMode && allowed(p.preferredMode)) return p.preferredMode;
-        const fallback: TranscriptionMode[] = ['private', 'native'];
-        return fallback.find(allowed) ?? 'native';
+        // #1320: mode admissibility is decided ONLY by the authoritative policy helper (private→allowPrivate,
+        // mock→always, everything else→false). `allowNative` is inert and MUST NOT influence selection — the
+        // old ad-hoc `m === 'private' ? allowPrivate : allowNative` let allowNative gate mock and even a stale
+        // native preference; a controller-boundary guard test locks this.
+        if (p.preferredMode && isModeAllowed(p.preferredMode, p)) return p.preferredMode;
+        // Private is the only customer engine — the fallback chain no longer includes Native/Web-Speech.
+        const fallback: TranscriptionMode[] = ['private'];
+        return fallback.find((m) => isModeAllowed(m, p)) ?? 'private';
     }
 
     /**
@@ -1075,7 +1032,7 @@ export class SpeechRuntimeController {
     }
 
     /** Closed allowlist of engine tokens eligible for a VERIFIED attribution. Anything else → unverified. */
-    private static readonly VERIFIABLE_ENGINES: ReadonlySet<string> = new Set(['native', 'private']);
+    private static readonly VERIFIABLE_ENGINES: ReadonlySet<string> = new Set(['private']);
 
     /**
      * #1033 — Snapshot the finalizing engine's durable identity from the LIVE engine.
@@ -1145,8 +1102,7 @@ export class SpeechRuntimeController {
     ): RuntimeEvidence | null {
         if (identity.attribution_status !== ATTRIBUTION_STATUS.VERIFIED || !identity.engine) return null;
         const provider = identity.engine === 'private' ? 'transformers-js'
-            : identity.engine === 'native' ? 'web-speech'
-            : null;   // 'cloud' (or anything else) → no trusted local identity → do not attest
+            : null;   // retired 'native'/'cloud' (or anything else) → no trusted local identity → do not attest
         if (!provider) return null;
         return {
             provider,
@@ -1327,7 +1283,7 @@ export class SpeechRuntimeController {
             const nextPolicy = this.policy
                 ? { ...this.policy, preferredMode: mode }
                 : {
-                    allowNative: mode === 'native',
+                    allowNative: false,
                     allowPrivate: mode === 'private',
                     preferredMode: mode,
                     allowFallback: false,
@@ -2017,11 +1973,8 @@ export class SpeechRuntimeController {
         if (!mode || !this.policy) {
             return true;
         }
-
-        if (mode === 'native') return this.policy.allowNative;
-        if (mode === 'private') return this.policy.allowPrivate;
-
-        return false;
+        // #1320: defer to the authoritative policy helper — never read `allowNative` for a mode decision.
+        return isModeAllowed(mode, this.policy);
     }
 
     /**
@@ -2102,7 +2055,7 @@ export class SpeechRuntimeController {
         }
 
         if (!this.isModeAllowedByCurrentPolicy(mode)) {
-            const fallbackMode = this.policy?.preferredMode ?? 'native';
+            const fallbackMode = this.policy?.preferredMode ?? 'private';
             logger.warn({
                 mode,
                 fallbackMode,
@@ -2796,7 +2749,7 @@ export class SpeechRuntimeController {
                 // fail-closed ⇒ the session resolves definitively unattributed later, recording unaffected. The
                 // class/model come from the REQUESTED mode; attest checks the reported runtime for CONSISTENCY, so
                 // a divergent runtime resolves unattributed. Cloud registers no intent.
-                if (userId && (mode === 'private' || mode === 'native')) {
+                if (userId && mode === 'private') {
                     try {
                         const reg = await getSupabaseClient().functions.invoke('attest-session-engine', {
                             // Engine type travels in the authenticated request HEADER, never the (client-controlled)
@@ -2873,11 +2826,8 @@ export class SpeechRuntimeController {
                     // reaches recording creates no session. The negotiated/actual mode is now settled.
                     const negMode = service.getMode() || 'unknown';
                     const idempotencyKey = recordingId;
-                    const metadata = service.getMetadata?.() || (
-                        negMode === 'private'
-                            ? { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' }
-                            : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
-                    );
+                    // #1320: Private is the only customer engine — the metadata fallback reflects it (no Web-Speech).
+                    const metadata = service.getMetadata?.() || { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' };
 
                     // #1161 (finding 6): enrich the initial-save recovery context with the SAME engine provenance
                     // this save uses, so an initial-save RETRY recreates the row with identical engine identity.
@@ -2905,7 +2855,7 @@ export class SpeechRuntimeController {
                         // session this recording just produced. AWAITED; a bind failure/miss ⇒ the session resolves
                         // definitively unattributed later (no authority); recording unaffected. Only local trusted
                         // engines registered an intent, so only they bind. Cloud never binds.
-                        if (negMode === 'private' || negMode === 'native') {
+                        if (negMode === 'private') {
                             try {
                                 const bind = await getSupabaseClient().functions.invoke('attest-session-engine', {
                                     body: { op: 'bind', sessionId: dbSession.id, recordingKey: recordingId },
@@ -3185,11 +3135,8 @@ export class SpeechRuntimeController {
                         if (userId) {
                             const mode = service.getMode() || stopEntryMode || 'unknown';
                             const duration = recordingDurationSeconds; // spoken recording length — excludes post-Stop finalize (see recordingStoppedAt above)
-                            const metadata = service.getMetadata?.() || (
-                                mode === 'private'
-                                    ? { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' }
-                                    : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
-                            );
+                            // #1320: Private is the only customer engine — the metadata fallback reflects it (no Web-Speech).
+                            const metadata = service.getMetadata?.() || { engineVersion: 'transformers-js', modelName: resolvePrivateModel(), deviceType: 'browser' };
                             this.syncTranscriptLifecycleFromStore();
                             const fallbackTranscript =
                                 result.transcript?.trim() ||
@@ -3259,12 +3206,9 @@ export class SpeechRuntimeController {
                         const preparedCandidates = candidates
                             .map(candidate => ({ ...candidate, text: candidate.text.trim() }))
                             .filter(candidate => Boolean(candidate.text));
-                        const candidatePassesSaveQuality = (text: string): boolean => {
-                            if (!hasMeaningfulTranscriptText(text)) return false;
-                            return modeForFinalization !== 'native' || getNativeSaveQualityFailureReason(text) === null;
-                        };
+                        // #1320: Native/Web-Speech is retired, so the Native-only save-quality gate is gone —
+                        // Private candidate selection is purely "has meaningful transcript text".
                         const selectedCandidate =
-                            preparedCandidates.find(candidate => candidatePassesSaveQuality(candidate.text)) ??
                             preparedCandidates.find(candidate => hasMeaningfulTranscriptText(candidate.text)) ??
                             preparedCandidates[0] ??
                             { source: 'empty' as const, text: '' };
@@ -3371,19 +3315,14 @@ export class SpeechRuntimeController {
                             preview: finalTranscript.slice(0, 80),
                         });
 
-                        const nativeSaveQualityFailureReason = modeForFinalization === 'native'
-                            ? getNativeSaveQualityFailureReason(meaningfulTranscript)
-                            : null;
-
-                        if (meaningfulWordCount === 0 || nativeSaveQualityFailureReason) {
+                        if (meaningfulWordCount === 0) {
                             logger.warn({
                                 sessionId,
                                 transcriptLength: finalTranscript.length,
                                 duration,
                                 mode: modeForFinalization,
                                 meaningfulWordCount,
-                                nativeSaveQualityFailureReason,
-                            }, '[SESSION_SAVE_GUARD] Empty, low-quality, or non-speech session discarded');
+                            }, '[SESSION_SAVE_GUARD] Empty or non-speech session discarded');
 
                             logger.info({
                                 sessionId,
@@ -3392,9 +3331,7 @@ export class SpeechRuntimeController {
                             }, '[DEBUG-STOP] completeSession failed-status starting');
                             await completeSession(sessionId, {
                                 status: 'failed',
-                                reason: nativeSaveQualityFailureReason
-                                    ? 'Not enough meaningful browser transcript was captured; session was not saved to history.'
-                                    : 'No meaningful speech detected; session was not saved to history.'
+                                reason: 'No meaningful speech detected; session was not saved to history.'
                             });
                             logger.info({ sessionId }, '[DEBUG-STOP] completeSession failed-status done');
                             if (token.cancelled) {
@@ -3414,12 +3351,8 @@ export class SpeechRuntimeController {
 
                             guardedStopStatus = {
                                 type: 'warning',
-                                message: nativeSaveQualityFailureReason
-                                    ? "We didn't capture enough speech to save this session."
-                                    : "We didn't detect enough speech to save this session.",
-                                detail: nativeSaveQualityFailureReason
-                                    ? 'Try recording again and speak clearly for at least a few seconds.'
-                                    : 'Try recording again and speak for at least a few seconds.'
+                                message: "We didn't detect enough speech to save this session.",
+                                detail: 'Try recording again and speak for at least a few seconds.'
                             };
                             store.setSTTStatus(guardedStopStatus);
                             this.updateSessionPersisted(false);
@@ -3689,46 +3622,10 @@ export class SpeechRuntimeController {
                                 });
                             };
 
-                            // Native RAW-FIRST async formatting: the raw transcript is now saved.
-                            // Punctuation/casing is restored in the BACKGROUND and replaces the saved
-                            // transcript only on word-preserving success — Stop/save/history/detail never
-                            // wait on the formatter. Every callback below is guarded by the finalize token so
-                            // a stale formatter can never touch a newer session's display or status.
-                            if ((modeForFinalization ?? stopEntryMode) === 'native') {
-                                // Threshold-only "tidying up punctuation…" notice: mark pending now;
-                                // the panel surfaces copy ONLY if this stays pending past ~1.5s, so the
-                                // common sub-second case is silent (no perceived slowness).
-                                useSessionStore.getState().setNativeFormatting({ status: 'pending', startedAt: Date.now() });
-                                void formatNativeSessionInBackground({
-                                    sessionId,
-                                    rawTranscript: finalTranscript,
-                                    onUpdated: (formatted) => {
-                                        if (!isFinalizeTokenValid()) return; // stale formatter — never touch a newer session
-                                        const liveStore = useSessionStore.getState();
-                                        // Only refresh the display if it still shows this session's raw final.
-                                        if (liveStore.transcript.transcript.trim() === finalTranscript.trim()) {
-                                            liveStore.updateTranscript(formatted, '');
-                                        }
-                                    },
-                                }).then((formattingState) => {
-                                    if (!isFinalizeTokenValid()) return; // stale — do not touch a newer session's status
-                                    useSessionStore.getState().setNativeFormatting({
-                                        status: formattingState.status === 'failed' ? 'failed' : 'complete',
-                                        startedAt: null,
-                                    });
-                                    formatterDone = true; // transcript track terminal (complete or raw fallback)
-                                    maybePublishFinalized();
-                                }).catch(() => {
-                                    if (!isFinalizeTokenValid()) return;
-                                    useSessionStore.getState().setNativeFormatting({ status: 'failed', startedAt: null });
-                                    formatterDone = true;
-                                    maybePublishFinalized();
-                                });
-                            } else {
-                                // Non-native: no async formatter — the transcript track is already terminal.
-                                formatterDone = true;
-                                maybePublishFinalized(); // waits for the metrics track below
-                            }
+                            // #1320: Native/Web-Speech (RAW-FIRST background formatting) is retired. Private's
+                            // transcript track is already terminal here — no async formatter, so publish directly.
+                            formatterDone = true;
+                            maybePublishFinalized(); // waits for the metrics track below
                             if (token.cancelled) {
                                 logger.warn({
                                     mode: service.getMode?.() ?? stopEntryMode,
@@ -4188,26 +4085,6 @@ export class SpeechRuntimeController {
         });
     }
 
-    public async switchToNative(): Promise<void> {
-        return this.enqueue(async (token) => {
-            if (token.cancelled || token.version !== this.lifecycleVersion) return;
-            // #1033: one engine per recording — the controller REJECTS a programmatic engine switch whenever
-            // the single authoritative predicate says selection is locked (Start intent, recording lifecycle,
-            // OR a pending attribution retry). Not merely a UI disable; switching happens only when unlocked.
-            if (this.isEngineSelectionLocked()) {
-                logger.warn({ state: this.state, pending: this.pendingAttributionRetry?.sessionId ?? null }, '[controller] switchToNative rejected: engine selection locked (#1033)');
-                return;
-            }
-            // #1033: selecting an engine does NOT start the microphone. Set Browser/native as the PREFERRED
-            // engine for the NEXT recording; a recording begins only via the explicit Start control. (No
-            // mid-recording segmented handoff / auto-restart — one engine per recording.)
-            const nativePolicy: TranscriptionPolicy = {
-                allowNative: true, allowPrivate: false,
-                preferredMode: 'native', allowFallback: false, executionIntent: 'native-selection'
-            };
-            this.updatePolicy(nativePolicy);
-        });
-    }
 }
 
 export const speechRuntimeController = SpeechRuntimeController.getInstance();
