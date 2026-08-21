@@ -103,7 +103,6 @@ describe('STT Safeguards Unit Tests', () => {
             onModelLoadProgress: vi.fn(),
             onReady: vi.fn(),
             navigate: mockNavigate as unknown as NavigateFunction,
-            getAssemblyAIToken: vi.fn().mockResolvedValue('mock-token'),
             policy: mockPolicy,
             session: { user: { id: 'user-123' } } as unknown as Session,
             mockMic: mockMic as unknown as import('../utils/types').MicStream

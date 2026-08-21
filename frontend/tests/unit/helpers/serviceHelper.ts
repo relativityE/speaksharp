@@ -22,7 +22,6 @@ export async function createTestTranscriptionService(
         onReady: vi.fn(),
         session: null,
         navigate: vi.fn() as any,
-        getAssemblyAIToken: vi.fn().mockResolvedValue('test-token'),
         policy: PROD_FREE_POLICY,
         ...overrides
     };

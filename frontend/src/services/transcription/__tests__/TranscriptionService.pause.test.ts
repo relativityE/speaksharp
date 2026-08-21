@@ -45,7 +45,6 @@ describe('TranscriptionService Pause/Resume', () => {
       onReady: vi.fn(),
       session: null,
       navigate: vi.fn() as unknown as NavigateFunction,
-      getAssemblyAIToken: vi.fn()
     });
   });
 

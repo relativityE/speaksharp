@@ -32,7 +32,6 @@ describe('useTranscriptionService (Contract Verification)', () => {
     onReady: vi.fn(),
     session: null,
     navigate: vi.fn(),
-    getAssemblyAIToken: vi.fn().mockResolvedValue('token')
   };
 
   let TranscriptionProvider: typeof ProviderType;

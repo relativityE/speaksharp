@@ -33,7 +33,6 @@ describe('TranscriptionService Max Attempts', () => {
             onReady: vi.fn(),
             session: null,
             navigate: vi.fn() as unknown as NavigateFunction,
-            getAssemblyAIToken: vi.fn().mockResolvedValue('token'),
             policy: {
                 allowNative: true,
                 allowPrivate: true,

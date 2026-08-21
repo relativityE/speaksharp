@@ -16,7 +16,6 @@ import type { TranscriptionPolicy, TranscriptionMode } from '../../services/tran
 interface TranscriptionCallbacks {
     onTranscriptUpdate?: (data: TranscriptUpdate) => void;
     onAudioData?: (data: Float32Array) => void;
-    getAssemblyAIToken?: () => Promise<string | null>;
     session?: Session | null; 
     navigate?: NavigateFunction;
     userWords?: string[];
@@ -56,7 +55,6 @@ export function useTranscriptionCallbacks(callbacks: TranscriptionCallbacks) {
             onError: (err) => callbacksRef.current.onError?.(err),
             session: callbacksRef.current.session ?? undefined,
             navigate: callbacksRef.current.navigate as unknown as NavigateFunction,
-            getAssemblyAIToken: callbacksRef.current.getAssemblyAIToken,
             userWords: callbacksRef.current.userWords,
         });
 

@@ -48,19 +48,9 @@ export const AUDIO_CONFIG = {
   FRAME_SIZE: 1024,              // Audio frame size
 } as const;
 
-export const API_CONFIG = {
-  ASSEMBLYAI_TOKEN_ENDPOINT: 'assemblyai-token',
-} as const;
-
 export const STT_CONFIG = {
   MAX_PRIVATE_ATTEMPTS: 2,
   LOAD_CACHE_TIMEOUT_MS: 2000,
-  // AssemblyAI requires audio packets between 50-1000ms
-  // At 16kHz: 50ms = 800 samples, 1000ms = 16000 samples
-  ASSEMBLYAI_MIN_PACKET_MS: 50,
-  ASSEMBLYAI_MAX_PACKET_MS: 1000,
-  ASSEMBLYAI_MIN_SAMPLES: 800,   // 50ms at 16kHz
-  ASSEMBLYAI_MAX_SAMPLES: 16000, // 1000ms at 16kHz
   HEARTBEAT_TIMEOUT_MS: 30000,
   FAILURE_HOLD_DURATION_MS: 1500,
   VISIBLE_HOLD_DURATION_MS: 2500,
@@ -73,9 +63,3 @@ export const UI_CONFIG = {
   DEFAULT_TOAST_LENGTH_SECS: 3.5,
 } as const;
 
-// Rate limiting configuration
-// Set to 0 to disable client-side rate limiting (AssemblyAI has server-side limits)
-export const RATE_LIMIT_CONFIG = {
-  ASSEMBLYAI_TOKEN_INTERVAL_MS: 0,  // Minimum ms between token requests (0 = disabled)
-  ASSEMBLYAI_TOKEN_MAX_CALLS: 5,    // Max calls per minute (matches AssemblyAI's limit)
-} as const;

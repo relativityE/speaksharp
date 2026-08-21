@@ -92,7 +92,6 @@ describe('useTranscriptionService - Integrated Behavior', () => {
             onTranscriptUpdate: vi.fn(),
             session: null as unknown as Session,
             navigate: vi.fn(),
-            getAssemblyAIToken: vi.fn().mockResolvedValue('token')
         };
 
         renderHook(() => useTranscriptionService(options));
@@ -106,7 +105,6 @@ describe('useTranscriptionService - Integrated Behavior', () => {
             onTranscriptUpdate: vi.fn(),
             session: null as unknown as Session,
             navigate: vi.fn(),
-            getAssemblyAIToken: vi.fn().mockResolvedValue('token')
         };
 
         renderHook(() => useTranscriptionService(options));

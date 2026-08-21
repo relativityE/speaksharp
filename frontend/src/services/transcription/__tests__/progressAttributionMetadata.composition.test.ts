@@ -64,7 +64,6 @@ describe('#1045 Private metadata propagation (verified attribution)', () => {
       onReady: vi.fn(),
       session: null,
       navigate: vi.fn() as unknown as NavigateFunction,
-      getAssemblyAIToken: vi.fn(),
     });
     (service as unknown as { strategy: STTStrategy }).strategy = await realPrivateWhisper();
     expect(service.getMetadata()).toEqual(EXPECTED_PRIVATE_V2);

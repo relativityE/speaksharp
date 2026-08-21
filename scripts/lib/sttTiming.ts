@@ -159,7 +159,7 @@ export function readNativeStopTiming(
 /* ========================================================================== *
  * CLOUD — streaming / termination tail
  * Production cloud trace global `window.__CLOUD_STT_TIMELINE__` is now emitted by
- * CloudAssemblyAI (events: socket_open, first_partial, first_final, stop_invoked,
+ * (retired Cloud path — events: socket_open, first_partial, first_final, stop_invoked,
  * termination). Pass that array here.
  * ========================================================================== */
 

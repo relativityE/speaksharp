@@ -55,7 +55,6 @@ describe('PrivateWhisper Memory Leaks', () => {
         onStatusChange: vi.fn(),
         session: null,
         navigate: vi.fn(),
-        getAssemblyAIToken: vi.fn(),
     };
 
     beforeEach(() => {

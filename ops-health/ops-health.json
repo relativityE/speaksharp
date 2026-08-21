@@ -38,15 +38,6 @@
       "checkedAt": "2026-05-26T22:25:41.133Z"
     },
     {
-      "name": "AssemblyAI API",
-      "question": "Can Cloud STT provider credentials reach AssemblyAI?",
-      "status": "skip",
-      "detail": "missing=ASSEMBLYAI_API_KEY",
-      "latencyMs": 0,
-      "drilldownUrl": null,
-      "checkedAt": "2026-05-26T22:25:41.133Z"
-    },
-    {
       "name": "Gemini API",
       "question": "Can AI suggestions provider credentials reach Gemini?",
       "status": "skip",
