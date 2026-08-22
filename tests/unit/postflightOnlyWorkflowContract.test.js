@@ -1,5 +1,5 @@
 import { describe, expect, it, afterAll } from 'vitest';
-import { readFileSync, readdirSync, mkdtempSync, writeFileSync, rmSync, statSync, chmodSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, writeFileSync, rmSync, statSync, chmodSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
@@ -447,6 +447,30 @@ describe('SEC-002 — pooler validator falsification', () => {
         // Rejected either as unsafe or as a non-pooler endpoint; both refuse. What must never happen
         // is that it reaches the env file.
         expect(r.env).toBe('');
+    });
+
+    it('an APOSTROPHE cannot escape the single-quoting — rejected, nothing written, nothing run', () => {
+        // The allowlist is the ONLY thing keeping the single-quoted emission from being escapable: a
+        // literal `'` terminates the quoted string and the remainder of the line is interpreted. This
+        // asserts that specific character end-to-end rather than trusting the general pattern.
+        const marker = join(dir, 'APOSTROPHE_PWNED');
+        rmSync(marker, { force: true });
+        const payload = `postgres.x';touch ${marker};'`;
+
+        const r = run([primary({ db_user: payload })]);
+        expect(r.ok).toBe(false);
+        expect(r.out).toContain('pooler_user_unsafe_characters');
+        expect(r.env).toBe('');                       // nothing emitted...
+        expect(existsSync(marker)).toBe(false);       // ...and nothing executed.
+
+        // CONTROL — the payload must be genuinely dangerous, or "it was rejected" proves nothing.
+        // Written straight into a sourced file, the apostrophe escapes the quoting and the command runs.
+        const ctl = join(dir, 'control.env');
+        writeFileSync(ctl, `PGUSER='${payload}'\n`);
+        try { execFileSync('bash', ['-c', `. ${ctl}`], { stdio: 'ignore' }); } catch { /* expected noise */ }
+        expect(existsSync(marker), 'control failed: payload is not actually dangerous, so the rejection proves nothing')
+            .toBe(true);
+        rmSync(marker, { force: true });
     });
 
     it('emits values single-quoted, so a validator regression still cannot be sourced as code', () => {
