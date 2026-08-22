@@ -119,13 +119,17 @@ jobs:
           # CONNECTION — libpq environment, never a connection URI (SEC-001). A credential embedded in a
           # URI authority is re-parsed by the client and echoed back on a parse failure; libpq environment
           # variables are never re-parsed or re-emitted.
-          unset DB_URL   # postflight-gate-1314.sh prefers DB_URL when set; force the ambient PG* path.
-          export PGHOST="db.${SUPABASE_PROJECT_ID}.supabase.co"
-          export PGPORT=5432
-          export PGUSER=postgres
-          export PGDATABASE=postgres
+          # SEC-002 — resolve the IPv4-reachable SESSION pooler at runtime. The direct endpoint
+          # (db.<ref>.supabase.co) is IPv6-only and unreachable from GitHub runners; no region or host
+          # is hardcoded, since a stale one would fail the same silent way. The env file is 0600 and is
+          # sourced, never printed.
+          POOLER_ENV="$RUNNER_TEMP/pooler.env"
+          bash scripts/supabase-pooler-connection.sh "$POOLER_ENV"
+          set -a; . "$POOLER_ENV"; set +a
           export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
-          export PGSSLMODE=require
+          unset DB_URL   # postflight-gate-1314.sh prefers DB_URL when set; force the ambient PG* path.
+          # Prove the verification path actually works before relying on it (SEC-002).
+          bash scripts/assert-db-connectivity-tls.sh
           # 1) reviewed object/signature/ACL contract (read-only SELECTs).
           bash scripts/postflight-gate-1314.sh after
           # 2) reload PostgREST and CONFIRM resolution — FAIL-CLOSED. `{}` cannot resolve an RPC with no

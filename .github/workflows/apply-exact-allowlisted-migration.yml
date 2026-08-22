@@ -130,15 +130,6 @@ jobs:
           supabase db push --dry-run "${push_args[@]}" 2>&1 | tee "$RUNNER_TEMP/exact-dry-run.txt"
           node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" dry-run "$RUNNER_TEMP/exact-dry-run.txt"
 
-      - name: Revalidate main immediately before apply
-        env:
-          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          set -euo pipefail
-          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
-          [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced after dry-run'; exit 1; }
-
       - name: Preflight #1314 postflight credentials (before the irreversible apply)
         if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') }}
         run: |
@@ -153,6 +144,36 @@ jobs:
             exit 1
           fi
           echo "#1314 postflight credentials present"
+
+      - name: Prove verification path reachable and TLS-encrypted BEFORE the irreversible apply
+        id: connectivity_preflight
+        # SAME applicability predicate as the #1314 postflight below. Scoped deliberately: only targets
+        # that are verified through raw psql need the pooler reachable, and making every allowlisted
+        # migration depend on the Management API would broaden this recovery beyond its frozen scope.
+        # A general policy for all migrations belongs in the catch-all, not here.
+        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # SEC-002 — the ordering that makes this safe. A prior run applied a migration and only THEN
+          # discovered its verification path was unreachable, leaving a landed change that could not be
+          # confirmed. Proving reachability + real TLS here means an unusable verification path stops the
+          # apply instead of stranding it. Scoped to the same predicate as the postflight it protects.
+          # Resolve the pooler ONCE here; the postflight reuses this exact file. Re-resolving there
+          # could drift, leaving this proof attesting to parameters the postflight never uses.
+          bash scripts/supabase-pooler-connection.sh "$RUNNER_TEMP/pooler.env"
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          bash scripts/assert-db-connectivity-tls.sh
+
+      - name: Revalidate main IMMEDIATELY before the irreversible apply
+        env:
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
+          [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced after dry-run'; exit 1; }
 
       - name: Apply the exact reviewed migration
         id: apply
@@ -201,13 +222,16 @@ jobs:
           # and a parse failure is reported by echoing the authority back into the job log. Secret masking
           # cannot be relied on there, since it matches exact secret occurrences rather than transformed
           # ones. libpq environment variables are never re-parsed and never re-emitted on error.
-          unset DB_URL   # postflight-gate-1314.sh prefers DB_URL when set; force the ambient PG* path.
-          export PGHOST="db.${SUPABASE_PROJECT_ID}.supabase.co"
-          export PGPORT=5432
-          export PGUSER=postgres
-          export PGDATABASE=postgres
+          # SEC-002 — resolve the IPv4-reachable SESSION pooler at runtime. The direct endpoint
+          # (db.<ref>.supabase.co) is IPv6-only and unreachable from GitHub runners; no region or host
+          # is hardcoded, since a stale one would fail the same silent way. The env file is 0600 and is
+          # sourced, never printed.
+          # REUSE the parameters proven reachable before the apply — never re-resolve. Fail closed if
+          # the pre-apply proof did not run, since that means nothing established this path works.
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
           export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
-          export PGSSLMODE=require
+          unset DB_URL   # postflight-gate-1314.sh prefers DB_URL when set; force the ambient PG* path.
           # 1) postflight gate (read-only SELECTs) against the linked production DB.
           bash scripts/postflight-gate-1314.sh after
           # 2) reload PostgREST and CONFIRM resolution — FAIL-CLOSED. `{}` cannot resolve an RPC that has no
