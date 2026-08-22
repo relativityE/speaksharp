@@ -211,7 +211,7 @@ describe('SEC-002 — connectivity is proven BEFORE the irreversible apply', () 
         expect(postflight.run).toMatch(/pooler parameters absent/);
     });
 
-    it('NOTHING outside the script and its tests sets the PSQL_BIN seam', () => {
+    it('NOTHING outside the defining scripts sets the PSQL_BIN or CURL_BIN seams', () => {
         // The guard is only as wide as its search. A seam that redirects which binary executes inside
         // an apply path must be unsettable from ANY input the workflow consumes — not just the two
         // workflow files: composite actions, sourced scripts, and env files all reach the same shell.
@@ -226,6 +226,9 @@ describe('SEC-002 — connectivity is proven BEFORE the irreversible apply', () 
                 try { text = readFileSync(full, 'utf8'); } catch { continue; }
                 // Only ASSIGNMENT is dangerous; the script's own default read is the seam itself.
                 if (/PSQL_BIN\s*[=:]/.test(text) && !full.endsWith('assert-db-connectivity-tls.sh')) {
+                    hits.push(full);
+                }
+                if (/CURL_BIN\s*[=:]/.test(text) && !full.endsWith('supabase-pooler-connection.sh')) {
                     hits.push(full);
                 }
             }
@@ -504,7 +507,7 @@ describe('SEC-002 — pooler validator falsification', () => {
         ['a dot', 'proj.ref'],
         ['a hyphen', 'proj-ref'],
         ['a shell metacharacter', 'proj$(id)'],
-    ])('REJECTS a malformed project ref (%s) BEFORE the payload is used', (_l, ref) => {
+    ])('the VALIDATOR rejects a malformed project ref (%s) before using the payload', (_l, ref) => {
         const r = run([primary()], ref);
         expect(r.ok).toBe(false);
         expect(r.out).toContain('pooler_project_ref_malformed');
@@ -670,6 +673,7 @@ describe('SEC-002 — error output is a fixed reason-code allowlist', () => {
         'pooler_host_unsafe_characters', 'pooler_user_unsafe_characters',
         'pooler_project_ref_malformed', 'pooler_user_project_mismatch',
         'pooler_access_token_missing', 'pooler_project_id_missing', 'pooler_fetch_failed',
+        'pooler_project_id_malformed',
         'connectivity_pghost_unset', 'connectivity_pguser_unset', 'connectivity_pgpassword_unset',
         'connectivity_pgsslmode_not_require', 'connectivity_direct_endpoint_forbidden',
         'connectivity_host_not_pooler_endpoint', 'connectivity_transaction_port_forbidden',
@@ -717,4 +721,72 @@ describe('SEC-002 — error output is a fixed reason-code allowlist', () => {
         const text = readFileSync(POOLER_VALIDATE, 'utf8');
         expect(text).toMatch(/\}\s*>>\s*"\$OUT_ENV"/);
     });
+});
+
+// ---------------------------------------------------------------------------------------------
+// SEC-002 — the fetch wrapper must reject a malformed project ref BEFORE it reaches the network.
+// The ref is interpolated straight into the request URL, so validating it only in the downstream
+// validator means a hostile value has already been placed in a URL and sent. The validator-level
+// tests above cannot prove this: they never invoke the wrapper, so they say nothing about whether a
+// request happened.
+// ---------------------------------------------------------------------------------------------
+describe('SEC-002 — malformed project ref makes NO API request', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pooler-fetch-'));
+    chmodSync(POOLER_FETCH, 0o755);
+
+    const marker = join(dir, 'CURL_WAS_CALLED');
+    // Stand-in curl: records that it ran, then emits a valid payload so the happy path completes.
+    const fakeCurl = join(dir, 'fake-curl');
+    writeFileSync(fakeCurl, [
+        '#!/usr/bin/env bash',
+        `touch ${marker}`,
+        'out=""; prev=""',
+        'for a in "$@"; do if [ "$prev" = "-o" ]; then out="$a"; fi; prev="$a"; done',
+        `[ -n "$out" ] && printf '%s' '[{"database_type":"PRIMARY","db_host":"aws-0-us-east-1.pooler.supabase.com","db_user":"postgres.projref123"}]' > "$out"`,
+        'printf "200"',
+    ].join('\n'));
+    chmodSync(fakeCurl, 0o755);
+
+    const runFetch = (projectId) => {
+        rmSync(marker, { force: true });
+        const envFile = join(dir, `out-${Math.random().toString(36).slice(2)}.env`);
+        let ok = true; let out = '';
+        try {
+            out = execFileSync('bash', [POOLER_FETCH, envFile], {
+                encoding: 'utf8',
+                env: { ...process.env, CURL_BIN: fakeCurl, SUPABASE_ACCESS_TOKEN: 'NOTAREALTOKEN', SUPABASE_PROJECT_ID: projectId },
+            });
+        } catch (e) { ok = false; out = `${e.stdout ?? ''}${e.stderr ?? ''}`; }
+        return { ok, out: out.trim(), called: existsSync(marker) };
+    };
+
+    it('POSITIVE CONTROL: a well-formed ref DOES reach the network', () => {
+        // Without this the negative test below could pass simply because the seam never works.
+        const r = runFetch('projref123');
+        expect(r.called, 'control failed: the fake curl was never invoked, so "no request" proves nothing')
+            .toBe(true);
+        expect(r.ok).toBe(true);
+    });
+
+    it.each([
+        ['uppercase', 'ProjRef123'],
+        ['a hyphen', 'proj-ref'],
+        ['a slash (path traversal into the URL)', '../../admin'],
+        ['a shell metacharacter', 'proj$(id)'],
+        ['a query-string injection', 'proj?admin=1'],
+    ])('a malformed ref (%s) is rejected with NO request made', (_l, ref) => {
+        const r = runFetch(ref);
+        expect(r.ok).toBe(false);
+        expect(r.out).toContain('pooler_project_id_malformed');
+        expect(r.called, 'a request WAS made with a malformed ref').toBe(false);
+    });
+
+    it('an empty ref is rejected with no request made', () => {
+        const r = runFetch('');
+        expect(r.ok).toBe(false);
+        expect(r.out).toContain('pooler_project_id_missing');
+        expect(r.called).toBe(false);
+    });
+
+    afterAll(() => rmSync(dir, { recursive: true, force: true }));
 });
