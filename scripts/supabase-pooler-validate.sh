@@ -48,6 +48,24 @@ db_user="$(jq -r "${sel}.db_user // empty" "$PAYLOAD" 2>/dev/null)"
 [ -n "$db_host" ] || fail 'pooler_host_missing'
 [ -n "$db_user" ] || fail 'pooler_user_missing'
 
+# Reject a host that smuggles a port, so the session port below cannot be overridden.
+case "$db_host" in
+    *:*) fail 'pooler_host_contains_port' ;;
+esac
+
+# SHELL SAFETY. These values come from a remote API and are written into a file the workflow SOURCES
+# with `. file`. Sourcing evaluates each line, so an unvalidated value containing `$(...)`, backticks,
+# a newline, or a quote would execute as code with the job's credentials. A strict positive charset —
+# not a blocklist — is the only durable defence: anything outside it is rejected outright, so no
+# quoting or escaping scheme has to be relied upon. Hostnames and pooler usernames legitimately need
+# only alphanumerics, dot, hyphen, and (for users) underscore.
+case "$db_host" in
+    *[!A-Za-z0-9.-]*) fail 'pooler_host_unsafe_characters' ;;
+esac
+case "$db_user" in
+    *[!A-Za-z0-9._-]*) fail 'pooler_user_unsafe_characters' ;;
+esac
+
 # ORDER MATTERS for diagnostics. The specific rejections must be tested BEFORE the general
 # suffix check, or a direct endpoint and a port-smuggling host both report the vague
 # 'not_pooler_endpoint' — correct refusals with a reason code that misdirects the operator.
@@ -56,11 +74,6 @@ case "$db_host" in
     db.*.supabase.co|db.*.supabase.com) fail 'pooler_host_is_direct_endpoint' ;;
 esac
 [ "$db_host" != "db.${PROJECT_REF}.supabase.co" ] || fail 'pooler_host_is_direct_endpoint'
-
-# Reject a host that smuggles a port, so the session port below cannot be overridden.
-case "$db_host" in
-    *:*) fail 'pooler_host_contains_port' ;;
-esac
 
 # ...and only then, must it be a pooler endpoint at all.
 case "$db_host" in
@@ -73,11 +86,11 @@ esac
 umask 077
 : > "$OUT_ENV" || fail 'pooler_out_env_unwritable'
 {
-    printf 'PGHOST=%s\n' "$db_host"
-    printf 'PGPORT=%s\n' "$SESSION_PORT"
-    printf 'PGUSER=%s\n' "$db_user"
-    printf 'PGDATABASE=postgres\n'
-    printf 'PGSSLMODE=require\n'
+    printf "PGHOST='%s'\n" "$db_host"
+    printf "PGPORT='%s'\n" "$SESSION_PORT"
+    printf "PGUSER='%s'\n" "$db_user"
+    printf "PGDATABASE='postgres'\n"
+    printf "PGSSLMODE='require'\n"
 } >> "$OUT_ENV"
 
 # Sanitized confirmation only — no host, user, or connection string.

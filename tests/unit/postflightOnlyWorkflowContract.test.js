@@ -74,7 +74,7 @@ describe('real SSL enforcement (never a silent plaintext fallback)', () => {
     // now asserted where it lives. A mode flag alone was never proof of encryption anyway — the
     // connectivity script confirms TLS against the server's own view of the live session.
     it('the pooler validator emits PGSSLMODE=require', () => {
-        expect(read(POOLER_VALIDATE)).toContain("printf 'PGSSLMODE=require\\n'");
+        expect(read(POOLER_VALIDATE)).toContain("PGSSLMODE='require'");
     });
 
     it('the connectivity script refuses to proceed on any weaker mode', () => {
@@ -168,6 +168,24 @@ describe('SEC-002 — connectivity is proven BEFORE the irreversible apply', () 
         const cond = stepBy(/Prove verification path reachable and TLS-encrypted BEFORE/).if;
         expect(cond).toMatch(/contains\(\s*steps\.contract\.outputs\.target_file/);
         expect(cond).not.toMatch(/always\(\)|success\(\)/);
+    });
+
+    it('main is revalidated IMMEDIATELY before the apply — after all network work', () => {
+        // The check must be the LAST thing before the irreversible step. Revalidating, then doing
+        // minutes of Management-API and psql work, then applying, leaves a window in which main can
+        // advance and the apply proceeds against a SHA nobody authorised.
+        const reval = steps.findIndex((n) => /Revalidate main IMMEDIATELY before the irreversible apply/.test(n));
+        const proof = steps.findIndex((n) => /Prove verification path reachable and TLS-encrypted BEFORE/.test(n));
+        const apply = steps.findIndex((n) => /Apply the exact reviewed migration/.test(n));
+        expect(reval).toBeGreaterThan(-1);
+        expect(reval).toBeGreaterThan(proof);   // after the network work...
+        expect(apply - reval).toBe(1);          // ...and nothing at all between it and the apply.
+    });
+
+    it('the revalidation compares live main against the authorized SHA', () => {
+        const step = stepBy(/Revalidate main IMMEDIATELY before the irreversible apply/);
+        expect(step.run).toContain('git/ref/heads/$DEFAULT_BRANCH');
+        expect(step.run).toContain('"$current_main" = "$EXPECTED_HEAD_SHA"');
     });
 
     it('GATING, not merely ordering: a failed proof must stop the apply', () => {
@@ -365,16 +383,16 @@ describe('SEC-002 — pooler validator falsification', () => {
         // Transaction mode cannot carry LISTEN/NOTIFY; trusting the payload's port would silently
         // break the PostgREST reload proof.
         const r = run([primary()]);
-        expect(r.env).toContain('PGPORT=5432');
+        expect(r.env).toContain("PGPORT='5432'");
         expect(r.env).not.toContain('6543');
     });
 
     it('emits the full libpq set including PGSSLMODE=require', () => {
         const r = run([primary()]);
-        expect(r.env).toContain('PGHOST=aws-0-us-east-1.pooler.supabase.com');
-        expect(r.env).toContain('PGUSER=postgres.projref123');
-        expect(r.env).toContain('PGDATABASE=postgres');
-        expect(r.env).toContain('PGSSLMODE=require');
+        expect(r.env).toContain("PGHOST='aws-0-us-east-1.pooler.supabase.com'");
+        expect(r.env).toContain("PGUSER='postgres.projref123'");
+        expect(r.env).toContain("PGDATABASE='postgres'");
+        expect(r.env).toContain("PGSSLMODE='require'");
     });
 
     it('NEVER echoes the connection string or any field (sanitized output)', () => {
@@ -405,6 +423,36 @@ describe('SEC-002 — pooler validator falsification', () => {
         const r = run(payload);
         expect(r.ok).toBe(false);
         expect(r.out).toContain(reason);
+    });
+
+    it.each([
+        ['command substitution in the user', 'postgres.x$(id)', 'pooler_user_unsafe_characters'],
+        ['backticks in the user', 'postgres.`id`', 'pooler_user_unsafe_characters'],
+        ['a quote in the user', "postgres.x'", 'pooler_user_unsafe_characters'],
+        ['a newline injecting a second assignment', 'postgres.x\nPATH=/evil', 'pooler_user_unsafe_characters'],
+        ['a space in the user', 'postgres x', 'pooler_user_unsafe_characters'],
+        ['a semicolon in the user', 'postgres.x;id', 'pooler_user_unsafe_characters'],
+    ])('REJECTS %s (the env file is SOURCED, so this would execute)', (_l, user, reason) => {
+        const r = run([primary({ db_user: user })]);
+        expect(r.ok).toBe(false);
+        expect(r.out).toContain(reason);
+    });
+
+    it.each([
+        ['command substitution in the host', 'aws-0$(id).pooler.supabase.com'],
+        ['a semicolon in the host', 'aws-0;id.pooler.supabase.com'],
+    ])('REJECTS %s', (_l, host) => {
+        const r = run([primary({ db_host: host })]);
+        expect(r.ok).toBe(false);
+        // Rejected either as unsafe or as a non-pooler endpoint; both refuse. What must never happen
+        // is that it reaches the env file.
+        expect(r.env).toBe('');
+    });
+
+    it('emits values single-quoted, so a validator regression still cannot be sourced as code', () => {
+        const r = run([primary()]);
+        expect(r.env).toMatch(/PGHOST='aws-0-us-east-1\.pooler\.supabase\.com'/);
+        expect(r.env).toMatch(/PGUSER='postgres\.projref123'/);
     });
 
     it('REJECTS a non-JSON payload', () => {
@@ -507,6 +555,9 @@ describe('SEC-002 — connectivity and TLS decision falsification', () => {
         ['the direct IPv6-only endpoint', { PGHOST: 'db.projref123.supabase.co' }, 'connectivity_direct_endpoint_forbidden'],
         ['a non-pooler host', { PGHOST: 'evil.example.com' }, 'connectivity_host_not_pooler_endpoint'],
         ['transaction-mode port 6543', { PGPORT: '6543' }, 'connectivity_transaction_port_forbidden'],
+        // Rejecting only 6543 is not the same as requiring 5432 — any other port must fail too.
+        ['an arbitrary non-session port', { PGPORT: '9999' }, 'connectivity_port_not_session_mode'],
+        ['an unset port', { PGPORT: '' }, 'connectivity_port_not_session_mode'],
         ['a downgraded TLS mode', { PGSSLMODE: 'prefer' }, 'connectivity_pgsslmode_not_require'],
     ])('REFUSES %s even when PG* is set by hand', (_l, over, reason) => {
         const r = run(over);
@@ -552,6 +603,7 @@ describe('SEC-002 — error output is a fixed reason-code allowlist', () => {
         'pooler_project_ref_missing', 'pooler_no_primary_result', 'pooler_host_missing',
         'pooler_user_missing', 'pooler_host_not_pooler_endpoint', 'pooler_host_is_direct_endpoint',
         'pooler_host_contains_port', 'pooler_session_port_misconfigured',
+        'pooler_host_unsafe_characters', 'pooler_user_unsafe_characters',
         'pooler_access_token_missing', 'pooler_project_id_missing', 'pooler_fetch_failed',
         'connectivity_pghost_unset', 'connectivity_pguser_unset', 'connectivity_pgpassword_unset',
         'connectivity_pgsslmode_not_require', 'connectivity_direct_endpoint_forbidden',
@@ -559,6 +611,7 @@ describe('SEC-002 — error output is a fixed reason-code allowlist', () => {
         'connectivity_unreachable', 'connectivity_unexpected_query_result',
         'connectivity_tls_probe_failed', 'connectivity_tls_unconfirmed',
         'connectivity_tls_not_active', 'connectivity_tls_unexpected_value',
+        'connectivity_port_not_session_mode',
     ]);
     // The only two codes permitted to interpolate, and only a bounded non-sensitive value:
     //   a PRIMARY-result COUNT, and an HTTP STATUS CODE. Neither can carry a host or secret.

@@ -27,6 +27,7 @@ set -uo pipefail
 
 PSQL="${PSQL_BIN:-psql}"
 
+readonly SESSION_PORT=5432
 readonly FORBIDDEN_PORT=6543
 
 fail() { echo "$1"; exit 1; }
@@ -42,7 +43,11 @@ case "$PGHOST" in
     *.pooler.supabase.com) : ;;
     *) fail 'connectivity_host_not_pooler_endpoint' ;;
 esac
+# Reject the transaction-mode port by name for a precise diagnostic, then require EXACTLY the session
+# port. Rejecting only 6543 would let any other port through — a guard that forbids one wrong answer
+# is not a guard that requires the right one.
 [ "${PGPORT:-}" != "$FORBIDDEN_PORT" ] || fail 'connectivity_transaction_port_forbidden'
+[ "${PGPORT:-}" = "$SESSION_PORT" ] || fail 'connectivity_port_not_session_mode'
 
 # 1) REACHABILITY — a trivial query that must actually round-trip.
 reachable="$("$PSQL" -v ON_ERROR_STOP=1 -qAt -c 'SELECT 1;' 2>/dev/null)" \
