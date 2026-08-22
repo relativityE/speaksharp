@@ -46,7 +46,7 @@ const buildList = (rows) =>
      '  ----------------|----------------|---------------------',
      ...rows].join('\n') + '\n';
 
-// The real post-apply state from run 32505310970: target applied, held still pending.
+// The real post-apply production state: target applied, held still pending.
 const GOOD_LIST = buildList([
     row(HELD, false),
     row('20260816223606', true),

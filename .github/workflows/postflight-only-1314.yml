@@ -1,12 +1,15 @@
-name: Postflight only (exact #1314, read-only)
+name: Postflight verification only (exact #1314)
 
-# RECOVERY PATH for run 32505310970: migration 20260819120000 APPLIED cleanly (target applied, held
-# 20260812042000 stayed pending, zero lint delta) but its postflight step died before its first SELECT,
-# because the connection URI mangled a password containing a URI-reserved character. The reviewed
-# operation is therefore UNVERIFIED — not proven broken — and re-running the apply workflow cannot
-# re-verify it (its `before` gate requires the target still pending, which it no longer is).
+# RECOVERY PATH. Migration 20260819120000 is APPLIED in production (target applied, held 20260812042000
+# still pending, zero lint delta), but its postflight verification did not complete, so the reviewed
+# operation is UNVERIFIED — not proven broken. Re-running the apply workflow cannot re-verify it: that
+# workflow's `before` gate requires the target still pending, which it no longer is.
 #
-# This workflow runs ONLY the verification half, against production, read-only:
+# VERIFICATION-ONLY, not read-only: step 4 issues `NOTIFY pgrst, 'reload schema'`, which asks PostgREST
+# to refresh its schema cache. That is a deliberate, non-data-mutating side effect, and naming this
+# workflow "read-only" would be untrue. It changes no row, object, ACL, or migration state.
+#
+# This workflow runs ONLY the verification half, against production:
 #   1. exact main SHA + PO authorization phrase,
 #   2. `supabase migration list` -> target applied AND every held migration still pending,
 #   3. scripts/postflight-gate-1314.sh after  (object/signature/ACL SELECTs),
@@ -99,14 +102,23 @@ jobs:
           bash "$GITHUB_WORKSPACE/scripts/postflight-migration-state.sh" \
             "$RUNNER_TEMP/migrations-now.txt" "$TARGET_VERSION" "$HELD_VERSION"
 
-      - name: Enforce reviewed #1314 operation (postflight gate + reload proof)
+      - name: Revalidate main immediately before production postflight
+        env:
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$DEFAULT_BRANCH" --jq '.object.sha')"
+          [ "$current_main" = "$EXPECTED_HEAD_SHA" ] || { echo '::error::default branch advanced before postflight'; exit 1; }
+
+      - name: 'Enforce reviewed #1314 operation (postflight gate + reload proof)'
         id: postflight_1314
         run: |
           set -euo pipefail
           sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
-          # CONNECTION — libpq environment, never a connection URI. See SEC-001: a password containing a
-          # URI-reserved character both breaks parsing and gets ECHOED back by psql into the public log,
-          # past GitHub's secret masking. libpq env vars are never re-parsed or re-emitted.
+          # CONNECTION — libpq environment, never a connection URI (SEC-001). A credential embedded in a
+          # URI authority is re-parsed by the client and echoed back on a parse failure; libpq environment
+          # variables are never re-parsed or re-emitted.
           unset DB_URL   # postflight-gate-1314.sh prefers DB_URL when set; force the ambient PG* path.
           export PGHOST="db.${SUPABASE_PROJECT_ID}.supabase.co"
           export PGPORT=5432

@@ -5,11 +5,10 @@ import yaml from 'js-yaml';
 
 // #1306 / SEC-001 recovery contract.
 //
-// Run 32505310970 applied migration 20260819120000 correctly but its postflight step died before its
-// first SELECT: the connection URI `postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.<proj>...` was
-// mangled because the production password contains a URI-reserved character, AND psql echoed the
-// mangled authority — carrying a plaintext password fragment — into the PUBLIC Actions log, past
-// GitHub's secret masking (masking matches exact secret occurrences, not rearranged substrings).
+// A prior production apply completed its migration but its postflight did not: the connection URI
+// `postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.<proj>...` failed to parse, and a URI parse failure
+// is reported by echoing the authority back into the job log. Secret masking cannot be relied on there,
+// because it matches exact secret occurrences rather than transformed ones.
 //
 // These tests fail if either defect can return, and if the recovery workflow ever gains the ability to
 // mutate migrations.
@@ -123,5 +122,51 @@ describe('postflight-only workflow cannot mutate migrations', () => {
 
     it('requires an explicit success outcome (never reports green on a skip)', () => {
         expect(text).toContain("[ \"$outcome\" = 'success' ]");
+    });
+});
+
+describe('#1329 RETURN — truthful naming, main revalidation, no public breadcrumbs', () => {
+    const raw = read(POSTFLIGHT_ONLY);
+    const wf = yaml.load(raw);
+
+    it('is named verification-only, never "read-only" (it issues NOTIFY pgrst)', () => {
+        expect(wf.name).not.toMatch(/read[- ]only/i);
+        expect(wf.name).toContain('verification only');
+        // The claim must be corrected where a reader meets it, not only in the title.
+        expect(raw).toContain('VERIFICATION-ONLY, not read-only');
+    });
+
+    it('still actually issues the NOTIFY that makes "read-only" untrue', () => {
+        // If the NOTIFY were ever removed, the naming rationale above would silently become stale.
+        expect(readCode(POSTFLIGHT_ONLY)).toMatch(/NOTIFY pgrst/);
+    });
+
+    it('revalidates main immediately BEFORE the production postflight step', () => {
+        const steps = wf.jobs['postflight-only'].steps.map((st) => st.name ?? '');
+        const recheck = steps.findIndex((n) => /Revalidate main immediately before production postflight/.test(n));
+        const postflight = steps.findIndex((n) => /Enforce reviewed #1314 operation/.test(n));
+        expect(recheck).toBeGreaterThan(-1);
+        expect(postflight).toBeGreaterThan(-1);
+        // Ordering is the whole point: a check after the fact proves nothing.
+        expect(recheck).toBeLessThan(postflight);
+    });
+
+    it('the revalidation compares live main against the authorized SHA', () => {
+        const step = wf.jobs['postflight-only'].steps.find((st) =>
+            /Revalidate main immediately before production postflight/.test(st.name ?? ''));
+        expect(step.run).toContain('git/ref/heads/$DEFAULT_BRANCH');
+        expect(step.run).toContain('"$current_main" = "$EXPECTED_HEAD_SHA"');
+    });
+
+    it.each([
+        ['apply-exact-allowlisted-migration.yml', APPLY_EXACT],
+        ['postflight-only-1314.yml', POSTFLIGHT_ONLY],
+    ])('%s leaks no incident breadcrumbs into the public repo', (_name, path) => {
+        const text = read(path);
+        // A public repo must not narrow the credential's search space, nor point at the run that logged it.
+        expect(text).not.toMatch(/\b325053\d{5}\b/);          // the run id
+        expect(text).not.toMatch(/URI-reserved/i);             // hints at the character class
+        expect(text).not.toMatch(/ours contains/i);
+        expect(text).not.toMatch(/password fragment/i);
     });
 });
