@@ -196,16 +196,27 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
-          DB_URL="postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.${SUPABASE_PROJECT_ID}.supabase.co:5432/postgres?sslmode=require"
+          # CONNECTION — libpq environment, never a connection URI (SEC-001).
+          # Embedding a credential in a URI authority is unsafe in CI: the URI is re-parsed by the client,
+          # and a parse failure is reported by echoing the authority back into the job log. Secret masking
+          # cannot be relied on there, since it matches exact secret occurrences rather than transformed
+          # ones. libpq environment variables are never re-parsed and never re-emitted on error.
+          unset DB_URL   # postflight-gate-1314.sh prefers DB_URL when set; force the ambient PG* path.
+          export PGHOST="db.${SUPABASE_PROJECT_ID}.supabase.co"
+          export PGPORT=5432
+          export PGUSER=postgres
+          export PGDATABASE=postgres
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          export PGSSLMODE=require
           # 1) postflight gate (read-only SELECTs) against the linked production DB.
-          DB_URL="$DB_URL" bash scripts/postflight-gate-1314.sh after
+          bash scripts/postflight-gate-1314.sh after
           # 2) reload PostgREST and CONFIRM resolution — FAIL-CLOSED. `{}` cannot resolve an RPC that has no
           #    defaultable p_session_id, so we send the FULL arg set with a nonexistent session id. A RESOLVED
           #    function returns the frozen non-mutating contract: HTTP 200 with a body containing
           #    "profile_not_found" (auth.uid() has no profile for the service-role token) OR "session_not_found".
           #    Anything else — curl/network failure, non-200, PGRST202, malformed/empty body, any other error —
           #    is a FAILURE. Absence-of-PGRST202 is NOT sufficient.
-          psql "$DB_URL" -v ON_ERROR_STOP=1 -qAtc "NOTIFY pgrst, 'reload schema';"
+          psql -v ON_ERROR_STOP=1 -qAtc "NOTIFY pgrst, 'reload schema';"
           BOGUS='{"p_session_id":"00000000-0000-0000-0000-000000000000","p_status":"completed","p_final_duration":1,"p_reason":null,"p_next_action":null,"p_total_words":null,"p_clarity_score":null,"p_wpm":null,"p_filler_counts":null,"p_pause_metrics":null,"p_final_transcript":null}'
           ok=no
           for i in $(seq 1 15); do
