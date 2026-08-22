@@ -193,10 +193,31 @@ describe('SEC-002 — connectivity is proven BEFORE the irreversible apply', () 
         expect(postflight.run).toMatch(/pooler parameters absent/);
     });
 
-    it('neither workflow sets the PSQL_BIN test seam', () => {
-        for (const path of [APPLY_EXACT, POSTFLIGHT_ONLY]) {
-            expect(readCode(path)).not.toMatch(/PSQL_BIN/);
-        }
+    it('NOTHING outside the script and its tests sets the PSQL_BIN seam', () => {
+        // The guard is only as wide as its search. A seam that redirects which binary executes inside
+        // an apply path must be unsettable from ANY input the workflow consumes — not just the two
+        // workflow files: composite actions, sourced scripts, and env files all reach the same shell.
+        const roots = ['.github', 'scripts', 'backend'];
+        const hits = [];
+        const walk = (d) => {
+            for (const e of readdirSync(d, { withFileTypes: true })) {
+                if (e.name === 'node_modules' || e.name.startsWith('.git')) continue;
+                const full = join(d, e.name);
+                if (e.isDirectory()) { walk(full); continue; }
+                let text = '';
+                try { text = readFileSync(full, 'utf8'); } catch { continue; }
+                // Only ASSIGNMENT is dangerous; the script's own default read is the seam itself.
+                if (/PSQL_BIN\s*[=:]/.test(text) && !full.endsWith('assert-db-connectivity-tls.sh')) {
+                    hits.push(full);
+                }
+            }
+        };
+        for (const r of roots) { try { walk(resolve(process.cwd(), r)); } catch { /* absent root */ } }
+        expect(hits, `PSQL_BIN assigned outside the script: ${hits.join(', ')}`).toEqual([]);
+    });
+
+    it('scans a real, non-empty tree (guards against a vacuous walk)', () => {
+        expect(readdirSync(resolve(process.cwd(), '.github/workflows')).length).toBeGreaterThan(5);
     });
 });
 
@@ -491,6 +512,25 @@ describe('SEC-002 — connectivity and TLS decision falsification', () => {
         const r = run(over);
         expect(r.ok).toBe(false);
         expect(r.out).toContain(reason);
+    });
+
+    it('a no-op binary cannot manufacture a TLS pass', () => {
+        // The reachability probe demands EXACTLY '1'. A binary that returns nothing — or that returns
+        // 't' to everything, trying to fake the TLS answer — dies there and never reaches a verdict.
+        const noop = join(dir, 'noop'); writeFileSync(noop, '#!/usr/bin/env bash\nexit 0\n'); chmodSync(noop, 0o755);
+        const allT = join(dir, 'all-t'); writeFileSync(allT, '#!/usr/bin/env bash\necho t\n'); chmodSync(allT, 0o755);
+        for (const bin of [noop, allT]) {
+            const r = run({ PSQL_BIN: bin });
+            expect(r.ok).toBe(false);
+            expect(r.out).toContain('connectivity_unexpected_query_result');
+            expect(r.out).not.toMatch(/connectivity_ok|tls=active/);
+        }
+    });
+
+    it('a missing binary fails closed rather than skipping the check', () => {
+        const r = run({ PSQL_BIN: '/nonexistent/psql' });
+        expect(r.ok).toBe(false);
+        expect(r.out).toContain('connectivity_unreachable');
     });
 
     it('never emits a host, user, port, or password in any outcome', () => {
