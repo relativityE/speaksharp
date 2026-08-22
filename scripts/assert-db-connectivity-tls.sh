@@ -19,7 +19,13 @@
 # SANITIZATION: emits reason codes only — never a host, user, port, or connection string.
 #
 # Requires: PGHOST/PGPORT/PGUSER/PGDATABASE/PGPASSWORD/PGSSLMODE already exported.
+#
+# TEST SEAM: PSQL_BIN overrides the client binary so the reachability and TLS decisions can be
+# falsified (including the ssl=false case) without a live database. Production workflows must never
+# set it — tests/unit/postflightOnlyWorkflowContract.test.js fails if one does.
 set -uo pipefail
+
+PSQL="${PSQL_BIN:-psql}"
 
 readonly FORBIDDEN_PORT=6543
 
@@ -39,17 +45,21 @@ esac
 [ "${PGPORT:-}" != "$FORBIDDEN_PORT" ] || fail 'connectivity_transaction_port_forbidden'
 
 # 1) REACHABILITY — a trivial query that must actually round-trip.
-reachable="$(psql -v ON_ERROR_STOP=1 -qAt -c 'SELECT 1;' 2>/dev/null)" \
+reachable="$("$PSQL" -v ON_ERROR_STOP=1 -qAt -c 'SELECT 1;' 2>/dev/null)" \
     || fail 'connectivity_unreachable'
 [ "$reachable" = '1' ] || fail 'connectivity_unexpected_query_result'
 
 # 2) REAL TLS — the server's own view of THIS backend. Anything but 't' fails closed, including an
 #    empty result (no pg_stat_ssl row means we cannot confirm encryption, which is not a pass).
-ssl_active="$(psql -v ON_ERROR_STOP=1 -qAt \
+ssl_active="$("$PSQL" -v ON_ERROR_STOP=1 -qAt \
     -c 'SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid();' 2>/dev/null)" \
     || fail 'connectivity_tls_probe_failed'
+# Distinguish the two failure shapes: an ABSENT row means encryption is unconfirmed; a row reading
+# false means the session is provably PLAINTEXT. Both fail, but an operator must be able to tell them
+# apart — only the second means TLS negotiation actually did not happen.
 [ -n "$ssl_active" ] || fail 'connectivity_tls_unconfirmed'
-[ "$ssl_active" = 't' ] || fail 'connectivity_tls_not_active'
+[ "$ssl_active" != 'f' ] || fail 'connectivity_tls_not_active'
+[ "$ssl_active" = 't' ] || fail 'connectivity_tls_unexpected_value'
 
 echo 'connectivity_ok tls=active mode=session'
 exit 0

@@ -156,6 +156,11 @@ jobs:
 
       - name: Prove verification path reachable and TLS-encrypted BEFORE the irreversible apply
         id: connectivity_preflight
+        # SAME applicability predicate as the #1314 postflight below. Scoped deliberately: only targets
+        # that are verified through raw psql need the pooler reachable, and making every allowlisted
+        # migration depend on the Management API would broaden this recovery beyond its frozen scope.
+        # A general policy for all migrations belongs in the catch-all, not here.
+        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') }}
         run: |
           set -euo pipefail
           sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
@@ -163,9 +168,10 @@ jobs:
           # discovered its verification path was unreachable, leaving a landed change that could not be
           # confirmed. Proving reachability + real TLS here means an unusable verification path stops the
           # apply instead of stranding it. Unconditional: never apply what cannot then be verified.
-          POOLER_ENV="$RUNNER_TEMP/pooler.env"
-          bash scripts/supabase-pooler-connection.sh "$POOLER_ENV"
-          set -a; . "$POOLER_ENV"; set +a
+          # Resolve the pooler ONCE here; the postflight reuses this exact file. Re-resolving there
+          # could drift, leaving this proof attesting to parameters the postflight never uses.
+          bash scripts/supabase-pooler-connection.sh "$RUNNER_TEMP/pooler.env"
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
           export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
           bash scripts/assert-db-connectivity-tls.sh
 
@@ -220,9 +226,10 @@ jobs:
           # (db.<ref>.supabase.co) is IPv6-only and unreachable from GitHub runners; no region or host
           # is hardcoded, since a stale one would fail the same silent way. The env file is 0600 and is
           # sourced, never printed.
-          POOLER_ENV="$RUNNER_TEMP/pooler.env"
-          bash scripts/supabase-pooler-connection.sh "$POOLER_ENV"
-          set -a; . "$POOLER_ENV"; set +a
+          # REUSE the parameters proven reachable before the apply — never re-resolve. Fail closed if
+          # the pre-apply proof did not run, since that means nothing established this path works.
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
           export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
           unset DB_URL   # postflight-gate-1314.sh prefers DB_URL when set; force the ambient PG* path.
           # 1) postflight gate (read-only SELECTs) against the linked production DB.

@@ -136,7 +136,9 @@ describe('SEC-002 — IPv4 session pooler, discovered at runtime', () => {
 
 describe('SEC-002 — connectivity is proven BEFORE the irreversible apply', () => {
     const wf = yaml.load(read(APPLY_EXACT));
-    const steps = wf.jobs['apply-one-allowlisted-migration'].steps.map((st) => st.name ?? '');
+    const allSteps = wf.jobs['apply-one-allowlisted-migration'].steps;
+    const steps = allSteps.map((st) => st.name ?? '');
+    const stepBy = (re) => allSteps.find((st) => re.test(st.name ?? ''));
 
     it('the apply workflow proves reachability + TLS before applying', () => {
         const proof = steps.findIndex((n) => /Prove verification path reachable and TLS-encrypted BEFORE/.test(n));
@@ -147,11 +149,54 @@ describe('SEC-002 — connectivity is proven BEFORE the irreversible apply', () 
         expect(proof).toBeLessThan(apply);
     });
 
-    it('that proof is unconditional — never skipped for some target', () => {
-        const step = wf.jobs['apply-one-allowlisted-migration'].steps.find((st) =>
-            /Prove verification path reachable and TLS-encrypted BEFORE/.test(st.name ?? ''));
-        expect(step.if).toBeUndefined();
+    it('the proof is SCOPED to the same applicability predicate as the raw-psql postflight', () => {
+        // Deliberately NOT unconditional. Only targets verified through raw psql need the pooler
+        // reachable; making every allowlisted migration depend on the Management API would broaden
+        // this recovery beyond its frozen scope. A general policy belongs in the catch-all.
+        const step = stepBy(/Prove verification path reachable and TLS-encrypted BEFORE/);
+        const postflight = stepBy(/Enforce reviewed/);
+        expect(step.if).toBeTruthy();
+        expect(step.if).toContain('20260819120000_complete_session_v2_atomic_retention_1314');
+        // Same predicate as the postflight it protects — they must not drift apart.
+        expect(postflight.if).toContain('20260819120000_complete_session_v2_atomic_retention_1314');
         expect(step.run).toContain('scripts/assert-db-connectivity-tls.sh');
+    });
+
+    it('an unrelated target requires no pooler preflight at all', () => {
+        // The condition is a `contains(<target_file>, '<this migration>')`, so any other target
+        // evaluates false and the step is skipped — no Management API, no psql dependency.
+        const cond = stepBy(/Prove verification path reachable and TLS-encrypted BEFORE/).if;
+        expect(cond).toMatch(/contains\(\s*steps\.contract\.outputs\.target_file/);
+        expect(cond).not.toMatch(/always\(\)|success\(\)/);
+    });
+
+    it('GATING, not merely ordering: a failed proof must stop the apply', () => {
+        const proof = stepBy(/Prove verification path reachable and TLS-encrypted BEFORE/);
+        const apply = stepBy(/Apply the exact reviewed migration/);
+        // A tolerated failure would let the apply proceed on an unproven path.
+        expect(proof['continue-on-error']).toBeUndefined();
+        // No bypass on the apply: with no `if`, GitHub skips it once a prior step has failed.
+        const applyIf = apply.if ?? '';
+        expect(applyIf).not.toMatch(/always\(\)|failure\(\)|cancelled\(\)/);
+    });
+
+    it('the pooler is resolved ONCE and reused — never independently reconstructed', () => {
+        // Two resolutions could drift, leaving the pre-apply proof attesting to parameters the
+        // postflight never uses.
+        const calls = (readCode(APPLY_EXACT).match(/supabase-pooler-connection\.sh/g) ?? []).length;
+        expect(calls).toBe(1);
+        // The postflight sources the already-proven file...
+        const postflight = stepBy(/Enforce reviewed/);
+        expect(postflight.run).toContain('$RUNNER_TEMP/pooler.env');
+        expect(postflight.run).not.toContain('supabase-pooler-connection.sh');
+        // ...and fails closed when the pre-apply proof never ran.
+        expect(postflight.run).toMatch(/pooler parameters absent/);
+    });
+
+    it('neither workflow sets the PSQL_BIN test seam', () => {
+        for (const path of [APPLY_EXACT, POSTFLIGHT_ONLY]) {
+            expect(readCode(path)).not.toMatch(/PSQL_BIN/);
+        }
     });
 });
 
@@ -360,4 +405,156 @@ describe('SEC-002 — pooler validator falsification', () => {
     });
 
     afterAll(() => rmSync(dir, { recursive: true, force: true }));
+});
+
+// ---------------------------------------------------------------------------------------------
+// SEC-002 — connectivity/TLS decision falsification, driven through the PSQL_BIN seam so the
+// ssl=false path is actually exercised rather than assumed unreachable.
+// ---------------------------------------------------------------------------------------------
+describe('SEC-002 — connectivity and TLS decision falsification', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connectivity-'));
+    chmodSync(CONNECTIVITY, 0o755);
+
+    // Stand-in psql: answers the reachability probe and the pg_stat_ssl probe from env.
+    const fakePsql = join(dir, 'fake-psql');
+    writeFileSync(fakePsql, [
+        '#!/usr/bin/env bash',
+        '[ "${FAKE_CONNECT_FAIL:-0}" = "1" ] && exit 2',
+        'for a in "$@"; do',
+        '  case "$a" in',
+        '    *pg_stat_ssl*) printf "%s\\n" "${FAKE_SSL-t}"; exit 0 ;;',
+        '    *SELECT\\ 1*)   printf "%s\\n" "${FAKE_REACHABLE-1}"; exit 0 ;;',
+        '  esac',
+        'done',
+        'exit 0',
+    ].join('\n'));
+    chmodSync(fakePsql, 0o755);
+
+    const baseEnv = {
+        ...process.env,
+        PSQL_BIN: fakePsql,
+        PGHOST: 'aws-0-us-east-1.pooler.supabase.com',
+        PGPORT: '5432',
+        PGUSER: 'postgres.projref123',
+        PGDATABASE: 'postgres',
+        PGPASSWORD: 'NOTAREALSECRET',
+        PGSSLMODE: 'require',
+    };
+
+    const run = (over = {}) => {
+        try {
+            const out = execFileSync('bash', [CONNECTIVITY], { encoding: 'utf8', env: { ...baseEnv, ...over } });
+            return { ok: true, out: out.trim() };
+        } catch (e) {
+            return { ok: false, out: `${e.stdout ?? ''}${e.stderr ?? ''}`.trim() };
+        }
+    };
+
+    it('passes when reachable and the server reports ssl = true', () => {
+        const r = run({ FAKE_SSL: 't' });
+        expect(r.ok).toBe(true);
+        expect(r.out).toBe('connectivity_ok tls=active mode=session');
+    });
+
+    it('FAILS when the server reports ssl = FALSE (provably plaintext session)', () => {
+        // The decisive case: a row EXISTS, so an "is there a row?" check would pass. Only reading the
+        // value catches a session that negotiated no encryption.
+        const r = run({ FAKE_SSL: 'f' });
+        expect(r.ok).toBe(false);
+        expect(r.out).toContain('connectivity_tls_not_active');
+    });
+
+    it('FAILS when pg_stat_ssl returns no row (encryption unconfirmed, not assumed)', () => {
+        const r = run({ FAKE_SSL: '' });
+        expect(r.ok).toBe(false);
+        expect(r.out).toContain('connectivity_tls_unconfirmed');
+    });
+
+    it('FAILS on an unexpected ssl value rather than treating it as truthy', () => {
+        const r = run({ FAKE_SSL: 'maybe' });
+        expect(r.ok).toBe(false);
+        expect(r.out).toContain('connectivity_tls_unexpected_value');
+    });
+
+    it('FAILS when the database is unreachable (the original SEC-002 shape)', () => {
+        const r = run({ FAKE_CONNECT_FAIL: '1' });
+        expect(r.ok).toBe(false);
+        expect(r.out).toContain('connectivity_unreachable');
+    });
+
+    it.each([
+        ['the direct IPv6-only endpoint', { PGHOST: 'db.projref123.supabase.co' }, 'connectivity_direct_endpoint_forbidden'],
+        ['a non-pooler host', { PGHOST: 'evil.example.com' }, 'connectivity_host_not_pooler_endpoint'],
+        ['transaction-mode port 6543', { PGPORT: '6543' }, 'connectivity_transaction_port_forbidden'],
+        ['a downgraded TLS mode', { PGSSLMODE: 'prefer' }, 'connectivity_pgsslmode_not_require'],
+    ])('REFUSES %s even when PG* is set by hand', (_l, over, reason) => {
+        const r = run(over);
+        expect(r.ok).toBe(false);
+        expect(r.out).toContain(reason);
+    });
+
+    it('never emits a host, user, port, or password in any outcome', () => {
+        for (const over of [{ FAKE_SSL: 't' }, { FAKE_SSL: 'f' }, { FAKE_CONNECT_FAIL: '1' }]) {
+            const r = run(over);
+            expect(r.out).not.toMatch(/pooler\.supabase\.com|projref123|NOTAREALSECRET|5432/);
+        }
+    });
+
+    afterAll(() => rmSync(dir, { recursive: true, force: true }));
+});
+
+describe('SEC-002 — error output is a fixed reason-code allowlist', () => {
+    // Reason codes are the ONLY thing these scripts may print. Anything interpolated risks leaking a
+    // hostname, project ref, response body, or connection-string fragment into a public log.
+    const ALLOWED = new Set([
+        'pooler_payload_missing', 'pooler_payload_empty', 'pooler_payload_not_json',
+        'pooler_payload_unreadable', 'pooler_out_env_missing', 'pooler_out_env_unwritable',
+        'pooler_project_ref_missing', 'pooler_no_primary_result', 'pooler_host_missing',
+        'pooler_user_missing', 'pooler_host_not_pooler_endpoint', 'pooler_host_is_direct_endpoint',
+        'pooler_host_contains_port', 'pooler_session_port_misconfigured',
+        'pooler_access_token_missing', 'pooler_project_id_missing', 'pooler_fetch_failed',
+        'connectivity_pghost_unset', 'connectivity_pguser_unset', 'connectivity_pgpassword_unset',
+        'connectivity_pgsslmode_not_require', 'connectivity_direct_endpoint_forbidden',
+        'connectivity_host_not_pooler_endpoint', 'connectivity_transaction_port_forbidden',
+        'connectivity_unreachable', 'connectivity_unexpected_query_result',
+        'connectivity_tls_probe_failed', 'connectivity_tls_unconfirmed',
+        'connectivity_tls_not_active', 'connectivity_tls_unexpected_value',
+    ]);
+    // The only two codes permitted to interpolate, and only a bounded non-sensitive value:
+    //   a PRIMARY-result COUNT, and an HTTP STATUS CODE. Neither can carry a host or secret.
+    const ALLOWED_INTERPOLATED = [/^pooler_multiple_primary_results:\$\{primary_count\}$/, /^pooler_fetch_http_\$\{code\}$/];
+
+    it.each([
+        ['supabase-pooler-validate.sh', POOLER_VALIDATE],
+        ['supabase-pooler-connection.sh', POOLER_FETCH],
+        ['assert-db-connectivity-tls.sh', CONNECTIVITY],
+    ])('%s emits only allowlisted reason codes', (_n, path) => {
+        const text = readFileSync(path, 'utf8');
+        const codes = [...text.matchAll(/(?:fail|echo)\s+['"]([a-z][a-z0-9_:${}]*)['"]/g)].map((m) => m[1]);
+        expect(codes.length).toBeGreaterThan(3);   // guard against a vacuous scan
+        for (const c of codes) {
+            const ok = ALLOWED.has(c) || ALLOWED_INTERPOLATED.some((re) => re.test(c));
+            expect(ok, `unlisted reason code: ${c}`).toBe(true);
+        }
+    });
+
+    it.each([
+        ['supabase-pooler-validate.sh', POOLER_VALIDATE],
+        ['assert-db-connectivity-tls.sh', CONNECTIVITY],
+    ])('%s never ECHOES a host, user, or payload to the log', (_n, path) => {
+        const text = readFileSync(path, 'utf8');
+        // `echo` reaches the job log; `printf` here writes into the 0600 env file via a redirect, which
+        // is the settings' intended destination. Only the log-bound path is a disclosure risk — its
+        // cleanliness is additionally proven at runtime by the sanitization tests above.
+        const echoes = [...text.matchAll(/^\s*echo\s+[^\n]*/gm)].map((m) => m[0]);
+        for (const line of echoes) {
+            expect(line, `echo leaks a sensitive value: ${line.trim()}`)
+                .not.toMatch(/\$(?:\{)?(?:db_host|db_user|PGHOST|PGUSER|PGPASSWORD|PAYLOAD|payload)/);
+        }
+    });
+
+    it('the env file is written by redirect, never echoed to the log', () => {
+        const text = readFileSync(POOLER_VALIDATE, 'utf8');
+        expect(text).toMatch(/\}\s*>>\s*"\$OUT_ENV"/);
+    });
 });
