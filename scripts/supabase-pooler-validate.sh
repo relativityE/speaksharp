@@ -32,6 +32,13 @@ fail() { echo "$1"; exit 1; }
 [ -n "$OUT_ENV" ] || fail 'pooler_out_env_missing'
 [ -n "$PROJECT_REF" ] || fail 'pooler_project_ref_missing'
 
+# The authorized project ref is the anchor for the whole identity contract below, so validate its
+# grammar BEFORE it is used to build any expectation or reach the network. Supabase refs are lowercase
+# alphanumeric; anything else means we cannot trust what we are about to compare against.
+case "$PROJECT_REF" in
+    *[!a-z0-9]*) fail 'pooler_project_ref_malformed' ;;
+esac
+
 jq -e . "$PAYLOAD" >/dev/null 2>&1 || fail 'pooler_payload_not_json'
 
 # The endpoint returns either a single object or an array depending on version; normalise to an array
@@ -65,6 +72,11 @@ esac
 case "$db_user" in
     *[!A-Za-z0-9._-]*) fail 'pooler_user_unsafe_characters' ;;
 esac
+
+# PROJECT IDENTITY. Safe characters are not enough: a perfectly well-formed pooler username for a
+# DIFFERENT project passes every check above and would be sourced into the production connection.
+# The pooler username is project-scoped by construction, so require the exact expected value.
+[ "$db_user" = "postgres.${PROJECT_REF}" ] || fail 'pooler_user_project_mismatch'
 
 # ORDER MATTERS for diagnostics. The specific rejections must be tested BEFORE the general
 # suffix check, or a direct endpoint and a port-smuggling host both report the vague

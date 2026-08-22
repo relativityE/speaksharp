@@ -158,7 +158,7 @@ jobs:
           # SEC-002 — the ordering that makes this safe. A prior run applied a migration and only THEN
           # discovered its verification path was unreachable, leaving a landed change that could not be
           # confirmed. Proving reachability + real TLS here means an unusable verification path stops the
-          # apply instead of stranding it. Unconditional: never apply what cannot then be verified.
+          # apply instead of stranding it. Scoped to the same predicate as the postflight it protects.
           # Resolve the pooler ONCE here; the postflight reuses this exact file. Re-resolving there
           # could drift, leaving this proof attesting to parameters the postflight never uses.
           bash scripts/supabase-pooler-connection.sh "$RUNNER_TEMP/pooler.env"

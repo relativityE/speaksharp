@@ -479,6 +479,38 @@ describe('SEC-002 — pooler validator falsification', () => {
         expect(r.env).toMatch(/PGUSER='postgres\.projref123'/);
     });
 
+    it('REJECTS a same-charset user belonging to a DIFFERENT project', () => {
+        // The decisive case. `postgres.otherproject9` passes every character and shape check and is a
+        // perfectly legitimate pooler username — for someone else's database. Safe characters are not
+        // identity.
+        const r = run([primary({ db_user: 'postgres.otherproject9' })]);
+        expect(r.ok).toBe(false);
+        expect(r.out).toContain('pooler_user_project_mismatch');
+        expect(r.env).toBe('');
+    });
+
+    it('REJECTS a user that merely CONTAINS the project ref', () => {
+        // Substring-ish near misses must fail too, or the binding is a suffix check pretending to be
+        // an equality check.
+        for (const u of ['postgres.projref123x', 'xpostgres.projref123', 'postgres.projref12']) {
+            const r = run([primary({ db_user: u })]);
+            expect(r.ok, `should reject ${u}`).toBe(false);
+            expect(r.out).toContain('pooler_user_project_mismatch');
+        }
+    });
+
+    it.each([
+        ['uppercase', 'ProjRef123'],
+        ['a dot', 'proj.ref'],
+        ['a hyphen', 'proj-ref'],
+        ['a shell metacharacter', 'proj$(id)'],
+    ])('REJECTS a malformed project ref (%s) BEFORE the payload is used', (_l, ref) => {
+        const r = run([primary()], ref);
+        expect(r.ok).toBe(false);
+        expect(r.out).toContain('pooler_project_ref_malformed');
+        expect(r.env).toBe('');
+    });
+
     it('REJECTS a non-JSON payload', () => {
         const r = run('<html>gateway timeout</html>');
         expect(r.ok).toBe(false);
@@ -532,6 +564,7 @@ describe('SEC-002 — connectivity and TLS decision falsification', () => {
         PGDATABASE: 'postgres',
         PGPASSWORD: 'NOTAREALSECRET',
         PGSSLMODE: 'require',
+        SUPABASE_PROJECT_ID: 'projref123',
     };
 
     const run = (over = {}) => {
@@ -583,6 +616,13 @@ describe('SEC-002 — connectivity and TLS decision falsification', () => {
         ['an arbitrary non-session port', { PGPORT: '9999' }, 'connectivity_port_not_session_mode'],
         ['an unset port', { PGPORT: '' }, 'connectivity_port_not_session_mode'],
         ['a downgraded TLS mode', { PGSSLMODE: 'prefer' }, 'connectivity_pgsslmode_not_require'],
+        // Point-of-use identity: the validator's binding must be re-proven where the connection is made.
+        ['a user for a different project', { PGUSER: 'postgres.otherproject9' }, 'connectivity_user_project_mismatch'],
+        ['a bare postgres user', { PGUSER: 'postgres' }, 'connectivity_user_project_mismatch'],
+        ['an unset project id', { SUPABASE_PROJECT_ID: '' }, 'connectivity_project_id_unset'],
+        ['a malformed project id', { SUPABASE_PROJECT_ID: 'Proj-Ref' }, 'connectivity_project_id_malformed'],
+        ['a non-postgres database', { PGDATABASE: 'template1' }, 'connectivity_database_not_postgres'],
+        ['an unset database', { PGDATABASE: '' }, 'connectivity_database_not_postgres'],
     ])('REFUSES %s even when PG* is set by hand', (_l, over, reason) => {
         const r = run(over);
         expect(r.ok).toBe(false);
@@ -628,6 +668,7 @@ describe('SEC-002 — error output is a fixed reason-code allowlist', () => {
         'pooler_user_missing', 'pooler_host_not_pooler_endpoint', 'pooler_host_is_direct_endpoint',
         'pooler_host_contains_port', 'pooler_session_port_misconfigured',
         'pooler_host_unsafe_characters', 'pooler_user_unsafe_characters',
+        'pooler_project_ref_malformed', 'pooler_user_project_mismatch',
         'pooler_access_token_missing', 'pooler_project_id_missing', 'pooler_fetch_failed',
         'connectivity_pghost_unset', 'connectivity_pguser_unset', 'connectivity_pgpassword_unset',
         'connectivity_pgsslmode_not_require', 'connectivity_direct_endpoint_forbidden',
@@ -635,7 +676,9 @@ describe('SEC-002 — error output is a fixed reason-code allowlist', () => {
         'connectivity_unreachable', 'connectivity_unexpected_query_result',
         'connectivity_tls_probe_failed', 'connectivity_tls_unconfirmed',
         'connectivity_tls_not_active', 'connectivity_tls_unexpected_value',
-        'connectivity_port_not_session_mode',
+        'connectivity_port_not_session_mode', 'connectivity_project_id_unset',
+        'connectivity_project_id_malformed', 'connectivity_user_project_mismatch',
+        'connectivity_database_not_postgres',
     ]);
     // The only two codes permitted to interpolate, and only a bounded non-sensitive value:
     //   a PRIMARY-result COUNT, and an HTTP STATUS CODE. Neither can carry a host or secret.

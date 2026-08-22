@@ -49,6 +49,18 @@ esac
 [ "${PGPORT:-}" != "$FORBIDDEN_PORT" ] || fail 'connectivity_transaction_port_forbidden'
 [ "${PGPORT:-}" = "$SESSION_PORT" ] || fail 'connectivity_port_not_session_mode'
 
+# PROJECT IDENTITY AT POINT OF USE. The validator binds the user to the authorized project when it
+# resolves the settings, but PG* can be set by hand and the settings file could be replaced between
+# resolution and use. Re-assert the same contract where the connection is actually made, so a
+# mismatch cannot slip through whichever way it arrives. Reason codes only — never echo the ref, the
+# user, or the value received.
+[ -n "${SUPABASE_PROJECT_ID:-}" ] || fail 'connectivity_project_id_unset'
+case "${SUPABASE_PROJECT_ID}" in
+    *[!a-z0-9]*) fail 'connectivity_project_id_malformed' ;;
+esac
+[ "$PGUSER" = "postgres.${SUPABASE_PROJECT_ID}" ] || fail 'connectivity_user_project_mismatch'
+[ "${PGDATABASE:-}" = 'postgres' ] || fail 'connectivity_database_not_postgres'
+
 # 1) REACHABILITY — a trivial query that must actually round-trip.
 reachable="$("$PSQL" -v ON_ERROR_STOP=1 -qAt -c 'SELECT 1;' 2>/dev/null)" \
     || fail 'connectivity_unreachable'
