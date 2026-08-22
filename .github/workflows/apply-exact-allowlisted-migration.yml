@@ -154,6 +154,21 @@ jobs:
           fi
           echo "#1314 postflight credentials present"
 
+      - name: Prove verification path reachable and TLS-encrypted BEFORE the irreversible apply
+        id: connectivity_preflight
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # SEC-002 — the ordering that makes this safe. A prior run applied a migration and only THEN
+          # discovered its verification path was unreachable, leaving a landed change that could not be
+          # confirmed. Proving reachability + real TLS here means an unusable verification path stops the
+          # apply instead of stranding it. Unconditional: never apply what cannot then be verified.
+          POOLER_ENV="$RUNNER_TEMP/pooler.env"
+          bash scripts/supabase-pooler-connection.sh "$POOLER_ENV"
+          set -a; . "$POOLER_ENV"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          bash scripts/assert-db-connectivity-tls.sh
+
       - name: Apply the exact reviewed migration
         id: apply
         continue-on-error: true
@@ -201,13 +216,15 @@ jobs:
           # and a parse failure is reported by echoing the authority back into the job log. Secret masking
           # cannot be relied on there, since it matches exact secret occurrences rather than transformed
           # ones. libpq environment variables are never re-parsed and never re-emitted on error.
-          unset DB_URL   # postflight-gate-1314.sh prefers DB_URL when set; force the ambient PG* path.
-          export PGHOST="db.${SUPABASE_PROJECT_ID}.supabase.co"
-          export PGPORT=5432
-          export PGUSER=postgres
-          export PGDATABASE=postgres
+          # SEC-002 — resolve the IPv4-reachable SESSION pooler at runtime. The direct endpoint
+          # (db.<ref>.supabase.co) is IPv6-only and unreachable from GitHub runners; no region or host
+          # is hardcoded, since a stale one would fail the same silent way. The env file is 0600 and is
+          # sourced, never printed.
+          POOLER_ENV="$RUNNER_TEMP/pooler.env"
+          bash scripts/supabase-pooler-connection.sh "$POOLER_ENV"
+          set -a; . "$POOLER_ENV"; set +a
           export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
-          export PGSSLMODE=require
+          unset DB_URL   # postflight-gate-1314.sh prefers DB_URL when set; force the ambient PG* path.
           # 1) postflight gate (read-only SELECTs) against the linked production DB.
           bash scripts/postflight-gate-1314.sh after
           # 2) reload PostgREST and CONFIRM resolution — FAIL-CLOSED. `{}` cannot resolve an RPC that has no

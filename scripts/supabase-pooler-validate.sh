@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# SEC-002 — validate a Supabase pooler configuration payload and emit libpq settings.
+#
+# PURE VALIDATION, no network. Kept separate from the fetch wrapper so every rejection path is unit
+# testable; the fetch half is a trivial curl that cannot be meaningfully falsified.
+#
+# The direct database endpoint (db.<ref>.supabase.co) resolves IPv6-only and is unreachable from
+# IPv4-only CI runners, which is how a verification gate came to exist that could never pass. This
+# validator makes that endpoint — and the transaction-mode port, which does not support LISTEN/NOTIFY
+# — structurally unrepresentable in the emitted settings.
+#
+# SANITIZATION: the payload may carry a full connection string. It is NEVER echoed, and no field is
+# printed on success or failure. Failures emit a named reason code only.
+#
+# Usage: supabase-pooler-validate.sh <payload_json_file> <out_env_file> <project_ref>
+set -uo pipefail
+
+PAYLOAD="${1:-}"
+OUT_ENV="${2:-}"
+PROJECT_REF="${3:-}"
+
+# Session mode. Transaction mode (6543) multiplexes connections and cannot carry LISTEN/NOTIFY, which
+# the PostgREST reload proof requires. Hardcoded here rather than taken from the payload, whose default
+# pool_mode is transaction.
+readonly SESSION_PORT=5432
+readonly FORBIDDEN_PORT=6543
+
+fail() { echo "$1"; exit 1; }
+
+[ -n "$PAYLOAD" ] && [ -f "$PAYLOAD" ] || fail 'pooler_payload_missing'
+[ -s "$PAYLOAD" ] || fail 'pooler_payload_empty'
+[ -n "$OUT_ENV" ] || fail 'pooler_out_env_missing'
+[ -n "$PROJECT_REF" ] || fail 'pooler_project_ref_missing'
+
+jq -e . "$PAYLOAD" >/dev/null 2>&1 || fail 'pooler_payload_not_json'
+
+# The endpoint returns either a single object or an array depending on version; normalise to an array
+# WITHOUT assuming which, so a shape change surfaces as a named failure rather than a silent miss.
+primary_count="$(jq '[ (if type == "array" then .[] else . end) | select(.database_type == "PRIMARY") ] | length' "$PAYLOAD" 2>/dev/null)"
+[ -n "$primary_count" ] || fail 'pooler_payload_unreadable'
+[ "$primary_count" -ne 0 ] || fail 'pooler_no_primary_result'
+[ "$primary_count" -eq 1 ] || fail "pooler_multiple_primary_results:${primary_count}"
+
+sel='[ (if type == "array" then .[] else . end) | select(.database_type == "PRIMARY") ][0]'
+db_host="$(jq -r "${sel}.db_host // empty" "$PAYLOAD" 2>/dev/null)"
+db_user="$(jq -r "${sel}.db_user // empty" "$PAYLOAD" 2>/dev/null)"
+
+[ -n "$db_host" ] || fail 'pooler_host_missing'
+[ -n "$db_user" ] || fail 'pooler_user_missing'
+
+# ORDER MATTERS for diagnostics. The specific rejections must be tested BEFORE the general
+# suffix check, or a direct endpoint and a port-smuggling host both report the vague
+# 'not_pooler_endpoint' — correct refusals with a reason code that misdirects the operator.
+# Never the IPv6-only direct endpoint, however it was spelled.
+case "$db_host" in
+    db.*.supabase.co|db.*.supabase.com) fail 'pooler_host_is_direct_endpoint' ;;
+esac
+[ "$db_host" != "db.${PROJECT_REF}.supabase.co" ] || fail 'pooler_host_is_direct_endpoint'
+
+# Reject a host that smuggles a port, so the session port below cannot be overridden.
+case "$db_host" in
+    *:*) fail 'pooler_host_contains_port' ;;
+esac
+
+# ...and only then, must it be a pooler endpoint at all.
+case "$db_host" in
+    *.pooler.supabase.com) : ;;
+    *) fail 'pooler_host_not_pooler_endpoint' ;;
+esac
+
+[ "$SESSION_PORT" != "$FORBIDDEN_PORT" ] || fail 'pooler_session_port_misconfigured'
+
+umask 077
+: > "$OUT_ENV" || fail 'pooler_out_env_unwritable'
+{
+    printf 'PGHOST=%s\n' "$db_host"
+    printf 'PGPORT=%s\n' "$SESSION_PORT"
+    printf 'PGUSER=%s\n' "$db_user"
+    printf 'PGDATABASE=postgres\n'
+    printf 'PGSSLMODE=require\n'
+} >> "$OUT_ENV"
+
+# Sanitized confirmation only — no host, user, or connection string.
+echo "pooler_resolved mode=session port=${SESSION_PORT}"
+exit 0
