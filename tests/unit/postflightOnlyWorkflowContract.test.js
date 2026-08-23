@@ -806,3 +806,62 @@ describe('SEC-002 — malformed project ref makes NO API request', () => {
 
     afterAll(() => rmSync(dir, { recursive: true, force: true }));
 });
+
+// ---------------------------------------------------------------------------------------------
+// Supabase Data REST requires BOTH headers on the SAME request: `apikey` is consumed by the API
+// gateway, `Authorization` by PostgREST behind it. A probe carrying only `Authorization` is rejected
+// at the edge with 401 and never reaches PostgREST — indistinguishable from a reload failure unless
+// you read the body. This was a duplicated defect across both database workflows.
+//
+// The assertion deliberately parses each curl INVOCATION rather than grepping the file: two headers
+// present in the same workflow but attached to different calls would satisfy a naive scan while
+// leaving the real request unauthenticated.
+// ---------------------------------------------------------------------------------------------
+describe('Supabase REST calls send apikey AND Authorization on the same invocation', () => {
+    /** Join backslash-continued lines, then return each curl invocation that targets /rest/v1/. */
+    const restCurlInvocations = (path) => {
+        const joined = readCode(path).replace(/\\\s*\n\s*/g, ' ');
+        return joined
+            .split('\n')
+            .map((l) => l.trim())
+            .filter((l) => /\bcurl\b/.test(l) && /\/rest\/v1\//.test(l));
+    };
+
+    const WORKFLOWS = [
+        ['apply-exact-allowlisted-migration.yml', APPLY_EXACT],
+        ['postflight-only-1314.yml', POSTFLIGHT_ONLY],
+    ];
+
+    it('the scan finds REST calls at all (a zero-call scan must never pass vacuously)', () => {
+        const total = WORKFLOWS.reduce((n, [, p]) => n + restCurlInvocations(p).length, 0);
+        expect(total, 'no /rest/v1/ curl invocations found — the scan proves nothing')
+            .toBeGreaterThanOrEqual(2);
+    });
+
+    it.each(WORKFLOWS)('%s: every REST invocation carries both headers itself', (_n, path) => {
+        const calls = restCurlInvocations(path);
+        expect(calls.length, 'this workflow should contain a REST probe').toBeGreaterThan(0);
+        for (const call of calls) {
+            expect(call, 'missing apikey on this invocation').toMatch(/-H\s+["']?apikey:/);
+            expect(call, 'missing Authorization on this invocation').toMatch(/-H\s+["']?Authorization:\s*Bearer/);
+        }
+    });
+
+    it.each(WORKFLOWS)('%s: both headers read the service-role key, not some other variable', (_n, path) => {
+        for (const call of restCurlInvocations(path)) {
+            expect(call).toMatch(/-H\s+"apikey:\s*\$\{SUPABASE_SERVICE_ROLE_KEY\}"/);
+            expect(call).toMatch(/-H\s+"Authorization:\s*Bearer\s*\$\{SUPABASE_SERVICE_ROLE_KEY\}"/);
+        }
+    });
+
+    it('the frozen HTTP-200 application-outcome decision is unchanged', () => {
+        // Fixing auth must not soften the outcome contract: a 401 is not PGRST202, so an
+        // "absence-of-PGRST202" check would have gone green on a request that never reached PostgREST.
+        const decision = read(join(SCRIPTS, 'postgrest-reload-confirmed.sh'));
+        expect(decision).toContain("[ \"$code\" = '200' ] || exit 1");
+        expect(decision).toMatch(/profile_not_found\|session_not_found/);
+        for (const [, path] of WORKFLOWS) {
+            expect(readCode(path)).toContain('scripts/postgrest-reload-confirmed.sh');
+        }
+    });
+});
