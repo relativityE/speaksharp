@@ -7,11 +7,21 @@
 # that ordering safe: run it BEFORE any irreversible operation, and refuse to proceed if the
 # verification path is unusable.
 #
-# It proves two things a mode flag cannot:
-#   1. REACHABILITY — a real query completed against the real database.
-#   2. REAL TLS — the SERVER reports this backend's connection as encrypted (pg_stat_ssl), rather than
-#      us merely having asked for TLS. `PGSSLMODE=require` requests encryption but is not evidence of
-#      it; only the server's own view of the live session is.
+# WHAT IS PROVEN:
+#   1. REACHABILITY — a real query round-tripped against the real database.
+#   2. CLIENT-LEG TLS — the query above SUCCEEDED under exact `PGSSLMODE=require`. libpq refuses to
+#      connect at all if the server will not negotiate TLS, so a completed query is itself the
+#      evidence that the runner-to-pooler connection is encrypted. The mode is not a request whose
+#      outcome is unknown; it is a precondition libpq enforces by failing closed.
+#
+# WHY pg_stat_ssl IS NOT USED. It reports the server's view of the BACKEND connection, and through a
+# connection pooler that backend is pooler-to-Postgres — a different leg from ours, over the
+# provider's internal network. It reads false on a perfectly healthy pooled session, so gating on it
+# fails every run, and keeping it as an "informational" line would train readers to ignore a red
+# signal. A check that is always wrong is worse than no check.
+#
+# NOT PROVEN HERE: certificate and hostname authenticity. `verify-full` would add that, at the cost of
+# deliberate CA provisioning on the runner. Tracked as hardening, not claimed by this script.
 #
 # It also re-checks the endpoint at the point of use, so a caller cannot reach a forbidden endpoint by
 # setting PG* directly and bypassing the pooler validator.
@@ -61,22 +71,13 @@ esac
 [ "$PGUSER" = "postgres.${SUPABASE_PROJECT_ID}" ] || fail 'connectivity_user_project_mismatch'
 [ "${PGDATABASE:-}" = 'postgres' ] || fail 'connectivity_database_not_postgres'
 
-# 1) REACHABILITY — a trivial query that must actually round-trip.
+# REACHABILITY + CLIENT-LEG TLS. This single round trip carries both claims: it can only succeed if
+# libpq established an encrypted connection (PGSSLMODE=require, asserted exactly above) AND the
+# database answered. The result must equal '1' — accepting any non-empty answer would let a stubbed
+# or misdirected client fake success.
 reachable="$("$PSQL" -v ON_ERROR_STOP=1 -qAt -c 'SELECT 1;' 2>/dev/null)" \
     || fail 'connectivity_unreachable'
 [ "$reachable" = '1' ] || fail 'connectivity_unexpected_query_result'
 
-# 2) REAL TLS — the server's own view of THIS backend. Anything but 't' fails closed, including an
-#    empty result (no pg_stat_ssl row means we cannot confirm encryption, which is not a pass).
-ssl_active="$("$PSQL" -v ON_ERROR_STOP=1 -qAt \
-    -c 'SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid();' 2>/dev/null)" \
-    || fail 'connectivity_tls_probe_failed'
-# Distinguish the two failure shapes: an ABSENT row means encryption is unconfirmed; a row reading
-# false means the session is provably PLAINTEXT. Both fail, but an operator must be able to tell them
-# apart — only the second means TLS negotiation actually did not happen.
-[ -n "$ssl_active" ] || fail 'connectivity_tls_unconfirmed'
-[ "$ssl_active" != 'f' ] || fail 'connectivity_tls_not_active'
-[ "$ssl_active" = 't' ] || fail 'connectivity_tls_unexpected_value'
-
-echo 'connectivity_ok tls=active mode=session'
+echo 'connectivity_ok tls=require-enforced mode=session'
 exit 0
