@@ -81,12 +81,29 @@ describe('real SSL enforcement (never a silent plaintext fallback)', () => {
         expect(read(CONNECTIVITY)).toContain("[ \"${PGSSLMODE:-}\" = 'require' ] || fail 'connectivity_pgsslmode_not_require'");
     });
 
-    it('TLS is proven from the server session, not inferred from the requested mode', () => {
-        const text = read(CONNECTIVITY);
-        expect(text).toContain('pg_stat_ssl');
-        expect(text).toContain('pg_backend_pid()');
-        // An absent pg_stat_ssl row means encryption is UNCONFIRMED — that must fail, not pass.
-        expect(text).toContain("fail 'connectivity_tls_unconfirmed'");
+    it('does NOT gate on pg_stat_ssl — it measures the pooler-to-Postgres leg, not ours', () => {
+        // pg_stat_ssl reports the server's view of the BACKEND connection. Through a pooler that is a
+        // different leg over the provider's internal network, so it reads false on a perfectly healthy
+        // pooled session. Gating on it failed every run; keeping it "informational" would train readers
+        // to ignore a red signal.
+        const code = readCode(CONNECTIVITY);
+        expect(code).not.toMatch(/pg_stat_ssl/);
+        expect(code).not.toMatch(/pg_backend_pid/);
+        // The explanation may remain in comments so the removal is not silently re-litigated.
+        expect(read(CONNECTIVITY)).toMatch(/WHY pg_stat_ssl IS NOT USED/);
+    });
+
+    it('client-leg TLS rests on libpq failing closed under exact require', () => {
+        const code = readCode(CONNECTIVITY);
+        // The mode is asserted EXACTLY, so the successful query below carries the encryption claim.
+        expect(code).toContain("[ \"${PGSSLMODE:-}\" = 'require' ] || fail 'connectivity_pgsslmode_not_require'");
+        // ...and the round trip must actually round-trip.
+        expect(code).toMatch(/SELECT 1;/);
+        expect(code).toContain("[ \"$reachable\" = '1' ] || fail 'connectivity_unexpected_query_result'");
+    });
+
+    it('states plainly what it does NOT prove (certificate authenticity)', () => {
+        expect(read(CONNECTIVITY)).toMatch(/NOT PROVEN HERE: certificate and hostname authenticity/);
     });
 
     it.each([
@@ -579,30 +596,31 @@ describe('SEC-002 — connectivity and TLS decision falsification', () => {
         }
     };
 
-    it('passes when reachable and the server reports ssl = true', () => {
-        const r = run({ FAKE_SSL: 't' });
+    it('passes when the round trip succeeds under exact require', () => {
+        const r = run({});
         expect(r.ok).toBe(true);
-        expect(r.out).toBe('connectivity_ok tls=active mode=session');
+        expect(r.out).toBe('connectivity_ok tls=require-enforced mode=session');
     });
 
-    it('FAILS when the server reports ssl = FALSE (provably plaintext session)', () => {
-        // The decisive case: a row EXISTS, so an "is there a row?" check would pass. Only reading the
-        // value catches a session that negotiated no encryption.
-        const r = run({ FAKE_SSL: 'f' });
+    it.each([
+        ['prefer', 'prefer'], ['allow', 'allow'], ['disable', 'disable'], ['unset', ''],
+    ])('REFUSES a weaker TLS mode (%s) — the encryption claim depends on exact require', (_l, mode) => {
+        // Every weaker mode silently falls back to plaintext when negotiation fails, which would make a
+        // successful query prove nothing about encryption.
+        const r = run({ PGSSLMODE: mode });
         expect(r.ok).toBe(false);
-        expect(r.out).toContain('connectivity_tls_not_active');
+        expect(r.out).toContain('connectivity_pgsslmode_not_require');
     });
 
-    it('FAILS when pg_stat_ssl returns no row (encryption unconfirmed, not assumed)', () => {
-        const r = run({ FAKE_SSL: '' });
+    it.each([
+        ['an empty answer', ''], ['a wrong answer', '0'], ['a truthy-looking answer', 'true'],
+        ['a chatty answer', '1 row'],
+    ])('REFUSES false query success (%s) — the round trip must return exactly 1', (_l, val) => {
+        // Accepting any non-empty answer would let a stubbed or misdirected client fake reachability,
+        // and with it the TLS claim that rides on the query having genuinely succeeded.
+        const r = run({ FAKE_REACHABLE: val });
         expect(r.ok).toBe(false);
-        expect(r.out).toContain('connectivity_tls_unconfirmed');
-    });
-
-    it('FAILS on an unexpected ssl value rather than treating it as truthy', () => {
-        const r = run({ FAKE_SSL: 'maybe' });
-        expect(r.ok).toBe(false);
-        expect(r.out).toContain('connectivity_tls_unexpected_value');
+        expect(r.out).toContain('connectivity_unexpected_query_result');
     });
 
     it('FAILS when the database is unreachable (the original SEC-002 shape)', () => {
@@ -652,7 +670,7 @@ describe('SEC-002 — connectivity and TLS decision falsification', () => {
     });
 
     it('never emits a host, user, port, or password in any outcome', () => {
-        for (const over of [{ FAKE_SSL: 't' }, { FAKE_SSL: 'f' }, { FAKE_CONNECT_FAIL: '1' }]) {
+        for (const over of [{}, { FAKE_REACHABLE: '0' }, { FAKE_CONNECT_FAIL: '1' }]) {
             const r = run(over);
             expect(r.out).not.toMatch(/pooler\.supabase\.com|projref123|NOTAREALSECRET|5432/);
         }
@@ -678,8 +696,6 @@ describe('SEC-002 — error output is a fixed reason-code allowlist', () => {
         'connectivity_pgsslmode_not_require', 'connectivity_direct_endpoint_forbidden',
         'connectivity_host_not_pooler_endpoint', 'connectivity_transaction_port_forbidden',
         'connectivity_unreachable', 'connectivity_unexpected_query_result',
-        'connectivity_tls_probe_failed', 'connectivity_tls_unconfirmed',
-        'connectivity_tls_not_active', 'connectivity_tls_unexpected_value',
         'connectivity_port_not_session_mode', 'connectivity_project_id_unset',
         'connectivity_project_id_malformed', 'connectivity_user_project_mismatch',
         'connectivity_database_not_postgres',
