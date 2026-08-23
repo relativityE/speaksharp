@@ -142,6 +142,7 @@ jobs:
           ok=no
           for i in $(seq 1 15); do
             code=$(curl -sS -o /tmp/probe.json -w '%{http_code}' \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
               -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
               -H 'Content-Type: application/json' \
               -X POST "${SUPABASE_URL}/rest/v1/rpc/complete_session_v2" -d "$BOGUS") || { sleep 2; continue; }
