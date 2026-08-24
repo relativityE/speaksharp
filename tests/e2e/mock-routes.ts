@@ -287,7 +287,7 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
     await registerRoute(page, /\/rest\/v1\/rpc\/.*/, async (route) => {
         const requestUrl = route.request().url();
         if (/\/rest\/v1\/rpc\/create_session_and_update_usage(\?.*)?$/.test(requestUrl) ||
-            /\/rest\/v1\/rpc\/complete_session(\?.*)?$/.test(requestUrl)) {
+            /\/rest\/v1\/rpc\/complete_session(_v2)?(\?.*)?$/.test(requestUrl)) {
             await route.fallback();
             return;
         }
@@ -349,10 +349,17 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         });
     });
 
-    // POST /rest/v1/rpc/complete_session
-    await registerRoute(page, /\/rest\/v1\/rpc\/complete_session(\?.*)?$/, async (route) => {
+    // POST /rest/v1/rpc/complete_session_v2 — the PRODUCTION completion route.
+    //
+    // Registered BEFORE the v1 route below. The v1 pattern ends in `complete_session(\?.*)?$`, which does
+    // NOT match `complete_session_v2`, so before this existed every v2 call fell through to the generic
+    // default RPC handler and received a bare `{ success: true }` — the v1 envelope. The client's
+    // fail-closed parser correctly rejected it, which turned all four e2e shards red.
+    //
+    // This returns the FULL v2 contract and models SERVER-OWNED newest-two retention, so the e2e build
+    // exercises the same envelope production returns rather than an easier one.
+    await registerRoute(page, /\/rest\/v1\/rpc\/complete_session_v2(\?.*)?$/, async (route) => {
         const state = getPageState(page);
-
         const body = JSON.parse(route.request().postData() || '{}');
         const {
             p_session_id,
@@ -360,23 +367,78 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
             p_final_transcript,
             p_final_duration,
             p_reason,
+            p_total_words,
+            p_clarity_score,
+            p_wpm,
+            p_filler_counts,
+            p_pause_metrics,
+            p_next_action,
         } = body;
 
+        const supplied = typeof p_final_transcript === 'string' ? p_final_transcript.trim() : '';
         const idx = state.sessions.findIndex((s: { id: string }) => s.id === p_session_id);
         if (idx !== -1) {
             state.sessions[idx] = {
                 ...state.sessions[idx],
                 status: p_status,
-                transcript: p_final_transcript ?? state.sessions[idx].transcript,
                 duration: p_final_duration ?? state.sessions[idx].duration,
                 status_reason: p_reason ?? state.sessions[idx].status_reason,
+                // Metrics commit in the SAME call as the transcript — a double that skipped them would
+                // hide a missing-metrics regression.
+                total_words: p_total_words ?? state.sessions[idx].total_words,
+                clarity_score: p_clarity_score ?? state.sessions[idx].clarity_score,
+                wpm: p_wpm ?? state.sessions[idx].wpm,
+                filler_counts: p_filler_counts ?? state.sessions[idx].filler_counts,
+                pause_metrics: p_pause_metrics ?? state.sessions[idx].pause_metrics,
+                next_action_signal: p_next_action ?? state.sessions[idx].next_action_signal,
+                ...(supplied ? { transcript: p_final_transcript, transcript_state: 'available' } : {}),
             };
         }
+
+        // SERVER-OWNED newest-two retention, applied inside the RPC exactly as production does it.
+        const retained = state.sessions
+            .filter((x: { transcript?: string | null }) => typeof x.transcript === 'string' && x.transcript.length > 0)
+            .sort((a: { created_at?: string }, b: { created_at?: string }) => String(b.created_at).localeCompare(String(a.created_at)));
+        retained.slice(2).forEach((old: Record<string, unknown>) => {
+            old.transcript = null;
+            old.transcript_state = 'expired';
+        });
+
+        const row = idx !== -1 ? state.sessions[idx] : {};
+        const transcriptState = (row.transcript_state as string | undefined)
+            ?? (supplied ? 'available' : 'not_captured');
+        const outcome = transcriptState === 'available' ? 'retained'
+            : transcriptState === 'expired' ? 'expired'
+            : p_final_transcript == null ? 'not_provided'
+            : 'not_captured';
 
         await route.fulfill({
             status: 200,
             headers: SUPABASE_HEADERS,
-            body: JSON.stringify({ success: true, final_status: p_status }),
+            body: JSON.stringify({
+                success: true,
+                session_saved: true,
+                idempotent: false,
+                final_status: p_status,
+                next_action_signal: row.next_action_signal ?? null,
+                transcript_state: transcriptState,
+                transcript_outcome: outcome,
+                transcript_retained: outcome === 'retained',
+                retention: { status: 'converged' },
+            }),
+        });
+    });
+
+    // POST /rest/v1/rpc/complete_session — the LEGACY overload. The production client cut over to v2
+    // with no fallback, so this must FAIL rather than quietly succeed: a v1 regression has to be loud.
+    await registerRoute(page, /\/rest\/v1\/rpc\/complete_session(\?.*)?$/, async (route) => {
+        await route.fulfill({
+            status: 404,
+            headers: SUPABASE_HEADERS,
+            body: JSON.stringify({
+                code: 'PGRST202',
+                message: 'complete_session (v1) is not callable by the production client — use complete_session_v2',
+            }),
         });
     });
 
