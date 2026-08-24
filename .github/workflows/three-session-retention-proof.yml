@@ -102,17 +102,42 @@ jobs:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }}
+          PROOF_CLEANUP_VERDICT_FILE: ${{ runner.temp }}/cleanup-verdict.txt
         run: pnpm exec playwright test tests/live/three-session-retention-proof.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
-      # Cleanup runs inside the spec's afterEach and is itself fail-closed, so a green step already means
-      # zero residue was PROVEN. This states the outcome unambiguously rather than letting a non-success
-      # step conclusion pass as "probably fine".
-      - name: Require unambiguous proof success
+      # TWO INDEPENDENT VERDICTS. A failed product assertion and a successful cleanup can and should
+      # coexist: the proof result must never be inferred from the cleanup result, nor the reverse. The
+      # cleanup verdict is REQUIRED whenever the run could have created an account, because "no second
+      # Playwright hook error" is absence of a complaint, not proof of deletion — and a failed proof is
+      # exactly when an operator needs to know whether a real account was left behind.
+      #
+      # Fails closed on a missing file, an empty file, or an unrecognised token.
+      - name: Require an explicit cleanup verdict, then an unambiguous proof result
         if: always()
+        env:
+          PROOF_CLEANUP_VERDICT_FILE: ${{ runner.temp }}/cleanup-verdict.txt
         run: |
           set -euo pipefail
+
+          # ---- 1. CLEANUP VERDICT (independent of the proof outcome) ----
+          if [ ! -f "$PROOF_CLEANUP_VERDICT_FILE" ]; then
+            echo "::error::no cleanup verdict was written — residue is UNPROVEN and must be checked by hand"
+            exit 1
+          fi
+          # Positive control: the file must be non-empty, so an absent/zero-length verdict can never be
+          # mistaken for a clean run.
+          [ -s "$PROOF_CLEANUP_VERDICT_FILE" ] || { echo '::error::cleanup verdict file is empty — residue UNPROVEN'; exit 1; }
+          verdict="$(tail -n 1 "$PROOF_CLEANUP_VERDICT_FILE")"
+          echo "cleanup verdict: $verdict"
+          case "$verdict" in
+            cleanup_verified\ residue=0\ tables_verified=*) echo 'cleanup: run-owned account deleted, zero residue verified' ;;
+            cleanup_not_required\ *)                          echo 'cleanup: no signup was attempted, nothing to remove' ;;
+            *) echo "::error::unrecognised cleanup verdict — failing closed"; exit 1 ;;
+          esac
+
+          # ---- 2. PROOF OUTCOME (reported separately, never replaced by the cleanup result) ----
           outcome='${{ steps.proof.outcome }}'
-          [ "$outcome" = 'success' ] || { echo "::error::three-session retention proof outcome was '$outcome' (must be success); if the run created an account, verify residue manually"; exit 1; }
+          [ "$outcome" = 'success' ] || { echo "::error::three-session retention proof outcome was '$outcome' (must be success); the cleanup verdict above states separately whether residue remains"; exit 1; }
           echo "#1306 three-session retention proof verified on production with zero residue"
 
       # No artifact upload: the proof emits only content-free console evidence (digests, booleans,

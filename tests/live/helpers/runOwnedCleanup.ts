@@ -22,8 +22,26 @@
 // `user_issue_reports` is deliberately NOT deleted: its user_id FK is ON DELETE SET NULL BY DESIGN
 // because the product intentionally retains "Report issue" feedback after account deletion. That is a
 // feature, not residue, and scrubbing it would risk erasing real user feedback.
+import { appendFileSync } from 'node:fs';
 import { expect } from '@playwright/test';
 import { isNotFoundError, pollForRecoveryUid } from './proofAuthority';
+
+/**
+ * Write a MACHINE-READABLE cleanup verdict for the workflow's final `if: always()` step.
+ *
+ * "No second Playwright hook error" is not closure evidence — absence of a complaint is not proof of
+ * deletion, and on a FAILED proof that is precisely when an operator needs to know whether a real
+ * account was left behind. The verdict is written only after auth deletion AND every residue readback
+ * have succeeded, so its presence means something specific. Content-free by construction: a fixed
+ * token and counts, never a uid, email, session id, or row.
+ */
+function writeCleanupVerdict(verdict: 'cleanup_verified' | 'cleanup_not_required', tablesVerified: number): void {
+    const target = process.env.PROOF_CLEANUP_VERDICT_FILE;
+    const line = `${verdict} residue=0 tables_verified=${tablesVerified}`;
+    console.log(`RUN_OWNED_CLEANUP ${line}`);
+    if (!target) return;
+    try { appendFileSync(target, `${line}\n`); } catch { /* the workflow fails closed on a missing verdict */ }
+}
 
 /** Minimal shape of the supabase-js admin client this cleanup needs. */
 type AdminClient = {
@@ -95,7 +113,12 @@ export async function cleanupRunOwnedAccount(params: {
     const { admin, createdEmail, runOwnedPrefix } = params;
     let capturedUid = params.capturedUid;
 
-    if (!capturedUid && !createdEmail) return '';                  // no signup was attempted
+    if (!capturedUid && !createdEmail) {
+        // Distinguish "nothing to clean" from "cleaned successfully" — collapsing them would let a run
+        // that silently skipped signup report the same verdict as one that proved deletion.
+        writeCleanupVerdict('cleanup_not_required', 0);
+        return '';
+    }
     if (!admin) throw new Error('cleanup requires admin client (fail closed)');
 
     // Signup can create the user before the in-page UID capture times out. Recover by EXACT-email,
@@ -106,7 +129,7 @@ export async function cleanupRunOwnedAccount(params: {
                 const all: Array<{ id?: string; email?: string | null }> = [];
                 for (let p = 1; p <= 50; p++) {
                     const { data, error } = await admin.auth.admin.listUsers({ page: p, perPage: 200 });
-                    if (error) throw new Error(`cleanup recovery listUsers failed (fail closed): ${error.message}`);
+                    if (error) throw new Error(`cleanup recovery listUsers failed (fail closed): ${error.code ?? 'unknown'}`);
                     const users = data?.users ?? [];
                     all.push(...users);
                     if (users.length < 200) break;                  // last page
@@ -124,8 +147,11 @@ export async function cleanupRunOwnedAccount(params: {
     const { data: got, error: getErr } = await admin.auth.admin.getUserById(capturedUid);
     if (getErr) throw new Error(`cleanup getUserById failed (fail closed): ${getErr.message}`);
     const foundEmail = got?.user?.email?.toLowerCase() ?? '';
-    if (foundEmail !== createdEmail.toLowerCase()) throw new Error(`UID/email disagreement — refusing to delete (uid=${capturedUid})`);
-    if (!foundEmail.startsWith(runOwnedPrefix)) throw new Error(`refusing to delete a non-run-owned account (${foundEmail})`);
+    // PRIVACY: reason codes only. A FAILING run is published to a public Actions log, so a thrown
+    // message must never carry the run-owned uid or the generated email — the values are still used
+    // internally for scoping, they are simply not printed.
+    if (foundEmail !== createdEmail.toLowerCase()) throw new Error('cleanup_uid_email_disagreement (fail closed)');
+    if (!foundEmail.startsWith(runOwnedPrefix)) throw new Error('cleanup_refused_non_run_owned_account (fail closed)');
 
     for (const table of PRE_DELETE_TABLES) {
         const { error: preErr } = await admin.from(table).delete().eq('user_id', capturedUid);
@@ -156,6 +182,9 @@ export async function cleanupRunOwnedAccount(params: {
         .from('trial_entitlements').select('email', { count: 'exact', head: true }).eq('email', createdEmail.toLowerCase());
     if (teResErr) throw new Error(`cleanup residue query on trial_entitlements failed (fail closed): ${teResErr.message}`);
     expect(teCount ?? 0, 'no run-owned residue in trial_entitlements').toBe(0);
+
+    // Emitted ONLY here — after auth deletion is proven and every residue readback returned zero.
+    writeCleanupVerdict('cleanup_verified', RESIDUE_CHECKS.length + 1);
 
     return capturedUid;
 }
