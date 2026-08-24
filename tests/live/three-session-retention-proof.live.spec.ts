@@ -12,6 +12,8 @@ import {
 import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
 import { extractUidFromAuthStorage, sha256Hex } from './helpers/proofAuthority';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
+import { extractPdfText, normalizeForMatch } from '../helpers/pdfText';
+import { validateNextActionSignal } from '../../frontend/src/contracts/nextActionSignal';
 
 // #1306 PROD-PROOF — three-session production journey on the exact deployed SHA.
 //
@@ -39,9 +41,18 @@ const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const TEST_EMAIL_DOMAIN = process.env.LIVE_TEST_EMAIL_DOMAIN || 'example.com';
 const RUN_OWNED_PREFIX = 'retention-proof-';
+/** Bounded fixture recordings: ~90s of wall clock each is a generous per-recording ceiling. */
+const RECORDING_BUDGET_SECONDS = 90;
+const THREE_RECORDING_BUDGET_SECONDS = RECORDING_BUDGET_SECONDS * 3;
 const PROVIDER_RE = /assemblyai|generativelanguage|openai|deepgram|cognitiveservices|speech\.googleapis|api\.anthropic/i;
 
-/** Columns that carry the coaching value a user keeps after a transcript expires. */
+/**
+ * The EXACT fields that must survive transcript expiry — deliberately not a whole-row comparison.
+ * Comparing the entire row byte-for-byte would fail on legitimate retention mutations (`transcript`,
+ * `transcript_state`) and on ordinary timestamp churn (`updated_at`), so it would be abandoned the
+ * first time it went red rather than being trusted. These are the fields whose loss would actually
+ * cost the user their coaching history.
+ */
 const METRIC_COLUMNS = ['status', 'duration', 'total_words', 'clarity_score', 'wpm', 'filler_counts', 'next_action_signal'] as const;
 const ROW_COLUMNS = `id,user_id,transcript,transcript_state,engine,created_at,${METRIC_COLUMNS.join(',')}`;
 
@@ -80,6 +91,11 @@ test.describe('#1306 three-session newest-two retention production proof @live',
     test.beforeAll(() => { assertPreconditions(); });   // fail closed, never skip
 
     test.afterEach(async () => {
+        // Runs on EVERY outcome, including a failed or timed-out test, from the earliest captured UID —
+        // so a partial journey still deletes exactly what it created. A cleanup or residue failure
+        // throws here and is reported ALONGSIDE the original test failure rather than replacing it:
+        // Playwright attaches hook errors to the already-failed test, so the first failure is never
+        // hidden behind a cleanup error.
         await cleanupRunOwnedAccount({
             admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: RUN_OWNED_PREFIX,
         });
@@ -102,6 +118,7 @@ test.describe('#1306 three-session newest-two retention production proof @live',
         // CONTAINS the v1 name, so both are matched on the exact final path segment; a substring test
         // would count every v2 call as a v1 call and make the zero-v1 assertion unfalsifiable.
         const rpcCalls: Record<string, number> = { complete_session: 0, complete_session_v2: 0 };
+        const usageChecks: Array<Record<string, unknown>> = [];
         const v2Responses: Array<Record<string, unknown>> = [];
         const listBodies: string[] = [];
         page.on('request', (req) => {
@@ -113,6 +130,12 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             const fn = url.pathname.split('/').pop() ?? '';
             if (fn === 'complete_session_v2') {
                 try { v2Responses.push(await res.json() as Record<string, unknown>); } catch { /* non-JSON body */ }
+            }
+            // #1337 B — the SERVER entitlement authority the app itself consulted. Observing the
+            // response the client received is stronger than re-deriving the decision here: it is the
+            // exact verdict the product acted on, and it cannot be elevated by this test.
+            if (fn === 'check-usage-limit') {
+                try { usageChecks.push(await res.json() as Record<string, unknown>); } catch { /* non-JSON */ }
             }
             // #1337 C — the history/list read must never carry transcript text over the wire.
             if (url.pathname.endsWith('/rest/v1/sessions') && res.request().method() === 'GET') {
@@ -129,7 +152,8 @@ test.describe('#1306 three-session newest-two retention production proof @live',
         };
 
         /** Drive ONE complete recording through the deployed customer UI; return the persisted id. */
-        const recordOneSession = async (label: string): Promise<string> => {
+        const recordOneSession = async (label: string, ordinal: number): Promise<string> => {
+            const seenBefore = usageChecks.length;
             await page.goto('/practice');
             await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 45_000 });
             await expect(page.getByTestId('practice-card-quick')).toBeVisible({ timeout: 20_000 });
@@ -138,6 +162,33 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             await selectBenchmarkMode(page, 'private');
             await preparePrivateModelIfPrompted(page, 180_000);     // no-op once the model is cached
             await assertPreStartMode(page, 'private');
+
+            // ENTITLEMENT GATE, re-evaluated before EVERY recording from the same server authority.
+            // `can_start` is checked again ahead of recordings 2 and 3 because a mid-run entitlement
+            // change (trial expiry, quota exhaustion) would otherwise surface as an unexplained
+            // recording failure after the run had already written to production.
+            await expect.poll(() => usageChecks.length, {
+                timeout: 45_000,
+                message: `no check-usage-limit response observed before ${label} — the entitlement gate proves nothing`,
+            }).toBeGreaterThan(seenBefore);
+            const usage = usageChecks[usageChecks.length - 1];
+            expect(usage.can_start, `server authority must allow starting ${label}`).toBe(true);
+            if (ordinal === 1) {
+                // Headroom for ALL THREE bounded recordings, not merely for this one. `can_start` alone
+                // is a per-start verdict and would happily allow recording 1 on an account that cannot
+                // finish the journey.
+                const trialActive = usage.trial_active === true;
+                const isPro = usage.is_pro === true;
+                expect(trialActive || isPro,
+                    `run-owned account needs an active trial or pro entitlement (trial_active=${trialActive} is_pro=${isPro})`,
+                ).toBe(true);
+                const remaining = typeof usage.trial_seconds_remaining === 'number' ? usage.trial_seconds_remaining : null;
+                if (remaining !== null) {
+                    expect(remaining,
+                        `entitlement must cover THREE bounded recordings (need >= ${THREE_RECORDING_BUDGET_SECONDS}s, have ${remaining}s)`,
+                    ).toBeGreaterThanOrEqual(THREE_RECORDING_BUDGET_SECONDS);
+                }
+            }
 
             const startStop = page.getByTestId('session-start-stop-button');
             await expect(startStop).toBeEnabled({ timeout: 60_000 });
@@ -198,29 +249,8 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             await expect(page).toHaveURL(/\/practice/, { timeout: 45_000 });
         });
 
-        await test.step('Entitlement for THREE sessions — asserted BEFORE recording 1', async () => {
-            // Front-run blocker: Private access is entitlement-gated, and an account without an active
-            // trial or pro entitlement would pass recording 1 and then fail later — after the run had
-            // already written to production. Assert it up front so an entitlement regression fails in
-            // seconds rather than mid-journey, leaving partial rows for cleanup to unwind.
-            if (!admin) throw new Error('admin client required for entitlement pre-check (fail closed)');
-            const { data: profile, error } = await admin.from('user_profiles')
-                .select('id,subscription_status,trial_expires_at')
-                .eq('id', capturedUid).single();
-            if (error) throw new Error(`entitlement pre-check query failed (fail closed): ${error.message}`);
-            const row = profile as Record<string, unknown>;
-            const trialExpiry = row.trial_expires_at ? Date.parse(String(row.trial_expires_at)) : 0;
-            const trialActive = Number.isFinite(trialExpiry) && trialExpiry > Date.now();
-            const isPro = String(row.subscription_status ?? '').toLowerCase() === 'pro';
-            // Content-free: booleans only — never the uid, the email, or the expiry timestamp.
-            expect(trialActive || isPro,
-                `run-owned account must carry an active trial or pro entitlement to complete THREE Private ` +
-                `sessions (trialActive=${trialActive} isPro=${isPro})`,
-            ).toBe(true);
-        });
-
         await test.step('Session 1 (oldest) — completes v2 and its transcript IS retained', async () => {
-            ids.push(await recordOneSession('retention-proof-1'));
+            ids.push(await recordOneSession('retention-proof-1', 1));
             const row = await readRow(ids[0]);
             expect(row.status, 'session 1 completed').toBe('completed');
             expect(String(row.transcript ?? '').trim().length, 'session 1 transcript retained at write time').toBeGreaterThan(0);
@@ -232,7 +262,7 @@ test.describe('#1306 three-session newest-two retention production proof @live',
         });
 
         await test.step('Session 2 — both sessions retained (nothing evicted below three)', async () => {
-            ids.push(await recordOneSession('retention-proof-2'));
+            ids.push(await recordOneSession('retention-proof-2', 2));
             for (const [i, id] of ids.entries()) {
                 const row = await readRow(id);
                 expect(row.transcript_state, `session ${i + 1} still available with only two sessions`).toBe('available');
@@ -241,7 +271,7 @@ test.describe('#1306 three-session newest-two retention production proof @live',
         });
 
         await test.step('Session 3 — newest two retained, OLDEST evicted, metrics byte-identical', async () => {
-            ids.push(await recordOneSession('retention-proof-3'));
+            ids.push(await recordOneSession('retention-proof-3', 3));
 
             const [oldest, middle, newest] = await Promise.all(ids.map(readRow));
 
@@ -264,7 +294,12 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             // THE CENTRAL CLAIM: expiry removed the transcript and NOTHING else.
             expect(metricSnapshot(oldest), 'expiry must not alter the oldest session metrics or next action')
                 .toBe(oldestMetricsBeforeExpiry);
-            expect(oldest.next_action_signal ?? null, 'oldest keeps its next action after expiry').not.toBeNull();
+            // A VALIDATED next action, not merely a non-null column: expiry must leave behind a signal
+            // the product can actually render, and `not.toBeNull()` would accept a corrupted blob.
+            const oldestSignal = validateNextActionSignal(oldest.next_action_signal);
+            expect(oldestSignal.ok,
+                `oldest keeps a VALID next action after expiry (${'reason' in oldestSignal ? String(oldestSignal.reason) : 'invalid'})`,
+            ).toBe(true);
 
             // Retention is newest-two by created_at, so the evicted row must be the actually-oldest one.
             const byAge = [oldest, middle, newest].map((r) => String(r.created_at));
@@ -358,53 +393,53 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             await assertSurfaces('after hard reload');
         });
 
-        await test.step('PDF truth through the REAL control — available carry their own transcript, expired exposes none', async () => {
-            // The export control is rendered by SessionHistoryItem, i.e. it exists ONLY on the /analytics
-            // dashboard row — never on the detail route. The dashboard renders the newest two by design,
-            // so the two RETAINED sessions have a control and the EXPIRED one is not reachable at all.
-            const exportPdfBytes = async (id: string): Promise<string> => {
+        await test.step('PDF truth through the REAL control — parsed text layer, not raw bytes', async () => {
+            // The export control is rendered by SessionHistoryItem, i.e. it exists ONLY on the
+            // /analytics dashboard row, never on the detail route. The dashboard renders the newest two
+            // by design, so the two RETAINED sessions have a control and the EXPIRED one has none.
+            //
+            // MARKER CHOICE. All three recordings are fed the SAME audio fixture, so their transcript
+            // text is effectively identical and cannot identify which session an artifact belongs to.
+            // The per-session marker is therefore the session id, which the export writes into the
+            // document; transcript text is used only to prove the extractor can see transcripts at all.
+            const exportPdfText = async (id: string): Promise<string> => {
                 await page.goto('/analytics');
                 const control = page.getByTestId(`download-pdf-btn-${id}`).first();
-                await expect(control, `export control must exist for ${id}`).toBeVisible({ timeout: 45_000 });
+                await expect(control, `export control must exist for a retained session`).toBeVisible({ timeout: 45_000 });
                 const [download] = await Promise.all([
                     page.waitForEvent('download', { timeout: 60_000 }),
                     control.click(),
                 ]);
                 const path = await download.path();
                 if (!path) throw new Error('no downloaded artifact path (fail closed)');
-                const { readFileSync } = await import('node:fs');
-                return readFileSync(path, 'latin1');
+                return normalizeForMatch(await extractPdfText(path));
             };
 
-            const middleRow = await readRow(ids[1]);
-            const newestRow = await readRow(ids[2]);
-            const middleText = String(middleRow.transcript ?? '');
-            const newestText = String(newestRow.transcript ?? '');
+            const newestText = normalizeForMatch(String((await readRow(ids[2])).transcript ?? ''));
+            const newestPdf = await exportPdfText(ids[2]);
+            const middlePdf = await exportPdfText(ids[1]);
 
-            const newestPdf = await exportPdfBytes(ids[2]);
-            const middlePdf = await exportPdfBytes(ids[1]);
+            // POSITIVE CONTROLS FIRST — without these the absence assertions below prove nothing.
+            expect(newestPdf.length, 'newest artifact produced parseable text').toBeGreaterThan(0);
+            expect(middlePdf.length, 'middle artifact produced parseable text').toBeGreaterThan(0);
+            expect(newestPdf.includes(ids[2]), 'newest artifact carries its OWN session marker').toBe(true);
+            expect(middlePdf.includes(ids[1]), 'middle artifact carries its OWN session marker').toBe(true);
+            // ...and the extractor demonstrably surfaces retained transcript text, so "no transcript in
+            // the artifact" is a real observation rather than an extraction failure.
+            expect(newestText.length, 'newest session has retained transcript text to find').toBeGreaterThan(0);
+            expect(newestPdf.includes(newestText), 'newest artifact carries its retained transcript').toBe(true);
 
-            // POSITIVE CONTROLS FIRST. A non-empty artifact, and this extraction method demonstrably
-            // surfaces retained transcript text — without which the absence assertions below would be
-            // vacuous rather than meaningful.
-            expect(newestPdf.length, 'newest artifact is non-empty').toBeGreaterThan(0);
-            expect(middlePdf.length, 'middle artifact is non-empty').toBeGreaterThan(0);
-            expect(newestPdf.includes(newestText), 'newest PDF carries its OWN retained transcript').toBe(true);
-            expect(middlePdf.includes(middleText), 'middle PDF carries its OWN retained transcript').toBe(true);
-            // ...and neither carries the other's.
-            expect(newestPdf.includes(middleText), 'newest PDF must not carry another session transcript').toBe(false);
-            expect(middlePdf.includes(newestText), 'middle PDF must not carry another session transcript').toBe(false);
+            // THE EXPIRED SESSION'S MARKER IS ABSENT from every artifact that could be produced.
+            expect(newestPdf.includes(ids[0]), 'expired session marker must not appear in another artifact').toBe(false);
+            expect(middlePdf.includes(ids[0]), 'expired session marker must not appear in another artifact').toBe(false);
 
-            // The EXPIRED session: no reachable export control, and its transcript reaches no artifact.
+            // ...and it exposes no export control at all, so no artifact of its own can be produced.
             await page.goto('/analytics');
             await expect(page.getByTestId('session-history-list')).toBeVisible({ timeout: 45_000 });
             await expect(page.getByTestId(`download-pdf-btn-${ids[0]}`),
                 'expired session exposes no export control on the newest-two dashboard').toHaveCount(0);
             expect(oldestTranscriptShaBeforeExpiry, 'the expired session HAD a transcript to leak (control)')
                 .not.toBe(sha256Hex(''));
-            for (const [label, pdf] of [['newest', newestPdf], ['middle', middlePdf]] as const) {
-                expect(sha256Hex(pdf).length, `${label} artifact hashed`).toBeGreaterThan(0);
-            }
 
             expect(providerHits, `no Cloud/provider contact at any point: ${providerHits.join(',')}`).toEqual([]);
         });

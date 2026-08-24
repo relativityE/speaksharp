@@ -11,8 +11,8 @@
 //      have created an account.
 //   2. Cross-check UID -> email and refuse to delete anything that is not run-owned.
 //   3. Clear every NON-CASCADING table BY user_id FIRST, while the column still holds it (see
-//      PRE_DELETE_TABLES): one is RESTRICT and would make the delete FAIL, the other is SET NULL and
-//      would leave the row behind as residue.
+//      PRE_DELETE_TABLES): a SET NULL FK survives `deleteUser()` as residue because the delete only
+//      nulls the column.
 //   4. Delete the auth user.
 //   5. Prove deletion — ONLY an expected not-found re-fetch is proof. Any other error (network, auth,
 //      rate limit) is NOT proof of deletion and must fail closed.
@@ -40,33 +40,43 @@ type AdminClient = {
     };
 };
 
-/** Cascade surfaces that MUST hold zero run-owned rows once the auth user is deleted. */
+/**
+ * COMPLETE `auth.users` FK INVENTORY (derived from the migration history, not assumed).
+ *
+ * Every foreign key to `auth.users(id)` is ON DELETE CASCADE except two:
+ *   - `trial_entitlements.user_id` — SET NULL. `deleteUser()` only nulls the column, so the row would
+ *     survive as residue. It MUST be deleted by user_id first, while the column still holds it.
+ *   - `user_issue_reports.user_id` — SET NULL BY DESIGN. The product intentionally RETAINS "Report
+ *     issue" feedback after account deletion (row survives, unlinked). That is a feature, not residue;
+ *     scrubbing it would risk erasing real user feedback. This proof files none anyway.
+ *
+ * `usage_checkpoints.user_id` deserves a note because it is the known trap: it was originally declared
+ * `REFERENCES auth.users(id)` with NO on-delete clause — NO ACTION/RESTRICT — which once blocked a
+ * delete and left a partially-removed account. Migration 20260625120000 changed it to CASCADE. It
+ * therefore needs no pre-delete, but it IS residue-checked below so a regression that reverted that
+ * migration would fail this proof rather than silently orphan rows again.
+ */
 const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = Object.freeze([
     { table: 'sessions', column: 'user_id' },
     { table: 'user_profiles', column: 'id' },                       // PK = auth user id
+    { table: 'user_goals', column: 'user_id' },
+    { table: 'custom_vocabulary', column: 'user_id' },
+    { table: 'usage_checkpoints', column: 'user_id' },              // CASCADE since 20260625120000
+    { table: 'active_recording_lease', column: 'user_id' },
     { table: 'session_attribution_authority', column: 'user_id' },
     { table: 'session_attribution_challenge', column: 'user_id' },
     { table: 'session_attribution_unattributed', column: 'user_id' },
-    // Progress surfaces: a completed session can produce an evaluation, a recommendation, and an
-    // attempt row. All three are ON DELETE CASCADE, so these assert the cascade actually fired.
+    // Progress surfaces a completed session can produce.
     { table: 'session_progress_evaluations', column: 'user_id' },
     { table: 'progress_recommendations', column: 'user_id' },
     { table: 'progress_recommendation_attempts', column: 'user_id' },
-    { table: 'active_recording_lease', column: 'user_id' },
-    { table: 'usage_checkpoints', column: 'user_id' },              // deleted explicitly below, not cascaded
 ]);
 
 /**
- * Tables whose user_id FK is NOT `ON DELETE CASCADE` and must therefore be cleared BEFORE the auth
- * user is deleted. Getting this list wrong does not degrade gracefully:
- *   - `usage_checkpoints.user_id` is declared `REFERENCES auth.users(id)` with NO on-delete clause,
- *     which is NO ACTION/RESTRICT. If the journey wrote one, `deleteUser()` FAILS and the run orphans
- *     a real account in the production database. This has already burned a partial delete once.
- *   - `trial_entitlements.user_id` is ON DELETE SET NULL: `deleteUser()` would only null the column
- *     and leave the row behind as residue.
- * Every other run-owned table cascades and is verified in RESIDUE_CHECKS.
+ * Tables whose user_id FK is NOT `ON DELETE CASCADE` and must be cleared BEFORE the auth user is
+ * deleted. `user_issue_reports` is deliberately excluded — see the inventory above.
  */
-const PRE_DELETE_TABLES: ReadonlyArray<string> = Object.freeze(['usage_checkpoints', 'trial_entitlements']);
+const PRE_DELETE_TABLES: ReadonlyArray<string> = Object.freeze(['trial_entitlements']);
 
 export const RUN_OWNED_PREFIX_RE = /^(private-proof-|retention-proof-)/;
 
