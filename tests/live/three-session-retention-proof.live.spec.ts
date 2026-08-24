@@ -12,6 +12,7 @@ import {
 import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
 import { extractUidFromAuthStorage, sha256Hex } from './helpers/proofAuthority';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
+import { evaluateThreeRecordingEntitlement } from './helpers/entitlementAuthority';
 import { extractPdfText, normalizeForMatch } from '../helpers/pdfText';
 import { validateNextActionSignal } from '../../frontend/src/contracts/nextActionSignal';
 
@@ -177,17 +178,15 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                 // Headroom for ALL THREE bounded recordings, not merely for this one. `can_start` alone
                 // is a per-start verdict and would happily allow recording 1 on an account that cannot
                 // finish the journey.
-                const trialActive = usage.trial_active === true;
-                const isPro = usage.is_pro === true;
-                expect(trialActive || isPro,
-                    `run-owned account needs an active trial or pro entitlement (trial_active=${trialActive} is_pro=${isPro})`,
+                // TRIAL HEADROOM FAILS CLOSED — the decision itself lives in entitlementAuthority.ts
+                // so every rejection path (short budget, missing field, non-numeric field, trial that
+                // also reports pro, neither trial nor pro) is falsified by unit tests rather than only
+                // by a live production run.
+                const verdict = evaluateThreeRecordingEntitlement(usage, THREE_RECORDING_BUDGET_SECONDS);
+                expect(verdict.ok,
+                    `entitlement must cover THREE bounded recordings before recording 1 ` +
+                    `(${'reason' in verdict ? verdict.reason : 'ok'})`,
                 ).toBe(true);
-                const remaining = typeof usage.trial_seconds_remaining === 'number' ? usage.trial_seconds_remaining : null;
-                if (remaining !== null) {
-                    expect(remaining,
-                        `entitlement must cover THREE bounded recordings (need >= ${THREE_RECORDING_BUDGET_SECONDS}s, have ${remaining}s)`,
-                    ).toBeGreaterThanOrEqual(THREE_RECORDING_BUDGET_SECONDS);
-                }
             }
 
             const startStop = page.getByTestId('session-start-stop-button');
