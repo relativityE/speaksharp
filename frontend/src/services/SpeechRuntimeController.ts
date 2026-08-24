@@ -735,28 +735,14 @@ export class SpeechRuntimeController {
                 // #1161: attribution via the trusted server producer. null = transient → stay retryable.
                 const attrRes = await this.attestSessionEngine(targetSessionId, fullSave.attributionEvidence);
                 if (attrRes === null) return false;
-                // #1265: transcript completion and attribution do not prove the rich delivery metrics landed.
-                // Re-run the exact payload captured for this recording; missing payload or any failed/throwing
-                // write is a completed recording with NO Progress evaluation, never an immutable partial row.
-                let metricsPersisted = false;
-                const metricsPayload = fullSave.progressMetrics?.payload ?? null;
-                if (metricsPayload) {
-                    try {
-                        const metricsResult = await updateSession(targetSessionId, metricsPayload);
-                        metricsPersisted = metricsResult.success;
-                        if (!metricsPersisted) {
-                            logger.warn(
-                                { sessionId: targetSessionId, error: metricsResult.error ?? null },
-                                '[controller] Retry Save completed, but rich metrics did not persist; Progress skipped (#1265)',
-                            );
-                        }
-                    } catch (metricsError) {
-                        logger.warn(
-                            { sessionId: targetSessionId, metricsError },
-                            '[controller] Retry Save rich metrics threw; recording kept, Progress skipped (#1265)',
-                        );
-                    }
-                }
+                // #1306 Step 3: the retry's separate metrics PATCH is REMOVED for the same reason as the
+                // normal path — v2 wrote every retained metric in the SAME transaction as the transcript and
+                // retention, so its acceptance above already proves they landed. #1265's concern (a completed
+                // recording with no Progress evaluation) is now structurally impossible rather than repaired
+                // by a second write: there is no state where completion succeeded but metrics did not.
+                // The retry replays fullSave.completeArgs UNCHANGED, so the same immutable payload — including
+                // the same transcript — is sent; a divergent payload conflicts server-side rather than writing.
+                const metricsPersisted = true;
                 // Full save + attribution both durable → recording resolved. Compare-and-clear (the slot may
                 // have been re-pointed to another session mid-flight, though the single-unresolved invariant
                 // makes that near-impossible); never clear a different session's unresolved work.
@@ -3484,11 +3470,18 @@ export class SpeechRuntimeController {
                                 nextActionSignal: finalNextAction,
                             });
 
+                            // #1306 Step 3: the EXACT finalized transcript selected at the recording boundary is
+                            // bound into the IMMUTABLE completion payload here, before any terminal purge. Retry
+                            // Save replays this identical object, so a retry can never send a different
+                            // transcript (which the server would reject as a conflict rather than partially write).
+                            // This value lives only in recording-owned memory — it is deliberately NOT written to
+                            // the recovery draft below, diagnostics, telemetry, or logs.
                             const completeArgs: CompleteSessionOptions & { status: 'completed' } = {
                                 status: 'completed',
                                 duration: Math.round(duration),
                                 nextActionSignal: finalNextAction,
                                 metrics: finalMetrics,
+                                finalTranscript,
                             };
                             const progressContext = this.buildProgressCompletionContext(Math.round(duration));
                             // Capture the exact rich-metrics write before either persistence step can fail.
@@ -3643,26 +3636,13 @@ export class SpeechRuntimeController {
                                 }, '[DEBUG-STOP] Lifecycle changed after session completion; continuing rich metrics update');
                             }
 
-                            logger.info({ sessionId }, '[DEBUG-STOP] updateSession starting');
-                            const updateResult = await updateSession(sessionId, richMetricsPayload);
-                            if (!updateResult.success) {
-                                logger.warn({
-                                    sessionId,
-                                    error: updateResult.error ?? null,
-                                }, '[DEBUG-STOP] metrics update failed after transcript completion; preserving completed session');
-                                guardedStopStatus = {
-                                    type: 'warning',
-                                    message: 'Session saved.',
-                                    detail: 'Your transcript was saved, but some analysis metrics could not be updated yet.',
-                                };
-                                store.setSTTStatus(guardedStopStatus);
-                            } else {
-                                logger.info('[DEBUG-STOP] updateSession done');
-                            }
-                            // Analysis-persistence track terminal. On failure (metricsOk=false) the two-track
-                            // gate never publishes → the warning above stands and no success toast/cue shows.
+                            // #1306 Step 3: the redundant post-completion metrics PATCH is REMOVED. v2 persisted
+                            // every retained metric and the next action inside the SAME transaction that wrote the
+                            // transcript and ran retention, so a second write could only introduce a divergent
+                            // authority and a "completed but metrics missing" window. The v2 acceptance above IS
+                            // the durable metrics result; attribution remains its own separately trusted path.
                             metricsDone = true;
-                            metricsOk = updateResult.success;
+                            metricsOk = true;
                             // Attribution may still be pending, but its eventual retry must use this exact
                             // result — transcript completion alone never implies rich metrics persisted.
                             if (this.pendingAttributionRetry?.sessionId === sessionId) {

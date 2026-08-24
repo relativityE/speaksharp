@@ -131,7 +131,7 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
     it('full-save retry passes through the same Focus Points registration gate', async () => {
         retry.pendingFullSaveRetry = {
             sessionId: 'session-full-save',
-            completeArgs: { status: 'completed', transcript: 'price timeline', duration: 42 },
+            completeArgs: { status: 'completed', finalTranscript: 'price timeline', duration: 42 },
             attributionEvidence: EVIDENCE,
             progressContext: FOCUS_CONTEXT,
             progressMetrics: { payload: METRICS_PAYLOAD, persisted: false },
@@ -139,10 +139,12 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
 
         await expect(retry.retryRecordingSave()).resolves.toBe(true);
 
+        // #1306 Step 3: metrics ride in the atomic v2 completion, so the ordering gate keys off THAT
+        // call rather than a second PATCH that no longer exists.
         expect(completeSession).toHaveBeenCalledTimes(1);
-        expect(updateSession).toHaveBeenCalledWith('session-full-save', METRICS_PAYLOAD);
+        expect(updateSession).not.toHaveBeenCalled();
         expect(finalizeObjectiveSessionOnSave).toHaveBeenCalledWith(expect.objectContaining({ sourceSessionId: 'session-full-save' }));
-        expect(updateSession.mock.invocationCallOrder[0])
+        expect(completeSession.mock.invocationCallOrder[0])
             .toBeLessThan(finalizeObjectiveSessionOnSave.mock.invocationCallOrder[0]);
         expect(wireProgressEvaluationOnSave).toHaveBeenCalledTimes(1);
     });
@@ -151,7 +153,7 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
         finalizeObjectiveSessionOnSave.mockResolvedValue({ ok: false, registered: false, stage: 'register', reason: 'error' });
         retry.pendingFullSaveRetry = {
             sessionId: 'session-full-save-register-failed',
-            completeArgs: { status: 'completed', transcript: 'price timeline', duration: 42 },
+            completeArgs: { status: 'completed', finalTranscript: 'price timeline', duration: 42 },
             attributionEvidence: EVIDENCE,
             progressContext: FOCUS_CONTEXT,
             progressMetrics: { payload: METRICS_PAYLOAD, persisted: false },
@@ -167,7 +169,7 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
     it('unknown legacy/reloaded retry context fails closed instead of defaulting to Open Mic', async () => {
         retry.pendingFullSaveRetry = {
             sessionId: 'session-unknown',
-            completeArgs: { status: 'completed', transcript: 'saved words', duration: 42 },
+            completeArgs: { status: 'completed', finalTranscript: 'saved words', duration: 42 },
             attributionEvidence: null,
             progressContext: { mode: 'unknown' },
             progressMetrics: { payload: null, persisted: false },
@@ -191,10 +193,13 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
         expect(wireProgressEvaluationOnSave).toHaveBeenCalledTimes(1);
     });
 
-    it('Open Mic full-save retry without a trustworthy metrics payload saves but writes no Progress evaluation', async () => {
+    // #1306 Step 3: the stashed metrics payload existed ONLY to re-run the second write. With metrics
+    // committed inside v2, a successful completion is itself proof they landed, so Progress proceeds
+    // even when no payload was stashed. Absence of the payload is no longer evidence of missing metrics.
+    it('Open Mic full-save retry writes Progress even without a stashed metrics payload (v2 proves metrics)', async () => {
         retry.pendingFullSaveRetry = {
             sessionId: 'session-open-mic-no-metrics',
-            completeArgs: { status: 'completed', transcript: 'saved words', duration: 42 },
+            completeArgs: { status: 'completed', finalTranscript: 'saved words', duration: 42 },
             attributionEvidence: EVIDENCE,
             progressContext: { mode: 'open_mic' },
             progressMetrics: { payload: null, persisted: false },
@@ -204,14 +209,13 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
 
         expect(completeSession).toHaveBeenCalledTimes(1);
         expect(updateSession).not.toHaveBeenCalled();
-        expect(finalizeObjectiveSessionOnSave).not.toHaveBeenCalled();
-        expect(wireProgressEvaluationOnSave).not.toHaveBeenCalled();
+        expect(wireProgressEvaluationOnSave).toHaveBeenCalledTimes(1);
     });
 
-    it('Focus Points full-save retry without a trustworthy metrics payload saves but writes no Progress evaluation', async () => {
+    it('Focus Points full-save retry writes Progress even without a stashed metrics payload (v2 proves metrics)', async () => {
         retry.pendingFullSaveRetry = {
             sessionId: 'session-focus-no-metrics',
-            completeArgs: { status: 'completed', transcript: 'saved words', duration: 42 },
+            completeArgs: { status: 'completed', finalTranscript: 'saved words', duration: 42 },
             attributionEvidence: EVIDENCE,
             progressContext: FOCUS_CONTEXT,
             progressMetrics: { payload: null, persisted: false },
@@ -220,48 +224,56 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
         await expect(retry.retryRecordingSave()).resolves.toBe(true);
 
         expect(updateSession).not.toHaveBeenCalled();
-        expect(finalizeObjectiveSessionOnSave).not.toHaveBeenCalled();
-        expect(wireProgressEvaluationOnSave).not.toHaveBeenCalled();
+        expect(finalizeObjectiveSessionOnSave).toHaveBeenCalled();
+        expect(wireProgressEvaluationOnSave).toHaveBeenCalledTimes(1);
     });
 
-    it('Focus Points full-save retry with a failed metrics write skips registration and Progress', async () => {
-        updateSession.mockResolvedValue({ success: false, error: 'metrics unavailable' });
+    it('Focus Points full-save retry with a FAILED v2 completion skips registration and Progress', async () => {
+        // A FAILING SECOND METRICS WRITE IS NO LONGER REACHABLE — v2 commits metrics with the transcript.
+        // The equivalent hazard is now a failed COMPLETION, which must likewise skip Progress.
+        completeSession.mockResolvedValueOnce({ success: false });
         retry.pendingFullSaveRetry = {
             sessionId: 'session-focus-metrics-failed',
-            completeArgs: { status: 'completed', transcript: 'price timeline', duration: 42 },
+            completeArgs: { status: 'completed', finalTranscript: 'price timeline', duration: 42 },
             attributionEvidence: EVIDENCE,
             progressContext: FOCUS_CONTEXT,
             progressMetrics: { payload: METRICS_PAYLOAD, persisted: false },
         };
 
-        await expect(retry.retryRecordingSave()).resolves.toBe(true);
+        // A failed completion leaves the recording UNRESOLVED — the retry reports false and
+        // the slot stays armed, exactly as a failed durable save must.
+        await expect(retry.retryRecordingSave()).resolves.toBe(false);
 
-        expect(updateSession).toHaveBeenCalledWith('session-focus-metrics-failed', METRICS_PAYLOAD);
+        expect(updateSession).not.toHaveBeenCalled();
         expect(finalizeObjectiveSessionOnSave).not.toHaveBeenCalled();
         expect(wireProgressEvaluationOnSave).not.toHaveBeenCalled();
     });
 
-    it('Open Mic full-save retry with a failed metrics write skips Progress', async () => {
-        updateSession.mockResolvedValue({ success: false, error: 'metrics unavailable' });
+    it('Open Mic full-save retry with a FAILED v2 completion skips Progress', async () => {
+        // A FAILING SECOND METRICS WRITE IS NO LONGER REACHABLE — v2 commits metrics with the transcript.
+        // The equivalent hazard is now a failed COMPLETION, which must likewise skip Progress.
+        completeSession.mockResolvedValueOnce({ success: false });
         retry.pendingFullSaveRetry = {
             sessionId: 'session-open-mic-metrics-failed',
-            completeArgs: { status: 'completed', transcript: 'saved words', duration: 42 },
+            completeArgs: { status: 'completed', finalTranscript: 'saved words', duration: 42 },
             attributionEvidence: EVIDENCE,
             progressContext: { mode: 'open_mic' },
             progressMetrics: { payload: METRICS_PAYLOAD, persisted: false },
         };
 
-        await expect(retry.retryRecordingSave()).resolves.toBe(true);
+        // A failed completion leaves the recording UNRESOLVED — the retry reports false and
+        // the slot stays armed, exactly as a failed durable save must.
+        await expect(retry.retryRecordingSave()).resolves.toBe(false);
 
-        expect(updateSession).toHaveBeenCalledWith('session-open-mic-metrics-failed', METRICS_PAYLOAD);
+        expect(updateSession).not.toHaveBeenCalled();
         expect(finalizeObjectiveSessionOnSave).not.toHaveBeenCalled();
         expect(wireProgressEvaluationOnSave).not.toHaveBeenCalled();
     });
 
-    it('Open Mic full-save retry with successful metrics writes exactly one evaluation', async () => {
+    it('Open Mic full-save retry writes exactly one evaluation (metrics ride in the v2 completion)', async () => {
         retry.pendingFullSaveRetry = {
             sessionId: 'session-open-mic-metrics-ok',
-            completeArgs: { status: 'completed', transcript: 'saved words', duration: 42 },
+            completeArgs: { status: 'completed', finalTranscript: 'saved words', duration: 42 },
             attributionEvidence: EVIDENCE,
             progressContext: { mode: 'open_mic' },
             progressMetrics: { payload: METRICS_PAYLOAD, persisted: false },
@@ -269,7 +281,8 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
 
         await expect(retry.retryRecordingSave()).resolves.toBe(true);
 
-        expect(updateSession).toHaveBeenCalledWith('session-open-mic-metrics-ok', METRICS_PAYLOAD);
+        expect(updateSession).not.toHaveBeenCalled();
+        expect(completeSession).toHaveBeenCalledTimes(1);
         expect(finalizeObjectiveSessionOnSave).not.toHaveBeenCalled();
         expect(wireProgressEvaluationOnSave).toHaveBeenCalledTimes(1);
     });

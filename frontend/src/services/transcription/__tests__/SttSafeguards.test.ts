@@ -285,32 +285,43 @@ describe('STT Safeguards Unit Tests', () => {
         await controller.stopRecording();
         await controller.whenStable();
 
-        // The rich-metrics write is metrics-only: flat filler_counts + one next_action_signal, numbers only.
-        expect(storageMocks.updateSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
-            total_words: 9,
-            wpm: 90,
-            filler_counts: expect.objectContaining({ um: 1 }),
-            pause_metrics: expect.any(Object),
-            clarity_score: expect.any(Number),
-            next_action_signal: expect.any(Object),
+        // #1306 Step 3: metrics now travel in the SAME atomic v2 call as the transcript and retention.
+        // The separate rich-metrics PATCH is gone, so asserting it would lock in a removed second write.
+        expect(storageMocks.updateSession).not.toHaveBeenCalled();
+        expect(storageMocks.completeSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
+            status: 'completed',
+            metrics: expect.objectContaining({
+                totalWords: 9,
+                wpm: 90,
+                fillerCounts: expect.objectContaining({ um: 1 }),
+                clarityScore: expect.any(Number),
+                pauseMetrics: expect.any(Object),
+            }),
+            nextActionSignal: expect.any(Object),
         }));
-        // No transcript, no per-session accuracy/custom words, no nested filler shape ever crosses the boundary.
-        const updateCalls = storageMocks.updateSession.mock.calls;
-        const updateArg = updateCalls[updateCalls.length - 1]?.[1] ?? {};
-        for (const banned of ['transcript', 'accuracy', 'filler_words', 'custom_words', 'ground_truth', 'ai_suggestions']) {
-            expect(updateArg).not.toHaveProperty(banned);
+        // The SINGLE authorized transcript boundary: `finalTranscript` on the completion call. Every other
+        // content field remains forbidden — retention changed WHERE the transcript may go, not whether the
+        // banned per-session content fields may travel.
+        const completeArg = storageMocks.completeSession.mock.calls[
+            storageMocks.completeSession.mock.calls.length - 1
+        ]?.[1] ?? {};
+        expect(typeof completeArg.finalTranscript).toBe('string');
+        for (const banned of ['accuracy', 'filler_words', 'custom_words', 'ground_truth', 'ai_suggestions']) {
+            expect(completeArg).not.toHaveProperty(banned);
         }
+        // ...and no content field is smuggled inside the metrics sub-object either.
+        expect(JSON.stringify(completeArg.metrics ?? {})).not.toContain('hello world');
     });
 
-    it('keeps a completed transcript saved when the later metrics update fails', async () => {
+    it('#1306: completion is ATOMIC — there is no later metrics write that can fail separately', async () => {
         storageMocks.saveSession.mockResolvedValue({
             session: { id: 'sess-123' },
             usageExceeded: false
         });
-        storageMocks.updateSession.mockResolvedValue({
-            success: false,
-            error: 'metrics table temporarily unavailable'
-        });
+        // The previous version of this test simulated a FAILING second metrics write and proved the
+        // completion survived it. Under v2 that scenario is unreachable: metrics, transcript and retention
+        // commit in one transaction, so "saved but metrics missing" is not a state the client can enter.
+        // The replacement asserts the stronger property — no second write is issued at all.
 
         vi.spyOn(service, 'stopTranscription').mockResolvedValue({
             success: true,
@@ -338,14 +349,19 @@ describe('STT Safeguards Unit Tests', () => {
         expect(storageMocks.completeSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
             status: 'completed',
         }));
+        expect(storageMocks.updateSession).not.toHaveBeenCalled();
         const completeArg = storageMocks.completeSession.mock.calls[0][1];
+        // The transcript travels as `finalTranscript` — the one authorized boundary — never as a bare
+        // `transcript` field smuggled onto the options object.
         expect(completeArg).not.toHaveProperty('transcript');
+        expect(typeof completeArg?.finalTranscript).toBe('string');
         // The client derives the word count itself ("um hello world this transcript should stay saved" = 8).
         expect(completeArg?.metrics?.totalWords).toBe(8);
         expect(storageMocks.completeSession).not.toHaveBeenCalledWith('sess-123', expect.objectContaining({
             status: 'failed'
         }));
-        expect(storageMocks.updateSession).toHaveBeenCalled();
+        // (The stale `expect(updateSession).toHaveBeenCalled()` that lived here asserted the removed
+        // second write; it is superseded by the not-called assertion above.)
         expect(document.documentElement.getAttribute('data-session-persisted')).toBe('true');
     });
 });

@@ -20,6 +20,7 @@ interface jsPDFInternal {
 }
 
 import { toast } from '@/lib/toast';
+import { resolveTranscriptView } from './storage';
 
 const PDF_WATERMARK_TEXT = 'SpeakSharp';
 
@@ -202,8 +203,23 @@ export const generateSessionPdf = async (
       });
     }
 
-    // #1306 metrics-only: NO transcript page and NO free-form AI coaching page. The exported report contains
-    // metrics + the ONE structured next action (rendered from next_action_signal below / the Progress section).
+    // #1306 Step 3: the transcript page is included ONLY for a session the server states is `available`.
+    //
+    // The decision comes from resolveTranscriptView on the ALREADY-OPENED detail row — the same resolver the
+    // review surface uses. The PDF never refetches and never reconstructs text: an expired or not-captured
+    // session simply has no transcript page, and a malformed row that still carries text after expiry is
+    // suppressed here exactly as it is on screen. Reconstructing would export content past its retention.
+    const transcriptView = resolveTranscriptView(session as { transcript_state?: string | null; transcript?: string | null });
+    if (transcriptView.kind === 'available') {
+      doc.addPage();
+      doc.setFontSize(16);
+      doc.text('Transcript', 14, 22);
+      doc.setFontSize(10);
+      doc.text(doc.splitTextToSize(transcriptView.text, 180), 14, 34);
+    }
+
+    // NO free-form AI coaching page. The exported report contains metrics + the ONE structured next action
+    // (rendered from next_action_signal below / the Progress section).
     const naSignal = session.next_action_signal;
     const naValidated = naSignal ? validateNextActionSignal(naSignal) : null;
     if (naValidated?.ok) {

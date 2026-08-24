@@ -362,11 +362,37 @@ export const handlers: RequestHandler[] = [
     return HttpResponse.json({ success: true });
   }),
 
-  // RPC: complete_session
+  // RPC: complete_session (v1) — REJECTED. The production client cut over to v2; a mock that still
+  // accepted v1 would let a fallback regression pass silently. `complete_session_v2` is matched first
+  // below because MSW resolves handlers in order and '*/rpc/complete_session' would also match it.
+  http.post('*/rpc/complete_session_v2', async ({ request }) => {
+    const body = await request.json() as Record<string, unknown>;
+    // Model the REAL envelope, not a bare success. A mock that returns `{ success: true }` accepts a
+    // client which never reads transcript_outcome — i.e. it tests an easier contract than production.
+    const supplied = typeof body.p_final_transcript === 'string' ? String(body.p_final_transcript).trim() : '';
+    const outcome = supplied ? 'retained' : (body.p_final_transcript == null ? 'not_provided' : 'not_captured');
+    const state = supplied ? 'available' : 'not_captured';
+    logger.info({ p_session_id: body.p_session_id, outcome }, '[MSW RPC] complete_session_v2');
+    return HttpResponse.json({
+      success: true,
+      session_saved: true,
+      idempotent: false,
+      final_status: body.p_status ?? 'completed',
+      next_action_signal: body.p_next_action ?? null,
+      transcript_state: state,
+      transcript_outcome: outcome,
+      transcript_retained: outcome === 'retained',
+      retention: { status: 'converged' },
+    });
+  }),
+
   http.post('*/rpc/complete_session', async ({ request }) => {
     const { p_session_id } = await request.json() as { p_session_id: string };
-    logger.info({ p_session_id }, '[MSW RPC] Completing session');
-    return HttpResponse.json({ success: true });
+    logger.error({ p_session_id }, '[MSW RPC] REJECTED legacy complete_session (v1) — client must call v2');
+    return HttpResponse.json(
+      { message: 'complete_session (v1) is not callable by the production client', code: 'PGRST202' },
+      { status: 404 },
+    );
   }),
 
   // Edge Function: check-usage-limit
