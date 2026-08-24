@@ -12,8 +12,8 @@ import { FILLER_WORD_KEYS, TRUE_FILLER_WORDS } from '../../../config';
  * that have nothing to do with Whisper, the model choice, or the audio pipeline. They are pure
  * client-side counting bugs, reachable with no audio at all.
  *
- * HOW TO READ `it.fails`: each case asserts the CORRECT behaviour and is marked expected-to-fail, so
- * the suite is green while the defect stands. The moment a fix lands, `it.fails` itself fails loudly
+ * PROMOTED TO ACCEPTANCE (#1331 subtask D). These began as `it.fails` characterizations proving the
+ * defects existed; the fixes have landed, so each now asserts the correct behaviour directly
  * and forces the assertion to be promoted to a normal one. Promoting all five IS the acceptance
  * criterion for the fix. A plain skipped test would rot silently; this cannot.
  *
@@ -67,24 +67,18 @@ describe('#1324 finding 1 — interim-only occurrences are not accumulated acros
         return result;
     };
 
-    it.fails('DEFECT: five separate interim-only "um" episodes do not yield five', () => {
+    it('five separate interim-only "um" episodes yield five', () => {
+        // Each episode is a distinct spoken occurrence, even though the final chunk dropped the filler.
         const result = runEpisodes(5, 'um');
-        const um = result.current.counts[FILLER_WORD_KEYS.UM]?.count ?? 0;
-
-        // Assert the MECHANISM, not the literal 1. The ceiling is the maximum within a SINGLE
-        // hypothesis, so a fixture whose hypothesis happened to carry two fillers would legitimately
-        // yield 2 — a test hardcoded to 1 would look broken for the wrong reason.
-        expect(um).toBeLessThan(5);      // MEASURED: 1
-        expect(um).toBeGreaterThan(0);   // the evidence WAS observed at least once...
-        expect(um).toBe(5);              // ...but the product must report every occurrence.
+        expect(result.current.counts[FILLER_WORD_KEYS.UM]?.count ?? 0).toBe(5);
     });
 
-    it.fails('confirms the ceiling is per-hypothesis MAX, not a hardcoded one', () => {
-        // Two fillers inside ONE hypothesis do come through as two, which is what proves the bug is
-        // `Math.max` over episodes rather than a literal cap of 1.
+    it('two occurrences inside one hypothesis, across three episodes, yield six', () => {
+        // Guards BOTH directions at once: the per-episode maximum must survive (2 per episode), and
+        // episodes must accumulate (x3). A regression to session-wide max gives 2; a regression to
+        // summing every revision gives far more than 6.
         const result = runEpisodes(3, 'um and um again');
-        const um = result.current.counts[FILLER_WORD_KEYS.UM]?.count ?? 0;
-        expect(um).toBe(2 * 3);   // MEASURED: 2 — i.e. the per-hypothesis maximum, not a cap of 1
+        expect(result.current.counts[FILLER_WORD_KEYS.UM]?.count ?? 0).toBe(6);
     });
 });
 
@@ -113,13 +107,11 @@ describe('#1324 finding 2 — the 200ms debounce discards short-lived interim ev
         return result;
     };
 
-    it.fails('DEFECT: five sub-200ms "um" episodes contribute nothing, not even the collapsed one', () => {
+    it('five sub-200ms "um" episodes are all counted', () => {
+        // Counting must not depend on the debounce timer firing: these episodes finalise before it
+        // would, and previously their evidence was cancelled with the pending timer.
         const result = runFastEpisodes(5);
-        const um = result.current.counts[FILLER_WORD_KEYS.UM]?.count ?? 0;
-
-        // This is what separates finding 2 from finding 1: finding 1 collapses N to a smaller
-        // non-zero number; finding 2 loses the evidence entirely.
-        expect(um).toBe(5);
+        expect(result.current.counts[FILLER_WORD_KEYS.UM]?.count ?? 0).toBe(5);
     });
 
     it('characterises the boundary: the same episodes DO register when they outlive the debounce', () => {
@@ -136,8 +128,73 @@ describe('#1324 finding 2 — the 200ms debounce discards short-lived interim ev
     });
 });
 
+describe('#1324 reconciliation — rolling revisions and interim/final overlap', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    const mount = () => {
+        const chunks: Chunk[] = [];
+        const { result, rerender } = renderHook(
+            ({ chunks, interim }: { chunks: Chunk[]; interim: string }) =>
+                useFillerWords(chunks, interim, NO_USER_WORDS),
+            { initialProps: { chunks: [...chunks], interim: '' } },
+        );
+        return { chunks, result, rerender };
+    };
+
+    it('rolling revisions of ONE hypothesis count the occurrence once', () => {
+        // The recogniser rewrites its hypothesis in place; the same spoken "um" reappears in each
+        // revision. Summing revisions would invent occurrences that were never spoken.
+        const { chunks, result, rerender } = mount();
+        for (const interim of ['um I', 'um I think', 'um I think that']) {
+            rerender({ chunks: [...chunks], interim });
+            act(() => { vi.advanceTimersByTime(DEBOUNCE_MS + 50); });
+        }
+        chunks.push(cleanChunk(1));
+        rerender({ chunks: [...chunks], interim: '' });
+        act(() => { vi.advanceTimersByTime(DEBOUNCE_MS + 50); });
+
+        expect(result.current.counts[FILLER_WORD_KEYS.UM]?.count ?? 0).toBe(1);
+    });
+
+    it('an occurrence seen in BOTH interim and final counts once, not twice', () => {
+        // Same spoken word, observed twice by the pipeline. The episode contributes the maximum of its
+        // interim and final evidence, never their sum.
+        const { chunks, result, rerender } = mount();
+        rerender({ chunks: [...chunks], interim: 'um hello' });
+        act(() => { vi.advanceTimersByTime(DEBOUNCE_MS + 50); });
+        chunks.push({ transcript: 'um hello there.', id: 1, timestamp: 1_700_000_001 });
+        rerender({ chunks: [...chunks], interim: '' });
+        act(() => { vi.advanceTimersByTime(DEBOUNCE_MS + 50); });
+
+        expect(result.current.counts[FILLER_WORD_KEYS.UM]?.count ?? 0).toBe(1);
+    });
+
+    it('a final-only occurrence is still counted', () => {
+        // Interim recovery must not replace or suppress finalized evidence.
+        const { chunks, result, rerender } = mount();
+        chunks.push({ transcript: 'well um that happened.', id: 1, timestamp: 1_700_000_001 });
+        rerender({ chunks: [...chunks], interim: '' });
+        act(() => { vi.advanceTimersByTime(DEBOUNCE_MS + 50); });
+
+        expect(result.current.counts[FILLER_WORD_KEYS.UM]?.count ?? 0).toBe(1);
+    });
+
+    it('a final carrying MORE occurrences than the interim reports the final count', () => {
+        // The maximum must be per-key and directional-agnostic: interim 1, final 2 -> 2.
+        const { chunks, result, rerender } = mount();
+        rerender({ chunks: [...chunks], interim: 'um' });
+        act(() => { vi.advanceTimersByTime(DEBOUNCE_MS + 50); });
+        chunks.push({ transcript: 'um and um again.', id: 1, timestamp: 1_700_000_001 });
+        rerender({ chunks: [...chunks], interim: '' });
+        act(() => { vi.advanceTimersByTime(DEBOUNCE_MS + 50); });
+
+        expect(result.current.counts[FILLER_WORD_KEYS.UM]?.count ?? 0).toBe(2);
+    });
+});
+
 describe('#1324 finding 3 — `total` sums discourse markers against the true-filler tier gate', () => {
-    it.fails('DEFECT: total counts "so" alongside "um" even though coaching gates on um/uh/ah', () => {
+    it('total counts only the coachable tier, so "So um I think" is one', () => {
         const counts = countFillerWords('So um I think', NO_USER_WORDS);
 
         // The tier the product actually coaches on:
@@ -147,17 +204,18 @@ describe('#1324 finding 3 — `total` sums discourse markers against the true-fi
         expect(trueTierSum).toBe(1);              // exactly one true filler: "um"
         expect(counts[FILLER_WORD_KEYS.SO]?.count ?? 0).toBe(1);   // "so" was matched...
 
-        // ...and `total` adds it in, so the headline disagrees with the gate.
+        // ...but the headline agrees with the gate: the marker is tracked per key, not counted.
         expect(counts.total.count).toBe(trueTierSum);
     });
 
-    it.fails('a discourse-marker-only utterance produces a non-zero total with zero true fillers', () => {
+    it('a discourse-marker-only utterance has a zero coachable total', () => {
         const counts = countFillerWords('So like you know', NO_USER_WORDS);
         const trueTierSum = TRUE_FILLER_WORDS.reduce(
             (sum: number, key: string) => sum + (counts[key]?.count ?? 0), 0,
         );
         expect(trueTierSum).toBe(0);
-        // The clearest expression of the defect: nothing coachable happened, yet total is not zero.
+        // Nothing coachable happened, so the headline is zero while the marker keys stay populated.
         expect(counts.total.count).toBe(0);
+        expect(counts[FILLER_WORD_KEYS.SO]?.count ?? 0).toBeGreaterThan(0);
     });
 });
