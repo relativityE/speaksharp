@@ -156,7 +156,7 @@ test.describe('Post-save consolidation', () => {
     await assertSingleSavedSurface(page);
   });
 
-  test('SessionPage purges the transcript after terminal; saved review is metrics-only', async ({ page }) => {
+  test('SessionPage purges the live transcript after terminal; the saved review RETAINS it', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
     await recordAndStop(page);
@@ -172,9 +172,11 @@ test.describe('Post-save consolidation', () => {
     const latest = page.getByTestId(/session-history-item-/).first();
     await openSessionDetailFromHistoryItem(page, latest);
 
-    // #1306 metrics-only: the review detail persists metrics + one next action, and NEVER a transcript. The
-    // live transcript above stayed in working memory and did not cross into the saved review surface.
-    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
+    // #1306 Step 3: the two properties are now DISTINCT and both matter.
+    //  - the LIVE session-page transcript is still ephemeral working memory (asserted purged above);
+    //  - the SAVED review retains it for the newest two sessions, so the detail DOES render it.
+    // Conflating the two was the superseded contract.
+    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(1);
     await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
   });
 

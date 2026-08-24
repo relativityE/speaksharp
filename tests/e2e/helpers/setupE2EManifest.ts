@@ -434,6 +434,13 @@ export async function setupE2EManifest(
         select: (_columns?: string, selectOptions?: { count?: string; head?: boolean }) => {
           options.count = selectOptions?.count;
           options.head = selectOptions?.head;
+          // #1306: the metrics-only read firewall is a property of the COLUMN LIST the client asks for.
+          // Under this double no HTTP is issued, so a network-body scan proves nothing; recording the
+          // requested columns is the only layer at which the claim is actually observable.
+          if (table === 'sessions' && typeof _columns === 'string') {
+            const sink = win as unknown as { __e2eSessionSelects__?: string[] };
+            (sink.__e2eSessionSelects__ ??= []).push(_columns);
+          }
           return builder;
         },
         eq: (column: string, value: unknown) => {
@@ -600,19 +607,21 @@ export async function setupE2EManifest(
           persistSessions();
           return { data: { new_session: newSession, usage_exceeded: false }, error: null };
         }
-        if (fn === 'complete_session') {
-          // #1306: the transcript-free overload is the ONLY accepted completion. A legacy call carrying
-          // p_final_transcript is REJECTED fail-closed (the old transcript-accepting overload is absent).
-          if (args && 'p_final_transcript' in args) {
-            return { data: null, error: { message: '#1306 metrics-only firewall: forbidden argument "p_final_transcript" rejected', code: '23514' } };
-          }
+        // #1306 Step 3 — the PRODUCTION completion path. This double is what `getSupabaseClient()`
+        // returns in E2E (window.supabase), so it — not the Playwright network routes — is what the
+        // client actually talks to. It must model the REAL v2 contract: metrics, the single next action
+        // and the eligible transcript all committed together, then server-owned newest-two retention,
+        // and a typed envelope. A double that returned a bare `{ success: true }` would be the v1
+        // envelope, which the client's fail-closed parser correctly rejects.
+        if (fn === 'complete_session_v2') {
           const sessionId = args?.p_session_id;
           const session = sessionState.sessions.find((row) => row.id === sessionId);
+          const supplied = typeof args?.p_final_transcript === 'string' ? String(args.p_final_transcript).trim() : '';
+          const requestedStatus = (args?.p_status as string) || 'completed';
+
           if (session) {
-            // #1306 metrics-only: transcript-free completion — persist metrics + the ONE next action; a
-            // transcript is never accepted or stored.
             Object.assign(session, {
-              status: args?.p_status || 'completed',
+              status: requestedStatus,
               duration: args?.p_final_duration ?? session.duration,
               next_action_signal: args?.p_next_action ?? session.next_action_signal,
               total_words: args?.p_total_words ?? session.total_words,
@@ -621,10 +630,61 @@ export async function setupE2EManifest(
               filler_counts: args?.p_filler_counts ?? session.filler_counts,
               pause_metrics: args?.p_pause_metrics ?? session.pause_metrics,
               updated_at: nowIso(),
+              // The transcript is written in the SAME call as the metrics — that atomicity is the
+              // whole point of v2, and a double that split them would hide a partial-save regression.
+              ...(supplied ? { transcript: args?.p_final_transcript, transcript_state: 'available' } : {}),
+            });
+
+            // SERVER-OWNED newest-two retention, applied inside the RPC exactly as production does it.
+            // Expiring transcripts in test code instead would prove our simulation, not the contract.
+            const retained = sessionState.sessions
+              .filter((x) => typeof x.transcript === 'string' && String(x.transcript).length > 0)
+              .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+            retained.slice(2).forEach((old) => {
+              old.transcript = null;
+              old.transcript_state = 'expired';
             });
             persistSessions();
           }
-          return { data: { success: true, final_status: args?.p_status || 'completed' }, error: null };
+
+          const state = (session?.transcript_state as string | undefined)
+            ?? (supplied ? 'available' : 'not_captured');
+          const outcome = state === 'available' ? 'retained'
+            : state === 'expired' ? 'expired'
+            : args?.p_final_transcript == null ? 'not_provided'
+            : 'not_captured';
+
+          // Marker proving THIS double served the call — asserted by the journey spec so "the mock
+          // handled it" is verifiable rather than assumed.
+          (win as unknown as { __e2eCompleteSessionV2Calls__?: number }).__e2eCompleteSessionV2Calls__ =
+            ((win as unknown as { __e2eCompleteSessionV2Calls__?: number }).__e2eCompleteSessionV2Calls__ ?? 0) + 1;
+
+          return {
+            data: {
+              success: true,
+              session_saved: true,
+              idempotent: false,
+              final_status: requestedStatus,
+              next_action_signal: session?.next_action_signal ?? null,
+              transcript_state: state,
+              transcript_outcome: outcome,
+              transcript_retained: outcome === 'retained',
+              retention: { status: 'converged' },
+            },
+            error: null,
+          };
+        }
+        if (fn === 'complete_session') {
+          // #1306 Step 3: the LEGACY overload. The production client cut over to v2 with NO fallback,
+          // so any v1 call must fail loudly rather than quietly succeed — otherwise a fallback
+          // regression would pass every e2e shard.
+          return {
+            data: null,
+            error: {
+              code: 'PGRST202',
+              message: 'complete_session (v1) is not callable by the production client — use complete_session_v2',
+            },
+          };
         }
         if (fn === 'heartbeat_session') {
           return { data: { success: true }, error: null };

@@ -50,14 +50,16 @@ test(`Gate 2 mocked private: analytics values change from transcript events and 
   await expect(page.getByTestId(TEST_IDS.CLARITY_SCORE_VALUE)).toContainText('%');
   await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('1');
   await expect(page.getByTestId('session-engine-metadata')).toContainText(expectedEngineLabel);
-  // #1306 metrics-only: the spoken transcript is ephemeral working memory — it drove the LIVE metrics above
-  // but is NEVER persisted or shown on the saved review surface (before OR after reload).
-  await expect(page.getByText(/target phrase should be tracked/i)).toHaveCount(0);
-  await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
+  // #1306 Step 3: this is the NEWEST session, so its transcript is RETAINED and rendered. The previous
+  // contract ("never persisted or shown") is superseded — asserting absence here would now lock in the
+  // wrong behaviour. POSITIVE proof, not absence: the retained text must actually be on the surface.
+  await expect(page.getByTestId('session-detail-transcript')).toHaveCount(1);
+  await expect(page.getByTestId('session-detail-transcript')).toContainText(/target phrase should be tracked/i);
 
   await page.reload();
   await waitForFeature(page, 'analytics');
-  await expect(page.getByText(/target phrase should be tracked/i)).toHaveCount(0);
+  // ...and it survives a full reload, i.e. it came from the server row, not in-memory state.
+  await expect(page.getByTestId('session-detail-transcript')).toContainText(/target phrase should be tracked/i);
   await expect(page.getByTestId('session-engine-metadata')).toContainText(expectedEngineLabel);
 
   await page.getByRole('button', { name: /Export PDF/i }).click();
