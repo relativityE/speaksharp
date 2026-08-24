@@ -346,8 +346,19 @@ test.describe('#1306 E2E mock fidelity — a forbidden content field is REJECTED
     });
     await page.reload();
     await openDetail(page, 'm1-reload');
-    // The mutated metric survived reload ⇒ read from the persisted mock DB, not reseeded.
-    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
+    // POSITIVE CONTROL: the test is named for a metric that survives reload, so assert the mutated
+    // VALUE. Without this the test only proved a page rendered — it would have passed identically if
+    // the update had been dropped and the fixture reseeded.
+    const persisted = await page.evaluate(async () => {
+      const sb = (window as unknown as { supabase: MockSb }).supabase;
+      const { data } = await sb.from('sessions').select('*').eq('id', 'm1-reload').single();
+      return data as { total_words?: number };
+    });
+    expect(persisted.total_words, 'metric did not survive reload — the DB was reseeded').toBe(999);
     await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
+    // This session never captured a transcript, so absence is correct here — and the pane must say so
+    // honestly rather than simply not rendering.
+    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
+    await expect(page.getByTestId('session-detail-transcript-unavailable')).toHaveCount(1);
   });
 });
