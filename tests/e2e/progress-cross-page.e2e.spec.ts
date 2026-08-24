@@ -231,8 +231,13 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     await expect(page.getByTestId('progress-baseline-context')).toHaveText(/previous comparable session is also your first-session baseline/i);
     await expect(page.getByTestId('progress-accept')).toHaveText(/Practice this next/i);
     await expect(page.getByText(/SpeakSharp Score/i)).toHaveCount(0);
-    // #1306 metrics-only: no transcript pane and no AI-coaching prose render on the review surface.
+    // #1306 Step 3: absence is correct HERE for a specific reason — this journey's session is seeded
+    // with no transcript and no transcript_state (see the fixture above), so it is genuinely
+    // not-captured rather than retained. Do not flip this to positive proof: a retained-transcript
+    // assertion belongs on a session that actually produced one (saved-session-metrics-journey).
+    // Assert the honest STATE, not just the absence, so a silently-empty pane cannot pass.
     await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
+    await expect(page.getByTestId('session-detail-transcript-unavailable')).toHaveCount(1);
     await expect(page.getByText(/same saved session truth with clear evidence/i)).toHaveCount(0);
     await expect(page.getByText('The saved-session evidence made the recommendation concrete.')).toHaveCount(0);
     // The ONE durable next action (from the server-owned Progress read model) still renders.
@@ -247,7 +252,10 @@ test.describe('#1047 U3 canonical cross-page truth', () => {
     await download.saveAs(pdfPath);
     const pdfText = await extractPdfText(pdfPath);
     expect(pdfText).toContain(SESSION_ID);
-    // #1306 metrics-only: the exported PDF carries NO transcript and NO free-form AI coaching prose.
+    // #1306 Step 3: this session has no retained transcript (not-captured, above), so the artifact
+    // carries none — and free-form AI coaching prose stays excluded regardless of transcript state.
+    // The retained-transcript-reaches-PDF claim is proven in saved-session-metrics-journey, against a
+    // session that actually produced one.
     expect(pdfText).not.toContain('Today I presented the same saved session truth with clear evidence.');
     expect(pdfText).not.toContain('SpeakSharp Score');
     expect(pdfText).not.toContain('The saved-session evidence made the recommendation concrete.');

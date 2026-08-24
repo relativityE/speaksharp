@@ -98,15 +98,18 @@ test.describe('User-facing session and analytics regressions', () => {
     // Analytics session-DETAIL page keeps its own filler-count metric surface (unchanged by the overhaul).
     await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('1');
     await expect(page.getByTestId(`${TEST_IDS.FILLER_COUNT_VALUE}-explanation`)).toContainText('captured words');
-    // #1306 metrics-only: the filler METRIC reaches the detail unchanged, but the transcript that produced it is
-    // ephemeral and is NEVER persisted or shown on the saved detail (before OR after reload).
-    await expect(page.getByText(/tester-facing transcript/i)).toHaveCount(0);
-    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
+    // #1306 Step 3: the filler METRIC still reaches the detail unchanged, and the transcript that
+    // produced it is now RETAINED for this newest session — so the assertion flips from absence to
+    // positive proof that the saved detail carries the exact text.
+    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(1);
+    await expect(page.getByTestId('session-detail-transcript')).toContainText(/tester-facing transcript/i);
 
     await page.reload();
     await waitForFeature(page, 'analytics');
     await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('1');
-    await expect(page.getByText(/tester-facing transcript/i)).toHaveCount(0);
+    // ...and the retained transcript survives the reload too, i.e. it was read back from the server row
+    // rather than held in memory.
+    await expect(page.getByTestId('session-detail-transcript')).toContainText(/tester-facing transcript/i);
   });
 
   test('keeps mobile session controls and transcript visible without obstruction', async ({ page }) => {

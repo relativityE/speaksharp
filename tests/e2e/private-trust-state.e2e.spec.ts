@@ -63,12 +63,14 @@ test.describe('Private mode trust-state + save/detail', () => {
     await latest.getByTestId(/session-detail-link-/).click();
     await page.waitForURL('**/analytics/session-*');
 
-    // #1306 metrics-only: the live transcript above was ephemeral working memory; the saved detail view renders
-    // metrics + the one next action and NEVER the transcript (the trust signal is the Private engine metadata).
-    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
-    await expect(page.getByText(/private on device transcript/i)).toHaveCount(0);
+    // #1306 Step 3: the SESSION-PAGE transcript is still purged after terminal (asserted above) — that
+    // privacy property is unchanged. What changed is the SAVED review: a retained session renders its
+    // transcript, so this flips from absence to positive proof.
+    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(1);
+    await expect(page.getByTestId('session-detail-transcript')).toContainText(/private on device transcript/i);
+    // The Private trust signal is unaffected and still verified here.
     await expect(page.getByTestId('session-engine-metadata')).toContainText(/private/i);
-    // #1306 metrics-only: the saved review presents exactly ONE structured next action (metrics-only contract).
+    // The saved review still presents exactly ONE structured next action.
     await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
   });
 });

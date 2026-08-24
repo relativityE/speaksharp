@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures';
 import { navigateToRoute, programmaticLoginWithRoutes, waitForFeature } from './helpers';
+import { TEST_IDS } from '../../frontend/src/constants/testIds';
 
 /**
  * #1306 Step 3 — saved-session read journey with NEWEST-TWO transcript retention (authenticated).
@@ -73,11 +74,21 @@ async function openDetail(page: import('@playwright/test').Page, id: string) {
   await waitForFeature(page, 'analytics');
 }
 
-/** Click the real export control and return the downloaded artifact's text. */
+/**
+ * Click the real export control and return the downloaded artifact's text.
+ *
+ * The export button is rendered by SessionHistoryItem — i.e. it exists ONLY on the /analytics
+ * dashboard row, never on the detail route. Driving it from a detail page (as this helper first did)
+ * clicked a control that was not on the page, so the download never fired and the test proved nothing.
+ */
 async function exportPdfText(page: import('@playwright/test').Page, id: string): Promise<string> {
+  await navigateToRoute(page, '/analytics');
+  await waitForFeature(page, 'analytics');
+  const control = page.getByTestId(`download-pdf-btn-${id}`).first();
+  await expect(control, `no export control rendered for ${id}`).toBeVisible();
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 30_000 }),
-    page.getByTestId(`download-pdf-btn-${id}`).first().click(),
+    control.click(),
   ]);
   const path = await download.path();
   if (!path) throw new Error('no downloaded artifact path');
@@ -132,38 +143,52 @@ test.describe('#1306 Step 3 — PRODUCED newest-two retention (authenticated)', 
   test('PDF export carries the retained tails for 2 and 3 — and cannot carry the expired one', async ({ page }) => {
     await completeThreeSessions(page);
 
-    // Retained sessions export their own tail, and only their own.
-    await openDetail(page, 'm3-newest');
+    // The RETAINED newest two each export their own tail, and only their own. These are exactly the
+    // two the dashboard renders, so both export controls genuinely exist.
     const pdf3 = await exportPdfText(page, 'm3-newest');
     expect(pdf3).toContain(TAIL3);
     expect(pdf3).not.toContain(TAIL2);
 
-    await openDetail(page, 'm2-middle');
     const pdf2 = await exportPdfText(page, 'm2-middle');
     expect(pdf2).toContain(TAIL2);
     expect(pdf2).not.toContain(TAIL3);
 
-    // The expired session still exports a metrics report, but its transcript cannot reach the artifact.
-    await openDetail(page, 'm1-oldest');
-    const pdf1 = await exportPdfText(page, 'm1-oldest');
-    expect(pdf1).not.toContain(TAIL1);
-    expect(pdf1.length).toBeGreaterThan(0); // control: an artifact WAS produced
+    // ...and the EXPIRED oldest cannot put a transcript into ANY artifact. Note what is structurally
+    // true here: expiry only ever reaches the third-newest session, and the dashboard renders the
+    // newest two, so an expired session's export control is unreachable through the real UI. The
+    // original test clicked that button anyway on a detail page that never had one — it timed out
+    // waiting for a download instead of proving anything. Both halves of the real claim are asserted:
+    await expect(page.getByTestId('download-pdf-btn-m1-oldest')).toHaveCount(0);
+    // ...and the row a PDF would be generated FROM carries no transcript to leak.
+    const oldest = await page.evaluate(async () => {
+      const sb = (window as unknown as { supabase: MockSb }).supabase;
+      const { data } = await sb.from('sessions').select('*').eq('id', 'm1-oldest').single();
+      return data as { transcript?: string | null; transcript_state?: string | null };
+    });
+    expect(oldest.transcript_state).toBe('expired');
+    expect(oldest.transcript ?? null).toBeNull();
   });
 
-  test('history LIST traffic carries no transcript text', async ({ page }) => {
+  test('the history LIST never requests or renders transcript text', async ({ page }) => {
     await completeThreeSessions(page);
-    const listBodies: string[] = [];
-    page.on('response', async res => {
-      if (res.url().includes('/rest/v1/sessions') && res.request().method() === 'GET') {
-        try { listBodies.push(await res.text()); } catch { /* non-text */ }
-      }
-    });
+    await page.evaluate(() => { (window as unknown as { __e2eSessionSelects__?: string[] }).__e2eSessionSelects__ = []; });
+
     await navigateToRoute(page, '/analytics');
     await waitForFeature(page, 'analytics');
     await expect(page.getByTestId('session-history-item-m3-newest')).toContainText('Newest take');
-    expect(listBodies.length, 'no session list responses captured — the scan proves nothing').toBeGreaterThan(0);
+
+    // The metrics-only read firewall is a property of the COLUMN LIST the client asks for. This
+    // previously scanned `page.on('response')` for /rest/v1/sessions GETs — but the E2E client is the
+    // in-process `window.supabase` double, so NO http response is ever emitted and the scan captured
+    // zero bodies. It asserted over an empty set: it could not have failed, whatever the client sent.
+    const selects = await page.evaluate(() => (window as unknown as { __e2eSessionSelects__?: string[] }).__e2eSessionSelects__ ?? []);
+    expect(selects.length, 'no session selects captured — the scan proves nothing').toBeGreaterThan(0);
+    for (const columns of selects) {
+      expect(columns, `list read requested the transcript column: ${columns}`).not.toMatch(/\btranscript\b/);
+    }
+    // ...and nothing transcript-shaped reached the rendered list either.
     for (const tail of [TAIL1, TAIL2, TAIL3]) {
-      expect(listBodies.join('\n'), `list response leaked ${tail}`).not.toContain(tail);
+      await expect(page.getByTestId(TEST_IDS.SESSION_HISTORY_LIST), `list rendered ${tail}`).not.toContainText(tail);
     }
   });
 
@@ -173,9 +198,35 @@ test.describe('#1306 Step 3 — PRODUCED newest-two retention (authenticated)', 
     await waitForFeature(page, 'analytics');
     await page.reload();
     await waitForFeature(page, 'analytics');
-    for (const id of ['m1-oldest', 'm2-middle', 'm3-newest']) {
+
+    // PRODUCT CONTRACT: the dashboard renders the NEWEST TWO by design (AnalyticsDashboard slices the
+    // history to 2). This previously asserted a row for all three ids, so it demanded a third row the
+    // dashboard never renders and could not pass at any commit.
+    for (const id of ['m3-newest', 'm2-middle']) {
       await expect(page.getByTestId(`session-history-item-${id}`)).toHaveCount(1);
     }
+    await expect(page.getByTestId('session-history-item-m1-oldest')).toHaveCount(0);
+
+    // The oldest is NOT lost — it is off the newest-two dashboard, and detail access still resolves it
+    // with its metrics and next action intact and its transcript expired.
+    await openDetail(page, 'm1-oldest');
+    await expect(page.getByTestId('session-detail-transcript-expired')).toHaveCount(1);
+    await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
+    await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
+    await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toBeVisible();
+
+    // ...and the identity claim itself: exactly one persisted row per id after the reload, so the
+    // reload re-read the round-tripped rows instead of re-seeding or double-inserting.
+    const counts = await page.evaluate(async () => {
+      const sb = (window as unknown as { supabase: MockSb }).supabase;
+      const out: Record<string, number> = {};
+      for (const id of ['m1-oldest', 'm2-middle', 'm3-newest']) {
+        const { data } = await sb.from('sessions').select('id').eq('id', id);
+        out[id] = Array.isArray(data) ? data.length : -1;
+      }
+      return out;
+    });
+    expect(counts).toEqual({ 'm1-oldest': 1, 'm2-middle': 1, 'm3-newest': 1 });
   });
 });
 
