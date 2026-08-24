@@ -345,10 +345,17 @@ async function resolvedRuntimeMode(page: Page): Promise<string | null> {
 export async function selectBenchmarkMode(page: Page, mode: 'native' | 'cloud' | 'private') {
     const select = page.getByTestId('stt-mode-select');
     if (await select.count() === 0) {
-        const resolved = await resolvedRuntimeMode(page);
-        expect(resolved,
-            `mode selector is absent (Private-only product), so the runtime must ALREADY resolve to ${mode}; got ${String(resolved)}`,
-        ).toBe(mode);
+        // RETRY, do not single-read. The runtime resolves its preferred mode asynchronously during
+        // session boot, so an immediate read returns null and would fail a perfectly healthy run —
+        // which is exactly what happened on production dispatch 32788632021. `assertPreStartMode`
+        // polls these same fields for 15s; this must be equally patient or it becomes a race that
+        // reports a product failure for a timing artifact.
+        await expect(async () => {
+            const resolved = await resolvedRuntimeMode(page);
+            expect(resolved,
+                `mode selector is absent (Private-only product), so the runtime must resolve to ${mode}`,
+            ).toBe(mode);
+        }).toPass({ timeout: 30_000, intervals: [500, 1_000, 2_000] });
         await logBenchmarkPhase(page, `SELECT_MODE_SELECTOR_ABSENT_RUNTIME_${mode.toUpperCase()}`);
         return;
     }
