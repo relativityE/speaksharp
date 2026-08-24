@@ -28,11 +28,22 @@ describe('live-proof typecheck gate — wiring contract', () => {
     expect(pkg.scripts.quality).toContain('typecheck:live');
   });
 
-  it('the project covers the production proof surface and its helpers', () => {
+  it('the project covers EVERY root live spec, not a chosen subset', () => {
     const include = liveTsconfig.include ?? [];
-    expect(include.some((p) => p.includes('three-session-retention-proof'))).toBe(true);
-    expect(include.some((p) => p.includes('private-recording-proof'))).toBe(true);
-    expect(include.some((p) => p.includes('tests/live/helpers'))).toBe(true);
+    // A per-file list would silently leave a newly added proof unchecked, and narrowing to the two
+    // #1306 proofs is what hid four real signature-drift defects in other live specs.
+    expect(include).toContain('tests/live/**/*.ts');
+    expect(include.some((p) => p.startsWith('tests/helpers/'))).toBe(true);
+  });
+
+  it('the @shared alias is exercised by a compile-only sentinel, so it is falsifiable', () => {
+    // A declared-but-unused path mapping cannot fail. The sentinel imports through the alias in a
+    // TYPE position, so breaking the mapping becomes a compile error in the ordinary gate.
+    const sentinel = readFileSync('tests/live/helpers/sharedAliasSentinel.ts', 'utf8');
+    expect(sentinel).toMatch(/from '@shared\//);
+    // `import type` only — it must add no runtime import to any proof.
+    expect(sentinel).toMatch(/import type/);
+    expect(sentinel).not.toMatch(/^\s*import\s+\{[^}]*\}\s+from\s+'@shared/m);
   });
 
   it('inherits the frontend compiler environment rather than restating it', () => {

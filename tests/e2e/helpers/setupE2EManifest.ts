@@ -283,6 +283,17 @@ export async function setupE2EManifest(
         // Non-fatal in E2E; the in-memory state still works until the next full navigation.
       }
     };
+    // Row shape of the in-page mock session store. The store is assembled from seeds, persisted
+    // sessionStorage and RPC writes, so it has no single declared type; every callback over it was
+    // therefore an implicit `any`, which silently switched off checking inside the double that serves
+    // all of E2E. Indexed so column-name lookups stay expressible.
+    type E2ESessionRow = Record<string, unknown> & {
+      id?: string;
+      created_at?: string;
+      duration?: number;
+      transcript?: string | null;
+      transcript_state?: string | null;
+    };
     const sessionState = {
       // Empty-session proofs must be a hard empty state. Reusing persisted
       // sessionStorage here lets earlier seeded analytics flows contaminate
@@ -411,7 +422,7 @@ export async function setupE2EManifest(
           persistSessions();
           return { data: inserted, error: null, count: inserted.length };
         }
-        const matching = sessionState.sessions.filter((row) =>
+        const matching = sessionState.sessions.filter((row: E2ESessionRow) =>
           filters.every((filter) => String((row as Record<string, unknown>)[filter.column]) === String(filter.value))
         );
         if (pendingMutation.type === 'update') {
@@ -424,7 +435,7 @@ export async function setupE2EManifest(
           return { data: matching, error: null, count: matching.length };
         }
         if (pendingMutation.type === 'delete') {
-          sessionState.sessions = sessionState.sessions.filter((row) => !matching.includes(row));
+          sessionState.sessions = sessionState.sessions.filter((row: E2ESessionRow) => !matching.includes(row));
           persistSessions();
           return { data: matching, error: null, count: matching.length };
         }
@@ -615,7 +626,7 @@ export async function setupE2EManifest(
         // envelope, which the client's fail-closed parser correctly rejects.
         if (fn === 'complete_session_v2') {
           const sessionId = args?.p_session_id;
-          const session = sessionState.sessions.find((row) => row.id === sessionId);
+          const session = sessionState.sessions.find((row: E2ESessionRow) => row.id === sessionId);
           const supplied = typeof args?.p_final_transcript === 'string' ? String(args.p_final_transcript).trim() : '';
           const requestedStatus = (args?.p_status as string) || 'completed';
 
@@ -638,9 +649,9 @@ export async function setupE2EManifest(
             // SERVER-OWNED newest-two retention, applied inside the RPC exactly as production does it.
             // Expiring transcripts in test code instead would prove our simulation, not the contract.
             const retained = sessionState.sessions
-              .filter((x) => typeof x.transcript === 'string' && String(x.transcript).length > 0)
-              .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-            retained.slice(2).forEach((old) => {
+              .filter((x: E2ESessionRow) => typeof x.transcript === 'string' && String(x.transcript).length > 0)
+              .sort((a: E2ESessionRow, b: E2ESessionRow) => String(b.created_at).localeCompare(String(a.created_at)));
+            retained.slice(2).forEach((old: E2ESessionRow) => {
               old.transcript = null;
               old.transcript_state = 'expired';
             });
@@ -713,9 +724,9 @@ export async function setupE2EManifest(
             data: {
               overallStats: {
                 totalSessions: sessionState.sessions.length,
-                totalPracticeTime: Math.round(sessionState.sessions.reduce((sum, row) => sum + Number(row.duration || 0), 0) / 60),
+                totalPracticeTime: Math.round(sessionState.sessions.reduce((sum: number, row: E2ESessionRow) => sum + Number(row.duration || 0), 0) / 60),
                 averageSessionLength: sessionState.sessions.length
-                  ? Math.round(sessionState.sessions.reduce((sum, row) => sum + Number(row.duration || 0), 0) / sessionState.sessions.length)
+                  ? Math.round(sessionState.sessions.reduce((sum: number, row: E2ESessionRow) => sum + Number(row.duration || 0), 0) / sessionState.sessions.length)
                   : 0,
                 averageWPM: 145,
                 avgFillerWordsPerMin: '1.0',
@@ -838,7 +849,11 @@ export async function setupE2EManifest(
       win.__SS_E2E_FORBIDDEN_ENGINE_GUARD__ = { installed: true, protectedKeys: [...forbiddenEngineKeys] };
     }
 
-    const mCast = m as SSE2EManifest;
+    // Partial, not SSE2EManifest: callers do not supply every field, so asserting the full shape made
+    // TypeScript believe the spread below definitely overwrites the explicit `isActive: true`
+    // invariant (TS2783). At runtime the spread only overwrites keys the caller actually passed, and
+    // none passes these — so this states what is true and leaves behaviour untouched.
+    const mCast = m as Partial<SSE2EManifest>;
     win.__SS_E2E__ = {
       isActive: true,
       enableRealEngine: false,

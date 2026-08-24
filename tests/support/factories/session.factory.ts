@@ -38,6 +38,16 @@ export interface MockSession extends Omit<SessionRow, 'filler_words' | 'ai_sugge
     // #1047 PR-U1 server-owned transcript state. Not yet in the generated Database types, so declared here.
     // Defaults are DERIVED from transcript presence unless a test sets it explicitly.
     transcript_state?: 'available' | 'expired' | 'not_captured';
+
+    // #1339: these are LIVE production columns that the generated database.types.ts does not carry —
+    // it is stale relative to the migrations (verified: none of status_reason, filler_counts,
+    // next_action_signal or transcript_state appear in it). The e2e doubles already write all of them,
+    // so every access was an error the moment this graph was actually typechecked. Declared here on the
+    // same footing as transcript_state above; regenerating the Database types needs DB access and is
+    // tracked separately.
+    status_reason?: string | null;
+    filler_counts?: Record<string, unknown> | null;
+    next_action_signal?: Record<string, unknown> | null;
 }
 
 /**

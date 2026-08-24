@@ -51,7 +51,7 @@ test.describe('STT Accuracy vs Benchmark Live Integration', () => {
         await verifyCredentialsAndInjectSession(page, EMAIL, PASSWORD, USER_TYPE);
 
         // 2. Perform a recording session to trigger DB save with engine field
-        await navigateToRoute(page, ROUTES.SESSION, { waitForMocks: false });
+        await navigateToRoute(page, ROUTES.SESSION);
 
         // Select Private Mode
         const modeTrigger = page.getByRole('button', { name: /native|cloud|private/i });
@@ -71,7 +71,7 @@ test.describe('STT Accuracy vs Benchmark Live Integration', () => {
         await page.waitForTimeout(3000);
 
         // 3. Navigate to Analytics
-        await navigateToRoute(page, ROUTES.ANALYTICS, { waitForMocks: false });
+        await navigateToRoute(page, ROUTES.ANALYTICS);
 
         // Find the newly created session in the history table
         const sessionRow = page.getByTestId(/session-history-item-/).first();

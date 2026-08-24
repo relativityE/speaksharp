@@ -30,16 +30,19 @@
     // ambient types, because they import frontend/src modules that read `import.meta.env`.
     "types": ["node", "vite/client"]
   },
-  // Subtask A scope: "the production live-proof surface and its directly imported shared helpers".
-  // Deliberately NOT all of tests/live: four non-proof live specs import `../e2e/helpers`, which drags
-  // the entire e2e double in with ~19 pre-existing implicit-any errors that belong to another suite.
-  // Widening this set is a follow-up with its own error budget; a gate that cannot be turned on today
-  // protects nothing today.
+  // FULL root live-proof surface plus the helper graph those specs import. Narrowing this to the two
+  // #1306 proofs would have left the four real signature-drift defects in analytics-journey and
+  // stt-accuracy-integration invisible — which is precisely the rot this gate exists to catch.
   "include": [
-    "tests/live/three-session-retention-proof.live.spec.ts",
-    "tests/live/private-recording-proof.live.spec.ts",
-    "tests/live/helpers/**/*.ts",
-    "tests/helpers/**/*.ts"
+    "tests/live/**/*.ts",
+    "tests/helpers/**/*.ts",
+    "tests/live/**/*.d.mts",
+    // These specs drive the real app and read the same globals it declares, so they must see the
+    // app's ambient Window augmentation rather than re-declaring it locally and drifting from it.
+    "frontend/src/types/global.d.ts",
+    // `__APP_RUNTIME_CONFIG__` is augmented onto Window from inside this module's `declare global`,
+    // so the augmentation only applies when the module is part of the program.
+    "frontend/src/config/appRuntimeConfig.ts"
   ],
   "exclude": [
     "node_modules",

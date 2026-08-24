@@ -8,6 +8,7 @@
 // This asserts, BEFORE tsc runs, that the project actually resolves the surface it claims to protect.
 // Output is counts and path classes only: no secrets, no production identifiers.
 import { execFileSync } from 'node:child_process';
+import { readFileSync, readdirSync } from 'node:fs';
 
 const PROJECT = 'tsconfig.live.json';
 
@@ -16,7 +17,18 @@ const REQUIRED = [
     'tests/live/three-session-retention-proof.live.spec.ts',
     'tests/live/private-recording-proof.live.spec.ts',
     'tests/live/helpers/runOwnedCleanup.ts',
+    // Compile-only sentinel: the only thing exercising the `@shared` alias, so a mapping break is
+    // detectable. If it silently drops out of scope, that falsification goes dark.
+    'tests/live/helpers/sharedAliasSentinel.ts',
 ];
+
+/**
+ * EVERY root live spec must be covered, not a chosen subset. Scoping to the two #1306 proofs would
+ * have hidden the four real signature-drift defects that live in OTHER live specs — the precise rot
+ * this gate exists to catch. Compared against the specs actually on disk so adding one cannot silently
+ * leave it unchecked.
+ */
+const LIVE_SPEC_DIR = 'tests/live';
 
 /**
  * Path fragments that must NOT be in scope. Deno edge sources need a different lib/global set, so
@@ -27,6 +39,21 @@ const FORBIDDEN = [
     { fragment: 'backend/supabase/functions/', why: 'Deno edge sources (different lib/global set)' },
     { fragment: 'test-support/', why: 'generated worktrees / package store' },
     { fragment: '/node_modules/tests/', why: 'vendored test copies' },
+];
+
+/**
+ * The single exception to the edge-source rule. The `@shared` alias sentinel imports this module in a
+ * TYPE position so the mapping is falsifiable at all; without it, breaking `@shared/*` changed nothing
+ * and the claim "the alias resolves" was untestable.
+ *
+ * The invariant the FORBIDDEN rule actually protects is "nothing that needs Deno globals", not "no
+ * backend file ever" — so the exception is verified rather than trusted: this module must contain no
+ * reference to `Deno`, checked below. A broad path ban with no exception would have forced deleting
+ * the sentinel and losing the falsification.
+ */
+const EDGE_SOURCE_EXCEPTIONS = [
+    'backend/supabase/functions/_shared/constants.ts',   // @shared alias sentinel
+    'backend/supabase/functions/_shared/test-fixtures.ts', // imported through the live spec graph
 ];
 
 function fail(message) {
@@ -58,9 +85,26 @@ for (const required of REQUIRED) {
     }
 }
 
+// Every *.live.spec.ts on disk must be in the resolved set.
+const onDisk = readdirSync(LIVE_SPEC_DIR).filter((f) => f.endsWith('.live.spec.ts'));
+if (onDisk.length === 0) fail('found no live specs on disk — the comparison would be vacuous');
+const uncovered = onDisk.filter((spec) => !files.some((f) => f.endsWith(`${LIVE_SPEC_DIR}/${spec}`)));
+if (uncovered.length > 0) {
+    fail(`${uncovered.length} root live spec(s) are OUT of scope: ${uncovered.join(', ')}`);
+}
+
 for (const { fragment, why } of FORBIDDEN) {
-    const hit = files.find((f) => f.includes(fragment));
-    if (hit) fail(`forbidden path in scope (${why}): ${fragment}`);
+    const hits = files.filter((f) => f.includes(fragment))
+        .filter((f) => !EDGE_SOURCE_EXCEPTIONS.some((allowed) => f.endsWith(allowed)));
+    if (hits.length > 0) fail(`forbidden path in scope (${why}): ${fragment}`);
+}
+
+// Verify the exception rather than trusting it: an "allowed" edge module that starts using Deno
+// globals would silently reintroduce exactly what the rule forbids.
+for (const allowed of EDGE_SOURCE_EXCEPTIONS) {
+    if (!files.some((f) => f.endsWith(allowed))) continue;   // not pulled in; nothing to verify
+    const source = readFileSync(allowed, 'utf8');
+    if (/\bDeno\b/.test(source)) fail(`edge-source exception now references Deno: ${allowed}`);
 }
 
 // Counts and path classes only.

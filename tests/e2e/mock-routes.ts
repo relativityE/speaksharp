@@ -399,12 +399,14 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         const retained = state.sessions
             .filter((x: { transcript?: string | null }) => typeof x.transcript === 'string' && x.transcript.length > 0)
             .sort((a: { created_at?: string }, b: { created_at?: string }) => String(b.created_at).localeCompare(String(a.created_at)));
-        retained.slice(2).forEach((old: Record<string, unknown>) => {
+        retained.slice(2).forEach((old: MockSession) => {
             old.transcript = null;
             old.transcript_state = 'expired';
         });
 
-        const row = idx !== -1 ? state.sessions[idx] : {};
+        // Partial, not `{}`: the miss branch produced a `MockSession | {}` union on which every field
+        // access was an error. The shape really is "some of a session or none of it".
+        const row: Partial<MockSession> = idx !== -1 ? state.sessions[idx] : {};
         const transcriptState = (row.transcript_state as string | undefined)
             ?? (supplied ? 'available' : 'not_captured');
         const outcome = transcriptState === 'available' ? 'retained'

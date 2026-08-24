@@ -156,7 +156,7 @@ test.describe('Production Smoke Canary @canary', () => {
         await canaryLogin(page, CANARY_USER.email, CANARY_USER.password);
 
         // 2. Navigate to Session Page (use client-side navigation to preserve state)
-        await navigateToRoute(page, ROUTES.SESSION, { waitForMocks: false });
+        await navigateToRoute(page, ROUTES.SESSION);
 
         // 🔹 SCHEMA CHECK: User Profile
         // Verify that the profile loaded correctly and reflects the subscription status
