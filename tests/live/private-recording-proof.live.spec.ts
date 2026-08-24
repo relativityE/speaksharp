@@ -11,9 +11,10 @@ import {
 } from './helpers/benchmark-utils';
 import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
 import {
-    isPrivateV2PersistedDeviceType, extractUidFromAuthStorage, isNotFoundError, isPrivateRuntimeIdentity,
-    matchesPrivatePersistedArm, contentSafeSessionSnapshot, contentSafeSnapshotsEqual, pollForRecoveryUid, sha256Hex,
+    isPrivateV2PersistedDeviceType, extractUidFromAuthStorage, isPrivateRuntimeIdentity,
+    matchesPrivatePersistedArm, contentSafeSessionSnapshot, contentSafeSnapshotsEqual, sha256Hex,
 } from './helpers/proofAuthority';
+import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 
 // #1089 / #1129 — exact-production-SHA Private recording proof (rigorous).
 //
@@ -71,82 +72,11 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
     test.beforeAll(() => { assertPreconditions(); }); // fail closed, never skip
 
     test.afterEach(async () => {
-        // P1.3 — UID-scoped, fail-closed cleanup. Delete ONLY the exact run-owned UID; prove no residue.
-        // NEVER return silently after a signup that may have created an account.
-        if (!capturedUid && !createdEmail) return; // no signup was attempted
-        if (!admin) throw new Error('cleanup requires admin client (fail closed)');
-        // Recovery: signup can create the user before the in-page UID capture times out. If the UID is
-        // missing but an email was attempted, recover it by an EXACT-email, unique-result admin lookup
-        // (pagination/errors fail closed) so the account is never orphaned.
-        if (!capturedUid) {
-            // fix 1/3 (RETURN) — the extracted, injectable bounded poll orchestration. listAllUsers FULLY
-            // paginates (fail-closed on a listing error); the frozen live bound is 12×5s = 60s; the four decision
-            // paths (zero→one / stop-on-one / fail-after-bound / stop-on-ambiguous or error) are unit-tested.
-            capturedUid = await pollForRecoveryUid({
-                listAllUsers: async () => {
-                    const all: Array<{ id?: string; email?: string | null }> = [];
-                    for (let p = 1; p <= 50; p++) {
-                        const { data, error } = await admin.auth.admin.listUsers({ page: p, perPage: 200 });
-                        if (error) throw new Error(`cleanup recovery listUsers failed (fail closed): ${error.message}`);
-                        const users = data?.users ?? [];
-                        all.push(...users);
-                        if (users.length < 200) break; // last page
-                    }
-                    return all;
-                },
-                sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-                createdEmailLower: createdEmail.toLowerCase(), runOwnedPrefix: 'private-proof-',
-                maxAttempts: 12, delayMs: 5000,
-            });
-        }
-        const { data: got, error: getErr } = await admin.auth.admin.getUserById(capturedUid);
-        if (getErr) throw new Error(`cleanup getUserById failed (fail closed): ${getErr.message}`);
-        const foundEmail = got?.user?.email?.toLowerCase() ?? '';
-        if (foundEmail !== createdEmail.toLowerCase()) throw new Error(`UID/email disagreement — refusing to delete (uid=${capturedUid})`);
-        if (!/^private-proof-/.test(foundEmail)) throw new Error(`refusing to delete a non-run-owned account (${foundEmail})`);
-        // trial_entitlements.user_id is ON DELETE SET NULL: the on_auth_user_created_trial_profile trigger inserts
-        // one row per signup, and deleteUser() only NULLs the column — it does NOT remove the row (unlike the
-        // cascade tables verified below). Delete it explicitly by user_id first, while the column still holds it.
-        const { error: teDelErr } = await admin.from('trial_entitlements').delete().eq('user_id', capturedUid);
-        if (teDelErr) throw new Error(`cleanup trial_entitlements delete failed (fail closed): ${teDelErr.message}`);
-        // DO NOT delete `user_issue_reports` here. Its user_id FK is ON DELETE SET NULL BY DESIGN — the product
-        // deliberately RETAINS "Report issue" feedback after account deletion (row survives, unlinked). That is a
-        // feature, not residue; scrubbing it would risk erasing real user feedback. This proof files none anyway.
-        const { error: delErr } = await admin.auth.admin.deleteUser(capturedUid);
-        if (delErr) throw new Error(`cleanup deleteUser failed (fail closed): ${delErr.message}`);
-        // Prove deletion: ONLY an expected not-found re-fetch is proof. A returned user = still exists (fail);
-        // any OTHER error (network/auth/rate-limit) is NOT proof of deletion and must fail closed.
-        const { data: after, error: afterErr } = await admin.auth.admin.getUserById(capturedUid);
-        if (afterErr) {
-            if (!isNotFoundError(afterErr as { status?: number; code?: string; message?: string })) {
-                throw new Error(`post-delete verify returned a non-not-found error — deletion UNPROVEN (fail closed): ${afterErr.message}`);
-            }
-            // not-found → confirmed deleted
-        } else {
-            expect(after?.user ?? null, 'auth user must be gone after cleanup (returned a user)').toBeNull();
-        }
-        // fix 1 + fix 5 — EXPLICIT zero readback across every run-owned surface (fail-closed). Auth is proven gone
-        // above (not-found re-fetch); now prove profile, session, and the #1163 attribution tables carry ZERO
-        // rows for this uid (they all cascade on the auth-user delete — this asserts the cascade actually cleared).
-        const residueChecks: Array<{ table: string; column: string }> = [
-            { table: 'sessions', column: 'user_id' },
-            { table: 'user_profiles', column: 'id' },                       // PK = auth user id
-            { table: 'session_attribution_authority', column: 'user_id' },
-            { table: 'session_attribution_challenge', column: 'user_id' },
-            { table: 'session_attribution_unattributed', column: 'user_id' },
-        ];
-        for (const { table, column } of residueChecks) {
-            const { count, error: rErr } = await admin
-                .from(table).select(column, { count: 'exact', head: true }).eq(column, capturedUid);
-            if (rErr) throw new Error(`cleanup residue query on ${table} failed (fail closed): ${rErr.message}`);
-            expect(count ?? 0, `no run-owned residue in ${table}`).toBe(0);
-        }
-        // trial_entitlements does NOT cascade (SET NULL), so verify it by its email PK (the trigger lowercases
-        // the email) — keying on user_id would read a false-clean after deleteUser() nulled it.
-        const { count: teCount, error: teResErr } = await admin
-            .from('trial_entitlements').select('email', { count: 'exact', head: true }).eq('email', createdEmail.toLowerCase());
-        if (teResErr) throw new Error(`cleanup residue query on trial_entitlements failed (fail closed): ${teResErr.message}`);
-        expect(teCount ?? 0, 'no run-owned residue in trial_entitlements').toBe(0);
+        // P1.3 — UID-scoped, fail-closed cleanup, now the SHARED implementation so this proof and the
+        // #1306 three-session retention proof cannot drift apart on the residue guarantee.
+        await cleanupRunOwnedAccount({
+            admin: admin as never, capturedUid, createdEmail, runOwnedPrefix: 'private-proof-',
+        });
         capturedUid = '';
     });
 
