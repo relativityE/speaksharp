@@ -751,7 +751,10 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         }).pendingAttributionRetry;
         // Assert on a derived value rather than inside an `if` — a conditional expect can silently
         // assert nothing when the branch is not taken (and eslint forbids it for exactly that reason).
-        expect(pending === null ? true : pending.progressMetrics.persisted).toBe(true);
+        // NOT `pending === null ? true : ...` — that form passes when NO retry exists, which is the
+        // exact vacuity this suite keeps rooting out. Assert the retry is present, THEN assert its value.
+        expect(pending, 'expected an armed attribution retry to inspect').not.toBeNull();
+        expect(pending!.progressMetrics.persisted).toBe(true);
         // No separate metrics write was ever issued, so there is nothing to race.
         expect(storage.updateSession).not.toHaveBeenCalled();
     });

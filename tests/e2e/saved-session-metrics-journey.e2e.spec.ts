@@ -23,84 +23,152 @@ const NEXT_ACTION = {
   value: 4, comparator: 'above_target', templateVersion: 'rec_v1',
 } as const;
 
-// A unique marker so "the transcript is absent" can never pass because some other text happened to match.
-const T1 = 'JOURNEY-TRANSCRIPT-ONE-a71f22';
-const T2 = 'JOURNEY-TRANSCRIPT-TWO-b83e40';
-const T3 = 'JOURNEY-TRANSCRIPT-THREE-c95d18';
+// Unique TAIL markers. A tail (not a head) is used deliberately: it proves the END of a transcript
+// survived retention, reload, and PDF pagination — a head marker would pass even if the content were
+// truncated. Distinct per session so an export can never satisfy the wrong assertion.
+const TAIL1 = 'JOURNEYTAILONEa71f22';
+const TAIL2 = 'JOURNEYTAILTWOb83e40';
+const TAIL3 = 'JOURNEYTAILTHREEc95d18';
+
+/** Three ACTIVE sessions. Terminal state is PRODUCED by driving real v2 completions, never seeded. */
+const SEEDED = [
+  { id: 'm1-oldest', title: 'Oldest take', status: 'active' as const, engine: 'private' as const,
+    created_at: '2025-01-01T10:00:00Z', filler_counts: { um: 4 } },
+  { id: 'm2-middle', title: 'Middle take', status: 'active' as const, engine: 'private' as const,
+    created_at: '2025-01-02T10:00:00Z', filler_counts: { um: 2 } },
+  { id: 'm3-newest', title: 'Newest take', status: 'active' as const, engine: 'private' as const,
+    created_at: '2025-01-03T10:00:00Z', filler_counts: {} },
+];
+
+type V2Result = { data: unknown; error: { message: string } | null };
 
 /**
- * Three completed sessions, OLDEST first. Newest-two retention is applied by the server, so session 1
- * (the oldest) must end up `expired` with its metrics intact, while 2 and 3 stay `available`.
+ * Drive the three completions through the SERVER-OWNED retention boundary, oldest first, and return
+ * both the envelopes and the resulting rows. Nothing here injects `transcript_state`: newest-two
+ * expiry is whatever the RPC produced.
  */
-const SEEDED = [
-  { id: 'm1-oldest', title: 'Oldest take', status: 'completed' as const, engine: 'private' as const,
-    created_at: '2025-01-01T10:00:00Z',
-    total_words: 245, clarity_score: 88, wpm: 142, filler_counts: { um: 4 }, next_action_signal: NEXT_ACTION,
-    transcript: T1, transcript_state: 'expired' as const },
-  { id: 'm2-middle', title: 'Middle take', status: 'completed' as const, engine: 'private' as const,
-    created_at: '2025-01-02T10:00:00Z',
-    total_words: 210, clarity_score: 95, wpm: 138, filler_counts: { um: 2 }, next_action_signal: NEXT_ACTION,
-    transcript: T2, transcript_state: 'available' as const },
-  { id: 'm3-newest', title: 'Newest take', status: 'completed' as const, engine: 'private' as const,
-    created_at: '2025-01-03T10:00:00Z',
-    total_words: 190, clarity_score: 91, wpm: 145, filler_counts: {}, next_action_signal: NEXT_ACTION,
-    transcript: T3, transcript_state: 'available' as const },
-];
+async function completeThreeSessions(page: import('@playwright/test').Page) {
+  return page.evaluate(async ({ t1, t2, t3 }) => {
+    const sb = (window as unknown as { supabase: MockSb }).supabase;
+    const NA = { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' };
+    const results: V2Result[] = [];
+    for (const [id, tail] of [['m1-oldest', t1], ['m2-middle', t2], ['m3-newest', t3]] as const) {
+      results.push(await sb.rpc('complete_session_v2', {
+        p_session_id: id, p_status: 'completed', p_final_duration: 60, p_reason: null,
+        p_next_action: NA, p_total_words: 120, p_clarity_score: 90, p_wpm: 130,
+        p_filler_counts: { um: 1 }, p_pause_metrics: {},
+        p_final_transcript: `spoken practice content for ${id} ending with ${tail}`,
+      }));
+    }
+    const rows: Record<string, { transcript_state?: string | null; transcript?: string | null; total_words?: number }> = {};
+    for (const id of ['m1-oldest', 'm2-middle', 'm3-newest']) {
+      rows[id] = (await sb.from('sessions').select('*').eq('id', id).single()).data as never;
+    }
+    return { results, rows };
+  }, { t1: TAIL1, t2: TAIL2, t3: TAIL3 });
+}
 
 async function openDetail(page: import('@playwright/test').Page, id: string) {
   await navigateToRoute(page, `/analytics/${id}`);
   await waitForFeature(page, 'analytics');
 }
 
-test.describe('#1306 metrics-only saved-session read journey (authenticated)', () => {
+/** Click the real export control and return the downloaded artifact's text. */
+async function exportPdfText(page: import('@playwright/test').Page, id: string): Promise<string> {
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 30_000 }),
+    page.getByTestId(`download-pdf-btn-${id}`).first().click(),
+  ]);
+  const path = await download.path();
+  if (!path) throw new Error('no downloaded artifact path');
+  const { readFileSync } = await import('node:fs');
+  return readFileSync(path, 'latin1');
+}
+
+test.describe('#1306 Step 3 — PRODUCED newest-two retention (authenticated)', () => {
   test.beforeEach(async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: SEEDED });
   });
 
-  test('the NEWEST TWO sessions reopen WITH their transcript — same after a full reload', async ({ page }) => {
-    for (const [id, marker] of [['m3-newest', T3], ['m2-middle', T2]] as const) {
-      await openDetail(page, id);
-      await expect(page.getByText('Speaking Pace').first()).toBeVisible();
-      await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
-      await expect(page.getByTestId('session-detail-transcript')).toContainText(marker);
+  test('three real v2 completions PRODUCE newest-two retention — oldest expires, newest two retained', async ({ page }) => {
+    const { results, rows } = await completeThreeSessions(page);
 
-      await page.reload();
-      await waitForFeature(page, 'analytics');
-      await expect(page.getByTestId('session-detail-transcript')).toContainText(marker);
+    // POSITIVE CONTROL: the RPC was actually exercised three times and accepted each one. Without this,
+    // every state assertion below could pass on rows that were simply seeded that way.
+    expect(results).toHaveLength(3);
+    for (const r of results) {
+      expect(r.error).toBeNull();
+      expect((r.data as { success?: boolean })?.success).toBe(true);
+    }
+
+    // PRODUCED, not injected: the server-owned retention inside the RPC decided these.
+    expect(rows['m3-newest'].transcript_state).toBe('available');
+    expect(rows['m2-middle'].transcript_state).toBe('available');
+    expect(rows['m1-oldest'].transcript_state).toBe('expired');
+    // The oldest transcript text is gone; its metrics remain.
+    expect(rows['m1-oldest'].transcript == null || rows['m1-oldest'].transcript === '').toBe(true);
+    expect(rows['m1-oldest'].total_words).toBe(120);
+  });
+
+  test('the newest two reopen WITH their transcript tails after a full reload', async ({ page }) => {
+    await completeThreeSessions(page);
+    await page.reload();
+    for (const [id, tail] of [['m3-newest', TAIL3], ['m2-middle', TAIL2]] as const) {
+      await openDetail(page, id);
+      await expect(page.getByTestId('session-detail-transcript')).toContainText(tail);
     }
   });
 
-  test('the OLDEST session is EXPIRED — no transcript, metrics and next action intact', async ({ page }) => {
+  test('the oldest is EXPIRED — no transcript anywhere on the page, metrics intact', async ({ page }) => {
+    await completeThreeSessions(page);
     await openDetail(page, 'm1-oldest');
-    // Expiry is an honest, distinct state — not a blank pane and not "not captured".
     await expect(page.getByTestId('session-detail-transcript-expired')).toHaveCount(1);
     await expect(page.getByTestId('session-detail-transcript')).toHaveCount(0);
-    // The text must be gone from the PAGE entirely, not merely from the transcript pane.
-    await expect(page.locator('body')).not.toContainText(T1);
-    // ...while everything metrics-derived still works.
-    await expect(page.getByText('Speaking Pace').first()).toBeVisible();
+    await expect(page.locator('body')).not.toContainText(TAIL1);
     await expect(page.getByTestId('session-next-action-title')).toHaveCount(1);
     await expect(page.getByTestId('session-next-action-integrity-error')).toHaveCount(0);
   });
 
-  test('history LIST traffic carries NO transcript text', async ({ page }) => {
+  test('PDF export carries the retained tails for 2 and 3 — and cannot carry the expired one', async ({ page }) => {
+    await completeThreeSessions(page);
+
+    // Retained sessions export their own tail, and only their own.
+    await openDetail(page, 'm3-newest');
+    const pdf3 = await exportPdfText(page, 'm3-newest');
+    expect(pdf3).toContain(TAIL3);
+    expect(pdf3).not.toContain(TAIL2);
+
+    await openDetail(page, 'm2-middle');
+    const pdf2 = await exportPdfText(page, 'm2-middle');
+    expect(pdf2).toContain(TAIL2);
+    expect(pdf2).not.toContain(TAIL3);
+
+    // The expired session still exports a metrics report, but its transcript cannot reach the artifact.
+    await openDetail(page, 'm1-oldest');
+    const pdf1 = await exportPdfText(page, 'm1-oldest');
+    expect(pdf1).not.toContain(TAIL1);
+    expect(pdf1.length).toBeGreaterThan(0); // control: an artifact WAS produced
+  });
+
+  test('history LIST traffic carries no transcript text', async ({ page }) => {
+    await completeThreeSessions(page);
     const listBodies: string[] = [];
     page.on('response', async res => {
       if (res.url().includes('/rest/v1/sessions') && res.request().method() === 'GET') {
-        try { listBodies.push(await res.text()); } catch { /* non-text response */ }
+        try { listBodies.push(await res.text()); } catch { /* non-text */ }
       }
     });
     await navigateToRoute(page, '/analytics');
     await waitForFeature(page, 'analytics');
     await expect(page.getByTestId('session-history-item-m3-newest')).toContainText('Newest take');
-    // Positive control: list traffic was actually observed, so an empty scan cannot pass as clean.
     expect(listBodies.length, 'no session list responses captured — the scan proves nothing').toBeGreaterThan(0);
-    for (const marker of [T1, T2, T3]) {
-      expect(listBodies.join('\n'), `list response leaked ${marker}`).not.toContain(marker);
+    for (const tail of [TAIL1, TAIL2, TAIL3]) {
+      expect(listBodies.join('\n'), `list response leaked ${tail}`).not.toContain(tail);
     }
   });
 
-  test('a reload preserves ONE session identity — no duplicate row', async ({ page }) => {
+  test('a reload preserves exactly ONE identity per session — no duplicate row', async ({ page }) => {
+    await completeThreeSessions(page);
     await navigateToRoute(page, '/analytics');
     await waitForFeature(page, 'analytics');
     await page.reload();
@@ -116,8 +184,9 @@ test.describe('#1306 metrics-only saved-session read journey (authenticated)', (
  * EVERY write route: `sessions.insert`, `sessions.update`, the `create_session` RPC (p_session_data), and a
  * legacy `complete_session` carrying `p_final_transcript`. A forbidden content field is REJECTED fail-closed
  * (never silently stripped — silent sanitizing would HIDE a client privacy regression), matching the Stage B DB
- * firewall; and the positive path proves the new writer finalizes via the transcript-FREE overload. These drive
- * the REAL mock via `window.supabase`.
+ * firewall. The positive path proves the production writer finalizes via `complete_session_v2` — the v1
+ * overload is REJECTED outright, so a fallback regression fails loudly. These drive the REAL mock via
+ * `window.supabase`.
  */
 type Row = Record<string, unknown>;
 type WriteResult = { data: Row[] | null; error: { message: string } | null };
@@ -179,29 +248,43 @@ test.describe('#1306 E2E mock fidelity — a forbidden content field is REJECTED
     expect(out.error?.message).toMatch(/forbidden content field/i);
   });
 
-  test('NEGATIVE: a legacy complete_session carrying p_final_transcript is REJECTED (old overload absent)', async ({ page }) => {
+  test('NEGATIVE: the legacy complete_session overload is REJECTED outright — any v1 call fails loudly', async ({ page }) => {
+    // Step 3 cut the client over to v2 with NO fallback. v1 is rejected whether or not it carries a
+    // transcript, so a regression that reintroduced a fallback cannot pass quietly.
     await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: [{ id: 'm1-final', title: 'Finalize take', status: 'active' as const, engine: 'private' as const, filler_counts: { um: 2 } }] });
     const out = await page.evaluate(async () => {
       const sb = (window as unknown as { supabase: MockSb }).supabase;
-      return sb.rpc('complete_session', { p_session_id: 'm1-final', p_status: 'completed', p_final_transcript: 'legacy transcript payload' });
+      return {
+        withTranscript: await sb.rpc('complete_session', { p_session_id: 'm1-final', p_status: 'completed', p_final_transcript: 'legacy transcript payload' }),
+        withoutTranscript: await sb.rpc('complete_session', { p_session_id: 'm1-final', p_status: 'completed' }),
+      };
     });
-    expect(out.error).not.toBeNull();
-    expect(out.error?.message).toMatch(/p_final_transcript/i);
+    expect(out.withTranscript.error).not.toBeNull();
+    expect(out.withoutTranscript.error).not.toBeNull();
+    expect(out.withoutTranscript.error?.message).toMatch(/complete_session_v2|not callable/i);
   });
 
-  test('POSITIVE: the new writer finalizes via the transcript-FREE complete_session overload', async ({ page }) => {
+  test('POSITIVE: the production writer finalizes via complete_session_v2 AND retains the transcript', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro', sessions: [{ id: 'm1-ok', title: 'Finalize ok', status: 'active' as const, engine: 'private' as const, filler_counts: { um: 2 } }] });
     const out = await page.evaluate(async () => {
       const sb = (window as unknown as { supabase: MockSb }).supabase;
-      // Exactly the metrics-only overload the production writer uses — no p_final_transcript argument.
-      const res = await sb.rpc('complete_session', { p_session_id: 'm1-ok', p_status: 'completed', p_next_action: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' }, p_total_words: 200, p_filler_counts: {} });
+      const res = await sb.rpc('complete_session_v2', {
+        p_session_id: 'm1-ok', p_status: 'completed', p_final_duration: 60, p_reason: null,
+        p_next_action: { reasonCode: 'ON_TRACK', actionCode: 'MAINTAIN', metric: 'none', value: 0, comparator: 'within_target', templateVersion: 'rec_v1' },
+        p_total_words: 200, p_clarity_score: 90, p_wpm: 130, p_filler_counts: {}, p_pause_metrics: {},
+        p_final_transcript: 'retained words for the newest session',
+      });
       const got = (await sb.from('sessions').select('*').eq('id', 'm1-ok').single()).data;
-      return { error: res.error, status: got.status, total_words: got.total_words, transcript: got.transcript };
+      return { error: res.error, envelope: res.data, status: got.status, total_words: got.total_words, transcript: got.transcript, transcript_state: got.transcript_state };
     });
-    expect(out.error).toBeNull();               // transcript-free completion accepted
+    expect(out.error).toBeNull();
+    // The envelope is the full v2 contract, not a bare success.
+    expect(out.envelope).toMatchObject({ success: true, session_saved: true, transcript_outcome: 'retained', transcript_retained: true });
     expect(out.status).toBe('completed');
     expect(out.total_words).toBe(200);
-    expect(out.transcript == null).toBe(true);  // no transcript ever stored
+    // The transcript IS retained now — the superseded "no transcript ever" assertion is gone.
+    expect(out.transcript).toBe('retained words for the newest session');
+    expect(out.transcript_state).toBe('available');
   });
 
   test('POSITIVE: a clean metric UPDATE succeeds and survives reload (persisted, not reseeded)', async ({ page }) => {

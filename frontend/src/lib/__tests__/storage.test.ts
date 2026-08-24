@@ -333,7 +333,7 @@ describe('storage.ts', () => {
         });
 
         it('NEVER sends transcript text for a failed session, even if a caller passes one', async () => {
-            mockSupabase.rpc.mockResolvedValue({ data: validEnvelope({ transcript_outcome: 'not_provided', transcript_retained: false, transcript_state: null }), error: null });
+            mockSupabase.rpc.mockResolvedValue({ data: validEnvelope({ transcript_outcome: 'not_provided', transcript_retained: false, transcript_state: 'not_captured', final_status: 'failed' }), error: null });
             mockSupabase.from.mockReturnValue({ update: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) }) } as never);
             await completeSession('s1', { status: 'failed', finalTranscript: 'LEAKED' } as never);
             expect((mockSupabase.rpc.mock.calls[0][1] as Record<string, unknown>).p_final_transcript).toBeNull();
@@ -354,14 +354,119 @@ describe('storage.ts', () => {
             expect(res).toMatchObject({ success: true, transcriptOutcome: 'expired', transcriptRetained: false });
         });
 
-        it.each(TRANSCRIPT_OUTCOMES)('accepts the documented outcome %s', async (outcome) => {
+        // Each outcome now requires its compatible state; an envelope pairing e.g. `expired` with
+        // `available` is a corrupt contract, not an accepted save.
+        const STATE_FOR = {
+            retained: 'available', expired: 'expired',
+            not_provided: 'not_captured', not_captured: 'not_captured', retention_failed: 'available',
+        } as const;
+        it.each(TRANSCRIPT_OUTCOMES)('accepts the documented outcome %s with its compatible state', async (outcome) => {
             mockSupabase.rpc.mockResolvedValue({
-                data: validEnvelope({ transcript_outcome: outcome, transcript_retained: outcome === 'retained' }),
+                data: validEnvelope({
+                    transcript_outcome: outcome,
+                    transcript_state: STATE_FOR[outcome],
+                    transcript_retained: outcome === 'retained',
+                }),
                 error: null,
             });
             const res = await completeSession('s1', completedOptions);
             expect(res.success).toBe(true);
             expect(res.transcriptOutcome).toBe(outcome);
+        });
+
+        // ---- item 1: ONE atomic completion authority. No sessions.update after an accepted v2 call. ----
+        it.each([
+            ['completed', 'completed'],
+            ['failed', 'failed'],
+        ])('issues NO sessions.update after a successful %s completion', async (_l, status) => {
+            // Even 'failed' — the v2 transaction already wrote p_status, and final_status is validated
+            // to equal exactly what we asked for. A second write re-creates a divergent authority.
+            mockSupabase.rpc.mockResolvedValue({
+                data: validEnvelope({
+                    final_status: status,
+                    transcript_outcome: status === 'completed' ? 'retained' : 'not_provided',
+                    transcript_state: status === 'completed' ? 'available' : 'not_captured',
+                    transcript_retained: status === 'completed',
+                }),
+                error: null,
+            });
+            const res = await completeSession('s1', { ...completedOptions, status: status as 'completed' | 'failed' });
+            expect(res.success).toBe(true);
+            expect(mockSupabase.from).not.toHaveBeenCalled();
+        });
+
+        // ---- item 2: state, final_status, and state/outcome agreement, each isolated ----
+        it.each([
+            ['transcript_state omitted', { transcript_state: undefined }],
+            ['transcript_state unknown', { transcript_state: 'something_new' }],
+            ['transcript_state null', { transcript_state: null }],
+        ])('FAILS CLOSED on %s', async (_l, over) => {
+            // Isolated: outcome/retained/final_status all remain valid and mutually agreeing, so ONLY the
+            // closed-state check can reject this. A test that also perturbed the outcome would pass via
+            // the agreement guard and prove nothing about state validation.
+            mockSupabase.rpc.mockResolvedValue({ data: validEnvelope(over), error: null });
+            expect((await completeSession('s1', completedOptions)).success).toBe(false);
+        });
+
+        it.each([
+            ['final_status omitted', { final_status: undefined }],
+            ['final_status not a string', { final_status: 1 }],
+            ['final_status disagreeing with the requested status', { final_status: 'failed' }],
+        ])('FAILS CLOSED on %s', async (_l, over) => {
+            // A server that completed a DIFFERENT status than requested has not done what we asked,
+            // however successful it reports itself.
+            mockSupabase.rpc.mockResolvedValue({ data: validEnvelope(over), error: null });
+            expect((await completeSession('s1', completedOptions)).success).toBe(false);
+        });
+
+        it.each([
+            ['retained with a non-available state', { transcript_outcome: 'retained', transcript_retained: true, transcript_state: 'expired' }],
+            ['expired with an available state', { transcript_outcome: 'expired', transcript_retained: false, transcript_state: 'available' }],
+            ['not_provided with an available state', { transcript_outcome: 'not_provided', transcript_retained: false, transcript_state: 'available' }],
+            ['not_captured with an expired state', { transcript_outcome: 'not_captured', transcript_retained: false, transcript_state: 'expired' }],
+        ])('FAILS CLOSED on incompatible state/outcome: %s', async (_l, over) => {
+            mockSupabase.rpc.mockResolvedValue({ data: validEnvelope(over), error: null });
+            expect((await completeSession('s1', completedOptions)).success).toBe(false);
+        });
+
+        it('retention_failed may keep whatever valid state the row held, but still obeys the other guards', async () => {
+            mockSupabase.rpc.mockResolvedValue({
+                data: validEnvelope({ transcript_outcome: 'retention_failed', transcript_retained: false, transcript_state: 'expired' }),
+                error: null,
+            });
+            expect((await completeSession('s1', completedOptions)).success).toBe(true);
+            // ...but an unknown state is still rejected even under retention_failed.
+            mockSupabase.rpc.mockResolvedValue({
+                data: validEnvelope({ transcript_outcome: 'retention_failed', transcript_retained: false, transcript_state: 'bogus' }),
+                error: null,
+            });
+            expect((await completeSession('s1', completedOptions)).success).toBe(false);
+        });
+
+        // ---- item 6: an RPC failure must never echo request material ----
+        it('an RPC error never leaks transcript content into logs or the result', async () => {
+            const SENTINEL = 'RPC-ERROR-TRANSCRIPT-CANARY-9d21f4';
+            mockSupabase.rpc.mockResolvedValue({
+                data: null,
+                // Postgres/PostgREST quote the failing statement back — which, for a completion, contains
+                // the transcript. This is the realistic shape of that leak.
+                error: {
+                    code: '22001',
+                    message: `value too long for type character varying: "${SENTINEL}"`,
+                    details: `Failing row contains (${SENTINEL})`,
+                    hint: `shorten ${SENTINEL}`,
+                },
+            });
+            const res = await completeSession('s1', { ...completedOptions, finalTranscript: SENTINEL });
+            expect(res.success).toBe(false);
+            // Positive control: the error path DID log, so an empty capture cannot pass as clean.
+            expect(vi.mocked(logger.error)).toHaveBeenCalled();
+            const logged = JSON.stringify(vi.mocked(logger.error).mock.calls);
+            expect(logged).not.toContain(SENTINEL);
+            // The safe code is still recorded, so the failure stays diagnosable.
+            expect(logged).toContain('22001');
+            // Nothing content-bearing comes back to the caller either.
+            expect(JSON.stringify(res)).not.toContain(SENTINEL);
         });
 
         it.each([
@@ -524,13 +629,23 @@ describe('storage.ts', () => {
             ['unknown state', 'something_new'],
             ['null state', null],
             ['absent state', undefined],
-        ])('FAILS CLOSED on %s — never renders on a guess', (_l, state) => {
+        ])('%s suppresses text AND reports it honestly as unavailable', (_l, state) => {
+            // Fails closed on DISPLAY without lying about MEANING. "No transcript was captured" is a
+            // factual claim about the recording; when the state is unknown we simply do not know, so only
+            // the explicit server state `not_captured` may produce that sentence.
             expect(resolveTranscriptView({ transcript_state: state as string | null, transcript: 'TEXT PRESENT' }))
-                .toEqual({ kind: 'not_captured' });
+                .toEqual({ kind: 'unavailable' });
         });
 
-        it('a null session is not_captured, not a crash', () => {
-            expect(resolveTranscriptView(null)).toEqual({ kind: 'not_captured' });
+        it('only the EXPLICIT server state not_captured yields the not-captured claim', () => {
+            expect(resolveTranscriptView({ transcript_state: 'not_captured', transcript: null }))
+                .toEqual({ kind: 'not_captured' });
+            expect(resolveTranscriptView({ transcript_state: 'garbled', transcript: null }).kind)
+                .not.toBe('not_captured');
+        });
+
+        it('a null session is unavailable, not a false not-captured claim', () => {
+            expect(resolveTranscriptView(null)).toEqual({ kind: 'unavailable' });
         });
 
         it('NEVER infers availability from text presence alone', () => {
@@ -538,7 +653,7 @@ describe('storage.ts', () => {
             const withState = resolveTranscriptView({ transcript_state: 'available', transcript: 'same text' });
             const withoutState = resolveTranscriptView({ transcript: 'same text' });
             expect(withState.kind).toBe('available');
-            expect(withoutState.kind).toBe('not_captured');
+            expect(withoutState.kind).toBe('unavailable');
         });
     });
 });

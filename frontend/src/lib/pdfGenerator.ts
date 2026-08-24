@@ -215,7 +215,11 @@ export const generateSessionPdf = async (
       doc.setFontSize(16);
       doc.text('Transcript', 14, 22);
       doc.setFontSize(10);
-      doc.text(doc.splitTextToSize(transcriptView.text, 180), 14, 34);
+      // PAGINATED. The v2 contract permits up to 50,000 characters; handing every split line to one
+      // `doc.text` call writes them all onto a single page, where the overflow is silently lost and the
+      // footer overprints the body. writePaginatedText breaks pages at the bottom margin so the tail of a
+      // long transcript actually reaches the exported artifact.
+      writePaginatedText(doc, transcriptView.text, 14, 34, 180);
     }
 
     // NO free-form AI coaching page. The exported report contains metrics + the ONE structured next action

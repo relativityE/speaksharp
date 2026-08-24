@@ -871,9 +871,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         );
                                     }
                                     const COPY: Record<'expired' | 'not_captured' | 'unavailable', string> = {
-                                        expired: 'This transcript has expired. We keep only the 2 most recent transcripts — your metrics below are unaffected.',
-                                        not_captured: 'No transcript was captured for this session. Your metrics below are unaffected.',
-                                        unavailable: 'This transcript could not be loaded. Your metrics below are unaffected.',
+                                        // Position-neutral wording: the metrics are not necessarily "below" this
+                                        // panel on every viewport or in every future layout.
+                                        expired: 'This transcript has expired. We keep only the 2 most recent transcripts — session metrics are unaffected.',
+                                        not_captured: 'No transcript was captured for this session. Session metrics are unaffected.',
+                                        unavailable: 'This transcript could not be loaded. Session metrics are unaffected.',
                                     };
                                     const copy = COPY[view.kind];
                                     return (

@@ -481,7 +481,10 @@ describe('AnalyticsDashboard', () => {
         // superseded "no transcript is ever stored" contract is gone, but a stateless row still shows
         // no text. The quality caveat remains retired.
         expect(screen.queryByTestId('session-detail-transcript')).not.toBeInTheDocument();
-        expect(screen.getByTestId('session-detail-transcript-not_captured')).toBeInTheDocument();
+        // A row carrying NO transcript_state is unknown, not proven empty — so the honest surface is
+        // "could not be loaded", never "no transcript was captured".
+        expect(screen.getByTestId('session-detail-transcript-unavailable')).toBeInTheDocument();
+        expect(screen.queryByTestId('session-detail-transcript-not_captured')).not.toBeInTheDocument();
         expect(screen.queryByTestId('session-detail-quality-caveat')).not.toBeInTheDocument();
         // The ONE structured next action is shown (content-free coaching), and metrics still render.
         expect(screen.getByTestId('session-detail-next-action')).toBeInTheDocument();
@@ -675,16 +678,26 @@ describe('AnalyticsDashboard', () => {
             expect(document.body.textContent ?? '').not.toContain(MARKER);
         });
 
-        it('MALFORMED: an unknown state fails closed even with text present', () => {
+        it('MALFORMED: an unknown state suppresses text and reports it as unavailable', () => {
             renderDetail({ transcript_state: 'something_new', transcript: `spoken ${MARKER} words` });
             expect(document.body.textContent ?? '').not.toContain(MARKER);
-            expect(screen.getByTestId('session-detail-transcript-not_captured')).toBeInTheDocument();
+            expect(screen.getByTestId('session-detail-transcript-unavailable')).toBeInTheDocument();
+            // Never claim "not captured" on a state we do not recognise.
+            expect(screen.queryByTestId('session-detail-transcript-not_captured')).not.toBeInTheDocument();
         });
 
         it('never infers availability from text presence alone', () => {
             // Decisive: identical text, no state → no render.
             renderDetail({ transcript: `spoken ${MARKER} words` });
             expect(document.body.textContent ?? '').not.toContain(MARKER);
+            expect(screen.getByTestId('session-detail-transcript-unavailable')).toBeInTheDocument();
+        });
+
+        it('copy is position-neutral — never claims the metrics are "below"', () => {
+            renderDetail({ transcript_state: 'expired', transcript: null });
+            const panel = screen.getByTestId('session-detail-transcript-expired');
+            expect(panel).toHaveTextContent('session metrics are unaffected');
+            expect(panel.textContent ?? '').not.toContain('below');
         });
     });
 });

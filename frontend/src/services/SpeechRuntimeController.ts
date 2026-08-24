@@ -3624,7 +3624,7 @@ export class SpeechRuntimeController {
                                     mode: service.getMode?.() ?? stopEntryMode,
                                     sessionId,
                                     transcriptLength: finalTranscript.length,
-                                }, '[DEBUG-STOP] Stop token cancelled after session completion; continuing rich metrics update');
+                                }, '[DEBUG-STOP] Stop token cancelled after session completion; continuing terminal publish (metrics already committed by v2)');
                             }
                             if (token.version !== this.lifecycleVersion) {
                                 logger.warn({
@@ -3633,7 +3633,7 @@ export class SpeechRuntimeController {
                                     tokenVersion: token.version,
                                     lifecycleVersion: this.lifecycleVersion,
                                     transcriptLength: finalTranscript.length,
-                                }, '[DEBUG-STOP] Lifecycle changed after session completion; continuing rich metrics update');
+                                }, '[DEBUG-STOP] Lifecycle changed after session completion; continuing terminal publish (metrics already committed by v2)');
                             }
 
                             // #1306 Step 3: the redundant post-completion metrics PATCH is REMOVED. v2 persisted
