@@ -10,8 +10,9 @@
 //   1. Recover the UID if in-page capture missed it — never return silently after a signup that may
 //      have created an account.
 //   2. Cross-check UID -> email and refuse to delete anything that is not run-owned.
-//   3. Delete `trial_entitlements` BY user_id FIRST, while the column still holds it: that FK is
-//      ON DELETE SET NULL, so `deleteUser()` only NULLs it and the row would survive as residue.
+//   3. Clear every NON-CASCADING table BY user_id FIRST, while the column still holds it (see
+//      PRE_DELETE_TABLES): one is RESTRICT and would make the delete FAIL, the other is SET NULL and
+//      would leave the row behind as residue.
 //   4. Delete the auth user.
 //   5. Prove deletion — ONLY an expected not-found re-fetch is proof. Any other error (network, auth,
 //      rate limit) is NOT proof of deletion and must fail closed.
@@ -46,7 +47,26 @@ const RESIDUE_CHECKS: ReadonlyArray<{ table: string; column: string }> = Object.
     { table: 'session_attribution_authority', column: 'user_id' },
     { table: 'session_attribution_challenge', column: 'user_id' },
     { table: 'session_attribution_unattributed', column: 'user_id' },
+    // Progress surfaces: a completed session can produce an evaluation, a recommendation, and an
+    // attempt row. All three are ON DELETE CASCADE, so these assert the cascade actually fired.
+    { table: 'session_progress_evaluations', column: 'user_id' },
+    { table: 'progress_recommendations', column: 'user_id' },
+    { table: 'progress_recommendation_attempts', column: 'user_id' },
+    { table: 'active_recording_lease', column: 'user_id' },
+    { table: 'usage_checkpoints', column: 'user_id' },              // deleted explicitly below, not cascaded
 ]);
+
+/**
+ * Tables whose user_id FK is NOT `ON DELETE CASCADE` and must therefore be cleared BEFORE the auth
+ * user is deleted. Getting this list wrong does not degrade gracefully:
+ *   - `usage_checkpoints.user_id` is declared `REFERENCES auth.users(id)` with NO on-delete clause,
+ *     which is NO ACTION/RESTRICT. If the journey wrote one, `deleteUser()` FAILS and the run orphans
+ *     a real account in the production database. This has already burned a partial delete once.
+ *   - `trial_entitlements.user_id` is ON DELETE SET NULL: `deleteUser()` would only null the column
+ *     and leave the row behind as residue.
+ * Every other run-owned table cascades and is verified in RESIDUE_CHECKS.
+ */
+const PRE_DELETE_TABLES: ReadonlyArray<string> = Object.freeze(['usage_checkpoints', 'trial_entitlements']);
 
 export const RUN_OWNED_PREFIX_RE = /^(private-proof-|retention-proof-)/;
 
@@ -97,8 +117,10 @@ export async function cleanupRunOwnedAccount(params: {
     if (foundEmail !== createdEmail.toLowerCase()) throw new Error(`UID/email disagreement — refusing to delete (uid=${capturedUid})`);
     if (!foundEmail.startsWith(runOwnedPrefix)) throw new Error(`refusing to delete a non-run-owned account (${foundEmail})`);
 
-    const { error: teDelErr } = await admin.from('trial_entitlements').delete().eq('user_id', capturedUid);
-    if (teDelErr) throw new Error(`cleanup trial_entitlements delete failed (fail closed): ${teDelErr.message}`);
+    for (const table of PRE_DELETE_TABLES) {
+        const { error: preErr } = await admin.from(table).delete().eq('user_id', capturedUid);
+        if (preErr) throw new Error(`cleanup ${table} pre-delete failed (fail closed): ${preErr.message}`);
+    }
 
     const { error: delErr } = await admin.auth.admin.deleteUser(capturedUid);
     if (delErr) throw new Error(`cleanup deleteUser failed (fail closed): ${delErr.message}`);

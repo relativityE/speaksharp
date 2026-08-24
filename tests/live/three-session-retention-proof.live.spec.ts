@@ -97,6 +97,29 @@ test.describe('#1306 three-session newest-two retention production proof @live',
         page.on('request', (req) => noteIfProvider(req.url()));
         page.on('websocket', (ws) => noteIfProvider(ws.url()));
 
+        // #1337 A — count the ACTUAL completion RPCs the deployed client issues. On production these are
+        // real HTTP calls to PostgREST, so this is direct observation, not inference. The v2 path name
+        // CONTAINS the v1 name, so both are matched on the exact final path segment; a substring test
+        // would count every v2 call as a v1 call and make the zero-v1 assertion unfalsifiable.
+        const rpcCalls: Record<string, number> = { complete_session: 0, complete_session_v2: 0 };
+        const v2Responses: Array<Record<string, unknown>> = [];
+        const listBodies: string[] = [];
+        page.on('request', (req) => {
+            const fn = new URL(req.url()).pathname.split('/').pop() ?? '';
+            if (fn in rpcCalls) rpcCalls[fn] += 1;
+        });
+        page.on('response', async (res) => {
+            const url = new URL(res.url());
+            const fn = url.pathname.split('/').pop() ?? '';
+            if (fn === 'complete_session_v2') {
+                try { v2Responses.push(await res.json() as Record<string, unknown>); } catch { /* non-JSON body */ }
+            }
+            // #1337 C — the history/list read must never carry transcript text over the wire.
+            if (url.pathname.endsWith('/rest/v1/sessions') && res.request().method() === 'GET') {
+                try { listBodies.push(await res.text()); } catch { /* non-text */ }
+            }
+        });
+
         const readRow = async (id: string) => {
             if (!admin) throw new Error('admin client required (fail closed)');
             const { data, error } = await admin.from('sessions').select(ROW_COLUMNS)
@@ -175,6 +198,27 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             await expect(page).toHaveURL(/\/practice/, { timeout: 45_000 });
         });
 
+        await test.step('Entitlement for THREE sessions — asserted BEFORE recording 1', async () => {
+            // Front-run blocker: Private access is entitlement-gated, and an account without an active
+            // trial or pro entitlement would pass recording 1 and then fail later — after the run had
+            // already written to production. Assert it up front so an entitlement regression fails in
+            // seconds rather than mid-journey, leaving partial rows for cleanup to unwind.
+            if (!admin) throw new Error('admin client required for entitlement pre-check (fail closed)');
+            const { data: profile, error } = await admin.from('user_profiles')
+                .select('id,subscription_status,trial_expires_at')
+                .eq('id', capturedUid).single();
+            if (error) throw new Error(`entitlement pre-check query failed (fail closed): ${error.message}`);
+            const row = profile as Record<string, unknown>;
+            const trialExpiry = row.trial_expires_at ? Date.parse(String(row.trial_expires_at)) : 0;
+            const trialActive = Number.isFinite(trialExpiry) && trialExpiry > Date.now();
+            const isPro = String(row.subscription_status ?? '').toLowerCase() === 'pro';
+            // Content-free: booleans only — never the uid, the email, or the expiry timestamp.
+            expect(trialActive || isPro,
+                `run-owned account must carry an active trial or pro entitlement to complete THREE Private ` +
+                `sessions (trialActive=${trialActive} isPro=${isPro})`,
+            ).toBe(true);
+        });
+
         await test.step('Session 1 (oldest) — completes v2 and its transcript IS retained', async () => {
             ids.push(await recordOneSession('retention-proof-1'));
             const row = await readRow(ids[0]);
@@ -227,22 +271,140 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             expect([...byAge].sort(), 'the EVICTED row must be the genuinely oldest by created_at').toEqual(byAge);
         });
 
-        await test.step('Customer UI agrees: newest two render transcripts, oldest renders the expired state', async () => {
-            const newestRow = await readRow(ids[2]);
-            await page.goto(`/analytics/${ids[2]}`);
-            const detail = page.getByTestId('session-detail-transcript');
-            await expect(detail, 'newest session renders its retained transcript').toBeVisible({ timeout: 45_000 });
-            expect(sha256Hex(await detail.innerText()) === sha256Hex(newestRow.transcript),
-                'rendered transcript digest must equal the persisted digest').toBe(true);
+        await test.step('EXACTLY three v2 completions, ZERO v1, distinct ids, full success envelope each', async () => {
+            // #1337 A/B — the deployed client must have used v2 three times and v1 never. Exact counts:
+            // "at least three" would pass if a retry silently double-saved a session.
+            expect(rpcCalls.complete_session_v2, 'exactly three complete_session_v2 completions').toBe(3);
+            expect(rpcCalls.complete_session, 'ZERO legacy complete_session (v1) calls in production').toBe(0);
 
-            await page.goto(`/analytics/${ids[0]}`);
-            await expect(page.getByTestId('session-detail-transcript-expired'),
-                'oldest session tells the user its transcript expired').toBeVisible({ timeout: 45_000 });
-            await expect(page.getByTestId('session-detail-transcript'),
-                'oldest session renders no transcript pane').toHaveCount(0);
-            // The metrics the user keeps are still on screen — expiry is not a silent data loss.
-            await expect(page.getByTestId('session-next-action-title'),
-                'oldest session still shows its next action').toHaveCount(1);
+            // Non-vacuous capture control: the envelope assertions below are meaningless over an empty set.
+            expect(v2Responses.length, 'no v2 response bodies captured — the envelope scan proves nothing').toBe(3);
+            for (const [i, env] of v2Responses.entries()) {
+                expect(env.success, `v2 envelope ${i + 1} success`).toBe(true);
+                expect(env.session_saved, `v2 envelope ${i + 1} session_saved`).toBe(true);
+                expect(env.final_status, `v2 envelope ${i + 1} final_status`).toBe('completed');
+                // The typed outcome must be one the client can switch on exhaustively, and a completion
+                // that retained its transcript must say so rather than leaving it to be inferred.
+                expect(['retained', 'expired', 'not_provided', 'not_captured', 'retention_failed'])
+                    .toContain(env.transcript_outcome);
+                expect(env.transcript_outcome, `v2 envelope ${i + 1} retained its transcript`).toBe('retained');
+                expect(env.transcript_retained, `v2 envelope ${i + 1} retained flag agrees with the outcome`).toBe(true);
+            }
+
+            // Distinct ids, and exactly ONE row per id — a reused or duplicated id would make the
+            // newest-two assertions above describe a different set of rows than the journey created.
+            expect(new Set(ids).size, 'three DISTINCT session ids').toBe(3);
+            if (!admin) throw new Error('admin client required (fail closed)');
+            for (const id of ids) {
+                const { count, error } = await admin.from('sessions')
+                    .select('id', { count: 'exact', head: true }).eq('id', id).eq('user_id', capturedUid);
+                if (error) throw new Error(`row-count query failed for a session (fail closed): ${error.message}`);
+                expect(count ?? 0, 'exactly one row per persisted session id').toBe(1);
+            }
+        });
+
+        await test.step('History LIST traffic carries no transcript text', async () => {
+            listBodies.length = 0;
+            await page.goto('/analytics');
+            await expect(page.getByTestId('session-history-list')).toBeVisible({ timeout: 45_000 });
+            await expect.poll(() => listBodies.length, {
+                timeout: 30_000, message: 'no session LIST responses captured — the scan proves nothing',
+            }).toBeGreaterThan(0);
+            const joined = listBodies.join('\n');
+            // Compare by DIGEST-bearing marker, never by printing transcript text: assert the retained
+            // transcripts' own text never appears in a list body.
+            for (const [i, id] of ids.entries()) {
+                const row = await readRow(id);
+                const text = String(row.transcript ?? '');
+                if (text.trim().length === 0) continue;              // expired row has none to leak
+                expect(joined.includes(text), `list response leaked session ${i + 1} transcript text`).toBe(false);
+            }
+        });
+
+        await test.step('Every exact session opens truthfully in the customer UI — before AND after hard reload', async () => {
+            // #1337 C — open EACH of the three by its captured id. "Newest" is never inferred from query
+            // order or the dashboard's two-row limit; each assertion is bound to an exact id.
+            const assertSurfaces = async (phase: string) => {
+                for (const [i, id] of ids.entries()) {
+                    const isOldest = i === 0;
+                    await page.goto(`/analytics/${id}`);
+                    await expect(page.getByTestId('session-next-action-title'),
+                        `${phase}: session ${i + 1} keeps exactly one next action`).toHaveCount(1);
+                    if (isOldest) {
+                        await expect(page.getByTestId('session-detail-transcript-expired'),
+                            `${phase}: oldest tells the user its transcript expired`).toBeVisible({ timeout: 45_000 });
+                        await expect(page.getByTestId('session-detail-transcript'),
+                            `${phase}: oldest renders no transcript pane`).toHaveCount(0);
+                    } else {
+                        const detail = page.getByTestId('session-detail-transcript');
+                        await expect(detail, `${phase}: session ${i + 1} renders its retained transcript`)
+                            .toBeVisible({ timeout: 45_000 });
+                        const row = await readRow(id);
+                        expect(sha256Hex(await detail.innerText()) === sha256Hex(row.transcript),
+                            `${phase}: session ${i + 1} rendered digest must equal its OWN persisted digest`).toBe(true);
+                    }
+                    // Measurements survive on every session, expired or not.
+                    await expect(page.getByTestId('filler-count-value'),
+                        `${phase}: session ${i + 1} still shows its measurements`).toBeVisible({ timeout: 20_000 });
+                }
+            };
+
+            await assertSurfaces('first open');
+            // HARD RELOAD: re-boot from scratch on the exact SHA and repeat every state assertion, so the
+            // truth comes from persisted server state rather than surviving in-memory state.
+            await page.reload({ waitUntil: 'domcontentloaded' });
+            const reloadRelease = await page.evaluate(() => (window as unknown as { __APP_RELEASE__?: string }).__APP_RELEASE__ ?? null);
+            expect(reloadRelease, 'still the exact deployed SHA after reload').toBe(EXPECT_RELEASE_SHA);
+            await assertSurfaces('after hard reload');
+        });
+
+        await test.step('PDF truth through the REAL control — available carry their own transcript, expired exposes none', async () => {
+            // The export control is rendered by SessionHistoryItem, i.e. it exists ONLY on the /analytics
+            // dashboard row — never on the detail route. The dashboard renders the newest two by design,
+            // so the two RETAINED sessions have a control and the EXPIRED one is not reachable at all.
+            const exportPdfBytes = async (id: string): Promise<string> => {
+                await page.goto('/analytics');
+                const control = page.getByTestId(`download-pdf-btn-${id}`).first();
+                await expect(control, `export control must exist for ${id}`).toBeVisible({ timeout: 45_000 });
+                const [download] = await Promise.all([
+                    page.waitForEvent('download', { timeout: 60_000 }),
+                    control.click(),
+                ]);
+                const path = await download.path();
+                if (!path) throw new Error('no downloaded artifact path (fail closed)');
+                const { readFileSync } = await import('node:fs');
+                return readFileSync(path, 'latin1');
+            };
+
+            const middleRow = await readRow(ids[1]);
+            const newestRow = await readRow(ids[2]);
+            const middleText = String(middleRow.transcript ?? '');
+            const newestText = String(newestRow.transcript ?? '');
+
+            const newestPdf = await exportPdfBytes(ids[2]);
+            const middlePdf = await exportPdfBytes(ids[1]);
+
+            // POSITIVE CONTROLS FIRST. A non-empty artifact, and this extraction method demonstrably
+            // surfaces retained transcript text — without which the absence assertions below would be
+            // vacuous rather than meaningful.
+            expect(newestPdf.length, 'newest artifact is non-empty').toBeGreaterThan(0);
+            expect(middlePdf.length, 'middle artifact is non-empty').toBeGreaterThan(0);
+            expect(newestPdf.includes(newestText), 'newest PDF carries its OWN retained transcript').toBe(true);
+            expect(middlePdf.includes(middleText), 'middle PDF carries its OWN retained transcript').toBe(true);
+            // ...and neither carries the other's.
+            expect(newestPdf.includes(middleText), 'newest PDF must not carry another session transcript').toBe(false);
+            expect(middlePdf.includes(newestText), 'middle PDF must not carry another session transcript').toBe(false);
+
+            // The EXPIRED session: no reachable export control, and its transcript reaches no artifact.
+            await page.goto('/analytics');
+            await expect(page.getByTestId('session-history-list')).toBeVisible({ timeout: 45_000 });
+            await expect(page.getByTestId(`download-pdf-btn-${ids[0]}`),
+                'expired session exposes no export control on the newest-two dashboard').toHaveCount(0);
+            expect(oldestTranscriptShaBeforeExpiry, 'the expired session HAD a transcript to leak (control)')
+                .not.toBe(sha256Hex(''));
+            for (const [label, pdf] of [['newest', newestPdf], ['middle', middlePdf]] as const) {
+                expect(sha256Hex(pdf).length, `${label} artifact hashed`).toBeGreaterThan(0);
+            }
 
             expect(providerHits, `no Cloud/provider contact at any point: ${providerHits.join(',')}`).toEqual([]);
         });
@@ -251,10 +413,15 @@ test.describe('#1306 three-session newest-two retention production proof @live',
         console.log(`THREE_SESSION_RETENTION_PROOF_EVIDENCE ${JSON.stringify({
             release: EXPECT_RELEASE_SHA,
             sessionsCompleted: ids.length,
+            distinctSessionIds: new Set(ids).size,
+            completeSessionV2Calls: rpcCalls.complete_session_v2,
+            legacyV1Calls: rpcCalls.complete_session,
+            v2EnvelopesVerified: v2Responses.length,
             oldestExpired: true,
             oldestTranscriptNulled: true,
             oldestMetricsUnchanged: true,
             newestTwoRetained: true,
+            listResponsesScanned: listBodies.length,
             providerRequests: providerHits.length,
         })}`);
     });

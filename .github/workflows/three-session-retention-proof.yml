@@ -43,6 +43,12 @@ jobs:
   three-session-retention-proof:
     environment: production-db
     runs-on: ubuntu-latest
+    # BOUNDED AND JUSTIFIED, not the 20-minute default of the single-session proof. Budget:
+    # model readiness (<=180s, once — cached for recordings 2 and 3) + three recordings (~90s each)
+    # + six exact-session reopens (three, then all three again after a hard reload) + two PDF exports
+    # + fail-closed cleanup with a full residue readback. That is ~12-15 minutes of work; 45 leaves
+    # headroom for a cold runner without letting a hung run hold the production-database concurrency
+    # group indefinitely.
     timeout-minutes: 45
     steps:
       # A selectable feature-branch workflow must NEVER become production-proof authority.
