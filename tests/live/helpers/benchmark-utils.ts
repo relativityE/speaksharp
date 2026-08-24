@@ -294,7 +294,11 @@ export async function assertPreStartMode(page: Page, mode: 'native' | 'cloud' | 
                 : null;
             const policy = runtime?.policy as Record<string, unknown> | undefined;
 
-            expect(snapshot.ui?.modeSelectState, `PRE_START_MODE_STATE selector must remain ${mode}`).toBe(mode);
+            // The selector was removed by #1184; assert its state only when it is actually rendered.
+            // The runtime assertions below are the real authority and are NOT conditional.
+            if (snapshot.ui?.modeSelectState !== undefined && snapshot.ui?.modeSelectState !== null) {
+                expect(snapshot.ui.modeSelectState, `PRE_START_MODE_STATE selector must remain ${mode}`).toBe(mode);
+            }
             expect(snapshot.root?.runtimeState, 'PRE_START_MODE_STATE runtime should be ready or idle before Start').toMatch(/READY|IDLE/);
             expect(runtime?.controllerPreferredMode, `PRE_START_MODE_STATE controller policy must prefer ${mode}`).toBe(mode);
             expect(policy?.preferredMode, `PRE_START_MODE_STATE policy preferredMode must be ${mode}`).toBe(mode);
@@ -316,8 +320,38 @@ export async function waitForBenchmarkSession(page: Page) {
     }
 }
 
+/**
+ * PRIVATE-ONLY REALITY. #1184 (commit edb31d3c, "Private-only STT — resolution defanged + selector
+ * removed") deleted the mode selector from the product: `stt-mode-select` survives as a testId
+ * CONSTANT but no component renders it. Every caller here therefore blocked on a control that cannot
+ * appear, which is what failed the #1306 production dispatch after it had already created an account.
+ *
+ * When the selector is absent we do NOT skip the check — that would silently drop the guarantee that
+ * the run is actually Private. We assert the same invariant through the authority that still exists:
+ * the resolved runtime mode. Absent selector + runtime already on the requested mode is a legitimate
+ * pass; absent selector + runtime on some OTHER mode is still a hard failure.
+ */
+async function resolvedRuntimeMode(page: Page): Promise<string | null> {
+    const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'resolved-runtime-mode');
+    const runtime = snapshot && typeof snapshot === 'object' && 'runtime' in snapshot
+        ? snapshot.runtime as Record<string, unknown> | null
+        : null;
+    const policy = runtime?.policy as Record<string, unknown> | undefined;
+    return (runtime?.controllerPreferredMode as string | undefined)
+        ?? (policy?.preferredMode as string | undefined)
+        ?? null;
+}
+
 export async function selectBenchmarkMode(page: Page, mode: 'native' | 'cloud' | 'private') {
     const select = page.getByTestId('stt-mode-select');
+    if (await select.count() === 0) {
+        const resolved = await resolvedRuntimeMode(page);
+        expect(resolved,
+            `mode selector is absent (Private-only product), so the runtime must ALREADY resolve to ${mode}; got ${String(resolved)}`,
+        ).toBe(mode);
+        await logBenchmarkPhase(page, `SELECT_MODE_SELECTOR_ABSENT_RUNTIME_${mode.toUpperCase()}`);
+        return;
+    }
     try {
         await expect(select).toBeVisible({ timeout: 15_000 });
     } catch (error) {
