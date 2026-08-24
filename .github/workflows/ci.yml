@@ -739,3 +739,55 @@ jobs:
             [[ "$DRAFT_RESULT" == "success" ]] || { echo "::error::draft lane failed"; exit 1; }
             echo "Affected draft lane passed."
           fi
+
+  # ---- CI-GATE (#1328): fail-closed merge qualification ------------------------------------------
+  # `report` above enforces whichever lane was SELECTED, which is why a draft lane can conclude the
+  # workflow as success: the draft lane passing is a legitimate result for that lane. That is exactly
+  # the ambiguity that merged #1306 at d89213f4 on run 32686056839 — workflow success, every
+  # substantive job skipped, no test executed, main red on merge.
+  #
+  # This job answers a different and narrower question: did the work required to MERGE actually run
+  # and pass? It never reports success for a partial lane, so a draft run can still give diagnostic
+  # feedback without ever looking merge-qualified. The decision itself lives in a pure module so all
+  # seven rejection paths are falsified in tests/unit/ciMergeQualification.test.js without burning a
+  # CI cycle per case.
+  merge-qualification:
+    name: merge-qualification
+    needs: [scope, build, edge-tests, unit-shard, unit-coverage-merge, e2e, health-check, full-evidence]
+    # always(), NOT always() && !cancelled(): a cancelled upstream job must be REPORTED as unqualified
+    # rather than skipping the gate that would have caught it.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Evaluate merge qualification (fail closed)
+        env:
+          FULL_REQUIRED: ${{ needs.scope.outputs.full_required }}
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          node --input-type=module -e '
+            import { evaluateMergeQualification, formatQualification } from "./scripts/ci-merge-qualification.mjs";
+            // `toJSON(needs)` gives { job: { result, outputs } }; flatten to job -> result. A job that
+            // never ran is absent from this object, which the evaluator rejects as missing.
+            const raw = JSON.parse(process.env.RESULTS || "null");
+            const results = raw && typeof raw === "object"
+              ? Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, v && v.result]))
+              : null;
+            const decision = evaluateMergeQualification({
+              fullRequired: process.env.FULL_REQUIRED,
+              results,
+            });
+            const text = formatQualification(decision);
+            console.log(text);
+            const summary = process.env.GITHUB_STEP_SUMMARY;
+            if (summary) {
+              const { appendFileSync } = await import("node:fs");
+              appendFileSync(summary, "## Merge qualification\n\n```\n" + text + "\n```\n");
+            }
+            if (!decision.qualified) {
+              console.log("::error::NOT merge-qualified: " + decision.reasons.join(", "));
+              process.exit(1);
+            }
+          '
