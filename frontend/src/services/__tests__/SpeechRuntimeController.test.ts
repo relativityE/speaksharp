@@ -49,6 +49,30 @@ vi.mock('../progress/recordProgress', () => ({
     wireProgressEvaluationOnSave: vi.fn().mockResolvedValue(undefined),
 }));
 
+/**
+ * #1306 Step 3 — a completion payload production would ACCEPT, for any test that invokes a COMPLETED
+ * full-save retry and mocks `completeSession` successful. v2 rejects a fresh completed session lacking
+ * a valid structured next action or a measured metrics payload, so a fixture carrying only
+ * status/transcript/duration models a success the server could never return.
+ *
+ * Unrelated to `progressMetrics.payload`, which may legitimately be null in tests about a missing
+ * stashed Progress payload.
+ */
+const PRODUCTION_VALID_COMPLETED_ARGS = (finalTranscript: string, duration: number) => ({
+    status: 'completed' as const,
+    duration,
+    nextActionSignal: {
+        reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate',
+        value: 0.08, comparator: 'above_baseline', templateVersion: 'rec_v1',
+    },
+    metrics: {
+        totalWords: 120, clarityScore: 88, wpm: 142,
+        fillerCounts: { um: 4, uh: 1 },
+        pauseMetrics: { totalPauses: 3, averagePauseDuration: 0.6, longestPause: 1.2, pausesPerMinute: 3 },
+    },
+    finalTranscript,
+});
+
 describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     let controller: SpeechRuntimeController;
 
@@ -640,6 +664,36 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect((opts.finalTranscript ?? '').length).toBeGreaterThan(0);
     });
 
+    /**
+     * A completion payload production would ACCEPT. v2 rejects a fresh completed session lacking a valid
+     * structured next action or a measured metrics payload, so `{ nextActionSignal: null, metrics: {} }`
+     * modelled a success the server could never return — the retry assertions were real, but they rode
+     * on an impossible precondition.
+     */
+    const RETRY_NEXT_ACTION = {
+        reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate',
+        value: 0.08, comparator: 'above_baseline', templateVersion: 'rec_v1',
+    } as const;
+    const validCompletedArgs = (finalTranscript: string, duration: number) => ({
+        status: 'completed' as const,
+        duration,
+        nextActionSignal: RETRY_NEXT_ACTION,
+        metrics: {
+            totalWords: 120, clarityScore: 88, wpm: 142,
+            fillerCounts: { um: 4, uh: 1 },
+            pauseMetrics: { totalPauses: 3, averagePauseDuration: 0.6, longestPause: 1.2, pausesPerMinute: 3 },
+        },
+        finalTranscript,
+    });
+
+    it('LOAD-BEARING: the completed retry fixture is one production would accept', async () => {
+        const { validateNextActionSignal } = await import('../../contracts/nextActionSignal');
+        const args = validCompletedArgs('any', 12);
+        expect(validateNextActionSignal(args.nextActionSignal).ok).toBe(true);
+        expect(Object.keys(args.metrics.fillerCounts).length).toBeGreaterThan(0);
+        expect(args.metrics.totalWords).toBeGreaterThan(0);
+    });
+
     it('#1306: Retry Save replays the BOUND transcript, not whatever the store now holds', async () => {
         // The immutability property. The completion payload is captured at the recording boundary; a
         // later store/UI mutation (or a terminal clear) must not change what a retry sends. A divergent
@@ -656,7 +710,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
 
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
             sessionId: 'sess-immutable-retry',
-            completeArgs: { status: 'completed', duration: 12, nextActionSignal: null, metrics: {}, finalTranscript: BOUND },
+            completeArgs: validCompletedArgs(BOUND, 12),
             attributionEvidence: { provider: 'transformers-js', engine: 'private' },
             progressContext: { mode: 'private' },
             progressMetrics: { payload: {}, persisted: true },
@@ -685,7 +739,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
 
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
             sessionId: 'sess-immutable-after-purge',
-            completeArgs: { status: 'completed', duration: 9, nextActionSignal: null, metrics: {}, finalTranscript: BOUND },
+            completeArgs: validCompletedArgs(BOUND, 9),
             attributionEvidence: { provider: 'transformers-js', engine: 'private' },
             progressContext: { mode: 'private' },
             progressMetrics: { payload: {}, persisted: true },
@@ -1095,7 +1149,8 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
             sessionId: null,
             initialSave: { userId: 'user-early', recordingId: 'rec-idem-1', mode: 'private' },
-            completeArgs: { status: 'completed', transcript: 'early speech', duration: 11 },
+            // Production-valid: a completed retry mocked SUCCESSFUL must carry a payload v2 accepts.
+            completeArgs: PRODUCTION_VALID_COMPLETED_ARGS('early speech', 11),
             attributionEvidence: null,   // #1161: recovered pre-session work has no trusted identity
         };
         setUnresolved(true);
@@ -1726,13 +1781,14 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         attestInvoke.mockClear();
         attestInvoke.mockResolvedValue({ data: { attributed: true }, error: null });
         (controller as unknown as { pendingFullSaveRetry: unknown }).pendingFullSaveRetry = {
-            sessionId: 'sess-fs', completeArgs: { status: 'completed', transcript: 'hello world', duration: 12 },
+            sessionId: 'sess-fs', completeArgs: PRODUCTION_VALID_COMPLETED_ARGS('hello world', 12),
             attributionEvidence: { provider: 'transformers-js', engine: 'private', fallback_occurred: false, cloud_used: false },
         };
         (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
         expect(controller.isEngineSelectionLocked()).toBe(true);
         await expect((controller as unknown as { retryRecordingSave: () => Promise<boolean> }).retryRecordingSave()).resolves.toBe(true);
-        expect(storage.completeSession).toHaveBeenCalledWith('sess-fs', expect.objectContaining({ status: 'completed', transcript: 'hello world' }));
+        // #1306: the retry replays the v2 payload — `finalTranscript`, not the pre-v2 `transcript` field.
+        expect(storage.completeSession).toHaveBeenCalledWith('sess-fs', expect.objectContaining({ status: 'completed', finalTranscript: 'hello world' }));
         // #1161: attribution now goes through the trusted producer for the SAME session
         expect(attestInvoke).toHaveBeenCalledWith('attest-session-engine', expect.objectContaining({ body: expect.objectContaining({ sessionId: 'sess-fs' }) }));
         expect(controller.isEngineSelectionLocked()).toBe(false);

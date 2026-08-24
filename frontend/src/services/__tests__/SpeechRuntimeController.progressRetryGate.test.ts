@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { validateNextActionSignal } from '@/contracts/nextActionSignal';
 
 const { completeSession, updateSession, wireProgressEvaluationOnSave, finalizeObjectiveSessionOnSave, attestInvoke } = vi.hoisted(() => ({
     completeSession: vi.fn(),
@@ -128,10 +129,44 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
         expect(wireProgressEvaluationOnSave).not.toHaveBeenCalled();
     });
 
+    /**
+     * A completion payload production would actually ACCEPT. v2 rejects a fresh completed session that
+     * lacks a valid structured next action or a measured metrics payload, so a retry fixture carrying
+     * only status/transcript/duration models a success the server could never return. Every completed
+     * retry that expects `completeSession` to succeed uses this.
+     *
+     * NOTE: this is the ATOMIC v2 payload. It is unrelated to `progressMetrics.payload`, which tests
+     * about a missing stashed Progress payload may legitimately leave null.
+     */
+    const VALID_NEXT_ACTION = {
+        reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate',
+        value: 0.08, comparator: 'above_baseline', templateVersion: 'rec_v1',
+    } as const;
+    const completedArgs = (finalTranscript: string) => ({
+        status: 'completed' as const,
+        duration: 42,
+        nextActionSignal: VALID_NEXT_ACTION,
+        metrics: {
+            totalWords: 120, clarityScore: 88, wpm: 142,
+            fillerCounts: { um: 4, uh: 1 },
+            pauseMetrics: { totalPauses: 3, averagePauseDuration: 0.6, longestPause: 1.2, pausesPerMinute: 3 },
+        },
+        finalTranscript,
+    });
+
+    it('LOAD-BEARING: the completed retry fixture is one production would accept', () => {
+        // If this fixture is fiction, every completed-retry success below is fiction too.
+        const args = completedArgs('price timeline');
+        expect(validateNextActionSignal(args.nextActionSignal).ok).toBe(true);
+        expect(Object.keys(args.metrics.fillerCounts).length).toBeGreaterThan(0);
+        expect(args.metrics.totalWords).toBeGreaterThan(0);
+        expect(typeof args.finalTranscript).toBe('string');
+    });
+
     it('full-save retry passes through the same Focus Points registration gate', async () => {
         retry.pendingFullSaveRetry = {
             sessionId: 'session-full-save',
-            completeArgs: { status: 'completed', finalTranscript: 'price timeline', duration: 42 },
+            completeArgs: completedArgs('price timeline'),
             attributionEvidence: EVIDENCE,
             progressContext: FOCUS_CONTEXT,
             progressMetrics: { payload: METRICS_PAYLOAD, persisted: false },
@@ -153,7 +188,7 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
         finalizeObjectiveSessionOnSave.mockResolvedValue({ ok: false, registered: false, stage: 'register', reason: 'error' });
         retry.pendingFullSaveRetry = {
             sessionId: 'session-full-save-register-failed',
-            completeArgs: { status: 'completed', finalTranscript: 'price timeline', duration: 42 },
+            completeArgs: completedArgs('price timeline'),
             attributionEvidence: EVIDENCE,
             progressContext: FOCUS_CONTEXT,
             progressMetrics: { payload: METRICS_PAYLOAD, persisted: false },
@@ -169,7 +204,7 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
     it('unknown legacy/reloaded retry context fails closed instead of defaulting to Open Mic', async () => {
         retry.pendingFullSaveRetry = {
             sessionId: 'session-unknown',
-            completeArgs: { status: 'completed', finalTranscript: 'saved words', duration: 42 },
+            completeArgs: completedArgs('saved words'),
             attributionEvidence: null,
             progressContext: { mode: 'unknown' },
             progressMetrics: { payload: null, persisted: false },
@@ -199,7 +234,7 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
     it('Open Mic full-save retry writes Progress even without a stashed metrics payload (v2 proves metrics)', async () => {
         retry.pendingFullSaveRetry = {
             sessionId: 'session-open-mic-no-metrics',
-            completeArgs: { status: 'completed', finalTranscript: 'saved words', duration: 42 },
+            completeArgs: completedArgs('saved words'),
             attributionEvidence: EVIDENCE,
             progressContext: { mode: 'open_mic' },
             progressMetrics: { payload: null, persisted: false },
@@ -215,7 +250,7 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
     it('Focus Points full-save retry writes Progress even without a stashed metrics payload (v2 proves metrics)', async () => {
         retry.pendingFullSaveRetry = {
             sessionId: 'session-focus-no-metrics',
-            completeArgs: { status: 'completed', finalTranscript: 'saved words', duration: 42 },
+            completeArgs: completedArgs('saved words'),
             attributionEvidence: EVIDENCE,
             progressContext: FOCUS_CONTEXT,
             progressMetrics: { payload: null, persisted: false },
@@ -234,7 +269,7 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
         completeSession.mockResolvedValueOnce({ success: false });
         retry.pendingFullSaveRetry = {
             sessionId: 'session-focus-metrics-failed',
-            completeArgs: { status: 'completed', finalTranscript: 'price timeline', duration: 42 },
+            completeArgs: completedArgs('price timeline'),
             attributionEvidence: EVIDENCE,
             progressContext: FOCUS_CONTEXT,
             progressMetrics: { payload: METRICS_PAYLOAD, persisted: false },
@@ -255,7 +290,7 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
         completeSession.mockResolvedValueOnce({ success: false });
         retry.pendingFullSaveRetry = {
             sessionId: 'session-open-mic-metrics-failed',
-            completeArgs: { status: 'completed', finalTranscript: 'saved words', duration: 42 },
+            completeArgs: completedArgs('saved words'),
             attributionEvidence: EVIDENCE,
             progressContext: { mode: 'open_mic' },
             progressMetrics: { payload: METRICS_PAYLOAD, persisted: false },
@@ -273,7 +308,7 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
     it('Open Mic full-save retry writes exactly one evaluation (metrics ride in the v2 completion)', async () => {
         retry.pendingFullSaveRetry = {
             sessionId: 'session-open-mic-metrics-ok',
-            completeArgs: { status: 'completed', finalTranscript: 'saved words', duration: 42 },
+            completeArgs: completedArgs('saved words'),
             attributionEvidence: EVIDENCE,
             progressContext: { mode: 'open_mic' },
             progressMetrics: { payload: METRICS_PAYLOAD, persisted: false },
