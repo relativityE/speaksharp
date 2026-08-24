@@ -126,29 +126,39 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             const fn = new URL(req.url()).pathname.split('/').pop() ?? '';
             if (fn in rpcCalls) rpcCalls[fn] += 1;
         });
-        page.on('response', async (res) => {
+        // #1338/4 — DETERMINISTIC CAPTURE. Playwright does not await an async `response` handler, so a
+        // body still being parsed is invisible to a synchronous length check: asserting
+        // `v2Responses.length === 3` could fail on a slow parse even though all three arrived. Every
+        // parse is registered as a PROMISE here and awaited before any assertion reads the set, which
+        // makes the capture bounded and order-independent rather than racy.
+        const v2Parsing: Array<Promise<void>> = [];
+        const listParsing: Array<Promise<void>> = [];
+        page.on('response', (res) => {
             const url = new URL(res.url());
             const fn = url.pathname.split('/').pop() ?? '';
             if (fn === 'complete_session_v2') {
-                try { v2Responses.push(await res.json() as Record<string, unknown>); } catch { /* non-JSON body */ }
+                v2Parsing.push(res.json().then((b) => { v2Responses.push(b as Record<string, unknown>); }, () => { /* non-JSON body */ }));
             }
             // #1337 B — the SERVER entitlement authority the app itself consulted. Observing the
             // response the client received is stronger than re-deriving the decision here: it is the
             // exact verdict the product acted on, and it cannot be elevated by this test.
             if (fn === 'check-usage-limit') {
-                try { usageChecks.push(await res.json() as Record<string, unknown>); } catch { /* non-JSON */ }
+                v2Parsing.push(res.json().then((b) => { usageChecks.push(b as Record<string, unknown>); }, () => { /* non-JSON */ }));
             }
             // #1337 C — the history/list read must never carry transcript text over the wire.
             if (url.pathname.endsWith('/rest/v1/sessions') && res.request().method() === 'GET') {
-                try { listBodies.push(await res.text()); } catch { /* non-text */ }
+                listParsing.push(res.text().then((t) => { listBodies.push(t); }, () => { /* non-text */ }));
             }
         });
+        /** Await every in-flight body parse so a capture assertion reads a settled set. */
+        const settleCaptures = async () => { await Promise.all([...v2Parsing, ...listParsing]); };
 
         const readRow = async (id: string) => {
             if (!admin) throw new Error('admin client required (fail closed)');
             const { data, error } = await admin.from('sessions').select(ROW_COLUMNS)
                 .eq('id', id).eq('user_id', capturedUid).single();
-            if (error) throw new Error(`row query failed for ${id} (fail closed): ${error.message}`);
+            // PRIVACY: never echo the session UUID or a raw provider message into a public log.
+            if (error) throw new Error(`row_query_failed code=${error.code ?? 'unknown'} (fail closed)`);
             return data as Record<string, unknown>;
         };
 
@@ -157,8 +167,8 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             const seenBefore = usageChecks.length;
             await page.goto('/practice');
             await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 45_000 });
-            await expect(page.getByTestId('practice-card-quick')).toBeVisible({ timeout: 20_000 });
-            await page.getByTestId('practice-card-quick').click();
+            await expect(page.getByTestId('practice-card-freeform')).toBeVisible({ timeout: 20_000 });
+            await page.getByTestId('practice-card-freeform').click();
             await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
             await selectBenchmarkMode(page, 'private');
             await preparePrivateModelIfPrompted(page, 180_000);     // no-op once the model is cached
@@ -243,7 +253,7 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             capturedUid = extractUidFromAuthStorage(entries) ?? '';
             expect(capturedUid, 'cleanup UID captured from session').toBeTruthy();
             const { data: got, error } = await admin!.auth.admin.getUserById(capturedUid);
-            if (error) throw new Error(`UID/email cross-check failed (fail closed): ${error.message}`);
+            if (error) throw new Error(`UID/email cross-check failed (fail closed): ${error.code ?? 'unknown'}`);
             if ((got?.user?.email ?? '').toLowerCase() !== createdEmail.toLowerCase()) throw new Error('captured UID does not match the created email (fail closed)');
             await expect(page).toHaveURL(/\/practice/, { timeout: 45_000 });
         });
@@ -300,12 +310,34 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                 `oldest keeps a VALID next action after expiry (${'reason' in oldestSignal ? String(oldestSignal.reason) : 'invalid'})`,
             ).toBe(true);
 
+            // #1338/3 — EVERY session must retain a STRUCTURALLY VALID next action and truthful
+            // measurements, not just the expired one. Proving a UI title renders says nothing about the
+            // persisted signal being usable, and the outcome claims all three keep theirs.
+            for (const [i, row] of [oldest, middle, newest].entries()) {
+                const signal = validateNextActionSignal(row.next_action_signal);
+                expect(signal.ok,
+                    `session ${i + 1} must retain a VALID next action (${'reason' in signal ? String(signal.reason) : 'invalid'})`,
+                ).toBe(true);
+                expect(row.status, `session ${i + 1} status`).toBe('completed');
+                expect(typeof row.total_words === 'number', `session ${i + 1} persisted a numeric word count`).toBe(true);
+                expect(row.filler_counts ?? null, `session ${i + 1} persisted its filler map`).not.toBeNull();
+                expect(typeof row.duration === 'number', `session ${i + 1} persisted a numeric duration`).toBe(true);
+            }
+
             // Retention is newest-two by created_at, so the evicted row must be the actually-oldest one.
             const byAge = [oldest, middle, newest].map((r) => String(r.created_at));
             expect([...byAge].sort(), 'the EVICTED row must be the genuinely oldest by created_at').toEqual(byAge);
         });
 
         await test.step('EXACTLY three v2 completions, ZERO v1, distinct ids, full success envelope each', async () => {
+            // #1338/4 — settle every in-flight body parse, then bound the wait on the third envelope,
+            // so the exact-count assertion below reflects what arrived rather than what finished parsing.
+            await settleCaptures();
+            await expect.poll(async () => { await settleCaptures(); return v2Responses.length; }, {
+                timeout: 30_000,
+                message: 'the three v2 response bodies did not settle — the envelope scan would be racy',
+            }).toBe(3);
+
             // #1337 A/B — the deployed client must have used v2 three times and v1 never. Exact counts:
             // "at least three" would pass if a retry silently double-saved a session.
             expect(rpcCalls.complete_session_v2, 'exactly three complete_session_v2 completions').toBe(3);
@@ -332,7 +364,7 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             for (const id of ids) {
                 const { count, error } = await admin.from('sessions')
                     .select('id', { count: 'exact', head: true }).eq('id', id).eq('user_id', capturedUid);
-                if (error) throw new Error(`row-count query failed for a session (fail closed): ${error.message}`);
+                if (error) throw new Error(`row_count_query_failed code=${error.code ?? 'unknown'} (fail closed)`);
                 expect(count ?? 0, 'exactly one row per persisted session id').toBe(1);
             }
         });
@@ -341,7 +373,7 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             listBodies.length = 0;
             await page.goto('/analytics');
             await expect(page.getByTestId('session-history-list')).toBeVisible({ timeout: 45_000 });
-            await expect.poll(() => listBodies.length, {
+            await expect.poll(async () => { await settleCaptures(); return listBodies.length; }, {
                 timeout: 30_000, message: 'no session LIST responses captured — the scan proves nothing',
             }).toBeGreaterThan(0);
             const joined = listBodies.join('\n');
@@ -401,10 +433,16 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             // text is effectively identical and cannot identify which session an artifact belongs to.
             // The per-session marker is therefore the session id, which the export writes into the
             // document; transcript text is used only to prove the extractor can see transcripts at all.
-            const exportPdfText = async (id: string): Promise<string> => {
+            const exportPdfText = async (id: string, ordinal: string): Promise<string> => {
                 await page.goto('/analytics');
                 const control = page.getByTestId(`download-pdf-btn-${id}`).first();
-                await expect(control, `export control must exist for a retained session`).toBeVisible({ timeout: 45_000 });
+                // A failing `toBeVisible` prints the LOCATOR, which serializes the exact session UUID
+                // into a public log. Catch it and re-raise with an ordinal label instead.
+                try {
+                    await expect(control).toBeVisible({ timeout: 45_000 });
+                } catch {
+                    throw new Error(`export_control_missing for the ${ordinal} retained session (fail closed)`);
+                }
                 const [download] = await Promise.all([
                     page.waitForEvent('download', { timeout: 60_000 }),
                     control.click(),
@@ -414,9 +452,14 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                 return normalizeForMatch(await extractPdfText(path));
             };
 
+            // Each retained row's transcript is read and normalised SEPARATELY. All three recordings
+            // share one audio fixture, but decode output is not guaranteed byte-identical, so the
+            // newest transcript cannot stand in for the middle one — checking only the newest would
+            // leave the stated two-PDF transcript claim unproven.
             const newestText = normalizeForMatch(String((await readRow(ids[2])).transcript ?? ''));
-            const newestPdf = await exportPdfText(ids[2]);
-            const middlePdf = await exportPdfText(ids[1]);
+            const middleText = normalizeForMatch(String((await readRow(ids[1])).transcript ?? ''));
+            const newestPdf = await exportPdfText(ids[2], 'newest');
+            const middlePdf = await exportPdfText(ids[1], 'middle');
 
             // POSITIVE CONTROLS FIRST — without these the absence assertions below prove nothing.
             expect(newestPdf.length, 'newest artifact produced parseable text').toBeGreaterThan(0);
@@ -426,7 +469,9 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             // ...and the extractor demonstrably surfaces retained transcript text, so "no transcript in
             // the artifact" is a real observation rather than an extraction failure.
             expect(newestText.length, 'newest session has retained transcript text to find').toBeGreaterThan(0);
-            expect(newestPdf.includes(newestText), 'newest artifact carries its retained transcript').toBe(true);
+            expect(middleText.length, 'middle session has retained transcript text to find').toBeGreaterThan(0);
+            expect(newestPdf.includes(newestText), 'newest artifact carries its OWN retained transcript').toBe(true);
+            expect(middlePdf.includes(middleText), 'middle artifact carries its OWN retained transcript').toBe(true);
 
             // THE EXPIRED SESSION'S MARKER IS ABSENT from every artifact that could be produced.
             expect(newestPdf.includes(ids[0]), 'expired session marker must not appear in another artifact').toBe(false);

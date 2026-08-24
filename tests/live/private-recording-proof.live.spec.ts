@@ -137,15 +137,15 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             expect(capturedUid, 'cleanup UID captured from session').toBeTruthy();
             // Cross-check UID/email agreement via admin (fail closed).
             const { data: got, error } = await admin!.auth.admin.getUserById(capturedUid);
-            if (error) throw new Error(`UID/email cross-check failed (fail closed): ${error.message}`);
+            if (error) throw new Error(`UID/email cross-check failed (fail closed): ${error.code ?? 'unknown'}`);
             if ((got?.user?.email ?? '').toLowerCase() !== createdEmail.toLowerCase()) throw new Error('captured UID does not match the created email (fail closed)');
             await expect(page).toHaveURL(/\/practice/, { timeout: 45_000 });
             await expect(page.getByTestId('practice-root')).toBeVisible({ timeout: 20_000 });
         });
 
         await test.step('Click the visible practice entry → /session, select Private (never Cloud)', async () => {
-            await expect(page.getByTestId('practice-card-quick')).toBeVisible({ timeout: 20_000 });
-            await page.getByTestId('practice-card-quick').click();
+            await expect(page.getByTestId('practice-card-freeform')).toBeVisible({ timeout: 20_000 });
+            await page.getByTestId('practice-card-freeform').click();
             await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
             await selectBenchmarkMode(page, 'private');
             await preparePrivateModelIfPrompted(page, 180_000);
@@ -205,7 +205,7 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
                 .from('sessions')
                 .select('id,user_id,status,transcript,engine,engine_version,model_name,device_type,attribution_status')
                 .eq('id', persistedId).eq('user_id', capturedUid).single();
-            if (error) throw new Error(`persisted-row query failed (fail closed): ${error.message}`);
+            if (error) throw new Error(`persisted-row query failed (fail closed): ${error.code ?? 'unknown'}`);
             expect(row!.status, 'completed session').toBe('completed');
             expect((row!.transcript ?? '').trim().length, 'non-empty persisted transcript').toBeGreaterThan(0);
             expect(String(row!.engine).toLowerCase(), 'engine=private').toContain('private');
@@ -270,7 +270,7 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
                 .from('sessions')
                 .select('id,user_id,status,transcript,engine,engine_version,model_name,device_type')
                 .eq('id', persistedId).eq('user_id', capturedUid).single();
-            if (error) throw new Error(`post-reload re-read failed (fail closed): ${error.message}`);
+            if (error) throw new Error(`post-reload re-read failed (fail closed): ${error.code ?? 'unknown'}`);
             expect(sha256Hex(reread!.transcript) === persistedTranscriptSha, 'DB transcript digest stable across reload').toBe(true);
             const after = contentSafeSessionSnapshot(reread as Record<string, unknown>);
             const eq = contentSafeSnapshotsEqual(preReloadSnapshot as Record<string, unknown>, after);

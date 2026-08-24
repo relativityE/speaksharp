@@ -207,7 +207,7 @@ test.describe('Live page-aware Issue Report context (#1018, free account)', () =
     await submitReport(page, `${MARK} j-home`, PRACTICE_EXPECTED.practice_home);
 
     // ── B. FREESTYLE PRACTICE → DIRECT /session (#1042 PR3: no intermediate overview) ──
-    await page.getByTestId('practice-card-quick').click();
+    await page.getByTestId('practice-card-freeform').click();
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
     // Recording does NOT auto-start: the start/stop control is present and not recording.
     const startStop = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
@@ -218,11 +218,11 @@ test.describe('Live page-aware Issue Report context (#1018, free account)', () =
     // ── C. GUIDED REHEARSAL → return to /practice via normal nav → unavailable toast, no preview ──
     await navigateToRoute(page, '/practice');
     await expect(page.getByTestId('practice-root')).toBeVisible();
-    const guidedCta = page.getByTestId('practice-card-guided');
+    const guidedCta = page.getByTestId('practice-card-objective');
     await expect(guidedCta).toBeEnabled();
     await guidedCta.click();
     // Contextual notice anchored to the Guided card (role=status), not a global toast.
-    const guidedArticle = page.locator('article', { has: page.getByTestId('practice-card-guided') });
+    const guidedArticle = page.locator('article', { has: page.getByTestId('practice-card-objective') });
     await expect(guidedArticle.getByTestId('guided-unavailable-notice')).toHaveText('Product not available at this time');
     expect(new URL(page.url()).pathname).toBe('/practice');
     await expect(page.getByText(/preview · coming soon/i)).toHaveCount(0);
