@@ -1,6 +1,5 @@
-import { readFile } from 'node:fs/promises';
 import AxeBuilder from '@axe-core/playwright';
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { extractPdfText } from '../helpers/pdfText';
 import { test, expect, type Page } from '@playwright/test';
 import { setupE2EMocks } from './mock-routes';
 import { goToApp, navigateToRoute, programmaticLoginWithRoutes, waitForFeature } from './helpers';
@@ -151,17 +150,6 @@ function eligibleProgressTruth() {
   };
 }
 
-async function extractPdfText(path: string): Promise<string> {
-  const data = new Uint8Array(await readFile(path));
-  const pdf = await getDocument({ data }).promise;
-  const chunks: string[] = [];
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-    const page = await pdf.getPage(pageNumber);
-    const content = await page.getTextContent();
-    chunks.push(content.items.map((item) => 'str' in item ? item.str : '').join(' '));
-  }
-  return chunks.join('\n');
-}
 
 test.describe('#1047 U3 canonical cross-page truth', () => {
   test('Marketing is testimonial-free, accessible, and has no viewport overflow', async ({ page }) => {

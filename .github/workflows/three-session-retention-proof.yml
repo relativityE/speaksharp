@@ -1,0 +1,119 @@
+name: "#1306 three-session retention proof (exact-SHA, production data)"
+
+# PROD-PROOF — the only gate that exercises `complete_session_v2` end to end against the REAL deployed
+# client and the REAL production database. Every other check of that contract runs against a test double
+# or a disposable Postgres, so none of them can prove that a user's third session actually evicts their
+# oldest transcript while keeping its metrics.
+#
+# THIS WRITES TO PRODUCTION. It creates one run-owned synthetic account (`retention-proof-` prefix),
+# records three fixture-fed Private sessions, reads the resulting rows with admin authority, and then
+# deletes everything it created with a fail-closed zero-residue readback. It requires an explicit PO
+# authorization phrase naming the exact SHA, and it refuses to run from any ref but the default branch.
+#
+# It cannot touch pre-existing data: the shared cleanup helper refuses to delete an account whose email
+# does not carry this proof's run-owned prefix, and every row it asserts on is scoped to the UID it
+# created in this run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      expect_sha:
+        description: 'Exact deployed SHA the proof must bind to (window.__APP_RELEASE__ must equal this)'
+        required: true
+        type: string
+      confirm:
+        description: 'AUTHORIZE #1306 THREE-SESSION PRODUCTION PROOF AT <sha> WITH RUN-OWNED SYNTHETIC DATA AND MANDATORY ZERO-RESIDUE CLEANUP'
+        required: true
+        type: string
+      base_url:
+        description: 'Deployed app to prove'
+        required: false
+        default: 'https://speaksharp-public.vercel.app/'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # Shares the production-database group so a proof can never overlap a migration mutation.
+  group: production-database-migrations
+  cancel-in-progress: false
+
+jobs:
+  three-session-retention-proof:
+    environment: production-db
+    runs-on: ubuntu-latest
+    # BOUNDED AND JUSTIFIED, not the 20-minute default of the single-session proof. Budget:
+    # model readiness (<=180s, once — cached for recordings 2 and 3) + three recordings (~90s each)
+    # + six exact-session reopens (three, then all three again after a hard reload) + two PDF exports
+    # + fail-closed cleanup with a full residue readback. That is ~12-15 minutes of work; 45 leaves
+    # headroom for a cold runner without letting a hung run hold the production-database concurrency
+    # group indefinitely.
+    timeout-minutes: 45
+    steps:
+      # A selectable feature-branch workflow must NEVER become production-proof authority.
+      # Fail closed (exit 1, not a silent skip) unless dispatched from the default branch.
+      - name: Assert default-branch authority
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          echo "ref=${{ github.ref_name }} sha=${{ github.sha }}"
+          [ "${{ github.ref_name }}" = "$DEFAULT_BRANCH" ] \
+            || { echo "::error::production proof must be dispatched from the default branch, got ${{ github.ref_name }}"; exit 1; }
+
+      - name: Validate exact SHA and PO authorization phrase
+        env:
+          EXPECT_SHA: ${{ inputs.expect_sha }}
+          CONFIRM: ${{ inputs.confirm }}
+          RESOLVED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECT_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::expect_sha must be a full lowercase 40-character SHA'; exit 1; }
+          [ "$RESOLVED_SHA" = "$EXPECT_SHA" ] || { echo '::error::dispatch resolved a different SHA than expect_sha'; exit 1; }
+          expected="AUTHORIZE #1306 THREE-SESSION PRODUCTION PROOF AT ${EXPECT_SHA} WITH RUN-OWNED SYNTHETIC DATA AND MANDATORY ZERO-RESIDUE CLEANUP"
+          [ "$CONFIRM" = "$expected" ] || { echo '::error::exact production-data authorization phrase missing or does not name this SHA'; exit 1; }
+          echo "authorization phrase accepted for ${EXPECT_SHA}"
+
+      - name: Checkout Code (pinned to the exact dispatch commit)
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Prove checked-out commit equals the dispatch SHA
+        run: |
+          set -euo pipefail
+          HEAD_SHA="$(git rev-parse HEAD)"
+          echo "checked-out=$HEAD_SHA dispatch=${{ github.sha }}"
+          [ "$HEAD_SHA" = "${{ github.sha }}" ] || { echo "::error::checked-out commit $HEAD_SHA != dispatch ${{ github.sha }}"; exit 1; }
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Run #1306 three-session retention proof against production
+        id: proof
+        env:
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          BASE_URL: ${{ inputs.base_url }}
+          EXPECT_RELEASE_SHA: ${{ inputs.expect_sha }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }}
+        run: pnpm exec playwright test tests/live/three-session-retention-proof.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+
+      # Cleanup runs inside the spec's afterEach and is itself fail-closed, so a green step already means
+      # zero residue was PROVEN. This states the outcome unambiguously rather than letting a non-success
+      # step conclusion pass as "probably fine".
+      - name: Require unambiguous proof success
+        if: always()
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.proof.outcome }}'
+          [ "$outcome" = 'success' ] || { echo "::error::three-session retention proof outcome was '$outcome' (must be success); if the run created an account, verify residue manually"; exit 1; }
+          echo "#1306 three-session retention proof verified on production with zero residue"
+
+      # No artifact upload: the proof emits only content-free console evidence (digests, booleans,
+      # counts), and trace/video/screenshots are disabled in the spec's test.use.
