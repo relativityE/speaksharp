@@ -122,7 +122,7 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
         await runSession(page, 1);
 
         // 3. Verify Analytics
-        await navigateToRoute(page, ROUTES.ANALYTICS, { waitForMocks: false });
+        await navigateToRoute(page, ROUTES.ANALYTICS);
         await page.waitForTimeout(3000); // Allow data fetch
 
         const rows = page.getByTestId(new RegExp(`^${TEST_IDS.SESSION_HISTORY_ITEM}`));
@@ -138,7 +138,7 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
 });
 
 async function runSession(page: Page, index: number): Promise<void> {
-    await navigateToRoute(page, ROUTES.SESSION, { waitForMocks: false });
+    await navigateToRoute(page, ROUTES.SESSION);
     await page.waitForSelector(`[data-testid="${TEST_IDS.APP_MAIN}"]`, { timeout: 15000 });
 
     // Start Recording

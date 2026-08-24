@@ -20,8 +20,15 @@ test.describe('Real Authentication Flow', () => {
         }
     });
 
-    const testEmail = process.env.FREE_TEST_EMAIL ?? process.env.E2E_FREE_EMAIL;
-    const testPassword = process.env.FREE_TEST_PASSWORD ?? process.env.E2E_FREE_PASSWORD;
+    // Fail CLOSED on missing credentials. Previously these were `string | undefined` and were filled
+    // straight into the form, so an unset env produced a confusing empty-field UI failure instead of
+    // naming the real cause. Reason only — never the value.
+    const requireEnv = (name: string, value: string | undefined): string => {
+        if (!value) throw new Error(`missing required credential env: ${name}`);
+        return value;
+    };
+    const testEmail = requireEnv('FREE_TEST_EMAIL|E2E_FREE_EMAIL', process.env.FREE_TEST_EMAIL ?? process.env.E2E_FREE_EMAIL);
+    const testPassword = requireEnv('FREE_TEST_PASSWORD|E2E_FREE_PASSWORD', process.env.FREE_TEST_PASSWORD ?? process.env.E2E_FREE_PASSWORD);
 
     test('should sign in with real credentials and establish session', async ({ page }) => {
         // High-Fidelity AUTH test against real Supabase

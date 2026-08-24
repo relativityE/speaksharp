@@ -177,7 +177,7 @@ async function clearPrivateModelStorage(page: Page) {
       const databases = await indexedDB.databases();
       await Promise.all(databases
         .map((database) => database.name)
-        .filter((name): name is string => Boolean(name) && /transformers|whisper|model/i.test(name))
+        .filter((name): name is string => typeof name === 'string' && /transformers|whisper|model/i.test(name))
         .map((name) => new Promise<void>((resolve) => {
           const request = indexedDB.deleteDatabase(name);
           request.onsuccess = () => resolve();
