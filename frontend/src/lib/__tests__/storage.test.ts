@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { validateNextActionSignal } from '@/contracts/nextActionSignal';
 import { getSessionHistory, getSessionById, saveSession, deleteSession, exportData, completeSession, TRANSCRIPT_OUTCOMES, resolveTranscriptView } from '../storage';
 import { getSupabaseClient } from '../supabaseClient';
 import logger from '../logger';
@@ -277,13 +278,29 @@ describe('storage.ts', () => {
     // perfectly while a caller reads only `.success`.
     // -----------------------------------------------------------------------------------------
     describe('completeSession — direct v2 cutover contract', () => {
+        /**
+         * The REAL structured next action. `{ kind: 'practice_again' }` was used here previously and is
+         * not a shape production accepts — a permissive fixture like that lets a test prove a completion
+         * the server's own validator would reject. This is asserted valid below, so the fixture cannot
+         * drift back into fiction.
+         */
+        const REAL_NEXT_ACTION = {
+            reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate',
+            value: 0.08, comparator: 'above_baseline', templateVersion: 'rec_v1',
+        } as const;
+
+        it('the success fixture uses a next action production would actually accept', () => {
+            // Guards every other test in this describe: if the fixture is fiction, so is every pass.
+            expect(validateNextActionSignal(REAL_NEXT_ACTION).ok).toBe(true);
+        });
+
         /** A well-formed v2 envelope. Individual tests corrupt exactly one field. */
         const validEnvelope = (over: Record<string, unknown> = {}) => ({
             success: true,
             session_saved: true,
             idempotent: false,
             final_status: 'completed',
-            next_action_signal: { kind: 'practice_again' },
+            next_action_signal: REAL_NEXT_ACTION,
             transcript_state: 'available',
             transcript_outcome: 'retained',
             transcript_retained: true,
@@ -294,8 +311,14 @@ describe('storage.ts', () => {
         const completedOptions = {
             status: 'completed' as const,
             duration: 42,
-            nextActionSignal: { kind: 'practice_again' } as never,
-            metrics: { totalWords: 10, clarityScore: 0.9, wpm: 100, fillerCounts: {}, pauseMetrics: {} } as never,
+            // A MEASURED payload, not a stub: production rejects a completion without a valid structured
+            // next action, and a filler map must carry real per-key counts rather than a bare {}.
+            nextActionSignal: REAL_NEXT_ACTION as never,
+            metrics: {
+                totalWords: 120, clarityScore: 88, wpm: 142,
+                fillerCounts: { um: 4, uh: 1 },
+                pauseMetrics: { totalPauses: 3, averagePauseDuration: 0.6, longestPause: 1.2, pausesPerMinute: 3 },
+            } as never,
             finalTranscript: 'the exact finalized transcript',
         };
 
