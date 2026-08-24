@@ -1,0 +1,53 @@
+{
+  // #1339 — TypeScript gate for the root `tests/live/**` production-proof surface.
+  //
+  // These specs are workflow_dispatch-only: no CI run ever executes them, and until now no gate
+  // typechecked them either. `pnpm typecheck` runs frontend/tsconfig.json, whose `"tests"` include
+  // resolves to `frontend/tests` — NOT this repository's root `tests/`. The root tsconfig.json does
+  // include `tests`, but nothing runs it and it is not runnable as-is: it mixes the JSX/Vite browser
+  // scope with Deno edge-function sources that need a different lib/global set.
+  //
+  // The consequence was concrete: an undefined symbol or a renamed helper in a production proof
+  // survived every green gate and could only be discovered by spending a production-writing dispatch.
+  //
+  // This project EXTENDS the frontend compiler environment rather than restating it, so strictness and
+  // language level cannot drift apart from the app. Only the things that must differ are overridden:
+  // the root-relative baseUrl/paths, the Node + Vite ambient types these specs need, and an include set
+  // scoped to the live proofs and the shared helpers they import.
+  "extends": "./frontend/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // Root-relative: this config lives at the repo root, frontend/tsconfig.json's baseUrl is `frontend/`.
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["frontend/src/*"],
+      "@config/*": ["scripts/*"],
+      "@shared/*": ["backend/supabase/functions/_shared/*"],
+      "@test-mocks/*": ["frontend/tests/mocks/*"],
+      "@test-utils/*": ["frontend/tests/support/test-utils/*"]
+    },
+    // Live proofs are Node processes driving a browser: they need Node globals AND the Vite client
+    // ambient types, because they import frontend/src modules that read `import.meta.env`.
+    "types": ["node", "vite/client"]
+  },
+  // Subtask A scope: "the production live-proof surface and its directly imported shared helpers".
+  // Deliberately NOT all of tests/live: four non-proof live specs import `../e2e/helpers`, which drags
+  // the entire e2e double in with ~19 pre-existing implicit-any errors that belong to another suite.
+  // Widening this set is a follow-up with its own error budget; a gate that cannot be turned on today
+  // protects nothing today.
+  "include": [
+    "tests/live/three-session-retention-proof.live.spec.ts",
+    "tests/live/private-recording-proof.live.spec.ts",
+    "tests/live/helpers/**/*.ts",
+    "tests/helpers/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    // Deno edge sources use a different global/lib set and are typechecked by their own tooling;
+    // including them here would force weakening this project's strictness to reach green.
+    "backend/supabase/functions/**",
+    // Generated worktrees and package stores must never be globbed into a type project.
+    "test-support/**"
+  ]
+}

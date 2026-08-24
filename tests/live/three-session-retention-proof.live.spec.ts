@@ -159,7 +159,9 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                 .eq('id', id).eq('user_id', capturedUid).single();
             // PRIVACY: never echo the session UUID or a raw provider message into a public log.
             if (error) throw new Error(`row_query_failed code=${error.code ?? 'unknown'} (fail closed)`);
-            return data as Record<string, unknown>;
+            // `.single()` widens to a union that includes GenericStringError, so a direct cast is not
+            // provably safe; go through `unknown` rather than silently asserting the happy shape.
+            return data as unknown as Record<string, unknown>;
         };
 
         /** Drive ONE complete recording through the deployed customer UI; return the persisted id. */

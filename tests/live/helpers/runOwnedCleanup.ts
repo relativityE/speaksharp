@@ -47,7 +47,9 @@ function writeCleanupVerdict(verdict: 'cleanup_verified' | 'cleanup_not_required
 type AdminClient = {
     auth: {
         admin: {
-            listUsers: (args: { page: number; perPage: number }) => Promise<{ data: { users?: Array<{ id?: string; email?: string | null }> } | null; error: { message: string } | null }>;
+            // `code` is read (never `message`) so a failure cannot echo a provider string into a
+            // public log; the declared type must therefore carry it.
+            listUsers: (args: { page: number; perPage: number }) => Promise<{ data: { users?: Array<{ id?: string; email?: string | null }> } | null; error: { code?: string; message: string } | null }>;
             getUserById: (uid: string) => Promise<{ data: { user?: { email?: string | null } | null } | null; error: ({ status?: number; code?: string; message: string }) | null }>;
             deleteUser: (uid: string) => Promise<{ error: { message: string } | null }>;
         };
