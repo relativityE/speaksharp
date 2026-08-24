@@ -64,7 +64,7 @@ describe('storage.ts validation', () => {
     // never silently dropped, and the prose is NEVER echoed into an error, log, or payload.
     it('completeSession REJECTS an unknown prose filler key (no RPC call, no prose leak)', async () => {
         const PROSE = 'confidential project phrase';
-        const mockRpc = vi.fn().mockResolvedValue({ data: { success: true }, error: null });
+        const mockRpc = vi.fn().mockResolvedValue({ data: V2_ENVELOPE, error: null });
         vi.mocked(getSupabaseClient).mockReturnValue({ rpc: mockRpc } as unknown as ReturnType<typeof getSupabaseClient>);
         const logger = (await import('../logger')).default;
         const errorSpy = vi.spyOn(logger, 'error');
@@ -85,8 +85,32 @@ describe('storage.ts validation', () => {
         errorSpy.mockRestore();
     });
 
-    it('completeSession ALLOWS an explicit {} filler map (a measured zero) through to the RPC', async () => {
+    // #1306 Step 3: the v2 envelope is the contract. `{ success: true }` alone — the v1 shape — is no
+    // longer acceptance: without session_saved and a typed transcript_outcome the client cannot tell a
+    // completed save from a partial one, so it must fail closed rather than assume.
+    const V2_ENVELOPE = {
+        success: true,
+        session_saved: true,
+        idempotent: false,
+        final_status: 'completed',
+        next_action_signal: null,
+        transcript_state: 'available',
+        transcript_outcome: 'retained',
+        transcript_retained: true,
+        retention: { status: 'converged' },
+    };
+
+    it('completeSession REJECTS the bare v1 envelope { success: true }', async () => {
         const mockRpc = vi.fn().mockResolvedValue({ data: { success: true }, error: null });
+        vi.mocked(getSupabaseClient).mockReturnValue({ rpc: mockRpc } as unknown as ReturnType<typeof getSupabaseClient>);
+        const res = await completeSession('sess-v1-envelope', {
+            status: 'completed', duration: 60, nextActionSignal: VALID_NEXT_ACTION, metrics: { fillerCounts: {} },
+        });
+        expect(res.success).toBe(false);
+    });
+
+    it('completeSession ALLOWS an explicit {} filler map (a measured zero) through to the RPC', async () => {
+        const mockRpc = vi.fn().mockResolvedValue({ data: V2_ENVELOPE, error: null });
         vi.mocked(getSupabaseClient).mockReturnValue({ rpc: mockRpc } as unknown as ReturnType<typeof getSupabaseClient>);
 
         const res = await completeSession('sess-2', {

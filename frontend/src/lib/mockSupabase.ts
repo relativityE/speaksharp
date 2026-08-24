@@ -179,20 +179,71 @@ export const createMockSupabase = () => {
                 return Promise.resolve({ data: { new_session: newSession, usage_exceeded: false }, error: null });
             }
 
+            // #1306 Step 3: the LEGACY overload must fail loudly in tests. The production client no longer
+            // calls it, and a mock that quietly accepted it would let a v1 regression pass every suite.
             if (fn === 'complete_session') {
+                return Promise.resolve({
+                    data: null,
+                    error: { message: 'complete_session (v1) is not callable by the production client — use complete_session_v2' },
+                });
+            }
+
+            if (fn === 'complete_session_v2') {
                 const sessionId = params.p_session_id;
                 const session = savedSessions.find(item => item.id === sessionId);
-                if (session) {
-                    session.status = params.p_status || 'completed';
-                    if (typeof params.p_final_transcript === 'string') {
-                        session.transcript = params.p_final_transcript;
-                    }
-                    if (typeof params.p_final_duration === 'number') {
-                        session.duration = params.p_final_duration;
-                    }
-                    persistSavedSessions();
+                if (!session) {
+                    return Promise.resolve({ data: null, error: { message: 'session not found' } });
                 }
-                return Promise.resolve({ data: { success: true }, error: null });
+                session.status = params.p_status || 'completed';
+                if (typeof params.p_final_duration === 'number') {
+                    session.duration = params.p_final_duration;
+                }
+                // Persist the metrics the RPC is responsible for — in production these land in the SAME
+                // transaction, so a mock that skipped them would hide a missing-metrics regression.
+                if (params.p_total_words !== undefined) session.total_words = params.p_total_words;
+                if (params.p_clarity_score !== undefined) session.clarity_score = params.p_clarity_score;
+                if (params.p_wpm !== undefined) session.wpm = params.p_wpm;
+                if (params.p_filler_counts !== undefined) session.filler_counts = params.p_filler_counts;
+                if (params.p_pause_metrics !== undefined) session.pause_metrics = params.p_pause_metrics;
+                if (params.p_next_action !== undefined) session.next_action_signal = params.p_next_action;
+
+                const supplied = typeof params.p_final_transcript === 'string' ? params.p_final_transcript.trim() : '';
+                if (supplied) {
+                    session.transcript = params.p_final_transcript;
+                    session.transcript_state = 'available';
+                }
+
+                // SERVER-OWNED newest-two retention. Modelled HERE, in the RPC, exactly as production does
+                // it — inside the completion. Expiring transcripts in client code and calling that a proof
+                // would test our own simulation rather than the server contract.
+                const retained = savedSessions
+                    .filter(x => typeof x.transcript === 'string' && x.transcript.length > 0)
+                    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+                retained.slice(2).forEach(old => {
+                    old.transcript = null;
+                    old.transcript_state = 'expired';
+                });
+                persistSavedSessions();
+
+                const state = session.transcript_state ?? (supplied ? 'available' : 'not_captured');
+                const outcome = state === 'available' ? 'retained'
+                    : state === 'expired' ? 'expired'
+                    : params.p_final_transcript == null ? 'not_provided'
+                    : 'not_captured';
+                return Promise.resolve({
+                    data: {
+                        success: true,
+                        session_saved: true,
+                        idempotent: false,
+                        final_status: session.status,
+                        next_action_signal: session.next_action_signal ?? null,
+                        transcript_state: state,
+                        transcript_outcome: outcome,
+                        transcript_retained: outcome === 'retained',
+                        retention: { status: 'converged' },
+                    },
+                    error: null,
+                });
             }
 
             if (fn === 'heartbeat_session') {

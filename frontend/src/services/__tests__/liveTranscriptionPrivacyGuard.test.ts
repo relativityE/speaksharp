@@ -135,26 +135,65 @@ describe('guard — the transcript crosses exactly one persistence boundary, and
     expect(containsCanaryWords(JSON.stringify(payload))).toBe(false);
   });
 
-  // The atomic RPC (C1) adds `p_final_transcript`, but the CLIENT does not send it yet: doing so against a
-  // database without that migration fails to resolve the function and breaks every completion. So today's
-  // property is unchanged — the completion call carries no transcript. This test is re-pointed in the SAME
-  // increment that adopts the parameter, after the migration is applied.
-  it('completeSession sends only content-free metrics + the next action (no transcript)', async () => {
-    const mockRpc = vi.fn().mockResolvedValue({ data: { success: true }, error: null });
+  // #1306 Step 3 — RE-POINTED, exactly as the previous version of this test said it would be once the
+  // migration was applied and verified.
+  //
+  // The guard is NOT weakened. Transcript text is now permitted at exactly ONE place: `p_final_transcript`
+  // on a COMPLETED complete_session_v2 call. Everywhere else it remains forbidden. The property being
+  // protected is unchanged — the transcript crosses exactly one persistence boundary — only the identity
+  // of that boundary moved.
+  it('completeSession sends the transcript ONLY as p_final_transcript, nowhere else in the payload', async () => {
+    const mockRpc = vi.fn().mockResolvedValue({
+      data: {
+        success: true, session_saved: true, idempotent: false, final_status: 'completed',
+        next_action_signal: null, transcript_state: 'available',
+        transcript_outcome: 'retained', transcript_retained: true, retention: { status: 'converged' },
+      },
+      error: null,
+    });
     vi.mocked(getSupabaseClient).mockReturnValue({ rpc: mockRpc } as unknown as ReturnType<typeof getSupabaseClient>);
 
     const flat = flattenToFillerCounts(liveFillerData());
+    const TRANSCRIPT = 'PRIVACY-GUARD-TRANSCRIPT-e51c73 spoken words here';
     await completeSession('s1', {
       status: 'completed',
       duration: 60,
       nextActionSignal: deriveNextActionSignal({ durationSeconds: 60, wordCount: 14, wpm: 120, fillerCounts: flat, clarityScore: 80 }),
       metrics: { totalWords: 14, clarityScore: 80, wpm: 120, fillerCounts: flat, pauseMetrics: {} },
+      finalTranscript: TRANSCRIPT,
     });
 
     expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockRpc.mock.calls[0][0]).toBe('complete_session_v2');
     const args = mockRpc.mock.calls[0][1] as Record<string, unknown>;
-    expect(args).not.toHaveProperty('p_final_transcript');
-    expect(containsCanaryWords(JSON.stringify(args))).toBe(false);
+
+    // Permitted: the one authorized field carries it.
+    expect(args.p_final_transcript).toBe(TRANSCRIPT);
+
+    // Forbidden: every OTHER argument must be free of it. Serialising the payload minus that single
+    // key is what proves "exactly one boundary" rather than merely "at least one".
+    const rest = { ...args };
+    delete rest.p_final_transcript;
+    expect(JSON.stringify(rest)).not.toContain('PRIVACY-GUARD-TRANSCRIPT-e51c73');
+    expect(containsCanaryWords(JSON.stringify(rest))).toBe(false);
+  });
+
+  it('a FAILED session sends no transcript at all, even when a caller supplies one', async () => {
+    const mockRpc = vi.fn().mockResolvedValue({
+      data: {
+        success: true, session_saved: true, idempotent: false, final_status: 'failed',
+        next_action_signal: null, transcript_state: null,
+        transcript_outcome: 'not_provided', transcript_retained: false, retention: { status: 'skipped' },
+      },
+      error: null,
+    });
+    const mockFrom = vi.fn().mockReturnValue({ update: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) }) });
+    vi.mocked(getSupabaseClient).mockReturnValue({ rpc: mockRpc, from: mockFrom } as unknown as ReturnType<typeof getSupabaseClient>);
+
+    await completeSession('s-failed', { status: 'failed', duration: 5, finalTranscript: 'PRIVACY-GUARD-TRANSCRIPT-e51c73' });
+    const args = mockRpc.mock.calls[0][1] as Record<string, unknown>;
+    expect(args.p_final_transcript).toBeNull();
+    expect(JSON.stringify(args)).not.toContain('PRIVACY-GUARD-TRANSCRIPT-e51c73');
   });
 
   // These three surfaces must stay text-free REGARDLESS of what the database retains. Retention changed what

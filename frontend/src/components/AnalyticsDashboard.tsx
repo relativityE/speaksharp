@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { resolveTranscriptView } from '@/lib/storage';
 import { isValidMetric, formatDurationMinutes, NOT_ENOUGH_DATA } from '@/utils/metricValidity';
 import { validateNextActionSignal, renderNextActionCopy } from '@/contracts/nextActionSignal';
 import { NavLink } from 'react-router-dom';
@@ -855,6 +856,35 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         <div className="text-muted-foreground" data-testid="session-next-action-none">No next action — this session was not completed.</div>
                                     )}
                                 </div>
+                                {/* #1306 Step 3: the retained transcript. Rendering is gated on the SERVER's
+                                    transcript_state via resolveTranscriptView — never on whether text happens
+                                    to be present, which would make "expired" and "failed to load" identical
+                                    and would render stale text carried by a malformed response. */}
+                                {(() => {
+                                    const view = resolveTranscriptView(targetSession);
+                                    if (view.kind === 'available') {
+                                        return (
+                                            <div className="mt-4 p-4 bg-muted rounded-lg border border-[hsl(var(--border))] text-sm leading-relaxed whitespace-pre-wrap"
+                                                 data-testid="session-detail-transcript">
+                                                {view.text}
+                                            </div>
+                                        );
+                                    }
+                                    const COPY: Record<'expired' | 'not_captured' | 'unavailable', string> = {
+                                        // Position-neutral wording: the metrics are not necessarily "below" this
+                                        // panel on every viewport or in every future layout.
+                                        expired: 'This transcript has expired. We keep only the 2 most recent transcripts — session metrics are unaffected.',
+                                        not_captured: 'No transcript was captured for this session. Session metrics are unaffected.',
+                                        unavailable: 'This transcript could not be loaded. Session metrics are unaffected.',
+                                    };
+                                    const copy = COPY[view.kind];
+                                    return (
+                                        <div className="mt-4 p-4 bg-muted/50 rounded-lg border border-dashed border-[hsl(var(--border))] text-sm text-muted-foreground"
+                                             data-testid={`session-detail-transcript-${view.kind}`}>
+                                            {copy}
+                                        </div>
+                                    );
+                                })()}
                             </CardContent>
                         </Card>
                     </div>

@@ -51,6 +51,19 @@ const SESSION_ANALYSIS_COLUMNS = [
   'transcript_state',
 ];
 const SESSION_ANALYSIS_SELECT = SESSION_ANALYSIS_COLUMNS.join(', ');
+
+// #1306 Step 3 — LIST vs DETAIL are deliberately different selects.
+//
+// The history LIST stays metrics-only. Broadening it to `transcript` would download every retained
+// transcript for every row on the dashboard — a bulk content read to render a list that shows none of it,
+// and a far larger disclosure surface than the single session a user actually opened.
+//
+// A single-session DETAIL read may fetch the transcript plus its state, because that is exactly the one
+// session the user asked to open. The state must come WITH the text: rendering is gated on the server's
+// `transcript_state`, never on whether the text happens to be non-empty.
+const SESSION_DETAIL_COLUMNS = [...SESSION_ANALYSIS_COLUMNS, 'transcript'];
+const SESSION_DETAIL_SELECT = SESSION_DETAIL_COLUMNS.join(', ');
+const SESSION_DETAIL_SELECT_LEGACY = SESSION_DETAIL_COLUMNS.filter(c => c !== 'transcript_state').join(', ');
 // #1047 PR-U1 pre-migration compatibility: a main merge can deploy the frontend BEFORE the migration is
 // applied manually. During that window PostgREST rejects a select naming `transcript_state`. The legacy
 // select omits it so History/Session review still render (as legacy rows with the state absent → derived).
@@ -141,11 +154,13 @@ export const getSessionById = async (sessionId: string): Promise<PracticeSession
       .eq('id', sessionId)
       .single();
 
-    let { data, error } = await runQuery(SESSION_ANALYSIS_SELECT);
-    // Pre-migration only: retry WITHOUT transcript_state on the specific missing-column error.
+    let { data, error } = await runQuery(SESSION_DETAIL_SELECT);
+    // Pre-migration only: retry WITHOUT transcript_state on the specific missing-column error. Must stay on
+    // the DETAIL family — falling back to the list legacy select would silently drop `transcript` and make
+    // an opened session look not-captured when the server actually holds it.
     if (error && isMissingTranscriptStateColumn(error)) {
       logger.warn('[Supabase DB] transcript_state not yet applied — retrying legacy select (pre-migration)');
-      ({ data, error } = await runQuery(SESSION_ANALYSIS_SELECT_LEGACY));
+      ({ data, error } = await runQuery(SESSION_DETAIL_SELECT_LEGACY));
     }
 
     if (error) {
@@ -264,11 +279,139 @@ export interface CompleteSessionOptions {
   /** REQUIRED for a `completed` session (the DB rejects a completion without one); omit for `failed`. */
   nextActionSignal?: NextActionSignal | null;
   metrics?: SessionFinalMetrics;
-  // NOTE: `finalTranscript` is DELIBERATELY ABSENT until the atomic-completion migration is applied. The RPC
-  // parameter `p_final_transcript` exists only on that migration; sending it to a database without it makes
-  // PostgREST fail to resolve the function (PGRST202) and EVERY completion fail — which is exactly what turned
-  // all four e2e shards red (SESSION_COMPLETION_FAILED). The client adopts the parameter in the same increment
-  // that follows migration application, never before it.
+  /**
+   * The EXACT finalized transcript selected at the recording boundary, for a `completed` session only.
+   * Omit (or null) for `failed`/discarded sessions — they must never send transcript text.
+   *
+   * Adopted only now: `p_final_transcript` exists solely on the atomic-completion migration, which is
+   * applied and postflight-verified in production (run 32665289946). Sending it earlier made PostgREST
+   * fail to resolve the function (PGRST202) and turned every completion red.
+   */
+  finalTranscript?: string | null;
+}
+
+/**
+ * The server's TYPED, mutually exclusive statement about the transcript. Not a boolean: "the write did not
+ * throw" is a different claim from "this transcript is retained", and the client must switch exhaustively
+ * rather than infer retention from an absent field.
+ */
+export const TRANSCRIPT_OUTCOMES = ['retained', 'expired', 'not_provided', 'not_captured', 'retention_failed'] as const;
+export type TranscriptOutcome = (typeof TRANSCRIPT_OUTCOMES)[number];
+
+/** The closed set the server's transcript_state trigger can write. Absent/unknown is a contract break. */
+export const TRANSCRIPT_STATES = ['available', 'expired', 'not_captured'] as const;
+export type TranscriptState = (typeof TRANSCRIPT_STATES)[number];
+
+export interface CompleteSessionResult {
+  success: boolean;
+  /** Present only on success — the server's explicit outcome, never derived client-side. */
+  transcriptOutcome?: TranscriptOutcome;
+  transcriptState?: TranscriptState;
+  transcriptRetained?: boolean;
+  idempotent?: boolean;
+  finalStatus?: string | null;
+}
+
+/**
+ * #1306 Step 3 subtask C — the ONE place that decides whether a session's transcript may be shown.
+ *
+ * The decision is made from the SERVER's `transcript_state`, never from whether text happens to be
+ * present. Inferring state from text is what makes "expired" and "we failed to load it" look identical,
+ * and it would let a malformed response that carried stale text render it after expiry.
+ *
+ * Shared by the review surface and the PDF so the two cannot drift: the PDF consumes this resolved view
+ * rather than re-deriving anything or refetching.
+ */
+export type TranscriptView =
+  | { kind: 'available'; text: string }
+  | { kind: 'expired' }
+  | { kind: 'not_captured' }
+  /** State says available, but no usable text arrived. Honest gap — never a blank "transcript". */
+  | { kind: 'unavailable' };
+
+export function resolveTranscriptView(session: {
+  transcript_state?: string | null;
+  transcript?: string | null;
+} | null | undefined): TranscriptView {
+  if (!session) return { kind: 'unavailable' };
+  const state = session.transcript_state;
+
+  // Non-available states SUPPRESS text unconditionally. A response that still carries `transcript`
+  // while claiming `expired` is malformed; honouring the text would leak content past its retention.
+  if (state === 'expired') return { kind: 'expired' };
+  if (state === 'not_captured') return { kind: 'not_captured' };
+
+  if (state === 'available') {
+    const text = typeof session.transcript === 'string' ? session.transcript.trim() : '';
+    // `available` with nothing usable is a gap to report, not an empty transcript to render.
+    return text.length > 0 ? { kind: 'available', text } : { kind: 'unavailable' };
+  }
+
+  // Unknown/absent state fails closed on DISPLAY — but it must not fail closed on MEANING. Saying
+  // "no transcript was captured" when we simply do not know is a false statement to the user, and
+  // only the explicit server state `not_captured` licenses that sentence. Anything else is
+  // `unavailable`: we could not load it, which is the honest claim.
+  return { kind: 'unavailable' };
+}
+
+/**
+ * Reduce a Supabase error to a NON-CONTENT code. `message`, `details` and `hint` can quote the failing
+ * statement — which, for a completion, contains the transcript — so none of them may be logged. Only a
+ * short code matching a conservative shape is kept; anything else becomes a fixed label.
+ */
+function sanitizeRpcErrorCode(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && /^[A-Za-z0-9_]{1,16}$/.test(code) ? code : 'unspecified';
+}
+
+/**
+ * Fail-CLOSED validation of the v2 envelope. `success: true` alone is NOT acceptance: a partial, malformed,
+ * or absence-only response must be rejected rather than optimistically treated as a completed save. Every
+ * field the client acts on has to be explicitly present and of the expected shape.
+ */
+function parseCompleteSessionV2 (raw: unknown, expectedStatus: string): CompleteSessionResult {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return { success: false };
+  const r = raw as Record<string, unknown>;
+  // Both flags are required and must be exactly true — not truthy.
+  if (r.success !== true || r.session_saved !== true) return { success: false };
+  // The typed outcome must be present and known. An unrecognised value means the server contract moved
+  // underneath us; treating it as success would be exactly the absence-only pass this design forbids.
+  const outcome = r.transcript_outcome;
+  if (typeof outcome !== 'string' || !(TRANSCRIPT_OUTCOMES as readonly string[]).includes(outcome)) {
+    return { success: false };
+  }
+  // The transcript STATE must also be one of the deployed closed states. The server's trigger always
+  // writes one of these three, so absent/unknown means we are not talking to the contract we verified.
+  const state = r.transcript_state;
+  if (typeof state !== 'string' || !(TRANSCRIPT_STATES as readonly string[]).includes(state)) {
+    return { success: false };
+  }
+  // `final_status` must be present AND match what this client asked for. A server that completed a
+  // DIFFERENT status than requested has not done what we asked, however successful it reports itself.
+  if (typeof r.final_status !== 'string' || r.final_status !== expectedStatus) return { success: false };
+  // `transcript_retained` must agree with the typed outcome. A disagreement is a corrupt envelope.
+  if (typeof r.transcript_retained !== 'boolean') return { success: false };
+  if (r.transcript_retained !== (outcome === 'retained')) return { success: false };
+  // State/outcome compatibility, where the server contract makes it deterministic. `retention_failed`
+  // is deliberately unconstrained here — it may legitimately report whatever state the row already
+  // held — but it still had to pass the closed-state and status checks above.
+  const REQUIRED_STATE: Partial<Record<TranscriptOutcome, TranscriptState>> = {
+    retained: 'available',
+    expired: 'expired',
+    not_provided: 'not_captured',
+    not_captured: 'not_captured',
+  };
+  const required = REQUIRED_STATE[outcome as TranscriptOutcome];
+  if (required !== undefined && state !== required) return { success: false };
+
+  return {
+    success: true,
+    transcriptOutcome: outcome as TranscriptOutcome,
+    transcriptState: state as TranscriptState,
+    transcriptRetained: r.transcript_retained,
+    idempotent: r.idempotent === true,
+    finalStatus: r.final_status,
+  };
 }
 
 /**
@@ -278,15 +421,17 @@ export interface CompleteSessionOptions {
  * Strictly idempotent server-side: an identical replay is a no-op, any mismatch conflicts rather than
  * partially writing.
  *
- * DEPLOY ORDER. The atomic RPC's `p_final_transcript` parameter is NOT sent yet — see CompleteSessionOptions.
- * The migration must be applied before this client can adopt it.
+ * DIRECT V2 CUTOVER. This calls `complete_session_v2` and NEVER falls back to either v1 overload — not on
+ * error, timeout, PGRST failure, or replay. A fallback would preserve two completion authorities and make
+ * "no legacy caller" unprovable. v1 remains granted server-side only for old in-flight clients and release
+ * rollback; rollback is a CLIENT release rollback, never a data rollback.
  */
 export const completeSession = async (
   sessionId: string,
   options: CompleteSessionOptions = {}
-): Promise<{ success: boolean }> => {
+): Promise<CompleteSessionResult> => {
   const supabase = getSupabaseClient();
-  const { status = 'completed', duration, reason, nextActionSignal, metrics } = options;
+  const { status = 'completed', duration, reason, nextActionSignal, metrics, finalTranscript } = options;
 
   // #1306 client persistence boundary: fail CLOSED on an invalid filler map before it can reach the DB. Only
   // approved standard keys with non-negative finite counts are permitted — an unknown/prose key, nested object,
@@ -300,32 +445,59 @@ export const completeSession = async (
     }
   }
 
-  // 1. Atomic, transcript-free finalization via RPC (writes every retained metric + the next action).
-  const { data, error } = await supabase.rpc('complete_session', {
+  // A `failed`/discarded session must never carry transcript text to the server. Normalising here — rather
+  // than trusting every caller — means one boundary decides it.
+  const transcriptArg = status === 'completed' ? (finalTranscript ?? null) : null;
+
+  // ONE atomic server transaction: metrics, the single next action, the eligible transcript, and newest-two
+  // retention all commit together. ALL ELEVEN arguments are named explicitly, nulls included — an omitted
+  // argument would let PostgREST resolve a DIFFERENT overload than the one that was reviewed and verified.
+  const { data, error } = await supabase.rpc('complete_session_v2', {
     p_session_id: sessionId,
     p_status: status,
-    p_final_duration: duration,
-    p_reason: reason,
+    p_final_duration: duration ?? null,
+    p_reason: reason ?? null,
     p_next_action: nextActionSignal ?? null,
     p_total_words: metrics?.totalWords ?? null,
     p_clarity_score: metrics?.clarityScore ?? null,
     p_wpm: metrics?.wpm ?? null,
     p_filler_counts: metrics?.fillerCounts ?? null,
     p_pause_metrics: metrics?.pauseMetrics ?? null,
+    p_final_transcript: transcriptArg,
   });
 
   if (error) {
-    logger.error({ error, sessionId }, '[Supabase DB] 🏁 Session completion RPC failed');
+    // NO v1 FALLBACK. A retry replays this same v2 call with the same immutable payload; it never downgrades
+    // to the legacy overload, which would silently drop the transcript and split the completion authority.
+    //
+    // CONTENT-FREE FAILURE. The raw error object must never be logged: PostgREST and Postgres echo request
+    // material back in `message`/`details`/`hint`, and this request carries the full transcript. A
+    // constraint violation or a statement-level error can therefore quote the transcript verbatim into the
+    // log. Only an allowlisted, non-content code/status is recorded, and nothing content-bearing is
+    // returned to the caller.
+    logger.error(
+      { sessionId, rpcErrorCode: sanitizeRpcErrorCode(error) },
+      '[Supabase DB] 🏁 Session completion RPC failed',
+    );
     return { success: false };
   }
 
-  // 2. Explicitly set the status if it's 'failed' (Defense in depth)
-  if (status === 'failed') {
-      await updateSession(sessionId, { status: 'failed' });
+  const result = parseCompleteSessionV2(data, status);
+  if (!result.success) {
+    // Reject a malformed or partial envelope rather than reading it as a save. Log the SHAPE only — the
+    // response can carry the next-action signal, and must never be echoed wholesale.
+    logger.error(
+      { sessionId, receivedType: data === null ? 'null' : typeof data },
+      '[Supabase DB] 🏁 Session completion returned an unusable result envelope',
+    );
+    return { success: false };
   }
 
-  const result = data as { success: boolean } | null;
-  return { success: !!result?.success };
+  // NO POST-COMPLETION PATCH — not even for 'failed'. The verified v2 transaction already wrote
+  // `p_status`, and `final_status` is validated above to equal exactly what this client requested. A
+  // second write after an accepted completion would re-create the divergent authority this increment
+  // removed, and the "defence in depth" it once provided is now covered by the status assertion itself.
+  return result;
 };
 
 /**

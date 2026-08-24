@@ -477,8 +477,14 @@ describe('AnalyticsDashboard', () => {
             ],
         });
 
-        // Privacy: no transcript pane, no transcript-quality caveat anywhere in the detail view.
+        // #1306 Step 3: this row carries NO transcript_state, so it fails closed to not_captured — the
+        // superseded "no transcript is ever stored" contract is gone, but a stateless row still shows
+        // no text. The quality caveat remains retired.
         expect(screen.queryByTestId('session-detail-transcript')).not.toBeInTheDocument();
+        // A row carrying NO transcript_state is unknown, not proven empty — so the honest surface is
+        // "could not be loaded", never "no transcript was captured".
+        expect(screen.getByTestId('session-detail-transcript-unavailable')).toBeInTheDocument();
+        expect(screen.queryByTestId('session-detail-transcript-not_captured')).not.toBeInTheDocument();
         expect(screen.queryByTestId('session-detail-quality-caveat')).not.toBeInTheDocument();
         // The ONE structured next action is shown (content-free coaching), and metrics still render.
         expect(screen.getByTestId('session-detail-next-action')).toBeInTheDocument();
@@ -620,5 +626,78 @@ describe('AnalyticsDashboard', () => {
         const row = screen.getByTestId(`${TEST_IDS.SESSION_HISTORY_ITEM}-nc-1`);
         expect(row.textContent).toContain('N/A');
         expect(row.textContent).not.toMatch(/\b0\s*WPM\b/);
+    });
+
+    // ---------------------------------------------------------------------------------------------
+    // #1306 Step 3 subtask C — the review surface renders from the SERVER's transcript_state.
+    // All three honest states, plus malformed contradictions that must fail closed.
+    // ---------------------------------------------------------------------------------------------
+    describe('session detail transcript states', () => {
+        const MARKER = 'DASHBOARD-TRANSCRIPT-CANARY-4b7e19';
+        const detailRow = (over: Record<string, unknown>) => ({
+            id: 'detail-session', user_id: 'test-user', created_at: '2023-01-01T10:00:00Z',
+            duration: 60, total_words: 6, engine: 'private', clarity_score: 80,
+            filler_counts: { um: 1 }, status: 'completed',
+            next_action_signal: { reasonCode: 'HIGH_FILLER_RATE', actionCode: 'REDUCE_FILLERS', metric: 'filler_rate', value: 0.08, comparator: 'above_baseline', templateVersion: 'rec_v1' },
+            ...over,
+        });
+        const renderDetail = (over: Record<string, unknown>) =>
+            renderComponent({ sessionId: 'detail-session', sessionHistory: [detailRow(over)] });
+
+        it('available WITH text renders the transcript', () => {
+            renderDetail({ transcript_state: 'available', transcript: `spoken ${MARKER} words` });
+            expect(screen.getByTestId('session-detail-transcript')).toHaveTextContent(MARKER);
+        });
+
+        it('available WITHOUT usable text shows an honest gap, never a blank transcript pane', () => {
+            renderDetail({ transcript_state: 'available', transcript: '   ' });
+            expect(screen.queryByTestId('session-detail-transcript')).not.toBeInTheDocument();
+            expect(screen.getByTestId('session-detail-transcript-unavailable')).toBeInTheDocument();
+        });
+
+        it('expired shows the retention explanation and keeps metrics visible', () => {
+            renderDetail({ transcript_state: 'expired', transcript: null });
+            expect(screen.getByTestId('session-detail-transcript-expired')).toBeInTheDocument();
+            // Metrics survive expiry — that is the whole point of newest-two retention.
+            expect(screen.getByTestId('filler-count-value')).toHaveTextContent('1');
+        });
+
+        it('not_captured is distinct from expired — different states, different copy', () => {
+            renderDetail({ transcript_state: 'not_captured', transcript: null });
+            expect(screen.getByTestId('session-detail-transcript-not_captured')).toBeInTheDocument();
+            expect(screen.queryByTestId('session-detail-transcript-expired')).not.toBeInTheDocument();
+        });
+
+        it.each([
+            ['expired', 'expired'],
+            ['not_captured', 'not_captured'],
+        ])('MALFORMED: %s while still carrying text suppresses the text', (_l, state) => {
+            // A contradictory row must not leak content past its retention window.
+            renderDetail({ transcript_state: state, transcript: `spoken ${MARKER} words` });
+            expect(screen.queryByTestId('session-detail-transcript')).not.toBeInTheDocument();
+            expect(document.body.textContent ?? '').not.toContain(MARKER);
+        });
+
+        it('MALFORMED: an unknown state suppresses text and reports it as unavailable', () => {
+            renderDetail({ transcript_state: 'something_new', transcript: `spoken ${MARKER} words` });
+            expect(document.body.textContent ?? '').not.toContain(MARKER);
+            expect(screen.getByTestId('session-detail-transcript-unavailable')).toBeInTheDocument();
+            // Never claim "not captured" on a state we do not recognise.
+            expect(screen.queryByTestId('session-detail-transcript-not_captured')).not.toBeInTheDocument();
+        });
+
+        it('never infers availability from text presence alone', () => {
+            // Decisive: identical text, no state → no render.
+            renderDetail({ transcript: `spoken ${MARKER} words` });
+            expect(document.body.textContent ?? '').not.toContain(MARKER);
+            expect(screen.getByTestId('session-detail-transcript-unavailable')).toBeInTheDocument();
+        });
+
+        it('copy is position-neutral — never claims the metrics are "below"', () => {
+            renderDetail({ transcript_state: 'expired', transcript: null });
+            const panel = screen.getByTestId('session-detail-transcript-expired');
+            expect(panel).toHaveTextContent('session metrics are unaffected');
+            expect(panel.textContent ?? '').not.toContain('below');
+        });
     });
 });

@@ -397,4 +397,116 @@ describe('generateSessionPdf — metric-presence: unmeasured metrics render N/A,
     expect(body.flat()).not.toContain('SpeakSharp Score');
     expect(body.flat()).not.toContain('Coaching Suggestion');
   });
+
+  // ---------------------------------------------------------------------------------------------
+  // #1306 Step 3 subtask C — the PDF must export a transcript ONLY for an opened `available` session.
+  //
+  // It consumes the same resolved view the review surface uses, so screen and export cannot disagree
+  // about the same session. It never refetches and never reconstructs text: exporting an expired
+  // transcript would put content in a downloadable file after its retention window closed.
+  // ---------------------------------------------------------------------------------------------
+  describe('transcript export is gated on the server transcript_state', () => {
+    const TRANSCRIPT_MARKER = 'PDFTRANSCRIPTCANARYa83f21';
+    // Local fixture — this describe sits under a different parent than the outer mockSession, so it
+    // owns its own data rather than depending on an enclosing scope it cannot see.
+    const baseForTranscript = {
+      id: 'pdf-transcript-1',
+      user_id: 'user1',
+      created_at: '2025-09-23T10:00:00Z',
+      duration: 300,
+      total_words: 120,
+      wpm: 140,
+      clarity_score: 88,
+      filler_counts: { um: 5 },
+    };
+    const sessionWith = (state: string | null, transcript: string | null) => ({
+      ...baseForTranscript,
+      transcript_state: state,
+      transcript,
+    } as unknown as Session);
+
+    it('INCLUDES the transcript when the server says available', async () => {
+      await generateSessionPdf(sessionWith('available', `spoken ${TRANSCRIPT_MARKER} words`), 'TestUser');
+      const { text } = await getSavedPdf();
+      // Positive control for every absence assertion below: the marker IS exportable when permitted.
+      expect(text).toContain(TRANSCRIPT_MARKER);
+    });
+
+    it.each([
+      ['expired', 'expired'],
+      ['not_captured', 'not_captured'],
+    ])('EXCLUDES the transcript when the server says %s — even though the text is present', async (_l, state) => {
+      // The row still carries text (a stale/malformed response). Exporting it would leak content past
+      // retention into a file that outlives the session.
+      await generateSessionPdf(sessionWith(state, `spoken ${TRANSCRIPT_MARKER} words`), 'TestUser');
+      const { text } = await getSavedPdf();
+      expect(text).not.toContain(TRANSCRIPT_MARKER);
+    });
+
+    it('does not fabricate a transcript page when available carries no usable text', async () => {
+      await generateSessionPdf(sessionWith('available', '   '), 'TestUser');
+      const { text } = await getSavedPdf();
+      expect(text).not.toContain(TRANSCRIPT_MARKER);
+    });
+
+    /** The footer writes `Page i of N` on every page, so N is recoverable from the artifact. */
+    const pageCountOf = (text: string): number => {
+      const matches = [...text.matchAll(/Page \d+ of (\d+)/g)].map(m => Number(m[1]));
+      return matches.length ? Math.max(...matches) : 0;
+    };
+
+    it('PAGINATES a long transcript — page COUNT grows, not just the text stream', async () => {
+      // The decisive property. `doc.text(linesArray)` still writes every line into the content stream —
+      // it simply runs them off the bottom of one page — so asserting "the tail is in the artifact"
+      // passes with or without pagination and proves nothing. Page count is what actually changes.
+      const filler = Array.from({ length: 2000 }, (_, i) => `line ${i} of practice speech content`).join(' ');
+      const TAIL = 'PDFPAGECOUNTTAILk3';
+
+      await generateSessionPdf(sessionWith('available', 'short transcript'), 'TestUser');
+      const shortPages = pageCountOf((await getSavedPdf()).text);
+
+      await generateSessionPdf(sessionWith('available', `${filler} ${TAIL}`), 'TestUser');
+      const longText = (await getSavedPdf()).text;
+      const longPages = pageCountOf(longText);
+
+      // Control: the footer was found at all, so a zero count is not silently compared.
+      expect(shortPages, 'no page footer found — the count proves nothing').toBeGreaterThan(0);
+      // A ~40k-character transcript cannot fit on the short version's page budget.
+      expect(longPages).toBeGreaterThan(shortPages);
+      expect(longText).toContain(TAIL);
+    });
+
+    it('the long-transcript tail survives alongside the footer', async () => {
+      // The v2 contract permits up to 50,000 characters. Handing every split line to ONE doc.text call
+      // writes them all onto a single page: the overflow is silently dropped and the footer overprints
+      // the body. A unique TAIL marker proves the end of a long transcript actually survives export.
+      const HEAD = 'PDFHEADMARKER0001';
+      const TAIL = 'PDFTAILMARKERzzzz9';
+      const filler = Array.from({ length: 2000 }, (_, i) => `line ${i} of practice speech content`).join(' ');
+      const long = `${HEAD} ${filler} ${TAIL}`;
+      expect(long.length).toBeGreaterThan(40000); // near the 50k contract boundary
+
+      await generateSessionPdf(sessionWith('available', long), 'TestUser');
+      const { text } = await getSavedPdf();
+      expect(text).toContain(HEAD);
+      expect(text).toContain(TAIL);
+      expect(pageCountOf(text)).toBeGreaterThan(1);
+    });
+
+    it('a paginated transcript does not collide with the page footer', async () => {
+      const TAIL = 'PDFFOOTERSAFETAILq7';
+      const filler = Array.from({ length: 2000 }, (_, i) => `line ${i} of practice speech content`).join(' ');
+      await generateSessionPdf(sessionWith('available', `${filler} ${TAIL}`), 'TestUser');
+      const { text } = await getSavedPdf();
+      // Both the transcript tail and the footer must survive — neither overwrites the other.
+      expect(text).toContain(TAIL);
+      expect(text).toMatch(/Page \d+ of \d+/);
+    });
+
+    it('fails closed on an unknown state rather than exporting on a guess', async () => {
+      await generateSessionPdf(sessionWith('something_new', `spoken ${TRANSCRIPT_MARKER} words`), 'TestUser');
+      const { text } = await getSavedPdf();
+      expect(text).not.toContain(TRANSCRIPT_MARKER);
+    });
+  });
 });
