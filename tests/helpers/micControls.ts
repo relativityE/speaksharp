@@ -47,3 +47,17 @@ export function micControlFor(status: string | null | undefined): string | null 
     if (status === NON_ACTIONABLE_STATUS) return null;
     return MIC_CONTROL_BY_STATUS[status as MicModelStatus] ?? null;
 }
+
+/**
+ * The live transcript surface, during recording.
+ *
+ * `transcript-container` is CORRECT and must NOT be swapped for `transcript-text-only`: it is the
+ * scroll viewport LiveTranscriptPanel renders (`LiveTranscriptPanel.tsx:310`), and the draft spans
+ * live inside it. `transcript-text-only` holds the COMMITTED text, which is empty by design until
+ * Stop — reading it mid-recording would assert on a surface that cannot be populated yet.
+ */
+export const TRANSCRIPT_PANEL = 'transcript-panel';
+export const TRANSCRIPT_CONTAINER = 'transcript-container';
+export const TRANSCRIPT_TEXT_ONLY = 'transcript-text-only';
+export const DRAFT_CURRENT_LINE = 'live-transcript-current-line';
+export const DRAFT_SETTLED = 'live-transcript-settled';

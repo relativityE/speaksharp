@@ -15,7 +15,10 @@
 // Playwright's assertion library is replaced with a shim that understands the same matchers, because
 // the subject under test is the helpers' SELECTOR CHOICE and CONTROL FLOW, not Playwright itself.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { MIC_CONTROL_BY_STATUS, RECORDER_BAR, RECORDER_STOP, RETIRED_COMBINED_CONTROL } from '../helpers/micControls';
+import {
+    MIC_CONTROL_BY_STATUS, RECORDER_BAR, RECORDER_STOP, RETIRED_COMBINED_CONTROL,
+    TRANSCRIPT_CONTAINER, TRANSCRIPT_TEXT_ONLY, DRAFT_CURRENT_LINE, DRAFT_SETTLED,
+} from '../helpers/micControls';
 
 vi.mock('@playwright/test', () => {
     const isLocator = (v: unknown): v is FakeLocator =>
@@ -66,6 +69,9 @@ vi.mock('@playwright/test', () => {
             toBeGreaterThan: (v: number) => {
                 if (!(typeof actual === 'number' && actual > v)) fail(`expected ${shown()} > ${v}`);
             },
+            toBeGreaterThanOrEqual: (v: number) => {
+                if (!(typeof actual === 'number' && actual >= v)) fail(`expected ${shown()} >= ${v}`);
+            },
             not: {
                 toBe: (v: unknown) => { if (actual === v) fail(`expected ${shown()} not to be ${JSON.stringify(v)}`); },
                 toContain: (v: unknown) => {
@@ -78,8 +84,11 @@ vi.mock('@playwright/test', () => {
     return { expect: pwExpect };
 });
 
-const { preparePrivateModelIfPrompted, expectMicControlForState, expectBenchmarkRecordingStarted, stopBenchmarkRecording } =
-    await import('../live/helpers/benchmark-utils');
+const {
+    preparePrivateModelIfPrompted, expectMicControlForState, expectBenchmarkRecordingStarted,
+    stopBenchmarkRecording, expectBenchmarkDraftActivity, expectFinalizedTranscriptOutput,
+    captureTranscriptSurfaceDiagnostics,
+} = await import('../live/helpers/benchmark-utils');
 
 interface FakeLocator {
     __locator: true;
@@ -224,5 +233,105 @@ describe('recording is proven through rendered state, not a dead attribute', () 
     it('FALSIFICATION: a recorder that never disappears fails the stop assertion', async () => {
         renderRecording();
         await expect(stopBenchmarkRecording(page, 'r1', 5_000)).rejects.toThrow(/stop precondition failed/);
+    });
+});
+
+
+/**
+ * THE TRANSCRIPT PHASE CONTRACT.
+ *
+ * Attempt 6 failed with a live page showing 122 draft words, because the proof demanded COMMITTED
+ * output while recording. The UI says "Draft text in progress — finalized when you stop": committed
+ * text is empty by design until Stop. These render the real LiveTranscriptPanel shape and prove the
+ * assertion is now split by lifecycle phase.
+ */
+function renderLiveTranscript({ draft = '', settled = '', committed = '', state = 'listening' } = {}) {
+    document.body.innerHTML = `
+        <div data-testid="transcript-panel">
+          <span data-testid="${TRANSCRIPT_TEXT_ONLY}" data-transcript-text-only="${committed}">${committed}</span>
+          <div data-testid="${TRANSCRIPT_CONTAINER}" data-transcript-state="${state}">
+            ${settled ? `<span data-testid="${DRAFT_SETTLED}" data-transcript-settled="true">${settled}</span>` : ''}
+            ${draft ? `<span data-testid="${DRAFT_CURRENT_LINE}" data-transcript-draft="true">${draft}</span>` : ''}
+          </div>
+        </div>`;
+}
+
+const DRAFT_TEXT = 'Basically we should literally like wait um';
+
+describe('transcript phase contract — draft during recording, finalized after stop', () => {
+    it('interim-only draft text on the visible surface SATISFIES the during-recording assertion', async () => {
+        // Committed is deliberately EMPTY — exactly the state attempt 6 hit.
+        renderLiveTranscript({ draft: DRAFT_TEXT, committed: '' });
+        await expectBenchmarkDraftActivity(page, 'r1', 2_000);
+        const d = await captureTranscriptSurfaceDiagnostics(page);
+        expect(d.committed.textOnlyLength, 'committed must be empty in this state').toBe(0);
+        expect(d.draft.currentLineLength).toBeGreaterThan(0);
+    });
+
+    it('committed output is NOT required before Stop — an empty committed surface still passes', async () => {
+        renderLiveTranscript({ settled: DRAFT_TEXT, committed: '' });
+        await expect(expectBenchmarkDraftActivity(page, 'r1', 2_000)).resolves.toBeUndefined();
+    });
+
+    it('FALSIFICATION: a genuinely silent surface fails, so the assertion is not vacuous', async () => {
+        renderLiveTranscript({ draft: '', settled: '', committed: '' });
+        await expect(expectBenchmarkDraftActivity(page, 'r1', 1_000))
+            .rejects.toThrow(/Draft-activity precondition failed/);
+    });
+
+    it('FALSIFICATION: reading the COMMITTED surface mid-recording would fail — the retracted fix', async () => {
+        // Swapping transcript-container for transcript-text-only was the change I proposed and it
+        // would have asserted on a surface that is empty by design. This pins that it is wrong.
+        renderLiveTranscript({ draft: DRAFT_TEXT, committed: '' });
+        const d = await captureTranscriptSurfaceDiagnostics(page);
+        expect(d.committed.textOnlyLength).toBe(0);
+        expect(d.container.textContentLength).toBeGreaterThan(0);
+    });
+
+    it('finalized output IS required after Stop', async () => {
+        renderLiveTranscript({ committed: DRAFT_TEXT, state: 'final' });
+        await expect(expectFinalizedTranscriptOutput(page, 'r1', { meaningfulWordCount: 42, selectedForSaveLength: 210 }, 3))
+            .resolves.toBeUndefined();
+    });
+
+    it('FALSIFICATION: a finalized transcript with too few words fails after Stop', async () => {
+        renderLiveTranscript({ committed: '', state: 'final' });
+        await expect(expectFinalizedTranscriptOutput(page, 'r1', { meaningfulWordCount: 1, selectedForSaveLength: 6 }, 3))
+            .rejects.toThrow(/selected-for-save transcript has 1 meaningful words/);
+    });
+
+    it('FAILS CLOSED: a save candidate exposing neither count nor length is unverifiable, not a pass', async () => {
+        renderLiveTranscript({ committed: '', state: 'final' });
+        await expect(expectFinalizedTranscriptOutput(page, 'r1', {}, 3))
+            .rejects.toThrow(/NEITHER a word count NOR a length/);
+    });
+
+    it('FAILS CLOSED: an unreadable surface propagates instead of reporting zeros', async () => {
+        const broken = { ...page, evaluate: async () => { throw new Error('surface unreadable'); } } as typeof page;
+        await expect(captureTranscriptSurfaceDiagnostics(broken)).rejects.toThrow(/surface unreadable/);
+    });
+
+    it('diagnostics are PRIVACY-SAFE — shapes only, never transcript content', async () => {
+        const secret = 'Basically we should literally like wait um';
+        renderLiveTranscript({ draft: secret, committed: secret });
+        const serialized = JSON.stringify(await captureTranscriptSurfaceDiagnostics(page));
+        expect(serialized, 'no transcript content may appear in diagnostics').not.toContain('Basically');
+        expect(serialized).not.toContain('literally');
+        // ...while still carrying the shape needed to diagnose the empty-read defect.
+        for (const key of ['counts', 'isConnected', 'childElementCount', 'textContentLength',
+                           'innerTextLength', 'transcriptState', 'currentLineLength', 'textOnlyLength']) {
+            expect(serialized, `${key} must be recorded`).toContain(key);
+        }
+    });
+
+    it('duplicate-or-missing container is visible in the counts, not silently collapsed', async () => {
+        renderLiveTranscript({ draft: DRAFT_TEXT });
+        expect((await captureTranscriptSurfaceDiagnostics(page)).counts[TRANSCRIPT_CONTAINER]).toBe(1);
+        document.body.innerHTML = '';
+        const empty = await captureTranscriptSurfaceDiagnostics(page);
+        expect(empty.counts[TRANSCRIPT_CONTAINER]).toBe(0);
+        expect(empty.container.found).toBe(false);
+        // Absent is reported as null, never as a flattering 0.
+        expect(empty.container.textContentLength).toBeNull();
     });
 });

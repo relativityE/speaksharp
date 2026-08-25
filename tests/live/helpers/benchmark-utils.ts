@@ -3,6 +3,7 @@ import * as path from 'path';
 import { expect, Page, TestInfo } from '@playwright/test';
 import {
     MIC_CONTROL_BY_STATUS, RECORDER_BAR, RECORDER_STOP, MISSING_CONTROL_TIMEOUT_MS, micControlFor,
+    TRANSCRIPT_PANEL, TRANSCRIPT_CONTAINER, TRANSCRIPT_TEXT_ONLY, DRAFT_CURRENT_LINE, DRAFT_SETTLED,
 } from '../../helpers/micControls';
 
 type BenchmarkPreconditionSnapshot = {
@@ -677,6 +678,150 @@ export async function stopBenchmarkRecording(page: Page, label: string, timeout 
     }
 }
 
+/**
+ * ATOMIC, PRIVACY-SAFE diagnostics for the live transcript surface.
+ *
+ * Attempt 6 read `transcript-container.textContent` as empty while the page visibly showed 122 words
+ * of draft text. Nothing in the snapshot could explain that, because the probe reported only the
+ * single string it managed to read — and reported an unreadable surface identically to an empty one.
+ *
+ * So this records SHAPES, never content: element counts, connectedness, child counts and text
+ * LENGTHS. No transcript text is captured, so the diagnostics are safe to attach to a public run.
+ * Everything is read inside ONE evaluate, so every field describes the same instant rather than a
+ * smear across several round-trips.
+ *
+ * Read errors PROPAGATE. A surface that cannot be read must fail closed; reporting zeros for it is
+ * the silent-empty class that made the original defect invisible.
+ */
+export interface TranscriptSurfaceDiagnostics {
+    counts: Record<string, number>;
+    container: {
+        found: boolean;
+        isConnected: boolean | null;
+        childElementCount: number | null;
+        textContentLength: number | null;
+        innerTextLength: number | null;
+        transcriptState: string | null;
+    };
+    draft: { currentLineLength: number | null; settledLength: number | null };
+    committed: { textOnlyLength: number | null; rawAttrLength: number | null };
+    runtime: { transcriptLength: number | null; selectedForSaveLength: number | null; hasSaveCandidate: boolean };
+}
+
+export async function captureTranscriptSurfaceDiagnostics(page: Page): Promise<TranscriptSurfaceDiagnostics> {
+    return page.evaluate((ids) => {
+        const one = (tid: string) => document.querySelector(`[data-testid="${tid}"]`) as HTMLElement | null;
+        const len = (tid: string) => { const e = one(tid); return e ? (e.textContent ?? '').trim().length : null; };
+        const container = one(ids.container);
+        const textOnly = one(ids.textOnly);
+        const dbg = (window as Window & { __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown> })
+            .__SPEECH_RUNTIME_DEBUG__?.() ?? {};
+        return {
+            counts: Object.fromEntries(
+                [ids.panel, ids.container, ids.textOnly, ids.currentLine, ids.settled]
+                    .map((tid) => [tid, document.querySelectorAll(`[data-testid="${tid}"]`).length]),
+            ),
+            container: {
+                found: !!container,
+                isConnected: container ? container.isConnected : null,
+                childElementCount: container ? container.childElementCount : null,
+                textContentLength: container ? (container.textContent ?? '').trim().length : null,
+                // innerText is layout-dependent and can differ from textContent for hidden subtrees —
+                // that difference is itself the diagnostic. `null` means the API is unavailable here,
+                // which is recorded honestly rather than coerced to 0.
+                innerTextLength: container
+                    ? (typeof container.innerText === 'string' ? container.innerText.trim().length : null)
+                    : null,
+                transcriptState: container ? container.getAttribute('data-transcript-state') : null,
+            },
+            draft: { currentLineLength: len(ids.currentLine), settledLength: len(ids.settled) },
+            committed: {
+                textOnlyLength: len(ids.textOnly),
+                rawAttrLength: textOnly ? (textOnly.getAttribute('data-transcript-text-only') ?? '').trim().length : null,
+            },
+            runtime: {
+                transcriptLength: typeof dbg.transcriptLength === 'number' ? dbg.transcriptLength : null,
+                selectedForSaveLength: typeof dbg.selectedTranscriptForSaveLength === 'number'
+                    ? dbg.selectedTranscriptForSaveLength : null,
+                hasSaveCandidate: !!dbg.saveCandidate,
+            },
+        };
+    }, {
+        panel: TRANSCRIPT_PANEL, container: TRANSCRIPT_CONTAINER, textOnly: TRANSCRIPT_TEXT_ONLY,
+        currentLine: DRAFT_CURRENT_LINE, settled: DRAFT_SETTLED,
+    });
+}
+
+/**
+ * DURING RECORDING — require positive DRAFT activity, never committed output.
+ *
+ * The UI states it plainly: "Draft text in progress — finalized when you stop". Committed transcript
+ * is 0 by design until Stop, so the old assertion demanded a surface that cannot be populated yet and
+ * would have failed even on a perfectly healthy run. Attempt 6 died here with a live page showing 122
+ * words. What proves recognition is working mid-recording is DRAFT text, on the draft-specific spans.
+ */
+export async function expectBenchmarkDraftActivity(page: Page, label: string, timeout = 60_000, minDraftChars = 12) {
+    try {
+        await expect(async () => {
+            const d = await captureTranscriptSurfaceDiagnostics(page);
+            const draftChars = (d.draft.currentLineLength ?? 0) + (d.draft.settledLength ?? 0);
+            const containerChars = d.container.textContentLength ?? 0;
+            expect(
+                Math.max(draftChars, containerChars),
+                `no draft activity yet (current=${d.draft.currentLineLength} settled=${d.draft.settledLength} `
+                + `container=${d.container.textContentLength} state=${d.container.transcriptState})`,
+            ).toBeGreaterThanOrEqual(minDraftChars);
+        }).toPass({ timeout, intervals: [500, 1_000, 2_000] });
+        await logBenchmarkPhase(page, `PROOF_TIMING_FIRST_DRAFT_${label.toUpperCase()}`);
+    } catch (error) {
+        const diagnostics = await captureTranscriptSurfaceDiagnostics(page);
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-draft-activity-missing`);
+        throw new Error(
+            `Draft-activity precondition failed for ${label}: no draft text on the live surface\n`
+            + `TRANSCRIPT_SURFACE_DIAGNOSTICS ${JSON.stringify(diagnostics)}\n`
+            + `${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`
+        );
+    }
+}
+
+/**
+ * AFTER STOP — require the FINALIZED, selected-for-save transcript to carry real words.
+ *
+ * This is the assertion that actually protects the retention contract: what gets persisted is the
+ * save candidate, so that is what must be non-trivial. Word counts come from the candidate itself
+ * rather than from scraped DOM, so display formatting can never inflate or deflate the verdict, and
+ * no transcript content is read.
+ */
+export async function expectFinalizedTranscriptOutput(
+    page: Page, label: string, candidate: BenchmarkSaveCandidate, minWords = 3,
+) {
+    const words = candidate.meaningfulWordCount ?? candidate.finalWordCount ?? null;
+    const chars = candidate.selectedForSaveLength ?? null;
+    if (words === null && chars === null) {
+        const diagnostics = await captureTranscriptSurfaceDiagnostics(page);
+        throw new Error(
+            `Finalized-transcript precondition failed for ${label}: the save candidate exposes NEITHER a `
+            + `word count NOR a length, so "finalized output" is unverifiable — failing closed\n`
+            + `TRANSCRIPT_SURFACE_DIAGNOSTICS ${JSON.stringify(diagnostics)}`
+        );
+    }
+    if ((words ?? 0) <= minWords) {
+        const diagnostics = await captureTranscriptSurfaceDiagnostics(page);
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-finalized-transcript-missing`);
+        throw new Error(
+            `Finalized-transcript precondition failed for ${label}: selected-for-save transcript has `
+            + `${String(words)} meaningful words (need > ${minWords}), length ${String(chars)}\n`
+            + `TRANSCRIPT_SURFACE_DIAGNOSTICS ${JSON.stringify(diagnostics)}\n${JSON.stringify(snapshot, null, 2)}`
+        );
+    }
+    await logBenchmarkPhase(page, `PROOF_JOURNEY_FINALIZED_TRANSCRIPT_${label.toUpperCase()}`);
+}
+
+/**
+ * @deprecated for the #1306 journey — asserts COMMITTED output, which is empty by design while
+ * recording. Retained for the six separately-owned benchmark specs that still call it; they need
+ * their own phase-contract review (see #1306 attempt 6).
+ */
 export async function expectBenchmarkTranscriptOutput(page: Page, label: string, timeout = 20_000, minWords = 5) {
     try {
         await expect(async () => {
