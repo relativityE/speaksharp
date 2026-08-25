@@ -98,3 +98,50 @@ export function parseHeaderMetaWords(text: string | null | undefined): number | 
     const m = /(\d+)\s+words/.exec(text ?? '');
     return m ? Number(m[1]) : null;
 }
+
+/**
+ * THE PROOF'S SESSION-SURFACE CONTRACT — the single object both the proof helpers and the coverage
+ * guard read. It is deliberately built FROM the constants above rather than restating them, because a
+ * hand-copied list drifts from the proof and becomes a fourth vacuous check.
+ *
+ * WHY THIS EXISTS. Attempts 5, 6 and 7 all failed on the same class: the harness asserted against a
+ * surface it had never rendered. Each fix addressed the instance — `session-start-stop-button`, then
+ * the trust banner, then the entire dead `LiveTranscriptPanel` tree. Three production dispatches to
+ * find three cases of one defect. The guard that reads this contract mounts the real components and
+ * proves every selector renders, in seconds, locally.
+ */
+export const PROOF_SESSION_SURFACE = {
+    /** MicCard, keyed by the model status that must render each control. */
+    before: MIC_CONTROL_BY_STATUS,
+    /** SessionDuringState -> RecorderBar + TranscriptCard + LiveTranscript. */
+    during: [
+        SESSION_SHELL, SESSION_SLOT_B, TRANSCRIPT_CARD, TRANSCRIPT_LIVE_INDICATOR,
+        TRANSCRIPT_HEADER_META, TRANSCRIPT_CONTENT, LIVE_TRANSCRIPT, RECORDER_BAR, RECORDER_STOP,
+    ] as const,
+} as const;
+
+/**
+ * Selectors the proof uses that are NOT on the session surface. Each needs a reason: an unexplained
+ * entry here is how a genuinely stale selector would hide from the guard.
+ */
+export const PROOF_SELECTOR_EXEMPTIONS: Record<string, string> = {
+    'auth-form': 'signup page, not the session surface; covered by auth tests',
+    'email-input': 'signup form field, not the session surface; covered by auth component tests',
+    'password-input': 'signup form field, not the session surface; covered by auth component tests',
+    'sign-up-submit': 'signup form submit, not the session surface; covered by auth component tests',
+    'practice-root': 'practice landing page shell the proof passes through before the session starts',
+    'practice-card-freeform': 'practice landing page entry card; not part of the recording surface',
+    'session-history-list': 'AnalyticsDashboard, covered by its own component tests',
+    'session-detail-transcript': 'AnalyticsDashboard detail view; covered by dashboard component tests',
+    'session-detail-transcript-expired': 'AnalyticsDashboard detail view, runtime-composed id '
+        + '(`session-detail-transcript-${view.kind}`); covered by dashboard component tests',
+    'session-next-action-title': 'AnalyticsDashboard history row; covered by dashboard component tests',
+    'filler-count-value': 'AnalyticsDashboard metrics cell; covered by dashboard component tests',
+    'pro-badge': 'global navigation entitlement badge, rendered outside the session surface',
+    'nav-upgrade-button': 'global navigation upgrade CTA, rendered outside the session surface',
+    'status-message-text': 'global status region shared across pages, not the recording surface',
+    'stt-mode-select': 'REMOVED by #1184; quarantined in liveSpecSelectorContract KNOWN_STALE',
+    'private-first-run-note': 'not rendered; every use is tolerant and cannot block a run',
+    'transcript-container': 'DEAD (LiveTranscriptPanel). Sole surviving use is a deliberate `.or()` '
+        + 'migration fallback in the deprecated single-phase helper the six other benchmark specs call.',
+};
