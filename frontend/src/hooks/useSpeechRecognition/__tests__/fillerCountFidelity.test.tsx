@@ -193,6 +193,89 @@ describe('#1324 reconciliation — rolling revisions and interim/final overlap',
     });
 });
 
+describe('#1331 reset isolation — an open episode never crosses a session or user-word boundary', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('an open interim episode does not survive a session reset', () => {
+        // The defect: clearing a NON-EMPTY session changes `allText`, so the generic rewrite branch
+        // returned before the reset branch could run. The open episode survived and was later committed
+        // into the fresh session by the "close with no final contribution" path.
+        const chunks: Chunk[] = [{ transcript: 'first take here.', id: 1, timestamp: 1 }];
+        const { result, rerender } = renderHook(
+            ({ chunks, interim }: { chunks: Chunk[]; interim: string }) =>
+                useFillerWords(chunks, interim, NO_USER_WORDS),
+            { initialProps: { chunks: [...chunks], interim: '' } },
+        );
+
+        // Open an episode that is NEVER closed, then reset the session out from under it.
+        rerender({ chunks: [...chunks], interim: 'um still speaking' });
+        act(() => { vi.advanceTimersByTime(DEBOUNCE_MS + 50); });
+        expect(result.current.counts[FILLER_WORD_KEYS.UM]?.count ?? 0).toBe(1);   // control: it WAS observed
+
+        rerender({ chunks: [], interim: '' });                                    // session reset
+        act(() => { vi.advanceTimersByTime(DEBOUNCE_MS + 50); });
+        expect(result.current.counts[FILLER_WORD_KEYS.UM]?.count ?? 0).toBe(0);
+
+        // ...and it must not reappear on a later render of the fresh session either.
+        rerender({ chunks: [], interim: '' });
+        act(() => { vi.advanceTimersByTime(DEBOUNCE_MS + 50); });
+        expect(result.current.counts[FILLER_WORD_KEYS.UM]?.count ?? 0).toBe(0);
+        expect(result.current.totalCount).toBe(0);
+    });
+
+    it('changing the configured custom words drops evidence gathered under the old set', () => {
+        // A removed custom word must not keep contributing.
+        //
+        // WORD CHOICE IS LOAD-BEARING: 'widget' is NOT a built-in discourse marker. An earlier version
+        // of this test used 'basically', which IS one — so a stale carried-over episode was excluded
+        // from the coachable total anyway and the assertion could not see the leak. It passed with the
+        // user-word clear removed, i.e. it proved nothing. An unknown key counts toward the coachable
+        // tier, so with 'widget' a surviving episode is visible in BOTH the per-key count and the total.
+        const { result, rerender } = renderHook(
+            ({ words, interim }: { words: string[]; interim: string }) =>
+                useFillerWords([], interim, words),
+            { initialProps: { words: ['widget'], interim: '' } },
+        );
+
+        rerender({ words: ['widget'], interim: 'widget appears here' });
+        act(() => { vi.advanceTimersByTime(DEBOUNCE_MS + 50); });
+        expect(result.current.counts.widget?.count ?? 0).toBe(1);   // control: counted under the old set
+        expect(result.current.totalCount).toBe(1);
+
+        // Swap the configured set while the SAME interim is still on screen. 'widget' is no longer
+        // tracked, so it must contribute nothing — neither carried over nor re-added.
+        rerender({ words: ['gadget'], interim: 'widget appears here' });
+        act(() => { vi.advanceTimersByTime(DEBOUNCE_MS + 50); });
+
+        expect(result.current.counts.widget?.count ?? 0).toBe(0);
+        expect(result.current.counts.gadget?.count ?? 0).toBe(0);
+        expect(result.current.totalCount).toBe(0);
+    });
+
+    it('a custom word still present in the interim is counted EXACTLY ONCE under the new set', () => {
+        // The other half of the contract: recounting under the new set must not double with any
+        // surviving evidence.
+        const { result, rerender } = renderHook(
+            ({ words, interim }: { words: string[]; interim: string }) =>
+                useFillerWords([], interim, words),
+            { initialProps: { words: ['alpha'], interim: '' } },
+        );
+
+        rerender({ words: ['alpha'], interim: 'alpha and beta' });
+        act(() => { vi.advanceTimersByTime(DEBOUNCE_MS + 50); });
+        expect(result.current.counts.alpha?.count ?? 0).toBe(1);
+
+        // 'beta' becomes tracked; the same interim contains it exactly once.
+        rerender({ words: ['beta'], interim: 'alpha and beta' });
+        act(() => { vi.advanceTimersByTime(DEBOUNCE_MS + 50); });
+
+        expect(result.current.counts.beta?.count ?? 0).toBe(1);
+        expect(result.current.counts.alpha?.count ?? 0).toBe(0);
+        expect(result.current.totalCount).toBe(1);
+    });
+});
+
 describe('#1324 finding 3 — `total` sums discourse markers against the true-filler tier gate', () => {
     it('total counts only the coachable tier, so "So um I think" is one', () => {
         const counts = countFillerWords('So um I think', NO_USER_WORDS);

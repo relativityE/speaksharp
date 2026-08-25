@@ -98,8 +98,38 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
     const userWordsChanged = JSON.stringify(lastUserWordsRef.current) !== JSON.stringify(userWords);
     const allText = finalChunks.map(c => c.transcript).join(' ');
 
+    /**
+     * RESET ISOLATION (#1331 RETURN). Clearing the open episode must happen BEFORE any branch can
+     * return, and it must clear BOTH the authoritative ref and its rendered mirror.
+     *
+     * The bug: reordering the append check moved the generic-rewrite `return` ahead of the later
+     * "chunks cleared" branch, so on the one transition that matters — a non-empty session being
+     * cleared, which changes `allText` — the reset branch never ran. An episode observed in the OLD
+     * session then survived into the new one and was committed by the "close with no final
+     * contribution" path. The user-word branch had the same hole: evidence gathered under the previous
+     * custom set outlived the set that produced it.
+     */
+    const clearOpenEpisode = () => {
+      openEpisodeRef.current = {};
+      setOpenEpisodeCounts({});
+    };
+
+    const chunksCleared = finalChunks.length === 0 && lastProcessedIndexRef.current !== -1;
+    if (chunksCleared) {
+      clearOpenEpisode();
+      setAccumulatedCounts(createInitialFillerData(userWords));
+      lastProcessedIndexRef.current = -1;
+      lastProcessedTextRef.current = '';
+      lastUserWordsRef.current = userWords;
+      return;
+    }
+
     if (userWordsChanged) {
-      // Re-process everything if user words change
+      // Re-process everything if user words change. The open episode is dropped: its per-key maxima
+      // were produced under the PREVIOUS custom set, so carrying them forward would let a removed
+      // custom word keep contributing. A still-present raw interim is recounted under the new set by
+      // the interim effect below, which depends on `userWords`.
+      clearOpenEpisode();
       const newCounts = countFillerWords(allText, userWords);
       setAccumulatedCounts(newCounts);
       lastProcessedIndexRef.current = finalChunks.length - 1;
@@ -174,12 +204,11 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
         }
         return withCoachableTotal(merged, userWords);
       });
-    } else if (finalChunks.length === 0 && lastProcessedIndexRef.current !== -1) {
-      // Reset if chunks are cleared
-      setAccumulatedCounts(createInitialFillerData(userWords));
-      lastProcessedIndexRef.current = -1;
-      lastProcessedTextRef.current = '';
     }
+    // NOTE: the "chunks cleared" case is handled at the TOP of this effect and returns there. Keeping a
+    // second copy here would be two reset implementations free to drift — and the drift is exactly what
+    // caused this defect: the reset that lived only down here became unreachable once the append check
+    // was reordered above it.
   }, [finalChunks, userWords, interimTranscript]);
 
   // 2. Handle Interim Transcript — EPISODE IDENTITY (#1324 findings 1 & 2)
