@@ -13,6 +13,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { WASHINGTON_LONG_AUDIO } from './helpers/audio-fixtures';
+import { classifyReadEndpoint } from '../helpers/readEndpointAuthority';
 import { extractUidFromAuthStorage, sha256Hex } from './helpers/proofAuthority';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import { evaluateThreeRecordingEntitlement } from './helpers/entitlementAuthority';
@@ -231,6 +232,10 @@ test.describe('#1306 three-session newest-two retention production proof @live',
          * construction rather than by assumption. Exactly one is required: a second would be a silent
          * double-save, which is precisely what the exact-count accounting exists to catch.
          */
+        /** Bounded, character-classed token: server enums/SQLSTATEs only, never free text. */
+        const safeToken = (v: unknown): string | null =>
+            (typeof v === 'string' && v.length > 0 && v.length <= 64 && /^[A-Za-z0-9_.:-]+$/.test(v)) ? v : null;
+
         let envelopeCursor = 0;
         const takeEnvelopeForRecording = async (ordinal: number) => {
             await settleCaptures();
@@ -259,6 +264,12 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                 transcript_outcome: env.transcript_outcome,
                 transcript_retained: env.transcript_retained,
                 retention_status: (env.retention as Record<string, unknown> | undefined)?.status ?? null,
+                // #1306: an `error` retention branch previously required ANOTHER production run just to
+                // learn which branch it was. These two identify it. Both are short server-generated
+                // tokens, not content — and each is validated as a bounded string before being logged,
+                // so a malformed field cannot smuggle anything into public evidence.
+                retention_reason: safeToken((env.retention as Record<string, unknown> | undefined)?.reason),
+                retention_sqlstate: safeToken((env.retention as Record<string, unknown> | undefined)?.sqlstate),
             };
             console.log(`[PROOF_V2_ENVELOPE] ${label} ${JSON.stringify(observed)}`);
             // `not_captured` means the SERVER received text that was blank or unusable. If the client
@@ -271,21 +282,18 @@ test.describe('#1306 three-session newest-two retention production proof @live',
         };
 
         /**
-         * Supabase read replicas are served through a LOAD-BALANCER endpoint and are asynchronously
-         * replicated, so a GET routed there can legitimately lag the primary. An atomicity proof read
-         * from a replica would report a stale `transcript_state` and indict the product for what is
-         * really replication lag. Assert the admin client targets the primary project endpoint.
+         * Supabase read replicas are served through a LOAD-BALANCER endpoint and replicate
+         * asynchronously, so a routed GET can lag the primary. The first version of this guard tested
+         * the hostname against a denylist, which proves nothing — a replica on any other hostname
+         * passes it. Authority is now POSITIVELY established against a separately configured primary,
+         * and when it cannot be, the verdict is `unknown`, which WEAKENS what a disagreement may be
+         * reported as instead of silently strengthening it.
          */
-        const assertPrimaryEndpoint = () => {
-            const host = new URL(SUPABASE_URL).hostname;
-            const replicaish = /pooler\.|read-replica|-replica|\.lb\./i.test(host);
-            expect(replicaish, `admin reads must target the PRIMARY endpoint, got a load-balanced host`)
-                .toBe(false);
-        };
+        const readAuthority = classifyReadEndpoint(SUPABASE_URL, process.env.SUPABASE_PRIMARY_URL);
+        console.log(`[PROOF_READ_AUTHORITY] ${JSON.stringify(readAuthority)}`);
 
         const readRow = async (id: string) => {
             if (!admin) throw new Error('admin client required (fail closed)');
-            assertPrimaryEndpoint();
             const { data, error } = await admin.from('sessions').select(ROW_COLUMNS)
                 .eq('id', id).eq('user_id', capturedUid).single();
             // PRIVACY: never echo the session UUID or a raw provider message into a public log.
@@ -558,12 +566,20 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                     const converged = history.some((h) => h.state === 'available');
                     // Content-free: states and lengths only.
                     console.log(`[PROOF_ROW_CONVERGENCE] ${label} ${JSON.stringify({ converged, history })}`);
+                    // The strongest claim is capped by the READ AUTHORITY. Calling a never-converging
+                    // row a persistence defect requires proof the read came from the primary; without
+                    // that, the honest report is a disagreement of unknown authority.
+                    const verdict = converged
+                        ? 'It CONVERGED on re-read — read-path/replication consistency issue.'
+                        : readAuthority.maxClaim === 'persistence-defect'
+                            ? 'It NEVER converged and the read is PRIMARY-PROVEN — persistence defect.'
+                            : 'It NEVER converged, but read authority is UNKNOWN — row/read-path '
+                              + 'disagreement; authority unknown. Configure SUPABASE_PRIMARY_URL to '
+                              + 'make this classifiable.';
                     throw new Error(
                         `${label} transcript_state was '${String(row.transcript_state)}' while the v2 envelope `
-                        + `reported 'available' at completion. ${converged
-                            ? 'It CONVERGED on re-read — read-path/replication consistency defect.'
-                            : 'It NEVER converged — persistence defect.'} `
-                        + `history=${JSON.stringify(history)}`
+                        + `reported 'available' at completion. ${verdict} `
+                        + `authority=${readAuthority.authority} history=${JSON.stringify(history)}`
                     );
                 }
                 expect(row.transcript_state, `${label} transcript_state`).toBe('available');

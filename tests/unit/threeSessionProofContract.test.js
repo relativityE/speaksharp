@@ -253,25 +253,41 @@ describe('three-session production proof — assertion contract', () => {
     const idx = SPEC.indexOf('PROOF_ROW_CONVERGENCE');
     expect(idx, 'the convergence history must exist').toBeGreaterThan(-1);
     // A `throw` must follow the history unconditionally: no branch may return/continue to a pass.
-    const after = SPEC.slice(idx, idx + 900);
+    // Window must span the verdict computation that sits between the log and the throw; 900 was tuned
+    // to an earlier shape and silently stopped reaching the throw when that block grew.
+    const after = SPEC.slice(idx, idx + 2_000);
     // UNCONDITIONAL. A presence check for `throw new Error` survived a mutation that guarded it behind
     // `if (converged) {} else throw ...` — the string was still there while the behaviour had flipped.
-    expect(after, 'the throw must follow the history directly, with no guard')
-      .toMatch(/PROOF_ROW_CONVERGENCE[^;]*;\s*throw new Error\(/);
-    expect(after, 'convergence must not be tolerated into a pass').not.toMatch(/if\s*\(\s*converged\s*\)/);
-    expect(after).toMatch(/read-path\/replication consistency defect/);
+    // The property is "no bypass", not "textually adjacent": a `const verdict = ...` between the log
+    // and the throw is legitimate, an `if (converged)` guard or an `else throw` bypass is not.
+    expect(after, 'the block must throw').toMatch(/throw new Error\(/);
+    expect(after, 'convergence must not be tolerated into a pass')
+      .not.toMatch(/if\s*\(\s*converged\s*\)\s*\{[^}]*\}\s*else/);
+    expect(after, 'the throw must not be reached only via an else branch').not.toMatch(/else\s+throw new Error\(/);
+    // Both classification branches must exist: converged vs never-converged are different findings.
+    expect(after).toMatch(/CONVERGED on re-read/);
     expect(after).toMatch(/NEVER converged/);
   });
 
-  it('[advisory] admin reads are asserted against the PRIMARY endpoint', () => {
-    // A replica read would report a stale state and indict the product for replication lag.
-    // The call site, not merely the definition: removing the call left the function defined and a
-    // presence check green.
-    const readRowIdx = SPEC.indexOf('const readRow = async (id: string) => {');
-    const body = SPEC.slice(readRowIdx, readRowIdx + 700);
-    expect(body, 'readRow must assert the primary endpoint before querying')
-      .toMatch(/assertPrimaryEndpoint\(\);/);
-    expect(SPEC).toMatch(/pooler|read-replica/);
+  it('[advisory] read authority is POSITIVELY classified and caps the verdict', () => {
+    // The classifier itself is executed in tests/unit/readEndpointAuthority.test.ts. This only pins
+    // the WIRING: a hostname denylist must not come back, and the claim must be capped by authority.
+    expect(SPEC).toMatch(/classifyReadEndpoint\(SUPABASE_URL, process\.env\.SUPABASE_PRIMARY_URL\)/);
+    expect(SPEC, 'no hostname denylist may return').not.toMatch(/read-replica\|-replica/);
+    expect(SPEC, 'a persistence defect may only be claimed on a proven primary')
+      .toMatch(/readAuthority\.maxClaim === 'persistence-defect'/);
+    expect(SPEC).toMatch(/authority is UNKNOWN/);
+  });
+
+  it('[advisory] the retention branch is identifiable without another production run', () => {
+    // EACH field must go through the bounded token validator. Requiring only that `safeToken(`
+    // appears somewhere let an unvalidated `retention_reason` survive, because `retention_sqlstate`
+    // still used it — presence of the helper is not use of the helper.
+    expect(SPEC, 'retention_reason must be validated').toMatch(/retention_reason:\s*safeToken\(/);
+    expect(SPEC, 'retention_sqlstate must be validated').toMatch(/retention_sqlstate:\s*safeToken\(/);
+    // The validator itself must stay bounded and character-classed.
+    expect(SPEC).toMatch(/length <= 64/);
+    expect(SPEC).toMatch(/\^\[A-Za-z0-9_\.:-\]\+\$/);
   });
 
   it('production authority gates are unchanged', () => {
