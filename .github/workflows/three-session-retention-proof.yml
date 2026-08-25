@@ -101,6 +101,12 @@ jobs:
           BASE_URL: ${{ inputs.base_url }}
           EXPECT_RELEASE_SHA: ${{ inputs.expect_sha }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          # Read authority: the SEPARATELY configured authoritative primary the admin read is checked
+          # against. GitHub repository variables are NOT automatically environment variables, so without
+          # this line the classifier sees `undefined` and reports `unknown` on every run — which caps
+          # the verdict and makes a persistence defect unclassifiable. Absent by design rather than
+          # defaulted: a read must not vouch for itself.
+          SUPABASE_PRIMARY_URL: ${{ vars.SUPABASE_PRIMARY_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }}
           PROOF_CLEANUP_VERDICT_FILE: ${{ runner.temp }}/cleanup-verdict.txt

@@ -229,10 +229,13 @@ describe('three-session production proof — assertion contract', () => {
     const retentionStep = SPEC.indexOf('newest two retained, OLDEST evicted');
     expect(perRecording, 'the envelope must be asserted inside recordOneSession').toBeGreaterThan(-1);
     expect(perRecording, 'and BEFORE the retention step').toBeLessThan(retentionStep);
-    // The three fields that make the contract atomic.
-    expect(SPEC).toMatch(/transcript_outcome[\s\S]{0,80}toBe\('retained'\)/);
-    expect(SPEC).toMatch(/transcript_retained[\s\S]{0,80}toBe\(true\)/);
-    expect(SPEC).toMatch(/transcript_state[\s\S]{0,80}toBe\('available'\)/);
+    // The three fields that make the contract atomic — asserted on the MAPPED values, which is why
+    // these look for the mapped identifiers rather than the raw envelope keys.
+    expect(SPEC).toMatch(/const outcome = safeEnum\(env\.transcript_outcome,/);
+    expect(SPEC).toMatch(/const state = safeEnum\(env\.transcript_state,/);
+    expect(SPEC).toMatch(/expect\(outcome,[\s\S]{0,80}toBe\('retained'\)/);
+    expect(SPEC).toMatch(/expect\(retained,[\s\S]{0,80}toBe\(true\)/);
+    expect(SPEC).toMatch(/expect\(state,[\s\S]{0,80}toBe\('available'\)/);
   });
 
   it('[advisory] envelopes are bound to the recording ORDINAL, not to array order', () => {
@@ -277,6 +280,34 @@ describe('three-session production proof — assertion contract', () => {
     expect(SPEC, 'a persistence defect may only be claimed on a proven primary')
       .toMatch(/readAuthority\.maxClaim === 'persistence-defect'/);
     expect(SPEC).toMatch(/authority is UNKNOWN/);
+  });
+
+  it('the workflow WIRES the primary-URL variable into the environment', () => {
+    // GitHub repository variables are NOT automatically environment variables. Without this line the
+    // classifier sees `undefined`, reports `unknown` on every run, and a persistence defect can never
+    // be classified — the guard would be present but inert.
+    expect(WORKFLOW).toMatch(/SUPABASE_PRIMARY_URL:\s*\$\{\{\s*vars\.SUPABASE_PRIMARY_URL\s*\}\}/);
+    // ...in the SAME env block that carries the other Supabase inputs.
+    const idx = WORKFLOW.indexOf('SUPABASE_PRIMARY_URL:');
+    const urlIdx = WORKFLOW.indexOf('SUPABASE_URL:');
+    expect(idx).toBeGreaterThan(urlIdx);
+    expect(idx - urlIdx, 'must sit alongside SUPABASE_URL, not in an unrelated block').toBeLessThan(600);
+  });
+
+  it('every envelope field is VALIDATED before it is logged or asserted', () => {
+    // A malformed response must not place arbitrary text into a public Actions log — and a failed
+    // `toBe` echoes its RECEIVED value, so asserting on a raw field would republish it in the failure
+    // message. Assertions must therefore read the MAPPED values.
+    expect(SPEC).toMatch(/const safeEnum =/);
+    expect(SPEC).toMatch(/transcript_state: state,/);
+    expect(SPEC).toMatch(/transcript_outcome: outcome,/);
+    expect(SPEC).toMatch(/retention_status: safeToken\(/);
+    // The assertions themselves must not touch `env.` fields directly.
+    expect(SPEC, 'assert on mapped values, never raw env fields')
+      .not.toMatch(/expect\(env\.transcript_(state|outcome|retained)/);
+    // Nor may a raw DB value be interpolated into a failure message.
+    expect(SPEC, 'row disagreement must not echo a raw state')
+      .not.toMatch(/was '\$\{String\(row\.transcript_state\)\}'/);
   });
 
   it('[advisory] the retention branch is identifiable without another production run', () => {

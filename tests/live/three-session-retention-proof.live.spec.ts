@@ -232,6 +232,12 @@ test.describe('#1306 three-session newest-two retention production proof @live',
          * construction rather than by assumption. Exactly one is required: a second would be a silent
          * double-save, which is precisely what the exact-count accounting exists to catch.
          */
+        /** Map to a recognized token, or the fixed literal `invalid`. Never echoes the received value. */
+        const safeBool = (v: unknown): boolean | null => (typeof v === 'boolean' ? v : null);
+
+        const safeEnum = (v: unknown, allowed: readonly string[]): string =>
+            (typeof v === 'string' && allowed.includes(v)) ? v : 'invalid';
+
         /** Bounded, character-classed token: server enums/SQLSTATEs only, never free text. */
         const safeToken = (v: unknown): string | null =>
             (typeof v === 'string' && v.length > 0 && v.length <= 64 && /^[A-Za-z0-9_.:-]+$/.test(v)) ? v : null;
@@ -259,25 +265,32 @@ test.describe('#1306 three-session newest-two retention production proof @live',
          */
         const assertV2Envelope = async (ordinal: number, label: string) => {
             const env = await takeEnvelopeForRecording(ordinal);
+            // VALIDATE BEFORE LOGGING *AND* BEFORE ASSERTING. A malformed response could otherwise
+            // place arbitrary text into a public Actions log — and a failed `toBe` echoes its RECEIVED
+            // value, so asserting on the raw field would republish it in the failure message. Every
+            // field is mapped to a recognized token first; anything unrecognized becomes `invalid`.
+            const state = safeEnum(env.transcript_state, ['available', 'expired', 'not_captured', 'not_provided']);
+            const outcome = safeEnum(env.transcript_outcome, ['retained', 'expired', 'not_captured', 'not_provided']);
+            const retained = typeof env.transcript_retained === 'boolean' ? env.transcript_retained : null;
+            const retention = env.retention as Record<string, unknown> | undefined;
             const observed = {
-                transcript_state: env.transcript_state,
-                transcript_outcome: env.transcript_outcome,
-                transcript_retained: env.transcript_retained,
-                retention_status: (env.retention as Record<string, unknown> | undefined)?.status ?? null,
+                transcript_state: state,
+                transcript_outcome: outcome,
+                transcript_retained: retained,
+                retention_status: safeToken(retention?.status),
                 // #1306: an `error` retention branch previously required ANOTHER production run just to
-                // learn which branch it was. These two identify it. Both are short server-generated
-                // tokens, not content — and each is validated as a bounded string before being logged,
-                // so a malformed field cannot smuggle anything into public evidence.
-                retention_reason: safeToken((env.retention as Record<string, unknown> | undefined)?.reason),
-                retention_sqlstate: safeToken((env.retention as Record<string, unknown> | undefined)?.sqlstate),
+                // learn which branch it was. These two identify it, each bounded and character-classed.
+                retention_reason: safeToken(retention?.reason),
+                retention_sqlstate: safeToken(retention?.sqlstate),
             };
             console.log(`[PROOF_V2_ENVELOPE] ${label} ${JSON.stringify(observed)}`);
-            // `not_captured` means the SERVER received text that was blank or unusable. If the client
-            // finalized real words and the server says this, the defect is upstream of the database and
-            // no amount of re-reading the row will change it.
-            expect(env.transcript_outcome, `${label}: server transcript outcome`).toBe('retained');
-            expect(env.transcript_retained, `${label}: retained flag agrees with the outcome`).toBe(true);
-            expect(env.transcript_state, `${label}: server-reported transcript state`).toBe('available');
+            expect(safeBool(env.success), `${label}: envelope success`).toBe(true);
+            expect(safeBool(env.session_saved), `${label}: envelope session_saved`).toBe(true);
+            expect(safeEnum(env.final_status, ['completed', 'aborted', 'failed']), `${label}: final_status (mapped)`)
+                .toBe('completed');
+            expect(outcome, `${label}: server transcript outcome (mapped)`).toBe('retained');
+            expect(retained, `${label}: retained flag agrees with the outcome`).toBe(true);
+            expect(state, `${label}: server-reported transcript state (mapped)`).toBe('available');
             return observed;
         };
 
@@ -557,7 +570,7 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                         const again = await readRow(row.id as string);
                         history.push({
                             atMs: Date.now() - startedAt,
-                            state: again.transcript_state,
+                            state: safeEnum(again.transcript_state, ['available', 'expired', 'not_captured', 'not_provided']),
                             chars: String(again.transcript ?? '').trim().length,
                         });
                         if (again.transcript_state === 'available') break;
@@ -577,7 +590,9 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                               + 'disagreement; authority unknown. Configure SUPABASE_PRIMARY_URL to '
                               + 'make this classifiable.';
                     throw new Error(
-                        `${label} transcript_state was '${String(row.transcript_state)}' while the v2 envelope `
+                        `${label} transcript_state was `
+                        + `'${safeEnum(row.transcript_state, ['available', 'expired', 'not_captured', 'not_provided'])}' `
+                        + `while the v2 envelope `
                         + `reported 'available' at completion. ${verdict} `
                         + `authority=${readAuthority.authority} history=${JSON.stringify(history)}`
                     );
@@ -641,17 +656,12 @@ test.describe('#1306 three-session newest-two retention production proof @live',
 
             // Non-vacuous capture control: the envelope assertions below are meaningless over an empty set.
             expect(v2Responses.length, 'no v2 response bodies captured — the envelope scan proves nothing').toBe(3);
-            for (const [i, env] of v2Responses.entries()) {
-                expect(env.success, `v2 envelope ${i + 1} success`).toBe(true);
-                expect(env.session_saved, `v2 envelope ${i + 1} session_saved`).toBe(true);
-                expect(env.final_status, `v2 envelope ${i + 1} final_status`).toBe('completed');
-                // The typed outcome must be one the client can switch on exhaustively, and a completion
-                // that retained its transcript must say so rather than leaving it to be inferred.
-                expect(['retained', 'expired', 'not_provided', 'not_captured', 'retention_failed'])
-                    .toContain(env.transcript_outcome);
-                expect(env.transcript_outcome, `v2 envelope ${i + 1} retained its transcript`).toBe('retained');
-                expect(env.transcript_retained, `v2 envelope ${i + 1} retained flag agrees with the outcome`).toBe(true);
-            }
+            // Each envelope was already asserted — MAPPED — at the completion that produced it, bound
+            // to its ordinal. Re-asserting the raw fields here duplicated that check and, worse, echoed
+            // the received value into the failure message (`toContain(env.transcript_outcome)`), which
+            // is exactly the raw-value republication the mapping exists to prevent. What this step
+            // uniquely proves is the EXACT COUNT, which is asserted below.
+            expect(envelopeCursor, 'every captured envelope was bound to a recording').toBe(3);
 
             // Distinct ids, and exactly ONE row per id — a reused or duplicated id would make the
             // newest-two assertions above describe a different set of rows than the journey created.
