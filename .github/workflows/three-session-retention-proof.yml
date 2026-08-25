@@ -43,13 +43,14 @@ jobs:
   three-session-retention-proof:
     environment: production-db
     runs-on: ubuntu-latest
-    # BOUNDED AND JUSTIFIED, not the 20-minute default of the single-session proof. Budget:
-    # model readiness (<=180s, once — cached for recordings 2 and 3) + three recordings (~90s each)
-    # + six exact-session reopens (three, then all three again after a hard reload) + two PDF exports
-    # + fail-closed cleanup with a full residue readback. That is ~12-15 minutes of work; 45 leaves
-    # headroom for a cold runner without letting a hung run hold the production-database concurrency
-    # group indefinitely.
-    timeout-minutes: 45
+    # REVISED after attempt 4 (run 32792672770), which hit the spec's 25-minute test ceiling while
+    # stalled at `modelStatus: download-required`. Direct probes ruled out the environmental causes:
+    # the deployed app is correctly cross-origin isolated, and the full 77MB model serves in ~2.5s.
+    # The remaining candidates are product-side, so the budget now exists to let the run DIAGNOSE
+    # rather than be truncated: model readiness <=600s, three recordings, six exact-session reopens,
+    # two PDF exports, and fail-closed cleanup. The spec's own timeout is 40min; 60 leaves room for
+    # that plus setup without letting a hung run hold the production-database group indefinitely.
+    timeout-minutes: 60
     steps:
       # A selectable feature-branch workflow must NEVER become production-proof authority.
       # Fail closed (exit 1, not a silent skip) unless dispatched from the default branch.
