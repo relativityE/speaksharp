@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 const SPEC = readFileSync('tests/live/three-session-retention-proof.live.spec.ts', 'utf8');
 const WORKFLOW = readFileSync('.github/workflows/three-session-retention-proof.yml', 'utf8');
 const CLEANUP = readFileSync('tests/live/helpers/runOwnedCleanup.ts', 'utf8');
+const BENCH = readFileSync('tests/live/helpers/benchmark-utils.ts', 'utf8');
 
 describe('three-session production proof — assertion contract', () => {
   it('the scan is not vacuous', () => {
@@ -117,6 +118,36 @@ describe('three-session production proof — assertion contract', () => {
     // And when setup was required, staying at download-required must FAIL — that is the
     // customer-visible "button does nothing" outcome.
     expect(SPEC).toMatch(/\.not\.toBe\('download-required'\)/);
+  });
+
+  // ADVISORY BACKSTOP ONLY. What QUALIFIES the desktop journey is behavioral:
+  //   - tests/unit/benchmarkHarnessControls.test.ts EXECUTES the live helpers against a DOM holding
+  //     only the controls the product renders, and falsifies each stale selector; and
+  //   - MicCard/RecorderBar rendered-state tests pin tests/helpers/micControls.ts to the components.
+  // A source scan could never have caught this defect — `session-start-stop-button` exists as a
+  // constant, so scanning for it passed while it rendered on no viewport. These two checks only catch
+  // a careless re-introduction early; they are not evidence that the journey works.
+  it('[advisory] the proof path has ZERO executable uses of the retired combined control', () => {
+    for (const [name, body] of [['spec', SPEC], ['benchmark-utils', BENCH]]) {
+      const executable = body
+        .split('\n')
+        .filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*'))
+        .join('\n');
+      expect(executable, `${name} must not target the retired combined control`)
+        .not.toMatch(/(getByTestId|locator|querySelector)\([^)]*session-start-stop-button/);
+    }
+  });
+
+  it('[advisory] the journey asserts rendered state, not an attribute on an unmounted control', () => {
+    // Stopping unmounts RecorderBar, so `data-recording` on the stopped control is an assertion about
+    // an element that no longer exists — and no desktop control carries that attribute at all.
+    const strip = (body) => body.split('\n')
+      .filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*'))
+      .join('\n');
+    expect(strip(SPEC)).not.toMatch(/toHaveAttribute\('data-recording'/);
+    expect(strip(BENCH)).not.toMatch(/getByLabel\(\/Stop Recording/);
+    expect(SPEC).toMatch(/expectMicControlForState/);
+    expect(SPEC).toMatch(/stopBenchmarkRecording/);
   });
 
   it('production authority gates are unchanged', () => {

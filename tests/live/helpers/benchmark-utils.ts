@@ -1,6 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { expect, Page, TestInfo } from '@playwright/test';
+import {
+    MIC_CONTROL_BY_STATUS, RECORDER_BAR, RECORDER_STOP, MISSING_CONTROL_TIMEOUT_MS, micControlFor,
+} from '../../helpers/micControls';
 
 type BenchmarkPreconditionSnapshot = {
     label: string;
@@ -25,9 +28,14 @@ type BenchmarkPreconditionSnapshot = {
     ui?: {
         modeSelectPresent: boolean;
         modeSelectState: string | null;
-        startButtonPresent: boolean;
-        startButtonDisabled: boolean | null;
-        startButtonRecording: string | null;
+        // Phase-specific: which desktop control is actually on screen, by name.
+        micDownload: { present: boolean; disabled: boolean | null };
+        micRetry: { present: boolean; disabled: boolean | null };
+        micStart: { present: boolean; disabled: boolean | null };
+        recorderBar: { present: boolean; disabled: boolean | null };
+        recorderStop: { present: boolean; disabled: boolean | null };
+        modelStatus: string | null;
+        recordingState: string | null;
         profileText: string | null;
         transcript: string;
         bodyText: string;
@@ -125,7 +133,15 @@ export async function collectBenchmarkPreconditionSnapshot(page: Page, label: st
         };
         const bodyText = document.body?.innerText?.replace(/\s+/g, ' ').trim().slice(0, 500) ?? '';
         const modeSelect = document.querySelector('[data-testid="stt-mode-select"]') as HTMLElement | null;
-        const startButton = document.querySelector('[data-testid="session-start-stop-button"]') as HTMLElement | null;
+        // PHASE-SPECIFIC observations. The old generic `startButton` probe reported
+        // `startButtonPresent: false` for 40 minutes without ever revealing WHICH control was on screen,
+        // so a first-run page sitting on a perfectly healthy `mic-download` was indistinguishable from a
+        // dead page. Each desktop control is now reported by name.
+        const el = (tid: string) => document.querySelector(`[data-testid="${tid}"]`) as HTMLElement | null;
+        const describe = (tid: string) => {
+            const node = el(tid);
+            return node ? { present: true, disabled: node.hasAttribute('disabled') } : { present: false, disabled: null };
+        };
         const transcript = document.querySelector('[data-testid="transcript-container"]')?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 240) ?? '';
         const profileText = document.querySelector('[data-testid="pro-badge"], [data-testid="nav-upgrade-button"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null;
         const debugWindow = window as Window & {
@@ -235,9 +251,13 @@ export async function collectBenchmarkPreconditionSnapshot(page: Page, label: st
             ui: {
                 modeSelectPresent: Boolean(modeSelect),
                 modeSelectState: modeSelect?.getAttribute('data-state') ?? null,
-                startButtonPresent: Boolean(startButton),
-                startButtonDisabled: startButton?.hasAttribute('disabled') ?? null,
-                startButtonRecording: startButton?.getAttribute('data-recording') ?? null,
+                micDownload: describe('mic-download'),
+                micRetry: describe('mic-retry'),
+                micStart: describe('mic-start'),
+                recorderBar: describe('recorder-bar'),
+                recorderStop: describe('recorder-stop'),
+                modelStatus: document.documentElement.getAttribute('data-model-status'),
+                recordingState: document.documentElement.getAttribute('data-recording-state'),
                 profileText,
                 transcript,
                 bodyText,
@@ -499,58 +519,161 @@ export async function waitForPrivateEngineReady(page: Page, timeout = 180_000) {
     }
 }
 
-export async function preparePrivateModelIfPrompted(page: Page, timeout = 180_000) {
-    // First-run Private now downloads via the MIC (the separate "Set up" button was removed). We
-    // trigger the download ONLY when setup is actually required — detected via the durable
-    // data-model-status='download-required' or the visible first-run note — so a warm cache (model
-    // already downloaded) is left to auto-load and the mic is never clicked into a recording start.
-    const micButton = page.locator('[data-testid="session-start-stop-button"]').first();
-    const setupNeeded = (await page.evaluate(
+export async function preparePrivateModelIfPrompted(page: Page, timeout = 600_000) {
+    // STATE-SPECIFIC CONTROL. MicCard renders a DIFFERENT testid per model state:
+    //   download-required -> 'mic-download'   (aria-label "Download to start speaking")
+    //   init-failed/error -> 'mic-retry'
+    //   otherwise         -> 'mic-start'
+    // `session-start-stop-button` is NONE of them. This helper used to click that selector, so on a
+    // first-run session it waited for a control that never renders, never invoked acquisition, and
+    // burned the entire test budget before failing — attempt 5 (run 32812192088) sat 40 minutes at
+    // `download-required` with `startButtonPresent: false` and no CLICKED phase ever logged.
+    //
+    // A static "does this selector exist in source" check cannot catch this: `session-start-stop-button`
+    // DOES exist elsewhere in the app. Only asserting the control that renders IN THIS STATE does.
+    const modelStatus = await page.evaluate(
         () => document.documentElement.getAttribute('data-model-status'),
-    ).catch(() => null)) === 'download-required'
-        || await page.locator('[data-testid="private-first-run-note"]').isVisible({ timeout: 10_000 }).catch(() => false);
+    ).catch(() => null);
+    const firstRunNoteVisible = await page.locator('[data-testid="private-first-run-note"]')
+        .isVisible({ timeout: 5_000 }).catch(() => false);
+    const setupNeeded = modelStatus === 'download-required' || firstRunNoteVisible;
 
-    if (setupNeeded) {
-        await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_VISIBLE');
-        if (process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED === 'true') {
-            const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-setup-user-consent-required');
-            throw new Error(
-                `INVALID_SETUP setup.model_provider USER_CONSENT_REQUIRED private-setup-download-visible\n` +
-                `Private model setup requires an explicit user click; the proof harness must not auto-download.\n` +
-                `${JSON.stringify(snapshot, null, 2)}`
-            );
-        }
-        await micButton.scrollIntoViewIfNeeded().catch(() => undefined);
-        try {
-            await micButton.click({ timeout: 10_000 });
-        } catch (error) {
-            await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_FORCE_CLICK_RETRY');
-            console.warn('[benchmark-utils] Private setup (mic) click needed force retry', error);
-            await micButton.click({ force: true, timeout: 5_000 });
-        }
-        await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_CLICKED');
-    } else {
-        await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_NOT_VISIBLE');
+    if (!setupNeeded) {
+        await logBenchmarkPhase(page, 'SETUP_MODEL_NOT_REQUIRED_WARM_CACHE');
+        return;
     }
 
-    await waitForPrivateEngineReady(page, timeout);
+    await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_VISIBLE');
+    if (process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED === 'true') {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-setup-user-consent-required');
+        throw new Error(
+            `INVALID_SETUP setup.model_provider USER_CONSENT_REQUIRED private-setup-download-visible\n` +
+            `Private model setup requires an explicit user click; the proof harness must not auto-download.\n` +
+            `${JSON.stringify(snapshot, null, 2)}`
+        );
+    }
+
+    // FAIL IN SECONDS, NOT MINUTES. A missing CTA is a harness/product mismatch, not slow work, so it
+    // must not consume the run budget. Exactly one, visible and enabled.
+    const downloadCta = page.getByTestId(MIC_CONTROL_BY_STATUS['download-required']);
+    const ctaCount = await downloadCta.count();
+    if (ctaCount !== 1) {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'mic-download-cta-missing');
+        throw new Error(
+            `INVALID_SETUP setup.model_provider CTA_NOT_RENDERED expected exactly one '${MIC_CONTROL_BY_STATUS['download-required']}' in ` +
+            `state '${String(modelStatus)}', found ${ctaCount}\n${JSON.stringify(snapshot, null, 2)}`
+        );
+    }
+    await expect(downloadCta, 'the download CTA must be visible').toBeVisible({ timeout: MISSING_CONTROL_TIMEOUT_MS });
+    await expect(downloadCta, 'the download CTA must be enabled').toBeEnabled({ timeout: MISSING_CONTROL_TIMEOUT_MS });
+
+    await downloadCta.scrollIntoViewIfNeeded().catch(() => undefined);
+    await downloadCta.click({ timeout: 10_000 });
+    await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_CLICKED');
+
+    // The CTA must MOVE the state within a short bounded interval. Staying at download-required means
+    // acquisition was never invoked — the customer-visible "button does nothing" outcome. This is
+    // seconds, not the whole model-download budget: leaving the state is near-immediate; FINISHING the
+    // download is what may take minutes, and that is waited for separately below.
+    await expect(async () => {
+        const status = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
+        expect(status, `status must leave download-required after the CTA click (got ${String(status)})`)
+            .not.toBe('download-required');
+    }).toPass({ timeout: 30_000, intervals: [250, 500, 1_000] });
+
+    const afterClick = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
+    await logBenchmarkPhase(page, `SETUP_MODEL_STATE_AFTER_CTA_${String(afterClick).toUpperCase()}`);
+
+    // Now wait for acquisition to COMPLETE (or fail with a named state) within the full budget.
+    await expect(async () => {
+        const status = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
+        expect(['ready', 'init-failed', 'error'], `terminal model state (got ${String(status)})`)
+            .toContain(String(status));
+    }).toPass({ timeout, intervals: [1_000, 2_000, 5_000] });
+
+    const finalStatus = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
+    if (finalStatus !== 'ready') {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `private-model-${finalStatus}`);
+        throw new Error(
+            `INVALID_SETUP setup.model_provider MODEL_NOT_READY terminal state '${String(finalStatus)}'\n` +
+            `${JSON.stringify(snapshot, null, 2)}`
+        );
+    }
+    // The journey continues at `ready`, so the START control must now be the rendered one. Proving it
+    // here means a mismatch surfaces in seconds at the end of setup, not minutes later mid-recording.
+    await expectMicControlForState(page, 'ready');
+    await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_READY');
+}
+
+/**
+ * Assert the control the map names for `status` is rendered and actionable, and that the OTHER primary
+ * controls are not — the desktop states are mutually exclusive. Fails in seconds by construction.
+ */
+export async function expectMicControlForState(page: Page, status: string) {
+    const expected = micControlFor(status);
+    if (!expected) throw new Error(`INVALID_SETUP no actionable control is defined for state '${status}'`);
+    const control = page.getByTestId(expected);
+    try {
+        await expect(control, `state '${status}' must render '${expected}'`)
+            .toBeVisible({ timeout: MISSING_CONTROL_TIMEOUT_MS });
+        await expect(control, `'${expected}' must be enabled in state '${status}'`)
+            .toBeEnabled({ timeout: MISSING_CONTROL_TIMEOUT_MS });
+    } catch (error) {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `mic-control-missing-${status}`);
+        throw new Error(
+            `INVALID_SETUP CONTROL_NOT_RENDERED state '${status}' requires '${expected}'\n` +
+            `${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`
+        );
+    }
+    return control;
 }
 
 export async function expectBenchmarkRecordingStarted(page: Page, label: string) {
     try {
-        // Canonical "recording started" signal is data-recording=true on the start/stop button.
-        // The `Stop Recording` aria-label only renders once the stop control mounts and was a flaky
-        // proxy (it broke the native-preflight probe). Wait for the attribute, falling back to the
-        // label so existing behavior is preserved where the attribute isn't set.
-        await page.waitForFunction(() => (
-            document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') === 'true'
-        ), { timeout: 12_000 }).catch(async () => {
-            await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 5_000 });
-        });
+        // PROVE RECORDING THROUGH RENDERED STATE. start/stop are SPLIT (#1222/#1231): the `during` slot
+        // REPLACES MicCard with RecorderBar. There is no combined toggle and no `data-recording`
+        // attribute on any desktop control, so the old attribute wait could only ever time out and fall
+        // through to a stale `aria-label="Stop Recording"` probe — RecorderBar's stop button is labelled
+        // "■ Stop". Both signals were dead; the fallback merely hid the first one's failure.
+        await expect(page.getByTestId(RECORDER_BAR), `${label}: the recorder bar must replace the mic card`)
+            .toBeVisible({ timeout: 15_000 });
+        await expect(page.getByTestId(RECORDER_STOP), `${label}: the stop control must be actionable`)
+            .toBeEnabled({ timeout: MISSING_CONTROL_TIMEOUT_MS });
+        // The `before` control must be GONE — a page showing both is not a recording page.
+        await expect(page.getByTestId(MIC_CONTROL_BY_STATUS.ready), `${label}: the start control must be replaced`)
+            .toHaveCount(0, { timeout: MISSING_CONTROL_TIMEOUT_MS });
+        // Runtime state when the app exposes it: rendered state is necessary, not sufficient.
+        const runtime = await page.evaluate(
+            () => document.documentElement.getAttribute('data-recording-state'),
+        ).catch(() => null);
+        if (runtime !== null && runtime !== 'recording') {
+            throw new Error(`runtime recording state is '${runtime}', expected 'recording'`);
+        }
         await logBenchmarkPhase(page, `PROOF_RUNTIME_RECORDING_STARTED_${label.toUpperCase()}`);
     } catch (error) {
         const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-recording-not-started`);
         throw new Error(`Benchmark recording precondition failed for ${label}\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+/**
+ * Stop via the rendered `during` control and prove the recorder is GONE.
+ *
+ * Deliberately does NOT assert an attribute on the stopped control: the element is unmounted, and
+ * `toHaveAttribute('data-recording', 'false')` on an unmounted element is an assertion about something
+ * that does not exist. That was the third stale assertion in this journey.
+ */
+export async function stopBenchmarkRecording(page: Page, label: string, timeout = 120_000) {
+    const stop = page.getByTestId(RECORDER_STOP);
+    try {
+        await expect(stop, `${label}: stop control`).toBeEnabled({ timeout: MISSING_CONTROL_TIMEOUT_MS });
+        await stop.click();
+        await expect(page.getByTestId(RECORDER_BAR), `${label}: the recorder bar must disappear on stop`)
+            .toHaveCount(0, { timeout });
+        await logBenchmarkPhase(page, `PROOF_RUNTIME_RECORDING_STOPPED_${label.toUpperCase()}`);
+    } catch (error) {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-recording-not-stopped`);
+        throw new Error(`Benchmark stop precondition failed for ${label}\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
     }
 }
 

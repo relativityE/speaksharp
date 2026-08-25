@@ -3,10 +3,12 @@ import { createClient } from '@supabase/supabase-js';
 import {
     AUDIO_ARGS,
     assertPreStartMode,
-    selectBenchmarkMode,
-    preparePrivateModelIfPrompted,
     expectBenchmarkRecordingStarted,
     expectBenchmarkTranscriptOutput,
+    expectMicControlForState,
+    preparePrivateModelIfPrompted,
+    selectBenchmarkMode,
+    stopBenchmarkRecording,
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
@@ -366,13 +368,18 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                 ).toBe(true);
             }
 
-            const startStop = page.getByTestId('session-start-stop-button');
-            await expect(startStop).toBeEnabled({ timeout: 60_000 });
-            await startStop.click();
+            // DESKTOP STATE JOURNEY. start and stop are SPLIT controls in different rendered states —
+            // MicCard's `mic-start` in `before`, RecorderBar's `recorder-stop` in `during`. There is no
+            // combined toggle: `session-start-stop-button` is rendered by nothing on any viewport
+            // (MobileActionBar renders the SUFFIXED `-mobile` id), which is why clicking it burned all
+            // 40 minutes of attempt 5's budget without ever invoking acquisition.
+            const startControl = await expectMicControlForState(page, 'ready');
+            await startControl.click();
             await expectBenchmarkRecordingStarted(page, label);
             await expectBenchmarkTranscriptOutput(page, label, 60_000, 3);
-            await startStop.click();
-            await expect(startStop).toHaveAttribute('data-recording', 'false', { timeout: 120_000 });
+            // Stop through the `during` control, and prove the recorder is GONE rather than asserting an
+            // attribute on an element that no longer exists.
+            await stopBenchmarkRecording(page, label, 120_000);
             await waitForBenchmarkSaveCandidate(page, label, 120_000);
 
             await expect.poll(async () => page.evaluate(() =>
