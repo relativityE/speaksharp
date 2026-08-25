@@ -87,3 +87,26 @@ export function resolveReadAuthority(env: Record<string, string | undefined>): P
     }
     return unknown(reason);
 }
+
+/**
+ * `https://<ref>.supabase.co` -> `<ref>`; anything else -> null.
+ *
+ * Lives here, not in the preflight script, because the script previously RE-IMPLEMENTED this and the
+ * response validation below. Two implementations mean the tested one can stay green while the one
+ * that actually runs in production drifts — the tests would be measuring the wrong code.
+ */
+export function projectRefFromUrl(url: string): string | null {
+    const h = host(url);
+    const m = h ? /^([a-z0-9]{20})\.supabase\.co$/.exec(h) : null;
+    return m ? m[1] : null;
+}
+
+/**
+ * Turn a Management API response into a probe result. A replica inventory MUST be a list; anything
+ * else is malformed and is never assumed to mean "no replicas".
+ */
+export function probeFromResponse(status: number, body: unknown): ReplicaProbe {
+    if (status < 200 || status >= 300) return { ok: false, failure: 'api_error' };
+    if (!Array.isArray(body)) return { ok: false, failure: 'malformed_response' };
+    return { ok: true, replicaCount: body.length };
+}

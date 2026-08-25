@@ -16,6 +16,7 @@ const CLEANUP = readFileSync('tests/live/helpers/runOwnedCleanup.ts', 'utf8');
 const BENCH = readFileSync('tests/live/helpers/benchmark-utils.ts', 'utf8');
 const STORAGE = readFileSync('frontend/src/lib/storage.ts', 'utf8');
 const STATE_MIGRATION = readFileSync('backend/supabase/migrations/20260801000000_sessions_transcript_state.sql', 'utf8');
+const PREFLIGHT = readFileSync('scripts/verify-read-authority.mjs', 'utf8');
 
 describe('three-session production proof — assertion contract', () => {
   it('the scan is not vacuous', () => {
@@ -295,6 +296,23 @@ describe('three-session production proof — assertion contract', () => {
     const tokenIdx = WORKFLOW.indexOf('SUPABASE_ACCESS_TOKEN:');
     const stepIdx = WORKFLOW.lastIndexOf('- name:', tokenIdx);
     expect(WORKFLOW.slice(stepIdx, tokenIdx)).toMatch(/Resolve read authority/);
+  });
+
+  it('the preflight calls the TESTED implementation and does not re-implement it', () => {
+    // The script previously re-implemented URL parsing, response validation and authority selection.
+    // Two implementations mean the tested one stays green while the one that actually runs in
+    // production drifts — the tests would be measuring the wrong code.
+    expect(PREFLIGHT).toMatch(/from '\.\.\/tests\/helpers\/readEndpointAuthority\.ts'/);
+    for (const fn of ['projectRefFromUrl', 'probeFromResponse', 'classifyFromReplicaProbe']) {
+      expect(PREFLIGHT, `${fn} must be imported, not redefined`).toMatch(new RegExp(fn));
+      expect(PREFLIGHT, `${fn} must not be locally defined`)
+        .not.toMatch(new RegExp(`function ${fn}\\s*\\(`));
+    }
+    // No local re-derivation of the project ref or the array check.
+    expect(PREFLIGHT, 'no local ref parsing').not.toMatch(/supabase\\\.co\$\/\.exec/);
+    expect(PREFLIGHT, 'no local array validation').not.toMatch(/Array\.isArray\(body\)/);
+    // Strip-types is required for the .ts import; Node is pinned to 22.12.0 by .nvmrc.
+    expect(WORKFLOW).toMatch(/node --experimental-strip-types scripts\/verify-read-authority\.mjs/);
   });
 
   it('the spec consumes the DERIVED verdict and cannot see the token', () => {

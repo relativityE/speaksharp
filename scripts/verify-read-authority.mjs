@@ -13,17 +13,15 @@
 // SECURITY. GET only. The token, the project reference, the URL and the response body are NEVER
 // printed. Output is two derived tokens and nothing else. Every failure path is `unknown`.
 import { appendFileSync } from 'node:fs';
+// SINGLE IMPLEMENTATION. URL parsing, response validation and authority selection all come from the
+// TypeScript helper the unit tests execute. This script previously re-implemented all three, so the
+// tested classifier and the one that actually runs in production could drift apart silently while
+// every classifier test stayed green. Run with `node --experimental-strip-types` — Node is pinned to
+// 22.12.0 by .nvmrc, which supports it.
+import { projectRefFromUrl, probeFromResponse, classifyFromReplicaProbe }
+    from '../tests/helpers/readEndpointAuthority.ts';
 
 const AUTHORITY_ENDPOINT = 'https://api.supabase.com/v1/projects';
-
-/** `https://<ref>.supabase.co` -> `<ref>`; anything else -> null. */
-function projectRef(url) {
-    try {
-        const h = new URL(url).hostname;
-        const m = /^([a-z0-9]{20})\.supabase\.co$/.exec(h);
-        return m ? m[1] : null;
-    } catch { return null; }
-}
 
 function emit(authority, reason) {
     // The ONLY output. No token, no ref, no URL, no body.
@@ -39,7 +37,7 @@ function emit(authority, reason) {
 
 const url = process.env.SUPABASE_URL ?? '';
 const token = process.env.SUPABASE_ACCESS_TOKEN ?? '';
-const ref = projectRef(url);
+const ref = projectRefFromUrl(url);
 
 if (!ref) emit('unknown', 'non_canonical_endpoint');
 if (!token) emit('unknown', 'not_probed');
@@ -54,12 +52,10 @@ try {
     emit('unknown', 'api_error');
 }
 
-if (!res.ok) emit('unknown', 'api_error');
+let body = null;
+try { body = await res.json(); } catch { /* non-JSON body -> probeFromResponse marks it malformed */ }
 
-let body;
-try { body = await res.json(); } catch { emit('unknown', 'malformed_response'); }
-
-// A replica inventory must be a list. Anything else is malformed — never assumed empty.
-if (!Array.isArray(body)) emit('unknown', 'malformed_response');
-if (body.length > 0) emit('unknown', 'replicas_present');
-emit('primary-proven', 'no_read_replicas');
+// Both the probe result and the verdict come from the TESTED implementation.
+const probe = res.ok ? probeFromResponse(res.status, body) : { ok: false, failure: 'api_error' };
+const verdict = classifyFromReplicaProbe(url, probe);
+emit(verdict.authority, verdict.reason);

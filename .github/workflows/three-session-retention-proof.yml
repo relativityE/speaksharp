@@ -92,7 +92,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: node scripts/verify-read-authority.mjs
+        run: node --experimental-strip-types scripts/verify-read-authority.mjs
 
       - name: Prove checked-out commit equals the dispatch SHA
         run: |
