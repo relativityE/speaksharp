@@ -222,8 +222,70 @@ test.describe('#1306 three-session newest-two retention production proof @live',
         /** Await every in-flight body parse so a capture assertion reads a settled set. */
         const settleCaptures = async () => { await Promise.all([...v2Parsing, ...listParsing]); };
 
+        /**
+         * BIND EACH ENVELOPE TO ITS RECORDING ORDINAL.
+         *
+         * `v2Responses.push(...)` runs in PARSE-COMPLETION order, not session order, so indexing the
+         * array by position assumes an ordering nothing guarantees. Recordings are sequential, so the
+         * envelopes added between the start and end of one recording belong to that recording — by
+         * construction rather than by assumption. Exactly one is required: a second would be a silent
+         * double-save, which is precisely what the exact-count accounting exists to catch.
+         */
+        let envelopeCursor = 0;
+        const takeEnvelopeForRecording = async (ordinal: number) => {
+            await settleCaptures();
+            const added = v2Responses.slice(envelopeCursor);
+            envelopeCursor = v2Responses.length;
+            expect(added.length, `recording ${ordinal} must produce exactly ONE complete_session_v2 envelope`)
+                .toBe(1);
+            return added[0];
+        };
+
+        /**
+         * THE ATOMIC CONTRACT, asserted the moment the recording completes.
+         *
+         * `complete_session_v2` writes transcript, metrics and retention in one transaction and returns
+         * what it did. That envelope is the most authoritative evidence in this proof, and attempt 8
+         * captured all three but only asserted them AFTER the retention step — so it failed at a
+         * downstream row read without ever examining them. Asserting here means a completion defect is
+         * named at the completion that caused it.
+         *
+         * Recorded CONTENT-FREE: enums and booleans only, never transcript text.
+         */
+        const assertV2Envelope = async (ordinal: number, label: string) => {
+            const env = await takeEnvelopeForRecording(ordinal);
+            const observed = {
+                transcript_state: env.transcript_state,
+                transcript_outcome: env.transcript_outcome,
+                transcript_retained: env.transcript_retained,
+                retention_status: (env.retention as Record<string, unknown> | undefined)?.status ?? null,
+            };
+            console.log(`[PROOF_V2_ENVELOPE] ${label} ${JSON.stringify(observed)}`);
+            // `not_captured` means the SERVER received text that was blank or unusable. If the client
+            // finalized real words and the server says this, the defect is upstream of the database and
+            // no amount of re-reading the row will change it.
+            expect(env.transcript_outcome, `${label}: server transcript outcome`).toBe('retained');
+            expect(env.transcript_retained, `${label}: retained flag agrees with the outcome`).toBe(true);
+            expect(env.transcript_state, `${label}: server-reported transcript state`).toBe('available');
+            return observed;
+        };
+
+        /**
+         * Supabase read replicas are served through a LOAD-BALANCER endpoint and are asynchronously
+         * replicated, so a GET routed there can legitimately lag the primary. An atomicity proof read
+         * from a replica would report a stale `transcript_state` and indict the product for what is
+         * really replication lag. Assert the admin client targets the primary project endpoint.
+         */
+        const assertPrimaryEndpoint = () => {
+            const host = new URL(SUPABASE_URL).hostname;
+            const replicaish = /pooler\.|read-replica|-replica|\.lb\./i.test(host);
+            expect(replicaish, `admin reads must target the PRIMARY endpoint, got a load-balanced host`)
+                .toBe(false);
+        };
+
         const readRow = async (id: string) => {
             if (!admin) throw new Error('admin client required (fail closed)');
+            assertPrimaryEndpoint();
             const { data, error } = await admin.from('sessions').select(ROW_COLUMNS)
                 .eq('id', id).eq('user_id', capturedUid).single();
             // PRIVACY: never echo the session UUID or a raw provider message into a public log.
@@ -400,6 +462,8 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             ), { timeout: 120_000, message: `${label} must durably persist` }).toBeTruthy();
             const id = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
             expect(id, `${label} persisted id`).toMatch(/^[0-9a-f-]{36}$/i);
+            // ATOMIC CONTRACT FIRST — before any row read, and bound to THIS recording.
+            await assertV2Envelope(ordinal, label);
             return id as string;
         };
 
@@ -470,8 +534,38 @@ test.describe('#1306 three-session newest-two retention production proof @live',
 
             const [oldest, middle, newest] = await Promise.all(ids.map(readRow));
 
-            // The two newest keep their transcripts...
+            // The two newest keep their transcripts.
+            //
+            // DIAGNOSIS-ONLY CONVERGENCE HISTORY. If a row disagrees with the envelope the server
+            // already returned, that disagreement is the finding — so this records a bounded history
+            // to CLASSIFY it and then fails regardless. It must never turn an atomic-contract failure
+            // into a pass: the envelope was asserted at completion time and has already succeeded by
+            // the time we get here, so any mismatch is a row/consistency defect, not a slow write.
             for (const [label, row] of [['middle', middle], ['newest', newest]] as const) {
+                if (row.transcript_state !== 'available') {
+                    const history: Array<{ atMs: number; state: unknown; chars: number }> = [];
+                    const startedAt = Date.now();
+                    for (let attempt = 0; attempt < 6; attempt++) {
+                        const again = await readRow(row.id as string);
+                        history.push({
+                            atMs: Date.now() - startedAt,
+                            state: again.transcript_state,
+                            chars: String(again.transcript ?? '').trim().length,
+                        });
+                        if (again.transcript_state === 'available') break;
+                        await new Promise((r) => setTimeout(r, 1_000));
+                    }
+                    const converged = history.some((h) => h.state === 'available');
+                    // Content-free: states and lengths only.
+                    console.log(`[PROOF_ROW_CONVERGENCE] ${label} ${JSON.stringify({ converged, history })}`);
+                    throw new Error(
+                        `${label} transcript_state was '${String(row.transcript_state)}' while the v2 envelope `
+                        + `reported 'available' at completion. ${converged
+                            ? 'It CONVERGED on re-read — read-path/replication consistency defect.'
+                            : 'It NEVER converged — persistence defect.'} `
+                        + `history=${JSON.stringify(history)}`
+                    );
+                }
                 expect(row.transcript_state, `${label} transcript_state`).toBe('available');
                 expect(String(row.transcript ?? '').trim().length, `${label} transcript retained`).toBeGreaterThan(0);
             }

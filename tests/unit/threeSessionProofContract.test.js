@@ -221,6 +221,59 @@ describe('three-session production proof — assertion contract', () => {
     expect(body, 'the capture must not swallow read errors').not.toMatch(/\.catch\(/);
   });
 
+  it('[advisory] the v2 envelope is asserted PER RECORDING, before any row read', () => {
+    // Attempt 8 captured all three envelopes but asserted them only after the retention step, so it
+    // failed on a downstream row read without ever examining the most authoritative evidence.
+    expect(SPEC).toMatch(/assertV2Envelope/);
+    const perRecording = SPEC.lastIndexOf('await assertV2Envelope(ordinal, label);');
+    const retentionStep = SPEC.indexOf('newest two retained, OLDEST evicted');
+    expect(perRecording, 'the envelope must be asserted inside recordOneSession').toBeGreaterThan(-1);
+    expect(perRecording, 'and BEFORE the retention step').toBeLessThan(retentionStep);
+    // The three fields that make the contract atomic.
+    expect(SPEC).toMatch(/transcript_outcome[\s\S]{0,80}toBe\('retained'\)/);
+    expect(SPEC).toMatch(/transcript_retained[\s\S]{0,80}toBe\(true\)/);
+    expect(SPEC).toMatch(/transcript_state[\s\S]{0,80}toBe\('available'\)/);
+  });
+
+  it('[advisory] envelopes are bound to the recording ORDINAL, not to array order', () => {
+    // `v2Responses.push(...)` runs in parse-completion order; indexing by position assumes an ordering
+    // nothing guarantees.
+    // Behavioural, not presence-based: the set taken must be the slice SINCE the cursor. Checking only
+    // that the names exist let an array-index mutation survive — the names stayed while the semantics
+    // reverted.
+    expect(SPEC).toMatch(/const added = v2Responses\.slice\(envelopeCursor\);/);
+    expect(SPEC).toMatch(/envelopeCursor = v2Responses\.length;/);
+    expect(SPEC, 'must not index the capture array by ordinal').not.toMatch(/v2Responses\[ordinal/);
+    expect(SPEC).toMatch(/takeEnvelopeForRecording/);
+    // Exactly one envelope per recording — a second is a silent double-save.
+    expect(SPEC).toMatch(/must produce exactly ONE complete_session_v2 envelope/);
+  });
+
+  it('[advisory] the convergence poll DIAGNOSES and still fails — it can never pass a run', () => {
+    const idx = SPEC.indexOf('PROOF_ROW_CONVERGENCE');
+    expect(idx, 'the convergence history must exist').toBeGreaterThan(-1);
+    // A `throw` must follow the history unconditionally: no branch may return/continue to a pass.
+    const after = SPEC.slice(idx, idx + 900);
+    // UNCONDITIONAL. A presence check for `throw new Error` survived a mutation that guarded it behind
+    // `if (converged) {} else throw ...` — the string was still there while the behaviour had flipped.
+    expect(after, 'the throw must follow the history directly, with no guard')
+      .toMatch(/PROOF_ROW_CONVERGENCE[^;]*;\s*throw new Error\(/);
+    expect(after, 'convergence must not be tolerated into a pass').not.toMatch(/if\s*\(\s*converged\s*\)/);
+    expect(after).toMatch(/read-path\/replication consistency defect/);
+    expect(after).toMatch(/NEVER converged/);
+  });
+
+  it('[advisory] admin reads are asserted against the PRIMARY endpoint', () => {
+    // A replica read would report a stale state and indict the product for replication lag.
+    // The call site, not merely the definition: removing the call left the function defined and a
+    // presence check green.
+    const readRowIdx = SPEC.indexOf('const readRow = async (id: string) => {');
+    const body = SPEC.slice(readRowIdx, readRowIdx + 700);
+    expect(body, 'readRow must assert the primary endpoint before querying')
+      .toMatch(/assertPrimaryEndpoint\(\);/);
+    expect(SPEC).toMatch(/pooler|read-replica/);
+  });
+
   it('production authority gates are unchanged', () => {
     expect(WORKFLOW).toMatch(/must be dispatched from the default branch/);
     expect(WORKFLOW).toMatch(/exact production-data authorization phrase/);
