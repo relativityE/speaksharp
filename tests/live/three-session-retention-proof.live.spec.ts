@@ -104,7 +104,7 @@ test.describe('#1306 three-session newest-two retention production proof @live',
     });
 
     test('three real Private completions → newest two retained, oldest expired, metrics untouched', async ({ page }) => {
-        test.setTimeout(1_500_000);
+        test.setTimeout(2_400_000);   // 40min: attempt 4 hit the old 25min ceiling mid-diagnosis
 
         const providerHits: string[] = [];
         const noteIfProvider = (rawUrl: string) => {
@@ -126,6 +126,53 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             const fn = new URL(req.url()).pathname.split('/').pop() ?? '';
             if (fn in rpcCalls) rpcCalls[fn] += 1;
         });
+        // ── ATTEMPT-5 MODEL DIAGNOSTICS ────────────────────────────────────────────────────────────
+        // Attempt 4 stalled 25 minutes at `modelStatus: download-required` with `runtimeState: IDLE`.
+        // Direct probes already eliminated two causes: the deployed app is correctly cross-origin
+        // isolated (COOP same-origin + COEP credentialless), and the whole 77MB model serves in ~2.5s
+        // (encoder 23.2MB/0.92s, decoder 53.7MB/1.54s). So it is neither COEP nor network.
+        //
+        // Two candidates remain, and they need DIFFERENT fixes, so the run must distinguish them:
+        //   (a) acquisition never starts  -> zero /models/ requests
+        //   (b) the #1258 reclaim loop    -> requests COMPLETE, yet status returns to download-required
+        //
+        // TIMESTAMPS ARE THE POINT. A bare status sequence only shows that it reverted; the interval
+        // between `ready` and the reversion is the reclaim signature, which is what separates
+        // "confirms #1258" from "merely consistent with #1258".
+        //
+        // PRIVACY: counts, URL PATHS of static model assets, status strings and elapsed milliseconds
+        // only. Console capture is allowlisted to engine/model/isolation topics so no transcript,
+        // hypothesis or identifier can ride along in a message body.
+        const modelRequests: Array<{ path: string; ms: number }> = [];
+        const modelResponses: Array<{ path: string; status: number; ms: number }> = [];
+        const engineConsole: string[] = [];
+        const t0 = Date.now();
+        const CONSOLE_ALLOWLIST = /model|engine|worker|onnx|transformers|whisper|sharedarraybuffer|cross-origin|isolat|wasm|reclaim/i;
+
+        page.on('request', (req) => {
+            const path = new URL(req.url()).pathname;
+            if (path.startsWith('/models/')) modelRequests.push({ path, ms: Date.now() - t0 });
+        });
+        page.on('response', (res) => {
+            const path = new URL(res.url()).pathname;
+            if (path.startsWith('/models/')) modelResponses.push({ path, status: res.status(), ms: Date.now() - t0 });
+        });
+        page.on('console', (msg) => {
+            const text = msg.text();
+            if (engineConsole.length < 80 && CONSOLE_ALLOWLIST.test(text)) {
+                engineConsole.push(`${msg.type()}:${text.slice(0, 160)}`);
+            }
+        });
+        page.on('pageerror', (err) => {
+            // Allowlisted on the SAME topics as console. A page error can carry arbitrary text, and
+            // this run publishes to a public Actions log, so an ungated capture would be a privacy
+            // hole in exactly the surface #1338 closed for thrown messages.
+            const text = String(err.message);
+            if (engineConsole.length < 80 && CONSOLE_ALLOWLIST.test(text)) {
+                engineConsole.push(`pageerror:${text.slice(0, 160)}`);
+            }
+        });
+
         // #1338/4 — DETERMINISTIC CAPTURE. Playwright does not await an async `response` handler, so a
         // body still being parsed is invisible to a synchronous length check: asserting
         // `v2Responses.length === 3` could fail on a slow parse even though all three arrived. Every
@@ -164,6 +211,64 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             return data as unknown as Record<string, unknown>;
         };
 
+        /**
+         * Record TIMESTAMPED `data-model-status` transitions from inside the page.
+         *
+         * TranscriptionService owns this attribute on <html>. A MutationObserver captures the whole
+         * arc — download-required -> loading -> ready -> (reversion?) — with elapsed milliseconds, so
+         * a `ready` that is later torn down is visible AS a reclaim rather than inferred from a final
+         * value. Installed before navigation so nothing early is missed.
+         */
+        await page.addInitScript(() => {
+            const w = window as unknown as { __modelStatusLog__?: Array<{ status: string; ms: number }> };
+            w.__modelStatusLog__ = [];
+            const start = Date.now();
+            const record = () => {
+                const status = document.documentElement.getAttribute('data-model-status') ?? 'absent';
+                const log = w.__modelStatusLog__!;
+                if (log.length === 0 || log[log.length - 1].status !== status) {
+                    log.push({ status, ms: Date.now() - start });
+                }
+            };
+            const boot = () => {
+                record();
+                new MutationObserver(record).observe(document.documentElement, {
+                    attributes: true, attributeFilter: ['data-model-status'],
+                });
+            };
+            if (document.documentElement) boot();
+            else document.addEventListener('DOMContentLoaded', boot);
+        });
+
+        /**
+         * Emit the acquisition diagnosis. Called on EVERY outcome, so a stall cannot truncate it the
+         * way attempt 4's 25-minute timeout truncated everything.
+         */
+        const emitModelDiagnosis = async (at: string) => {
+            const statusLog = await page.evaluate(
+                () => (window as unknown as { __modelStatusLog__?: Array<{ status: string; ms: number }> }).__modelStatusLog__ ?? [],
+            ).catch(() => [] as Array<{ status: string; ms: number }>);
+            const ok = modelResponses.filter((r) => r.status >= 200 && r.status < 300);
+            const reachedReady = statusLog.some((e) => e.status === 'ready');
+            console.log(`MODEL_ACQUISITION_DIAGNOSIS ${JSON.stringify({
+                at,
+                modelRequests: modelRequests.length,
+                modelResponsesOk: ok.length,
+                distinctAssets: [...new Set(modelRequests.map((r) => r.path))].length,
+                firstRequestMs: modelRequests[0]?.ms ?? null,
+                lastResponseMs: ok[ok.length - 1]?.ms ?? null,
+                statusTransitions: statusLog,
+                verdictHint: modelRequests.length === 0
+                    ? 'NO_MODEL_REQUESTS_acquisition_never_started'
+                    : reachedReady && statusLog[statusLog.length - 1]?.status !== 'ready'
+                        ? 'READY_THEN_REVERTED_reclaim_signature'
+                        : reachedReady
+                            ? 'READY_AND_HELD'
+                            : 'REQUESTS_MADE_status_never_reached_ready',
+                engineConsole,
+            })}`);
+        };
+
         /** Drive ONE complete recording through the deployed customer UI; return the persisted id. */
         const recordOneSession = async (label: string, ordinal: number): Promise<string> => {
             const seenBefore = usageChecks.length;
@@ -173,7 +278,14 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             await page.getByTestId('practice-card-freeform').click();
             await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
             await selectBenchmarkMode(page, 'private');
-            await preparePrivateModelIfPrompted(page, 180_000);     // no-op once the model is cached
+            // The acquisition diagnosis must survive a stall here, which is exactly where attempt 4 died.
+            try {
+                await preparePrivateModelIfPrompted(page, 600_000);
+            } catch (err) {
+                await emitModelDiagnosis(`${label}:model-prepare-FAILED`);
+                throw err;
+            }
+            await emitModelDiagnosis(`${label}:model-prepare-ok`);
             await assertPreStartMode(page, 'private');
 
             // ENTITLEMENT GATE, re-evaluated before EVERY recording from the same server authority.
