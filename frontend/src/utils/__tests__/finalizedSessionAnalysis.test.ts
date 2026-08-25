@@ -99,14 +99,18 @@ describe('reconcileFinalizedFillers — observation vs explicit source selection
         expect(c(countFillerWords('umm'), 'um')).toBeGreaterThan(0);
         expect(c(countFillerWords('uhh'), 'uh')).toBeGreaterThan(0);
         expect(c(countFillerWords('ya know'), 'You Know')).toBeGreaterThan(0);
-        expect(countFillerWords('kinda').total.count).toBeGreaterThan(0);
-        expect(countFillerWords('sorta').total.count).toBeGreaterThan(0);
+        // #1324 finding 3 CURRENTIZED: these asserted `.total`, but `kind of`/`sort of` are DISCOURSE
+        // MARKERS and no longer reach the coachable headline. The claim here is about VARIANT MATCHING
+        // — that the counter catches "kinda"/"sorta" at all — which is a PER-KEY fact, so assert it
+        // per key. Using `.total` as a proxy conflated coverage with the headline tier.
+        expect(c(countFillerWords('kinda'), 'Kind Of')).toBeGreaterThan(0);
+        expect(c(countFillerWords('sorta'), 'Sort Of')).toBeGreaterThan(0);
         // ...but the HIGHLIGHTER keys only on the canonical strings, so it MISSES the same variants —
         // a real counter-vs-highlighter divergence the finalized analysis does not resolve.
         expect(parseTranscriptForHighlighting('umm').filter((t) => t.type === 'filler').length).toBe(0);
         // Smart / curly-apostrophe "y’know" is a blind spot for BOTH (only the straight apostrophe is listed):
         expect(c(countFillerWords("y'know"), 'You Know')).toBeGreaterThan(0); // straight '
-        expect(countFillerWords('y’know').total.count).toBe(0);          // curly ’ — not matched
+        expect(c(countFillerWords('y’know'), 'You Know')).toBe(0);       // curly ’ — not matched
         // Reconciliation inherits the counter's coverage and its blind spots; it adds neither.
         const r = reconcileFinalizedFillers('y’know y’know', canonical({}));
         expect(r.transcriptCandidateTotal).toBe(0);

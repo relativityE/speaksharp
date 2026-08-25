@@ -14,7 +14,10 @@ describe('fillerWordUtils', () => {
 
         expect(counts.like.count).toBe(1);
         expect(counts.so.count).toBe(1);
-        expect(counts.total.count).toBe(2);
+        // #1324 finding 3: `like`/`so` are DISCOURSE MARKERS. They are still matched and highlighted
+        // per key — which is what this test is about — but the coachable headline gates on the true
+        // filler tier (um/uh/ah) plus the user's own words, so markers alone total zero.
+        expect(counts.total.count).toBe(0);
     });
 
     it('matches transcript highlighting for like and so on analytics recalculation', () => {
@@ -22,7 +25,10 @@ describe('fillerWordUtils', () => {
 
         expect(counts.like.count).toBe(1);
         expect(counts.so.count).toBe(1);
-        expect(counts.total.count).toBe(2);
+        // #1324 finding 3: `like`/`so` are DISCOURSE MARKERS. They are still matched and highlighted
+        // per key — which is what this test is about — but the coachable headline gates on the true
+        // filler tier (um/uh/ah) plus the user's own words, so markers alone total zero.
+        expect(counts.total.count).toBe(0);
     });
 
     it('counts pause-delimited like and so fillers', () => {
@@ -30,7 +36,10 @@ describe('fillerWordUtils', () => {
 
         expect(counts.like.count).toBe(1);
         expect(counts.so.count).toBe(1);
-        expect(counts.total.count).toBe(2);
+        // #1324 finding 3: `like`/`so` are DISCOURSE MARKERS. They are still matched and highlighted
+        // per key — which is what this test is about — but the coachable headline gates on the true
+        // filler tier (um/uh/ah) plus the user's own words, so markers alone total zero.
+        expect(counts.total.count).toBe(0);
     });
 
     // #894 INVARIANT LOCK: the under-count reported in #894 is UPSTREAM (STT engines omit a spoken filler

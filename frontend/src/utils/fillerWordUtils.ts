@@ -1,4 +1,4 @@
-import { FILLER_WORD_KEYS } from '../config';
+import { FILLER_WORD_KEYS, TRUE_FILLER_WORDS, DISCOURSE_MARKER_WORDS } from '../config';
 
 // Interfaces for our data structures
 export interface FillerData {
@@ -107,10 +107,38 @@ export const createFillerPatterns = (userWords: string[] = []): FillerPatterns =
  * semantic/non-filler uses (e.g. conjunction "so", comparison "like"). Callers must treat the result
  * as a candidate count, not a context-aware filler judgement.
  */
+const TRUE_FILLER_SET: ReadonlySet<string> = new Set(TRUE_FILLER_WORDS);
+const DISCOURSE_SET: ReadonlySet<string> = new Set(DISCOURSE_MARKER_WORDS);
+
+/**
+ * #1324 finding 3 — THE single definition of which keys reach the headline `total`.
+ *
+ * Coaching gates on the TRUE filler tier (um/uh/ah) plus words the user explicitly chose to track.
+ * Static discourse markers (so/like/actually/…) are legitimate speech, are still counted PER KEY for
+ * overuse analysis, but must not inflate the coachable number — "So um I think" is one filler, not two,
+ * and a purely discourse-marker utterance is zero, not three.
+ *
+ * A user word ALWAYS counts even if it collides with a built-in marker: the explicit choice wins.
+ */
+export const isCoachableFillerKey = (key: string, userWords: string[] = []): boolean => {
+    if (key === 'total') return false;
+    if (userWords.includes(key)) return true;      // explicit user choice overrides the marker tier
+    if (DISCOURSE_SET.has(key)) return false;
+    return TRUE_FILLER_SET.has(key) || !STATIC_FILLER_PATTERNS[key];
+};
+
+/** Recompute `total` from the coachable tier. The one place every producer must agree on. */
+export const withCoachableTotal = (counts: FillerCounts, userWords: string[] = []): FillerCounts => {
+    const total = Object.entries(counts).reduce(
+        (sum, [key, data]) => (isCoachableFillerKey(key, userWords) ? sum + (data?.count ?? 0) : sum),
+        0,
+    );
+    return { ...counts, total: { ...(counts.total ?? { color: '' }), count: total } };
+};
+
 export const countFillerWords = (text: string, userWords: string[] = []): FillerCounts => {
     const counts: FillerCounts = createInitialFillerData(userWords);
     const patterns: FillerPatterns = createFillerPatterns(userWords);
-    let totalCount = 0;
 
     // 1. Process unambiguous fillers and user words via Regex
     for (const key in patterns) {
@@ -118,12 +146,10 @@ export const countFillerWords = (text: string, userWords: string[] = []): Filler
         const count = countPatternMatches(text, pattern);
         if (count > 0) {
             counts[key].count = count;
-            totalCount += count;
         }
     }
 
-    counts.total = { count: totalCount, color: '' };
-    return counts;
+    return withCoachableTotal(counts, userWords);
 };
 
 export const calculateTranscriptStats = (
