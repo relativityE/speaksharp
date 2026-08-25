@@ -4,6 +4,7 @@ import { expect, Page, TestInfo } from '@playwright/test';
 import {
     MIC_CONTROL_BY_STATUS, RECORDER_BAR, RECORDER_STOP, MISSING_CONTROL_TIMEOUT_MS, micControlFor,
     TRANSCRIPT_PANEL, TRANSCRIPT_CONTAINER, TRANSCRIPT_TEXT_ONLY, DRAFT_CURRENT_LINE, DRAFT_SETTLED,
+    DRAFT_NODE_SELECTOR, TRUST_BANNER,
 } from '../../helpers/micControls';
 
 type BenchmarkPreconditionSnapshot = {
@@ -703,9 +704,35 @@ export interface TranscriptSurfaceDiagnostics {
         innerTextLength: number | null;
         transcriptState: string | null;
     };
-    draft: { currentLineLength: number | null; settledLength: number | null };
+    draft: {
+        currentLineLength: number | null;
+        settledLength: number | null;
+        dynamicDraftChars: number;
+        trustBannerPresent: boolean;
+        trustBannerLength: number | null;
+    };
     committed: { textOnlyLength: number | null; rawAttrLength: number | null };
     runtime: { transcriptLength: number | null; selectedForSaveLength: number | null; hasSaveCandidate: boolean };
+}
+
+/**
+ * `collectBenchmarkPreconditionSnapshot` deliberately captures `ui.transcript` and `ui.bodyText` for
+ * general debugging — both are raw page TEXT. On a transcript failure path that is exactly the
+ * content this evidence must not carry, so those two fields are replaced by their lengths before the
+ * snapshot is embedded in an error that lands in a public run log.
+ */
+export function redactTranscriptText(snapshot: BenchmarkPreconditionSnapshot) {
+    const ui = snapshot.ui as unknown as Record<string, unknown>;
+    return {
+        ...snapshot,
+        ui: {
+            ...ui,
+            transcript: undefined,
+            transcriptLength: typeof ui.transcript === 'string' ? ui.transcript.length : null,
+            bodyText: undefined,
+            bodyTextLength: typeof ui.bodyText === 'string' ? ui.bodyText.length : null,
+        },
+    };
 }
 
 export async function captureTranscriptSurfaceDiagnostics(page: Page): Promise<TranscriptSurfaceDiagnostics> {
@@ -734,7 +761,16 @@ export async function captureTranscriptSurfaceDiagnostics(page: Page): Promise<T
                     : null,
                 transcriptState: container ? container.getAttribute('data-transcript-state') : null,
             },
-            draft: { currentLineLength: len(ids.currentLine), settledLength: len(ids.settled) },
+            draft: {
+            currentLineLength: len(ids.currentLine),
+            settledLength: len(ids.settled),
+            // The ONLY figure that may satisfy the during-recording assertion: text from nodes marked
+            // as carrying recognized speech. Container text includes static chrome and must never count.
+            dynamicDraftChars: Array.from(document.querySelectorAll(ids.draftNodes))
+                .reduce((n, el) => n + (el.textContent ?? '').trim().length, 0),
+            trustBannerPresent: !!one(ids.trustBanner),
+            trustBannerLength: len(ids.trustBanner),
+        },
             committed: {
                 textOnlyLength: len(ids.textOnly),
                 rawAttrLength: textOnly ? (textOnly.getAttribute('data-transcript-text-only') ?? '').trim().length : null,
@@ -749,6 +785,7 @@ export async function captureTranscriptSurfaceDiagnostics(page: Page): Promise<T
     }, {
         panel: TRANSCRIPT_PANEL, container: TRANSCRIPT_CONTAINER, textOnly: TRANSCRIPT_TEXT_ONLY,
         currentLine: DRAFT_CURRENT_LINE, settled: DRAFT_SETTLED,
+        draftNodes: DRAFT_NODE_SELECTOR, trustBanner: TRUST_BANNER,
     });
 }
 
@@ -764,18 +801,22 @@ export async function expectBenchmarkDraftActivity(page: Page, label: string, ti
     try {
         await expect(async () => {
             const d = await captureTranscriptSurfaceDiagnostics(page);
-            const draftChars = (d.draft.currentLineLength ?? 0) + (d.draft.settledLength ?? 0);
-            const containerChars = d.container.textContentLength ?? 0;
+            // DYNAMIC NODES ONLY. Falling back to `transcript-container` text would let the static
+            // trust banner ("Draft transcript / Text may change…", ~35 chars) satisfy this on its own,
+            // with zero recognized speech — a vacuous pass on chrome. Container length stays in the
+            // diagnostics as context; it can never be the thing that passes.
             expect(
-                Math.max(draftChars, containerChars),
-                `no draft activity yet (current=${d.draft.currentLineLength} settled=${d.draft.settledLength} `
-                + `container=${d.container.textContentLength} state=${d.container.transcriptState})`,
+                d.draft.dynamicDraftChars,
+                `no recognized draft text yet (dynamic=${d.draft.dynamicDraftChars} `
+                + `current=${d.draft.currentLineLength} settled=${d.draft.settledLength} `
+                + `banner=${d.draft.trustBannerPresent} containerIncludingChrome=${d.container.textContentLength} `
+                + `state=${d.container.transcriptState})`,
             ).toBeGreaterThanOrEqual(minDraftChars);
         }).toPass({ timeout, intervals: [500, 1_000, 2_000] });
         await logBenchmarkPhase(page, `PROOF_TIMING_FIRST_DRAFT_${label.toUpperCase()}`);
     } catch (error) {
         const diagnostics = await captureTranscriptSurfaceDiagnostics(page);
-        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-draft-activity-missing`);
+        const snapshot = redactTranscriptText(await collectBenchmarkPreconditionSnapshot(page, `${label}-draft-activity-missing`));
         throw new Error(
             `Draft-activity precondition failed for ${label}: no draft text on the live surface\n`
             + `TRANSCRIPT_SURFACE_DIAGNOSTICS ${JSON.stringify(diagnostics)}\n`
@@ -795,19 +836,25 @@ export async function expectBenchmarkDraftActivity(page: Page, label: string, ti
 export async function expectFinalizedTranscriptOutput(
     page: Page, label: string, candidate: BenchmarkSaveCandidate, minWords = 3,
 ) {
-    const words = candidate.meaningfulWordCount ?? candidate.finalWordCount ?? null;
+    // A NUMERIC WORD COUNT IS REQUIRED. Length is diagnostic only and can never substitute: a
+    // length-only candidate was previously described as acceptable while `(words ?? 0) <= minWords`
+    // rejected it anyway, so the stated contract and the code disagreed. Requiring the count outright
+    // removes the ambiguity — characters cannot distinguish real speech from a single long token.
+    const rawWords = candidate.meaningfulWordCount ?? candidate.finalWordCount;
+    const words = typeof rawWords === 'number' && Number.isFinite(rawWords) ? rawWords : null;
     const chars = candidate.selectedForSaveLength ?? null;
-    if (words === null && chars === null) {
+    if (words === null) {
         const diagnostics = await captureTranscriptSurfaceDiagnostics(page);
         throw new Error(
-            `Finalized-transcript precondition failed for ${label}: the save candidate exposes NEITHER a `
-            + `word count NOR a length, so "finalized output" is unverifiable — failing closed\n`
+            `Finalized-transcript precondition failed for ${label}: the save candidate exposes NO numeric `
+            + `word count (meaningfulWordCount/finalWordCount), so "finalized output" is unverifiable — `
+            + `failing closed. selectedForSaveLength=${String(chars)} is diagnostic only and cannot stand in.\n`
             + `TRANSCRIPT_SURFACE_DIAGNOSTICS ${JSON.stringify(diagnostics)}`
         );
     }
-    if ((words ?? 0) <= minWords) {
+    if (words <= minWords) {
         const diagnostics = await captureTranscriptSurfaceDiagnostics(page);
-        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-finalized-transcript-missing`);
+        const snapshot = redactTranscriptText(await collectBenchmarkPreconditionSnapshot(page, `${label}-finalized-transcript-missing`));
         throw new Error(
             `Finalized-transcript precondition failed for ${label}: selected-for-save transcript has `
             + `${String(words)} meaningful words (need > ${minWords}), length ${String(chars)}\n`

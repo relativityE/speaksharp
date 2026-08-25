@@ -61,3 +61,14 @@ export const TRANSCRIPT_CONTAINER = 'transcript-container';
 export const TRANSCRIPT_TEXT_ONLY = 'transcript-text-only';
 export const DRAFT_CURRENT_LINE = 'live-transcript-current-line';
 export const DRAFT_SETTLED = 'live-transcript-settled';
+
+/**
+ * The DYNAMIC draft nodes — the only elements whose text is recognized speech.
+ *
+ * `transcript-container` also holds STATIC copy: the trust banner ("Draft transcript / Text may
+ * change…"), loop notices and finalizing placeholders. Counting container text as draft activity
+ * therefore passes on chrome alone, with zero recognition. Attribute selectors are used rather than
+ * testids because the attribute is what marks a node as carrying recognized text.
+ */
+export const DRAFT_NODE_SELECTOR = '[data-transcript-draft="true"], [data-transcript-settled="true"]';
+export const TRUST_BANNER = 'live-transcript-trust-banner';
