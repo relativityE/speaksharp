@@ -25,7 +25,7 @@ describe('useFillerWords', () => {
     expect(result.current.totalCount).toBeGreaterThan(0);
   });
 
-  it('should handle interim transcript transiently with debounce', () => {
+  it('counts interim evidence immediately; the debounce governs render work only', () => {
     vi.useFakeTimers();
     const chunks: Chunk[] = [];
     const { result, rerender } = renderHook(
@@ -35,19 +35,23 @@ describe('useFillerWords', () => {
 
     expect(result.current.totalCount).toBe(0);
 
-    // 1. Initial interim update
+    // 1. Initial interim update.
+    // #1324 finding 2 CURRENTIZED: this previously asserted 0 here, i.e. that counting waited for the
+    // debounce. That was the defect — the pending timer is cleared when the interim clears, so an
+    // episode shorter than 200ms had its evidence cancelled before it was ever counted. Counting now
+    // reads the raw interim; the debounce still governs render/trace work.
     rerender({ chunks, interim: 'um' });
-    // Should still be 0 due to debounce
-    expect(result.current.totalCount).toBe(0);
+    expect(result.current.totalCount).toBe(1);
 
     act(() => {
       vi.advanceTimersByTime(200);
     });
-    expect(result.current.totalCount).toBe(1);
+    expect(result.current.totalCount).toBe(1);   // debounce firing changes nothing about the count
 
-    // 2. Rapid interim update
+    // 2. Rapid interim revision WITHIN the same episode: the hypothesis grew, so "um" is still one
+    // occurrence and "ah" is newly observed — two, not three.
     rerender({ chunks, interim: 'um ah' });
-    expect(result.current.totalCount).toBe(1); // Still previous value
+    expect(result.current.totalCount).toBe(2);
 
     act(() => {
       vi.advanceTimersByTime(200);
