@@ -150,6 +150,49 @@ describe('three-session production proof — assertion contract', () => {
     expect(SPEC).toMatch(/stopBenchmarkRecording/);
   });
 
+  it('[advisory] the transcript assertion is SPLIT by lifecycle phase', () => {
+    // Committed transcript is 0 by design while recording ("finalized when you stop"), so one
+    // assertion cannot serve both phases. Attempt 6 failed on a healthy page showing 122 draft words.
+    expect(SPEC).toMatch(/expectBenchmarkDraftActivity/);
+    expect(SPEC).toMatch(/expectFinalizedTranscriptOutput/);
+    // Finalized output is required only AFTER the save candidate exists.
+    // lastIndexOf, not indexOf: the first hit for each name is the IMPORT list, whose order says
+    // nothing about call order. Comparing those compared alphabetised imports, not the journey.
+    const at = (name) => {
+      const i = SPEC.lastIndexOf(`${name}(`);
+      // -1 would silently satisfy "before stop", so a DELETED call must fail here, not pass.
+      expect(i, `${name} must actually be CALLED, not merely imported`).toBeGreaterThan(-1);
+      return i;
+    };
+    const stopIdx = at('stopBenchmarkRecording');
+    expect(at('expectBenchmarkDraftActivity'), 'draft activity is asserted BEFORE stop').toBeLessThan(stopIdx);
+    expect(at('expectFinalizedTranscriptOutput'), 'finalized output is asserted AFTER stop').toBeGreaterThan(stopIdx);
+    // The retired single-phase assertion must not come back to this proof.
+    expect(SPEC).not.toMatch(/expectBenchmarkTranscriptOutput/);
+  });
+
+  it('[advisory] the proof is not fed adversarially LOOPED audio', () => {
+    // conv_01.wav is 3.56s and Chromium LOOPS fake-audio input, so a 60s recording replayed the same
+    // 3.5s ~17 times — output indistinguishable from a model repetition loop.
+    expect(SPEC).toMatch(/WASHINGTON_LONG_AUDIO/);
+    expect(SPEC).not.toMatch(/FILLER_CONV_01_AUDIO/);
+    expect(SPEC).not.toMatch(/HARVARD_BENCHMARK_LONG_AUDIO/);
+  });
+
+  it('[advisory] transcript diagnostics are atomic and carry no transcript content', () => {
+    expect(BENCH).toMatch(/captureTranscriptSurfaceDiagnostics/);
+    expect(BENCH).toMatch(/TRANSCRIPT_SURFACE_DIAGNOSTICS/);
+    // Shapes only: the capture must read lengths/counts, never push transcript text into evidence.
+    const cap = BENCH.slice(BENCH.indexOf('export async function captureTranscriptSurfaceDiagnostics'));
+    const body = cap.slice(0, cap.indexOf('\nexport '));
+    expect(body).toMatch(/textContentLength/);
+    expect(body).toMatch(/innerTextLength/);
+    expect(body).toMatch(/childElementCount/);
+    expect(body).toMatch(/isConnected/);
+    // A read failure must PROPAGATE — no silent-empty catch inside the capture.
+    expect(body, 'the capture must not swallow read errors').not.toMatch(/\.catch\(/);
+  });
+
   it('production authority gates are unchanged', () => {
     expect(WORKFLOW).toMatch(/must be dispatched from the default branch/);
     expect(WORKFLOW).toMatch(/exact production-data authorization phrase/);

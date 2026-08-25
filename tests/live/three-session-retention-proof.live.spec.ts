@@ -3,15 +3,16 @@ import { createClient } from '@supabase/supabase-js';
 import {
     AUDIO_ARGS,
     assertPreStartMode,
+    expectBenchmarkDraftActivity,
     expectBenchmarkRecordingStarted,
-    expectBenchmarkTranscriptOutput,
+    expectFinalizedTranscriptOutput,
     expectMicControlForState,
     preparePrivateModelIfPrompted,
     selectBenchmarkMode,
     stopBenchmarkRecording,
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
-import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
+import { WASHINGTON_LONG_AUDIO } from './helpers/audio-fixtures';
 import { extractUidFromAuthStorage, sha256Hex } from './helpers/proofAuthority';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import { evaluateThreeRecordingEntitlement } from './helpers/entitlementAuthority';
@@ -83,7 +84,7 @@ test.use({
     video: 'off',
     screenshot: 'off',
     launchOptions: {
-        args: [...AUDIO_ARGS, '--disable-gpu', '--disable-webgpu', `--use-file-for-fake-audio-capture=${FILLER_CONV_01_AUDIO}`],
+        args: [...AUDIO_ARGS, '--disable-gpu', '--disable-webgpu', `--use-file-for-fake-audio-capture=${WASHINGTON_LONG_AUDIO}`],
     },
 });
 
@@ -376,11 +377,22 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             const startControl = await expectMicControlForState(page, 'ready');
             await startControl.click();
             await expectBenchmarkRecordingStarted(page, label);
-            await expectBenchmarkTranscriptOutput(page, label, 60_000, 3);
+
+            // PHASE CONTRACT. The transcript has TWO distinct lifecycle phases and one assertion cannot
+            // serve both. While recording, the UI states it outright — "Draft text in progress —
+            // finalized when you stop" — so committed output is 0 BY DESIGN. Attempt 6 demanded
+            // committed words mid-recording and failed on a healthy page showing 122 draft words.
+            //   during recording -> DRAFT activity must be positive
+            //   after Stop       -> the FINALIZED, selected-for-save transcript must carry real words
+            await expectBenchmarkDraftActivity(page, label, 60_000);
+
             // Stop through the `during` control, and prove the recorder is GONE rather than asserting an
             // attribute on an element that no longer exists.
             await stopBenchmarkRecording(page, label, 120_000);
-            await waitForBenchmarkSaveCandidate(page, label, 120_000);
+            const saveCandidate = await waitForBenchmarkSaveCandidate(page, label, 120_000);
+            // Only NOW is finalized output required — and it is read from the save candidate itself,
+            // which is what actually gets persisted, rather than scraped from display markup.
+            await expectFinalizedTranscriptOutput(page, label, saveCandidate, 3);
 
             await expect.poll(async () => page.evaluate(() =>
                 document.documentElement.getAttribute('data-session-persisted') === 'true'
