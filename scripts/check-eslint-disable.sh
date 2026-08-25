@@ -25,6 +25,8 @@ if grep -r "eslint-disable" . \
     --exclude-dir=.agent \
     --exclude-dir=product_release \
     --exclude-dir=test-results \
+    --exclude-dir=test-support \
+    --exclude-dir=.pnpm-store \
     --exclude="check-eslint-disable.sh" \
     --exclude="package.json" \
     --exclude="pnpm-lock.yaml" \

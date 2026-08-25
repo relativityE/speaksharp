@@ -41,6 +41,14 @@ const KNOWN_STALE = {
     + 'querySelector), so it cannot block a run. Dead reference to clean up post-MVP.',
 
   // ---- Referenced by live proofs outside the #1306 path; each needs its own owner. ----
+  'session-start-stop-button':
+    'RENDERED BY NOTHING, on any viewport. #1222/#1231 SPLIT the combined toggle into MicCard '
+    + '(mic-download / mic-retry / mic-start) and RecorderBar (recorder-stop); MobileActionBar renders '
+    + 'the SUFFIXED `-mobile` id only. The #1306 proof path has been fully corrected to the real '
+    + 'desktop controls and is covered by EXECUTED helper tests (benchmarkHarnessControls) plus '
+    + 'rendered-component tests (MicCard/RecorderBar). The ~14 OTHER live specs still using it are '
+    + 'separately owned and each needs its own journey correction — tracked, not fixed here.',
+
   'take-over-recording': 'account-wide-recording-mutex proof; selector not rendered. Post-MVP.',
   'account-lease-take-over': 'account-wide-recording-mutex proof; selector not rendered. Post-MVP.',
   'lease-take-over': 'account-wide-recording-mutex proof; selector not rendered. Post-MVP.',
@@ -50,8 +58,12 @@ const KNOWN_STALE = {
 function readAllTsx(dir, acc = []) {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
-    if (statSync(full).isDirectory()) readAllTsx(full, acc);
-    else if (entry.endsWith('.tsx')) acc.push(readFileSync(full, 'utf8'));
+    if (statSync(full).isDirectory()) {
+      if (entry === '__tests__') continue;
+      readAllTsx(full, acc);
+    } else if (entry.endsWith('.tsx') && !entry.includes('.test.')) {
+      acc.push(readFileSync(full, 'utf8'));
+    }
   }
   return acc;
 }
@@ -90,9 +102,33 @@ function liveSpecSelectors(dir = 'tests/live', found = new Map()) {
  * component, or a constant whose NAME is referenced from one.
  */
 function isRendered(tid, componentSource, constantsSource) {
-  if (componentSource.includes(tid)) return true;             // literal in a .tsx
+  if (componentSource.includes(`"${tid}"`) || componentSource.includes(`'${tid}'`)) return true;
+
+  // COMPOSED ids: `data-testid={`session-detail-transcript-${view.kind}`}` renders
+  // `session-detail-transcript-expired` without that string ever appearing in source. The dynamic tail
+  // is unknowable statically, so a matching PREFIX is the strongest available evidence. An empty prefix
+  // is rejected — that is the `${CONST}-mobile` shape, where the dynamic part is the HEAD and the
+  // rendered id is a different one entirely.
+  for (const m of componentSource.matchAll(/data-testid=\{`([^`$]+)\$\{/g)) {
+    if (m[1].length > 0 && tid.startsWith(m[1])) return true;
+  }
+
   const named = constantsSource.match(new RegExp(`([A-Z0-9_]+):\\s*'${tid}'`));
-  return named ? componentSource.includes(named[1]) : false;  // constant referenced by a .tsx
+  if (!named) return false;
+  const constant = named[1];
+
+  // A constant reference is only evidence of RENDERING the bare id if it is used bare. MobileActionBar
+  // writes `data-testid={`${TEST_IDS.SESSION_START_STOP_BUTTON}-mobile`}` — it renders the SUFFIXED id,
+  // and nothing renders the bare one. The old check saw the constant name and returned true, which is
+  // how a selector that resolves on no viewport passed this guard while attempt 5 spent 40 production
+  // minutes clicking it. Interpolations that carry a suffix are therefore not counted.
+  // Count references, then subtract the ones that only appear inside a template literal that carries
+  // MORE content after the interpolation — those render a DIFFERENT, suffixed id.
+  const refs = componentSource.match(new RegExp(`\\b${constant}\\b`, 'g')) ?? [];
+  const suffixedOnly = componentSource.match(
+    new RegExp('`[^`]*\\$\\{[^}]*\\b' + constant + '\\b[^}]*\\}[^`]+`', 'g'),
+  ) ?? [];
+  return refs.length > suffixedOnly.length;
 }
 
 describe('live-spec selector contract', () => {
