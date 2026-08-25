@@ -17,6 +17,7 @@ const BENCH = readFileSync('tests/live/helpers/benchmark-utils.ts', 'utf8');
 const STORAGE = readFileSync('frontend/src/lib/storage.ts', 'utf8');
 const STATE_MIGRATION = readFileSync('backend/supabase/migrations/20260801000000_sessions_transcript_state.sql', 'utf8');
 const PREFLIGHT = readFileSync('scripts/verify-read-authority.mjs', 'utf8');
+const PREFLIGHT_WORKFLOW = readFileSync('.github/workflows/read-authority-preflight.yml', 'utf8');
 
 describe('three-session production proof — assertion contract', () => {
   it('the scan is not vacuous', () => {
@@ -296,6 +297,31 @@ describe('three-session production proof — assertion contract', () => {
     const tokenIdx = WORKFLOW.indexOf('SUPABASE_ACCESS_TOKEN:');
     const stepIdx = WORKFLOW.lastIndexOf('- name:', tokenIdx);
     expect(WORKFLOW.slice(stepIdx, tokenIdx)).toMatch(/Resolve read authority/);
+  });
+
+  it('the STANDALONE preflight workflow FAILS CLOSED on anything but a proven primary', () => {
+    // The script exits 0 for `unknown` by design — in the production proof an unresolved authority
+    // caps the verdict rather than failing the run. But the standalone workflow exists to POSITIVELY
+    // demonstrate the live API contract, so echoing the result and exiting 0 would make missing token,
+    // 404, malformed schema and replicas-present all green: the vacuous-green pattern, in the very
+    // check built to prevent it.
+    expect(PREFLIGHT_WORKFLOW).toMatch(/primary-proven/);
+    expect(PREFLIGHT_WORKFLOW).toMatch(/no_read_replicas/);
+    expect(PREFLIGHT_WORKFLOW, 'a non-proven result must exit nonzero').toMatch(/exit 1/);
+    expect(PREFLIGHT_WORKFLOW, 'both fields must be required together')
+      .toMatch(/!=\s*"primary-proven"\s*\]\s*\|\|\s*\[\s*"\$reason"\s*!=\s*"no_read_replicas"/);
+  });
+
+  it('the proof runs the preflight AFTER Node is pinned by Setup Environment', () => {
+    // The preflight invokes `node --experimental-strip-types`; `.nvmrc` (22.12.0) is applied only by
+    // the setup action. Running it earlier relied on whatever Node the mutable `ubuntu-latest` image
+    // happens to ship — which works today and is not a pin.
+    const setupIdx = WORKFLOW.indexOf('- name: Setup Environment');
+    const preflightIdx = WORKFLOW.indexOf('- name: Resolve read authority');
+    const proofIdx = WORKFLOW.indexOf('- name: Run #1306 three-session retention proof');
+    expect(setupIdx).toBeGreaterThan(-1);
+    expect(preflightIdx, 'preflight must come AFTER Setup Environment').toBeGreaterThan(setupIdx);
+    expect(preflightIdx, 'and BEFORE the proof that consumes its verdict').toBeLessThan(proofIdx);
   });
 
   it('the preflight calls the TESTED implementation and does not re-implement it', () => {

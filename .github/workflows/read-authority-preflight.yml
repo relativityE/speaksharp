@@ -33,7 +33,21 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: node --experimental-strip-types scripts/verify-read-authority.mjs
 
-      - name: Report the derived verdict
+      # FAIL CLOSED. The script exits 0 for `unknown` BY DESIGN — in the production proof an
+      # unresolved authority caps the verdict rather than failing the run. But this workflow exists to
+      # POSITIVELY DEMONSTRATE the live API contract, so here anything short of a proven primary must
+      # fail. Echoing the result and exiting 0 would recreate exactly the vacuous green this check was
+      # built to prevent: missing token, 404, malformed schema and replicas-present would all be green.
+      - name: Require a POSITIVELY proven primary (fail closed)
         run: |
-          echo "authority=${PROOF_READ_AUTHORITY:-<unset>}"
-          echo "reason=${PROOF_READ_AUTHORITY_REASON:-<unset>}"
+          set -euo pipefail
+          authority="${PROOF_READ_AUTHORITY:-<unset>}"
+          reason="${PROOF_READ_AUTHORITY_REASON:-<unset>}"
+          echo "authority=${authority}"
+          echo "reason=${reason}"
+          if [ "$authority" != "primary-proven" ] || [ "$reason" != "no_read_replicas" ]; then
+            echo "::error::read authority NOT positively proven (authority=${authority} reason=${reason})."
+            echo "::error::Attempt 9 must not be authorized on this result."
+            exit 1
+          fi
+          echo "read authority positively proven: primary-proven / no_read_replicas"
