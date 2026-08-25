@@ -49,26 +49,52 @@ export function micControlFor(status: string | null | undefined): string | null 
 }
 
 /**
- * The live transcript surface, during recording.
+ * THE CURRENT during-state transcript surface.
  *
- * `transcript-container` is CORRECT and must NOT be swapped for `transcript-text-only`: it is the
- * scroll viewport LiveTranscriptPanel renders (`LiveTranscriptPanel.tsx:310`), and the draft spans
- * live inside it. `transcript-text-only` holds the COMMITTED text, which is empty by design until
- * Stop — reading it mid-recording would assert on a surface that cannot be populated yet.
+ * WHY THIS REPLACES THE PREVIOUS MAP. Attempt 7 inspected `transcript-panel`, `transcript-container`,
+ * `transcript-text-only`, `live-transcript-current-line` and `live-transcript-settled`, found all five
+ * absent, and I read that as "the panel unmounted". It did not. Those ids belong to
+ * `LiveTranscriptPanel`, which has NO production render or import — it survives only as dead code plus
+ * its own tests. All five zeroes were the expected result of asking about a component the product does
+ * not mount, and they said nothing whatever about transcription.
+ *
+ * The real chain is:
+ *   SessionPage -> SessionOverhaulView -> SessionDuringState -> TranscriptCard + LiveTranscript
+ *
+ * The visible words "Live Transcript 0 words" that I cited as proof the panel was mounted come from
+ * TranscriptCard's own header, not from LiveTranscriptPanel. That is the third time in this ticket a
+ * check has passed or failed on a surface adjacent to the claim, and the reason the helper tests must
+ * render the REAL component rather than hand-written markup that matches the helper's assumptions.
  */
-export const TRANSCRIPT_PANEL = 'transcript-panel';
-export const TRANSCRIPT_CONTAINER = 'transcript-container';
-export const TRANSCRIPT_TEXT_ONLY = 'transcript-text-only';
-export const DRAFT_CURRENT_LINE = 'live-transcript-current-line';
-export const DRAFT_SETTLED = 'live-transcript-settled';
+export const SESSION_SHELL = 'session-shell';
+export const SESSION_STATE_ATTR = 'data-session-state';
+export const SESSION_SLOT_B = 'session-slot-b';
+export const TRANSCRIPT_CARD = 'transcript-card';
+export const TRANSCRIPT_LIVE_INDICATOR = 'transcript-live-indicator';
+export const TRANSCRIPT_FINALIZING_BANNER = 'transcript-finalizing-banner';
+export const TRANSCRIPT_HEADER_META = 'transcript-header-meta';
+export const TRANSCRIPT_CONTENT = 'transcript-content';
+export const LIVE_TRANSCRIPT = 'live-transcript';
+export const LIVE_INTERIM = 'live-interim';
+/** Zero-width: an empty styled span. It cannot contribute text, and must never satisfy a text check. */
+export const LIVE_CARET = 'live-caret';
+
+/** Landmarks that MUST all be present while the during state is recording. */
+export const DURING_STATE_LANDMARKS = [
+    SESSION_SHELL, TRANSCRIPT_CARD, TRANSCRIPT_LIVE_INDICATOR, TRANSCRIPT_CONTENT, LIVE_TRANSCRIPT,
+] as const;
 
 /**
- * The DYNAMIC draft nodes — the only elements whose text is recognized speech.
- *
- * `transcript-container` also holds STATIC copy: the trust banner ("Draft transcript / Text may
- * change…"), loop notices and finalizing placeholders. Counting container text as draft activity
- * therefore passes on chrome alone, with zero recognition. Attribute selectors are used rather than
- * testids because the attribute is what marks a node as carrying recognized text.
+ * Rendered by NOTHING in production. Kept only so a regression back to them fails loudly rather than
+ * returning a confident row of zeroes that reads like a product defect.
  */
-export const DRAFT_NODE_SELECTOR = '[data-transcript-draft="true"], [data-transcript-settled="true"]';
-export const TRUST_BANNER = 'live-transcript-trust-banner';
+export const RETIRED_TRANSCRIPT_IDS = [
+    'transcript-panel', 'transcript-container', 'transcript-text-only',
+    'live-transcript-current-line', 'live-transcript-settled',
+] as const;
+
+/** `transcript-header-meta` renders "<n> words · <x.x> fillers/min" (or "<n> words"). */
+export function parseHeaderMetaWords(text: string | null | undefined): number | null {
+    const m = /(\d+)\s+words/.exec(text ?? '');
+    return m ? Number(m[1]) : null;
+}
