@@ -49,26 +49,99 @@ export function micControlFor(status: string | null | undefined): string | null 
 }
 
 /**
- * The live transcript surface, during recording.
+ * THE CURRENT during-state transcript surface.
  *
- * `transcript-container` is CORRECT and must NOT be swapped for `transcript-text-only`: it is the
- * scroll viewport LiveTranscriptPanel renders (`LiveTranscriptPanel.tsx:310`), and the draft spans
- * live inside it. `transcript-text-only` holds the COMMITTED text, which is empty by design until
- * Stop — reading it mid-recording would assert on a surface that cannot be populated yet.
+ * WHY THIS REPLACES THE PREVIOUS MAP. Attempt 7 inspected `transcript-panel`, `transcript-container`,
+ * `transcript-text-only`, `live-transcript-current-line` and `live-transcript-settled`, found all five
+ * absent, and I read that as "the panel unmounted". It did not. Those ids belong to
+ * `LiveTranscriptPanel`, which has NO production render or import — it survives only as dead code plus
+ * its own tests. All five zeroes were the expected result of asking about a component the product does
+ * not mount, and they said nothing whatever about transcription.
+ *
+ * The real chain is:
+ *   SessionPage -> SessionOverhaulView -> SessionDuringState -> TranscriptCard + LiveTranscript
+ *
+ * The visible words "Live Transcript 0 words" that I cited as proof the panel was mounted come from
+ * TranscriptCard's own header, not from LiveTranscriptPanel. That is the third time in this ticket a
+ * check has passed or failed on a surface adjacent to the claim, and the reason the helper tests must
+ * render the REAL component rather than hand-written markup that matches the helper's assumptions.
  */
-export const TRANSCRIPT_PANEL = 'transcript-panel';
-export const TRANSCRIPT_CONTAINER = 'transcript-container';
-export const TRANSCRIPT_TEXT_ONLY = 'transcript-text-only';
-export const DRAFT_CURRENT_LINE = 'live-transcript-current-line';
-export const DRAFT_SETTLED = 'live-transcript-settled';
+export const SESSION_SHELL = 'session-shell';
+export const SESSION_STATE_ATTR = 'data-session-state';
+export const SESSION_SLOT_B = 'session-slot-b';
+export const TRANSCRIPT_CARD = 'transcript-card';
+export const TRANSCRIPT_LIVE_INDICATOR = 'transcript-live-indicator';
+export const TRANSCRIPT_FINALIZING_BANNER = 'transcript-finalizing-banner';
+export const TRANSCRIPT_HEADER_META = 'transcript-header-meta';
+export const TRANSCRIPT_CONTENT = 'transcript-content';
+export const LIVE_TRANSCRIPT = 'live-transcript';
+export const LIVE_INTERIM = 'live-interim';
+/** Zero-width: an empty styled span. It cannot contribute text, and must never satisfy a text check. */
+export const LIVE_CARET = 'live-caret';
+
+/** Landmarks that MUST all be present while the during state is recording. */
+export const DURING_STATE_LANDMARKS = [
+    SESSION_SHELL, TRANSCRIPT_CARD, TRANSCRIPT_LIVE_INDICATOR, TRANSCRIPT_CONTENT, LIVE_TRANSCRIPT,
+] as const;
 
 /**
- * The DYNAMIC draft nodes — the only elements whose text is recognized speech.
- *
- * `transcript-container` also holds STATIC copy: the trust banner ("Draft transcript / Text may
- * change…"), loop notices and finalizing placeholders. Counting container text as draft activity
- * therefore passes on chrome alone, with zero recognition. Attribute selectors are used rather than
- * testids because the attribute is what marks a node as carrying recognized text.
+ * Rendered by NOTHING in production. Kept only so a regression back to them fails loudly rather than
+ * returning a confident row of zeroes that reads like a product defect.
  */
-export const DRAFT_NODE_SELECTOR = '[data-transcript-draft="true"], [data-transcript-settled="true"]';
-export const TRUST_BANNER = 'live-transcript-trust-banner';
+export const RETIRED_TRANSCRIPT_IDS = [
+    'transcript-panel', 'transcript-container', 'transcript-text-only',
+    'live-transcript-current-line', 'live-transcript-settled',
+] as const;
+
+/** `transcript-header-meta` renders "<n> words · <x.x> fillers/min" (or "<n> words"). */
+export function parseHeaderMetaWords(text: string | null | undefined): number | null {
+    const m = /(\d+)\s+words/.exec(text ?? '');
+    return m ? Number(m[1]) : null;
+}
+
+/**
+ * THE PROOF'S SESSION-SURFACE CONTRACT — the single object both the proof helpers and the coverage
+ * guard read. It is deliberately built FROM the constants above rather than restating them, because a
+ * hand-copied list drifts from the proof and becomes a fourth vacuous check.
+ *
+ * WHY THIS EXISTS. Attempts 5, 6 and 7 all failed on the same class: the harness asserted against a
+ * surface it had never rendered. Each fix addressed the instance — `session-start-stop-button`, then
+ * the trust banner, then the entire dead `LiveTranscriptPanel` tree. Three production dispatches to
+ * find three cases of one defect. The guard that reads this contract mounts the real components and
+ * proves every selector renders, in seconds, locally.
+ */
+export const PROOF_SESSION_SURFACE = {
+    /** MicCard, keyed by the model status that must render each control. */
+    before: MIC_CONTROL_BY_STATUS,
+    /** SessionDuringState -> RecorderBar + TranscriptCard + LiveTranscript. */
+    during: [
+        SESSION_SHELL, SESSION_SLOT_B, TRANSCRIPT_CARD, TRANSCRIPT_LIVE_INDICATOR,
+        TRANSCRIPT_HEADER_META, TRANSCRIPT_CONTENT, LIVE_TRANSCRIPT, RECORDER_BAR, RECORDER_STOP,
+    ] as const,
+} as const;
+
+/**
+ * Selectors the proof uses that are NOT on the session surface. Each needs a reason: an unexplained
+ * entry here is how a genuinely stale selector would hide from the guard.
+ */
+export const PROOF_SELECTOR_EXEMPTIONS: Record<string, string> = {
+    'auth-form': 'signup page, not the session surface; covered by auth tests',
+    'email-input': 'signup form field, not the session surface; covered by auth component tests',
+    'password-input': 'signup form field, not the session surface; covered by auth component tests',
+    'sign-up-submit': 'signup form submit, not the session surface; covered by auth component tests',
+    'practice-root': 'practice landing page shell the proof passes through before the session starts',
+    'practice-card-freeform': 'practice landing page entry card; not part of the recording surface',
+    'session-history-list': 'AnalyticsDashboard, covered by its own component tests',
+    'session-detail-transcript': 'AnalyticsDashboard detail view; covered by dashboard component tests',
+    'session-detail-transcript-expired': 'AnalyticsDashboard detail view, runtime-composed id '
+        + '(`session-detail-transcript-${view.kind}`); covered by dashboard component tests',
+    'session-next-action-title': 'AnalyticsDashboard history row; covered by dashboard component tests',
+    'filler-count-value': 'AnalyticsDashboard metrics cell; covered by dashboard component tests',
+    'pro-badge': 'global navigation entitlement badge, rendered outside the session surface',
+    'nav-upgrade-button': 'global navigation upgrade CTA, rendered outside the session surface',
+    'status-message-text': 'global status region shared across pages, not the recording surface',
+    'stt-mode-select': 'REMOVED by #1184; quarantined in liveSpecSelectorContract KNOWN_STALE',
+    'private-first-run-note': 'not rendered; every use is tolerant and cannot block a run',
+    'transcript-container': 'DEAD (LiveTranscriptPanel). Sole surviving use is a deliberate `.or()` '
+        + 'migration fallback in the deprecated single-phase helper the six other benchmark specs call.',
+};

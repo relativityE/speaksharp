@@ -179,6 +179,34 @@ describe('three-session production proof — assertion contract', () => {
     expect(SPEC).not.toMatch(/HARVARD_BENCHMARK_LONG_AUDIO/);
   });
 
+  it('[advisory] the proof reads the CURRENT during-state surface, not dead components', () => {
+    // LiveTranscriptPanel and TranscriptPanel have no production render. Attempt 7 queried five of
+    // their ids, found zero, and it was read as "the panel unmounted" — it had never been mounted.
+    const cap = BENCH.slice(BENCH.indexOf('export async function captureTranscriptSurfaceDiagnostics'));
+    const body = cap.slice(0, cap.indexOf('\nexport '));
+    for (const id of ['SESSION_SHELL', 'TRANSCRIPT_CARD', 'TRANSCRIPT_LIVE_INDICATOR', 'LIVE_TRANSCRIPT']) {
+      expect(body, `${id} must be part of the surface map`).toMatch(new RegExp(id));
+    }
+    // The dead ids may only appear as the RETIRED list, never as a live lookup.
+    expect(body).toMatch(/retired/);
+  });
+
+  it('[advisory] the precondition snapshot is CONTENT-FREE at source', () => {
+    // `logBenchmarkPhase` serialises this snapshot into the Actions log on SUCCESS paths, so any raw
+    // field here is published on every healthy run. While the selector was dead it was accidentally
+    // empty; pointing it at the real surface would have turned it into recognized speech.
+    const fn = BENCH.slice(BENCH.indexOf('export async function collectBenchmarkPreconditionSnapshot'));
+    const body = fn.slice(0, fn.indexOf('\nexport '));
+    expect(body).toMatch(/transcriptChars/);
+    expect(body).toMatch(/transcriptWords/);
+    expect(body).toMatch(/bodyTextChars/);
+    // The raw fields must not exist at all — a field that is absent cannot be forgotten.
+    expect(body, 'no raw transcript field').not.toMatch(/^\s*transcript,\s*$/m);
+    expect(body, 'no raw bodyText field').not.toMatch(/^\s*bodyText,\s*$/m);
+    // Attached evidence is a downloadable artifact and must carry counts only.
+    expect(BENCH, 'attached evidence must not write transcript text').not.toMatch(/transcriptText:/);
+  });
+
   it('[advisory] transcript diagnostics are atomic and carry no transcript content', () => {
     expect(BENCH).toMatch(/captureTranscriptSurfaceDiagnostics/);
     expect(BENCH).toMatch(/TRANSCRIPT_SURFACE_DIAGNOSTICS/);
