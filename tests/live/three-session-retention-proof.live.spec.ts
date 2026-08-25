@@ -271,9 +271,10 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             const reachedReady = statusLog.some((e) => e.status === 'ready');
             console.log(`MODEL_ACQUISITION_DIAGNOSIS ${JSON.stringify({
                 at,
-                modelRequests: modelRequests.length,
-                modelResponsesOk: ok.length,
-                distinctAssets: [...new Set(modelRequests.map((r) => r.path))].length,
+                // INFORMATIONAL ONLY — known blind to worker-issued loads. A zero here proves nothing.
+                modelRequestsInformationalOnly: modelRequests.length,
+                modelResponsesOkInformationalOnly: ok.length,
+                requestCountersAreWorkerBlind: true,
                 firstRequestMs: modelRequests[0]?.ms ?? null,
                 lastResponseMs: ok[ok.length - 1]?.ms ?? null,
                 statusTransitions: statusLog,
@@ -281,13 +282,19 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                 unhandledRejections: await page.evaluate(
                     () => (window as unknown as { __unhandledRejections__?: string[] }).__unhandledRejections__ ?? [],
                 ).catch(() => [] as string[]),
-                verdictHint: modelRequests.length === 0
-                    ? 'NO_MODEL_REQUESTS_acquisition_never_started'
-                    : reachedReady && statusLog[statusLog.length - 1]?.status !== 'ready'
-                        ? 'READY_THEN_REVERTED_reclaim_signature'
-                        : reachedReady
-                            ? 'READY_AND_HELD'
-                            : 'REQUESTS_MADE_status_never_reached_ready',
+                // VERDICT KEYS ON STATUS TRANSITIONS ONLY. The request counts below are INFORMATIONAL
+                // and must never decide anything: the model loads inside a WORKER, and that was
+                // measured, not assumed — during a production load that demonstrably reached `ready`,
+                // neither a `window.fetch` patch nor a main-thread PerformanceObserver (buffered:true)
+                // observed a single /models/ request. A verdict keyed on those counts would emit
+                // "acquisition never started" for a run that acquired the model perfectly.
+                verdictHint: reachedReady && statusLog[statusLog.length - 1]?.status !== 'ready'
+                    ? 'READY_THEN_REVERTED_reclaim_signature'
+                    : reachedReady
+                        ? 'READY_AND_HELD'
+                        : statusLog.some((e) => e.status === 'loading')
+                            ? 'LOADING_NEVER_REACHED_READY'
+                            : 'NEVER_LEFT_DOWNLOAD_REQUIRED_after_CTA',
                 engineConsole,
             })}`);
         };
@@ -301,14 +308,37 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             await page.getByTestId('practice-card-freeform').click();
             await expect(page).toHaveURL(/\/session/, { timeout: 45_000 });
             await selectBenchmarkMode(page, 'private');
+            // CTA EVIDENCE. The closure contract requires the ACTUAL customer path, so record the
+            // model status IMMEDIATELY BEFORE and AFTER the setup CTA. Attempt 4 showed
+            // BUTTON_VISIBLE -> CLICKED -> FORCE_CLICK_RETRY x2 and then a 25-minute stall, which says
+            // the click landed but acquisition never progressed. A before/after pair around the CTA
+            // separates "the click did nothing" from "the click started work that then failed" —
+            // a distinction the phase markers alone could not make.
+            const statusBeforeCta = await page.evaluate(
+                () => document.documentElement.getAttribute('data-model-status'),
+            ).catch(() => null);
+            const ctaRequired = statusBeforeCta === 'download-required';
+
             // The acquisition diagnosis must survive a stall here, which is exactly where attempt 4 died.
             try {
                 await preparePrivateModelIfPrompted(page, 600_000);
             } catch (err) {
-                await emitModelDiagnosis(`${label}:model-prepare-FAILED`);
+                await emitModelDiagnosis(`${label}:model-prepare-FAILED:ctaRequired=${ctaRequired}:before=${statusBeforeCta}`);
                 throw err;
             }
-            await emitModelDiagnosis(`${label}:model-prepare-ok`);
+            const statusAfterCta = await page.evaluate(
+                () => document.documentElement.getAttribute('data-model-status'),
+            ).catch(() => null);
+            await emitModelDiagnosis(`${label}:model-prepare-ok:before=${statusBeforeCta}:after=${statusAfterCta}`);
+
+            // When setup WAS required, the CTA must have moved the status off download-required.
+            // Otherwise the customer-visible outcome is a button that does nothing — which is exactly
+            // what the un-`.catch`ed acquisition call sites would produce.
+            if (ctaRequired) {
+                expect(statusAfterCta,
+                    `the setup CTA must move the model off download-required; it stayed at ${String(statusAfterCta)}`,
+                ).not.toBe('download-required');
+            }
             await assertPreStartMode(page, 'private');
 
             // ENTITLEMENT GATE, re-evaluated before EVERY recording from the same server authority.

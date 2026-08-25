@@ -95,6 +95,30 @@ describe('three-session production proof — assertion contract', () => {
     expect(WORKFLOW).toMatch(/steps\.proof\.outcome/);
   });
 
+  it('the acquisition verdict keys on STATUS, never on the worker-blind request counters', () => {
+    // Measured, not assumed: during a production load that reached `ready`, neither a window.fetch
+    // patch nor a main-thread PerformanceObserver saw a single /models/ request, because the model
+    // loads in a Worker. A verdict keyed on those counts would report "acquisition never started" for
+    // a run that acquired the model perfectly.
+    const diagnosis = SPEC.slice(SPEC.indexOf('verdictHint'), SPEC.indexOf('verdictHint') + 600);
+    expect(diagnosis).not.toMatch(/modelRequests\.length === 0/);
+    expect(diagnosis).toMatch(/reachedReady/);
+    // The counters may still be REPORTED, but must be labelled so no reader treats a zero as evidence.
+    expect(SPEC).toMatch(/InformationalOnly/);
+    expect(SPEC).toMatch(/requestCountersAreWorkerBlind/);
+  });
+
+  it('the ACTUAL setup CTA is exercised and its before/after status recorded', () => {
+    // The closure contract requires the real customer path, not a bypass. A before/after pair around
+    // the CTA separates "the click did nothing" from "the click started work that then failed".
+    expect(SPEC).toMatch(/statusBeforeCta/);
+    expect(SPEC).toMatch(/statusAfterCta/);
+    expect(SPEC).toMatch(/ctaRequired/);
+    // And when setup was required, staying at download-required must FAIL — that is the
+    // customer-visible "button does nothing" outcome.
+    expect(SPEC).toMatch(/\.not\.toBe\('download-required'\)/);
+  });
+
   it('production authority gates are unchanged', () => {
     expect(WORKFLOW).toMatch(/must be dispatched from the default branch/);
     expect(WORKFLOW).toMatch(/exact production-data authorization phrase/);
