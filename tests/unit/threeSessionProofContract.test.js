@@ -277,49 +277,51 @@ describe('three-session production proof — assertion contract', () => {
   it('[advisory] read authority is POSITIVELY classified and caps the verdict', () => {
     // The classifier itself is executed in tests/unit/readEndpointAuthority.test.ts. This only pins
     // the WIRING: a hostname denylist must not come back, and the claim must be capped by authority.
-    expect(SPEC).toMatch(/classifyReadEndpoint\(SUPABASE_URL, process\.env\.SUPABASE_PRIMARY_URL\)/);
+    expect(SPEC).toMatch(/resolveReadAuthority\(process\.env\)/);
     expect(SPEC, 'no hostname denylist may return').not.toMatch(/read-replica\|-replica/);
     expect(SPEC, 'a persistence defect may only be claimed on a proven primary')
       .toMatch(/readAuthority\.maxClaim === 'persistence-defect'/);
     expect(SPEC).toMatch(/authority is UNKNOWN/);
   });
 
-  it('the workflow WIRES the primary-URL variable into the environment', () => {
-    // GitHub repository variables are NOT automatically environment variables. Without this line the
-    // classifier sees `undefined`, reports `unknown` on every run, and a persistence defect can never
-    // be classified — the guard would be present but inert.
-    expect(WORKFLOW).toMatch(/SUPABASE_PRIMARY_URL:\s*\$\{\{\s*vars\.SUPABASE_PRIMARY_URL\s*\}\}/);
-    // ...in the SAME env block that carries the other Supabase inputs.
-    const idx = WORKFLOW.indexOf('SUPABASE_PRIMARY_URL:');
-    const urlIdx = WORKFLOW.indexOf('SUPABASE_URL:');
-    expect(idx).toBeGreaterThan(urlIdx);
-    expect(idx - urlIdx, 'must sit alongside SUPABASE_URL, not in an unrelated block').toBeLessThan(600);
+  it('the workflow runs the read-authority preflight with a STEP-SCOPED token', () => {
+    expect(WORKFLOW).toMatch(/scripts\/verify-read-authority\.mjs/);
+    expect(WORKFLOW).toMatch(/SUPABASE_ACCESS_TOKEN:\s*\$\{\{\s*secrets\.SUPABASE_ACCESS_TOKEN\s*\}\}/);
+    // The token must appear EXACTLY ONCE — job-wide exposure would hand it to the Playwright step,
+    // which has no need for it and every opportunity to leak it.
+    expect((WORKFLOW.match(/SUPABASE_ACCESS_TOKEN/g) ?? []).length,
+      'the management token must be scoped to the preflight step only').toBe(2);
+    // ...and that occurrence must sit under the preflight step, not an unrelated one.
+    const tokenIdx = WORKFLOW.indexOf('SUPABASE_ACCESS_TOKEN:');
+    const stepIdx = WORKFLOW.lastIndexOf('- name:', tokenIdx);
+    expect(WORKFLOW.slice(stepIdx, tokenIdx)).toMatch(/Resolve read authority/);
+  });
+
+  it('the spec consumes the DERIVED verdict and cannot see the token', () => {
+    expect(SPEC).toMatch(/resolveReadAuthority\(process\.env\)/);
+    expect(SPEC, 'the proof must never reference the management token')
+      .not.toMatch(/SUPABASE_ACCESS_TOKEN/);
   });
 
   it('the enum domains MATCH their sources — an omitted member destroys the diagnostic', () => {
-    // This is not cosmetic. `safeEnum` maps anything outside the list to `invalid`, so a missing
-    // member silently erases the evidence for exactly that case. The first version listed
-    // `not_provided` as a STATE and omitted `retention_failed` from the OUTCOMES — the latter being
-    // the most likely decisive value for #1306.
+    // `safeEnum` maps anything outside the list to `invalid`, so a missing member silently erases the
+    // evidence for exactly that case. The first version listed `not_provided` as a STATE and omitted
+    // `retention_failed` from the OUTCOMES — the latter being the most likely decisive value for #1306.
     const specStates = /const TRANSCRIPT_STATES = \[([^\]]+)\]/.exec(SPEC);
     const specOutcomes = /const TRANSCRIPT_OUTCOMES = \[([^\]]+)\]/.exec(SPEC);
     expect(specStates, 'the spec must name the state domain').not.toBeNull();
     expect(specOutcomes, 'the spec must name the outcome domain').not.toBeNull();
     const parse = (m) => m[1].match(/'([a-z_]+)'/g).map((x) => x.replace(/'/g, '')).sort();
 
-    // Source of truth 1: the CHECK constraint.
     const check = /CHECK \(transcript_state IN \(([^)]+)\)\)/.exec(STATE_MIGRATION);
     expect(check, 'the CHECK constraint must be readable').not.toBeNull();
     expect(parse(specStates)).toEqual(parse(check));
 
-    // Source of truth 2: the product's exported outcome union.
     const outcomes = /export const TRANSCRIPT_OUTCOMES = \[([^\]]+)\]/.exec(STORAGE);
     expect(outcomes, 'storage.ts must export the outcome domain').not.toBeNull();
     expect(parse(specOutcomes)).toEqual(parse(outcomes));
 
-    // Explicitly: the decisive failure value must be mappable.
     expect(parse(specOutcomes)).toContain('retention_failed');
-    // ...and `not_provided` is an OUTCOME, never a STATE.
     expect(parse(specStates)).not.toContain('not_provided');
   });
 

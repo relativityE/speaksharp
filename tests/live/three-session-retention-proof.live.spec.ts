@@ -13,7 +13,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { WASHINGTON_LONG_AUDIO } from './helpers/audio-fixtures';
-import { classifyReadEndpoint } from '../helpers/readEndpointAuthority';
+import { resolveReadAuthority } from '../helpers/readEndpointAuthority';
 import { extractUidFromAuthStorage, sha256Hex } from './helpers/proofAuthority';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import { evaluateThreeRecordingEntitlement } from './helpers/entitlementAuthority';
@@ -315,7 +315,10 @@ test.describe('#1306 three-session newest-two retention production proof @live',
          * and when it cannot be, the verdict is `unknown`, which WEAKENS what a disagreement may be
          * reported as instead of silently strengthening it.
          */
-        const readAuthority = classifyReadEndpoint(SUPABASE_URL, process.env.SUPABASE_PRIMARY_URL);
+        // Authority comes from the read-only preflight, which asked the Management API whether this
+        // project has read replicas. The proof cannot see the management token — only this derived
+        // verdict — and anything unrecognized resolves to `unknown`.
+        const readAuthority = resolveReadAuthority(process.env);
         console.log(`[PROOF_READ_AUTHORITY] ${JSON.stringify(readAuthority)}`);
 
         const readRow = async (id: string) => {
@@ -600,8 +603,7 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                         : readAuthority.maxClaim === 'persistence-defect'
                             ? 'It NEVER converged and the read is PRIMARY-PROVEN — persistence defect.'
                             : 'It NEVER converged, but read authority is UNKNOWN — row/read-path '
-                              + 'disagreement; authority unknown. Configure SUPABASE_PRIMARY_URL to '
-                              + 'make this classifiable.';
+                              + `disagreement; authority unknown (${readAuthority.reason}).`;
                     throw new Error(
                         `${label} transcript_state was `
                         + `'${safeEnum(row.transcript_state, TRANSCRIPT_STATES)}' `

@@ -81,6 +81,19 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
+      # READ AUTHORITY PREFLIGHT — read-only Management API probe of the replica inventory.
+      #
+      # The management token is exposed to THIS STEP ONLY: it is deliberately absent from the job-wide
+      # environment and from the Playwright step, so the proof itself can never see it. The step emits
+      # two derived tokens into GITHUB_ENV and nothing else — never the token, project reference, URL
+      # or response body. It always exits 0: an unresolved authority CAPS the proof's verdict rather
+      # than failing the run.
+      - name: Resolve read authority (read-only, token scoped to this step)
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node scripts/verify-read-authority.mjs
+
       - name: Prove checked-out commit equals the dispatch SHA
         run: |
           set -euo pipefail
@@ -101,12 +114,6 @@ jobs:
           BASE_URL: ${{ inputs.base_url }}
           EXPECT_RELEASE_SHA: ${{ inputs.expect_sha }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          # Read authority: the SEPARATELY configured authoritative primary the admin read is checked
-          # against. GitHub repository variables are NOT automatically environment variables, so without
-          # this line the classifier sees `undefined` and reports `unknown` on every run — which caps
-          # the verdict and makes a persistence defect unclassifiable. Absent by design rather than
-          # defaulted: a read must not vouch for itself.
-          SUPABASE_PRIMARY_URL: ${{ vars.SUPABASE_PRIMARY_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           LIVE_TEST_EMAIL_DOMAIN: ${{ vars.LIVE_TEST_EMAIL_DOMAIN }}
           PROOF_CLEANUP_VERDICT_FILE: ${{ runner.temp }}/cleanup-verdict.txt

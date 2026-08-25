@@ -23,46 +23,67 @@ const host = (u: string): string | null => {
     try { return new URL(u).hostname.toLowerCase(); } catch { return null; }
 };
 
+/** A read-only Management API probe of the project's replica inventory. */
+export type ReplicaProbe =
+    | { ok: true; replicaCount: number }
+    | { ok: false; failure: 'api_error' | 'malformed_response' };
+
+export type AuthorityReason =
+    | 'no_read_replicas'
+    | 'replicas_present'
+    | 'api_error'
+    | 'malformed_response'
+    | 'non_canonical_endpoint'
+    | 'not_probed';
+
+/** `https://<ref>.supabase.co` — the canonical per-project Data API endpoint. */
+const CANONICAL_PROJECT_ENDPOINT = /^[a-z0-9]{20}\.supabase\.co$/;
+
+export interface ProbeVerdict {
+    authority: ReadAuthority;
+    reason: AuthorityReason;
+    maxClaim: ReadEndpointVerdict['maxClaim'];
+}
+
+const unknown = (reason: AuthorityReason): ProbeVerdict => ({
+    authority: 'unknown', reason, maxClaim: 'read-path-disagreement-authority-unknown',
+});
+
 /**
- * `configuredPrimary` must come from a SEPARATE configuration value naming the authoritative primary
- * (URL or bare host). Comparing the read URL to itself would prove nothing, so an absent or unusable
- * value yields `unknown` rather than a default pass.
+ * Classify read authority from a replica inventory.
+ *
+ * DELIBERATELY NARROW. An empty replica list plus a canonical project endpoint is the only case that
+ * yields `primary-proven`, because it is the only case where "there is nowhere else the read could
+ * have gone" actually follows. When replicas EXIST, Supabase exposes dedicated replica endpoints and a
+ * separate load-balancer endpoint, and replicas lag asynchronously — an inventory alone cannot then
+ * establish which endpoint served a given read, so this reports `unknown` rather than guessing.
+ *
+ * Everything else fails closed: an API error, a malformed body, or a non-canonical endpoint is
+ * `unknown`, never a default pass.
  */
-export function classifyReadEndpoint(readUrl: string, configuredPrimary?: string | null): ReadEndpointVerdict {
-    const readHost = host(readUrl);
-    if (!readHost) {
-        return {
-            authority: 'unknown',
-            reason: 'read URL is not parseable',
-            maxClaim: 'read-path-disagreement-authority-unknown',
-        };
+export function classifyFromReplicaProbe(readUrl: string, probe: ReplicaProbe): ProbeVerdict {
+    const h = host(readUrl);
+    if (!h || !CANONICAL_PROJECT_ENDPOINT.test(h)) return unknown('non_canonical_endpoint');
+    if (!probe.ok) return unknown(probe.failure);
+    if (!Number.isInteger(probe.replicaCount) || probe.replicaCount < 0) return unknown('malformed_response');
+    if (probe.replicaCount > 0) return unknown('replicas_present');
+    return { authority: 'primary-proven', reason: 'no_read_replicas', maxClaim: 'persistence-defect' };
+}
+
+/**
+ * Read the preflight's DERIVED verdict out of the environment. The preflight runs in a step that can
+ * see the management token; this cannot. Anything unrecognized is `unknown`.
+ */
+export function resolveReadAuthority(env: Record<string, string | undefined>): ProbeVerdict {
+    const a = env.PROOF_READ_AUTHORITY;
+    const r = env.PROOF_READ_AUTHORITY_REASON;
+    const reasons: AuthorityReason[] = [
+        'no_read_replicas', 'replicas_present', 'api_error', 'malformed_response',
+        'non_canonical_endpoint', 'not_probed',
+    ];
+    const reason = reasons.includes(r as AuthorityReason) ? (r as AuthorityReason) : 'not_probed';
+    if (a === 'primary-proven' && reason === 'no_read_replicas') {
+        return { authority: 'primary-proven', reason, maxClaim: 'persistence-defect' };
     }
-    const trimmed = (configuredPrimary ?? '').trim();
-    if (!trimmed) {
-        return {
-            authority: 'unknown',
-            reason: 'no authoritative primary endpoint configured; a read cannot vouch for itself',
-            maxClaim: 'read-path-disagreement-authority-unknown',
-        };
-    }
-    const primaryHost = trimmed.includes('://') ? host(trimmed) : trimmed.toLowerCase();
-    if (!primaryHost) {
-        return {
-            authority: 'unknown',
-            reason: 'configured primary endpoint is not parseable',
-            maxClaim: 'read-path-disagreement-authority-unknown',
-        };
-    }
-    if (primaryHost !== readHost) {
-        return {
-            authority: 'unknown',
-            reason: 'read host does not match the configured primary host',
-            maxClaim: 'read-path-disagreement-authority-unknown',
-        };
-    }
-    return {
-        authority: 'primary-proven',
-        reason: 'read host matches the separately configured authoritative primary',
-        maxClaim: 'persistence-defect',
-    };
+    return unknown(reason);
 }
