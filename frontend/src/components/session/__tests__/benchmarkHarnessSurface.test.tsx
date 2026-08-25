@@ -14,6 +14,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, cleanup } from '../../../../tests/support/test-utils';
 import { SessionDuringState } from '../SessionDuringState';
+import { SessionOverhaulView } from '../SessionOverhaulView';
 import { computeProgressVsBaseline } from '@/utils/progressVsBaseline';
 import {
     DURING_STATE_LANDMARKS, RETIRED_TRANSCRIPT_IDS, LIVE_TRANSCRIPT, TRANSCRIPT_HEADER_META,
@@ -60,7 +61,7 @@ vi.mock('@playwright/test', () => {
 
 const {
     captureTranscriptSurfaceDiagnostics, expectBenchmarkDraftActivity,
-    expectFinalizedTranscriptOutput, redactTranscriptText,
+    expectFinalizedTranscriptOutput, logBenchmarkPhase, attachPrivateBenchmarkEvidence,
 } = await import('../../../../../tests/live/helpers/benchmark-utils');
 
 /** Minimal Playwright-shaped page over the real jsdom document. */
@@ -132,13 +133,15 @@ describe('the during-state surface the product really renders', () => {
         await expect(expectBenchmarkDraftActivity(page, 'r1', 1_500)).resolves.toBeUndefined();
     });
 
-    it('FALSIFICATION: zero words in the header meta FAILS even though every landmark renders', async () => {
-        // The exact state attempt 7 could not distinguish: surface healthy, nothing recognized.
-        renderDuring(0, []);
+    it('header meta showing ZERO words is a HEALTHY interim-only state and must PASS', async () => {
+        // Production derives the header from `wordCount(transcriptContent)` (COMMITTED) while
+        // live-transcript renders committed PLUS interim tokens. Requiring the header to be positive
+        // would reject a genuinely transcribing interim-only session — the attempt-6 defect again.
+        renderDuring(0, [{ text: 'So' }, { text: 'basically', interim: true }]);
         const d = await captureTranscriptSurfaceDiagnostics(page);
-        expect(d.card.found, 'the surface is present').toBe(true);
-        expect(d.headerMeta.words).toBe(0);
-        await expect(expectBenchmarkDraftActivity(page, 'r1', 800)).rejects.toThrow(/header meta words=0/);
+        expect(d.headerMeta.words, 'header legitimately reads zero here').toBe(0);
+        expect(d.liveTranscript.wordLikeCount).toBeGreaterThan(0);
+        await expect(expectBenchmarkDraftActivity(page, 'r1', 1_500)).resolves.toBeUndefined();
     });
 
     it('FALSIFICATION: a positive tally with EMPTY live text still fails', async () => {
@@ -148,21 +151,18 @@ describe('the during-state surface the product really renders', () => {
         expect(d.headerMeta.words).toBe(184);
         expect(d.liveTranscript.textContentLength).toBe(0);
         await expect(expectBenchmarkDraftActivity(page, 'r1', 800))
-            .rejects.toThrow(/live-transcript has no recognized text/);
+            .rejects.toThrow(/live-transcript has no recognized words/);
     });
 
-    it('an UNPARSEABLE header meta is named as such, not reported as zero words', async () => {
-        // The null guard is redundant for pass/fail — the next check catches null via `?? 0`. Its value
-        // is diagnostic: "the tally could not be read" and "the tally says zero" are different faults
-        // and must not collapse into one message. This pins that distinction.
-        renderDuring(184, [{ text: 'So' }]);
-        const meta = screen.getByTestId(TRANSCRIPT_HEADER_META);
-        meta.textContent = 'live';
+    it('an unreadable header meta is reported as null and does NOT block a healthy session', async () => {
+        // Header is diagnostic during recording, so an unparseable tally must not fail the run — but it
+        // must be reported as `null` rather than coerced to 0, which would read as "said nothing".
+        renderDuring(184, [{ text: 'So' }, { text: 'basically' }]);
+        screen.getByTestId(TRANSCRIPT_HEADER_META).textContent = 'live';
         const d = await captureTranscriptSurfaceDiagnostics(page);
-        expect(d.headerMeta.found, 'the element is present').toBe(true);
-        expect(d.headerMeta.words, 'but no number can be parsed from it').toBeNull();
-        await expect(expectBenchmarkDraftActivity(page, 'r1', 800))
-            .rejects.toThrow(/header meta reports no numeric word count/);
+        expect(d.headerMeta.found).toBe(true);
+        expect(d.headerMeta.words, 'unreadable is null, never a flattering zero').toBeNull();
+        await expect(expectBenchmarkDraftActivity(page, 'r1', 1_500)).resolves.toBeUndefined();
     });
 
     it('the zero-width caret cannot satisfy the text check', async () => {
@@ -172,7 +172,7 @@ describe('the during-state surface the product really renders', () => {
         const d = await captureTranscriptSurfaceDiagnostics(page);
         expect(d.liveTranscript.caretPresent).toBe(true);
         expect(d.liveTranscript.textContentLength, 'caret contributes no characters').toBe(0);
-        await expect(expectBenchmarkDraftActivity(page, 'r1', 800)).rejects.toThrow(/no recognized text/);
+        await expect(expectBenchmarkDraftActivity(page, 'r1', 800)).rejects.toThrow(/no recognized words/);
     });
 
     it('FALSIFICATION: a page missing the during landmarks names them, not "no transcription"', async () => {
@@ -230,23 +230,94 @@ describe('after Stop — finalized output, and evidence that carries no content'
             .rejects.toThrow(/NO numeric word count/);
     });
 
-    it('the redactor replaces transcript and bodyText with LENGTHS', () => {
-        // Exercised directly: jsdom does not implement innerText, so ui.bodyText is always '' when
-        // driven through the DOM and this contract would otherwise never be tested at all.
-        const snapshot = { label: 'x', ui: { transcript: SECRET, bodyText: `page ${SECRET} chrome`, micStart: {} } };
-        const out = JSON.stringify(redactTranscriptText(snapshot as never));
-        expect(out).not.toContain('Basically');
-        expect(out).not.toContain('literally');
-        expect(out).toMatch(/"transcriptLength":42/);
-        expect(out).toMatch(/"bodyTextLength":54/);
-        expect(out, 'unrelated diagnostic fields survive').toContain('micStart');
-    });
-
     it('the draft-activity failure path emits no recognized content', async () => {
         renderDuring(0, []);
         screen.getByTestId('transcript-content').insertAdjacentHTML('beforeend', `<span>${SECRET}</span>`);
         const err = await expectBenchmarkDraftActivity(page, 'r1', 500).catch((e: Error) => e.message);
         expect(err).not.toContain('Basically');
         expect(err).not.toContain('literally');
+    });
+});
+
+
+describe('the parent derivation, and evidence that never carries recognized speech', () => {
+    const SECRET = 'Basically we should literally like wait um';
+
+    const overhaul = (transcriptContent: string, interimTranscript: string) =>
+        render(
+            <SessionOverhaulView
+                authUserId="u1" isListening sttStatus={'ready' as never} elapsedTime={42} micLevel={0.4}
+                transcriptContent={transcriptContent} interimTranscript={interimTranscript}
+                showAnalyticsPrompt={false} metricsFillerCount={0} onStartStop={vi.fn()} history={[]}
+            />,
+        );
+
+    it('REQUIRED: interim-only through the REAL parent passes — committed empty, header zero', async () => {
+        // The state #1350 previously rejected. Driven through SessionOverhaulView so the header count
+        // and the live tokens come from the parent's own derivation rather than independent props.
+        overhaul('', SECRET);
+        const d = await captureTranscriptSurfaceDiagnostics(page);
+        expect(d.headerMeta.words, 'committed is empty so the header reads zero').toBe(0);
+        expect(d.liveTranscript.wordLikeCount, 'but interim text IS recognized speech').toBeGreaterThan(0);
+        await expect(expectBenchmarkDraftActivity(page, 'r1', 1_500)).resolves.toBeUndefined();
+    });
+
+    it('a genuinely silent parent state still fails', async () => {
+        overhaul('', '');
+        await expect(expectBenchmarkDraftActivity(page, 'r1', 800))
+            .rejects.toThrow(/live-transcript has no recognized words/);
+    });
+
+    it('SUCCESSFUL phase logs contain no recognized speech', async () => {
+        // logBenchmarkPhase serialises the snapshot to the Actions log on SUCCESS paths, not only on
+        // failure. While the selector was dead this was accidentally empty; pointing it at the real
+        // surface would have published recognized speech on every healthy run.
+        overhaul(SECRET, SECRET);
+        const logged: string[] = [];
+        vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { logged.push(a.join(' ')); });
+        await logBenchmarkPhase(page, 'PROOF_TEST_PHASE');
+        const out = logged.join('\n');
+        expect(out, 'the phase log must be emitted at all').toMatch(/STT_BENCHMARK_PHASE/);
+        expect(out, 'no recognized speech in a published log').not.toContain('Basically');
+        expect(out).not.toContain('literally');
+        // ...but the SHAPE must still be there, or the diagnostic is worthless.
+        expect(out).toMatch(/transcriptChars/);
+        expect(out).toMatch(/transcriptWords/);
+        expect(out).toMatch(/bodyTextChars/);
+    });
+
+    it('ATTACHED benchmark evidence contains no recognized speech either', async () => {
+        // The attachment ships with the run artifacts. `transcriptText` there was accidentally empty
+        // only because the selector was dead; correcting the selector would have written real speech
+        // into a downloadable file. Read the artifact back off disk rather than mocking fs, so this
+        // tests what is actually persisted.
+        overhaul(SECRET, SECRET);
+        const { mkdtempSync, readFileSync, existsSync } = await import('node:fs');
+        const { tmpdir } = await import('node:os');
+        const { join } = await import('node:path');
+        const dir = mkdtempSync(join(tmpdir(), 'ss-evidence-'));
+        const paths: string[] = [];
+        const testInfo = {
+            outputPath: (n: string) => { const f = join(dir, n); paths.push(f); return f; },
+            attach: async () => undefined,
+        } as unknown as Parameters<typeof attachPrivateBenchmarkEvidence>[1];
+
+        await attachPrivateBenchmarkEvidence(page, testInfo, 'r1');
+
+        const written = paths.filter((f) => existsSync(f)).map((f) => readFileSync(f, 'utf8')).join('\n');
+        expect(written.length, 'evidence must actually be written for this to mean anything').toBeGreaterThan(10);
+        expect(written, 'no recognized speech in an attached artifact').not.toContain('Basically');
+        expect(written).not.toContain('literally');
+        expect(written, 'the shape must still be recorded').toMatch(/transcriptChars|transcriptWords/);
+    });
+
+    it('the snapshot is content-free AT SOURCE — no raw transcript or bodyText field exists', async () => {
+        overhaul(SECRET, SECRET);
+        const snap = await logBenchmarkPhase(page, 'PROOF_TEST_PHASE');
+        const ui = (snap as unknown as { ui: Record<string, unknown> }).ui;
+        expect('transcript' in ui, 'the raw field must not exist to be forgotten').toBe(false);
+        expect('bodyText' in ui, 'the raw field must not exist to be forgotten').toBe(false);
+        expect(typeof ui.transcriptChars).toBe('number');
+        expect(typeof ui.transcriptWords).toBe('number');
     });
 });

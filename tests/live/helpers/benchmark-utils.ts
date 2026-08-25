@@ -43,8 +43,10 @@ type BenchmarkPreconditionSnapshot = {
         transcriptSurfaceFound: boolean;
         sessionState: string | null;
         profileText: string | null;
-        transcript: string;
-        bodyText: string;
+        /** Shapes only — this snapshot is published to the Actions log on success paths. */
+        transcriptChars: number | null;
+        transcriptWords: number | null;
+        bodyTextChars: number;
     };
     runtime?: Record<string, unknown> | null;
     snapshotError?: string;
@@ -137,7 +139,7 @@ export async function collectBenchmarkPreconditionSnapshot(page: Page, label: st
             if (window.location.protocol === 'https:') return 443;
             return null;
         };
-        const bodyText = document.body?.innerText?.replace(/\s+/g, ' ').trim().slice(0, 500) ?? '';
+
         const modeSelect = document.querySelector('[data-testid="stt-mode-select"]') as HTMLElement | null;
         // PHASE-SPECIFIC observations. The old generic `startButton` probe reported
         // `startButtonPresent: false` for 40 minutes without ever revealing WHICH control was on screen,
@@ -148,13 +150,17 @@ export async function collectBenchmarkPreconditionSnapshot(page: Page, label: st
             const node = el(tid);
             return node ? { present: true, disabled: node.hasAttribute('disabled') } : { present: false, disabled: null };
         };
-        // CURRENT SURFACE. `transcript-container` belongs to LiveTranscriptPanel, which the product
-        // does not mount, so this probe reported '' on every healthy run — and '' is indistinguishable
-        // from "element absent" because of the `?? ''`. Both faults are fixed: read the rendered
-        // `live-transcript`, and record presence separately from length.
+        // CONTENT-FREE AT SOURCE. This snapshot is serialised straight into the Actions log by
+        // `logBenchmarkPhase` on SUCCESS paths, not only on failures — so anything captured here is
+        // published. While the selector was dead this field was accidentally empty; pointing it at the
+        // real `live-transcript` would have turned it into recognized speech in a public log.
+        // Only shapes are recorded, and presence is separate from size so absent can never read as empty.
         const liveEl = document.querySelector('[data-testid="live-transcript"]');
-        const transcript = liveEl?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 240) ?? '';
+        const liveText = liveEl?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
         const transcriptSurfaceFound = !!liveEl;
+        const transcriptChars = liveEl ? liveText.length : null;
+        const transcriptWords = liveEl ? (liveText ? liveText.split(/\s+/).filter(Boolean).length : 0) : null;
+        const bodyTextChars = (document.body?.innerText ?? '').replace(/\s+/g, ' ').trim().length;
         const profileText = document.querySelector('[data-testid="pro-badge"], [data-testid="nav-upgrade-button"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null;
         const debugWindow = window as Window & {
             __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown>;
@@ -273,8 +279,9 @@ export async function collectBenchmarkPreconditionSnapshot(page: Page, label: st
                 transcriptSurfaceFound,
                 sessionState: document.querySelector('[data-testid="session-shell"]')?.getAttribute('data-session-state') ?? null,
                 profileText,
-                transcript,
-                bodyText,
+                transcriptChars,
+                transcriptWords,
+                bodyTextChars,
             },
             runtime: typeof debugWindow.__SPEECH_RUNTIME_DEBUG__ === 'function'
                 ? debugWindow.__SPEECH_RUNTIME_DEBUG__()
@@ -706,25 +713,6 @@ export async function stopBenchmarkRecording(page: Page, label: string, timeout 
  * Read errors PROPAGATE. A surface that cannot be read must fail closed; reporting zeros for it is
  * the silent-empty class that made the original defect invisible.
  */
-/**
- * `collectBenchmarkPreconditionSnapshot` captures `ui.transcript` and `ui.bodyText` verbatim for
- * general debugging. On a transcript failure path those are exactly the fields that must not reach a
- * public run log, so both are replaced by their lengths before the snapshot is embedded in an error.
- */
-export function redactTranscriptText(snapshot: BenchmarkPreconditionSnapshot) {
-    const ui = snapshot.ui as unknown as Record<string, unknown>;
-    return {
-        ...snapshot,
-        ui: {
-            ...ui,
-            transcript: undefined,
-            transcriptLength: typeof ui.transcript === 'string' ? ui.transcript.length : null,
-            bodyText: undefined,
-            bodyTextLength: typeof ui.bodyText === 'string' ? ui.bodyText.length : null,
-        },
-    };
-}
-
 export interface TranscriptSurfaceDiagnostics {
     counts: Record<string, number>;
     /** Present-but-zero for every RETIRED id, so a regression to them is obvious rather than alarming. */
@@ -739,6 +727,7 @@ export interface TranscriptSurfaceDiagnostics {
         textContentLength: number | null;
         innerTextLength: number | null;
         interimLength: number | null;
+        wordLikeCount: number | null;
         caretPresent: boolean;
     };
     content: { found: boolean; textContentLength: number | null };
@@ -780,6 +769,10 @@ export async function captureTranscriptSurfaceDiagnostics(page: Page): Promise<T
                     ? (typeof live.innerText === 'string' ? live.innerText.trim().length : null)
                     : null,
                 interimLength: textLen(ids.interim),
+                // Word-like tokens, so static punctuation/chrome cannot pass as recognized speech.
+                wordLikeCount: live
+                    ? ((live.textContent ?? '').trim().match(/[A-Za-z0-9']+/g) ?? []).length
+                    : null,
                 // The caret is an EMPTY styled span; it contributes no characters and must never be
                 // what satisfies a text check.
                 caretPresent: !!one(ids.caret),
@@ -823,22 +816,23 @@ export async function expectBenchmarkDraftActivity(page: Page, label: string, ti
                 .map(([tid]) => tid);
             expect(missing, `during-state landmarks missing: ${missing.join(', ') || 'none'}`).toEqual([]);
             expect(d.shell.sessionState, 'session shell must report the during state').toBe('during');
+            // HEADER COUNT IS DIAGNOSTIC ONLY DURING RECORDING. Production derives it from
+            // `wordCount(transcriptContent)` — the COMMITTED text — while `live-transcript` renders
+            // committed PLUS interim tokens. So a healthy interim-only state legitimately shows
+            // "0 words" beside visible recognized text. Requiring the header to be positive here would
+            // reject that state and reintroduce exactly the attempt-6 defect: demanding committed
+            // output mid-recording. The authoritative post-Stop check remains the save candidate.
             expect(
-                d.headerMeta.words,
-                `header meta reports no numeric word count (meta="${String(d.headerMeta.textLength)}" chars)`,
-            ).not.toBeNull();
-            expect(d.headerMeta.words ?? 0, `header meta words=${String(d.headerMeta.words)}`)
-                .toBeGreaterThanOrEqual(minWords);
-            expect(
-                d.liveTranscript.textContentLength ?? 0,
-                `live-transcript has no recognized text (len=${String(d.liveTranscript.textContentLength)} `
-                + `children=${String(d.liveTranscript.childElementCount)} caret=${d.liveTranscript.caretPresent})`,
-            ).toBeGreaterThan(0);
+                d.liveTranscript.wordLikeCount,
+                `live-transcript has no recognized words (words=${String(d.liveTranscript.wordLikeCount)} `
+                + `len=${String(d.liveTranscript.textContentLength)} interim=${String(d.liveTranscript.interimLength)} `
+                + `headerMetaDiagnosticOnly=${String(d.headerMeta.words)} caret=${d.liveTranscript.caretPresent})`,
+            ).toBeGreaterThanOrEqual(minWords);
         }).toPass({ timeout, intervals: [500, 1_000, 2_000] });
         await logBenchmarkPhase(page, `PROOF_TIMING_FIRST_DRAFT_${label.toUpperCase()}`);
     } catch (error) {
         const diagnostics = await captureTranscriptSurfaceDiagnostics(page);
-        const snapshot = redactTranscriptText(await collectBenchmarkPreconditionSnapshot(page, `${label}-draft-activity-missing`));
+        const snapshot = (await collectBenchmarkPreconditionSnapshot(page, `${label}-draft-activity-missing`));
         throw new Error(
             `Draft-activity precondition failed for ${label}\n`
             + `TRANSCRIPT_SURFACE_DIAGNOSTICS ${JSON.stringify(diagnostics)}\n`
@@ -876,7 +870,7 @@ export async function expectFinalizedTranscriptOutput(
     }
     if (words <= minWords) {
         const diagnostics = await captureTranscriptSurfaceDiagnostics(page);
-        const snapshot = redactTranscriptText(await collectBenchmarkPreconditionSnapshot(page, `${label}-finalized-transcript-missing`));
+        const snapshot = (await collectBenchmarkPreconditionSnapshot(page, `${label}-finalized-transcript-missing`));
         throw new Error(
             `Finalized-transcript precondition failed for ${label}: selected-for-save transcript has `
             + `${String(words)} meaningful words (need > ${minWords}), length ${String(chars)}\n`
@@ -966,7 +960,14 @@ export async function attachPrivateBenchmarkEvidence(
                 sessionPersisted: root.getAttribute('data-session-persisted'),
                 transcriptState: transcriptContainer?.getAttribute('data-transcript-state') ?? null,
             },
-            transcriptText: transcriptContainer?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+            // Counts only. This is written to an ATTACHED artifact; recognized speech must not be in it.
+            // A benchmark that genuinely needs hypothesis text for scoring must use a separate,
+            // explicitly controlled scoring path — not this production-proof diagnostic.
+            transcriptChars: transcriptContainer?.textContent?.replace(/\s+/g, ' ').trim().length ?? null,
+            transcriptWords: (() => {
+                const t = transcriptContainer?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+                return transcriptContainer ? (t ? t.split(/\s+/).filter(Boolean).length : 0) : null;
+            })(),
             runtime: typeof debugWindow.__SPEECH_RUNTIME_DEBUG__ === 'function'
                 ? debugWindow.__SPEECH_RUNTIME_DEBUG__()
                 : null,
