@@ -163,6 +163,25 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                 engineConsole.push(`${msg.type()}:${text.slice(0, 160)}`);
             }
         });
+        // UNHANDLED PROMISE REJECTIONS — Playwright's `pageerror` catches uncaught EXCEPTIONS, not
+        // rejected promises, so without this the most likely acquisition failure is invisible.
+        //
+        // Why it matters here: both model-download call sites in SessionPage are
+        // `void import(...).then(m => m.initiateModelDownload('private'))` with NO `.catch`. If
+        // acquisition rejects, the rejection is unhandled, no status change occurs, and the button
+        // silently does nothing — matching attempt 4 exactly (download-required persisting through two
+        // force-clicks with no error). Capturing rejections turns that hypothesis into evidence.
+        await page.addInitScript(() => {
+            const w = window as unknown as { __unhandledRejections__?: string[] };
+            w.__unhandledRejections__ = [];
+            window.addEventListener('unhandledrejection', (event) => {
+                const list = w.__unhandledRejections__!;
+                const reason = (event as PromiseRejectionEvent).reason;
+                const text = reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason);
+                if (list.length < 40) list.push(text.slice(0, 200));
+            });
+        });
+
         page.on('pageerror', (err) => {
             // Allowlisted on the SAME topics as console. A page error can carry arbitrary text, and
             // this run publishes to a public Actions log, so an ungated capture would be a privacy
@@ -258,6 +277,10 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                 firstRequestMs: modelRequests[0]?.ms ?? null,
                 lastResponseMs: ok[ok.length - 1]?.ms ?? null,
                 statusTransitions: statusLog,
+                // The acquisition call sites have no `.catch`, so a failure lands HERE and nowhere else.
+                unhandledRejections: await page.evaluate(
+                    () => (window as unknown as { __unhandledRejections__?: string[] }).__unhandledRejections__ ?? [],
+                ).catch(() => [] as string[]),
                 verdictHint: modelRequests.length === 0
                     ? 'NO_MODEL_REQUESTS_acquisition_never_started'
                     : reachedReady && statusLog[statusLog.length - 1]?.status !== 'ready'
