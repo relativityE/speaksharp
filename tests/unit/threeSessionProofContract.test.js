@@ -14,6 +14,8 @@ const SPEC = readFileSync('tests/live/three-session-retention-proof.live.spec.ts
 const WORKFLOW = readFileSync('.github/workflows/three-session-retention-proof.yml', 'utf8');
 const CLEANUP = readFileSync('tests/live/helpers/runOwnedCleanup.ts', 'utf8');
 const BENCH = readFileSync('tests/live/helpers/benchmark-utils.ts', 'utf8');
+const STORAGE = readFileSync('frontend/src/lib/storage.ts', 'utf8');
+const STATE_MIGRATION = readFileSync('backend/supabase/migrations/20260801000000_sessions_transcript_state.sql', 'utf8');
 
 describe('three-session production proof — assertion contract', () => {
   it('the scan is not vacuous', () => {
@@ -292,6 +294,33 @@ describe('three-session production proof — assertion contract', () => {
     const urlIdx = WORKFLOW.indexOf('SUPABASE_URL:');
     expect(idx).toBeGreaterThan(urlIdx);
     expect(idx - urlIdx, 'must sit alongside SUPABASE_URL, not in an unrelated block').toBeLessThan(600);
+  });
+
+  it('the enum domains MATCH their sources — an omitted member destroys the diagnostic', () => {
+    // This is not cosmetic. `safeEnum` maps anything outside the list to `invalid`, so a missing
+    // member silently erases the evidence for exactly that case. The first version listed
+    // `not_provided` as a STATE and omitted `retention_failed` from the OUTCOMES — the latter being
+    // the most likely decisive value for #1306.
+    const specStates = /const TRANSCRIPT_STATES = \[([^\]]+)\]/.exec(SPEC);
+    const specOutcomes = /const TRANSCRIPT_OUTCOMES = \[([^\]]+)\]/.exec(SPEC);
+    expect(specStates, 'the spec must name the state domain').not.toBeNull();
+    expect(specOutcomes, 'the spec must name the outcome domain').not.toBeNull();
+    const parse = (m) => m[1].match(/'([a-z_]+)'/g).map((x) => x.replace(/'/g, '')).sort();
+
+    // Source of truth 1: the CHECK constraint.
+    const check = /CHECK \(transcript_state IN \(([^)]+)\)\)/.exec(STATE_MIGRATION);
+    expect(check, 'the CHECK constraint must be readable').not.toBeNull();
+    expect(parse(specStates)).toEqual(parse(check));
+
+    // Source of truth 2: the product's exported outcome union.
+    const outcomes = /export const TRANSCRIPT_OUTCOMES = \[([^\]]+)\]/.exec(STORAGE);
+    expect(outcomes, 'storage.ts must export the outcome domain').not.toBeNull();
+    expect(parse(specOutcomes)).toEqual(parse(outcomes));
+
+    // Explicitly: the decisive failure value must be mappable.
+    expect(parse(specOutcomes)).toContain('retention_failed');
+    // ...and `not_provided` is an OUTCOME, never a STATE.
+    expect(parse(specStates)).not.toContain('not_provided');
   });
 
   it('every envelope field is VALIDATED before it is logged or asserted', () => {

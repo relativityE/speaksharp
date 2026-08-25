@@ -233,6 +233,19 @@ test.describe('#1306 three-session newest-two retention production proof @live',
          * double-save, which is precisely what the exact-count accounting exists to catch.
          */
         /** Map to a recognized token, or the fixed literal `invalid`. Never echoes the received value. */
+        /**
+         * CANONICAL DOMAINS. Mis-stating these is not cosmetic: a value outside the list maps to
+         * `invalid`, so an omitted member DESTROYS the diagnostic for exactly that case. The first
+         * version listed `not_provided` as a STATE (the CHECK constraint allows only available /
+         * expired / not_captured) and omitted `retention_failed` from the OUTCOMES — which is the most
+         * likely decisive value for #1306 and would have been reported as `invalid`.
+         *
+         * `sessions_transcript_state_check` -> ('available','expired','not_captured')
+         * `TRANSCRIPT_OUTCOMES` (frontend/src/lib/storage.ts) -> the five below
+         */
+        const TRANSCRIPT_STATES = ['available', 'expired', 'not_captured'] as const;
+        const TRANSCRIPT_OUTCOMES = ['retained', 'expired', 'not_provided', 'not_captured', 'retention_failed'] as const;
+
         const safeBool = (v: unknown): boolean | null => (typeof v === 'boolean' ? v : null);
 
         const safeEnum = (v: unknown, allowed: readonly string[]): string =>
@@ -269,8 +282,8 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             // place arbitrary text into a public Actions log — and a failed `toBe` echoes its RECEIVED
             // value, so asserting on the raw field would republish it in the failure message. Every
             // field is mapped to a recognized token first; anything unrecognized becomes `invalid`.
-            const state = safeEnum(env.transcript_state, ['available', 'expired', 'not_captured', 'not_provided']);
-            const outcome = safeEnum(env.transcript_outcome, ['retained', 'expired', 'not_captured', 'not_provided']);
+            const state = safeEnum(env.transcript_state, TRANSCRIPT_STATES);
+            const outcome = safeEnum(env.transcript_outcome, TRANSCRIPT_OUTCOMES);
             const retained = typeof env.transcript_retained === 'boolean' ? env.transcript_retained : null;
             const retention = env.retention as Record<string, unknown> | undefined;
             const observed = {
@@ -570,7 +583,7 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                         const again = await readRow(row.id as string);
                         history.push({
                             atMs: Date.now() - startedAt,
-                            state: safeEnum(again.transcript_state, ['available', 'expired', 'not_captured', 'not_provided']),
+                            state: safeEnum(again.transcript_state, TRANSCRIPT_STATES),
                             chars: String(again.transcript ?? '').trim().length,
                         });
                         if (again.transcript_state === 'available') break;
@@ -591,7 +604,7 @@ test.describe('#1306 three-session newest-two retention production proof @live',
                               + 'make this classifiable.';
                     throw new Error(
                         `${label} transcript_state was `
-                        + `'${safeEnum(row.transcript_state, ['available', 'expired', 'not_captured', 'not_provided'])}' `
+                        + `'${safeEnum(row.transcript_state, TRANSCRIPT_STATES)}' `
                         + `while the v2 envelope `
                         + `reported 'available' at completion. ${verdict} `
                         + `authority=${readAuthority.authority} history=${JSON.stringify(history)}`
