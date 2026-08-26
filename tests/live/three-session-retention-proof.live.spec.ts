@@ -13,6 +13,7 @@ import {
     waitForBenchmarkSaveCandidate,
 } from './helpers/benchmark-utils';
 import { WASHINGTON_LONG_AUDIO } from './helpers/audio-fixtures';
+import { resolveReadAuthority } from '../helpers/readEndpointAuthority';
 import { extractUidFromAuthStorage, sha256Hex } from './helpers/proofAuthority';
 import { cleanupRunOwnedAccount } from './helpers/runOwnedCleanup';
 import { evaluateThreeRecordingEntitlement } from './helpers/entitlementAuthority';
@@ -222,6 +223,104 @@ test.describe('#1306 three-session newest-two retention production proof @live',
         /** Await every in-flight body parse so a capture assertion reads a settled set. */
         const settleCaptures = async () => { await Promise.all([...v2Parsing, ...listParsing]); };
 
+        /**
+         * BIND EACH ENVELOPE TO ITS RECORDING ORDINAL.
+         *
+         * `v2Responses.push(...)` runs in PARSE-COMPLETION order, not session order, so indexing the
+         * array by position assumes an ordering nothing guarantees. Recordings are sequential, so the
+         * envelopes added between the start and end of one recording belong to that recording — by
+         * construction rather than by assumption. Exactly one is required: a second would be a silent
+         * double-save, which is precisely what the exact-count accounting exists to catch.
+         */
+        /** Map to a recognized token, or the fixed literal `invalid`. Never echoes the received value. */
+        /**
+         * CANONICAL DOMAINS. Mis-stating these is not cosmetic: a value outside the list maps to
+         * `invalid`, so an omitted member DESTROYS the diagnostic for exactly that case. The first
+         * version listed `not_provided` as a STATE (the CHECK constraint allows only available /
+         * expired / not_captured) and omitted `retention_failed` from the OUTCOMES — which is the most
+         * likely decisive value for #1306 and would have been reported as `invalid`.
+         *
+         * `sessions_transcript_state_check` -> ('available','expired','not_captured')
+         * `TRANSCRIPT_OUTCOMES` (frontend/src/lib/storage.ts) -> the five below
+         */
+        const TRANSCRIPT_STATES = ['available', 'expired', 'not_captured'] as const;
+        const TRANSCRIPT_OUTCOMES = ['retained', 'expired', 'not_provided', 'not_captured', 'retention_failed'] as const;
+
+        const safeBool = (v: unknown): boolean | null => (typeof v === 'boolean' ? v : null);
+
+        const safeEnum = (v: unknown, allowed: readonly string[]): string =>
+            (typeof v === 'string' && allowed.includes(v)) ? v : 'invalid';
+
+        /** Bounded, character-classed token: server enums/SQLSTATEs only, never free text. */
+        const safeToken = (v: unknown): string | null =>
+            (typeof v === 'string' && v.length > 0 && v.length <= 64 && /^[A-Za-z0-9_.:-]+$/.test(v)) ? v : null;
+
+        let envelopeCursor = 0;
+        const takeEnvelopeForRecording = async (ordinal: number) => {
+            await settleCaptures();
+            const added = v2Responses.slice(envelopeCursor);
+            envelopeCursor = v2Responses.length;
+            expect(added.length, `recording ${ordinal} must produce exactly ONE complete_session_v2 envelope`)
+                .toBe(1);
+            return added[0];
+        };
+
+        /**
+         * THE ATOMIC CONTRACT, asserted the moment the recording completes.
+         *
+         * `complete_session_v2` writes transcript, metrics and retention in one transaction and returns
+         * what it did. That envelope is the most authoritative evidence in this proof, and attempt 8
+         * captured all three but only asserted them AFTER the retention step — so it failed at a
+         * downstream row read without ever examining them. Asserting here means a completion defect is
+         * named at the completion that caused it.
+         *
+         * Recorded CONTENT-FREE: enums and booleans only, never transcript text.
+         */
+        const assertV2Envelope = async (ordinal: number, label: string) => {
+            const env = await takeEnvelopeForRecording(ordinal);
+            // VALIDATE BEFORE LOGGING *AND* BEFORE ASSERTING. A malformed response could otherwise
+            // place arbitrary text into a public Actions log — and a failed `toBe` echoes its RECEIVED
+            // value, so asserting on the raw field would republish it in the failure message. Every
+            // field is mapped to a recognized token first; anything unrecognized becomes `invalid`.
+            const state = safeEnum(env.transcript_state, TRANSCRIPT_STATES);
+            const outcome = safeEnum(env.transcript_outcome, TRANSCRIPT_OUTCOMES);
+            const retained = typeof env.transcript_retained === 'boolean' ? env.transcript_retained : null;
+            const retention = env.retention as Record<string, unknown> | undefined;
+            const observed = {
+                transcript_state: state,
+                transcript_outcome: outcome,
+                transcript_retained: retained,
+                retention_status: safeToken(retention?.status),
+                // #1306: an `error` retention branch previously required ANOTHER production run just to
+                // learn which branch it was. These two identify it, each bounded and character-classed.
+                retention_reason: safeToken(retention?.reason),
+                retention_sqlstate: safeToken(retention?.sqlstate),
+            };
+            console.log(`[PROOF_V2_ENVELOPE] ${label} ${JSON.stringify(observed)}`);
+            expect(safeBool(env.success), `${label}: envelope success`).toBe(true);
+            expect(safeBool(env.session_saved), `${label}: envelope session_saved`).toBe(true);
+            expect(safeEnum(env.final_status, ['completed', 'aborted', 'failed']), `${label}: final_status (mapped)`)
+                .toBe('completed');
+            expect(outcome, `${label}: server transcript outcome (mapped)`).toBe('retained');
+            expect(retained, `${label}: retained flag agrees with the outcome`).toBe(true);
+            expect(state, `${label}: server-reported transcript state (mapped)`).toBe('available');
+            return observed;
+        };
+
+        /**
+         * Supabase read replicas are served through a LOAD-BALANCER endpoint and replicate
+         * asynchronously, so a routed GET can lag the primary. The first version of this guard tested
+         * the hostname against a denylist, which proves nothing — a replica on any other hostname
+         * passes it. Authority is now POSITIVELY established against a separately configured primary,
+         * and when it cannot be, the verdict is `unknown`, which WEAKENS what a disagreement may be
+         * reported as instead of silently strengthening it.
+         */
+        // Authority comes from the read-only preflight, which asked the Management API whether this
+        // project has read replicas. The proof cannot see the management token — only this derived
+        // verdict — and anything unrecognized resolves to `unknown`.
+        const readAuthority = resolveReadAuthority(process.env);
+        console.log(`[PROOF_READ_AUTHORITY] ${JSON.stringify(readAuthority)}`);
+
         const readRow = async (id: string) => {
             if (!admin) throw new Error('admin client required (fail closed)');
             const { data, error } = await admin.from('sessions').select(ROW_COLUMNS)
@@ -400,6 +499,8 @@ test.describe('#1306 three-session newest-two retention production proof @live',
             ), { timeout: 120_000, message: `${label} must durably persist` }).toBeTruthy();
             const id = await page.evaluate(() => document.documentElement.getAttribute('data-session-persisted-id'));
             expect(id, `${label} persisted id`).toMatch(/^[0-9a-f-]{36}$/i);
+            // ATOMIC CONTRACT FIRST — before any row read, and bound to THIS recording.
+            await assertV2Envelope(ordinal, label);
             return id as string;
         };
 
@@ -470,8 +571,47 @@ test.describe('#1306 three-session newest-two retention production proof @live',
 
             const [oldest, middle, newest] = await Promise.all(ids.map(readRow));
 
-            // The two newest keep their transcripts...
+            // The two newest keep their transcripts.
+            //
+            // DIAGNOSIS-ONLY CONVERGENCE HISTORY. If a row disagrees with the envelope the server
+            // already returned, that disagreement is the finding — so this records a bounded history
+            // to CLASSIFY it and then fails regardless. It must never turn an atomic-contract failure
+            // into a pass: the envelope was asserted at completion time and has already succeeded by
+            // the time we get here, so any mismatch is a row/consistency defect, not a slow write.
             for (const [label, row] of [['middle', middle], ['newest', newest]] as const) {
+                if (row.transcript_state !== 'available') {
+                    const history: Array<{ atMs: number; state: unknown; chars: number }> = [];
+                    const startedAt = Date.now();
+                    for (let attempt = 0; attempt < 6; attempt++) {
+                        const again = await readRow(row.id as string);
+                        history.push({
+                            atMs: Date.now() - startedAt,
+                            state: safeEnum(again.transcript_state, TRANSCRIPT_STATES),
+                            chars: String(again.transcript ?? '').trim().length,
+                        });
+                        if (again.transcript_state === 'available') break;
+                        await new Promise((r) => setTimeout(r, 1_000));
+                    }
+                    const converged = history.some((h) => h.state === 'available');
+                    // Content-free: states and lengths only.
+                    console.log(`[PROOF_ROW_CONVERGENCE] ${label} ${JSON.stringify({ converged, history })}`);
+                    // The strongest claim is capped by the READ AUTHORITY. Calling a never-converging
+                    // row a persistence defect requires proof the read came from the primary; without
+                    // that, the honest report is a disagreement of unknown authority.
+                    const verdict = converged
+                        ? 'It CONVERGED on re-read — read-path/replication consistency issue.'
+                        : readAuthority.maxClaim === 'persistence-defect'
+                            ? 'It NEVER converged and the read is PRIMARY-PROVEN — persistence defect.'
+                            : 'It NEVER converged, but read authority is UNKNOWN — row/read-path '
+                              + `disagreement; authority unknown (${readAuthority.reason}).`;
+                    throw new Error(
+                        `${label} transcript_state was `
+                        + `'${safeEnum(row.transcript_state, TRANSCRIPT_STATES)}' `
+                        + `while the v2 envelope `
+                        + `reported 'available' at completion. ${verdict} `
+                        + `authority=${readAuthority.authority} history=${JSON.stringify(history)}`
+                    );
+                }
                 expect(row.transcript_state, `${label} transcript_state`).toBe('available');
                 expect(String(row.transcript ?? '').trim().length, `${label} transcript retained`).toBeGreaterThan(0);
             }
@@ -531,17 +671,12 @@ test.describe('#1306 three-session newest-two retention production proof @live',
 
             // Non-vacuous capture control: the envelope assertions below are meaningless over an empty set.
             expect(v2Responses.length, 'no v2 response bodies captured — the envelope scan proves nothing').toBe(3);
-            for (const [i, env] of v2Responses.entries()) {
-                expect(env.success, `v2 envelope ${i + 1} success`).toBe(true);
-                expect(env.session_saved, `v2 envelope ${i + 1} session_saved`).toBe(true);
-                expect(env.final_status, `v2 envelope ${i + 1} final_status`).toBe('completed');
-                // The typed outcome must be one the client can switch on exhaustively, and a completion
-                // that retained its transcript must say so rather than leaving it to be inferred.
-                expect(['retained', 'expired', 'not_provided', 'not_captured', 'retention_failed'])
-                    .toContain(env.transcript_outcome);
-                expect(env.transcript_outcome, `v2 envelope ${i + 1} retained its transcript`).toBe('retained');
-                expect(env.transcript_retained, `v2 envelope ${i + 1} retained flag agrees with the outcome`).toBe(true);
-            }
+            // Each envelope was already asserted — MAPPED — at the completion that produced it, bound
+            // to its ordinal. Re-asserting the raw fields here duplicated that check and, worse, echoed
+            // the received value into the failure message (`toContain(env.transcript_outcome)`), which
+            // is exactly the raw-value republication the mapping exists to prevent. What this step
+            // uniquely proves is the EXACT COUNT, which is asserted below.
+            expect(envelopeCursor, 'every captured envelope was bound to a recording').toBe(3);
 
             // Distinct ids, and exactly ONE row per id — a reused or duplicated id would make the
             // newest-two assertions above describe a different set of rows than the journey created.

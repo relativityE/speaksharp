@@ -1,0 +1,58 @@
+# #1306 — prove the read-authority preflight against the LIVE Management API, on its own.
+#
+# WHY THIS EXISTS SEPARATELY. The replica-inventory response schema is not something we should first
+# encounter during a production-writing proof. This runs the preflight and nothing else: no browser, no
+# database writes, no account creation. If the API contract differs from what the classifier expects,
+# it surfaces here for free instead of turning attempt 9 into another inconclusive run.
+#
+# Output is the two derived tokens only — never the management token, project reference, URL or body.
+name: '#1306 read-authority preflight (read-only)'
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    # A "bounded" preflight that can hang is not bounded. The request itself is bounded inside the
+    # helper; this is the outer backstop for anything else that stalls (checkout, setup, a wedged
+    # runner). Small on purpose: this job does nothing but one read-only GET.
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      # The management token is scoped to THIS STEP ONLY, exactly as in the production proof.
+      - name: Resolve read authority (read-only)
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        timeout-minutes: 3
+        run: node --experimental-strip-types scripts/verify-read-authority.mjs
+
+      # FAIL CLOSED. The script exits 0 for `unknown` BY DESIGN — in the production proof an
+      # unresolved authority caps the verdict rather than failing the run. But this workflow exists to
+      # POSITIVELY DEMONSTRATE the live API contract, so here anything short of a proven primary must
+      # fail. Echoing the result and exiting 0 would recreate exactly the vacuous green this check was
+      # built to prevent: missing token, 404, malformed schema and replicas-present would all be green.
+      - name: Require a POSITIVELY proven primary (fail closed)
+        run: |
+          set -euo pipefail
+          authority="${PROOF_READ_AUTHORITY:-<unset>}"
+          reason="${PROOF_READ_AUTHORITY_REASON:-<unset>}"
+          echo "authority=${authority}"
+          echo "reason=${reason}"
+          if [ "$authority" != "primary-proven" ] || [ "$reason" != "no_read_replicas" ]; then
+            echo "::error::read authority NOT positively proven (authority=${authority} reason=${reason})."
+            echo "::error::Attempt 9 must not be authorized on this result."
+            exit 1
+          fi
+          echo "read authority positively proven: primary-proven / no_read_replicas"

@@ -93,6 +93,25 @@ jobs:
         with:
           install-playwright: 'true'
 
+      # READ AUTHORITY PREFLIGHT — read-only Management API probe of the replica inventory.
+      #
+      # DELIBERATELY AFTER `Setup Environment`. This step runs `node --experimental-strip-types`, and
+      # `.nvmrc` (22.12.0) is only applied by that setup action. Running it earlier meant relying on
+      # whatever Node the mutable `ubuntu-latest` image happens to ship — which works today and is not
+      # a pin. Placing it here makes the claimed version the version that actually runs.
+      #
+      # The management token is exposed to THIS STEP ONLY: it is deliberately absent from the job-wide
+      # environment and from the Playwright step, so the proof itself can never see it. The step emits
+      # two derived tokens into GITHUB_ENV and nothing else — never the token, project reference, URL
+      # or response body. It always exits 0: an unresolved authority CAPS the proof's verdict rather
+      # than failing the run.
+      - name: Resolve read authority (read-only, token scoped to this step)
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        timeout-minutes: 3
+        run: node --experimental-strip-types scripts/verify-read-authority.mjs
+
       - name: Run #1306 three-session retention proof against production
         id: proof
         env:

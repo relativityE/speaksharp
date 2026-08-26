@@ -14,6 +14,10 @@ const SPEC = readFileSync('tests/live/three-session-retention-proof.live.spec.ts
 const WORKFLOW = readFileSync('.github/workflows/three-session-retention-proof.yml', 'utf8');
 const CLEANUP = readFileSync('tests/live/helpers/runOwnedCleanup.ts', 'utf8');
 const BENCH = readFileSync('tests/live/helpers/benchmark-utils.ts', 'utf8');
+const STORAGE = readFileSync('frontend/src/lib/storage.ts', 'utf8');
+const STATE_MIGRATION = readFileSync('backend/supabase/migrations/20260801000000_sessions_transcript_state.sql', 'utf8');
+const PREFLIGHT = readFileSync('scripts/verify-read-authority.mjs', 'utf8');
+const PREFLIGHT_WORKFLOW = readFileSync('.github/workflows/read-authority-preflight.yml', 'utf8');
 
 describe('three-session production proof — assertion contract', () => {
   it('the scan is not vacuous', () => {
@@ -219,6 +223,192 @@ describe('three-session production proof — assertion contract', () => {
     expect(body).toMatch(/isConnected/);
     // A read failure must PROPAGATE — no silent-empty catch inside the capture.
     expect(body, 'the capture must not swallow read errors').not.toMatch(/\.catch\(/);
+  });
+
+  it('[advisory] the v2 envelope is asserted PER RECORDING, before any row read', () => {
+    // Attempt 8 captured all three envelopes but asserted them only after the retention step, so it
+    // failed on a downstream row read without ever examining the most authoritative evidence.
+    expect(SPEC).toMatch(/assertV2Envelope/);
+    const perRecording = SPEC.lastIndexOf('await assertV2Envelope(ordinal, label);');
+    const retentionStep = SPEC.indexOf('newest two retained, OLDEST evicted');
+    expect(perRecording, 'the envelope must be asserted inside recordOneSession').toBeGreaterThan(-1);
+    expect(perRecording, 'and BEFORE the retention step').toBeLessThan(retentionStep);
+    // The three fields that make the contract atomic — asserted on the MAPPED values, which is why
+    // these look for the mapped identifiers rather than the raw envelope keys.
+    expect(SPEC).toMatch(/const outcome = safeEnum\(env\.transcript_outcome,/);
+    expect(SPEC).toMatch(/const state = safeEnum\(env\.transcript_state,/);
+    expect(SPEC).toMatch(/expect\(outcome,[\s\S]{0,80}toBe\('retained'\)/);
+    expect(SPEC).toMatch(/expect\(retained,[\s\S]{0,80}toBe\(true\)/);
+    expect(SPEC).toMatch(/expect\(state,[\s\S]{0,80}toBe\('available'\)/);
+  });
+
+  it('[advisory] envelopes are bound to the recording ORDINAL, not to array order', () => {
+    // `v2Responses.push(...)` runs in parse-completion order; indexing by position assumes an ordering
+    // nothing guarantees.
+    // Behavioural, not presence-based: the set taken must be the slice SINCE the cursor. Checking only
+    // that the names exist let an array-index mutation survive — the names stayed while the semantics
+    // reverted.
+    expect(SPEC).toMatch(/const added = v2Responses\.slice\(envelopeCursor\);/);
+    expect(SPEC).toMatch(/envelopeCursor = v2Responses\.length;/);
+    expect(SPEC, 'must not index the capture array by ordinal').not.toMatch(/v2Responses\[ordinal/);
+    expect(SPEC).toMatch(/takeEnvelopeForRecording/);
+    // Exactly one envelope per recording — a second is a silent double-save.
+    expect(SPEC).toMatch(/must produce exactly ONE complete_session_v2 envelope/);
+  });
+
+  it('[advisory] the convergence poll DIAGNOSES and still fails — it can never pass a run', () => {
+    const idx = SPEC.indexOf('PROOF_ROW_CONVERGENCE');
+    expect(idx, 'the convergence history must exist').toBeGreaterThan(-1);
+    // A `throw` must follow the history unconditionally: no branch may return/continue to a pass.
+    // Window must span the verdict computation that sits between the log and the throw; 900 was tuned
+    // to an earlier shape and silently stopped reaching the throw when that block grew.
+    const after = SPEC.slice(idx, idx + 2_000);
+    // UNCONDITIONAL. A presence check for `throw new Error` survived a mutation that guarded it behind
+    // `if (converged) {} else throw ...` — the string was still there while the behaviour had flipped.
+    // The property is "no bypass", not "textually adjacent": a `const verdict = ...` between the log
+    // and the throw is legitimate, an `if (converged)` guard or an `else throw` bypass is not.
+    expect(after, 'the block must throw').toMatch(/throw new Error\(/);
+    expect(after, 'convergence must not be tolerated into a pass')
+      .not.toMatch(/if\s*\(\s*converged\s*\)\s*\{[^}]*\}\s*else/);
+    expect(after, 'the throw must not be reached only via an else branch').not.toMatch(/else\s+throw new Error\(/);
+    // Both classification branches must exist: converged vs never-converged are different findings.
+    expect(after).toMatch(/CONVERGED on re-read/);
+    expect(after).toMatch(/NEVER converged/);
+  });
+
+  it('[advisory] read authority is POSITIVELY classified and caps the verdict', () => {
+    // The classifier itself is executed in tests/unit/readEndpointAuthority.test.ts. This only pins
+    // the WIRING: a hostname denylist must not come back, and the claim must be capped by authority.
+    expect(SPEC).toMatch(/resolveReadAuthority\(process\.env\)/);
+    expect(SPEC, 'no hostname denylist may return').not.toMatch(/read-replica\|-replica/);
+    expect(SPEC, 'a persistence defect may only be claimed on a proven primary')
+      .toMatch(/readAuthority\.maxClaim === 'persistence-defect'/);
+    expect(SPEC).toMatch(/authority is UNKNOWN/);
+  });
+
+  it('the workflow runs the read-authority preflight with a STEP-SCOPED token', () => {
+    expect(WORKFLOW).toMatch(/scripts\/verify-read-authority\.mjs/);
+    expect(WORKFLOW).toMatch(/SUPABASE_ACCESS_TOKEN:\s*\$\{\{\s*secrets\.SUPABASE_ACCESS_TOKEN\s*\}\}/);
+    // The token must appear EXACTLY ONCE — job-wide exposure would hand it to the Playwright step,
+    // which has no need for it and every opportunity to leak it.
+    expect((WORKFLOW.match(/SUPABASE_ACCESS_TOKEN/g) ?? []).length,
+      'the management token must be scoped to the preflight step only').toBe(2);
+    // ...and that occurrence must sit under the preflight step, not an unrelated one.
+    const tokenIdx = WORKFLOW.indexOf('SUPABASE_ACCESS_TOKEN:');
+    const stepIdx = WORKFLOW.lastIndexOf('- name:', tokenIdx);
+    expect(WORKFLOW.slice(stepIdx, tokenIdx)).toMatch(/Resolve read authority/);
+  });
+
+  it('the STANDALONE preflight workflow FAILS CLOSED on anything but a proven primary', () => {
+    // The script exits 0 for `unknown` by design — in the production proof an unresolved authority
+    // caps the verdict rather than failing the run. But the standalone workflow exists to POSITIVELY
+    // demonstrate the live API contract, so echoing the result and exiting 0 would make missing token,
+    // 404, malformed schema and replicas-present all green: the vacuous-green pattern, in the very
+    // check built to prevent it.
+    expect(PREFLIGHT_WORKFLOW).toMatch(/primary-proven/);
+    expect(PREFLIGHT_WORKFLOW).toMatch(/no_read_replicas/);
+    expect(PREFLIGHT_WORKFLOW, 'a non-proven result must exit nonzero').toMatch(/exit 1/);
+    expect(PREFLIGHT_WORKFLOW, 'both fields must be required together')
+      .toMatch(/!=\s*"primary-proven"\s*\]\s*\|\|\s*\[\s*"\$reason"\s*!=\s*"no_read_replicas"/);
+  });
+
+  it('the proof runs the preflight AFTER Node is pinned by Setup Environment', () => {
+    // The preflight invokes `node --experimental-strip-types`; `.nvmrc` (22.12.0) is applied only by
+    // the setup action. Running it earlier relied on whatever Node the mutable `ubuntu-latest` image
+    // happens to ship — which works today and is not a pin.
+    const setupIdx = WORKFLOW.indexOf('- name: Setup Environment');
+    const preflightIdx = WORKFLOW.indexOf('- name: Resolve read authority');
+    const proofIdx = WORKFLOW.indexOf('- name: Run #1306 three-session retention proof');
+    expect(setupIdx).toBeGreaterThan(-1);
+    expect(preflightIdx, 'preflight must come AFTER Setup Environment').toBeGreaterThan(setupIdx);
+    expect(preflightIdx, 'and BEFORE the proof that consumes its verdict').toBeLessThan(proofIdx);
+  });
+
+  it('both preflight workflows are BOUNDED by explicit timeouts', () => {
+    // An unbounded job wrapping a bounded request is still an unbounded step. The standalone workflow
+    // exists to be a cheap, terminating check; without these a wedged runner or stalled setup hangs it.
+    expect(PREFLIGHT_WORKFLOW, 'standalone job must have a job timeout').toMatch(/^\s{4}timeout-minutes:\s*\d+/m);
+    expect(PREFLIGHT_WORKFLOW, 'and a step timeout on the probe').toMatch(/^\s{8}timeout-minutes:\s*\d+/m);
+    // The production proof's preflight step is bounded too.
+    const idx = WORKFLOW.indexOf('- name: Resolve read authority');
+    expect(WORKFLOW.slice(idx, idx + 800)).toMatch(/timeout-minutes:\s*\d+/);
+  });
+
+  it('the preflight calls the TESTED implementation and does not re-implement it', () => {
+    // The script previously re-implemented URL parsing, response validation and authority selection.
+    // Two implementations mean the tested one stays green while the one that actually runs in
+    // production drifts — the tests would be measuring the wrong code.
+    expect(PREFLIGHT).toMatch(/from '\.\.\/tests\/helpers\/readEndpointAuthority\.ts'/);
+    // `probeReplicas` now wraps `probeFromResponse` together with the bounded request, so the script
+    // imports the wrapper rather than the inner validator.
+    for (const fn of ['projectRefFromUrl', 'probeReplicas', 'classifyFromReplicaProbe']) {
+      expect(PREFLIGHT, `${fn} must be imported, not redefined`).toMatch(new RegExp(fn));
+      expect(PREFLIGHT, `${fn} must not be locally defined`)
+        .not.toMatch(new RegExp(`function ${fn}\\s*\\(`));
+    }
+    // No local re-derivation of the project ref or the array check.
+    expect(PREFLIGHT, 'no local ref parsing').not.toMatch(/supabase\\\.co\$\/\.exec/);
+    expect(PREFLIGHT, 'no local array validation').not.toMatch(/Array\.isArray\(body\)/);
+    // And no local, unbounded fetch: the request must go through the bounded helper.
+    expect(PREFLIGHT, 'the script must not call fetch directly').not.toMatch(/await fetch\(/);
+    expect(PREFLIGHT, 'no local AbortController').not.toMatch(/new AbortController\(/);
+    // Strip-types is required for the .ts import; Node is pinned to 22.12.0 by .nvmrc.
+    expect(WORKFLOW).toMatch(/node --experimental-strip-types scripts\/verify-read-authority\.mjs/);
+  });
+
+  it('the spec consumes the DERIVED verdict and cannot see the token', () => {
+    expect(SPEC).toMatch(/resolveReadAuthority\(process\.env\)/);
+    expect(SPEC, 'the proof must never reference the management token')
+      .not.toMatch(/SUPABASE_ACCESS_TOKEN/);
+  });
+
+  it('the enum domains MATCH their sources — an omitted member destroys the diagnostic', () => {
+    // `safeEnum` maps anything outside the list to `invalid`, so a missing member silently erases the
+    // evidence for exactly that case. The first version listed `not_provided` as a STATE and omitted
+    // `retention_failed` from the OUTCOMES — the latter being the most likely decisive value for #1306.
+    const specStates = /const TRANSCRIPT_STATES = \[([^\]]+)\]/.exec(SPEC);
+    const specOutcomes = /const TRANSCRIPT_OUTCOMES = \[([^\]]+)\]/.exec(SPEC);
+    expect(specStates, 'the spec must name the state domain').not.toBeNull();
+    expect(specOutcomes, 'the spec must name the outcome domain').not.toBeNull();
+    const parse = (m) => m[1].match(/'([a-z_]+)'/g).map((x) => x.replace(/'/g, '')).sort();
+
+    const check = /CHECK \(transcript_state IN \(([^)]+)\)\)/.exec(STATE_MIGRATION);
+    expect(check, 'the CHECK constraint must be readable').not.toBeNull();
+    expect(parse(specStates)).toEqual(parse(check));
+
+    const outcomes = /export const TRANSCRIPT_OUTCOMES = \[([^\]]+)\]/.exec(STORAGE);
+    expect(outcomes, 'storage.ts must export the outcome domain').not.toBeNull();
+    expect(parse(specOutcomes)).toEqual(parse(outcomes));
+
+    expect(parse(specOutcomes)).toContain('retention_failed');
+    expect(parse(specStates)).not.toContain('not_provided');
+  });
+
+  it('every envelope field is VALIDATED before it is logged or asserted', () => {
+    // A malformed response must not place arbitrary text into a public Actions log — and a failed
+    // `toBe` echoes its RECEIVED value, so asserting on a raw field would republish it in the failure
+    // message. Assertions must therefore read the MAPPED values.
+    expect(SPEC).toMatch(/const safeEnum =/);
+    expect(SPEC).toMatch(/transcript_state: state,/);
+    expect(SPEC).toMatch(/transcript_outcome: outcome,/);
+    expect(SPEC).toMatch(/retention_status: safeToken\(/);
+    // The assertions themselves must not touch `env.` fields directly.
+    expect(SPEC, 'assert on mapped values, never raw env fields')
+      .not.toMatch(/expect\(env\.transcript_(state|outcome|retained)/);
+    // Nor may a raw DB value be interpolated into a failure message.
+    expect(SPEC, 'row disagreement must not echo a raw state')
+      .not.toMatch(/was '\$\{String\(row\.transcript_state\)\}'/);
+  });
+
+  it('[advisory] the retention branch is identifiable without another production run', () => {
+    // EACH field must go through the bounded token validator. Requiring only that `safeToken(`
+    // appears somewhere let an unvalidated `retention_reason` survive, because `retention_sqlstate`
+    // still used it — presence of the helper is not use of the helper.
+    expect(SPEC, 'retention_reason must be validated').toMatch(/retention_reason:\s*safeToken\(/);
+    expect(SPEC, 'retention_sqlstate must be validated').toMatch(/retention_sqlstate:\s*safeToken\(/);
+    // The validator itself must stay bounded and character-classed.
+    expect(SPEC).toMatch(/length <= 64/);
+    expect(SPEC).toMatch(/\^\[A-Za-z0-9_\.:-\]\+\$/);
   });
 
   it('production authority gates are unchanged', () => {
