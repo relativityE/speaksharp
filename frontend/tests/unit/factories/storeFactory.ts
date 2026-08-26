@@ -48,6 +48,7 @@ const initialState: SessionState = {
     isBooting: false,
     engineSelectionLocked: false,
     pendingResolutionKind: null,
+    progressGate: null,
 };
 
 /**
@@ -215,6 +216,7 @@ export function createTestSessionStore(
         setActiveObjectiveBrief: vi.fn((activeObjectiveBrief) => set({ activeObjectiveBrief })),
         setPracticeFocus: vi.fn((practiceFocus) => set({ practiceFocus })),
         setCompletedObjectiveBrief: vi.fn((completedObjectiveBrief) => set({ completedObjectiveBrief })),
+        setProgressGate: vi.fn((progressGate) => set({ progressGate })),
         setObjectiveCoverageResult: vi.fn((objectiveCoverageResult) => set({ objectiveCoverageResult })),
         setTranscriptFinalizing: vi.fn((isTranscriptFinalizing) =>
             set({

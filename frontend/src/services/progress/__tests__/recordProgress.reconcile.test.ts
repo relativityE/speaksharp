@@ -52,7 +52,7 @@ describe('#1265 durable recovery — generic sweep removed', () => {
         const res = await reconcileProgressEvaluations(USER, []);
         expect(res.queueDrained).toBe(1);
         expect(recordedIds()).toEqual(['s-queued']);
-        expect(getQueuedSessionIdsForUser(USER)).toEqual([]); // cleared on success
+        expect(getQueuedSessionIdsForUser(USER).sessionIds).toEqual([]); // cleared on success
     });
 
     it('does NOT auto-record a completed session missing an evaluation (no mode-ambiguous sweep)', async () => {
@@ -77,6 +77,6 @@ describe('#1265 durable recovery — generic sweep removed', () => {
         enqueueProgressReconcile('s-queued', USER, '2026-07-31T00:00:00Z');
         const res = await reconcileProgressEvaluations(USER, []);
         expect(res.queueDrained).toBe(0);
-        expect(getQueuedSessionIdsForUser(USER)).toEqual(['s-queued']); // retained for next load
+        expect(getQueuedSessionIdsForUser(USER).sessionIds).toEqual(['s-queued']); // retained for next load
     });
 });

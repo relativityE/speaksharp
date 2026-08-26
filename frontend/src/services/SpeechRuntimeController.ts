@@ -52,7 +52,11 @@ import { shouldPublishFinalized } from '@/services/transcription/finalizeGate';
 // #1033 (2): the controller deliberately imports ONLY the owner-scoped reader — the unscoped
 // getSessionRecoveryDraft() must never be reachable from a recovery path.
 import { clearSessionRecoveryDraft, getRecoverableDraftForUser, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
-import { wireProgressEvaluationOnSave } from '@/services/progress/recordProgress';
+import {
+    wireProgressEvaluationOnSave, progressOutcomeAllowsNextRecording,
+    type ProgressEvaluationOutcome,
+} from '@/services/progress/recordProgress';
+import { evaluateStartGate, startGateMessage } from '@/services/progress/progressStartGate';
 import { installSttEvidenceCollector } from '@/services/transcription/sttEvidenceCollector';
 import { installSttIdentityAccessor } from '@/services/transcription/sttIdentity';
 
@@ -2525,6 +2529,19 @@ export class SpeechRuntimeController {
         // retry, OR a recording that began and failed post-start without a durable save. Its identity must be
         // resolved (Retry Save) or explicitly discarded first. This bounds the system to AT MOST ONE
         // unresolved recording, so the single retry slot / unresolved signal can never be clobbered.
+        // #1354: the previous session's Progress evidence is not terminal. Enforced HERE, at the real
+        // Start entry, before any model or recording lifecycle begins — the UI's disabled button is a
+        // visible cue, not the gate.
+        //
+        // The DURABLE QUEUE is read FRESH on every attempt. The store gate is per-tab and can be stale:
+        // a second already-open tab never sees debt another tab queued, because browser `storage` events
+        // notify other tabs and never the writer. Enforcement must not depend on event delivery.
+        const startGate = evaluateStartGate(this.capturedUserId, useSessionStore.getState().progressGate);
+        if (!startGate.allowed) {
+            logger.warn({ reason: startGate.reason }, '[controller] startRecording blocked on Progress evidence (#1354)');
+            useSessionStore.getState().setSTTStatus({ type: 'error', message: startGateMessage(startGate) ?? '' });
+            return;
+        }
         if (this.pendingAttributionRetry || this.pendingFullSaveRetry || this.recordingStartedUnresolved) {
             logger.warn({ pendingSession: (this.pendingFullSaveRetry ?? this.pendingAttributionRetry)?.sessionId ?? null, kind: this.pendingResolutionKind(), unresolved: this.recordingStartedUnresolved }, '[controller] startRecording blocked: prior recording unresolved (#1033)');
             useSessionStore.getState().setSTTStatus({ type: 'error', message: 'Finish saving your previous recording before starting a new one.' });
@@ -3656,7 +3673,13 @@ export class SpeechRuntimeController {
                             // Normal completion and both retry completions share this one immutable
                             // mode-aware seam. It uses the recording-boundary snapshot above, never the current
                             // live brief, so a later Focus Points selection cannot attach to this take.
-                            void this.completeProgressForRecording(
+                            // #1354: AWAITED. This was `void`-dispatched — the normal completion path
+                            // returned the recorder to a startable state while the evaluation was still
+                            // in flight, which is precisely what attempt 9 caught: the third completion
+                            // reached retention while session 1's Progress evidence was still pending,
+                            // and the server refused to retain the new transcript under strict
+                            // newest-two. The gate is published inside this call before Start reopens.
+                            await this.completeProgressForRecording(
                                 progressContext,
                                 sessionId,
                                 attributionTerminalStatus,
@@ -3779,26 +3802,41 @@ export class SpeechRuntimeController {
         sessionId: string,
         attributionStatus: string | undefined,
         metricsPersisted: boolean,
-    ): Promise<void> {
-        if (context.mode === 'unknown') return;
+    ): Promise<ProgressEvaluationOutcome> {
+        // Unknown/legacy retry context fails closed — it cannot prove evidence is terminal.
+        if (context.mode === 'unknown') return { kind: 'unresolved', reason: 'metrics_not_persisted' };
         // Both practice modes require actual durable delivery metrics. This guard sits before Open Mic's
         // immediate path and Focus Points registration so neither can create an immutable partial evaluation.
-        if (!metricsPersisted) return;
+        if (!metricsPersisted) return { kind: 'unresolved', reason: 'metrics_not_persisted' };
 
-        const runProgressEval = () => void wireProgressEvaluationOnSave({
-            sessionId,
-            status: 'completed',
-            attributionStatus,
-            metricsPersisted,
-            userId: this.capturedUserId,
-        }).catch((progressErr) => logger.warn(
-            { progressErr, sessionId },
-            '[controller] progress recording failed (non-fatal)',
-        ));
+        // #1354: AWAITED and its result returned. This was `void wireProgressEvaluationOnSave(...)` —
+        // fire-and-forget — so the recorder returned to a startable state before the evaluation was
+        // known durable. On a rapid three-session journey the third completion then reached retention
+        // while the oldest outgoing session still lacked terminal evidence, and the server correctly
+        // refused to retain the new transcript under strict newest-two.
+        const runProgressEval = async (): Promise<ProgressEvaluationOutcome> => {
+            try {
+                return await wireProgressEvaluationOnSave({
+                    sessionId,
+                    status: 'completed',
+                    attributionStatus,
+                    metricsPersisted,
+                    userId: this.capturedUserId,
+                });
+            } catch (progressErr) {
+                // A throw is NOT durability. Fail closed rather than inferring success from silence.
+                logger.warn({ progressErr, sessionId }, '[controller] progress recording threw');
+                return { kind: 'unresolved', reason: 'queue_unavailable' };
+            }
+        };
+
+        // #1354: block Start for the WHOLE window, not just after the outcome is known. The state table
+        // requires "evaluation currently resolving -> disabled"; publishing the gate only after the await
+        // would leave the in-flight window open, which is the very window that caused attempt 9.
+        this.beginProgressGate(sessionId);
 
         if (context.mode === 'open_mic') {
-            runProgressEval();
-            return;
+            return this.applyProgressGate(sessionId, await runProgressEval());
         }
 
         const store = useSessionStore.getState();
@@ -3807,13 +3845,45 @@ export class SpeechRuntimeController {
         if (liveBrief?.projectId === context.brief.projectId && liveBrief.briefId === context.brief.briefId) {
             store.setActiveObjectiveBrief(null);
         }
-        await this.finalizeObjectiveAndGateProgress(
+        return this.applyProgressGate(sessionId, await this.finalizeObjectiveAndGateProgress(
             { projectId: context.brief.projectId, briefId: context.brief.briefId },
             sessionId,
             context.segments,
             context.durationSeconds,
             runProgressEval,
-        );
+        ));
+    }
+
+    /**
+     * #1354 — publish the recorder gate from the Progress outcome.
+     *
+     * Only a DURABLE terminal result unlocks. `queued` is durable but not terminal, so it blocks with an
+     * actionable retry; `unresolved` blocks fail-closed. The gate is stored so the UI can render it AND
+     * so `startRecording` can enforce it independently — a disabled button is not a gate.
+     */
+    /** Mark this session's Progress evidence as IN FLIGHT. Start stays blocked until it is terminal. */
+    private beginProgressGate(sessionId: string): void {
+        useSessionStore.getState().setProgressGate({
+            sessionId, ownerId: this.capturedUserId ?? null, state: 'resolving',
+        });
+    }
+
+    private applyProgressGate(sessionId: string, outcome: ProgressEvaluationOutcome): ProgressEvaluationOutcome {
+        const store = useSessionStore.getState();
+        const owner = this.capturedUserId ?? null;
+        const gate = store.progressGate;
+        // A result carries OWNER and SESSION context. A late result from a previous account or a
+        // different session must not clear the current gate — switching accounts mid-flight would
+        // otherwise unlock the new owner on the former owner's evidence.
+        const isOurs = gate && gate.sessionId === sessionId && gate.ownerId === owner;
+        if (progressOutcomeAllowsNextRecording(outcome)) {
+            if (isOurs) store.setProgressGate(null);
+            return outcome;
+        }
+        if (gate && !isOurs) return outcome; // stale owner/session — never overwrite the live gate
+        store.setProgressGate({ sessionId, ownerId: owner, state: outcome.kind === 'queued' ? 'queued' : 'unresolved' });
+        logger.warn({ sessionId, outcome: outcome.kind }, '[controller] next recording gated on Progress evidence');
+        return outcome;
     }
 
     /**
@@ -3833,8 +3903,8 @@ export class SpeechRuntimeController {
         sessionId: string,
         segments: { text: string; startSec: number }[],
         durationSeconds: number,
-        runProgressEval: () => void,
-    ): Promise<void> {
+        runProgressEval: () => Promise<ProgressEvaluationOutcome>,
+    ): Promise<ProgressEvaluationOutcome> {
         try {
             const { finalizeObjectiveSessionOnSave } = await import('@/services/objective/finalizeObjectiveSessionOnSave');
             const objResult = await finalizeObjectiveSessionOnSave({
@@ -3852,9 +3922,16 @@ export class SpeechRuntimeController {
                     objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
                 );
             }
-            if (objResult.registered) runProgressEval();
+            // Registration failure means Progress is unavailable for this take — no evaluation is owed
+            // and none will ever arrive, so it must not hold the recorder hostage. That is an accepted
+            // terminal reason, not an unresolved one.
+            if (!objResult.registered) return { kind: 'not_applicable', reason: 'not_completed' };
+            return await runProgressEval();
         } catch (objErr) {
+            // Ambiguous throw: registration state is UNKNOWN. Fail closed — we cannot claim the take
+            // owes nothing, and we cannot claim evidence is durable.
             logger.warn({ objErr, sessionId }, '[controller] objective finalization failed (non-fatal)');
+            return { kind: 'unresolved', reason: 'queue_unavailable' };
         }
     }
 
