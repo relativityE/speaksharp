@@ -299,6 +299,25 @@ describe('three-session production proof — assertion contract', () => {
     expect(WORKFLOW.slice(stepIdx, tokenIdx)).toMatch(/Resolve read authority/);
   });
 
+  it('the preflight calls the DOCUMENTED project endpoint, not the nonexistent replica list', () => {
+    // `GET /v1/projects/{ref}/read-replicas` DOES NOT EXIST — the published OpenAPI spec documents
+    // only `POST .../setup` and `POST .../remove`. The standalone preflight caught it as a 404 before
+    // any production run. This pins that it cannot come back.
+    // Executable lines only: the comments deliberately record WHY that endpoint is not used, and that
+    // history is worth keeping.
+    const executable = (body) => body.split('\n')
+      .filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n');
+    const helper = readFileSync('tests/helpers/readEndpointAuthority.ts', 'utf8');
+    expect(executable(PREFLIGHT), 'the replica-list endpoint must not be called').not.toMatch(/read-replicas/);
+    expect(executable(helper), 'no replica-list request anywhere').not.toMatch(/read-replicas/);
+    expect(helper).toMatch(/\$\{endpoint\}\/\$\{ref\}/);
+    // The documented load balancer must be rejected BY NAME, with its own reason.
+    expect(helper).toMatch(/-all\\\.supabase\\\.co/);
+    expect(helper).toMatch(/load_balancer_endpoint/);
+    // ...and proven requires the ref to match.
+    expect(helper).toMatch(/probe\.ref !== urlRef/);
+  });
+
   it('the STANDALONE preflight workflow FAILS CLOSED on anything but a proven primary', () => {
     // The script exits 0 for `unknown` by design — in the production proof an unresolved authority
     // caps the verdict rather than failing the run. But the standalone workflow exists to POSITIVELY
@@ -306,10 +325,10 @@ describe('three-session production proof — assertion contract', () => {
     // 404, malformed schema and replicas-present all green: the vacuous-green pattern, in the very
     // check built to prevent it.
     expect(PREFLIGHT_WORKFLOW).toMatch(/primary-proven/);
-    expect(PREFLIGHT_WORKFLOW).toMatch(/no_read_replicas/);
+    expect(PREFLIGHT_WORKFLOW).toMatch(/canonical_project_endpoint/);
     expect(PREFLIGHT_WORKFLOW, 'a non-proven result must exit nonzero').toMatch(/exit 1/);
     expect(PREFLIGHT_WORKFLOW, 'both fields must be required together')
-      .toMatch(/!=\s*"primary-proven"\s*\]\s*\|\|\s*\[\s*"\$reason"\s*!=\s*"no_read_replicas"/);
+      .toMatch(/!=\s*"primary-proven"\s*\]\s*\|\|\s*\[\s*"\$reason"\s*!=\s*"canonical_project_endpoint"/);
   });
 
   it('the proof runs the preflight AFTER Node is pinned by Setup Environment', () => {
@@ -341,7 +360,7 @@ describe('three-session production proof — assertion contract', () => {
     expect(PREFLIGHT).toMatch(/from '\.\.\/tests\/helpers\/readEndpointAuthority\.ts'/);
     // `probeReplicas` now wraps `probeFromResponse` together with the bounded request, so the script
     // imports the wrapper rather than the inner validator.
-    for (const fn of ['projectRefFromUrl', 'probeReplicas', 'classifyFromReplicaProbe']) {
+    for (const fn of ['projectRefFromUrl', 'isLoadBalancerHost', 'probeProject', 'classifyFromProjectProbe']) {
       expect(PREFLIGHT, `${fn} must be imported, not redefined`).toMatch(new RegExp(fn));
       expect(PREFLIGHT, `${fn} must not be locally defined`)
         .not.toMatch(new RegExp(`function ${fn}\\s*\\(`));
