@@ -1,155 +1,201 @@
-// #1306 — BEHAVIOURAL tests for the read-authority classifier.
+// #1306 / #1352 — BEHAVIOURAL tests for read authority.
 //
-// The previous guard was an `[advisory]` source scan: it checked that a denylist regex appeared in the
-// spec. That proved the text existed, not that the classification was correct — and the denylist was
-// wrong anyway, since a replica on an unlisted hostname passed it. These EXECUTE the classifier.
+// HISTORY WORTH KEEPING. Two earlier designs failed here first, which is the point of this file:
+//   1. a hostname DENYLIST (`/pooler\.|read-replica|-replica|\.lb\./`) — proved nothing, since a
+//      replica on any unlisted hostname passed it;
+//   2. a REPLICA INVENTORY via `GET /v1/projects/{ref}/read-replicas` — an endpoint that does not
+//      exist; the published spec has only `POST .../setup` and `POST .../remove`.
+// Authority is now established POSITIVELY from the endpoint shape plus the project's own `ref`.
 import { describe, it, expect } from 'vitest';
 import {
-    classifyFromReplicaProbe, resolveReadAuthority, probeReplicas, MANAGEMENT_API_TIMEOUT_MS,
+    classifyFromProjectProbe, resolveReadAuthority, probeProject, probeFromResponse,
+    projectRefFromUrl, isLoadBalancerHost, MANAGEMENT_API_TIMEOUT_MS,
 } from '../helpers/readEndpointAuthority';
 
-const CANONICAL = 'https://abcdefghijklmnopqrst.supabase.co';
+const REF = 'abcdefghijklmnopqrst';
+const CANONICAL = `https://${REF}.supabase.co`;
+const LOAD_BALANCER = `https://${REF}-all.supabase.co`;
 
-describe('replica-inventory probe -> authority', () => {
-    it('EMPTY replicas on a canonical endpoint is the ONLY primary-proven case', () => {
-        const v = classifyFromReplicaProbe(CANONICAL, { ok: true, replicaCount: 0 });
+describe('endpoint shape', () => {
+    it('extracts the ref from the canonical host only', () => {
+        expect(projectRefFromUrl(CANONICAL)).toBe(REF);
+        expect(projectRefFromUrl(LOAD_BALANCER)).toBeNull();
+        expect(projectRefFromUrl('https://db.mycompany.com')).toBeNull();
+        expect(projectRefFromUrl('not a url')).toBeNull();
+    });
+
+    it('recognises the DOCUMENTED load-balancer host by name', () => {
+        // `<ref>-all.supabase.co` routes to primary OR replica, so it can never prove primary. It gets
+        // its own reason rather than being lumped in with malformed input.
+        expect(isLoadBalancerHost(LOAD_BALANCER)).toBe(true);
+        expect(isLoadBalancerHost(CANONICAL)).toBe(false);
+    });
+});
+
+describe('the WHOLE URL is validated, not just the hostname', () => {
+    // The gap this closes: validating `hostname` alone accepted plaintext, credentials, ports, paths,
+    // queries and fragments — every one of which shares the canonical hostname while being a
+    // DIFFERENT endpoint — and would then have classified them `primary-proven`.
+    const REJECTED: Array<[string, string]> = [
+        [`http://${REF}.supabase.co`, 'plaintext http is a downgrade, not the canonical Data API'],
+        [`https://user:pass@${REF}.supabase.co`, 'embedded credentials'],
+        [`https://${REF}.supabase.co:8443`, 'a non-default port is a different listener'],
+        [`https://${REF}.supabase.co/rest/v1`, 'a path could be proxied or rewritten anywhere'],
+        [`https://${REF}.supabase.co/?x=1`, 'query string'],
+        [`https://${REF}.supabase.co/#frag`, 'fragment'],
+        [`https://${REF}.supabase.co/a?b=1#c`, 'path + query + fragment combined'],
+    ];
+
+    it.each(REJECTED)('%s is NOT canonical (%s)', (url) => {
+        expect(projectRefFromUrl(url)).toBeNull();
+    });
+
+    it.each(REJECTED)('%s can never be primary-proven (%s)', (url) => {
+        const v = classifyFromProjectProbe(url, { ok: true, ref: REF });
+        expect(v.authority).toBe('unknown');
+        expect(v.reason).toBe('non_canonical_endpoint');
+        expect(v.maxClaim).toBe('read-path-disagreement-authority-unknown');
+    });
+
+    it('an explicit DEFAULT port is the same origin and is accepted', () => {
+        // My first version listed this as a rejection and was wrong: WHATWG URL normalises `:443` on
+        // https to an empty port, and `new URL('https://h:443').origin === new URL('https://h').origin`.
+        // Rejecting it would reject a byte-identical origin. A NON-default port is still rejected,
+        // which is where the actual protection lies.
+        expect(projectRefFromUrl(`https://${REF}.supabase.co:443`)).toBe(REF);
+        expect(projectRefFromUrl(`https://${REF}.supabase.co:8443`)).toBeNull();
+    });
+
+    it('the bare canonical origin IS accepted, with or without the trailing slash', () => {
+        // `new URL(origin).pathname` is `/`, so a bare origin and an explicit trailing slash are
+        // indistinguishable — both must be accepted or the real configured value would be rejected.
+        expect(projectRefFromUrl(`https://${REF}.supabase.co`)).toBe(REF);
+        expect(projectRefFromUrl(`https://${REF}.supabase.co/`)).toBe(REF);
+    });
+
+    it('a canonical-looking host on the WRONG domain is rejected', () => {
+        expect(projectRefFromUrl(`https://${REF}.supabase.co.evil.test`)).toBeNull();
+        expect(projectRefFromUrl(`https://${REF}.supabase.io`)).toBeNull();
+    });
+});
+
+describe('classification', () => {
+    it('PRIMARY-PROVEN requires canonical host AND a matching project ref', () => {
+        const v = classifyFromProjectProbe(CANONICAL, { ok: true, ref: REF });
         expect(v.authority).toBe('primary-proven');
-        expect(v.reason).toBe('no_read_replicas');
+        expect(v.reason).toBe('canonical_project_endpoint');
         expect(v.maxClaim).toBe('persistence-defect');
     });
 
-    it('REPLICAS PRESENT is unknown — an inventory cannot say which endpoint served a read', () => {
-        // Supabase exposes dedicated replica endpoints AND a separate load balancer, and replicas lag
-        // asynchronously. Knowing replicas exist is not knowing where the read went.
-        for (const n of [1, 3]) {
-            const v = classifyFromReplicaProbe(CANONICAL, { ok: true, replicaCount: n });
-            expect(v.authority).toBe('unknown');
-            expect(v.reason).toBe('replicas_present');
-        }
-    });
-
-    it('API FAILURE fails closed to unknown', () => {
-        const v = classifyFromReplicaProbe(CANONICAL, { ok: false, failure: 'api_error' });
+    it('the LOAD BALANCER is rejected with its own reason, even on a matching ref', () => {
+        const v = classifyFromProjectProbe(LOAD_BALANCER, { ok: true, ref: REF });
         expect(v.authority).toBe('unknown');
-        expect(v.reason).toBe('api_error');
+        expect(v.reason).toBe('load_balancer_endpoint');
     });
 
-    it('MALFORMED response fails closed to unknown', () => {
-        expect(classifyFromReplicaProbe(CANONICAL, { ok: false, failure: 'malformed_response' }).reason)
+    it('a REF MISMATCH is unknown — the URL does not belong to this project', () => {
+        const v = classifyFromProjectProbe(CANONICAL, { ok: true, ref: 'zzzzzzzzzzzzzzzzzzzz' });
+        expect(v.authority).toBe('unknown');
+        expect(v.reason).toBe('ref_mismatch');
+    });
+
+    it('custom domains and malformed URLs are non_canonical_endpoint', () => {
+        const urls = ['https://db.mycompany.com', 'https://api.supabase.co', 'not a url', ''];
+        const got = urls.map((u) => `${u} -> ${classifyFromProjectProbe(u, { ok: true, ref: REF }).reason}`);
+        expect(got).toEqual(urls.map((u) => `${u} -> non_canonical_endpoint`));
+    });
+
+    it('API error and malformed response fail closed', () => {
+        expect(classifyFromProjectProbe(CANONICAL, { ok: false, failure: 'api_error' }).reason).toBe('api_error');
+        expect(classifyFromProjectProbe(CANONICAL, { ok: false, failure: 'malformed_response' }).reason)
             .toBe('malformed_response');
-        // A non-integer or negative count is malformed, never "no replicas".
-        for (const bad of [1.5, -1, Number.NaN]) {
-            const v = classifyFromReplicaProbe(CANONICAL, { ok: true, replicaCount: bad });
-            expect(v.authority, `count=${bad}`).toBe('unknown');
-            expect(v.reason).toBe('malformed_response');
-        }
     });
 
-    it('a NON-CANONICAL endpoint is unknown even with zero replicas', () => {
-        // Context travels in the asserted VALUE so a failure names the offending URL without the
-        // two-argument `expect` form this repo's lint config disallows.
-        const urls = ['https://db-ro-eu-west-1.example.com', 'https://pooler.supabase.com', 'not a url'];
-        const verdicts = urls.map((u) => `${u} -> ${classifyFromReplicaProbe(u, { ok: true, replicaCount: 0 }).reason}`);
-        expect(verdicts).toEqual(urls.map((u) => `${u} -> non_canonical_endpoint`));
-    });
-
-    it('NO PATH other than empty-replicas-on-canonical can reach primary-proven', () => {
+    it('NO path other than canonical-host-plus-matching-ref reaches primary-proven', () => {
         const cases = [
-            classifyFromReplicaProbe(CANONICAL, { ok: true, replicaCount: 1 }),
-            classifyFromReplicaProbe(CANONICAL, { ok: false, failure: 'api_error' }),
-            classifyFromReplicaProbe(CANONICAL, { ok: false, failure: 'malformed_response' }),
-            classifyFromReplicaProbe('https://x.example.com', { ok: true, replicaCount: 0 }),
+            classifyFromProjectProbe(LOAD_BALANCER, { ok: true, ref: REF }),
+            classifyFromProjectProbe(CANONICAL, { ok: true, ref: 'other' }),
+            classifyFromProjectProbe(CANONICAL, { ok: false, failure: 'api_error' }),
+            classifyFromProjectProbe(CANONICAL, { ok: false, failure: 'malformed_response' }),
+            classifyFromProjectProbe('https://x.example.com', { ok: true, ref: REF }),
         ];
         for (const v of cases) expect(v.maxClaim).toBe('read-path-disagreement-authority-unknown');
     });
 });
 
-describe('resolving the preflight verdict from the environment', () => {
-    it('accepts only the exact proven pair', () => {
-        const v = resolveReadAuthority({
-            PROOF_READ_AUTHORITY: 'primary-proven', PROOF_READ_AUTHORITY_REASON: 'no_read_replicas',
-        });
-        expect(v.authority).toBe('primary-proven');
+describe('response validation', () => {
+    it('a 2xx body carrying a string ref is ok', () => {
+        expect(probeFromResponse(200, { ref: REF, name: 'x' })).toEqual({ ok: true, ref: REF });
     });
 
-    it('REMOVED SECRET WIRING: an unprobed environment resolves to unknown/not_probed', () => {
-        // Exactly what happens if the preflight step or its token wiring is deleted.
-        const v = resolveReadAuthority({});
-        expect(v.authority).toBe('unknown');
-        expect(v.reason).toBe('not_probed');
-    });
-
-    it('a proven claim with a mismatched or forged reason is rejected', () => {
-        for (const reason of ['replicas_present', 'api_error', 'totally-made-up', undefined]) {
-            const v = resolveReadAuthority({
-                PROOF_READ_AUTHORITY: 'primary-proven', PROOF_READ_AUTHORITY_REASON: reason,
-            });
-            expect(v.authority, `reason=${reason}`).toBe('unknown');
+    it('non-2xx is api_error', () => {
+        for (const s of [301, 401, 403, 404, 500]) {
+            expect(probeFromResponse(s, { ref: REF }).ok, `status=${s}`).toBe(false);
         }
     });
 
-    it('an unrecognized authority value cannot pass', () => {
-        expect(resolveReadAuthority({ PROOF_READ_AUTHORITY: 'trust-me' }).authority).toBe('unknown');
+    it('a body without a usable ref is malformed, never assumed to match', () => {
+        for (const b of [null, undefined, [], 'str', 42, {}, { ref: 123 }, { ref: '' }]) {
+            const p = probeFromResponse(200, b);
+            expect(p.ok, `body=${JSON.stringify(b)}`).toBe(false);
+            expect(p.ok === false && p.failure).toBe('malformed_response');
+        }
     });
 });
 
+describe('the request is BOUNDED and fails closed', () => {
+    const args = { ref: REF, token: 'unused-in-tests' };
+    const hanging = (_u: string, init: { signal: AbortSignal }) =>
+        new Promise<never>((_r, reject) => { init.signal.addEventListener('abort', () => reject(new Error('AbortError'))); });
 
-describe('the Management API request is BOUNDED and fails closed', () => {
-    const args = { ref: 'abcdefghijklmnopqrst', token: 'unused-in-tests' };
-
-    it('TIMEOUT: a request that never settles resolves to api_error, not a hang', async () => {
-        // The defect this closes: an unbounded fetch inside a "bounded" preflight. A credential,
-        // network or API stall would hang the step rather than produce a verdict — the same shape as a
-        // harness waiting forty minutes for a control that never renders.
-        const hangingFetch = (_u: string, init: { signal: AbortSignal }) =>
-            new Promise<never>((_resolve, reject) => {
-                init.signal.addEventListener('abort', () => reject(new Error('AbortError')));
-            });
+    it('TIMEOUT resolves to api_error and actually terminates on the bound', async () => {
         const started = Date.now();
-        const probe = await probeReplicas({ ...args, fetchImpl: hangingFetch as never, timeoutMs: 40 });
-        expect(probe).toEqual({ ok: false, failure: 'api_error' });
-        // It really terminated on the bound rather than resolving some other way.
+        expect(await probeProject({ ...args, fetchImpl: hanging as never, timeoutMs: 40 }))
+            .toEqual({ ok: false, failure: 'api_error' });
         expect(Date.now() - started).toBeLessThan(2_000);
     });
 
-    it('TIMEOUT feeds through to authority=unknown/api_error', async () => {
-        const hangingFetch = (_u: string, init: { signal: AbortSignal }) =>
-            new Promise<never>((_r, reject) => { init.signal.addEventListener('abort', () => reject(new Error('AbortError'))); });
-        const probe = await probeReplicas({ ...args, fetchImpl: hangingFetch as never, timeoutMs: 40 });
-        const v = classifyFromReplicaProbe('https://abcdefghijklmnopqrst.supabase.co', probe);
+    it('TIMEOUT feeds through to unknown/api_error', async () => {
+        const probe = await probeProject({ ...args, fetchImpl: hanging as never, timeoutMs: 40 });
+        const v = classifyFromProjectProbe(CANONICAL, probe);
         expect(v.authority).toBe('unknown');
         expect(v.reason).toBe('api_error');
-        expect(v.maxClaim).toBe('read-path-disagreement-authority-unknown');
     });
 
-    it('a NETWORK rejection also resolves to api_error', async () => {
-        const failing = () => Promise.reject(new Error('ENOTFOUND'));
-        expect(await probeReplicas({ ...args, fetchImpl: failing as never })).toEqual({ ok: false, failure: 'api_error' });
-    });
-
-    it('a non-2xx response resolves to api_error', async () => {
+    it('network rejection, non-2xx and bad JSON all fail closed', async () => {
+        const net = () => Promise.reject(new Error('ENOTFOUND'));
         const notFound = () => Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
-        expect(await probeReplicas({ ...args, fetchImpl: notFound as never })).toEqual({ ok: false, failure: 'api_error' });
+        const badJson = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.reject(new Error('bad')) });
+        expect(await probeProject({ ...args, fetchImpl: net as never })).toEqual({ ok: false, failure: 'api_error' });
+        expect(await probeProject({ ...args, fetchImpl: notFound as never })).toEqual({ ok: false, failure: 'api_error' });
+        expect(await probeProject({ ...args, fetchImpl: badJson as never })).toEqual({ ok: false, failure: 'malformed_response' });
     });
 
-    it('an unparseable body resolves to malformed_response', async () => {
-        const badJson = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.reject(new Error('bad json')) });
-        expect(await probeReplicas({ ...args, fetchImpl: badJson as never })).toEqual({ ok: false, failure: 'malformed_response' });
+    it('a good response yields the project ref', async () => {
+        const ok = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ref: REF }) });
+        expect(await probeProject({ ...args, fetchImpl: ok as never })).toEqual({ ok: true, ref: REF });
     });
 
-    it('a non-array body resolves to malformed_response, never "no replicas"', async () => {
-        const obj = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ replicas: [] }) });
-        expect(await probeReplicas({ ...args, fetchImpl: obj as never })).toEqual({ ok: false, failure: 'malformed_response' });
+    it('calls the documented PROJECT endpoint, not the nonexistent replica list', async () => {
+        // The exact defect the standalone preflight caught: `/read-replicas` is not a GET endpoint.
+        let calledUrl = '';
+        const spy = (u: string) => {
+            calledUrl = u;
+            return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ref: REF }) });
+        };
+        await probeProject({ ...args, fetchImpl: spy as never });
+        expect(calledUrl).toBe(`https://api.supabase.com/v1/projects/${REF}`);
+        expect(calledUrl).not.toContain('read-replicas');
     });
 
-    it('an empty array is the only ok/zero result', async () => {
-        const empty = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) });
-        expect(await probeReplicas({ ...args, fetchImpl: empty as never })).toEqual({ ok: true, replicaCount: 0 });
-    });
-
-    it('replicas are counted from the array length', async () => {
-        const two = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([{}, {}]) });
-        expect(await probeReplicas({ ...args, fetchImpl: two as never })).toEqual({ ok: true, replicaCount: 2 });
+    it('the abort signal really reaches fetch — the bound is not decorative', async () => {
+        let sawSignal = false;
+        const check = (_u: string, init: { signal: AbortSignal }) => {
+            sawSignal = init.signal instanceof AbortSignal;
+            return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ref: REF }) });
+        };
+        await probeProject({ ...args, fetchImpl: check as never });
+        expect(sawSignal).toBe(true);
     });
 
     it('the default bound is finite and small', () => {
@@ -157,14 +203,26 @@ describe('the Management API request is BOUNDED and fails closed', () => {
         expect(MANAGEMENT_API_TIMEOUT_MS).toBeGreaterThan(0);
         expect(MANAGEMENT_API_TIMEOUT_MS).toBeLessThanOrEqual(30_000);
     });
+});
 
-    it('the abort signal is actually passed to fetch — the bound is not decorative', async () => {
-        let sawSignal = false;
-        const check = (_u: string, init: { signal: AbortSignal }) => {
-            sawSignal = init.signal instanceof AbortSignal;
-            return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) });
-        };
-        await probeReplicas({ ...args, fetchImpl: check as never });
-        expect(sawSignal).toBe(true);
+describe('resolving the preflight verdict from the environment', () => {
+    it('accepts only the exact proven pair', () => {
+        expect(resolveReadAuthority({
+            PROOF_READ_AUTHORITY: 'primary-proven', PROOF_READ_AUTHORITY_REASON: 'canonical_project_endpoint',
+        }).authority).toBe('primary-proven');
+    });
+
+    it('an unprobed environment resolves to unknown/not_probed', () => {
+        const v = resolveReadAuthority({});
+        expect(v.authority).toBe('unknown');
+        expect(v.reason).toBe('not_probed');
+    });
+
+    it('a proven claim with a mismatched or forged reason is rejected', () => {
+        for (const reason of ['load_balancer_endpoint', 'ref_mismatch', 'api_error', 'made-up', undefined]) {
+            expect(resolveReadAuthority({
+                PROOF_READ_AUTHORITY: 'primary-proven', PROOF_READ_AUTHORITY_REASON: reason,
+            }).authority, `reason=${reason}`).toBe('unknown');
+        }
     });
 });

@@ -1,7 +1,9 @@
 # #1306 — prove the read-authority preflight against the LIVE Management API, on its own.
 #
-# WHY THIS EXISTS SEPARATELY. The replica-inventory response schema is not something we should first
-# encounter during a production-writing proof. This runs the preflight and nothing else: no browser, no
+# WHY THIS EXISTS SEPARATELY. The Management API contract is not something we should first encounter
+# during a production-writing proof. It already earned its keep: the previous design called
+# `GET /v1/projects/{ref}/read-replicas`, which does not exist, and this workflow caught the 404 for
+# free instead of turning a production run into another inconclusive one. This runs the preflight and nothing else: no browser, no
 # database writes, no account creation. If the API contract differs from what the classifier expects,
 # it surfaces here for free instead of turning attempt 9 into another inconclusive run.
 #
@@ -50,9 +52,9 @@ jobs:
           reason="${PROOF_READ_AUTHORITY_REASON:-<unset>}"
           echo "authority=${authority}"
           echo "reason=${reason}"
-          if [ "$authority" != "primary-proven" ] || [ "$reason" != "no_read_replicas" ]; then
+          if [ "$authority" != "primary-proven" ] || [ "$reason" != "canonical_project_endpoint" ]; then
             echo "::error::read authority NOT positively proven (authority=${authority} reason=${reason})."
             echo "::error::Attempt 9 must not be authorized on this result."
             exit 1
           fi
-          echo "read authority positively proven: primary-proven / no_read_replicas"
+          echo "read authority positively proven: primary-proven / canonical_project_endpoint"

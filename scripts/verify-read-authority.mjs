@@ -6,9 +6,14 @@
 // replicated replica. Guessing from a hostname denylist proved nothing, and copying SUPABASE_URL into
 // a second variable would prove only that two variables hold the same value. This asks the source.
 //
-// DELIBERATELY NARROW. An empty replica list is the only positive result. When replicas exist,
-// Supabase exposes dedicated replica endpoints AND a separate load-balancer endpoint, so an inventory
-// cannot say which one served a given read — that reports `unknown`, not a guess.
+// DELIBERATELY NARROW. `primary-proven` requires BOTH the exact canonical `<ref>.supabase.co` host
+// AND the Management API confirming that host's ref is this project's ref. The documented
+// `<ref>-all.supabase.co` load balancer routes to primary OR replica and is rejected by name; custom
+// domains, mismatched refs and malformed URLs are all `unknown`.
+//
+// An earlier design called `GET /v1/projects/{ref}/read-replicas`, which DOES NOT EXIST — the
+// published spec has only `POST .../setup` and `POST .../remove`. The standalone preflight caught that
+// as a 404 before any production run, which is what that workflow exists for.
 //
 // SECURITY. GET only. The token, the project reference, the URL and the response body are NEVER
 // printed. Output is two derived tokens and nothing else. Every failure path is `unknown`.
@@ -18,7 +23,7 @@ import { appendFileSync } from 'node:fs';
 // tested classifier and the one that actually runs in production could drift apart silently while
 // every classifier test stayed green. Run with `node --experimental-strip-types` — Node is pinned to
 // 22.12.0 by .nvmrc, which supports it.
-import { projectRefFromUrl, probeReplicas, classifyFromReplicaProbe }
+import { projectRefFromUrl, isLoadBalancerHost, probeProject, classifyFromProjectProbe }
     from '../tests/helpers/readEndpointAuthority.ts';
 
 function emit(authority, reason) {
@@ -35,13 +40,15 @@ function emit(authority, reason) {
 
 const url = process.env.SUPABASE_URL ?? '';
 const token = process.env.SUPABASE_ACCESS_TOKEN ?? '';
-const ref = projectRefFromUrl(url);
+// The documented load balancer is rejected BY NAME, with its own reason, before anything else.
+if (isLoadBalancerHost(url)) emit('unknown', 'load_balancer_endpoint');
 
+const ref = projectRefFromUrl(url);
 if (!ref) emit('unknown', 'non_canonical_endpoint');
 if (!token) emit('unknown', 'not_probed');
 
-// The request is BOUNDED and fail-closed inside the tested helper: abort, network failure, non-2xx,
-// unparseable or non-array body all resolve to a probe the classifier reads as `unknown`.
-const probe = await probeReplicas({ fetchImpl: fetch, ref, token });
-const verdict = classifyFromReplicaProbe(url, probe);
+// The request is BOUNDED and fail-closed inside the tested helper: abort, network failure, non-2xx
+// and malformed bodies all resolve to a probe the classifier reads as `unknown`.
+const probe = await probeProject({ fetchImpl: fetch, ref, token });
+const verdict = classifyFromProjectProbe(url, probe);
 emit(verdict.authority, verdict.reason);

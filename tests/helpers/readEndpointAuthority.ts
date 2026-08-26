@@ -23,21 +23,40 @@ const host = (u: string): string | null => {
     try { return new URL(u).hostname.toLowerCase(); } catch { return null; }
 };
 
-/** A read-only Management API probe of the project's replica inventory. */
-export type ReplicaProbe =
-    | { ok: true; replicaCount: number }
+/**
+ * A read-only Management API probe of the documented project endpoint, `GET /v1/projects/{ref}`.
+ *
+ * WHY NOT A REPLICA INVENTORY. The previous design called `GET /v1/projects/{ref}/read-replicas`,
+ * which DOES NOT EXIST — Supabase's published OpenAPI spec documents only `POST .../setup` and
+ * `POST .../remove`. The standalone preflight caught it as a 404 before any production run, which is
+ * exactly what that workflow is for. No documented read-only endpoint enumerates replicas, so
+ * authority is established from the ENDPOINT SHAPE plus the project's own authoritative `ref`.
+ */
+export type ProjectProbe =
+    | { ok: true; ref: string | null }
     | { ok: false; failure: 'api_error' | 'malformed_response' };
 
 export type AuthorityReason =
-    | 'no_read_replicas'
-    | 'replicas_present'
+    | 'canonical_project_endpoint'
+    | 'load_balancer_endpoint'
+    | 'non_canonical_endpoint'
+    | 'ref_mismatch'
     | 'api_error'
     | 'malformed_response'
-    | 'non_canonical_endpoint'
     | 'not_probed';
 
-/** `https://<ref>.supabase.co` — the canonical per-project Data API endpoint. */
-const CANONICAL_PROJECT_ENDPOINT = /^[a-z0-9]{20}\.supabase\.co$/;
+/**
+ * The canonical per-project Data API host. Deliberately strict: exactly the 20-character project ref
+ * followed by `.supabase.co`, nothing else.
+ */
+const CANONICAL_PROJECT_ENDPOINT = /^([a-z0-9]{20})\.supabase\.co$/;
+
+/**
+ * Supabase's documented read-replica LOAD BALANCER host, which routes to primary OR replica and is
+ * therefore never a proof of primary. Named explicitly so it is rejected with its own reason rather
+ * than lumped in with malformed input — a distinct failure deserves a distinct diagnosis.
+ */
+const LOAD_BALANCER_ENDPOINT = /^([a-z0-9]{20})-all\.supabase\.co$/;
 
 export interface ProbeVerdict {
     authority: ReadAuthority;
@@ -50,24 +69,66 @@ const unknown = (reason: AuthorityReason): ProbeVerdict => ({
 });
 
 /**
- * Classify read authority from a replica inventory.
+ * Is this the EXACT canonical origin — `https://<ref>.supabase.co`, and nothing more?
  *
- * DELIBERATELY NARROW. An empty replica list plus a canonical project endpoint is the only case that
- * yields `primary-proven`, because it is the only case where "there is nowhere else the read could
- * have gone" actually follows. When replicas EXIST, Supabase exposes dedicated replica endpoints and a
- * separate load-balancer endpoint, and replicas lag asynchronously — an inventory alone cannot then
- * establish which endpoint served a given read, so this reports `unknown` rather than guessing.
- *
- * Everything else fails closed: an API error, a malformed body, or a non-canonical endpoint is
- * `unknown`, never a default pass.
+ * Validating `hostname` alone was insufficient and would have classified as `primary-proven` any of:
+ *   http://<ref>.supabase.co            (plaintext — a downgrade, not the canonical Data API)
+ *   https://user:pass@<ref>.supabase.co (embedded credentials)
+ *   https://<ref>.supabase.co:8443      (a non-default port is a different listener)
+ *   https://<ref>.supabase.co/rest/v1   (a path — a proxy or rewrite could route anywhere)
+ *   https://<ref>.supabase.co/?x=1      (query)  and  ...#frag  (fragment)
+ * Every one of those shares the canonical hostname while being a different endpoint, so the check has
+ * to be on the whole URL. `pathname` of a bare origin is `/`, so `/` is the only path accepted.
  */
-export function classifyFromReplicaProbe(readUrl: string, probe: ReplicaProbe): ProbeVerdict {
-    const h = host(readUrl);
-    if (!h || !CANONICAL_PROJECT_ENDPOINT.test(h)) return unknown('non_canonical_endpoint');
+function canonicalParts(url: string): { hostname: string } | null {
+    let u: URL;
+    try { u = new URL(url); } catch { return null; }
+    if (u.protocol !== 'https:') return null;
+    if (u.username !== '' || u.password !== '') return null;
+    if (u.port !== '') return null;
+    if (u.pathname !== '/' && u.pathname !== '') return null;
+    if (u.search !== '' || u.hash !== '') return null;
+    return { hostname: u.hostname.toLowerCase() };
+}
+
+/** `https://<ref>.supabase.co` -> `<ref>`. Any other URL shape yields null. */
+export function projectRefFromUrl(url: string): string | null {
+    const parts = canonicalParts(url);
+    const m = parts ? CANONICAL_PROJECT_ENDPOINT.exec(parts.hostname) : null;
+    return m ? m[1] : null;
+}
+
+/** True only for the documented `<ref>-all.supabase.co` load-balancer host. */
+export function isLoadBalancerHost(url: string): boolean {
+    const h = host(url);
+    return !!h && LOAD_BALANCER_ENDPOINT.test(h);
+}
+
+/** Turn a `GET /v1/projects/{ref}` response into a probe result. */
+export function probeFromResponse(status: number, body: unknown): ProjectProbe {
+    if (status < 200 || status >= 300) return { ok: false, failure: 'api_error' };
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return { ok: false, failure: 'malformed_response' };
+    }
+    const ref = (body as { ref?: unknown }).ref;
+    if (typeof ref !== 'string' || ref.length === 0) return { ok: false, failure: 'malformed_response' };
+    return { ok: true, ref };
+}
+
+/**
+ * Classify read authority from the endpoint shape and the project's authoritative `ref`.
+ *
+ * `primary-proven` requires BOTH: the URL is the exact canonical project host, AND the Management API
+ * confirms that host's ref is this project's ref. Everything else — load balancer, custom domain,
+ * malformed URL, ref mismatch, API error, malformed body — is `unknown`, never a default pass.
+ */
+export function classifyFromProjectProbe(readUrl: string, probe: ProjectProbe): ProbeVerdict {
+    if (isLoadBalancerHost(readUrl)) return unknown('load_balancer_endpoint');
+    const urlRef = projectRefFromUrl(readUrl);
+    if (!urlRef) return unknown('non_canonical_endpoint');
     if (!probe.ok) return unknown(probe.failure);
-    if (!Number.isInteger(probe.replicaCount) || probe.replicaCount < 0) return unknown('malformed_response');
-    if (probe.replicaCount > 0) return unknown('replicas_present');
-    return { authority: 'primary-proven', reason: 'no_read_replicas', maxClaim: 'persistence-defect' };
+    if (probe.ref !== urlRef) return unknown('ref_mismatch');
+    return { authority: 'primary-proven', reason: 'canonical_project_endpoint', maxClaim: 'persistence-defect' };
 }
 
 /**
@@ -78,73 +139,39 @@ export function resolveReadAuthority(env: Record<string, string | undefined>): P
     const a = env.PROOF_READ_AUTHORITY;
     const r = env.PROOF_READ_AUTHORITY_REASON;
     const reasons: AuthorityReason[] = [
-        'no_read_replicas', 'replicas_present', 'api_error', 'malformed_response',
-        'non_canonical_endpoint', 'not_probed',
+        'canonical_project_endpoint', 'load_balancer_endpoint', 'non_canonical_endpoint',
+        'ref_mismatch', 'api_error', 'malformed_response', 'not_probed',
     ];
     const reason = reasons.includes(r as AuthorityReason) ? (r as AuthorityReason) : 'not_probed';
-    if (a === 'primary-proven' && reason === 'no_read_replicas') {
+    if (a === 'primary-proven' && reason === 'canonical_project_endpoint') {
         return { authority: 'primary-proven', reason, maxClaim: 'persistence-defect' };
     }
     return unknown(reason);
 }
 
-/**
- * `https://<ref>.supabase.co` -> `<ref>`; anything else -> null.
- *
- * Lives here, not in the preflight script, because the script previously RE-IMPLEMENTED this and the
- * response validation below. Two implementations mean the tested one can stay green while the one
- * that actually runs in production drifts — the tests would be measuring the wrong code.
- */
-export function projectRefFromUrl(url: string): string | null {
-    const h = host(url);
-    const m = h ? /^([a-z0-9]{20})\.supabase\.co$/.exec(h) : null;
-    return m ? m[1] : null;
-}
-
-/**
- * Turn a Management API response into a probe result. A replica inventory MUST be a list; anything
- * else is malformed and is never assumed to mean "no replicas".
- */
-export function probeFromResponse(status: number, body: unknown): ReplicaProbe {
-    if (status < 200 || status >= 300) return { ok: false, failure: 'api_error' };
-    if (!Array.isArray(body)) return { ok: false, failure: 'malformed_response' };
-    return { ok: true, replicaCount: body.length };
-}
-
-/**
- * Hard bound on the Management API request.
- *
- * An unbounded `fetch` inside a "bounded" preflight is the same failure shape as a harness waiting
- * forty minutes for a control that never renders: a credential, network or API stall would hang the
- * step rather than resolve to a verdict. The probe must always terminate, and it must terminate as
- * `unknown` — never as a pass.
- */
 export const MANAGEMENT_API_TIMEOUT_MS = 15_000;
 
 type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; signal: AbortSignal })
     => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
 
 /**
- * Ask the Management API for the replica inventory, bounded and fail-closed.
- *
- * `fetchImpl` is injected so the timeout, abort, network-failure and malformed-body paths are covered
- * by real executed tests rather than by hoping the script behaves. Every failure — abort, rejection,
- * non-2xx, unparseable body, non-array body — resolves to a probe the classifier treats as `unknown`.
+ * Fetch `GET /v1/projects/{ref}`, bounded and fail-closed. `fetchImpl` is injected so the timeout,
+ * abort, network-failure and malformed-body paths are covered by executed tests.
  */
-export async function probeReplicas(args: {
+export async function probeProject(args: {
     fetchImpl: FetchLike;
     ref: string;
     token: string;
     timeoutMs?: number;
     endpoint?: string;
-}): Promise<ReplicaProbe> {
+}): Promise<ProjectProbe> {
     const { fetchImpl, ref, token } = args;
     const timeoutMs = args.timeoutMs ?? MANAGEMENT_API_TIMEOUT_MS;
     const endpoint = args.endpoint ?? 'https://api.supabase.com/v1/projects';
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const res = await fetchImpl(`${endpoint}/${ref}/read-replicas`, {
+        const res = await fetchImpl(`${endpoint}/${ref}`, {
             method: 'GET',
             headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
             signal: controller.signal,
@@ -154,8 +181,7 @@ export async function probeReplicas(args: {
         try { body = await res.json(); } catch { return { ok: false, failure: 'malformed_response' }; }
         return probeFromResponse(res.status, body);
     } catch {
-        // Abort (timeout), DNS/TLS/network failure — all indistinguishable from the caller's point of
-        // view and all equally non-evidence. `api_error`, never a pass.
+        // Abort (timeout), DNS/TLS/network failure — all equally non-evidence.
         return { ok: false, failure: 'api_error' };
     } finally {
         clearTimeout(timer);
