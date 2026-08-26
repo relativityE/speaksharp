@@ -110,3 +110,54 @@ export function probeFromResponse(status: number, body: unknown): ReplicaProbe {
     if (!Array.isArray(body)) return { ok: false, failure: 'malformed_response' };
     return { ok: true, replicaCount: body.length };
 }
+
+/**
+ * Hard bound on the Management API request.
+ *
+ * An unbounded `fetch` inside a "bounded" preflight is the same failure shape as a harness waiting
+ * forty minutes for a control that never renders: a credential, network or API stall would hang the
+ * step rather than resolve to a verdict. The probe must always terminate, and it must terminate as
+ * `unknown` — never as a pass.
+ */
+export const MANAGEMENT_API_TIMEOUT_MS = 15_000;
+
+type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; signal: AbortSignal })
+    => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+
+/**
+ * Ask the Management API for the replica inventory, bounded and fail-closed.
+ *
+ * `fetchImpl` is injected so the timeout, abort, network-failure and malformed-body paths are covered
+ * by real executed tests rather than by hoping the script behaves. Every failure — abort, rejection,
+ * non-2xx, unparseable body, non-array body — resolves to a probe the classifier treats as `unknown`.
+ */
+export async function probeReplicas(args: {
+    fetchImpl: FetchLike;
+    ref: string;
+    token: string;
+    timeoutMs?: number;
+    endpoint?: string;
+}): Promise<ReplicaProbe> {
+    const { fetchImpl, ref, token } = args;
+    const timeoutMs = args.timeoutMs ?? MANAGEMENT_API_TIMEOUT_MS;
+    const endpoint = args.endpoint ?? 'https://api.supabase.com/v1/projects';
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const res = await fetchImpl(`${endpoint}/${ref}/read-replicas`, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+            signal: controller.signal,
+        });
+        if (!res.ok) return { ok: false, failure: 'api_error' };
+        let body: unknown = null;
+        try { body = await res.json(); } catch { return { ok: false, failure: 'malformed_response' }; }
+        return probeFromResponse(res.status, body);
+    } catch {
+        // Abort (timeout), DNS/TLS/network failure — all indistinguishable from the caller's point of
+        // view and all equally non-evidence. `api_error`, never a pass.
+        return { ok: false, failure: 'api_error' };
+    } finally {
+        clearTimeout(timer);
+    }
+}

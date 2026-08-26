@@ -18,10 +18,8 @@ import { appendFileSync } from 'node:fs';
 // tested classifier and the one that actually runs in production could drift apart silently while
 // every classifier test stayed green. Run with `node --experimental-strip-types` — Node is pinned to
 // 22.12.0 by .nvmrc, which supports it.
-import { projectRefFromUrl, probeFromResponse, classifyFromReplicaProbe }
+import { projectRefFromUrl, probeReplicas, classifyFromReplicaProbe }
     from '../tests/helpers/readEndpointAuthority.ts';
-
-const AUTHORITY_ENDPOINT = 'https://api.supabase.com/v1/projects';
 
 function emit(authority, reason) {
     // The ONLY output. No token, no ref, no URL, no body.
@@ -42,20 +40,8 @@ const ref = projectRefFromUrl(url);
 if (!ref) emit('unknown', 'non_canonical_endpoint');
 if (!token) emit('unknown', 'not_probed');
 
-let res;
-try {
-    res = await fetch(`${AUTHORITY_ENDPOINT}/${ref}/read-replicas`, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-    });
-} catch {
-    emit('unknown', 'api_error');
-}
-
-let body = null;
-try { body = await res.json(); } catch { /* non-JSON body -> probeFromResponse marks it malformed */ }
-
-// Both the probe result and the verdict come from the TESTED implementation.
-const probe = res.ok ? probeFromResponse(res.status, body) : { ok: false, failure: 'api_error' };
+// The request is BOUNDED and fail-closed inside the tested helper: abort, network failure, non-2xx,
+// unparseable or non-array body all resolve to a probe the classifier reads as `unknown`.
+const probe = await probeReplicas({ fetchImpl: fetch, ref, token });
 const verdict = classifyFromReplicaProbe(url, probe);
 emit(verdict.authority, verdict.reason);

@@ -109,6 +109,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        timeout-minutes: 3
         run: node --experimental-strip-types scripts/verify-read-authority.mjs
 
       - name: Run #1306 three-session retention proof against production

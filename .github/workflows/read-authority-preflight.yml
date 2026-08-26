@@ -17,6 +17,10 @@ permissions:
 jobs:
   preflight:
     runs-on: ubuntu-latest
+    # A "bounded" preflight that can hang is not bounded. The request itself is bounded inside the
+    # helper; this is the outer backstop for anything else that stalls (checkout, setup, a wedged
+    # runner). Small on purpose: this job does nothing but one read-only GET.
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -31,6 +35,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        timeout-minutes: 3
         run: node --experimental-strip-types scripts/verify-read-authority.mjs
 
       # FAIL CLOSED. The script exits 0 for `unknown` BY DESIGN — in the production proof an

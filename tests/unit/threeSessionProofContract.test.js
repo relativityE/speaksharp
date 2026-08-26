@@ -324,12 +324,24 @@ describe('three-session production proof — assertion contract', () => {
     expect(preflightIdx, 'and BEFORE the proof that consumes its verdict').toBeLessThan(proofIdx);
   });
 
+  it('both preflight workflows are BOUNDED by explicit timeouts', () => {
+    // An unbounded job wrapping a bounded request is still an unbounded step. The standalone workflow
+    // exists to be a cheap, terminating check; without these a wedged runner or stalled setup hangs it.
+    expect(PREFLIGHT_WORKFLOW, 'standalone job must have a job timeout').toMatch(/^\s{4}timeout-minutes:\s*\d+/m);
+    expect(PREFLIGHT_WORKFLOW, 'and a step timeout on the probe').toMatch(/^\s{8}timeout-minutes:\s*\d+/m);
+    // The production proof's preflight step is bounded too.
+    const idx = WORKFLOW.indexOf('- name: Resolve read authority');
+    expect(WORKFLOW.slice(idx, idx + 800)).toMatch(/timeout-minutes:\s*\d+/);
+  });
+
   it('the preflight calls the TESTED implementation and does not re-implement it', () => {
     // The script previously re-implemented URL parsing, response validation and authority selection.
     // Two implementations mean the tested one stays green while the one that actually runs in
     // production drifts — the tests would be measuring the wrong code.
     expect(PREFLIGHT).toMatch(/from '\.\.\/tests\/helpers\/readEndpointAuthority\.ts'/);
-    for (const fn of ['projectRefFromUrl', 'probeFromResponse', 'classifyFromReplicaProbe']) {
+    // `probeReplicas` now wraps `probeFromResponse` together with the bounded request, so the script
+    // imports the wrapper rather than the inner validator.
+    for (const fn of ['projectRefFromUrl', 'probeReplicas', 'classifyFromReplicaProbe']) {
       expect(PREFLIGHT, `${fn} must be imported, not redefined`).toMatch(new RegExp(fn));
       expect(PREFLIGHT, `${fn} must not be locally defined`)
         .not.toMatch(new RegExp(`function ${fn}\\s*\\(`));
@@ -337,6 +349,9 @@ describe('three-session production proof — assertion contract', () => {
     // No local re-derivation of the project ref or the array check.
     expect(PREFLIGHT, 'no local ref parsing').not.toMatch(/supabase\\\.co\$\/\.exec/);
     expect(PREFLIGHT, 'no local array validation').not.toMatch(/Array\.isArray\(body\)/);
+    // And no local, unbounded fetch: the request must go through the bounded helper.
+    expect(PREFLIGHT, 'the script must not call fetch directly').not.toMatch(/await fetch\(/);
+    expect(PREFLIGHT, 'no local AbortController').not.toMatch(/new AbortController\(/);
     // Strip-types is required for the .ts import; Node is pinned to 22.12.0 by .nvmrc.
     expect(WORKFLOW).toMatch(/node --experimental-strip-types scripts\/verify-read-authority\.mjs/);
   });
