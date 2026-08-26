@@ -32,6 +32,53 @@ describe('endpoint shape', () => {
     });
 });
 
+describe('the WHOLE URL is validated, not just the hostname', () => {
+    // The gap this closes: validating `hostname` alone accepted plaintext, credentials, ports, paths,
+    // queries and fragments — every one of which shares the canonical hostname while being a
+    // DIFFERENT endpoint — and would then have classified them `primary-proven`.
+    const REJECTED: Array<[string, string]> = [
+        [`http://${REF}.supabase.co`, 'plaintext http is a downgrade, not the canonical Data API'],
+        [`https://user:pass@${REF}.supabase.co`, 'embedded credentials'],
+        [`https://${REF}.supabase.co:8443`, 'a non-default port is a different listener'],
+        [`https://${REF}.supabase.co/rest/v1`, 'a path could be proxied or rewritten anywhere'],
+        [`https://${REF}.supabase.co/?x=1`, 'query string'],
+        [`https://${REF}.supabase.co/#frag`, 'fragment'],
+        [`https://${REF}.supabase.co/a?b=1#c`, 'path + query + fragment combined'],
+    ];
+
+    it.each(REJECTED)('%s is NOT canonical (%s)', (url) => {
+        expect(projectRefFromUrl(url)).toBeNull();
+    });
+
+    it.each(REJECTED)('%s can never be primary-proven (%s)', (url) => {
+        const v = classifyFromProjectProbe(url, { ok: true, ref: REF });
+        expect(v.authority).toBe('unknown');
+        expect(v.reason).toBe('non_canonical_endpoint');
+        expect(v.maxClaim).toBe('read-path-disagreement-authority-unknown');
+    });
+
+    it('an explicit DEFAULT port is the same origin and is accepted', () => {
+        // My first version listed this as a rejection and was wrong: WHATWG URL normalises `:443` on
+        // https to an empty port, and `new URL('https://h:443').origin === new URL('https://h').origin`.
+        // Rejecting it would reject a byte-identical origin. A NON-default port is still rejected,
+        // which is where the actual protection lies.
+        expect(projectRefFromUrl(`https://${REF}.supabase.co:443`)).toBe(REF);
+        expect(projectRefFromUrl(`https://${REF}.supabase.co:8443`)).toBeNull();
+    });
+
+    it('the bare canonical origin IS accepted, with or without the trailing slash', () => {
+        // `new URL(origin).pathname` is `/`, so a bare origin and an explicit trailing slash are
+        // indistinguishable — both must be accepted or the real configured value would be rejected.
+        expect(projectRefFromUrl(`https://${REF}.supabase.co`)).toBe(REF);
+        expect(projectRefFromUrl(`https://${REF}.supabase.co/`)).toBe(REF);
+    });
+
+    it('a canonical-looking host on the WRONG domain is rejected', () => {
+        expect(projectRefFromUrl(`https://${REF}.supabase.co.evil.test`)).toBeNull();
+        expect(projectRefFromUrl(`https://${REF}.supabase.io`)).toBeNull();
+    });
+});
+
 describe('classification', () => {
     it('PRIMARY-PROVEN requires canonical host AND a matching project ref', () => {
         const v = classifyFromProjectProbe(CANONICAL, { ok: true, ref: REF });

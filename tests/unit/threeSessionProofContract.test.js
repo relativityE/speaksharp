@@ -316,6 +316,13 @@ describe('three-session production proof — assertion contract', () => {
     expect(helper).toMatch(/load_balancer_endpoint/);
     // ...and proven requires the ref to match.
     expect(helper).toMatch(/probe\.ref !== urlRef/);
+    // The WHOLE URL is validated, not just the hostname: plaintext, credentials, non-default ports,
+    // paths, queries and fragments all share the canonical hostname while being different endpoints.
+    expect(helper).toMatch(/u\.protocol !== 'https:'/);
+    expect(helper).toMatch(/u\.username !== ''/);
+    expect(helper).toMatch(/u\.port !== ''/);
+    expect(helper).toMatch(/u\.pathname !== '\/'/);
+    expect(helper).toMatch(/u\.search !== '' \|\| u\.hash !== ''/);
   });
 
   it('the STANDALONE preflight workflow FAILS CLOSED on anything but a proven primary', () => {

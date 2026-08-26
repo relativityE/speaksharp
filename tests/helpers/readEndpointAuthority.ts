@@ -68,10 +68,33 @@ const unknown = (reason: AuthorityReason): ProbeVerdict => ({
     authority: 'unknown', reason, maxClaim: 'read-path-disagreement-authority-unknown',
 });
 
-/** `https://<ref>.supabase.co` -> `<ref>`. The load-balancer and custom-domain forms yield null. */
+/**
+ * Is this the EXACT canonical origin — `https://<ref>.supabase.co`, and nothing more?
+ *
+ * Validating `hostname` alone was insufficient and would have classified as `primary-proven` any of:
+ *   http://<ref>.supabase.co            (plaintext — a downgrade, not the canonical Data API)
+ *   https://user:pass@<ref>.supabase.co (embedded credentials)
+ *   https://<ref>.supabase.co:8443      (a non-default port is a different listener)
+ *   https://<ref>.supabase.co/rest/v1   (a path — a proxy or rewrite could route anywhere)
+ *   https://<ref>.supabase.co/?x=1      (query)  and  ...#frag  (fragment)
+ * Every one of those shares the canonical hostname while being a different endpoint, so the check has
+ * to be on the whole URL. `pathname` of a bare origin is `/`, so `/` is the only path accepted.
+ */
+function canonicalParts(url: string): { hostname: string } | null {
+    let u: URL;
+    try { u = new URL(url); } catch { return null; }
+    if (u.protocol !== 'https:') return null;
+    if (u.username !== '' || u.password !== '') return null;
+    if (u.port !== '') return null;
+    if (u.pathname !== '/' && u.pathname !== '') return null;
+    if (u.search !== '' || u.hash !== '') return null;
+    return { hostname: u.hostname.toLowerCase() };
+}
+
+/** `https://<ref>.supabase.co` -> `<ref>`. Any other URL shape yields null. */
 export function projectRefFromUrl(url: string): string | null {
-    const h = host(url);
-    const m = h ? CANONICAL_PROJECT_ENDPOINT.exec(h) : null;
+    const parts = canonicalParts(url);
+    const m = parts ? CANONICAL_PROJECT_ENDPOINT.exec(parts.hostname) : null;
     return m ? m[1] : null;
 }
 
