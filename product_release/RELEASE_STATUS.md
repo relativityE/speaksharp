@@ -65,13 +65,19 @@ The MVP-blocking lane is **#1304 (STT down-select)**. See `ACTIVE_COORDINATION.m
 ## Private STT finalization — accepted planning budget (not a measured p95)
 The **≈90 seconds** of post-stop processing quoted for a full five-minute single Private (v2 / whisper-base.en) recording is an **accepted planning budget / risk allowance** for the controlled beta — **not** an observed production performance fact and **not** a measured p95. It is surfaced to the user as honest "Finalizing…" progress. The earlier `<30s` requirement is obsolete/withdrawn. A measured percentile would need a dedicated instrumentation run (STT evidence lane); faster finalization is a post-limitation improvement lane, not a blocker.
 
-## STT availability by tier
+## STT availability
 
-| Engine | Availability | Notes |
+> **Corrected 2026-08-27.** This section previously published a three-tier table — Browser "all tiers (default preview)", Private, and Cloud (AssemblyAI) "Paid Pro only … Strongest STT path". **Two of those three engines no longer exist.** `TranscriptionMode` is `'private' | 'mock'`; `frontend/src/services/transcription/engines/` contains only `MockEngine`, `PrivateSTT`, `TransformersJSEngine` and `TransformersJSV4Engine`; `modes/` contains only `PrivateWhisper.ts`. No Cloud/AssemblyAI engine and no Web Speech engine is constructible. The table below is what the code admits, verified 2026-08-27.
+
+| Path | Availability | Notes |
 |---|---|---|
-| Browser (Web Speech; method name **"Browser"** + secondary **"Quick preview"** descriptor badge, shipped #1041; internal token `native`) | All tiers (default preview) | Convenience path; **not** local/offline/on-device (Chrome routes audio to Google); weakest path; never an automatic fallback. Nudge Private after a preview session. |
-| Private (v2 / whisper-base.en) | All tiers (local, download on first use) | Default Private engine. v4 WebGPU OFF — `VITE_PRIVATE_STT_V4_DISABLED` hard kill is authoritative; PostHog flags are secondary and cannot override it. |
-| **Cloud (AssemblyAI)** | **Paid Pro only** | Requires real paid Pro entitlement (`stripe_subscription_id`). Not available to Free testers during the no-billing beta; existing paid-Pro accounts retain access. Strongest STT path. |
+| **Private v2 (`whisper-base.en`, on-device)** | The **only** user-facing transcription path, all tiers | Local; one-time model download on first use. There is no engine selector — the product is Private-only (#1184/#1229). |
+| **Private v4 (WebGPU)** | Present in code, **hard OFF** | `VITE_PRIVATE_STT_V4_DISABLED` is authoritative; PostHog flags are secondary and cannot override it. Not in the release path. |
+| **Mock** | Tests only | Never user-reachable. |
+| ~~Browser (Web Speech)~~ | **REMOVED** | Not a `TranscriptionMode`; no engine. A vestigial `allowNative` field remains on `TranscriptionPolicy`, and `frontend/src/e2e/signalContract.ts` still names `modes/NativeBrowser.ts`, **a file that does not exist**. |
+| ~~Cloud (AssemblyAI)~~ | **REMOVED** | Not a `TranscriptionMode`; no engine. Orphaned constants remain in `frontend/src/config.ts` (`ASSEMBLYAI_TOKEN_ENDPOINT`, packet-size limits) and provider-family strings in `sttIdentity.ts`. Cleanup is tracked, not shipped. |
+
+**No claim is made here about relative engine accuracy, in either direction.** Vendor figures are reference-only and must not be compared against our own corpus results — differing corpora and decode paths make such a comparison an artifact rather than a measurement. The #1304 lane exists to produce a defensible ranking; until it does, there is none.
 
 ## Release-track posture
 
