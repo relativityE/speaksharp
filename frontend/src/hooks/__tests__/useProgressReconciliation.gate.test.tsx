@@ -90,6 +90,42 @@ describe('reload recovery reconstructs the gate from durable debt', () => {
     });
 });
 
+describe('what CLEARS an unresolved gate (the bounded exit)', () => {
+    it('a stale in-memory unresolved gate does NOT survive a reload when nothing is durably owed', async () => {
+        // THE BOUNDED EXIT. `unresolved` means the evaluation failed and NOTHING durable was recorded —
+        // by construction there is no queue entry, so reconciliation has nothing to drain and cannot be
+        // the way out. The gate lives only in the in-memory store, so a reload drops it, and
+        // reconstruction republishes ONLY durable debt. Nothing owed => Start is available again.
+        // This is what the user-facing copy means by "Reload to retry before recording again".
+        useSessionStore.getState().setProgressGate({ sessionId: 'sess-failed', ownerId: OWNER, state: 'unresolved' });
+        authUser.user = { id: OWNER };
+
+        renderHook(() => useProgressReconciliation());   // stands in for the post-reload mount
+
+        await waitFor(() => expect(resolved()).toBe(true));
+        expect(gate(), 'a reload must not carry a non-durable gate forward').toBeNull();
+    });
+
+    it('an UNREADABLE queue keeps blocking across reloads — there is NO in-app exit', async () => {
+        // The honest limit of the design. While storage cannot be read we cannot distinguish "nothing
+        // owed" from "we cannot tell", so it fails closed and STAYS closed until storage recovers.
+        // The controller blocks independently of this gate via evaluateDurableStartGate, so clearing
+        // the store would not help either. Recorded deliberately rather than left to be discovered.
+        localStorage.setItem(PROGRESS_QUEUE_STORAGE_KEY, '{not json');
+        authUser.user = { id: OWNER };
+
+        const first = renderHook(() => useProgressReconciliation());
+        await waitFor(() => expect(gate()).not.toBeNull());
+        first.unmount();
+
+        useSessionStore.getState().setProgressGate(null);   // a reload starts with an empty store
+        renderHook(() => useProgressReconciliation());
+
+        await waitFor(() => expect(resolved()).toBe(true));
+        expect(gate(), 'still blocked while the queue is unreadable').toMatchObject({ state: 'unresolved' });
+    });
+});
+
 describe('cross-tab', () => {
     it('a queue change in ANOTHER tab republishes this tab\'s gate', async () => {
         authUser.user = { id: OWNER };
