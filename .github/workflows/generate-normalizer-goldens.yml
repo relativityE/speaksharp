@@ -1,0 +1,84 @@
+# #1304 — one-time (re-runnable) generation of WER-normalizer goldens from OFFICIAL upstream source.
+#
+# WHY A WORKFLOW. The goldens must come from running the real openai/whisper `EnglishTextNormalizer`,
+# not from anyone's hand-authored expectations — a hand-written port checked against hand-written
+# expectations verifies nothing. Doing it here also removes any dependence on a developer's local
+# PyPI access.
+#
+# This installs ONLY the two third-party imports the normalizer actually needs (`more-itertools` for
+# english.py, `regex` for basic.py). It does NOT pip-install whisper, so no torch and no model weights.
+#
+# The result is uploaded as an artifact for a HUMAN to commit — this workflow deliberately has no
+# write permission and never pushes.
+name: '#1304 normalizer goldens'
+
+on:
+  workflow_dispatch:
+    inputs:
+      whisper_ref:
+        description: 'openai/whisper commit SHA to pin (full 40-char SHA)'
+        required: true
+        default: '5f86d1d86363843179951550570367b37c5d6f78'
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+
+      - name: Reject a non-pinned upstream ref
+        run: |
+          set -euo pipefail
+          REF='${{ inputs.whisper_ref }}'
+          # A branch name or short SHA is not a pin: it can move, and goldens must be reproducible.
+          if ! printf '%s' "$REF" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "FATAL: whisper_ref must be a full 40-character commit SHA, got: $REF" >&2
+            exit 1
+          fi
+
+      - name: Checkout openai/whisper at the pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: openai/whisper
+          ref: ${{ inputs.whisper_ref }}
+          path: upstream-whisper
+
+      - name: Record the resolved commit and fail closed on drift
+        run: |
+          set -euo pipefail
+          cd upstream-whisper
+          RESOLVED="$(git rev-parse HEAD)"
+          if [ "$RESOLVED" != '${{ inputs.whisper_ref }}' ]; then
+            echo "FATAL: checkout resolved to $RESOLVED, not the requested pin" >&2
+            exit 1
+          fi
+          printf '%s' "$RESOLVED" > .git-commit-sha
+          echo "pinned upstream commit: $RESOLVED"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install ONLY the normalizer's third-party imports
+        run: python -m pip install --no-cache-dir 'more-itertools==10.5.0' 'regex==2024.11.6'
+
+      - name: Generate goldens from the official implementation
+        run: |
+          python scripts/generate-normalizer-goldens.py \
+            upstream-whisper \
+            tests/evidence/normalization/vectors.input.json \
+            out/goldens.json
+
+      - name: Show provenance
+        run: python -c "import json;p=json.load(open('out/goldens.json'));print(json.dumps(p['provenance'],indent=2));print('cases:',p['caseCount'])"
+
+      - name: Upload goldens for review and commit
+        uses: actions/upload-artifact@v4
+        with:
+          name: normalizer-goldens
+          path: out/goldens.json
+          if-no-files-found: error
