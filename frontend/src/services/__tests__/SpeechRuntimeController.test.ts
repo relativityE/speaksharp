@@ -566,6 +566,55 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         }));
     });
 
+    it('#1354 ACCEPTANCE 1: three sequential sessions each block Start until their OWN evidence is terminal', async () => {
+        // Acceptance case 1 (client-observable half). The retention outcome itself — oldest expires,
+        // newest two retained, metrics intact — is a PRODUCTION assertion and belongs to Attempt 10;
+        // it cannot be proven here and this test does not pretend to.
+        //
+        // What this proves is the sequencing that attempt 9 violated: each completion holds the gate
+        // until ITS OWN evaluation is durable, and only then may the next recording begin. A gate that
+        // failed to clear would strand the user; a gate that cleared early is the original defect.
+        const { wireProgressEvaluationOnSave } = await import('../progress/recordProgress');
+        useSessionStore.getState().setProgressGate(null);
+
+        const releases: Array<(o: { kind: string }) => void> = [];
+        for (let i = 0; i < 3; i++) {
+            vi.mocked(wireProgressEvaluationOnSave).mockReturnValueOnce(
+                new Promise<{ kind: string }>((resolve) => { releases.push(resolve); }) as never,
+            );
+        }
+
+        try {
+            for (let session = 1; session <= 3; session++) {
+                const id = `sess-1354-acc1-${session}`;
+                let settled = false;
+                const completion = driveStopWithService(
+                    mkService('private', { engineVersion: 'v-p', modelName: 'm-p', deviceType: 'browser' }),
+                    id, 'private',
+                ).then(() => { settled = true; });
+
+                for (let i = 0; i < 50; i++) await Promise.resolve();
+
+                // Blocked while THIS session's evidence is in flight.
+                expect(settled, `session ${session}: completion must not settle early`).toBe(false);
+                expect(useSessionStore.getState().progressGate).toMatchObject({ sessionId: id, state: 'resolving' });
+
+                await controller.startRecording();
+                expect(useSessionStore.getState().sttStatus.type, `session ${session}: Start must be refused`).toBe('error');
+
+                // Terminal evidence arrives -> the gate clears and the NEXT session may begin.
+                releases[session - 1]({ kind: 'recorded' });
+                await completion;
+                expect(settled).toBe(true);
+                expect(useSessionStore.getState().progressGate, `session ${session}: gate must clear`).toBeNull();
+            }
+        } finally {
+            // Never leave a pending deferred or a gate behind — either would block every later test.
+            releases.forEach((release) => release({ kind: 'recorded' }));
+            useSessionStore.getState().setProgressGate(null);
+        }
+    });
+
     it('#1354 VERTICAL: the real completion path does not settle, and Start stays blocked, until Progress is terminal', async () => {
         // THE DEFECT THIS KILLS. `completeProgressForRecording` was `void`-dispatched, so the completion
         // path settled while the evaluation was still in flight and the recorder reopened. On a rapid
