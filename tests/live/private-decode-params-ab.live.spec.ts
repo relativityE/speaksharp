@@ -1,7 +1,11 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
-import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
+// #1304: the CERTIFIED scorer. `frontend/src/lib/wer`'s `calculateWordErrorRate` is the uncertified
+// legacy ruler #1356 replaced — it charges 71% WER for `five dollars and fifty cents` vs `$5.50`, 50%
+// for `21.4%` and 33% for `colour`/`color`, so a ranking built on it partly ranks orthography.
+// `wordErrorRate` owns normalization and records the track and normalization identity on every row.
+import { wordErrorRate } from '../evidence/werMetric';
 import { AUDIO_ARGS, preparePrivateModelIfPrompted, selectBenchmarkMode, waitForBenchmarkSaveCandidate, readBenchmarkTranscript, startBenchmarkRecording, stopBenchmarkRecording } from './helpers/benchmark-utils';
 import { RECORDER_BAR } from '../helpers/micControls';
 import { HARVARD_SENTENCES } from '../fixtures/stt-isomorphic/harvard-sentences';
@@ -130,7 +134,17 @@ test.describe(`Private decode-parameter A/B — ${fixture.id}`, () => {
           `written — an absent transcript is not a measurement.`
         );
       }
-      const wer = calculateWordErrorRate(normalizeForWer(fixture.transcript), normalizeForWer(selectedForSave));
+      // The scorer owns normalization — the spec-local `normalizeForWer` was a SECOND ruler, free to
+      // drift from the certified one. `wer` is null when the reference is unmeasurable and is never
+      // coerced to 0, because a fabricated perfect score is the failure this program exists to prevent.
+      const scored = wordErrorRate(fixture.transcript, selectedForSave, { track: 'track_a' });
+      if (scored.wer === null) {
+        throw new Error(
+          `Run INVALID (unmeasurable_reference) for ${fixture.id}/${variant.id}: the ground-truth ` +
+          `reference normalized to zero words. No WER is computed and no artifact is written.`
+        );
+      }
+      const wer = scored.wer;
       const accuracyPct = Number(((1 - wer) * 100).toFixed(2));
       const evidence = {
         capturedAt: new Date().toISOString(),
@@ -146,6 +160,8 @@ test.describe(`Private decode-parameter A/B — ${fixture.id}`, () => {
         selectedForSave,
         wer: Number(wer.toFixed(4)),
         accuracyPct,
+        scoringTrack: scored.track,
+        normalizationVersion: scored.normalizationVersion,
         privateTiming: diagnostics.privateTiming,
         privateTimelineTail: diagnostics.privateTimelineTail,
         transcriptContent: diagnostics.transcriptContent,
@@ -255,14 +271,6 @@ async function readDiagnostics(page: Page) {
 
 function normalizeText(text: string | null) {
   return (text ?? '').replace(/\s+/g, ' ').trim();
-}
-
-function normalizeForWer(text: string) {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9'\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 async function attachJson(testInfo: TestInfo, name: string, value: unknown) {

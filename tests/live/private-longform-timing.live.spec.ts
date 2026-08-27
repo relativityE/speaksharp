@@ -1,7 +1,11 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
-import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
+// #1304: the CERTIFIED scorer. `frontend/src/lib/wer`'s `calculateWordErrorRate` is the uncertified
+// legacy ruler #1356 replaced — it charges 71% WER for `five dollars and fifty cents` vs `$5.50`, 50%
+// for `21.4%` and 33% for `colour`/`color`, so a ranking built on it partly ranks orthography.
+// `wordErrorRate` owns normalization and records the track and normalization identity on every row.
+import { wordErrorRate } from '../evidence/werMetric';
 import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, preparePrivateModelIfPrompted, selectBenchmarkMode, waitForBenchmarkSaveCandidate, readBenchmarkTranscript, startBenchmarkRecording, stopBenchmarkRecording } from './helpers/benchmark-utils';
 import { RECORDER_BAR } from '../helpers/micControls';
 import { WASHINGTON_01 } from '../fixtures/stt-isomorphic/washington-speeches';
@@ -72,9 +76,15 @@ test.describe('Private long-form timing branch proof @live', () => {
         `written — an absent transcript is not a measurement.`
       );
     }
-    const normalizedTruth = normalizeForWer(WASHINGTON_01.transcript);
-    const normalizedSelected = normalizeForWer(selectedForSave);
-    const wer = calculateWordErrorRate(normalizedTruth, normalizedSelected);
+    // The certified scorer owns normalization; the spec-local `normalizeForWer` was a second ruler.
+    const scored = wordErrorRate(WASHINGTON_01.transcript, selectedForSave, { track: 'track_a' });
+    if (scored.wer === null) {
+      throw new Error(
+        'Run INVALID (unmeasurable_reference) for private-longform-washington: the ground-truth ' +
+        'reference normalized to zero words. No WER is computed and no artifact is written.'
+      );
+    }
+    const wer = scored.wer;
     const accuracyPct = Number(((1 - wer) * 100).toFixed(2));
     const privateTiming = diagnostics.privateTiming as PrivateTiming | null;
     const finalizeDecodeMs = typeof privateTiming?.finalizeDecodeMs === 'number'
@@ -105,10 +115,15 @@ test.describe('Private long-form timing branch proof @live', () => {
       privateTimelineTail: diagnostics.privateTimelineTail,
       transcriptContent: diagnostics.transcriptContent,
       selectedForSave,
-      normalizedSelectedWordCount: normalizedSelected.split(/\s+/).filter(Boolean).length,
-      normalizedTruthWordCount: normalizedTruth.split(/\s+/).filter(Boolean).length,
+      // Counts come from the SCORER, not a second normalizer recomputing them alongside it.
+      referenceWords: scored.referenceWords,
+      substitutions: scored.substitutions,
+      deletions: scored.deletions,
+      insertions: scored.insertions,
       wer: Number(wer.toFixed(4)),
       accuracyPct,
+      scoringTrack: scored.track,
+      normalizationVersion: scored.normalizationVersion,
     };
 
     await attachJson(testInfo, 'private-longform-washington-timing.json', evidence);
@@ -232,14 +247,6 @@ async function readDiagnostics(page: Page) {
 
 function normalizeText(text: string | null) {
   return (text ?? '').replace(/\s+/g, ' ').trim();
-}
-
-function normalizeForWer(text: string) {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9'\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 async function attachJson(testInfo: TestInfo, name: string, value: unknown) {

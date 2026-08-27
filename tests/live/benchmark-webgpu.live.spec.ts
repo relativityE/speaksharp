@@ -2,7 +2,11 @@
  * Benchmark: Private — WhisperTurbo (WebGPU)
  */
 import { test } from '@playwright/test';
-import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
+// #1304: the CERTIFIED scorer. `frontend/src/lib/wer`'s `calculateWordErrorRate` is the uncertified
+// legacy ruler #1356 replaced — it charges 71% WER for `five dollars and fifty cents` vs `$5.50`, 50%
+// for `21.4%` and 33% for `colour`/`color`, so a ranking built on it partly ranks orthography.
+// `wordErrorRate` owns normalization and records the track and normalization identity on every row.
+import { wordErrorRate } from '../evidence/werMetric';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
 import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, waitForPrivateEngineReady, expectBenchmarkRecordingStarted, expectBenchmarkDraftActivity, startBenchmarkRecording, stopBenchmarkRecording, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
@@ -95,7 +99,11 @@ test('measure WhisperTurbo (WebGPU)', async ({ page }) => {
 
     const wordCount = transcriptText.split(/\s+/).filter(w => w.length > 0).length;
     const referenceWordCount = HARVARD_FULL.split(/\s+/).length;
-    const wer = calculateWordErrorRate(HARVARD_FULL, transcriptText);
+    const scored = wordErrorRate(HARVARD_FULL, transcriptText, { track: 'track_a' });
+    if (scored.wer === null) {
+        throw new Error('Run INVALID (unmeasurable_reference) for private-webgpu: the ground-truth reference normalized to zero words.');
+    }
+    const wer = scored.wer;
 
     if (wordCount < referenceWordCount * 0.3) {
         throw new Error(

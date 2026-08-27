@@ -369,6 +369,26 @@ describe('#1304 the authoritative benchmark specs use CURRENT controls only', ()
         }
     });
 
+    /**
+     * The LEGACY SCORER is prohibited by PATH as well as by name.
+     *
+     * `frontend/src/lib/wer`'s `calculateWordErrorRate` is the uncertified ruler #1356 replaced: it
+     * charges 71% WER for `five dollars and fifty cents` vs `$5.50`, 50% for `21.4%`, 33% for
+     * `colour`/`color`. A spec can be certified-clean on surface and ordering and still emit a number
+     * produced by the wrong ruler — the same vacuous-check shape, one layer in.
+     *
+     * `wordErrorRate` is required positively, so deleting the scoring call is a failure too rather
+     * than a spec that silently stops measuring.
+     */
+    it.each(AUTHORITATIVE_BENCHMARK_SPECS)('%s scores with the CERTIFIED scorer only', (relPath) => {
+        const source = sourceWithoutComments(relPath);
+        expect(source, `${relPath} must not import the legacy scorer by path`).not.toMatch(/from ['"][^'"]*\/lib\/wer['"]/);
+        expect(source, `${relPath} must not call calculateWordErrorRate`).not.toMatch(/\bcalculateWordErrorRate\b/);
+        expect(source, `${relPath} must score through the certified wordErrorRate`).toMatch(/\bwordErrorRate\b/);
+        // A spec-local normalizer is a SECOND ruler, free to drift from the certified one.
+        expect(source, `${relPath} must not define its own normalizer`).not.toMatch(/\bnormalizeForWer\b/);
+    });
+
     it('POSITIVE CONTROL: the guard can actually see a retired id', () => {
         // Without this the assertion above would also pass if the files could not be read at all.
         expect(sourceWithoutComments(AUTHORITATIVE_BENCHMARK_SPECS[0]).length).toBeGreaterThan(500);
@@ -447,7 +467,7 @@ describe('#1304 an invalid run must not leave a measurement behind', () => {
     it.each(MEASURE_AFTER_VALIDATE)('%s validates the saved transcript BEFORE measuring', (relPath) => {
         const source = sourceWithoutComments(relPath);
         const guardAt = source.indexOf('no_finalized_saved_transcript');
-        const werAt = source.indexOf('calculateWordErrorRate(');
+        const werAt = source.indexOf('wordErrorRate(');
         expect(guardAt, `${relPath} must name an invalid-run reason`).toBeGreaterThan(-1);
         expect(werAt, `${relPath} must compute a WER`).toBeGreaterThan(-1);
         expect(guardAt, `${relPath}: the invalid-run guard must precede the WER computation`).toBeLessThan(werAt);
