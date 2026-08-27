@@ -12,6 +12,7 @@
  */
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
+import { useSessionStore } from '@/stores/useSessionStore';
 import { PROGRESS_FORMULA_VERSION, type ProgressEvaluation } from './buildProgressEvaluation';
 import { buildTakeaways } from './progressPresentation';
 import {
@@ -409,6 +410,18 @@ async function resolveOpenAttemptWith(userId: string, newSessionId: string): Pro
  * save path established mode + rich-metrics persistence and then observed a transient evaluation failure.
  * There is deliberately no generic session sweep: absence alone cannot prove a recording's practice mode.
  */
+/**
+ * Clear the visible gate for one resolved (session, owner) pair.
+ *
+ * Owner- AND session-scoped: another account's reconciliation, or a different session's, must never
+ * unlock the gate a live session is holding.
+ */
+function releaseProgressGateFor(sessionId: string, userId: string): void {
+    const store = useSessionStore.getState();
+    const gate = store.progressGate;
+    if (gate && gate.sessionId === sessionId && gate.ownerId === userId) store.setProgressGate(null);
+}
+
 export async function reconcileProgressEvaluations(
     userId: string,
     sessions: ReconcilableSession[],
@@ -429,11 +442,21 @@ export async function reconcileProgressEvaluations(
     }
     for (const sessionId of (queued.ok ? queued.sessionIds ?? [] : [])) {
         const id = await recordProgressEvaluation(sessionId);
-        if (id) {
-            clearProgressReconcileEntry(sessionId, userId);
-            queueDrained++;
-            await recordRecommendationForEvaluation(sessionId);
+        if (!id) continue; // still failing — the debt stays queued and the gate stays blocked
+        // #1354: the clear must be VERIFIED before this counts as drained. An entry that could not be
+        // removed survives the next reload, so reporting a clean drain would unlock the recorder on a
+        // debt that still exists. The result was previously discarded.
+        const cleared = clearProgressReconcileEntry(sessionId, userId);
+        if (!cleared.ok) {
+            logger.warn({ failure: cleared.failure }, '[progress] evaluation recorded but queue clear FAILED');
+            continue;
         }
+        queueDrained++;
+        // Release the VISIBLE gate only now, and only if it belongs to this exact owner+session.
+        // Without this the user stays blocked after a successful retry — the debt is gone but the UI
+        // still says otherwise.
+        releaseProgressGateFor(sessionId, userId);
+        await recordRecommendationForEvaluation(sessionId);
     }
 
     // #1265: the generic active-era sweep was REMOVED. It evaluated any completed session missing an
