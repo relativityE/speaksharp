@@ -59,7 +59,9 @@ export interface CorpusRow extends SttEvidenceRow {
  */
 export function buildCorpusRow(input: CorpusRunInput): CorpusRow {
     const haveBoth = input.groundTruth != null && input.recognizerTranscript != null;
-    const werDetail = haveBoth ? wordErrorRate(input.groundTruth as string, input.recognizerTranscript as string) : null;
+    // TRACK A: this is TRANSCRIPT ACCURACY and must be comparable to published WER. Filler fidelity
+    // is measured separately by `fillerPrf` below, so removing fillers here does not lose that signal.
+    const werDetail = haveBoth ? wordErrorRate(input.groundTruth as string, input.recognizerTranscript as string, { track: 'track_a' }) : null;
     const fillerDetail = haveBoth ? fillerPrf(input.groundTruth as string, input.recognizerTranscript as string) : null;
     const punctDetail = haveBoth ? punctuationPlacementPrf(input.groundTruth as string, input.recognizerTranscript as string) : null;
 

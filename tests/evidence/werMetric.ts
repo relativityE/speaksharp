@@ -9,6 +9,8 @@
  */
 
 import { normalizeEnglish } from './englishNormalizer';
+import { normalizeOfficialTrackA } from './normalization/officialNormalizer';
+import type { Track } from './normalization/tracks';
 
 /** Bump on ANY change to normalization. Rows carry it in comparability_inputs.normalizationVersion. */
 export const NORMALIZATION_VERSION = 'norm_v1';
@@ -45,7 +47,13 @@ export function normalizeTranscript(text: string): string[] {
         .filter((t) => t.length > 0);
 }
 
-export interface WerResult {
+export interface WerResult<T extends Track = Track> {
+    /**
+     * #1304 — WHICH TRACK produced this score. Branding the result is what makes handing Track-A
+     * transcript-accuracy data to a Track-B disfluency consumer a COMPILE error rather than a runtime
+     * check nobody runs. There is no default: a silent default is exactly how the two merged before.
+     */
+    track: T;
     /** null when the reference has no words — unmeasurable, never 0. */
     wer: number | null;
     referenceWords: number;
@@ -83,22 +91,26 @@ function editOps(ref: string[], hyp: string[]): { sub: number; del: number; ins:
  * @param referenceGroundTruth the KNOWN fixture transcript (never a recognizer output).
  * @param hypothesis           the recognizer's transcript.
  */
-export function wordErrorRate(
+export function wordErrorRate<T extends Track>(
     referenceGroundTruth: string,
     hypothesis: string,
-    options: { normalization?: NormalizationVersion } = {},
-): WerResult {
-    // Defaults to v2 — the version that does not charge a perfect transcript for spelling a number
-    // differently. Pass 'norm_v1' explicitly to reproduce a row that was pinned under it.
-    const version = options.normalization ?? NORMALIZATION_VERSION_V2;
-    const normalize = version === NORMALIZATION_VERSION_V2 ? normalizeEnglish : normalizeTranscript;
+    options: { track: T; normalization?: NormalizationVersion },
+): WerResult<T> {
+    // `track` is REQUIRED. Track A uses the pinned official normalization (fillers removed) so the
+    // numbers are comparable to published WER; Track B preserves fillers because this product measures
+    // them. `normalization: 'norm_v1'` remains reachable ONLY to reproduce historically pinned rows.
+    const version = options.normalization ?? (options.track === 'track_a' ? NORMALIZATION_VERSION_V2 : NORMALIZATION_VERSION_V2);
+    const normalize = version === NORMALIZATION_VERSION
+        ? normalizeTranscript
+        : options.track === 'track_a' ? normalizeOfficialTrackA : normalizeEnglish;
     const ref = normalize(referenceGroundTruth);
     const hyp = normalize(hypothesis);
     if (ref.length === 0) {
-        return { wer: null, referenceWords: 0, substitutions: 0, deletions: 0, insertions: 0, normalizationVersion: version };
+        return { track: options.track, wer: null, referenceWords: 0, substitutions: 0, deletions: 0, insertions: 0, normalizationVersion: version };
     }
     const { sub, del, ins } = editOps(ref, hyp);
     return {
+        track: options.track,
         wer: (sub + del + ins) / ref.length,
         referenceWords: ref.length,
         substitutions: sub,

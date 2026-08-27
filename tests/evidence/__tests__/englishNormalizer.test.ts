@@ -9,7 +9,8 @@ import { describe, it, expect } from 'vitest';
 import { wordErrorRate, NORMALIZATION_VERSION, NORMALIZATION_VERSION_V2 } from '../werMetric';
 import { normalizeEnglish } from '../englishNormalizer';
 
-const wer = (ref: string, hyp: string) => wordErrorRate(ref, hyp).wer;
+// TRACK B — this file exercises the filler-PRESERVING normalizer, which is Track B's.
+const wer = (ref: string, hyp: string) => wordErrorRate(ref, hyp, { track: 'track_b' }).wer;
 
 describe('norm_v2 scores a semantically perfect transcript at zero', () => {
     it.each([
@@ -52,19 +53,19 @@ describe('real recognition error is still measured', () => {
         expect(wer('the quick brown fox', 'the quick fox')).toBeCloseTo(0.25);
     });
     it('an unmeasurable reference is null, never a flattering zero', () => {
-        expect(wordErrorRate('', 'anything at all').wer).toBeNull();
+        expect(wordErrorRate('', 'anything at all', { track: 'track_b' }).wer).toBeNull();
     });
 });
 
 describe('versioning', () => {
     it('records which normalization produced the score', () => {
-        expect(wordErrorRate('a b', 'a b').normalizationVersion).toBe(NORMALIZATION_VERSION_V2);
-        expect(wordErrorRate('a b', 'a b', { normalization: NORMALIZATION_VERSION }).normalizationVersion).toBe(NORMALIZATION_VERSION);
+        expect(wordErrorRate('a b', 'a b', { track: 'track_b' }).normalizationVersion).toBe(NORMALIZATION_VERSION_V2);
+        expect(wordErrorRate('a b', 'a b', { track: 'track_b', normalization: NORMALIZATION_VERSION }).normalizationVersion).toBe(NORMALIZATION_VERSION);
     });
 
     it('norm_v1 REMAINS reproducible for rows already pinned to it', () => {
         // The old numbers must not move retroactively — that is the whole point of versioning.
-        const v1 = wordErrorRate('the colour of the centre panel', 'the color of the center panel', { normalization: NORMALIZATION_VERSION });
+        const v1 = wordErrorRate('the colour of the centre panel', 'the color of the center panel', { track: 'track_b', normalization: NORMALIZATION_VERSION });
         expect(v1.wer).toBeCloseTo(1 / 3);
         expect(v1.normalizationVersion).toBe(NORMALIZATION_VERSION);
     });

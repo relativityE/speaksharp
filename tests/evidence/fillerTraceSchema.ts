@@ -544,7 +544,8 @@ export function buildFillerTraceRow(args: {
   const { fixture, route, replay, stages } = args;
 
   const wer = stages.finalHypothesis
-    ? wordErrorRate(fixture.referenceTranscript, stages.finalHypothesis)
+    // TRACK B: this row scores DISFLUENCY, so fillers must be preserved by the normalization.
+    ? wordErrorRate(fixture.referenceTranscript, stages.finalHypothesis, { track: 'track_b' })
     : null;
 
   const expectedByKey = expectedCountsFromAnnotation(fixture.expectedFillers, fixture.expectedCustomTotal ?? 0);
