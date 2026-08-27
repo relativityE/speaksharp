@@ -75,7 +75,7 @@ The **≈90 seconds** of post-stop processing quoted for a full five-minute sing
 | **Private v4 (WebGPU)** | Present in code, **hard OFF** | `VITE_PRIVATE_STT_V4_DISABLED` is authoritative; PostHog flags are secondary and cannot override it. Not in the release path. |
 | **Mock** | Tests only | Never user-reachable. |
 | ~~Browser (Web Speech)~~ | **REMOVED** | Not a `TranscriptionMode`; no engine. A vestigial `allowNative` field remains on `TranscriptionPolicy`, and `frontend/src/e2e/signalContract.ts` still names `modes/NativeBrowser.ts`, **a file that does not exist**. |
-| ~~Cloud (AssemblyAI)~~ | **REMOVED** | Not a `TranscriptionMode`; no engine. Orphaned constants remain in `frontend/src/config.ts` (`ASSEMBLYAI_TOKEN_ENDPOINT`, packet-size limits) and provider-family strings in `sttIdentity.ts`. Cleanup is tracked, not shipped. |
+| ~~Cloud (AssemblyAI)~~ | **REMOVED** | Not a `TranscriptionMode`; no engine. Orphaned constants remain in `frontend/src/config.ts` (`ASSEMBLYAI_TOKEN_ENDPOINT`, packet-size limits) and provider-family strings in `sttIdentity.ts`. Cleanup is tracked as **#1323** (post-MVP remnants) and is not shipped; these are known cleanup, not capability. |
 
 **No claim is made here about relative engine accuracy, in either direction.** Vendor figures are reference-only and must not be compared against our own corpus results — differing corpora and decode paths make such a comparison an artifact rather than a measurement. The #1304 lane exists to produce a defensible ranking; until it does, there is none.
 
