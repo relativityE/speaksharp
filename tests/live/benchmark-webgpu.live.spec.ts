@@ -1,10 +1,14 @@
 /**
  * Benchmark: Private — WhisperTurbo (WebGPU)
  */
-import { test, expect } from '@playwright/test';
-import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
+import { test } from '@playwright/test';
+// #1304: the CERTIFIED scorer. `frontend/src/lib/wer`'s `calculateWordErrorRate` is the uncertified
+// legacy ruler #1356 replaced — it charges 71% WER for `five dollars and fifty cents` vs `$5.50`, 50%
+// for `21.4%` and 33% for `colour`/`color`, so a ranking built on it partly ranks orthography.
+// `wordErrorRate` owns normalization and records the track and normalization identity on every row.
+import { wordErrorRate } from '../evidence/werMetric';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, waitForPrivateEngineReady, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, waitForPrivateEngineReady, expectBenchmarkRecordingStarted, expectBenchmarkDraftActivity, startBenchmarkRecording, stopBenchmarkRecording, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
@@ -56,20 +60,38 @@ test('measure WhisperTurbo (WebGPU)', async ({ page }) => {
     // Ensure the WebGPU engine is fully initialized (WASM downloaded and booted) BEFORE starting.
     await waitForPrivateEngineReady(page, 180_000);
 
-    await page.getByTestId('session-start-stop-button').click();
+    await startBenchmarkRecording(page, 'private-webgpu');
     await expectBenchmarkRecordingStarted(page, 'private-webgpu');
 
     // Fast-fail: assert the engine is producing output during the recording window
-    // We use word count because transcript-container shows placeholder text ("Listening...")
-    await expectBenchmarkTranscriptOutput(page, 'private-webgpu', 20_000);
+    // Word count, because the live surface also carries interim placeholder text.
+    // #1304 Task 2: `expectBenchmarkTranscriptOutput` is deprecated — it asserts COMMITTED output
+    // (empty by design while recording), reaches the dead `transcript-container`, and its
+    // `.catch(() => '')` turns a READ ERROR into "no words". `expectBenchmarkDraftActivity` checks the
+    // during-state landmarks BY NAME first, so "the surface is not the one we think" can never again
+    // be misread as "the product produced nothing".
+    await expectBenchmarkDraftActivity(page, 'private-webgpu', 20_000);
 
     // Wait for the remainder of the audio fixture (35s total - 15s elapsed avg)
     await page.waitForTimeout(20_000);
 
     // Stop and collect transcript
-    await page.getByTestId('session-start-stop-button').click();
-    await expect(page.getByTestId('transcript-container')).not.toBeEmpty({ timeout: 15_000 });
-    const transcriptText = (await page.getByTestId('transcript-container').textContent() ?? '')
+    await stopBenchmarkRecording(page, 'private-webgpu');
+
+    // #1304 Task 2: the AUTHORITATIVE final transcript is the one the product selected to SAVE, not
+    // transient DOM text. Scraping the rendered surface measured whatever happened to be painted —
+    // including interim text — and the retired container it used to read renders nowhere at all, so
+    // every WER produced here was computed from an empty string.
+    const saveCandidate = await waitForBenchmarkSaveCandidate(page, 'private-webgpu');
+    const selectedForSave = saveCandidate.selectedForSave ?? '';
+    if (selectedForSave.trim().length === 0) {
+        throw new Error(
+            `Benchmark run INVALID for private-webgpu: no finalized saved transcript ` +
+            `(saveCandidate=${JSON.stringify(saveCandidate)}). No WER row is emitted — an absent ` +
+            `transcript is not a measurement.`
+        );
+    }
+    const transcriptText = selectedForSave
         .toLowerCase()
         .replace(/[^\w\s]/g, '')
         .replace(/\s+/g, ' ')
@@ -77,7 +99,11 @@ test('measure WhisperTurbo (WebGPU)', async ({ page }) => {
 
     const wordCount = transcriptText.split(/\s+/).filter(w => w.length > 0).length;
     const referenceWordCount = HARVARD_FULL.split(/\s+/).length;
-    const wer = calculateWordErrorRate(HARVARD_FULL, transcriptText);
+    const scored = wordErrorRate(HARVARD_FULL, transcriptText, { track: 'track_a' });
+    if (scored.wer === null) {
+        throw new Error('Run INVALID (unmeasurable_reference) for private-webgpu: the ground-truth reference normalized to zero words.');
+    }
+    const wer = scored.wer;
 
     if (wordCount < referenceWordCount * 0.3) {
         throw new Error(

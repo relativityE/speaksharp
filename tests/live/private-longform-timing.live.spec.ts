@@ -1,8 +1,13 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
-import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
-import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, preparePrivateModelIfPrompted, selectBenchmarkMode, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
+// #1304: the CERTIFIED scorer. `frontend/src/lib/wer`'s `calculateWordErrorRate` is the uncertified
+// legacy ruler #1356 replaced — it charges 71% WER for `five dollars and fifty cents` vs `$5.50`, 50%
+// for `21.4%` and 33% for `colour`/`color`, so a ranking built on it partly ranks orthography.
+// `wordErrorRate` owns normalization and records the track and normalization identity on every row.
+import { wordErrorRate } from '../evidence/werMetric';
+import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, preparePrivateModelIfPrompted, selectBenchmarkMode, waitForBenchmarkSaveCandidate, readBenchmarkTranscript, startBenchmarkRecording, stopBenchmarkRecording } from './helpers/benchmark-utils';
+import { RECORDER_BAR } from '../helpers/micControls';
 import { WASHINGTON_01 } from '../fixtures/stt-isomorphic/washington-speeches';
 
 const BASE_URL = process.env.BASE_URL;
@@ -40,13 +45,11 @@ test.describe('Private long-form timing branch proof @live', () => {
     await preparePrivateModelIfPrompted(page, 180_000);
 
     const beforeStart = await collectBenchmarkPreconditionSnapshot(page, 'private-longform-before-start');
-    const startStopButton = page.getByTestId('session-start-stop-button');
-    await expect(startStopButton).toBeVisible({ timeout: 30_000 });
-    await expect(startStopButton).toBeEnabled({ timeout: 60_000 });
-
-    await startStopButton.click();
+    // #1304 Task 2: see the note in private-decode-params-ab — the combined toggle is retired and the
+    // recorder bar's presence is the current recording signal.
+    await startBenchmarkRecording(page, 'private-longform');
     const recordingStartedAt = Date.now();
-    await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 60_000 });
+    await expect(page.getByTestId(RECORDER_BAR)).toBeVisible({ timeout: 60_000 });
 
     const firstVisibleText = await waitForNonPlaceholderTranscript(page);
     const elapsedSinceStartMs = Date.now() - recordingStartedAt;
@@ -56,16 +59,32 @@ test.describe('Private long-form timing branch proof @live', () => {
     ));
 
     const visibleAtStop = await readTranscriptText(page);
-    await startStopButton.click();
-    await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 90_000 });
+    // Stop through the shared helper (clicks `recorder-stop`, waits for the recorder bar to vanish).
+    await stopBenchmarkRecording(page, 'private-longform-washington', 90_000);
     const saveCandidate = await waitForBenchmarkSaveCandidate(page, 'private-longform-washington', 120_000);
     const diagnostics = await readDiagnostics(page);
     const afterStop = await collectBenchmarkPreconditionSnapshot(page, 'private-longform-after-stop');
 
+    // #1304 Task 2: VALIDATE BEFORE MEASURING — see the note in private-decode-params-ab. The WER,
+    // the attached artifact and the PRIVATE_LONGFORM_TIMING_EVIDENCE log all preceded the check that
+    // a finalized transcript existed, so an invalid run still left a number behind.
     const selectedForSave = saveCandidate.selectedForSave ?? '';
-    const normalizedTruth = normalizeForWer(WASHINGTON_01.transcript);
-    const normalizedSelected = normalizeForWer(selectedForSave);
-    const wer = calculateWordErrorRate(normalizedTruth, normalizedSelected);
+    if (selectedForSave.trim().length === 0) {
+      throw new Error(
+        `Run INVALID (no_finalized_saved_transcript) for private-longform-washington: ` +
+        `saveCandidate=${JSON.stringify(saveCandidate)}. No WER is computed and no artifact is ` +
+        `written — an absent transcript is not a measurement.`
+      );
+    }
+    // The certified scorer owns normalization; the spec-local `normalizeForWer` was a second ruler.
+    const scored = wordErrorRate(WASHINGTON_01.transcript, selectedForSave, { track: 'track_a' });
+    if (scored.wer === null) {
+      throw new Error(
+        'Run INVALID (unmeasurable_reference) for private-longform-washington: the ground-truth ' +
+        'reference normalized to zero words. No WER is computed and no artifact is written.'
+      );
+    }
+    const wer = scored.wer;
     const accuracyPct = Number(((1 - wer) * 100).toFixed(2));
     const privateTiming = diagnostics.privateTiming as PrivateTiming | null;
     const finalizeDecodeMs = typeof privateTiming?.finalizeDecodeMs === 'number'
@@ -94,12 +113,17 @@ test.describe('Private long-form timing branch proof @live', () => {
       rtf,
       stopPredecodeBreakdown: diagnostics.stopPredecodeBreakdown,
       privateTimelineTail: diagnostics.privateTimelineTail,
-      transcriptTextOnly: diagnostics.transcriptTextOnly,
+      transcriptContent: diagnostics.transcriptContent,
       selectedForSave,
-      normalizedSelectedWordCount: normalizedSelected.split(/\s+/).filter(Boolean).length,
-      normalizedTruthWordCount: normalizedTruth.split(/\s+/).filter(Boolean).length,
+      // Counts come from the SCORER, not a second normalizer recomputing them alongside it.
+      referenceWords: scored.referenceWords,
+      substitutions: scored.substitutions,
+      deletions: scored.deletions,
+      insertions: scored.insertions,
       wer: Number(wer.toFixed(4)),
       accuracyPct,
+      scoringTrack: scored.track,
+      normalizationVersion: scored.normalizationVersion,
     };
 
     await attachJson(testInfo, 'private-longform-washington-timing.json', evidence);
@@ -185,10 +209,22 @@ async function waitForNonPlaceholderTranscript(page: Page) {
   return text;
 }
 
+/**
+ * #1304 Task 2 — read the CURRENT rendered transcript surface, failing closed.
+ *
+ * This read `transcript-container`, which renders NOWHERE since the session overhaul. `textContent()`
+ * resolved to null and `normalizeText(null)` turned it into `''` — an empty transcript
+ * indistinguishable from a model that produced nothing, on every run.
+ *
+ * An absent or empty surface now THROWS with a named reason rather than returning empty text, so a
+ * run that observed nothing cannot contribute a WER row.
+ */
 async function readTranscriptText(page: Page) {
-  return page.getByTestId('transcript-container')
-    .textContent()
-    .then((text) => normalizeText(text));
+  const read = await readBenchmarkTranscript(page);
+  if (!read.ok) {
+    throw new Error(`transcript read INVALID (${read.invalidReason}) — no WER row may be emitted from an unobserved surface`);
+  }
+  return normalizeText(read.text);
 }
 
 async function readDiagnostics(page: Page) {
@@ -202,21 +238,15 @@ async function readDiagnostics(page: Page) {
       privateTiming: win.__PRIVATE_TIMING__ ?? null,
       stopPredecodeBreakdown: privateTimeline.filter((entry) => entry.event === 'stop_predecode_breakdown'),
       privateTimelineTail: privateTimeline.slice(-20),
-      transcriptTextOnly: document.querySelector('[data-testid="transcript-text-only"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      // #1304 Task 2: was `transcript-text-only`, a THIRD retired id that the surface guard caught —
+      // rendered by nothing, so this diagnostic reported null on every run and looked like "no text".
+      transcriptContent: document.querySelector('[data-testid="transcript-content"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
     };
   });
 }
 
 function normalizeText(text: string | null) {
   return (text ?? '').replace(/\s+/g, ' ').trim();
-}
-
-function normalizeForWer(text: string) {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9'\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 async function attachJson(testInfo: TestInfo, name: string, value: unknown) {

@@ -11,6 +11,8 @@
 // The only way a harness test can be evidence is if it drives the component the product actually
 // renders. This mounts SessionDuringState — SessionPage -> SessionOverhaulView -> SessionDuringState —
 // and runs the real helper functions against that DOM.
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, cleanup } from '../../../../tests/support/test-utils';
 import { SessionDuringState } from '../SessionDuringState';
@@ -18,7 +20,7 @@ import { SessionOverhaulView } from '../SessionOverhaulView';
 import { computeProgressVsBaseline } from '@/utils/progressVsBaseline';
 import {
     DURING_STATE_LANDMARKS, RETIRED_TRANSCRIPT_IDS, LIVE_TRANSCRIPT, TRANSCRIPT_HEADER_META,
-    parseHeaderMetaWords,
+    parseHeaderMetaWords, RETIRED_COMBINED_CONTROL,
 } from '../../../../../tests/helpers/micControls';
 
 vi.mock('@playwright/test', () => {
@@ -319,5 +321,155 @@ describe('the parent derivation, and evidence that never carries recognized spee
         expect('bodyText' in ui, 'the raw field must not exist to be forgotten').toBe(false);
         expect(typeof ui.transcriptChars).toBe('number');
         expect(typeof ui.transcriptWords).toBe('number');
+    });
+});
+
+
+/**
+ * #1304 Task 2 — the AUTHORITATIVE benchmark specs may not name a retired control or surface.
+ *
+ * These three produce the rows a model down-select is decided on. They previously clicked
+ * `session-start-stop-button` (a combined toggle the session overhaul retired) and read
+ * `transcript-container` (rendered by nothing), so their measurements came from controls that could
+ * not resolve and a surface that was never there — a confident number computed from an empty string.
+ *
+ * A regression back to either must fail HERE, in seconds, rather than after a 40-minute live run.
+ * Scope is deliberately the three authoritative specs: legacy diagnostic specs are out of scope and
+ * are not evidence producers.
+ */
+const AUTHORITATIVE_BENCHMARK_SPECS = [
+    'tests/live/private-decode-params-ab.live.spec.ts',
+    'tests/live/private-longform-timing.live.spec.ts',
+    'tests/live/benchmark-webgpu.live.spec.ts',
+] as const;
+
+/** Strip comments so a prose mention of the retired id in a WHY-note is not a false positive. */
+function sourceWithoutComments(relPath: string): string {
+    const raw = readFileSync(resolve(process.cwd(), relPath), 'utf8');
+    return raw
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('//'))
+        .join('\n');
+}
+
+describe('#1304 the authoritative benchmark specs use CURRENT controls only', () => {
+    /**
+     * `expectBenchmarkTranscriptOutput` is DEPRECATED and prohibited here: it asserts COMMITTED output
+     * (empty by design while recording), still reaches the dead `transcript-container`, and its
+     * `.catch(() => '')` turns a READ ERROR into "no words". An authoritative spec calling it is
+     * measuring through the same blind surface these ids were removed for.
+     */
+    const PROHIBITED_HELPERS = ['expectBenchmarkTranscriptOutput'] as const;
+
+    it.each(AUTHORITATIVE_BENCHMARK_SPECS)('%s names no retired control, surface or helper', (relPath) => {
+        const source = sourceWithoutComments(relPath);
+        for (const retired of [RETIRED_COMBINED_CONTROL, ...RETIRED_TRANSCRIPT_IDS, ...PROHIBITED_HELPERS]) {
+            expect(source, `${relPath} must not reference the retired '${retired}'`).not.toContain(retired);
+        }
+    });
+
+    /**
+     * The LEGACY SCORER is prohibited by PATH as well as by name.
+     *
+     * `frontend/src/lib/wer`'s `calculateWordErrorRate` is the uncertified ruler #1356 replaced: it
+     * charges 71% WER for `five dollars and fifty cents` vs `$5.50`, 50% for `21.4%`, 33% for
+     * `colour`/`color`. A spec can be certified-clean on surface and ordering and still emit a number
+     * produced by the wrong ruler — the same vacuous-check shape, one layer in.
+     *
+     * `wordErrorRate` is required positively, so deleting the scoring call is a failure too rather
+     * than a spec that silently stops measuring.
+     */
+    it.each(AUTHORITATIVE_BENCHMARK_SPECS)('%s scores with the CERTIFIED scorer only', (relPath) => {
+        const source = sourceWithoutComments(relPath);
+        expect(source, `${relPath} must not import the legacy scorer by path`).not.toMatch(/from ['"][^'"]*\/lib\/wer['"]/);
+        expect(source, `${relPath} must not call calculateWordErrorRate`).not.toMatch(/\bcalculateWordErrorRate\b/);
+        expect(source, `${relPath} must score through the certified wordErrorRate`).toMatch(/\bwordErrorRate\b/);
+        // A spec-local normalizer is a SECOND ruler, free to drift from the certified one.
+        expect(source, `${relPath} must not define its own normalizer`).not.toMatch(/\bnormalizeForWer\b/);
+    });
+
+    it('POSITIVE CONTROL: the guard can actually see a retired id', () => {
+        // Without this the assertion above would also pass if the files could not be read at all.
+        expect(sourceWithoutComments(AUTHORITATIVE_BENCHMARK_SPECS[0]).length).toBeGreaterThan(500);
+        expect(`x ${RETIRED_COMBINED_CONTROL} y`).toContain(RETIRED_COMBINED_CONTROL);
+    });
+});
+
+
+describe('#1304 an unobserved transcript surface yields an INVALID run, never an empty measurement', () => {
+    // The retired `transcript-container` rendered nowhere, so `textContent()` was null and the callers
+    // turned it into `''`. A model that produced nothing and a surface that was never there became
+    // indistinguishable — and a WER computed against `''` still looked like a number.
+    const fakePage = (surfaces: Record<string, string>) => ({
+        getByTestId: (id: string) => ({
+            count: async () => (id in surfaces ? 1 : 0),
+            first: () => ({ textContent: async () => surfaces[id] }),
+        }),
+    });
+
+    it('an ABSENT surface is named, not silently empty', async () => {
+        const { readBenchmarkTranscript } = await import('../../../../../tests/live/helpers/benchmark-utils');
+        const read = await readBenchmarkTranscript(fakePage({}) as never);
+        expect(read.ok).toBe(false);
+        expect(read.ok ? null : read.invalidReason).toBe('transcript_surface_absent');
+    });
+
+    it('a PRESENT but empty surface is distinguished from an absent one', async () => {
+        const { readBenchmarkTranscript } = await import('../../../../../tests/live/helpers/benchmark-utils');
+        const read = await readBenchmarkTranscript(fakePage({ 'transcript-content': '   ' }) as never);
+        expect(read.ok).toBe(false);
+        expect(read.ok ? null : read.invalidReason).toBe('transcript_surface_empty');
+    });
+
+    it('INTERIM-ONLY: live text counts even when the committed surface is blank', async () => {
+        // The committed surface is legitimately empty MID-RECORDING. Reporting `empty` as soon as
+        // `transcript-content` existed-but-was-blank declared "no speech" while `live-transcript` was
+        // carrying healthy interim text — recreating the very false negative this helper removes.
+        const { readBenchmarkTranscript } = await import('../../../../../tests/live/helpers/benchmark-utils');
+        const read = await readBenchmarkTranscript(
+            fakePage({ 'transcript-content': '', 'live-transcript': 'the quick brown fox' }) as never,
+        );
+        expect(read).toEqual({ ok: true, text: 'the quick brown fox' });
+    });
+
+    it('BOTH surfaces blank is still empty, not absent', async () => {
+        const { readBenchmarkTranscript } = await import('../../../../../tests/live/helpers/benchmark-utils');
+        const read = await readBenchmarkTranscript(
+            fakePage({ 'transcript-content': '', 'live-transcript': '  ' }) as never,
+        );
+        expect(read.ok ? null : read.invalidReason).toBe('transcript_surface_empty');
+    });
+
+    it('the CURRENT surface is read when it is actually rendered', async () => {
+        const { readBenchmarkTranscript } = await import('../../../../../tests/live/helpers/benchmark-utils');
+        const read = await readBenchmarkTranscript(fakePage({ 'transcript-content': 'hello   world' }) as never);
+        expect(read).toEqual({ ok: true, text: 'hello world' });
+    });
+});
+
+
+describe('#1304 an invalid run must not leave a measurement behind', () => {
+    /**
+     * These specs computed the WER, built the evidence object, attached it and logged it — and only
+     * THEN asserted that a finalized saved transcript existed. A run with no transcript therefore
+     * emitted a WER row and an artifact before failing, so an invalid run left a number that reads
+     * exactly like a measurement.
+     *
+     * Order is asserted from source because the guard runs locally in seconds; the live specs
+     * themselves are workflow_dispatch-only and cannot gate a push.
+     */
+    const MEASURE_AFTER_VALIDATE = [
+        'tests/live/private-decode-params-ab.live.spec.ts',
+        'tests/live/private-longform-timing.live.spec.ts',
+    ] as const;
+
+    it.each(MEASURE_AFTER_VALIDATE)('%s validates the saved transcript BEFORE measuring', (relPath) => {
+        const source = sourceWithoutComments(relPath);
+        const guardAt = source.indexOf('no_finalized_saved_transcript');
+        const werAt = source.indexOf('wordErrorRate(');
+        expect(guardAt, `${relPath} must name an invalid-run reason`).toBeGreaterThan(-1);
+        expect(werAt, `${relPath} must compute a WER`).toBeGreaterThan(-1);
+        expect(guardAt, `${relPath}: the invalid-run guard must precede the WER computation`).toBeLessThan(werAt);
     });
 });

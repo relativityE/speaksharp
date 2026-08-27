@@ -1,8 +1,13 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
-import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
-import { AUDIO_ARGS, preparePrivateModelIfPrompted, selectBenchmarkMode, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
+// #1304: the CERTIFIED scorer. `frontend/src/lib/wer`'s `calculateWordErrorRate` is the uncertified
+// legacy ruler #1356 replaced — it charges 71% WER for `five dollars and fifty cents` vs `$5.50`, 50%
+// for `21.4%` and 33% for `colour`/`color`, so a ranking built on it partly ranks orthography.
+// `wordErrorRate` owns normalization and records the track and normalization identity on every row.
+import { wordErrorRate } from '../evidence/werMetric';
+import { AUDIO_ARGS, preparePrivateModelIfPrompted, selectBenchmarkMode, waitForBenchmarkSaveCandidate, readBenchmarkTranscript, startBenchmarkRecording, stopBenchmarkRecording } from './helpers/benchmark-utils';
+import { RECORDER_BAR } from '../helpers/micControls';
 import { HARVARD_SENTENCES } from '../fixtures/stt-isomorphic/harvard-sentences';
 import { WASHINGTON_01 } from '../fixtures/stt-isomorphic/washington-speeches';
 
@@ -97,12 +102,13 @@ test.describe(`Private decode-parameter A/B — ${fixture.id}`, () => {
       await selectBenchmarkMode(page, 'private');
       await preparePrivateModelIfPrompted(page, 180_000);
 
-      const startStopButton = page.getByTestId('session-start-stop-button');
-      await expect(startStopButton).toBeEnabled({ timeout: 60_000 });
-
-      await startStopButton.click();
+      // #1304 Task 2: the combined toggle was retired in the session overhaul. `MicCard` renders a
+      // status-dependent start control and `RecorderBar` REPLACES it while recording, so the old
+      // `data-recording` attribute has no element to live on — the recorder bar's PRESENCE is the
+      // current signal.
+      await startBenchmarkRecording(page, 'decode-params-ab');
       const recordingStartedAt = Date.now();
-      await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 60_000 });
+      await expect(page.getByTestId(RECORDER_BAR)).toBeVisible({ timeout: 60_000 });
 
       await page.waitForTimeout(Math.max(
         0,
@@ -110,13 +116,35 @@ test.describe(`Private decode-parameter A/B — ${fixture.id}`, () => {
       ));
 
       const visibleAtStop = await readTranscriptText(page);
-      await startStopButton.click();
-      await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 120_000 });
+      // Stop through the shared helper: it clicks `recorder-stop` and waits for the recorder bar to
+      // disappear, which is the current end-of-recording signal.
+      await stopBenchmarkRecording(page, `private-decode-ab-${fixture.id}-${variant.id}`, 120_000);
       const saveCandidate = await waitForBenchmarkSaveCandidate(page, `private-decode-ab-${fixture.id}-${variant.id}`, 120_000);
       const diagnostics = await readDiagnostics(page);
 
+      // #1304 Task 2: VALIDATE BEFORE MEASURING. This previously computed the WER, built the evidence
+      // object, attached it and logged `PRIVATE_DECODE_AB_EVIDENCE` — and only then asserted that a
+      // saved transcript existed. A run with no finalized transcript therefore emitted a WER row and
+      // an artifact before failing, so an invalid run left a number behind that reads as a measurement.
       const selectedForSave = saveCandidate.selectedForSave ?? '';
-      const wer = calculateWordErrorRate(normalizeForWer(fixture.transcript), normalizeForWer(selectedForSave));
+      if (selectedForSave.trim().length === 0) {
+        throw new Error(
+          `Run INVALID (no_finalized_saved_transcript) for ${fixture.id}/${variant.id}: ` +
+          `saveCandidate=${JSON.stringify(saveCandidate)}. No WER is computed and no artifact is ` +
+          `written — an absent transcript is not a measurement.`
+        );
+      }
+      // The scorer owns normalization — the spec-local `normalizeForWer` was a SECOND ruler, free to
+      // drift from the certified one. `wer` is null when the reference is unmeasurable and is never
+      // coerced to 0, because a fabricated perfect score is the failure this program exists to prevent.
+      const scored = wordErrorRate(fixture.transcript, selectedForSave, { track: 'track_a' });
+      if (scored.wer === null) {
+        throw new Error(
+          `Run INVALID (unmeasurable_reference) for ${fixture.id}/${variant.id}: the ground-truth ` +
+          `reference normalized to zero words. No WER is computed and no artifact is written.`
+        );
+      }
+      const wer = scored.wer;
       const accuracyPct = Number(((1 - wer) * 100).toFixed(2));
       const evidence = {
         capturedAt: new Date().toISOString(),
@@ -132,14 +160,17 @@ test.describe(`Private decode-parameter A/B — ${fixture.id}`, () => {
         selectedForSave,
         wer: Number(wer.toFixed(4)),
         accuracyPct,
+        scoringTrack: scored.track,
+        normalizationVersion: scored.normalizationVersion,
         privateTiming: diagnostics.privateTiming,
         privateTimelineTail: diagnostics.privateTimelineTail,
-        transcriptTextOnly: diagnostics.transcriptTextOnly,
+        transcriptContent: diagnostics.transcriptContent,
       };
 
       await attachJson(testInfo, `private-decode-ab-${fixture.id}-${variant.id}.json`, evidence);
       console.log(`PRIVATE_DECODE_AB_EVIDENCE ${JSON.stringify(evidence)}`);
 
+      // The saved transcript was already proven non-empty above, before any measurement was taken.
       expect(saveCandidate.selectedForSaveLength ?? 0, JSON.stringify(evidence)).toBeGreaterThan(0);
     });
   }
@@ -203,10 +234,22 @@ async function signUp(page: Page, accountEmail: string, accountPassword: string)
   await expect(page).toHaveURL(/\/session|\/analytics/, { timeout: 30_000 });
 }
 
+/**
+ * #1304 Task 2 — read the CURRENT rendered transcript surface, failing closed.
+ *
+ * This read `transcript-container`, which renders NOWHERE since the session overhaul. `textContent()`
+ * resolved to null and `normalizeText(null)` turned it into `''` — an empty transcript
+ * indistinguishable from a model that produced nothing, on every run.
+ *
+ * An absent or empty surface now THROWS with a named reason rather than returning empty text, so a
+ * run that observed nothing cannot contribute a WER row.
+ */
 async function readTranscriptText(page: Page) {
-  return page.getByTestId('transcript-container')
-    .textContent()
-    .then((text) => normalizeText(text));
+  const read = await readBenchmarkTranscript(page);
+  if (!read.ok) {
+    throw new Error(`transcript read INVALID (${read.invalidReason}) — no WER row may be emitted from an unobserved surface`);
+  }
+  return normalizeText(read.text);
 }
 
 async function readDiagnostics(page: Page) {
@@ -219,21 +262,15 @@ async function readDiagnostics(page: Page) {
     return {
       privateTiming: win.__PRIVATE_TIMING__ ?? null,
       privateTimelineTail: privateTimeline.slice(-20),
-      transcriptTextOnly: document.querySelector('[data-testid="transcript-text-only"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      // #1304 Task 2: was `transcript-text-only`, a THIRD retired id that the surface guard caught —
+      // rendered by nothing, so this diagnostic reported null on every run and looked like "no text".
+      transcriptContent: document.querySelector('[data-testid="transcript-content"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
     };
   });
 }
 
 function normalizeText(text: string | null) {
   return (text ?? '').replace(/\s+/g, ' ').trim();
-}
-
-function normalizeForWer(text: string) {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9'\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 async function attachJson(testInfo: TestInfo, name: string, value: unknown) {
