@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { wordErrorRate, normalizeTranscript, NORMALIZATION_VERSION } from '../werMetric';
+import { wordErrorRate, normalizeTranscript, NORMALIZATION_VERSION, NORMALIZATION_VERSION_V2 } from '../werMetric';
 
 describe('#1037 werMetric — versioned normalization + honest WER', () => {
     it('normalization lowercases, strips surrounding punctuation, keeps intra-word apostrophes', () => {
@@ -41,7 +41,11 @@ describe('#1037 werMetric — versioned normalization + honest WER', () => {
     });
 
     it('carries the normalization version so a normalization change is a new version', () => {
-        expect(wordErrorRate('a', 'a').normalizationVersion).toBe(NORMALIZATION_VERSION);
+        // #1304: the DEFAULT moved to norm_v2, which is precisely why this assertion changed rather
+        // than silently continuing to pass — the recorded version is the mechanism that makes a
+        // normalization change visible in the data instead of quietly moving a ranking.
+        expect(wordErrorRate('a', 'a').normalizationVersion).toBe(NORMALIZATION_VERSION_V2);
+        expect(wordErrorRate('a', 'a', { normalization: NORMALIZATION_VERSION }).normalizationVersion).toBe(NORMALIZATION_VERSION);
     });
 
     it('folds a typographic apostrophe to ASCII instead of splitting the word', () => {

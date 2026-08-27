@@ -8,8 +8,24 @@
  * this program exists to prevent.
  */
 
+import { normalizeEnglish } from './englishNormalizer';
+
 /** Bump on ANY change to normalization. Rows carry it in comparability_inputs.normalizationVersion. */
 export const NORMALIZATION_VERSION = 'norm_v1';
+
+/**
+ * #1304 — `norm_v2` folds surface-form differences (contractions, British/American spelling, spelled-out
+ * numbers, percent, decimal currency) that made a SEMANTICALLY PERFECT transcript score non-zero under
+ * v1: measured 8.3% / 25% / 33.3% / 50% / 71.4% on the five classes, against 0% for a byte-identical
+ * pair. Every comparison built on v1 numbers was partly measuring orthography.
+ *
+ * v1 is RETAINED, not replaced: rows already pinned to it must stay reproducible. The version used is
+ * recorded on every result, so a default change shows up in the data rather than silently moving a
+ * ranking.
+ */
+export const NORMALIZATION_VERSION_V2 = 'norm_v2';
+
+export type NormalizationVersion = typeof NORMALIZATION_VERSION | typeof NORMALIZATION_VERSION_V2;
 
 /**
  * norm_v1: lowercase; drop surrounding punctuation but keep intra-word apostrophes/hyphens; collapse
@@ -67,11 +83,19 @@ function editOps(ref: string[], hyp: string[]): { sub: number; del: number; ins:
  * @param referenceGroundTruth the KNOWN fixture transcript (never a recognizer output).
  * @param hypothesis           the recognizer's transcript.
  */
-export function wordErrorRate(referenceGroundTruth: string, hypothesis: string): WerResult {
-    const ref = normalizeTranscript(referenceGroundTruth);
-    const hyp = normalizeTranscript(hypothesis);
+export function wordErrorRate(
+    referenceGroundTruth: string,
+    hypothesis: string,
+    options: { normalization?: NormalizationVersion } = {},
+): WerResult {
+    // Defaults to v2 — the version that does not charge a perfect transcript for spelling a number
+    // differently. Pass 'norm_v1' explicitly to reproduce a row that was pinned under it.
+    const version = options.normalization ?? NORMALIZATION_VERSION_V2;
+    const normalize = version === NORMALIZATION_VERSION_V2 ? normalizeEnglish : normalizeTranscript;
+    const ref = normalize(referenceGroundTruth);
+    const hyp = normalize(hypothesis);
     if (ref.length === 0) {
-        return { wer: null, referenceWords: 0, substitutions: 0, deletions: 0, insertions: 0, normalizationVersion: NORMALIZATION_VERSION };
+        return { wer: null, referenceWords: 0, substitutions: 0, deletions: 0, insertions: 0, normalizationVersion: version };
     }
     const { sub, del, ins } = editOps(ref, hyp);
     return {
@@ -80,6 +104,6 @@ export function wordErrorRate(referenceGroundTruth: string, hypothesis: string):
         substitutions: sub,
         deletions: del,
         insertions: ins,
-        normalizationVersion: NORMALIZATION_VERSION,
+        normalizationVersion: version,
     };
 }
