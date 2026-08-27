@@ -615,6 +615,65 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         }
     });
 
+    it('#1354 ACCEPTANCE 1 (closure): a LATE result from session 1 must NOT clear session 2\'s gate', async () => {
+        // Acceptance case 1 releases each session in order, so session 1's result always lands while
+        // session 1's OWN gate is live — the cross-session branch of `applyProgressGate` is never taken.
+        // This drives the branch that acceptance 1 cannot: session 1's evaluation is still in flight when
+        // session 2 begins and publishes its own gate, and session 1's terminal result arrives LATE.
+        //
+        // If a stale result could clear the live gate, the recorder would unlock on the PREVIOUS session's
+        // evidence while session 2's evaluation was still unproven — attempt 9's failure mode, reached by
+        // a different route. Killed by removing `gate.sessionId === sessionId` from `isOurs`.
+        const { wireProgressEvaluationOnSave } = await import('../progress/recordProgress');
+        useSessionStore.getState().setProgressGate(null);
+
+        let releaseSession1: (o: { kind: string }) => void = () => {};
+        vi.mocked(wireProgressEvaluationOnSave).mockReturnValueOnce(
+            new Promise<{ kind: string }>((resolve) => { releaseSession1 = resolve; }) as never,
+        );
+
+        try {
+            let settled = false;
+            const completion = driveStopWithService(
+                mkService('private', { engineVersion: 'v-p', modelName: 'm-p', deviceType: 'browser' }),
+                'sess-1354-late-1', 'private',
+            ).then(() => { settled = true; });
+
+            // MICROTASKS ONLY — this suite installs fake timers.
+            for (let i = 0; i < 50; i++) await Promise.resolve();
+
+            const live = useSessionStore.getState().progressGate;
+            expect(live, 'session 1 must hold its own gate while in flight').toMatchObject({
+                sessionId: 'sess-1354-late-1', state: 'resolving',
+            });
+            expect(settled, 'session 1 must not settle early').toBe(false);
+
+            // Session 2 has since begun and published ITS OWN gate — exactly what `beginProgressGate`
+            // writes. Same owner, so ONLY the session comparison can distinguish the two.
+            useSessionStore.getState().setProgressGate({
+                sessionId: 'sess-1354-late-2', ownerId: live?.ownerId ?? null, state: 'resolving',
+            });
+
+            // Session 1's terminal evidence finally lands — for a session that is no longer current.
+            releaseSession1({ kind: 'recorded' });
+            await completion;
+            expect(settled).toBe(true);
+
+            // Session 2 remains gated on its OWN evidence. A cleared (null) gate here is the defect.
+            expect(
+                useSessionStore.getState().progressGate,
+                "session 1's late result must not unlock session 2",
+            ).toMatchObject({ sessionId: 'sess-1354-late-2', state: 'resolving' });
+
+            // ...and Start is still refused, with no recording side effect.
+            await controller.startRecording();
+            expect(useSessionStore.getState().sttStatus.type).toBe('error');
+        } finally {
+            releaseSession1({ kind: 'recorded' });
+            useSessionStore.getState().setProgressGate(null);
+        }
+    });
+
     it('#1354 VERTICAL: the real completion path does not settle, and Start stays blocked, until Progress is terminal', async () => {
         // THE DEFECT THIS KILLS. `completeProgressForRecording` was `void`-dispatched, so the completion
         // path settled while the evaluation was still in flight and the recorder reopened. On a rapid
