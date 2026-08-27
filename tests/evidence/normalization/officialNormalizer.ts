@@ -138,21 +138,53 @@ function standardizeSpellings(s: string): string {
     return s.split(/\s+/).map((w) => SPELLINGS[w] ?? w).join(' ');
 }
 
-/** Track A normalization — the pipeline of upstream `__call__`, returning tokens. */
-export function normalizeOfficialTrackA(text: string): string[] {
+/**
+ * THE SINGLE NORMALIZATION CORE, shared by both tracks.
+ *
+ * The tracks must differ for EXACTLY ONE reason — whether disfluency is preserved. Running Track B on a
+ * separately hand-written normalizer would make every other difference (spelling, numbers, symbols,
+ * diacritics) a confound, so a Track A/Track B delta could no longer be attributed to fillers at all.
+ * One core, one switch.
+ */
+export interface NormalizationCoreOptions {
+    /**
+     * Remove `hmm|mm|mhm|mmm|uh|um` and bracketed markers — upstream Whisper behaviour, and TRACK A ONLY.
+     * Track B preserves both, because this product MEASURES disfluency and a model that silently drops
+     * an "um" must be penalised rather than rewarded.
+     */
+    removeDisfluency: boolean;
+}
+
+export function normalizeOfficialCore(text: string, options: NormalizationCoreOptions): string[] {
     if (typeof text !== 'string') return [];
+    const { removeDisfluency } = options;
     let s = text.toLowerCase();
-    s = s.replace(/[<[][^>\]]*[>\]]/g, '');          // words between brackets
-    s = s.replace(/\(([^)]+?)\)/g, '');              // words between parentheses
-    s = s.replace(IGNORE_PATTERNS, '');              // fillers — TRACK A ONLY
+    if (removeDisfluency) {
+        s = s.replace(/[<[][^>\]]*[>\]]/g, '');      // words between brackets
+        s = s.replace(/\(([^)]+?)\)/g, '');          // words between parentheses
+        s = s.replace(IGNORE_PATTERNS, '');          // fillers
+    }
     s = s.replace(/\s+'/g, "'");                     // space before an apostrophe
     for (const [pattern, replacement] of REPLACERS) s = s.replace(pattern, replacement);
     s = s.replace(/(\d),(\d)/g, '$1$2');             // commas between digits
     s = s.replace(/\.([^0-9]|$)/g, ' $1');           // periods not followed by numbers
-    s = removeSymbolsAndDiacritics(s, '.%$¢€£');
+    // The disfluency switch governs marker preservation END TO END. Stripping the bracket CONTENT above
+    // but then letting the symbol pass here would leave Track B with a bare `inaudible` token — the
+    // marker no longer distinguishable from the ordinary word. One switch, applied consistently.
+    s = removeSymbolsAndDiacritics(s, removeDisfluency ? '.%$¢€£' : '.%$¢€£[]');
     s = standardizeNumbers(s);
     s = standardizeSpellings(s);
     s = s.replace(/[.$¢€£]([^0-9])/g, ' $1');
     s = s.replace(/([^0-9])%/g, '$1 ');
     return s.split(/\s+/).filter((t) => t.length > 0);
+}
+
+/** TRACK A — transcript accuracy. Official behaviour: disfluency and markers removed. */
+export function normalizeOfficialTrackA(text: string): string[] {
+    return normalizeOfficialCore(text, { removeDisfluency: true });
+}
+
+/** TRACK B — disfluency accuracy. The SAME core, with disfluency preserved. Nothing else differs. */
+export function normalizeOfficialTrackB(text: string): string[] {
+    return normalizeOfficialCore(text, { removeDisfluency: false });
 }

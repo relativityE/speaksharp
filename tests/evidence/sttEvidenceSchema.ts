@@ -181,7 +181,24 @@ export interface ComparabilityInputs {
     /** Single canonical fixture hash — the same value as AudioRouteEvidence.fixtureSha256. */
     fixtureHash: string;
     groundTruthVersion: string;
-    normalizationVersion: string;
+    /**
+     * #1304 — `null` when no WER was measurable, so a row never claims a normalization it did not use.
+     * It was previously written from a separate constant that had drifted from the code actually doing
+     * the normalizing.
+     */
+    normalizationVersion: string | null;
+    /**
+     * #1304 — WHICH SCORING TRACK produced this row's WER. `track_a` is transcript accuracy under the
+     * official normalization (disfluency removed); `track_b` is disfluency accuracy (preserved).
+     *
+     * This is a RUNTIME field, not just a compile-time brand, because branding cannot survive JSON:
+     * once rows are serialized, imported and aggregated, the type is gone and nothing would stop
+     * Track-A and Track-B numbers being averaged into a single meaningless figure. It is part of the
+     * COMPARABILITY KEY — two rows scored under different tracks are not comparable.
+     *
+     * `null` only when no WER was measurable for the row, so it never claims a track it did not use.
+     */
+    track: 'track_a' | 'track_b' | null;
     decodeConfiguration: string;
     modelRevision: string;
     /** e.g. { onnxruntime: '1.27.0', transformers: '3.x' } */

@@ -17,8 +17,7 @@
  * the result is branded with it so handing Track-A data to a Track-B consumer is a COMPILE error rather
  * than a runtime check nobody runs.
  */
-import { normalizeEnglish } from '../englishNormalizer';
-import { normalizeOfficialTrackA } from './officialNormalizer';
+import { normalizeOfficialTrackA, normalizeOfficialTrackB } from './officialNormalizer';
 
 export type Track = 'track_a' | 'track_b';
 
@@ -34,7 +33,9 @@ export interface NormalizedText<T extends Track> {
 }
 
 export function normalizeForTrack<T extends Track>(track: T, text: string): NormalizedText<T> {
-    const tokens = track === 'track_a' ? normalizeOfficialTrackA(text) : normalizeEnglish(text);
+    // BOTH tracks run the same official core. The ONLY difference is disfluency handling — otherwise a
+    // Track A/Track B delta could not be attributed to fillers, which is the entire measurement.
+    const tokens = track === 'track_a' ? normalizeOfficialTrackA(text) : normalizeOfficialTrackB(text);
     return { track, tokens };
 }
 

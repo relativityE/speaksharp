@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildCorpusRow, summarizeLatency, type CorpusRunInput, type CorpusRow } from '../corpusLane';
 import { cohortKey, type AudioRouteEvidence, type RuntimeCapability, type ComparabilityInputs } from '../sttEvidenceSchema';
-import { NORMALIZATION_VERSION } from '../werMetric';
+import { NORMALIZATION_VERSION_V2 } from '../werMetric';
 
 const SHA = 'a'.repeat(40);
 const provenRoute: AudioRouteEvidence = {
@@ -34,7 +34,12 @@ describe('#1037 corpusLane — schema-valid rows, fail-closed, honest WER/percen
         expect(r.run_validity).toBe('valid');
         expect(r.audio_route_proven).toBe(true);
         expect(r.wer).toBeCloseTo(1 / 4, 10);
-        expect(r.comparability_inputs.normalizationVersion).toBe(NORMALIZATION_VERSION); // forced, not caller's
+        // #1304: this previously asserted NORMALIZATION_VERSION ('norm_v1') — the value the row WRONGLY
+        // claimed while the WER above was computed under the official Track A normalization. The test
+        // was pinning the mismatch as if it were the contract. Provenance now comes from the ACTUAL
+        // WerResult, so the row reports the normalization and track it really used.
+        expect(r.comparability_inputs.normalizationVersion).toBe(NORMALIZATION_VERSION_V2);
+        expect(r.comparability_inputs.track).toBe('track_a');
     });
 
     it('an UNPROVEN route (offline: zero adapter bytes) is EXCLUDED, WER dropped, reason recorded', () => {
