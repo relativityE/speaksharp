@@ -100,7 +100,10 @@ describe('SessionPage Logic', () => {
         // The fail-closed default is deliberate, not incidental: SessionOverhaulView.progressGate.test.tsx
         // asserts that an UNRESOLVED gate disables Start.
         useSessionStore.getState().setProgressGate(null);
-        useSessionStore.getState().setProgressGateResolved(true);
+        // '' marks "determined for an ANONYMOUS viewer" — this isolated render has no auth session, so
+        // SessionPage passes authUserId=null and the gate resolution must be recorded against that same
+        // owner. Recording it for a signed-in id would leave the viewer unresolved and Start disabled.
+        useSessionStore.getState().setProgressGateResolvedFor('');
     });
 
 

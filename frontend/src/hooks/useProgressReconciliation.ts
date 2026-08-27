@@ -38,7 +38,9 @@ export function useProgressReconciliation(): void {
         // That is still a RESOLVED answer — an anonymous user has no readable debt, and a save without
         // an owner already fails closed at the seam. Leaving it unresolved would disable Start forever.
         if (userId) useSessionStore.getState().setProgressGate(reconstructGateFromQueue(userId));
-        useSessionStore.getState().setProgressGateResolved(true);
+        // Record WHICH owner this answer belongs to. `''` marks a resolved anonymous visitor, so a
+        // signed-out user is not blocked forever, while an account switch invalidates it at once.
+        useSessionStore.getState().setProgressGateResolvedFor(userId ?? '');
     }, [userId]);
 
     // #1354 CASE 4 — CROSS-TAB. `storage` events reach OTHER tabs, never the writer, so a second

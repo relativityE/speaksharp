@@ -24,14 +24,15 @@ const OWNER = 'user-A';
 const OTHER = 'user-B';
 const SESSION = 'sess-owed';
 const gate = () => useSessionStore.getState().progressGate;
-const resolved = () => useSessionStore.getState().progressGateResolved;
+/** Resolved FOR the currently signed-in owner ('' marks a resolved anonymous visitor). */
+const resolved = () => useSessionStore.getState().progressGateResolvedFor === (authUser.user?.id ?? '');
 
 beforeEach(() => {
     localStorage.clear();
     authUser.user = null;
     history.data = [];
     useSessionStore.getState().setProgressGate(null);
-    useSessionStore.getState().setProgressGateResolved(false);
+    useSessionStore.getState().setProgressGateResolvedFor(null);
 });
 
 describe('reload recovery reconstructs the gate from durable debt', () => {

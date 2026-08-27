@@ -37,6 +37,14 @@ export interface MicCardProps {
     onDownloadModel?: () => void;
     /** Disable the primary control (busy: initialising / downloading / stopping). */
     disabled?: boolean;
+    /**
+     * #1354 — WHY the primary control is blocked, in the user's words, or null when it is not.
+     *
+     * Without this the card kept saying "Mic ready on this device" and "Press to start speaking" over
+     * a button that could not be pressed. Telling someone to press a control you have disabled is the
+     * contradiction this removes: the card must state the real reason instead.
+     */
+    blockedReason?: string | null;
 }
 
 const MicGlyph: React.FC = () => (
@@ -51,7 +59,7 @@ const MicGlyph: React.FC = () => (
 
 export const MicCard: React.FC<MicCardProps> = ({
     onStart, devices, selectedDeviceId, onSelectDevice, error,
-    privateModelStatus = 'ready', modelLoadingProgress, onDownloadModel, disabled,
+    privateModelStatus = 'ready', modelLoadingProgress, onDownloadModel, disabled, blockedReason,
 }) => {
     const deviceList = devices ?? [];
     const hasPicker = deviceList.length > 0;
@@ -63,7 +71,11 @@ export const MicCard: React.FC<MicCardProps> = ({
 
     // Status line (top-left): ready / needs one-time download / DOWNLOADING (with %) / problem. While the
     // model downloads, this is the user's progress cue (it replaces the removed status-notification bar).
-    const status = downloadRequired
+    // #1354: a setup action stays clickable, so a Progress block only applies to the ordinary start.
+    const isBlockedFromStart = !!blockedReason && !(downloadRequired || modelError);
+    const status = isBlockedFromStart
+        ? { dot: '#d98a1f', text: '#a8571f', label: 'Finishing your last session' }
+        : downloadRequired
         ? { dot: '#d98a1f', text: '#a8571f', label: 'One-time download needed' }
         : loading
             ? { dot: '#d98a1f', text: '#a8571f', label: pct != null ? `Downloading private transcription… ${pct}%` : 'Downloading private transcription…' }
@@ -79,11 +91,15 @@ export const MicCard: React.FC<MicCardProps> = ({
     const isSetupAction = downloadRequired || modelError;
     const primaryHandler = isSetupAction ? (onDownloadModel ?? onStart) : onStart;
     const primaryDisabled = isSetupAction ? false : (!!disabled || loading);
-    const primaryTitle = downloadRequired
+    const primaryTitle = isBlockedFromStart
+        ? 'Just a moment…'
+        : downloadRequired
         ? 'Download to start speaking'
         : modelError ? 'Retry Private setup'
         : loading ? 'Downloading…' : 'Press to start speaking';
-    const primarySub = downloadRequired
+    const primarySub = isBlockedFromStart
+        ? blockedReason
+        : downloadRequired
         ? 'One-time · downloads to this device, then stays local'
         : modelError ? 'Setup didn’t finish — retry. Your audio stays on your machine.'
         : loading ? (pct != null ? `${pct}% downloaded — the mic unlocks when it’s ready` : 'the mic unlocks when it’s ready') : 'Space bar works too · aim for 60 seconds';
@@ -114,7 +130,7 @@ export const MicCard: React.FC<MicCardProps> = ({
                 type="button"
                 onClick={primaryHandler}
                 disabled={primaryDisabled}
-                aria-label={downloadRequired ? 'Download to start speaking' : modelError ? 'Retry Private setup' : 'Start speaking'}
+                aria-label={downloadRequired ? 'Download to start speaking' : modelError ? 'Retry Private setup' : isBlockedFromStart ? 'Start speaking — unavailable while your last session finishes' : 'Start speaking'}
                 data-testid={downloadRequired ? 'mic-download' : modelError ? 'mic-retry' : 'mic-start'}
                 className="mt-3 flex w-full items-center gap-4 rounded-lg text-left disabled:opacity-60"
             >

@@ -30,8 +30,13 @@ export function evaluateDurableStartGate(ownerId: string | null | undefined): St
     if (!ownerId) return { allowed: true };
     const queued = getQueuedSessionIdsForUser(ownerId);
     if (!queued.ok) return { allowed: false, reason: 'queue_unreadable', failure: queued.failure };
-    const first = (queued.sessionIds ?? [])[0];
-    if (first) return { allowed: false, reason: 'queued_debt', sessionId: first };
+    // PRESENCE of an entry blocks — never the truthiness of its id. `if (first)` treated a blank
+    // session id as "no debt", so a single loosening of the reader's validation upstream would have
+    // turned this into a silent fail-open. The reader currently rejects blanks as corrupt (verified),
+    // so this is defence in depth rather than a live defect — but the Start authority must not DEPEND
+    // on another module's validation to fail closed.
+    const ids = queued.sessionIds ?? [];
+    if (ids.length > 0) return { allowed: false, reason: 'queued_debt', sessionId: ids[0] };
     return { allowed: true };
 }
 
@@ -76,6 +81,22 @@ export function startGateMessage(verdict: StartGateVerdict): string | null {
         case 'queue_unreadable':
             return "We couldn't confirm your last session's progress was saved. Check that browser storage is available, then reload to retry.";
     }
+}
+
+/**
+ * The user-facing notice for the CURRENT gate, or null when nothing is blocking.
+ *
+ * Shares `startGateMessage` so the rendered copy and the controller's refusal message can never drift
+ * apart, and takes the resolved-owner as an input so the "we have not looked yet" window gets honest
+ * copy of its own instead of silently reading as "ready".
+ */
+export function progressGateNotice(gate: GateState, resolvedForOwner: boolean): string | null {
+    if (!resolvedForOwner) return 'Checking your last session…';
+    if (!gate) return null;
+    const reason = gate.state === 'resolving' ? 'in_flight'
+        : gate.state === 'queued' ? 'queued_debt'
+        : 'unresolved_evidence';
+    return startGateMessage({ allowed: false, reason, sessionId: gate.sessionId });
 }
 
 /**

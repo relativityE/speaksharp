@@ -65,7 +65,12 @@ export function readProgressReconcileQueue(): QueueReadResult {
         logger.warn({ err }, '[progress] reconcile queue read failed');
         return { ok: false, failure: 'storage_unavailable' };
     }
-    if (!raw) return { ok: true, entries: [] };
+    // ONLY a genuinely ABSENT key is an empty queue. `!raw` also caught the empty STRING, so a
+    // truncated or partially-written value reported a readable, empty queue — JSON.parse and entry
+    // validation never ran, and the Start gate unlocked on storage we could not actually read.
+    // Verified reachable: with `''` stored, the read returned ok:true and the durable gate allowed.
+    // `''` must reach JSON.parse, become `corrupt`, and fail closed like any other unreadable value.
+    if (raw === null) return { ok: true, entries: [] };
     let parsed: unknown;
     try {
         parsed = JSON.parse(raw);

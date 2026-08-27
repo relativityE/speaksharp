@@ -7,11 +7,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
     evaluateDurableStartGate, evaluateStartGate, startGateMessage,
-    reconstructGateFromQueue, subscribeCrossTabProgressGate,
+    reconstructGateFromQueue, subscribeCrossTabProgressGate, PROGRESS_QUEUE_STORAGE_KEY,
 } from '../progressStartGate';
-import { enqueueProgressReconcile } from '../progressReconcileQueue';
+import { enqueueProgressReconcile, readProgressReconcileQueue } from '../progressReconcileQueue';
 
-const KEY = 'ss_progress_reconcile_queue_v1';
+// #1354: point at the canonical export rather than repeating the literal — a test copy is a
+// third authority for the same key, free to drift from the one the writer actually uses.
+const KEY = PROGRESS_QUEUE_STORAGE_KEY;
 const OWNER = 'user-1';
 const OTHER = 'user-2';
 
@@ -193,5 +195,55 @@ describe('reload reconstruction and cross-tab reaction', () => {
         // must still be blocked by the fresh durable read.
         enqueueProgressReconcile('s-silent', OWNER, 'now');
         expect(evaluateStartGate(OWNER, null).allowed).toBe(false);
+    });
+});
+
+describe('#1354: an EMPTY RAW VALUE is unreadable, not an empty queue', () => {
+    // THE REACHABLE FAIL-OPEN. The reader used `if (!raw) return { ok: true, entries: [] }`, which
+    // treats the empty STRING the same as an absent key. A truncated or partially-written value
+    // therefore reported a readable, EMPTY queue — JSON.parse and entry validation never ran — and the
+    // durable Start gate unlocked on storage it could not actually read.
+    //
+    // Verified before fixing: with `''` stored, the read returned ok:true and the gate returned
+    // allowed:true. `''` must instead reach JSON.parse, become `corrupt`, and fail closed.
+    it('an empty stored value reads as CORRUPT, never as an empty queue', () => {
+        localStorage.setItem(KEY, '');
+        const res = readProgressReconcileQueue();
+        expect(res.ok).toBe(false);
+        expect(res.ok ? null : res.failure).toBe('corrupt');
+    });
+
+    it('and the durable Start decision therefore BLOCKS', () => {
+        localStorage.setItem(KEY, '');
+        expect(evaluateDurableStartGate('u1').allowed).toBe(false);
+    });
+
+    it('an ABSENT key is still a genuinely empty queue', () => {
+        // The guard must narrow to `null` only — it must not start blocking first-run users who have
+        // simply never queued anything.
+        localStorage.removeItem(KEY);
+        expect(readProgressReconcileQueue().ok).toBe(true);
+        expect(evaluateDurableStartGate('u1').allowed).toBe(true);
+    });
+});
+
+describe('#1354: a degenerate queue entry fails CLOSED', () => {
+    // HONEST SCOPE. These are CHARACTERIZATION tests. They do NOT close the empty-value fail-open —
+    // that is the raw-value case in the describe above, at the reader. This block covers a DIFFERENT
+    // and currently UNREACHABLE condition: a blank entry id. Mutating `ids.length > 0` back to
+    // `if (ids[0])` fails nothing here, because a blank id makes the reader return `corrupt` before
+    // the presence check runs, and whitespace is truthy either way.
+    //
+    // The `ids.length > 0` form is retained purely as harmless defence in depth — the Start authority
+    // should not depend on another module's validation to fail closed — and is deliberately NOT
+    // presented as a falsified check.
+    it('an entry whose id is blank blocks (via the corrupt-read route)', () => {
+        localStorage.setItem(KEY, JSON.stringify([{ sessionId: '', userId: 'u1', enqueuedAtIso: 'x' }]));
+        expect(evaluateDurableStartGate('u1').allowed).toBe(false);
+    });
+
+    it('an entry whose id is whitespace blocks (via the debt route)', () => {
+        localStorage.setItem(KEY, JSON.stringify([{ sessionId: '   ', userId: 'u1', enqueuedAtIso: 'x' }]));
+        expect(evaluateDurableStartGate('u1').allowed).toBe(false);
     });
 });

@@ -49,7 +49,7 @@ const initialState: SessionState = {
     engineSelectionLocked: false,
     pendingResolutionKind: null,
     progressGate: null,
-    progressGateResolved: false,
+    progressGateResolvedFor: null,
 };
 
 /**
@@ -218,7 +218,7 @@ export function createTestSessionStore(
         setPracticeFocus: vi.fn((practiceFocus) => set({ practiceFocus })),
         setCompletedObjectiveBrief: vi.fn((completedObjectiveBrief) => set({ completedObjectiveBrief })),
         setProgressGate: vi.fn((progressGate) => set({ progressGate })),
-        setProgressGateResolved: vi.fn((progressGateResolved) => set({ progressGateResolved })),
+        setProgressGateResolvedFor: vi.fn((progressGateResolvedFor) => set({ progressGateResolvedFor })),
         setObjectiveCoverageResult: vi.fn((objectiveCoverageResult) => set({ objectiveCoverageResult })),
         setTranscriptFinalizing: vi.fn((isTranscriptFinalizing) =>
             set({
