@@ -95,3 +95,7 @@ private-model-smoke.json
 
 # #1037 generated STT evidence run output (uploaded by CI, never committed)
 stt-evidence-artifacts/
+
+# #1304 — LibriSpeech archives/extractions: ~660MB, never committed. Identity lives in
+# tests/fixtures/corpus-manifest.json (checksums + frozen subset ids).
+bench-corpus/
