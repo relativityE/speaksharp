@@ -35,6 +35,8 @@ const CONVERGE = M('20260804000000_transcript_retention_converge_on_save.sql');
  * merely omitted, so a future edit that quietly adds it fails instead of silently changing the subject.
  */
 const HELD_MIGRATION = '20260812042000_trial_activation_stamp_1282.sql';
+/** #1314 — `complete_session_v2`: the REAL save entry point the client calls. */
+const COMPLETE_V2 = M('20260819120000_complete_session_v2_atomic_retention_1314.sql');
 
 const U = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -53,24 +55,39 @@ const BOOTSTRAP = `
   CREATE TABLE auth.users (id uuid PRIMARY KEY);
   INSERT INTO auth.users (id) VALUES ('${U}'), ('${OTHER}');
   CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $fn$ SELECT '${U}'::uuid $fn$;
-  CREATE TABLE public.user_profiles (id uuid PRIMARY KEY, subscription_status text);
+  CREATE TABLE public.user_profiles (
+    id uuid PRIMARY KEY, subscription_status text, trial_expires_at timestamptz,
+    stripe_subscription_id text, subscription_id text, commercial_trial_granted_at timestamptz,
+    trial_started_at timestamptz, updated_at timestamptz);
   INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${U}', 'pro'), ('${OTHER}', 'pro');
+  -- complete_session_v2 resolves the caller's tier through this 5-arg function before doing anything.
+  CREATE OR REPLACE FUNCTION public.effective_subscription_tier(text, timestamptz, text, text, timestamptz)
+    RETURNS text LANGUAGE sql IMMUTABLE AS $fn$ SELECT 'pro'::text $fn$;
   CREATE TABLE public.sessions (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz,
     transcript text,
-    total_words int, duration int, filler_words jsonb, status text
+    total_words int, duration int, filler_counts jsonb, status text,
+    -- Columns complete_session_v2 reads and writes but does not itself create.
+    next_action_signal jsonb, status_reason text, clarity_score double precision,
+    wpm double precision, pause_metrics jsonb
   );
 `;
 
 /** Insert one session with an explicit created_at so ordering is deterministic, not clock-dependent. */
-async function seedSession(db: PGlite, userId: string, createdAt: string, transcript: string | null, words: number) {
+async function seedSession(
+    db: PGlite, userId: string, createdAt: string, transcript: string | null, words: number,
+    status: string = 'completed',
+) {
+    // `status` is a parameter because complete_session_v2 refuses to re-complete an already-completed
+    // session with different metrics (#1306 idempotency). Rows destined for v2 must start IN PROGRESS —
+    // seeding them 'completed' made v2 read the call as a conflicting replay, which is the guard working.
     const res = await db.query<{ id: string }>(
-        `INSERT INTO public.sessions (user_id, created_at, transcript, total_words, duration, filler_words, status)
-         VALUES ($1, $2::timestamptz, $3, $4, 60, '{"um": 2}'::jsonb, 'completed') RETURNING id`,
-        [userId, createdAt, transcript, words],
+        `INSERT INTO public.sessions (user_id, created_at, transcript, total_words, duration, filler_counts, status)
+         VALUES ($1, $2::timestamptz, $3, $4, 60, '{"um": 2}'::jsonb, $5) RETURNING id`,
+        [userId, createdAt, transcript, words, status],
     );
     return res.rows[0].id;
 }
@@ -82,12 +99,13 @@ async function freshDb(): Promise<PGlite> {
     await db.exec(NEWEST_TWO);
     await db.exec(PROGRESS_EVALS);
     await db.exec(CONVERGE);
+    await db.exec(COMPLETE_V2);
     return db;
 }
 
-type Row = { id: string; transcript_state: string; has_text: boolean; total_words: number | null; filler_words: unknown };
+type Row = { id: string; transcript_state: string; has_text: boolean; total_words: number | null; filler_counts: unknown };
 const readAll = async (db: PGlite, userId: string) => (await db.query<Row>(
-    `SELECT id, transcript_state, (transcript IS NOT NULL) AS has_text, total_words, filler_words
+    `SELECT id, transcript_state, (transcript IS NOT NULL) AS has_text, total_words, filler_counts
      FROM public.sessions WHERE user_id = $1 ORDER BY created_at ASC`, [userId],
 )).rows;
 
@@ -137,7 +155,7 @@ describe('#1352 the SHIPPED newest-two retention contract, executed', () => {
         // METRICS SURVIVE EXPIRY. This is the half a transcript-only assertion would miss: expiring the
         // text must never cost the user the measurements derived from it.
         expect(byId[oldest].total_words).toBe(100);
-        expect(byId[oldest].filler_words).toEqual({ um: 2 });
+        expect(byId[oldest].filler_counts).toEqual({ um: 2 });
     });
 
     it('is IDEMPOTENT — a second sweep expires nothing further', async () => {
@@ -291,12 +309,116 @@ describe('#1352 the HELD migration is asserted ABSENT, not merely unloaded', () 
         // silently proving a schema production does not run.
         expect(readFileSync(resolve(process.cwd(), 'backend', 'supabase', 'migrations', HELD_MIGRATION), 'utf8').length)
             .toBeGreaterThan(0);
+        // CORRECTED: this first asserted the ABSENCE OF A COLUMN. But 20260812042000 is a DATA
+        // migration — it UPDATEs user_profiles, it does not add `commercial_trial_granted_at` (the
+        // column pre-exists, and `complete_session_v2` needs it). The column check was adjacent to the
+        // claim, not the claim. What the held migration controls is whether the GRANT was stamped.
         const db = await freshDb();
-        const applied = await db.query<{ n: number }>(
-            `SELECT count(*)::int AS n FROM information_schema.columns
-             WHERE table_schema='public' AND table_name='user_profiles'
-               AND column_name='commercial_trial_granted_at'`,
+        const stamped = await db.query<{ n: number }>(
+            'SELECT count(*)::int AS n FROM public.user_profiles WHERE commercial_trial_granted_at IS NOT NULL',
         );
-        expect(applied.rows[0].n, 'the held migration must not be applied').toBe(0);
+        expect(stamped.rows[0].n, 'the held trial grant must not have been applied').toBe(0);
+    });
+});
+
+/**
+ * Drive the REAL save entry point. Eleven named arguments, every one explicit including the nulls —
+ * a defaulted argument is an argument the test did not choose.
+ */
+async function completeViaV2(db: PGlite, sessionId: string, transcript: string, words: number) {
+    const res = await db.query<{ r: Record<string, unknown> }>(
+        `SELECT public.complete_session_v2(
+            p_session_id      => $1,
+            p_status          => 'completed',
+            p_final_duration  => 60,
+            p_reason          => NULL,
+            p_next_action     => '{"kind":"practice_again"}'::jsonb,
+            p_total_words     => $2,
+            p_clarity_score   => 0.8,
+            p_wpm             => 120,
+            p_filler_counts   => '{"um": 2}'::jsonb,
+            p_pause_metrics   => NULL,
+            p_final_transcript=> $3
+         ) AS r`,
+        [sessionId, words, transcript],
+    );
+    return res.rows[0].r;
+}
+
+describe('#1352 the contract through complete_session_v2 — the entry point the client calls', () => {
+    let db: PGlite; let s1: string; let s2: string; let s3: string;
+
+    beforeEach(async () => {
+        db = await freshDb();
+        // Rows exist first, in progress, with distinct increasing created_at — v2 completes them.
+        s1 = await seedSession(db, U, '2026-08-01T10:00:00Z', null, 0, 'recording');
+        s2 = await seedSession(db, U, '2026-08-02T10:00:00Z', null, 0, 'recording');
+        s3 = await seedSession(db, U, '2026-08-03T10:00:00Z', null, 0, 'recording');
+    });
+
+    it('REPRODUCES ATTEMPT 9 EXACTLY — third save forfeits its transcript on pending evidence', async () => {
+        // I first asserted all three would stay `available`. The product disagreed, and the product was
+        // right: with two transcript-bearing rows already present, the THIRD completion creates an
+        // outgoing candidate, that candidate has no durable Progress evidence, convergence returns
+        // `pending`, and v2 FORFEITS THE NEW TRANSCRIPT rather than exceed newest-two (the PO ruling —
+        // the session and its metrics survive, only the new text is lost).
+        //
+        // The envelope below is attempt 9's, character for character:
+        //   transcript_state=not_captured · transcript_outcome=retention_failed · retention.status=pending
+        // Nine browser attempts were trying to observe this and never reached the assertion.
+        expect(await completeViaV2(db, s1, 'first transcript', 100)).toMatchObject({
+            success: true, transcript_retained: true, transcript_state: 'available',
+        });
+        expect(await completeViaV2(db, s2, 'second transcript', 200)).toMatchObject({
+            success: true, transcript_retained: true, transcript_state: 'available',
+        });
+
+        const third = await completeViaV2(db, s3, 'third transcript', 300);
+        expect(third).toMatchObject({
+            success: true,
+            session_saved: true,               // the user keeps the session and its metrics
+            transcript_retained: false,        // only the new text is forfeited
+            transcript_state: 'not_captured',
+            transcript_outcome: 'retention_failed',
+            retention: { status: 'pending', pending_evidence_count: 1, expired_count: 0 },
+        });
+
+        // The two earlier transcripts are untouched; nothing was expired to make room.
+        const rows = await readAll(db, U);
+        const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
+        expect(byId[s1]).toMatchObject({ transcript_state: 'available', has_text: true });
+        expect(byId[s2]).toMatchObject({ transcript_state: 'available', has_text: true });
+        expect(byId[s3]).toMatchObject({ transcript_state: 'not_captured', has_text: false });
+        expect(byId[s3].total_words, 'metrics survive the forfeited transcript').toBe(300);
+    });
+
+    it('THE CONTRACT through v2, with evidence as the product produces it', async () => {
+        // The real journey: a Progress evaluation persists after each save, so by the time the third
+        // completion runs, the outgoing candidate HAS durable terminal evidence and convergence expires
+        // it instead of deferring. This is the three-session contract end to end, through the entry
+        // point the client actually calls.
+        await completeViaV2(db, s1, 'first transcript', 100);
+        await recordTerminalEvidence(db, U, s1);
+        await completeViaV2(db, s2, 'second transcript', 200);
+        await recordTerminalEvidence(db, U, s2);
+        const third = await completeViaV2(db, s3, 'third transcript', 300);
+
+        expect(third).toMatchObject({
+            success: true, transcript_retained: true, transcript_state: 'available',
+            retention: { status: 'converged', expired_count: 1 },
+        });
+
+        const byId = Object.fromEntries((await readAll(db, U)).map((r) => [r.id, r]));
+        expect(byId[s3]).toMatchObject({ transcript_state: 'available', has_text: true });
+        expect(byId[s2]).toMatchObject({ transcript_state: 'available', has_text: true });
+        expect(byId[s1]).toMatchObject({ transcript_state: 'expired', has_text: false });
+        expect(byId[s1].total_words).toBe(100);
+        expect(byId[s1].filler_counts).toEqual({ um: 2 });
+    });
+
+    it("another user's session id is indistinguishable from a nonexistent one", async () => {
+        const foreign = await seedSession(db, OTHER, '2026-08-01T09:00:00Z', null, 0, 'recording');
+        const r = await completeViaV2(db, foreign, 'not mine', 10);
+        expect(r).toMatchObject({ success: false });
     });
 });
