@@ -1,0 +1,358 @@
+{
+  "goldenSetVersion": "norm_vectors_v1",
+  "provenance": {
+    "upstreamRepository": "https://github.com/openai/whisper",
+    "upstreamCommit": "5f86d1d86363843179951550570367b37c5d6f78",
+    "oracleClass": "EnglishTextNormalizer",
+    "sourceHashes": {
+      "english.py": "2898e4672aeefc9f44cb4de38c115cdf286f5b35ae321433467a7674ce8841d0",
+      "basic.py": "4742eaa040e0657fa1247a1361e0d856c62317a43326ea59a40c2e9edd8d2c38",
+      "english.json": "6607f948be9824d2e1b2fa2223cd94c06c45afa4e05ea0e3d5e1f2bdffde2465"
+    },
+    "generatorScriptSha256": "0f33e4c98bda992cae0f84d7bc41219c13196458cac07f07e99668d6182052d6",
+    "inputVectorsSha256": "cb584d8c4747fdf282c0ebafde914e73912dc0e65f59a83a085b64f2a4d59595"
+  },
+  "caseCount": 68,
+  "cases": [
+    {
+      "category": "contractions",
+      "input": "I don't think we should cancel it",
+      "expected": "i do not think we should cancel it"
+    },
+    {
+      "category": "contractions",
+      "input": "we're not going to wait",
+      "expected": "we are not going to wait"
+    },
+    {
+      "category": "contractions",
+      "input": "it's fine, isn't it",
+      "expected": "it is fine is not it"
+    },
+    {
+      "category": "contractions",
+      "input": "you've got to be joking",
+      "expected": "you have got to be joking"
+    },
+    {
+      "category": "contractions",
+      "input": "they'd rather we didn't",
+      "expected": "they would rather we did not"
+    },
+    {
+      "category": "contractions",
+      "input": "let's go",
+      "expected": "let us go"
+    },
+    {
+      "category": "contractions",
+      "input": "he'll say she's right",
+      "expected": "he will say she is right"
+    },
+    {
+      "category": "contractions",
+      "input": "won't and shan't and ain't",
+      "expected": "will not and sha not and aint"
+    },
+    {
+      "category": "numbers",
+      "input": "The meeting starts at nine",
+      "expected": "the meeting starts at 9"
+    },
+    {
+      "category": "numbers",
+      "input": "The meeting starts at 9",
+      "expected": "the meeting starts at 9"
+    },
+    {
+      "category": "numbers",
+      "input": "twenty one people attended",
+      "expected": "21 people attended"
+    },
+    {
+      "category": "numbers",
+      "input": "twenty-one people attended",
+      "expected": "21 people attended"
+    },
+    {
+      "category": "numbers",
+      "input": "21 people attended",
+      "expected": "21 people attended"
+    },
+    {
+      "category": "numbers",
+      "input": "we sold one thousand two hundred units",
+      "expected": "we sold 1200 units"
+    },
+    {
+      "category": "numbers",
+      "input": "we sold 1,200 units",
+      "expected": "we sold 1200 units"
+    },
+    {
+      "category": "numbers",
+      "input": "accuracy improved to twenty one point four percent",
+      "expected": "accuracy improved to 21.4%"
+    },
+    {
+      "category": "numbers",
+      "input": "accuracy improved to 21.4%",
+      "expected": "accuracy improved to 21.4%"
+    },
+    {
+      "category": "numbers",
+      "input": "the nineteen sixties",
+      "expected": "the 1960s"
+    },
+    {
+      "category": "numbers",
+      "input": "the 1960s",
+      "expected": "the 1960s"
+    },
+    {
+      "category": "numbers",
+      "input": "he came in two hundred and seventy fourth",
+      "expected": "he came in 274th"
+    },
+    {
+      "category": "numbers",
+      "input": "he came in 274th",
+      "expected": "he came in 274th"
+    },
+    {
+      "category": "numbers",
+      "input": "one oh one",
+      "expected": "101"
+    },
+    {
+      "category": "numbers",
+      "input": "a hundred and one",
+      "expected": "a 101"
+    },
+    {
+      "category": "numbers",
+      "input": "three quarters of the total",
+      "expected": "3 quarters of the total"
+    },
+    {
+      "category": "numbers",
+      "input": "zero point five",
+      "expected": "0.5"
+    },
+    {
+      "category": "currency",
+      "input": "it costs five dollars and fifty cents",
+      "expected": "it costs $5.50"
+    },
+    {
+      "category": "currency",
+      "input": "it costs $5.50",
+      "expected": "it costs $5.50"
+    },
+    {
+      "category": "currency",
+      "input": "twenty million dollars",
+      "expected": "$20000000"
+    },
+    {
+      "category": "currency",
+      "input": "$20 million",
+      "expected": "$20000000"
+    },
+    {
+      "category": "currency",
+      "input": "it cost me twelve pounds",
+      "expected": "it cost me £12"
+    },
+    {
+      "category": "currency",
+      "input": "£12",
+      "expected": "£12"
+    },
+    {
+      "category": "currency",
+      "input": "seventy five cents",
+      "expected": "¢75"
+    },
+    {
+      "category": "currency",
+      "input": "$0.75",
+      "expected": "¢75"
+    },
+    {
+      "category": "spelling",
+      "input": "the colour of the centre panel",
+      "expected": "the color of the center panel"
+    },
+    {
+      "category": "spelling",
+      "input": "the color of the center panel",
+      "expected": "the color of the center panel"
+    },
+    {
+      "category": "spelling",
+      "input": "we organised the programme",
+      "expected": "we organized the program"
+    },
+    {
+      "category": "spelling",
+      "input": "we organized the program",
+      "expected": "we organized the program"
+    },
+    {
+      "category": "spelling",
+      "input": "his behaviour in the theatre",
+      "expected": "his behavior in the theater"
+    },
+    {
+      "category": "spelling",
+      "input": "his behavior in the theater",
+      "expected": "his behavior in the theater"
+    },
+    {
+      "category": "spelling",
+      "input": "a grey metre of fibre",
+      "expected": "a gray meter of fiber"
+    },
+    {
+      "category": "punctuation",
+      "input": "Hello, world.",
+      "expected": "hello world"
+    },
+    {
+      "category": "punctuation",
+      "input": "hello world",
+      "expected": "hello world"
+    },
+    {
+      "category": "punctuation",
+      "input": "Well... I mean -- maybe?",
+      "expected": "well i mean maybe"
+    },
+    {
+      "category": "punctuation",
+      "input": "A B C: one; two, three!",
+      "expected": "a b c 123"
+    },
+    {
+      "category": "punctuation",
+      "input": "quote \"this\" and 'that'",
+      "expected": "quote this and that"
+    },
+    {
+      "category": "punctuation",
+      "input": "I don’t know",
+      "expected": "i don t know"
+    },
+    {
+      "category": "punctuation",
+      "input": "multiple   internal    spaces",
+      "expected": "multiple internal spaces"
+    },
+    {
+      "category": "brackets",
+      "input": "the [inaudible] part",
+      "expected": "the part"
+    },
+    {
+      "category": "brackets",
+      "input": "the (unclear) part",
+      "expected": "the part"
+    },
+    {
+      "category": "brackets",
+      "input": "a <noise> marker",
+      "expected": "a marker"
+    },
+    {
+      "category": "brackets",
+      "input": "[laughter] then speech",
+      "expected": "then speech"
+    },
+    {
+      "category": "brackets",
+      "input": "((double parens))",
+      "expected": ""
+    },
+    {
+      "category": "fillers",
+      "input": "So um I think uh we should um review the plan today",
+      "expected": "so i think we should review the plan today"
+    },
+    {
+      "category": "fillers",
+      "input": "So I think we should review the plan today",
+      "expected": "so i think we should review the plan today"
+    },
+    {
+      "category": "fillers",
+      "input": "hmm well mm maybe mhm",
+      "expected": "well maybe"
+    },
+    {
+      "category": "fillers",
+      "input": "mmm that is uh interesting",
+      "expected": "that is interesting"
+    },
+    {
+      "category": "fillers",
+      "input": "um",
+      "expected": ""
+    },
+    {
+      "category": "fillers",
+      "input": "umbrella umpire",
+      "expected": "umbrella umpire"
+    },
+    {
+      "category": "diacritics",
+      "input": "café naïve résumé",
+      "expected": "cafe naive resume"
+    },
+    {
+      "category": "diacritics",
+      "input": "cafe naive resume",
+      "expected": "cafe naive resume"
+    },
+    {
+      "category": "diacritics",
+      "input": "œuvre and Æsop",
+      "expected": "oeuvre and aesop"
+    },
+    {
+      "category": "diacritics",
+      "input": "Señor Muñoz",
+      "expected": "senor munoz"
+    },
+    {
+      "category": "diacritics",
+      "input": "straße",
+      "expected": "strasse"
+    },
+    {
+      "category": "empty",
+      "input": "",
+      "expected": ""
+    },
+    {
+      "category": "empty",
+      "input": "   ",
+      "expected": ""
+    },
+    {
+      "category": "empty",
+      "input": "\t\n",
+      "expected": ""
+    },
+    {
+      "category": "empty",
+      "input": ".",
+      "expected": ""
+    },
+    {
+      "category": "empty",
+      "input": "...",
+      "expected": "."
+    }
+  ]
+}
