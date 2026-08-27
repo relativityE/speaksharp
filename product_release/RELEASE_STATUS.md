@@ -2,8 +2,10 @@
 
 **Status:** Authoritative (SSOT for release/deployment posture)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-07-24
-**Last Verified:** 2026-07-24T17:10:25Z (production `window.__APP_RELEASE__` read read-only from `https://speaksharp-public.vercel.app/` = `05643fbd991a503f8c183a4ac19ab2aa8d2d2f95`, HTTP 200; baselines verified against `origin/main` via GitHub; release mechanism verified in `frontend/vite.config.mjs` + the served `index.html` per #1027). The `#1006` remediation is CLOSED (draft, not activated) — see "Current open work".
+**Last Reviewed:** 2026-08-27
+**Last Verified:** 2026-08-27 (production `window.__APP_RELEASE__` read read-only and CACHE-BUSTED from `https://speaksharp-public.vercel.app/` = `5f3788984467b13a810d7ae14c9ee9bf842c90f2`, HTTP 200; `origin/main` verified by `git rev-parse` at the same time. Production **==** `main` HEAD at this read.)
+
+> **Currency correction.** This file previously carried `Last Reviewed: 2026-07-24` — 34 days stale — while `AGENTS.md` names it *the only authority for current release/deployment posture, blockers, baselines, and workflow evidence*. It asserted a deployed release of `05643fbd` and described `#1006` as the current open work. Every agent instructed to consult it was being pointed at a product state that no longer exists. The values below are verified reads taken on 2026-08-27, not copied forward.
 **Applies To:** Current production deployment + release tracks for the SpeakSharp beta.
 **Class:** Runtime fact.
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
@@ -17,10 +19,10 @@ Four distinct identities — do not conflate them:
 
 | Identity | Value | How to verify |
 |---|---|---|
-| **Repository `main` (moving branch pointer)** | `05643fbd991a503f8c183a4ac19ab2aa8d2d2f95` at last review (`#1030`, read-only audit tooling) | **Moving** — verify the live pointer directly on GitHub (`git rev-parse origin/main`); do not treat this SHA as fixed. |
-| **Last product-behavior release** | `c25b2178` (`#1024`, issue-report metadata hygiene) atop `a37a6ba1` (`#1027`, stale-chunk P0: recovery + stable content-hash assets + SPA 404 fallback) and `c99208b9` (`#1022`, `/practice` default entry, Guided unavailable) | Product commits on `main`; each shipped a runtime/product-behavior change. |
-| **Later docs/audit/tooling commits (NOT product-behavior deployments)** | `#1028` (`ab46cc84`), `#1029` (`85118374`), `#1030` (`05643fbd991a503f8c183a4ac19ab2aa8d2d2f95`) — read-only tester-evidence audit tooling | These change **no** deployed product behavior; they only add the `workflow_dispatch` audit. |
-| **Deployed product release (verified)** | `window.__APP_RELEASE__ = 05643fbd991a503f8c183a4ac19ab2aa8d2d2f95`, read read-only from `https://speaksharp-public.vercel.app/` (HTTP 200) at **2026-07-24T17:10:25Z**. At that check production == `main` HEAD, but this is **not** guaranteed by auto-deploy alone: a Vercel "Ignored Build Step" can leave production behind `main`, so the deployed SHA must be **read**, not inferred. | Re-read `window.__APP_RELEASE__` (or `window.__APP_RUNTIME_CONFIG__.release`) from the deployed page and update the value + UTC timestamp here. |
+| **Repository `main` (moving branch pointer)** | `5f3788984467b13a810d7ae14c9ee9bf842c90f2` (#1357, #1304 Task 2) at 2026-08-27 | **Moving** — verify the live pointer directly (`git rev-parse origin/main`); do not treat this SHA as fixed. |
+| **Last product-behavior release** | `781e8ad6` (#1355, #1354 recorder Progress gate — the last commit changing runtime product behavior). `574422ed` and `5f378898` are TEST-INFRASTRUCTURE only (#1304 Tasks 1–2: the WER scorer and the benchmark specs); they deploy but change no user-facing behavior. | Product commits on `main`; check whether the diff touches `frontend/src` runtime paths. |
+| **Later test/evidence commits (NOT product-behavior deployments)** | `574422ed` (#1356 certified scorer, `tests/evidence/**`), `5f378898` (#1357 benchmark specs, `tests/live/**`) | These change **no** deployed product behavior. |
+| **Deployed product release (verified)** | `window.__APP_RELEASE__ = 5f3788984467b13a810d7ae14c9ee9bf842c90f2`, read cache-busted from `https://speaksharp-public.vercel.app/` (HTTP 200) on **2026-08-27**. Production == `main` HEAD at this read, but that is **not** guaranteed by auto-deploy alone: a Vercel "Ignored Build Step" can leave production behind `main`, so the deployed SHA must be **read**, not inferred. | Re-read `window.__APP_RELEASE__` from the deployed page with a cache-busting query and `Cache-Control: no-cache`, then update the value + date here. |
 
 **Release-identity mechanism (per #1027):** the deployed `index.html` injects an inline `window.__APP_RELEASE__ = <VERCEL_GIT_COMMIT_SHA>`, surfaced at runtime as `window.__APP_RUNTIME_CONFIG__.release`. The old `__BUILD_ID__` JS `define` was **removed** in #1027 (it rotated chunk hashes every deploy → stale-chunk crashes); Sentry release is set at **runtime** (`release.inject:false`). Verify SHA-equality by reading `window.__APP_RELEASE__` from the deployed `index.html` — see [frontend/vite.config.mjs](../frontend/vite.config.mjs) + [CODEBASE_MAP.md](CODEBASE_MAP.md).
 
@@ -51,9 +53,14 @@ Four distinct identities — do not conflate them:
 - **Tester invitations are gated on the read-only tester-evidence audit (#1030 `workflow_dispatch`).** The audit is HELD pending a Product Owner correction to the `AUDIT_EXCLUDED_EMAILS_JSON` exclusion manifest (a `synthetic` category data issue); it fails closed and publishes no totals until corrected.
 
 ## Current open work
-- **Documentation canonicalization (in progress):** establishing the approved 14-canonical-document system + migration ledger + SSOT repair (this file); governs the later consolidation steps. (Track current PR/thread state in the relevant PR, not here.)
-- **Adversarial-review roadmap (sequential):** central entitlement selector (tracked as an issue), STT evidence orchestrator (tracked as an issue), PRD v1, Architecture/STT ADRs, and further items tracked in the #1052 ledger. **Shipped and no longer open:** durable engine-attribution (#1033 — merged, migration applied, deployed, live-proven) and the Browser display-label change (#1041 via PR #1060).
-- **#1006 is CLOSED** (draft, not activated) — no longer current work; the durable-delivery/observability remediation is not shipped/deployed/activated.
+
+The MVP-blocking lane is **#1304 (STT down-select)**. See `ACTIVE_COORDINATION.md` for the working board; this section carries only release posture.
+
+- **Merged and deployed (2026-08-27):** #1354 recorder Progress gate (`781e8ad6`, #1355 — the last **product-behavior** change); #1304 Task 1 certified WER scorer (`574422ed`, #1356); #1304 Task 2 authoritative benchmark specs (`5f378898`, #1357). The last two are test infrastructure and deploy without changing user-facing behavior.
+- **Open:** #1346 (#1304 Task 3A — decode route identity, un-parked and rebased). Task 3 (certified harness) and Task 4 (corpus) are not started.
+- **RELEASE BLOCKER — no retention verdict.** Nine production-proof attempts have failed, every one on the test harness and never on the product, so the three-session retention contract has never actually been checked. Agreed sequence: prove the contract against a throwaway database first (needs no authorization and becomes a standing CI gate), then one production run as the final gate. Until a verdict exists, release stays **HOLD**.
+- **Accepted post-MVP debt:** the #1354 write-ahead obligation is client-only. If the Progress evaluation fails, the browser obligation write also fails, and the user reloads after storage recovers, the client cannot reconstruct that obligation. Eliminating it requires a server-side obligation record.
+- **#1006 is CLOSED** (draft, not activated) — long since not current work; retained here only because earlier revisions of this file presented it as the open item.
 
 ## Private STT finalization — accepted planning budget (not a measured p95)
 The **≈90 seconds** of post-stop processing quoted for a full five-minute single Private (v2 / whisper-base.en) recording is an **accepted planning budget / risk allowance** for the controlled beta — **not** an observed production performance fact and **not** a measured p95. It is surfaced to the user as honest "Finalizing…" progress. The earlier `<30s` requirement is obsolete/withdrawn. A measured percentile would need a dedicated instrumentation run (STT evidence lane); faster finalization is a post-limitation improvement lane, not a blocker.
