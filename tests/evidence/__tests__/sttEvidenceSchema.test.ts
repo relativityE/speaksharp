@@ -108,6 +108,28 @@ const base = (over: Partial<RawRow> = {}): RawRow => ({
     ...over,
 });
 
+describe('#1304 the scoring TRACK is enforced, not merely declared', () => {
+    it('a row carrying a WER but NO track is invalid', () => {
+        // Before this the interface field was decorative: serialized evidence with no track still
+        // validated, so runtime separation depended entirely on a caller remembering to invoke
+        // `assertSingleTrack`. An untracked score is not comparable to anything.
+        const r = finalizeRow(base({ comparability_inputs: { ...base().comparability_inputs, track: null } }));
+        expect(r.run_validity).toBe('invalid');
+        expect(r.invalid_reason ?? '').toMatch(/track must be track_a or track_b/i);
+    });
+
+    it('a row with NO WER may carry a null track — unmeasurable is not untracked', () => {
+        const r = finalizeRow(base({ wer: null, comparability_inputs: { ...base().comparability_inputs, track: null } }));
+        expect(r.invalid_reason ?? '').not.toMatch(/track/i);
+    });
+
+    it('the track is part of the COMPARABILITY KEY — two tracks never share a cohort', () => {
+        const a = finalizeRow(base({ comparability_inputs: { ...base().comparability_inputs, track: 'track_a' } }));
+        const b = finalizeRow(base({ comparability_inputs: { ...base().comparability_inputs, track: 'track_b' } }));
+        expect(cohortKey(a)).not.toBe(cohortKey(b));
+    });
+});
+
 describe('#1037 corpus evidence schema — fail-closed admissibility', () => {
     it('a complete, route-proven row is valid and rankable', () => {
         const r = finalizeRow(base());

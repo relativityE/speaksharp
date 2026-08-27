@@ -1,5 +1,13 @@
 /**
- * #1304 — pinned English text normalizer for WER scoring (`norm_v2`).
+ * #1304 — SUPERSEDED PROTOTYPE, retained only as defect history. NOT selectable by the scorer.
+ *
+ * This was the hand-written `norm_v2`. Both tracks now run the official normalization core
+ * (`normalization/officialNormalizer.ts`), and `norm_v2` has been removed from the scorer API — a
+ * caller passing it would have produced officially-normalized data wearing this prototype's name.
+ * Its tests below still document the original `norm_v1` defect measurements, which is why the file
+ * survives.
+ *
+ * Historical description follows.
  *
  * WHY THIS EXISTS. Under `norm_v1` a SEMANTICALLY PERFECT transcript scored non-zero, because the
  * recognizer and the curated ground truth spell the same utterance differently. Measured before this

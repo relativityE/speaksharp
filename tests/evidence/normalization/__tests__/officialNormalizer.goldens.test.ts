@@ -1,10 +1,13 @@
 /**
- * #1304 — Track A verified against the GENERATED goldens, and its gaps named out loud.
+ * #1304 — Track A verified against the GENERATED goldens. ALL 68, no exemptions.
  *
- * The goldens come from running the real `EnglishTextNormalizer` at a pinned upstream commit. Every
- * case is asserted. Cases this port does not yet reproduce are listed in KNOWN_GAPS with the reason —
- * an explicit, reviewable list, never a skip and never a loosened assertion. A port that quietly
- * agrees with its own author is the exact failure this exercise exists to avoid.
+ * The goldens come from running the real `EnglishTextNormalizer` at a pinned upstream commit. There is
+ * no KNOWN_GAPS list any more: the number state machine is a faithful port, so ordinals, suffixed
+ * decades, nominal digit runs, fractions and currency placement all reproduce. A documented gap is
+ * still an uncertified scorer, and LibriSpeech contains every one of those constructs.
+ *
+ * A port that quietly agrees with its own author is the exact failure this exercise exists to avoid,
+ * which is why expectations are generated from upstream rather than written here.
  */
 import { describe, it, expect } from 'vitest';
 import goldens from '../goldens.json';

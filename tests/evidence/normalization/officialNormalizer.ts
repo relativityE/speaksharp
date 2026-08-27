@@ -7,9 +7,9 @@
  * `goldens.json` provenance, so the data is verifiably upstream's rather than hand-copied.
  *
  * VERIFIED AGAINST GENERATED GOLDENS, NOT AGAINST ITS AUTHOR'S EXPECTATIONS. See
- * `__tests__/officialNormalizer.goldens.test.ts`, which runs every committed case. Cases this port does
- * not yet reproduce are listed there EXPLICITLY rather than skipped, because a port that quietly agrees
- * with itself is the failure mode this whole exercise exists to avoid.
+ * `__tests__/officialNormalizer.goldens.test.ts`, which asserts ALL 68 committed cases with no
+ * exemptions. Number handling is delegated to `englishNumberNormalizer.ts`, a faithful port of the
+ * upstream state machine — an approximation reproduced only 56 of 68.
  *
  * Fillers (`hmm|mm|mhm|mmm|uh|um`) and bracketed markers ARE REMOVED here — that is upstream behaviour
  * and it belongs to Track A only. Track B preserves both; see `tracks.ts`.

@@ -373,6 +373,18 @@ export function finalizeRow(
         })) {
             if (!v) problems.push(`missing comparability input ${k}`);
         }
+        // #1304: a row carrying a WER MUST name the track that produced it. Without this the interface
+        // field was decorative — serialized evidence with no track still validated, and the runtime
+        // separation depended entirely on a caller remembering to invoke `assertSingleTrack`.
+        // `null` is admissible ONLY when the WER is unmeasurable, so a row never omits a track it used.
+        const hasWer = row.wer !== null && row.wer !== undefined;
+        if (hasWer && ci?.track !== 'track_a' && ci?.track !== 'track_b') {
+            problems.push('comparability_inputs.track must be track_a or track_b when a WER is present — an untracked score is not comparable');
+        }
+        if (!hasWer && ci?.track !== null && ci?.track !== undefined
+            && ci.track !== 'track_a' && ci.track !== 'track_b') {
+            problems.push(`comparability_inputs.track '${String(ci.track)}' is not a valid track`);
+        }
         if (ci?.modelRevision && MUTABLE_REVISIONS.has(ci.modelRevision)) {
             problems.push(`modelRevision '${ci.modelRevision}' is mutable — pin an immutable revision`);
         }
@@ -494,6 +506,9 @@ export function cohortKey(r: SttEvidenceRow): string {
     return [
         r.comparability_class, r.engine, r.engine_version, r.model_name,
         ci.fixtureHash, ci.groundTruthVersion, ci.normalizationVersion,
+        // #1304: two rows scored under DIFFERENT tracks are not comparable and must never share a
+        // cohort. Omitting this from the key let Track A and Track B rows land in the same bucket.
+        ci.track ?? 'no_track',
         ci.decodeConfiguration, ci.modelRevision,
         Object.entries(ci.runtimeVersions ?? {}).sort().map(([k, v]) => `${k}@${v}`).join(','),
     ].join('|');

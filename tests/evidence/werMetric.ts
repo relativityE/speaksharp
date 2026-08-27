@@ -15,18 +15,17 @@ import { TRACK_NORMALIZATION, type Track } from './normalization/tracks';
 export const NORMALIZATION_VERSION = 'norm_v1';
 
 /**
- * #1304 — `norm_v2` folds surface-form differences (contractions, British/American spelling, spelled-out
- * numbers, percent, decimal currency) that made a SEMANTICALLY PERFECT transcript score non-zero under
- * v1: measured 8.3% / 25% / 33.3% / 50% / 71.4% on the five classes, against 0% for a byte-identical
- * pair. Every comparison built on v1 numbers was partly measuring orthography.
+ * #1304 — `norm_v2` IS NO LONGER SELECTABLE, deliberately.
  *
- * v1 is RETAINED, not replaced: rows already pinned to it must stay reproducible. The version used is
- * recorded on every result, so a default change shows up in the data rather than silently moving a
- * ranking.
+ * That label described the hand-written prototype. Both tracks now run the OFFICIAL normalization core,
+ * so a caller passing `norm_v2` would produce officially-normalized data wearing the prototype's name —
+ * a row claiming a normalization that no longer exists. No authoritative `norm_v2` rows were ever
+ * merged, so nothing needs reproducing under it.
+ *
+ * Scored rows carry an exact per-track identity instead (`TRACK_NORMALIZATION`), and `norm_v1` remains
+ * selectable ONLY to reproduce genuinely historical rows pinned under it.
  */
-export const NORMALIZATION_VERSION_V2 = 'norm_v2';
-
-export type NormalizationVersion = typeof NORMALIZATION_VERSION | typeof NORMALIZATION_VERSION_V2;
+export type NormalizationVersion = typeof NORMALIZATION_VERSION;
 
 /**
  * norm_v1: lowercase; drop surrounding punctuation but keep intra-word apostrophes/hyphens; collapse
