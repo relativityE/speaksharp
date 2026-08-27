@@ -449,27 +449,24 @@ describe('#1304 an unobserved transcript surface yields an INVALID run, never an
 });
 
 
-describe('#1304 an invalid run must not leave a measurement behind', () => {
+describe('#1304 the invalid-run guard is STRUCTURAL, not source-ordered', () => {
     /**
-     * These specs computed the WER, built the evidence object, attached it and logged it — and only
-     * THEN asserted that a finalized saved transcript existed. A run with no transcript therefore
-     * emitted a WER row and an artifact before failing, so an invalid run left a number that reads
-     * exactly like a measurement.
+     * REPLACED A SOURCE-ORDERING ASSERTION. This block used to check
+     * `source.indexOf('no_finalized_saved_transcript') < source.indexOf('wordErrorRate(')`.
      *
-     * Order is asserted from source because the guard runs locally in seconds; the live specs
-     * themselves are workflow_dispatch-only and cannot gate a push.
+     * Two problems with that. It was fragile to comments and refactors — and it could not see the
+     * OTHER half of the defect, which was an artifact and a log emitted BEFORE the guard ran. Source
+     * order says nothing about what a function did.
+     *
+     * Task 3B moved the guard INSIDE `scoreBenchmarkRun`, so ordering is true by construction and
+     * cannot be reordered. What remains here is an IMPORT BOUNDARY: an authoritative spec may not
+     * reach a raw scorer directly, because doing so would bypass the guard entirely.
+     *
+     * The behavioural proof lives in `tests/evidence/__tests__/benchmarkScore.test.ts`.
      */
-    const MEASURE_AFTER_VALIDATE = [
-        'tests/live/private-decode-params-ab.live.spec.ts',
-        'tests/live/private-longform-timing.live.spec.ts',
-    ] as const;
-
-    it.each(MEASURE_AFTER_VALIDATE)('%s validates the saved transcript BEFORE measuring', (relPath) => {
+    it.each(AUTHORITATIVE_BENCHMARK_SPECS)('%s reaches no raw scorer', (relPath) => {
         const source = sourceWithoutComments(relPath);
-        const guardAt = source.indexOf('no_finalized_saved_transcript');
-        const werAt = source.indexOf('wordErrorRate(');
-        expect(guardAt, `${relPath} must name an invalid-run reason`).toBeGreaterThan(-1);
-        expect(werAt, `${relPath} must compute a WER`).toBeGreaterThan(-1);
-        expect(guardAt, `${relPath}: the invalid-run guard must precede the WER computation`).toBeLessThan(werAt);
+        expect(source, `${relPath} must not import the legacy scorer by path`).not.toMatch(/from ['"][^'"]*\/lib\/wer['"]/);
+        expect(source, `${relPath} must not call calculateWordErrorRate`).not.toMatch(/\bcalculateWordErrorRate\b/);
     });
 });
