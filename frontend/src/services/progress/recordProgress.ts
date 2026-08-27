@@ -12,6 +12,7 @@
  */
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
+import { useSessionStore } from '@/stores/useSessionStore';
 import { PROGRESS_FORMULA_VERSION, type ProgressEvaluation } from './buildProgressEvaluation';
 import { buildTakeaways } from './progressPresentation';
 import {
@@ -177,9 +178,42 @@ function isTerminalAttribution(status: string | null | undefined): boolean {
  * save journey, but a transient RPC error must not silently drop the record either. The RPC is idempotent
  * per (session, formula_version), so a retry can never create a duplicate.
  */
+/**
+ * #1354 — per-attempt NETWORK DEADLINE.
+ *
+ * Three attempts bound the COUNT, not the TIME. A `supabase.rpc(...)` promise that never settles — a
+ * dead connection, a proxy holding the socket open — would hang the whole completion path: the session
+ * never finishes saving, the gate stays `resolving` forever, and the user can neither record again nor
+ * reach the durable retry that exists precisely for this case. An unbounded await is the one failure
+ * the bounded-attempt loop cannot recover from.
+ *
+ * The obligation is already written and readback-verified BEFORE any attempt runs, so timing out is
+ * safe: the debt survives, reconciliation retries it, and the seam reports `queued` rather than pretending.
+ */
+export const PROGRESS_RPC_ATTEMPT_TIMEOUT_MS = 10_000;
+
+/**
+ * Resolve to `null` if `work` has not settled within `ms`.
+ *
+ * NOTE: this bounds the WAIT, not the request — the underlying call is not cancelled, because it is
+ * issued inside the Supabase client and we hold no AbortController for it. A late resolution is simply
+ * ignored; it cannot unlock anything, since the gate is published from the value we actually returned.
+ */
+async function withAttemptDeadline<T>(work: Promise<T>, ms: number): Promise<T | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            work,
+            new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), ms); }),
+        ]);
+    } finally {
+        if (timer !== undefined) clearTimeout(timer);
+    }
+}
+
 async function recordProgressEvaluationWithRetry(sessionId: string, attempts = 3): Promise<string | null> {
     for (let i = 0; i < attempts; i++) {
-        const id = await recordProgressEvaluation(sessionId);
+        const id = await withAttemptDeadline(recordProgressEvaluation(sessionId), PROGRESS_RPC_ATTEMPT_TIMEOUT_MS);
         if (id) return id;
         if (i < attempts - 1) await new Promise((r) => setTimeout(r, 250 * (i + 1)));
     }
@@ -266,27 +300,118 @@ async function recordRecommendationForEvaluation(sessionId: string): Promise<voi
  * AUDITABLE EXCLUSION (e.g. unverified → `unverified_attribution`). The RPC decides eligibility and is
  * idempotent, so this may be invoked defensively (including from attribution-retry resolution).
  */
+/**
+ * #1354 — the seam's BEHAVIOURAL result.
+ *
+ * The previous signature was `Promise<void>` and every caller was fire-and-forget, so "the evaluation
+ * is durably recorded" was indistinguishable from "the call was made and something happened". That is
+ * what let a third recording start while an older session's Progress evidence was still in flight, and
+ * the server then correctly refused to retain the new transcript under strict newest-two.
+ *
+ * Durability is REPORTED, never inferred from the absence of an exception.
+ *
+ * Content-free by construction: only these discriminants and an optional accepted-reason token cross
+ * this boundary — never transcript text, error bodies, or customer content.
+ *
+ * DELIBERATE DEVIATION from #1354's "at least" list: there is no `already_present` discriminant.
+ * `record_progress_evaluation` is idempotent and returns the SAME id whether it created the row or
+ * found it, and no client-side read of `progress_evaluations` exists — so the two are indistinguishable
+ * here without adding a query and a round-trip to every save. They are also behaviourally identical for
+ * this gate: both mean a terminal evaluation is durable, and both unlock the recorder. Shipping a
+ * variant that can never occur would be unreachable and therefore unfalsifiable, which is the exact
+ * pattern this ticket's falsification requirements exist to eliminate. Flagged for PM acceptance.
+ */
+export type ProgressEvaluationOutcome =
+    /** A terminal evaluation is durably recorded. The next recording may start. */
+    | { kind: 'recorded' }
+    /** Durably queued for reconciliation. The next recording must NOT start; surface an actionable retry. */
+    | { kind: 'queued' }
+    /** No evaluation is owed, for an explicitly accepted terminal reason. The next recording may start. */
+    | { kind: 'not_applicable'; reason: ProgressNotApplicableReason }
+    /** Unknown / still resolving / failed WITHOUT a durable queue. Fail closed: block the next recording. */
+    | { kind: 'unresolved'; reason: ProgressUnresolvedReason };
+
+export type ProgressNotApplicableReason = 'not_completed';
+export type ProgressUnresolvedReason =
+    | 'missing_session'
+    | 'metrics_not_persisted'
+    | 'attribution_not_terminal'
+    | 'queue_unavailable';
+
+/**
+ * `not_applicable` and `unresolved` are BOTH "no evaluation was written", and only the first may unlock
+ * the recorder. Keeping them as distinct discriminants is the point: a session that legitimately owes no
+ * evaluation is not the same as one whose evaluation we simply could not resolve, and collapsing them
+ * would silently re-open the defect.
+ */
+export function progressOutcomeAllowsNextRecording(o: ProgressEvaluationOutcome): boolean {
+    return o.kind === 'recorded' || o.kind === 'not_applicable';
+}
+
+/**
+ * The single deliberate wiring seam into the completed-session save journey. Call this once the session's
+ * delivery metrics are persisted AND its attribution has reached a TERMINAL state (`verified` or
+ * `unverified`) — NOT while attribution is still `pending`, which would write a premature immutable row.
+ *
+ * Every completed future session then receives a record: an ELIGIBLE evaluation (verified) OR an
+ * AUDITABLE EXCLUSION (e.g. unverified -> `unverified_attribution`). The RPC decides eligibility and is
+ * idempotent, so this may be invoked defensively (including from attribution-retry resolution).
+ */
 export async function wireProgressEvaluationOnSave(ctx: {
     sessionId: string | null | undefined;
     status: string | null | undefined;
     attributionStatus: string | null | undefined;
     metricsPersisted: boolean;
     userId?: string | null;
-}): Promise<void> {
-    if (!ctx.sessionId) return;
-    if (ctx.status !== 'completed') return;
-    if (!ctx.metricsPersisted) return;
-    if (!isTerminalAttribution(ctx.attributionStatus)) return; // still pending — defer, do not write early
+}): Promise<ProgressEvaluationOutcome> {
+    if (!ctx.sessionId) return { kind: 'unresolved', reason: 'missing_session' };
+    // An aborted/incomplete session owes no evaluation — an accepted terminal reason, so it unlocks.
+    if (ctx.status !== 'completed') return { kind: 'not_applicable', reason: 'not_completed' };
+    // Without durable metrics there is nothing to evaluate AND nothing to queue: fail closed.
+    if (!ctx.metricsPersisted) return { kind: 'unresolved', reason: 'metrics_not_persisted' };
+    // Still resolving. Deferring is correct, but it is NOT terminal, so it must not unlock the recorder.
+    if (!isTerminalAttribution(ctx.attributionStatus)) {
+        return { kind: 'unresolved', reason: 'attribution_not_terminal' };
+    }
+
+    // #1354 WRITE-AHEAD OBLIGATION. The debt is recorded BEFORE the attempt, not after it fails.
+    //
+    // The previous order — evaluate, then queue only on failure — lost the obligation in two ways.
+    // If the tab closed or crashed mid-evaluation nothing had been written, so a reload found an empty
+    // queue and concluded nothing was owed. And when the evaluation failed AND the enqueue also failed,
+    // the only record was an in-memory gate that a reload erased. In both cases ABSENCE OF AN ENTRY was
+    // being read as PROOF OF COMPLETION, which it never was: the session may still owe evidence.
+    //
+    // Writing first inverts that. From here on, an entry means "this session owes evidence until proven
+    // otherwise", and only a VERIFIED removal after terminal evidence may retire it.
+    const obligation = ctx.userId
+        ? enqueueProgressReconcile(ctx.sessionId, ctx.userId, new Date().toISOString())
+        : ({ ok: false } as const);
+
     const evalId = await recordProgressEvaluationWithRetry(ctx.sessionId);
     if (!evalId) {
-        // In-memory retries exhausted. DURABLY queue the session so a later authenticated load reattempts
-        // it — a closed tab or longer outage must not permanently drop the immutable record. Owner-scoped.
-        if (ctx.userId) enqueueProgressReconcile(ctx.sessionId, ctx.userId, new Date().toISOString());
-        return;
+        // The evaluation failed. Whether this is retryable depends ENTIRELY on whether the obligation
+        // is durable: `queued` promises a retry, so it may only be claimed when one can actually run.
+        // Without a durable obligation there is no record of the debt at all — fail closed.
+        return obligation.ok
+            ? { kind: 'queued' }
+            : { kind: 'unresolved', reason: 'queue_unavailable' };
     }
-    if (ctx.userId) clearProgressReconcileEntry(ctx.sessionId, ctx.userId);
+    // A failed CLEAR leaves a stale debt that would re-block a later load, so it is reported: the
+    // evaluation is durable, but the queue state is not trustworthy — fail closed on UNLOCKING.
+    //
+    // It must not, however, skip the downstream work. #1354: evaluation durability — not recommendation
+    // creation — controls unlocking, so the recommendation and attempt resolution still run and their
+    // outcomes never gate the recorder. An earlier version of this returned early on a failed clear and
+    // silently dropped both, which would have made a storage hiccup cost the user their recommendation.
+    // Retire the obligation ONLY now that terminal evidence exists — and only if we actually wrote one.
+    const cleared = ctx.userId && obligation.ok
+        ? clearProgressReconcileEntry(ctx.sessionId, ctx.userId)
+        : ({ ok: true } as const);
     await recordRecommendationForEvaluation(ctx.sessionId);
     if (ctx.userId) await resolveOpenAttemptWith(ctx.userId, ctx.sessionId);
+    if (!cleared.ok) return { kind: 'unresolved', reason: 'queue_unavailable' };
+    return { kind: 'recorded' };
 }
 
 /**
@@ -329,6 +454,18 @@ async function resolveOpenAttemptWith(userId: string, newSessionId: string): Pro
  * save path established mode + rich-metrics persistence and then observed a transient evaluation failure.
  * There is deliberately no generic session sweep: absence alone cannot prove a recording's practice mode.
  */
+/**
+ * Clear the visible gate for one resolved (session, owner) pair.
+ *
+ * Owner- AND session-scoped: another account's reconciliation, or a different session's, must never
+ * unlock the gate a live session is holding.
+ */
+function releaseProgressGateFor(sessionId: string, userId: string): void {
+    const store = useSessionStore.getState();
+    const gate = store.progressGate;
+    if (gate && gate.sessionId === sessionId && gate.ownerId === userId) store.setProgressGate(null);
+}
+
 export async function reconcileProgressEvaluations(
     userId: string,
     sessions: ReconcilableSession[],
@@ -340,13 +477,30 @@ export async function reconcileProgressEvaluations(
     if (pendingResolution) await resolveOpenAttemptWith(userId, pendingResolution);
 
     // ── Layer 1: drain the durable Open Mic queue (transient eval failures) for this user. ──
-    for (const sessionId of getQueuedSessionIdsForUser(userId)) {
+    // An UNREADABLE queue is not an empty one. Draining zero entries because storage is unavailable or
+    // corrupt would report a clean reconciliation while real Progress debts remain, so the read result
+    // is inspected rather than coerced to a list.
+    const queued = getQueuedSessionIdsForUser(userId);
+    if (!queued.ok) {
+        logger.warn({ failure: queued.failure }, '[progress] reconcile queue unreadable — not draining');
+    }
+    for (const sessionId of (queued.ok ? queued.sessionIds ?? [] : [])) {
         const id = await recordProgressEvaluation(sessionId);
-        if (id) {
-            clearProgressReconcileEntry(sessionId, userId);
-            queueDrained++;
-            await recordRecommendationForEvaluation(sessionId);
+        if (!id) continue; // still failing — the debt stays queued and the gate stays blocked
+        // #1354: the clear must be VERIFIED before this counts as drained. An entry that could not be
+        // removed survives the next reload, so reporting a clean drain would unlock the recorder on a
+        // debt that still exists. The result was previously discarded.
+        const cleared = clearProgressReconcileEntry(sessionId, userId);
+        if (!cleared.ok) {
+            logger.warn({ failure: cleared.failure }, '[progress] evaluation recorded but queue clear FAILED');
+            continue;
         }
+        queueDrained++;
+        // Release the VISIBLE gate only now, and only if it belongs to this exact owner+session.
+        // Without this the user stays blocked after a successful retry — the debt is gone but the UI
+        // still says otherwise.
+        releaseProgressGateFor(sessionId, userId);
+        await recordRecommendationForEvaluation(sessionId);
     }
 
     // #1265: the generic active-era sweep was REMOVED. It evaluated any completed session missing an

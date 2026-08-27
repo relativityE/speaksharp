@@ -122,6 +122,28 @@ export interface SessionState {
      */
     completedObjectiveBrief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null;
     /**
+     * #1354 — the previous session's Progress evidence is not yet terminal, so a new recording must not
+     * start. Content-free by construction: a session id and a discriminant, never transcript or error
+     * text. `queued` is actionable (a durable retry exists); `unresolved` is fail-closed.
+     *
+     * This exists in the STORE as well as the controller because disabling the button alone is not a
+     * gate — the controller's Start entry enforces it independently, and this drives the visible state.
+     */
+    progressGate: { sessionId: string; ownerId: string | null; state: 'resolving' | 'queued' | 'unresolved' } | null;
+    /**
+     * #1354 CASE 4 — WHICH OWNER the gate has been determined for. `null` = not determined yet;
+     * `''` = determined for an anonymous (signed-out) visitor; otherwise the user id.
+     *
+     * `progressGate: null` is ambiguous on its own: it means both "nothing is owed" and "we have not
+     * looked yet". On reload we have not looked until the durable queue has been read, and rendering an
+     * enabled Start during that window is exactly the flash this prevents.
+     *
+     * It stores the OWNER rather than a boolean so an ACCOUNT TRANSITION invalidates the answer
+     * immediately: debt is owner-scoped, and a `true` inherited from the previous account would render
+     * an enabled Start for the new one before their queue had ever been read.
+     */
+    progressGateResolvedFor: string | null;
+    /**
      * #1046 slice 5a: per-point Focus Points coverage for the settled Session page, or null when the
      * completed recording was not a Focus Points session. Mirrors {@link finalizedAnalysis}'s lifecycle
      * exactly — null until an objective session finalizes, SET at the stop seam after coverage is
@@ -174,6 +196,8 @@ interface SessionActions {
     setActiveObjectiveBrief: (brief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null) => void;
     setPracticeFocus: (focus: PracticeFocus | null) => void;
     setCompletedObjectiveBrief: (brief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null) => void;
+    setProgressGate: (gate: { sessionId: string; ownerId: string | null; state: 'resolving' | 'queued' | 'unresolved' } | null) => void;
+    setProgressGateResolvedFor: (ownerId: string | null) => void;
     setObjectiveCoverageResult: (rows: ObjectiveCoverageRow[] | null) => void;
     setPauseMetrics: (metrics: PauseMetrics) => void;
     setLockHeldByOther: (held: boolean) => void;
@@ -235,6 +259,8 @@ const initialState: SessionState = {
     activeObjectiveBrief: null,
     practiceFocus: readPracticeFocus(),
     completedObjectiveBrief: null,
+    progressGate: null,
+    progressGateResolvedFor: null,
     objectiveCoverageResult: null,
     pauseMetrics: {
         totalPauses: 0,
@@ -522,6 +548,8 @@ export const useSessionStore = create<SessionStore>((set) => {
     setActiveObjectiveBrief: (activeObjectiveBrief) => set({ activeObjectiveBrief }),
     setPracticeFocus: (practiceFocus) => { writePracticeFocus(practiceFocus); set({ practiceFocus }); },
     setCompletedObjectiveBrief: (completedObjectiveBrief) => set({ completedObjectiveBrief }),
+    setProgressGate: (progressGate) => set({ progressGate }),
+    setProgressGateResolvedFor: (progressGateResolvedFor) => set({ progressGateResolvedFor }),
     setObjectiveCoverageResult: (objectiveCoverageResult) => set({ objectiveCoverageResult }),
 
     setTranscriptFinalizing: (isTranscriptFinalizing) =>

@@ -5,7 +5,8 @@ import { validateNextActionSignal } from '@/contracts/nextActionSignal';
 const { completeSession, updateSession, wireProgressEvaluationOnSave, finalizeObjectiveSessionOnSave, attestInvoke } = vi.hoisted(() => ({
     completeSession: vi.fn(),
     updateSession: vi.fn(),
-    wireProgressEvaluationOnSave: vi.fn(),
+    // #1354: must resolve to an OUTCOME — the controller now awaits this and gates on the result.
+    wireProgressEvaluationOnSave: vi.fn().mockResolvedValue({ kind: 'recorded' }),
     finalizeObjectiveSessionOnSave: vi.fn(),
     attestInvoke: vi.fn(),
 }));
@@ -25,7 +26,13 @@ vi.mock('@/lib/supabaseClient', () => ({
         auth: { getSession: vi.fn() },
     }),
 }));
-vi.mock('@/services/progress/recordProgress', () => ({ wireProgressEvaluationOnSave }));
+// #1354: the controller now gates the recorder on the seam's outcome, so the mock must expose the
+// predicate too. `recorded` keeps these tests on the UNLOCKED path they were written for.
+vi.mock('@/services/progress/recordProgress', () => ({
+    wireProgressEvaluationOnSave,
+    progressOutcomeAllowsNextRecording: (o: { kind: string }) =>
+        o.kind === 'recorded' || o.kind === 'not_applicable',
+}));
 vi.mock('@/services/objective/finalizeObjectiveSessionOnSave', () => ({ finalizeObjectiveSessionOnSave }));
 
 import { SpeechRuntimeController } from '../SpeechRuntimeController';
@@ -77,7 +84,7 @@ describe('#1265 mode-aware Progress completion — retry paths', () => {
         useSessionStore.getState().setCompletedObjectiveBrief(null);
         completeSession.mockReset().mockResolvedValue({ success: true });
         updateSession.mockReset().mockResolvedValue({ success: true });
-        wireProgressEvaluationOnSave.mockReset().mockResolvedValue(undefined);
+        wireProgressEvaluationOnSave.mockReset().mockResolvedValue({ kind: 'recorded' });
         finalizeObjectiveSessionOnSave.mockReset().mockResolvedValue({
             ok: true, registered: true, objectiveSessionId: 'objective-1', evidenceCount: 1, coverage: [],
         });

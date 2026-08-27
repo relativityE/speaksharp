@@ -121,7 +121,7 @@ describe('#1045 recordProgress consumer — the wiring guard', () => {
         const saveAttempt = wireProgressEvaluationOnSave(ctx({ userId: 'user-open-mic' }));
         await vi.runAllTimersAsync();
         await saveAttempt;
-        expect(getQueuedSessionIdsForUser('user-open-mic')).toEqual(['s1']);
+        expect(getQueuedSessionIdsForUser('user-open-mic').sessionIds).toEqual(['s1']);
 
         rpc.mockReset();
         rpc.mockResolvedValue({ data: 'eval-id', error: null });
@@ -131,7 +131,7 @@ describe('#1045 recordProgress consumer — the wiring guard', () => {
         expect(rpcNames().filter((name) => name === 'record_progress_evaluation')).toEqual([
             'record_progress_evaluation',
         ]);
-        expect(getQueuedSessionIdsForUser('user-open-mic')).toEqual([]);
+        expect(getQueuedSessionIdsForUser('user-open-mic').sessionIds).toEqual([]);
         vi.useRealTimers();
     });
 

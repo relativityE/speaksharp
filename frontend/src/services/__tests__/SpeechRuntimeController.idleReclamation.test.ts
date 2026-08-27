@@ -27,7 +27,11 @@ vi.mock('../../lib/supabaseClient', () => ({
     })),
 }));
 vi.mock('../progress/recordProgress', () => ({
-    wireProgressEvaluationOnSave: vi.fn().mockResolvedValue(undefined),
+    // #1354: the seam now returns a discriminated outcome and the controller gates the recorder on it.
+    // `recorded` keeps these existing tests on the UNLOCKED path, which is what they were written for.
+    wireProgressEvaluationOnSave: vi.fn().mockResolvedValue({ kind: 'recorded' }),
+    progressOutcomeAllowsNextRecording: (o: { kind: string }) =>
+        o.kind === 'recorded' || o.kind === 'not_applicable',
 }));
 
 const IDLE_RECLAMATION_MS = 5 * 60 * 1000;

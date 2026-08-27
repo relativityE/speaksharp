@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '../../../tests/support/test-utils';
 import SessionPage from '../SessionPage';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 // --- Mocks ---
 import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
@@ -91,6 +92,18 @@ describe('SessionPage Logic', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockUseSessionLifecycle.mockReturnValue(defaultLifecycle as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+        // #1354: the Start control is gated on the Progress gate having been DETERMINED, and it starts
+        // undetermined so a reload cannot render an enabled Start over unproven evidence. The resolver
+        // (`useProgressReconciliation`) is mounted app-globally in App.tsx; this file renders SessionPage
+        // in isolation, without that shell, so it must state the resolved condition itself.
+        //
+        // The fail-closed default is deliberate, not incidental: SessionOverhaulView.progressGate.test.tsx
+        // asserts that an UNRESOLVED gate disables Start.
+        useSessionStore.getState().setProgressGate(null);
+        // '' marks "determined for an ANONYMOUS viewer" — this isolated render has no auth session, so
+        // SessionPage passes authUserId=null and the gate resolution must be recorded against that same
+        // owner. Recording it for a signed-in id would leave the viewer unresolved and Start disabled.
+        useSessionStore.getState().setProgressGateResolvedFor('');
     });
 
 

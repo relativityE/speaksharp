@@ -3,6 +3,8 @@ import { SessionBeforeState } from './SessionBeforeState';
 import { SessionDuringState } from './SessionDuringState';
 import { SessionAfterState } from './SessionAfterState';
 import { resolveSessionState } from '@/utils/sessionStateMachine';
+import { useSessionStore } from '@/stores/useSessionStore';
+import { progressGateNotice } from '@/services/progress/progressStartGate';
 import { usePromptOfferDismissed } from '@/hooks/usePromptOfferDismissed';
 import { useHeldTip } from '@/hooks/useHeldTip';
 import { LiveTip } from './LiveTip';
@@ -332,6 +334,23 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="after" onRetry={onRetryPoints ?? onStartStop} onNewSet={onNewSet} />
         : undefined;
 
+    // #1354 CASE 4/6 — the rendered gate. Open Mic and Focus Points render through THIS component and
+    // this single `mic.disabled`, so both entry points inherit the identical gate by construction rather
+    // than by two copies kept in step by hand.
+    //
+    // `!progressGateResolved` is deliberate: a null gate means both "nothing owed" and "not looked yet",
+    // and on reload we have not looked until the durable queue has been read. Disabling during that
+    // window is what removes the enabled frame. The button is a CUE, never the gate — `startRecording`
+    // re-reads the durable queue on every attempt regardless of what is rendered.
+    const progressGate = useSessionStore((st) => st.progressGate);
+    const progressGateResolvedFor = useSessionStore((st) => st.progressGateResolvedFor);
+    // Owner-scoped: an answer determined for a DIFFERENT account is not an answer for this one, so an
+    // account transition reverts to "not determined" immediately rather than inheriting an enabled
+    // Start from the previous owner.
+    const gateResolvedForViewer = progressGateResolvedFor === (authUserId ?? '');
+    const gateBlocksStart = !gateResolvedForViewer || progressGate !== null;
+    const gateNotice = progressGateNotice(progressGate, gateResolvedForViewer);
+
     if (sessionState === 'before') {
         return (
             <>
@@ -346,7 +365,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                         privateModelStatus,
                         modelLoadingProgress,
                         onDownloadModel,
-                        disabled: isButtonDisabled,
+                        disabled: isButtonDisabled || gateBlocksStart,
+                        blockedReason: gateNotice,
                     }}
                     transcript={{
                         offerDismissed: offer.dismissed,

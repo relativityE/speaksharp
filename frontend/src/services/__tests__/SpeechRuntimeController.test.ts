@@ -46,7 +46,11 @@ vi.mock('../../lib/supabaseClient', () => ({
 // #1045: the Progress recording seam. Mocked so we can assert the completed-save journey INVOKES it with
 // the right context (metrics persisted + terminal attribution) — the wire the feature depends on.
 vi.mock('../progress/recordProgress', () => ({
-    wireProgressEvaluationOnSave: vi.fn().mockResolvedValue(undefined),
+    // #1354: the seam now returns a discriminated outcome and the controller gates the recorder on it.
+    // `recorded` keeps these existing tests on the UNLOCKED path, which is what they were written for.
+    wireProgressEvaluationOnSave: vi.fn().mockResolvedValue({ kind: 'recorded' }),
+    progressOutcomeAllowsNextRecording: (o: { kind: string }) =>
+        o.kind === 'recorded' || o.kind === 'not_applicable',
 }));
 
 /**
@@ -79,6 +83,8 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         localStorage.clear();
+        // #1354: a leaked Progress gate blocks Start for every subsequent test. Reset defensively.
+        useSessionStore.getState().setProgressGate(null);
         clearPrivateRecordingIdentity();
         controller = SpeechRuntimeController.getInstance();
         // Reset singleton private state
@@ -558,6 +564,158 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             attributionStatus: 'verified',
             metricsPersisted: true,
         }));
+    });
+
+    it('#1354 ACCEPTANCE 1: three sequential sessions each block Start until their OWN evidence is terminal', async () => {
+        // Acceptance case 1 (client-observable half). The retention outcome itself — oldest expires,
+        // newest two retained, metrics intact — is a PRODUCTION assertion and belongs to Attempt 10;
+        // it cannot be proven here and this test does not pretend to.
+        //
+        // What this proves is the sequencing that attempt 9 violated: each completion holds the gate
+        // until ITS OWN evaluation is durable, and only then may the next recording begin. A gate that
+        // failed to clear would strand the user; a gate that cleared early is the original defect.
+        const { wireProgressEvaluationOnSave } = await import('../progress/recordProgress');
+        useSessionStore.getState().setProgressGate(null);
+
+        const releases: Array<(o: { kind: string }) => void> = [];
+        for (let i = 0; i < 3; i++) {
+            vi.mocked(wireProgressEvaluationOnSave).mockReturnValueOnce(
+                new Promise<{ kind: string }>((resolve) => { releases.push(resolve); }) as never,
+            );
+        }
+
+        try {
+            for (let session = 1; session <= 3; session++) {
+                const id = `sess-1354-acc1-${session}`;
+                let settled = false;
+                const completion = driveStopWithService(
+                    mkService('private', { engineVersion: 'v-p', modelName: 'm-p', deviceType: 'browser' }),
+                    id, 'private',
+                ).then(() => { settled = true; });
+
+                for (let i = 0; i < 50; i++) await Promise.resolve();
+
+                // Blocked while THIS session's evidence is in flight.
+                expect(settled, `session ${session}: completion must not settle early`).toBe(false);
+                expect(useSessionStore.getState().progressGate).toMatchObject({ sessionId: id, state: 'resolving' });
+
+                await controller.startRecording();
+                expect(useSessionStore.getState().sttStatus.type, `session ${session}: Start must be refused`).toBe('error');
+
+                // Terminal evidence arrives -> the gate clears and the NEXT session may begin.
+                releases[session - 1]({ kind: 'recorded' });
+                await completion;
+                expect(settled).toBe(true);
+                expect(useSessionStore.getState().progressGate, `session ${session}: gate must clear`).toBeNull();
+            }
+        } finally {
+            // Never leave a pending deferred or a gate behind — either would block every later test.
+            releases.forEach((release) => release({ kind: 'recorded' }));
+            useSessionStore.getState().setProgressGate(null);
+        }
+    });
+
+    it('#1354 ACCEPTANCE 1 (closure): a LATE result from session 1 must NOT clear session 2\'s gate', async () => {
+        // Acceptance case 1 releases each session in order, so session 1's result always lands while
+        // session 1's OWN gate is live — the cross-session branch of `applyProgressGate` is never taken.
+        // This drives the branch that acceptance 1 cannot: session 1's evaluation is still in flight when
+        // session 2 begins and publishes its own gate, and session 1's terminal result arrives LATE.
+        //
+        // If a stale result could clear the live gate, the recorder would unlock on the PREVIOUS session's
+        // evidence while session 2's evaluation was still unproven — attempt 9's failure mode, reached by
+        // a different route. Killed by removing `gate.sessionId === sessionId` from `isOurs`.
+        const { wireProgressEvaluationOnSave } = await import('../progress/recordProgress');
+        useSessionStore.getState().setProgressGate(null);
+
+        let releaseSession1: (o: { kind: string }) => void = () => {};
+        vi.mocked(wireProgressEvaluationOnSave).mockReturnValueOnce(
+            new Promise<{ kind: string }>((resolve) => { releaseSession1 = resolve; }) as never,
+        );
+
+        try {
+            let settled = false;
+            const completion = driveStopWithService(
+                mkService('private', { engineVersion: 'v-p', modelName: 'm-p', deviceType: 'browser' }),
+                'sess-1354-late-1', 'private',
+            ).then(() => { settled = true; });
+
+            // MICROTASKS ONLY — this suite installs fake timers.
+            for (let i = 0; i < 50; i++) await Promise.resolve();
+
+            const live = useSessionStore.getState().progressGate;
+            expect(live, 'session 1 must hold its own gate while in flight').toMatchObject({
+                sessionId: 'sess-1354-late-1', state: 'resolving',
+            });
+            expect(settled, 'session 1 must not settle early').toBe(false);
+
+            // Session 2 has since begun and published ITS OWN gate — exactly what `beginProgressGate`
+            // writes. Same owner, so ONLY the session comparison can distinguish the two.
+            useSessionStore.getState().setProgressGate({
+                sessionId: 'sess-1354-late-2', ownerId: live?.ownerId ?? null, state: 'resolving',
+            });
+
+            // Session 1's terminal evidence finally lands — for a session that is no longer current.
+            releaseSession1({ kind: 'recorded' });
+            await completion;
+            expect(settled).toBe(true);
+
+            // Session 2 remains gated on its OWN evidence. A cleared (null) gate here is the defect.
+            expect(
+                useSessionStore.getState().progressGate,
+                "session 1's late result must not unlock session 2",
+            ).toMatchObject({ sessionId: 'sess-1354-late-2', state: 'resolving' });
+
+            // ...and Start is still refused, with no recording side effect.
+            await controller.startRecording();
+            expect(useSessionStore.getState().sttStatus.type).toBe('error');
+        } finally {
+            releaseSession1({ kind: 'recorded' });
+            useSessionStore.getState().setProgressGate(null);
+        }
+    });
+
+    it('#1354 VERTICAL: the real completion path does not settle, and Start stays blocked, until Progress is terminal', async () => {
+        // THE DEFECT THIS KILLS. `completeProgressForRecording` was `void`-dispatched, so the completion
+        // path settled while the evaluation was still in flight and the recorder reopened. On a rapid
+        // three-session journey the third completion then reached retention while the oldest outgoing
+        // session still lacked terminal evidence, and the server refused to retain the new transcript
+        // (attempt 9: transcript_outcome=retention_failed, retention_status=pending).
+        //
+        // Driving the REAL stop/completion path is the point: an isolated unit test of the gate cannot
+        // observe whether the caller awaited it.
+        const { wireProgressEvaluationOnSave } = await import('../progress/recordProgress');
+        let releaseProgress: (o: { kind: string }) => void = () => {};
+        const deferred = new Promise<{ kind: string }>((resolve) => { releaseProgress = resolve; });
+        vi.mocked(wireProgressEvaluationOnSave).mockReturnValueOnce(deferred as never);
+        useSessionStore.getState().setProgressGate(null);
+
+        let settled = false;
+        const completion = driveStopWithService(
+            mkService('private', { engineVersion: 'v-p', modelName: 'm-p', deviceType: 'browser' }),
+            'sess-1354-vertical', 'private',
+        ).then(() => { settled = true; });
+
+        try {
+            // Let every other await in the completion path run to exhaustion. MICROTASKS ONLY — this
+            // suite installs fake timers, so awaiting a real `setTimeout` never resolves.
+            for (let i = 0; i < 50; i++) await Promise.resolve();
+
+            // 2. No startable state while deferred. `void` dispatch makes this settle immediately.
+            expect(settled, 'completion must NOT settle while Progress is in flight').toBe(false);
+            expect(useSessionStore.getState().progressGate?.state).toBe('resolving');
+
+            // ...and Start is refused with no recording side effect.
+            await controller.startRecording();
+            expect(useSessionStore.getState().sttStatus.type).toBe('error');
+            expect(useSessionStore.getState().sttStatus.message).toMatch(/one moment|retry automatically/i);
+        } finally {
+            // 3. ALWAYS release and settle — a hung deferred would block every test after this one.
+            releaseProgress({ kind: 'recorded' });
+            await completion;
+            useSessionStore.getState().setProgressGate(null);
+        }
+
+        expect(settled).toBe(true);
     });
 
     it('#1033: Private finalization uses the resolved Private arm ONLY when it belongs to this recording', async () => {
