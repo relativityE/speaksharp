@@ -181,7 +181,24 @@ export interface ComparabilityInputs {
     /** Single canonical fixture hash — the same value as AudioRouteEvidence.fixtureSha256. */
     fixtureHash: string;
     groundTruthVersion: string;
-    normalizationVersion: string;
+    /**
+     * #1304 — `null` when no WER was measurable, so a row never claims a normalization it did not use.
+     * It was previously written from a separate constant that had drifted from the code actually doing
+     * the normalizing.
+     */
+    normalizationVersion: string | null;
+    /**
+     * #1304 — WHICH SCORING TRACK produced this row's WER. `track_a` is transcript accuracy under the
+     * official normalization (disfluency removed); `track_b` is disfluency accuracy (preserved).
+     *
+     * This is a RUNTIME field, not just a compile-time brand, because branding cannot survive JSON:
+     * once rows are serialized, imported and aggregated, the type is gone and nothing would stop
+     * Track-A and Track-B numbers being averaged into a single meaningless figure. It is part of the
+     * COMPARABILITY KEY — two rows scored under different tracks are not comparable.
+     *
+     * `null` only when no WER was measurable for the row, so it never claims a track it did not use.
+     */
+    track: 'track_a' | 'track_b' | null;
     decodeConfiguration: string;
     modelRevision: string;
     /** e.g. { onnxruntime: '1.27.0', transformers: '3.x' } */
@@ -356,6 +373,18 @@ export function finalizeRow(
         })) {
             if (!v) problems.push(`missing comparability input ${k}`);
         }
+        // #1304: a row carrying a WER MUST name the track that produced it. Without this the interface
+        // field was decorative — serialized evidence with no track still validated, and the runtime
+        // separation depended entirely on a caller remembering to invoke `assertSingleTrack`.
+        // `null` is admissible ONLY when the WER is unmeasurable, so a row never omits a track it used.
+        const hasWer = row.wer !== null && row.wer !== undefined;
+        if (hasWer && ci?.track !== 'track_a' && ci?.track !== 'track_b') {
+            problems.push('comparability_inputs.track must be track_a or track_b when a WER is present — an untracked score is not comparable');
+        }
+        if (!hasWer && ci?.track !== null && ci?.track !== undefined
+            && ci.track !== 'track_a' && ci.track !== 'track_b') {
+            problems.push(`comparability_inputs.track '${String(ci.track)}' is not a valid track`);
+        }
         if (ci?.modelRevision && MUTABLE_REVISIONS.has(ci.modelRevision)) {
             problems.push(`modelRevision '${ci.modelRevision}' is mutable — pin an immutable revision`);
         }
@@ -477,6 +506,9 @@ export function cohortKey(r: SttEvidenceRow): string {
     return [
         r.comparability_class, r.engine, r.engine_version, r.model_name,
         ci.fixtureHash, ci.groundTruthVersion, ci.normalizationVersion,
+        // #1304: two rows scored under DIFFERENT tracks are not comparable and must never share a
+        // cohort. Omitting this from the key let Track A and Track B rows land in the same bucket.
+        ci.track ?? 'no_track',
         ci.decodeConfiguration, ci.modelRevision,
         Object.entries(ci.runtimeVersions ?? {}).sort().map(([k, v]) => `${k}@${v}`).join(','),
     ].join('|');

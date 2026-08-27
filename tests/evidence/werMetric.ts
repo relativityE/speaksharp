@@ -8,8 +8,24 @@
  * this program exists to prevent.
  */
 
+import { normalizeOfficialTrackA, normalizeOfficialTrackB } from './normalization/officialNormalizer';
+import { TRACK_NORMALIZATION, type Track } from './normalization/tracks';
+
 /** Bump on ANY change to normalization. Rows carry it in comparability_inputs.normalizationVersion. */
 export const NORMALIZATION_VERSION = 'norm_v1';
+
+/**
+ * #1304 — `norm_v2` IS NO LONGER SELECTABLE, deliberately.
+ *
+ * That label described the hand-written prototype. Both tracks now run the OFFICIAL normalization core,
+ * so a caller passing `norm_v2` would produce officially-normalized data wearing the prototype's name —
+ * a row claiming a normalization that no longer exists. No authoritative `norm_v2` rows were ever
+ * merged, so nothing needs reproducing under it.
+ *
+ * Scored rows carry an exact per-track identity instead (`TRACK_NORMALIZATION`), and `norm_v1` remains
+ * selectable ONLY to reproduce genuinely historical rows pinned under it.
+ */
+export type NormalizationVersion = typeof NORMALIZATION_VERSION;
 
 /**
  * norm_v1: lowercase; drop surrounding punctuation but keep intra-word apostrophes/hyphens; collapse
@@ -29,7 +45,13 @@ export function normalizeTranscript(text: string): string[] {
         .filter((t) => t.length > 0);
 }
 
-export interface WerResult {
+export interface WerResult<T extends Track = Track> {
+    /**
+     * #1304 — WHICH TRACK produced this score. Branding the result is what makes handing Track-A
+     * transcript-accuracy data to a Track-B disfluency consumer a COMPILE error rather than a runtime
+     * check nobody runs. There is no default: a silent default is exactly how the two merged before.
+     */
+    track: T;
     /** null when the reference has no words — unmeasurable, never 0. */
     wer: number | null;
     referenceWords: number;
@@ -67,19 +89,34 @@ function editOps(ref: string[], hyp: string[]): { sub: number; del: number; ins:
  * @param referenceGroundTruth the KNOWN fixture transcript (never a recognizer output).
  * @param hypothesis           the recognizer's transcript.
  */
-export function wordErrorRate(referenceGroundTruth: string, hypothesis: string): WerResult {
-    const ref = normalizeTranscript(referenceGroundTruth);
-    const hyp = normalizeTranscript(hypothesis);
+export function wordErrorRate<T extends Track>(
+    referenceGroundTruth: string,
+    hypothesis: string,
+    options: { track: T; normalization?: NormalizationVersion },
+): WerResult<T> {
+    // `track` is REQUIRED. Track A uses the pinned official normalization (fillers removed) so the
+    // numbers are comparable to published WER; Track B preserves fillers because this product measures
+    // them. `normalization: 'norm_v1'` remains reachable ONLY to reproduce historically pinned rows.
+    // The recorded version names the official core, its upstream commit, AND the track — so a row can
+    // never claim a normalization it did not use. `norm_v1` remains reachable ONLY to reproduce
+    // historically pinned rows, and says so in the value it records.
+    const version = options.normalization ?? TRACK_NORMALIZATION[options.track];
+    const normalize = options.normalization === NORMALIZATION_VERSION
+        ? normalizeTranscript
+        : options.track === 'track_a' ? normalizeOfficialTrackA : normalizeOfficialTrackB;
+    const ref = normalize(referenceGroundTruth);
+    const hyp = normalize(hypothesis);
     if (ref.length === 0) {
-        return { wer: null, referenceWords: 0, substitutions: 0, deletions: 0, insertions: 0, normalizationVersion: NORMALIZATION_VERSION };
+        return { track: options.track, wer: null, referenceWords: 0, substitutions: 0, deletions: 0, insertions: 0, normalizationVersion: version };
     }
     const { sub, del, ins } = editOps(ref, hyp);
     return {
+        track: options.track,
         wer: (sub + del + ins) / ref.length,
         referenceWords: ref.length,
         substitutions: sub,
         deletions: del,
         insertions: ins,
-        normalizationVersion: NORMALIZATION_VERSION,
+        normalizationVersion: version,
     };
 }

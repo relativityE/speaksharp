@@ -1,0 +1,26 @@
+{
+  // #1304 — TypeScript gate for the `tests/evidence/**` scoring surface.
+  //
+  // WHY THIS EXISTS. Nothing typechecked this tree. `tsconfig.live.json` covers only `tests/live/**`
+  // and `tests/helpers/**`; the frontend config covers `frontend/`. That is exactly how a provenance
+  // field came to claim `norm_v1` while the code beside it normalized with the official core — a
+  // mismatch no build could fail on.
+  //
+  // Task 1 requires COMPILE-TIME track separation, and that claim is unverifiable while this tree is
+  // never compiled. Scope is deliberately narrow: it must not pull in Deno edge functions or the
+  // JSX/Vite browser scope, which is why the root config cannot simply be run.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["vitest/globals", "node"]
+  },
+  "include": ["tests/evidence/**/*.ts"]
+}

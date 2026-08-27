@@ -16,7 +16,7 @@ import {
     type ComparabilityInputs,
     type FailureClass,
 } from './sttEvidenceSchema';
-import { wordErrorRate, NORMALIZATION_VERSION } from './werMetric';
+import { wordErrorRate } from './werMetric';
 import { fillerPrf, punctuationPlacementPrf, type PrfResult } from './qualityMetrics';
 
 export type ThermalState = 'cold' | 'warm';
@@ -59,7 +59,9 @@ export interface CorpusRow extends SttEvidenceRow {
  */
 export function buildCorpusRow(input: CorpusRunInput): CorpusRow {
     const haveBoth = input.groundTruth != null && input.recognizerTranscript != null;
-    const werDetail = haveBoth ? wordErrorRate(input.groundTruth as string, input.recognizerTranscript as string) : null;
+    // TRACK A: this is TRANSCRIPT ACCURACY and must be comparable to published WER. Filler fidelity
+    // is measured separately by `fillerPrf` below, so removing fillers here does not lose that signal.
+    const werDetail = haveBoth ? wordErrorRate(input.groundTruth as string, input.recognizerTranscript as string, { track: 'track_a' }) : null;
     const fillerDetail = haveBoth ? fillerPrf(input.groundTruth as string, input.recognizerTranscript as string) : null;
     const punctDetail = haveBoth ? punctuationPlacementPrf(input.groundTruth as string, input.recognizerTranscript as string) : null;
 
@@ -87,7 +89,16 @@ export function buildCorpusRow(input: CorpusRunInput): CorpusRow {
         release_sha: input.releaseSha,
         audio_route_evidence: input.audioRoute,
         runtime_capability: input.runtime,
-        comparability_inputs: { ...input.comparabilityInputs, normalizationVersion: NORMALIZATION_VERSION },
+        // #1304: provenance comes from the ACTUAL WerResult, never from a separate constant. This
+        // previously hardcoded NORMALIZATION_VERSION ('norm_v1') while the WER above was computed under
+        // the official Track A normalization — the row claimed a normalization it had not used, which is
+        // precisely the class of untrustworthy evidence this ledger exists to prevent. When no WER was
+        // measurable, both fields are null rather than asserting one.
+        comparability_inputs: {
+            ...input.comparabilityInputs,
+            normalizationVersion: werDetail?.normalizationVersion ?? null,
+            track: werDetail?.track ?? null,
+        },
         invalid_reason: negativeLatency ? 'negative latency measurement (clock/harness error)' : undefined,
     } as Parameters<typeof finalizeRow>[0]);
 
