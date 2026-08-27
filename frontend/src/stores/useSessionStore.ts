@@ -131,6 +131,14 @@ export interface SessionState {
      */
     progressGate: { sessionId: string; ownerId: string | null; state: 'resolving' | 'queued' | 'unresolved' } | null;
     /**
+     * #1354 CASE 4 — has the gate been DETERMINED yet for the current owner?
+     *
+     * `progressGate: null` is ambiguous on its own: it means both "nothing is owed" and "we have not
+     * looked yet". On reload we have not looked until the durable queue has been read, and rendering an
+     * enabled Start during that window is exactly the flash this prevents. False until resolved.
+     */
+    progressGateResolved: boolean;
+    /**
      * #1046 slice 5a: per-point Focus Points coverage for the settled Session page, or null when the
      * completed recording was not a Focus Points session. Mirrors {@link finalizedAnalysis}'s lifecycle
      * exactly — null until an objective session finalizes, SET at the stop seam after coverage is
@@ -184,6 +192,7 @@ interface SessionActions {
     setPracticeFocus: (focus: PracticeFocus | null) => void;
     setCompletedObjectiveBrief: (brief: { projectId: string; briefId: string; points?: string[]; topic?: string; paceGuideSecPerPoint?: number | null } | null) => void;
     setProgressGate: (gate: { sessionId: string; ownerId: string | null; state: 'resolving' | 'queued' | 'unresolved' } | null) => void;
+    setProgressGateResolved: (resolved: boolean) => void;
     setObjectiveCoverageResult: (rows: ObjectiveCoverageRow[] | null) => void;
     setPauseMetrics: (metrics: PauseMetrics) => void;
     setLockHeldByOther: (held: boolean) => void;
@@ -246,6 +255,7 @@ const initialState: SessionState = {
     practiceFocus: readPracticeFocus(),
     completedObjectiveBrief: null,
     progressGate: null,
+    progressGateResolved: false,
     objectiveCoverageResult: null,
     pauseMetrics: {
         totalPauses: 0,
@@ -534,6 +544,7 @@ export const useSessionStore = create<SessionStore>((set) => {
     setPracticeFocus: (practiceFocus) => { writePracticeFocus(practiceFocus); set({ practiceFocus }); },
     setCompletedObjectiveBrief: (completedObjectiveBrief) => set({ completedObjectiveBrief }),
     setProgressGate: (progressGate) => set({ progressGate }),
+    setProgressGateResolved: (progressGateResolved) => set({ progressGateResolved }),
     setObjectiveCoverageResult: (objectiveCoverageResult) => set({ objectiveCoverageResult }),
 
     setTranscriptFinalizing: (isTranscriptFinalizing) =>

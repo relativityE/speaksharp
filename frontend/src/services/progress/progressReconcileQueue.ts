@@ -20,7 +20,13 @@
  */
 import logger from '@/lib/logger';
 
-const KEY = 'ss_progress_reconcile_queue_v1';
+/**
+ * #1354: the SINGLE definition of the durable queue's storage key. It was previously declared here
+ * AND again in `progressStartGate.ts`; two production authorities for one key can drift, and a
+ * cross-tab listener filtering on a key the writer no longer uses would silently stop firing.
+ */
+export const PROGRESS_QUEUE_STORAGE_KEY = 'ss_progress_reconcile_queue_v1';
+const KEY = PROGRESS_QUEUE_STORAGE_KEY;
 
 interface QueueEntry {
     sessionId: string;

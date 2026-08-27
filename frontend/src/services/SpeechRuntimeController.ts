@@ -3803,11 +3803,21 @@ export class SpeechRuntimeController {
         attributionStatus: string | undefined,
         metricsPersisted: boolean,
     ): Promise<ProgressEvaluationOutcome> {
+        // #1354 CASE 6: these fail-closed returns must PUBLISH THE GATE, not just report an outcome.
+        // They previously returned before `beginProgressGate`, so the most fail-closed paths in the whole
+        // seam were the only ones that left Start open — an `unresolved` result the user never saw and
+        // the recorder never honoured. Routed through `applyProgressGate` so the verdict is visible and
+        // enforced exactly like every other blocking outcome.
+        //
         // Unknown/legacy retry context fails closed — it cannot prove evidence is terminal.
-        if (context.mode === 'unknown') return { kind: 'unresolved', reason: 'metrics_not_persisted' };
+        if (context.mode === 'unknown') {
+            return this.applyProgressGate(sessionId, { kind: 'unresolved', reason: 'metrics_not_persisted' });
+        }
         // Both practice modes require actual durable delivery metrics. This guard sits before Open Mic's
         // immediate path and Focus Points registration so neither can create an immutable partial evaluation.
-        if (!metricsPersisted) return { kind: 'unresolved', reason: 'metrics_not_persisted' };
+        if (!metricsPersisted) {
+            return this.applyProgressGate(sessionId, { kind: 'unresolved', reason: 'metrics_not_persisted' });
+        }
 
         // #1354: AWAITED and its result returned. This was `void wireProgressEvaluationOnSave(...)` —
         // fire-and-forget — so the recorder returned to a startable state before the evaluation was
@@ -3922,10 +3932,20 @@ export class SpeechRuntimeController {
                     objResult.coverage.map((c) => ({ id: c.briefPointId, label: c.point, status: c.status })),
                 );
             }
-            // Registration failure means Progress is unavailable for this take — no evaluation is owed
-            // and none will ever arrive, so it must not hold the recorder hostage. That is an accepted
-            // terminal reason, not an unresolved one.
-            if (!objResult.registered) return { kind: 'not_applicable', reason: 'not_completed' };
+            // #1354 CASE 5 — `registered: false` has TWO origins and only ONE of them is terminal.
+            //
+            // A DEFINITIVE registration refusal (the server answered, `stage: 'register'`) is proven
+            // durable exclusion: nothing was written, nothing is owed, and no evaluation will ever
+            // arrive. That is an accepted terminal reason and it unlocks.
+            //
+            // A THROW before registration ALSO reports `registered: false`, but the state is UNKNOWN —
+            // the write may well have reached the server (this type's own contract notes that a throw
+            // loses the stage). Relabelling that `not_completed` claims an exclusion nobody proved, and
+            // unlocks the recorder on an assumption. Pending / missing / unknown stay blocked.
+            if (!objResult.registered) {
+                if (objResult.stage === 'register') return { kind: 'not_applicable', reason: 'not_completed' };
+                return { kind: 'unresolved', reason: 'queue_unavailable' };
+            }
             return await runProgressEval();
         } catch (objErr) {
             // Ambiguous throw: registration state is UNKNOWN. Fail closed — we cannot claim the take

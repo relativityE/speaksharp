@@ -30,7 +30,9 @@ type Gate = (
     segments: { text: string; startSec: number }[],
     durationSeconds: number,
     runProgressEval: () => void,
-) => Promise<void>;
+    // #1354: the seam RETURNS an outcome — it was `void` before the gate existed, and a stale `void`
+    // here silently hides the value every case-5 assertion depends on.
+) => Promise<{ kind: string; reason?: string }>;
 
 const BRIEF = { projectId: 'proj', briefId: 'brief' };
 
@@ -71,13 +73,26 @@ describe('#1265 SpeechRuntimeController — Focus Points Progress gating (direct
         expect(runProgressEval).not.toHaveBeenCalled();             // unknown registration state -> fail closed
     });
 
-    it('#1354: FAILED registration owes no evaluation and must NOT claim one was recorded', async () => {
-        // Registration failure means Progress is unavailable for this take and none will ever arrive.
-        // That is an ACCEPTED terminal reason — it unlocks — but reporting `recorded` would be a lie
-        // about durability and would also mask a genuine evaluation failure behind the same value.
-        finalizeObjectiveSessionOnSave.mockResolvedValue({ ok: true, registered: false });
+    it('#1354 CASE 5: a DEFINITIVE registration refusal is terminal and unlocks', async () => {
+        // The server answered: nothing was written, nothing is owed, and no evaluation will ever
+        // arrive. That is an ACCEPTED terminal reason — it unlocks — but reporting `recorded` would be
+        // a lie about durability and would mask a genuine evaluation failure behind the same value.
+        finalizeObjectiveSessionOnSave.mockResolvedValue({ ok: false, stage: 'register', reason: 'denied', registered: false });
         await expect(gate(BRIEF, 'sess-unreg', [], 60, runProgressEval))
             .resolves.toEqual({ kind: 'not_applicable', reason: 'not_completed' });
+        expect(runProgressEval).not.toHaveBeenCalled();
+    });
+
+    it('#1354 CASE 5: an UNCONFIRMED registration must NOT be relabelled not_completed', async () => {
+        // UPDATED CONTRACT. This previously asserted that ANY `registered: false` unlocks. It does not:
+        // a throw before registration also reports `registered: false` (and, per this result type's own
+        // contract, LOSES the stage), so the write may have reached the server. Treating that as an
+        // accepted terminal exclusion unlocks the recorder on an assumption nobody proved. Pending,
+        // missing and unknown stay blocked — while still never claiming an evaluation was recorded.
+        finalizeObjectiveSessionOnSave.mockResolvedValue({ ok: false, reason: 'error', registered: false });
+        const outcome = await gate(BRIEF, 'sess-unconfirmed', [], 60, runProgressEval);
+        expect(outcome.kind).toBe('unresolved');
+        expect(outcome.kind).not.toBe('recorded');
         expect(runProgressEval).not.toHaveBeenCalled();
     });
 

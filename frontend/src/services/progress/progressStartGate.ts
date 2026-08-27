@@ -9,7 +9,7 @@
  * Fail-closed throughout: an unreadable or corrupt queue blocks, because "we could not tell" is not
  * "there is no debt".
  */
-import { getQueuedSessionIdsForUser } from './progressReconcileQueue';
+import { getQueuedSessionIdsForUser, PROGRESS_QUEUE_STORAGE_KEY as QUEUE_KEY } from './progressReconcileQueue';
 import type { QueueFailure } from './progressReconcileQueue';
 
 export type StartGateVerdict =
@@ -75,8 +75,12 @@ export function startGateMessage(verdict: StartGateVerdict): string | null {
     }
 }
 
-/** localStorage key the durable queue lives under — exported so the cross-tab listener can filter. */
-export const PROGRESS_QUEUE_STORAGE_KEY = 'ss_progress_reconcile_queue_v1';
+/**
+ * localStorage key the durable queue lives under — exported so the cross-tab listener can filter.
+ * #1354: RE-EXPORTED from the queue module, which owns it. A second literal here would be a second
+ * production authority for the same key, free to drift from the one the writer actually uses.
+ */
+export { PROGRESS_QUEUE_STORAGE_KEY } from './progressReconcileQueue';
 
 export type GateState = { sessionId: string; ownerId: string | null; state: 'resolving' | 'queued' | 'unresolved' } | null;
 
@@ -114,7 +118,7 @@ export function subscribeCrossTabProgressGate(
     if (typeof window === 'undefined') return () => {};
     const onStorage = (e: StorageEvent) => {
         // `key === null` is a whole-storage clear, which also invalidates our view.
-        if (e.key !== null && e.key !== PROGRESS_QUEUE_STORAGE_KEY) return;
+        if (e.key !== null && e.key !== QUEUE_KEY) return;
         publish(reconstructGateFromQueue(getOwnerId()));
     };
     window.addEventListener('storage', onStorage);
