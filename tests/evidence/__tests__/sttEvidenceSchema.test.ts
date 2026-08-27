@@ -101,7 +101,7 @@ const base = (over: Partial<RawRow> = {}): RawRow => ({
         sharedArrayBufferAvailable: true, fallbackReason: null,
     },
     comparability_inputs: {
-        fixtureHash: FIXTURE_HASH, groundTruthVersion: 'gt-v1', normalizationVersion: 'norm-v1',
+        fixtureHash: FIXTURE_HASH, groundTruthVersion: 'gt-v1', normalizationVersion: 'norm-v1', track: 'track_a',
         decodeConfiguration: 'q8/q8/wasm/worker/4', modelRevision: IMMUTABLE_REV,
         runtimeVersions: { onnxruntime: '1.27.0' },
     },

@@ -14,37 +14,18 @@ import { normalizeForTrack } from '../tracks';
 interface GoldenCase { category: string; input: string; expected: string }
 const CASES = (goldens as unknown as { cases: GoldenCase[] }).cases;
 
-/**
- * Inputs the PARTIAL number normalizer cannot yet reproduce. Upstream handles these through a stateful
- * word-by-word machine (ordinals, suffixed decades, nominal digit runs, currency placement, fractions).
- * Each entry is a TODO for the port, not a tolerated difference.
- */
-const KNOWN_GAPS = new Set<string>([
-    'the nineteen sixties',
-    'he came in two hundred and seventy fourth',
-    'one oh one',
-    'a hundred and one',
-    'three quarters of the total',
-    'it costs five dollars and fifty cents',
-    'twenty million dollars',
-    '$20 million',
-    'it cost me twelve pounds',
-    'seventy five cents',
-    '$0.75',
-    'A B C: one; two, three!',   // nominal digit run -> `a b c 123`, same machine as `one oh one`
-]);
-
 const norm = (s: string) => normalizeOfficialTrackA(s).join(' ');
 
 describe('Track A reproduces the official oracle', () => {
-    const covered = CASES.filter((c) => !KNOWN_GAPS.has(c.input));
-    it.each(covered.map((c) => [c.category, c.input, c.expected] as const))(
+    // EVERY vector, no filter. KNOWN_GAPS is gone: a documented gap is still an uncertified scorer,
+    // and LibriSpeech contains ordinals, years and currency constructions, so a gap could move a ranking.
+    it.each(CASES.map((c) => [c.category, c.input, c.expected] as const))(
         '[%s] %j', (_cat, input, expected) => { expect(norm(input)).toBe(expected); },
     );
 
-    it('reports how much of the oracle is reproduced', () => {
+    it('reproduces the oracle EXACTLY — all 68', () => {
         const passing = CASES.filter((c) => norm(c.input) === c.expected).length;
-        expect(passing).toBeGreaterThanOrEqual(covered.length);
+        expect(passing).toBe(CASES.length);
         expect(CASES.length).toBe(68);
     });
 });

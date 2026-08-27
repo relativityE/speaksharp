@@ -6,7 +6,8 @@
  * normalization was, and every model comparison built on those numbers was partly measuring spelling.
  */
 import { describe, it, expect } from 'vitest';
-import { wordErrorRate, NORMALIZATION_VERSION, NORMALIZATION_VERSION_V2 } from '../werMetric';
+import { wordErrorRate, NORMALIZATION_VERSION } from '../werMetric';
+import { TRACK_NORMALIZATION } from '../normalization/tracks';
 import { normalizeEnglish } from '../englishNormalizer';
 
 // TRACK B — this file exercises the filler-PRESERVING normalizer, which is Track B's.
@@ -59,7 +60,7 @@ describe('real recognition error is still measured', () => {
 
 describe('versioning', () => {
     it('records which normalization produced the score', () => {
-        expect(wordErrorRate('a b', 'a b', { track: 'track_b' }).normalizationVersion).toBe(NORMALIZATION_VERSION_V2);
+        expect(wordErrorRate('a b', 'a b', { track: 'track_b' }).normalizationVersion).toBe(TRACK_NORMALIZATION.track_b);
         expect(wordErrorRate('a b', 'a b', { track: 'track_b', normalization: NORMALIZATION_VERSION }).normalizationVersion).toBe(NORMALIZATION_VERSION);
     });
 

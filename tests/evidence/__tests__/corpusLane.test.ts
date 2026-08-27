@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildCorpusRow, summarizeLatency, type CorpusRunInput, type CorpusRow } from '../corpusLane';
 import { cohortKey, type AudioRouteEvidence, type RuntimeCapability, type ComparabilityInputs } from '../sttEvidenceSchema';
-import { NORMALIZATION_VERSION_V2 } from '../werMetric';
+import { TRACK_NORMALIZATION } from '../normalization/tracks';
 
 const SHA = 'a'.repeat(40);
 const provenRoute: AudioRouteEvidence = {
@@ -16,7 +16,7 @@ const runtime: RuntimeCapability = {
     runtimePath: 'wasm-multithread', crossOriginIsolated: true, sharedArrayBufferAvailable: true, fallbackReason: null,
 };
 const ci: ComparabilityInputs = {
-    fixtureHash: 'f'.repeat(64), groundTruthVersion: 'gt_v1', normalizationVersion: 'IGNORED',
+    fixtureHash: 'f'.repeat(64), groundTruthVersion: 'gt_v1', normalizationVersion: 'IGNORED', track: null,
     decodeConfiguration: 'pcm16k_mono', modelRevision: 'whisper-base.en@sha-1234', runtimeVersions: { onnxruntime: '1.27.0' },
 };
 const base = (over: Partial<CorpusRunInput> = {}): CorpusRunInput => ({
@@ -38,7 +38,7 @@ describe('#1037 corpusLane — schema-valid rows, fail-closed, honest WER/percen
         // claimed while the WER above was computed under the official Track A normalization. The test
         // was pinning the mismatch as if it were the contract. Provenance now comes from the ACTUAL
         // WerResult, so the row reports the normalization and track it really used.
-        expect(r.comparability_inputs.normalizationVersion).toBe(NORMALIZATION_VERSION_V2);
+        expect(r.comparability_inputs.normalizationVersion).toBe(TRACK_NORMALIZATION.track_a);
         expect(r.comparability_inputs.track).toBe('track_a');
     });
 

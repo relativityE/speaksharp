@@ -15,6 +15,7 @@
  * and it belongs to Track A only. Track B preserves both; see `tracks.ts`.
  */
 import spellings from './english.json';
+import { normalizeEnglishNumbers } from './englishNumberNormalizer';
 
 const SPELLINGS = spellings as Record<string, string>;
 
@@ -72,68 +73,6 @@ const REPLACERS: [RegExp, string][] = [
 
 const IGNORE_PATTERNS = /\b(hmm|mm|mhm|mmm|uh|um)\b/g;
 
-/**
- * PARTIAL port of upstream `EnglishNumberNormalizer`.
- *
- * DELIBERATELY NOT CLAIMED COMPLETE. Upstream handles ordinals, suffixed decades (`1960s`), nominal
- * digit runs (`one oh one`), currency placement (`$20 million`, `¢75`) and fraction words through a
- * stateful word-by-word machine. What is here covers cardinals, `point` decimals and simple currency;
- * everything else is reported as a FAILING golden rather than silently approximated, so the gap is
- * visible in the test output instead of hidden in a passing suite.
- */
-const UNITS: Record<string, number> = {
-    zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
-    ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
-    seventeen: 17, eighteen: 18, nineteen: 19,
-};
-const TENS: Record<string, number> = {
-    twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
-};
-const SCALES: Record<string, number> = { hundred: 100, thousand: 1000, million: 1000000, billion: 1000000000 };
-const isNumWord = (t: string) => t in UNITS || t in TENS || t in SCALES;
-
-function foldRun(words: string[]): number | null {
-    let total = 0, current = 0, seen = false;
-    for (const w of words) {
-        if (w in UNITS) { current += UNITS[w]; seen = true; }
-        else if (w in TENS) { current += TENS[w]; seen = true; }
-        else if (w === 'hundred') { current = (current || 1) * 100; seen = true; }
-        else if (w in SCALES) { total += (current || 1) * SCALES[w]; current = 0; seen = true; }
-        else return null;
-    }
-    return seen ? total + current : null;
-}
-
-function standardizeNumbers(s: string): string {
-    const tokens = s.split(/\s+/).filter((t) => t.length > 0);
-    const out: string[] = [];
-    let i = 0;
-    while (i < tokens.length) {
-        if (!isNumWord(tokens[i])) { out.push(tokens[i]); i++; continue; }
-        let j = i;
-        while (j < tokens.length && isNumWord(tokens[j])) j++;
-        const whole = foldRun(tokens.slice(i, j));
-        if (whole === null) { out.push(tokens[i]); i++; continue; }
-        if (tokens[j] === 'point' && j + 1 < tokens.length && tokens[j + 1] in UNITS) {
-            let k = j + 1;
-            const digits: string[] = [];
-            while (k < tokens.length && tokens[k] in UNITS && UNITS[tokens[k]] < 10) {
-                digits.push(String(UNITS[tokens[k]])); k++;
-            }
-            if (digits.length) {
-                const value = `${whole}.${digits.join('')}`;
-                if (tokens[k] === 'percent') { out.push(`${value}%`); i = k + 1; continue; }
-                out.push(value); i = k; continue;
-            }
-        }
-        // Upstream attaches a following `percent` to the number as `%`.
-        if (tokens[j] === 'percent') { out.push(`${whole}%`); i = j + 1; continue; }
-        out.push(String(whole));
-        i = j;
-    }
-    return out.join(' ');
-}
-
 function standardizeSpellings(s: string): string {
     return s.split(/\s+/).map((w) => SPELLINGS[w] ?? w).join(' ');
 }
@@ -172,7 +111,7 @@ export function normalizeOfficialCore(text: string, options: NormalizationCoreOp
     // but then letting the symbol pass here would leave Track B with a bare `inaudible` token — the
     // marker no longer distinguishable from the ordinary word. One switch, applied consistently.
     s = removeSymbolsAndDiacritics(s, removeDisfluency ? '.%$¢€£' : '.%$¢€£[]');
-    s = standardizeNumbers(s);
+    s = normalizeEnglishNumbers(s);
     s = standardizeSpellings(s);
     s = s.replace(/[.$¢€£]([^0-9])/g, ' $1');
     s = s.replace(/([^0-9])%/g, '$1 ');

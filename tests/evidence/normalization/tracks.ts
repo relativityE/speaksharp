@@ -44,3 +44,18 @@ export const TRACK_LABEL: Record<Track, string> = {
     track_a: 'transcript accuracy (official Whisper normalization, fillers removed)',
     track_b: 'disfluency accuracy (fillers and markers preserved)',
 };
+
+/**
+ * The EXACT normalization identity recorded on every scored row.
+ *
+ * It names the official core AND the upstream commit it was ported from, and it is DISTINCT per track.
+ * Reusing a label across changed behaviour is how a row comes to claim a normalization it did not use —
+ * `norm_v2` previously covered both a hand-written normalizer and the official port, which are not the
+ * same thing. A behavioural change means a NEW identifier, never a reused one.
+ */
+export const OFFICIAL_CORE_VERSION = 'norm_official_5f86d1d8';
+
+export const TRACK_NORMALIZATION: Record<Track, string> = {
+    track_a: `${OFFICIAL_CORE_VERSION}_track_a`,
+    track_b: `${OFFICIAL_CORE_VERSION}_track_b`,
+};

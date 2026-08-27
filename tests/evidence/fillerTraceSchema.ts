@@ -492,7 +492,10 @@ export function evaluateStopRules(fixture: FixtureProvenance, stages: StageTrace
   const expected = fixture.expectedFillers.length;
 
   // §11: WER is a STRICT threshold — >= 0.500 fails. Never `<=`.
-  if (wer && wer.wer >= QUALIFICATION_THRESHOLDS.maxFinalWer) {
+  // #1304: `wer.wer` is null when the reference was UNMEASURABLE. `null >= x` is false in JS, so the
+  // old form happened to behave correctly — but only by accident, and the new evidence typecheck
+  // surfaced it. An unmeasurable WER is not a passing WER; it simply cannot violate a threshold.
+  if (wer && wer.wer !== null && wer.wer >= QUALIFICATION_THRESHOLDS.maxFinalWer) {
     violations.push(`final_wer_ge_${QUALIFICATION_THRESHOLDS.maxFinalWer} (${wer.wer.toFixed(3)})`);
   }
 

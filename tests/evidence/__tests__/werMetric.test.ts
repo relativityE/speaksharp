@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { wordErrorRate, normalizeTranscript, NORMALIZATION_VERSION, NORMALIZATION_VERSION_V2 } from '../werMetric';
+import { wordErrorRate, normalizeTranscript, NORMALIZATION_VERSION } from '../werMetric';
+import { TRACK_NORMALIZATION } from '../normalization/tracks';
 
 // #1304: these exercise the metric mechanics under the filler-PRESERVING normalizer = Track B.
 describe('#1037 werMetric — versioned normalization + honest WER', () => {
@@ -45,13 +46,17 @@ describe('#1037 werMetric — versioned normalization + honest WER', () => {
         // #1304: the DEFAULT moved to norm_v2, which is precisely why this assertion changed rather
         // than silently continuing to pass — the recorded version is the mechanism that makes a
         // normalization change visible in the data instead of quietly moving a ranking.
-        expect(wordErrorRate('a', 'a', { track: 'track_b' }).normalizationVersion).toBe(NORMALIZATION_VERSION_V2);
+        expect(wordErrorRate('a', 'a', { track: 'track_b' }).normalizationVersion).toBe(TRACK_NORMALIZATION.track_b);
         expect(wordErrorRate('a', 'a', { track: 'track_b', normalization: NORMALIZATION_VERSION }).normalizationVersion).toBe(NORMALIZATION_VERSION);
     });
 
     it('folds a typographic apostrophe to ASCII instead of splitting the word', () => {
         // U+2019 in the ground truth must not turn "don't" into "don" + "t".
         expect(normalizeTranscript('I don’t know')).toEqual(['i', "don't", 'know']);
-        expect(wordErrorRate('I don’t know', "i don't know", { track: 'track_b' }).wer).toBe(0);
+        // norm_v1 FOLDS the typographic apostrophe. The OFFICIAL core does not — the generated goldens
+        // show `I don’t know` -> `i don t know` while the ASCII form expands to `i do not know`, so under
+        // the official normalization these genuinely differ. This assertion is therefore scoped to
+        // norm_v1 explicitly rather than silently changing meaning under the new default.
+        expect(wordErrorRate('I don’t know', "i don't know", { track: 'track_b', normalization: NORMALIZATION_VERSION }).wer).toBe(0);
     });
 });

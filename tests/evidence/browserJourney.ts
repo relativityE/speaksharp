@@ -25,7 +25,24 @@ export function parseTimerSeconds(text: string): number | null {
  * Fail-closed classification for the Browser/Web Speech lane. Availability,
  * start failure and a genuine supported recording are deliberately distinct.
  */
-export function classifyBrowserJourney(observation: BrowserJourneyObservation): BrowserJourneyEvidence {
+/**
+ * #1304: the return type is DELIBERATELY PARTIAL.
+ *
+ * `BrowserJourneyEvidence` also requires `forbiddenEngineInvocations`, `forbiddenEngineGuard` and
+ * `releaseProofEligible` — an ATTESTED tripwire result and the loaded build's own release-proof flag.
+ * None of them is derivable from a `BrowserJourneyObservation`, and defaulting them would be worse
+ * than a type error: an empty `forbiddenEngineInvocations` array ASSERTS that no forbidden engine was
+ * constructed, and `releaseProofEligible: true` ASSERTS a release-grade runtime. Both would be
+ * fabricated proof.
+ *
+ * The caller must supply them from the runtime. This surfaced only when `tests/evidence/**` was first
+ * typechecked — the mismatch had never failed a build.
+ */
+export type ClassifiedBrowserJourney = Omit<
+    BrowserJourneyEvidence, 'forbiddenEngineInvocations' | 'forbiddenEngineGuard' | 'releaseProofEligible'
+>;
+
+export function classifyBrowserJourney(observation: BrowserJourneyObservation): ClassifiedBrowserJourney {
   const recognitionStarted = observation.traceEvents.includes('recognition_start_onstart')
     || observation.traceEvents.includes('onstart');
   // A real elapsed value beyond 00:00 — empty/malformed timer text is NOT "advanced".
