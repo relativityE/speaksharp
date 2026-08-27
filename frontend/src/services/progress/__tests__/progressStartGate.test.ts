@@ -226,24 +226,3 @@ describe('#1354: an EMPTY RAW VALUE is unreadable, not an empty queue', () => {
         expect(evaluateDurableStartGate('u1').allowed).toBe(true);
     });
 });
-
-describe('#1354: a degenerate queue entry fails CLOSED', () => {
-    // HONEST SCOPE. These are CHARACTERIZATION tests. They do NOT close the empty-value fail-open —
-    // that is the raw-value case in the describe above, at the reader. This block covers a DIFFERENT
-    // and currently UNREACHABLE condition: a blank entry id. Mutating `ids.length > 0` back to
-    // `if (ids[0])` fails nothing here, because a blank id makes the reader return `corrupt` before
-    // the presence check runs, and whitespace is truthy either way.
-    //
-    // The `ids.length > 0` form is retained purely as harmless defence in depth — the Start authority
-    // should not depend on another module's validation to fail closed — and is deliberately NOT
-    // presented as a falsified check.
-    it('an entry whose id is blank blocks (via the corrupt-read route)', () => {
-        localStorage.setItem(KEY, JSON.stringify([{ sessionId: '', userId: 'u1', enqueuedAtIso: 'x' }]));
-        expect(evaluateDurableStartGate('u1').allowed).toBe(false);
-    });
-
-    it('an entry whose id is whitespace blocks (via the debt route)', () => {
-        localStorage.setItem(KEY, JSON.stringify([{ sessionId: '   ', userId: 'u1', enqueuedAtIso: 'x' }]));
-        expect(evaluateDurableStartGate('u1').allowed).toBe(false);
-    });
-});

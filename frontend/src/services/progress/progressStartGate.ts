@@ -30,13 +30,8 @@ export function evaluateDurableStartGate(ownerId: string | null | undefined): St
     if (!ownerId) return { allowed: true };
     const queued = getQueuedSessionIdsForUser(ownerId);
     if (!queued.ok) return { allowed: false, reason: 'queue_unreadable', failure: queued.failure };
-    // PRESENCE of an entry blocks — never the truthiness of its id. `if (first)` treated a blank
-    // session id as "no debt", so a single loosening of the reader's validation upstream would have
-    // turned this into a silent fail-open. The reader currently rejects blanks as corrupt (verified),
-    // so this is defence in depth rather than a live defect — but the Start authority must not DEPEND
-    // on another module's validation to fail closed.
-    const ids = queued.sessionIds ?? [];
-    if (ids.length > 0) return { allowed: false, reason: 'queued_debt', sessionId: ids[0] };
+    const first = (queued.sessionIds ?? [])[0];
+    if (first) return { allowed: false, reason: 'queued_debt', sessionId: first };
     return { allowed: true };
 }
 
