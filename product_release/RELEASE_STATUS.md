@@ -20,7 +20,7 @@ Four distinct identities — do not conflate them:
 | Identity | Value | How to verify |
 |---|---|---|
 | **Repository `main` (moving branch pointer)** | `5f3788984467b13a810d7ae14c9ee9bf842c90f2` (#1357, #1304 Task 2) at 2026-08-27 | **Moving** — verify the live pointer directly (`git rev-parse origin/main`); do not treat this SHA as fixed. |
-| **Last product-behavior release** | `781e8ad6` (#1355, #1354 recorder Progress gate — the last commit changing runtime product behavior). `574422ed` and `5f378898` are TEST-INFRASTRUCTURE only (#1304 Tasks 1–2: the WER scorer and the benchmark specs); they deploy but change no user-facing behavior. | Product commits on `main`; check whether the diff touches `frontend/src` runtime paths. |
+| **Last product-behavior release** | `781e8ad6` (#1355, #1354 recorder Progress gate). `574422ed` (#1356) and `5f378898` (#1357) deploy but ship no runtime change — see the criterion below. | Apply the criterion below; do not eyeball the PR title. |
 | **Later test/evidence commits (NOT product-behavior deployments)** | `574422ed` (#1356 certified scorer, `tests/evidence/**`), `5f378898` (#1357 benchmark specs, `tests/live/**`) | These change **no** deployed product behavior. |
 | **Deployed product release (verified)** | `window.__APP_RELEASE__ = 5f3788984467b13a810d7ae14c9ee9bf842c90f2`, read cache-busted from `https://speaksharp-public.vercel.app/` (HTTP 200) on **2026-08-27**. Production == `main` HEAD at this read, but that is **not** guaranteed by auto-deploy alone: a Vercel "Ignored Build Step" can leave production behind `main`, so the deployed SHA must be **read**, not inferred. | Re-read `window.__APP_RELEASE__` from the deployed page with a cache-busting query and `Cache-Control: no-cache`, then update the value + date here. |
 
@@ -76,6 +76,18 @@ The **≈90 seconds** of post-stop processing quoted for a full five-minute sing
 | **Mock** | Tests only | Never user-reachable. |
 | ~~Browser (Web Speech)~~ | **REMOVED** | Not a `TranscriptionMode`; no engine. A vestigial `allowNative` field remains on `TranscriptionPolicy`, and `frontend/src/e2e/signalContract.ts` still names `modes/NativeBrowser.ts`, **a file that does not exist**. |
 | ~~Cloud (AssemblyAI)~~ | **REMOVED** | Not a `TranscriptionMode`; no engine. Orphaned constants remain in `frontend/src/config.ts` (`ASSEMBLYAI_TOKEN_ENDPOINT`, packet-size limits) and provider-family strings in `sttIdentity.ts`. Cleanup is tracked as **#1323** (post-MVP remnants) and is not shipped; these are known cleanup, not capability. |
+
+### Criterion: what counts as a product-behavior release
+
+A commit changes product behavior **iff it modifies a file that reaches the shipped bundle**. Concretely:
+
+- under `frontend/src/`, **and**
+- **not** in a `__tests__/` directory, and not a `*.test.*` / `*.spec.*` file, and
+- not under `frontend/src/e2e/` (harness-only contracts).
+
+Everything else — `tests/**`, `scripts/**`, `backend/supabase/migrations/**` (a migration is a *database* change, tracked separately), docs — deploys without changing runtime behavior.
+
+> **Worked example, because "touches `frontend/src`" is NOT the criterion.** `5f378898` (#1357) modifies exactly one file under `frontend/src/`: `components/session/__tests__/benchmarkHarnessSurface.test.tsx`. It is a test file, so it does not reach the bundle and #1357 is not a product-behavior release. A future reader applying "touches `frontend/src`" mechanically would get the opposite answer — which is why the rule is stated rather than implied.
 
 **No claim is made here about relative engine accuracy, in either direction.** Vendor figures are reference-only and must not be compared against our own corpus results — differing corpora and decode paths make such a comparison an artifact rather than a measurement. The #1304 lane exists to produce a defensible ranking; until it does, there is none.
 
