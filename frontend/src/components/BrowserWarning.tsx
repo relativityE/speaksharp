@@ -7,6 +7,12 @@ interface BrowserWarningProps {
   supportError: string | null;
 }
 
+/**
+ * #1323/#1184: the trailing "use the latest version of Chrome or Edge" was removed. It was inherited
+ * from the retired Web Speech engine, which really was Chromium-only. Private STT is WebAssembly and
+ * runs anywhere WASM does, so naming two browsers told users a false thing about where the product
+ * works. `supportError` from useBrowserSupport already names the specific missing capability.
+ */
 export const BrowserWarning: React.FC<BrowserWarningProps> = ({ isSupported, supportError }) => {
   if (isSupported) {
     return null;
@@ -20,7 +26,7 @@ export const BrowserWarning: React.FC<BrowserWarningProps> = ({ isSupported, sup
       <div>
         <h5 className="font-bold">Browser Compatibility</h5>
         <p className="text-sm">
-          {reason} For on-device Private transcription, use the latest version of Chrome or Edge.
+          {reason}
         </p>
       </div>
     </Alert>
