@@ -17,7 +17,8 @@ import logger from '@/lib/logger';
 import { redactTranscript } from '@/lib/logRedaction';
 import { readPrivateDecodeOptionsOverride, V4_ANTI_LOOP_DECODE_DEFAULTS } from '@/services/transcription/engines/whisperDecodeOptions';
 import { STTEngine } from '@/contracts/STTEngine';
-import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_V4, PRIV_STT_V4_VARIANTS, PRIV_STT_V4_DEFAULT_VARIANT, type PrivSttV4VariantId, samplesToSeconds } from '../sttConstants';
+import { PRIV_CLOUD_AUDIO, PRIV_STT_V4, PRIV_STT_V4_VARIANTS, PRIV_STT_V4_DEFAULT_VARIANT, type PrivSttV4VariantId, samplesToSeconds } from '../sttConstants';
+import { buildShippingDecodeOptions } from '../decodeOptions';
 import { getV4ExperimentOverrides } from '../privateV4Experiment';
 import v4WorkerUrl from './transformers-js-v4.worker.ts?worker&url';
 
@@ -85,9 +86,8 @@ function summarizeRawResult(result: unknown): UnknownRecord {
 
 function getV4AsrOptions(modelId: string, audioLengthSeconds: number, decodeOptions?: Record<string, unknown>): Record<string, unknown> {
     const options: Record<string, unknown> = {
-        chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
-        stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
-        return_timestamps: true,
+        // #1304: shared with the v2 product path and the A1 harness — see decodeOptions.ts.
+        ...buildShippingDecodeOptions(audioLengthSeconds),
         // Conservative anti-loop generation defaults (F2). Overridable by the proof hook below.
         ...V4_ANTI_LOOP_DECODE_DEFAULTS,
     };

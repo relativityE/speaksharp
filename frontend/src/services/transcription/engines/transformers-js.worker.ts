@@ -1,4 +1,5 @@
 import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
+import { buildShippingDecodeOptions } from '../decodeOptions';
 import { computeWasmThreadCount, getHardwareThreads, isCrossOriginIsolated } from '../utils/wasmThreads';
 import { createProgressAggregator, type ProgressEvent } from './progressAggregator';
 import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
@@ -188,11 +189,9 @@ async function transcribe(
 
     const start = performance.now();
     const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
-    const options: Record<string, unknown> = {
-        chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
-        stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
-        return_timestamps: true,
-    };
+    // #1304: window/stride/timestamps come from the SHARED builder so the v2 product path, the v4
+    // engine and the A1 harness cannot drift apart. Do not re-derive these here.
+    const options: Record<string, unknown> = { ...buildShippingDecodeOptions(audioLengthSeconds) };
     Object.assign(options, decodeOptions);
 
     // Hash only when the dedicated evidence harness explicitly opts in. Ordinary
