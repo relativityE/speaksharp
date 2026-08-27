@@ -10,6 +10,8 @@
 // comparison built on top of it. These assertions make that divergence fail here instead.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildShippingDecodeOptions, decodeStrideBranch } from '../decodeOptions';
 import { PRIV_STT } from '../sttConstants';
 
@@ -48,15 +50,25 @@ describe('shipping decode options', () => {
     });
 
     it('BOTH product engines consume the shared builder rather than re-deriving it', () => {
-        // The whole point: if either engine computes window/stride locally again, the harness can no
-        // longer claim to decode the way the product does.
-        const v2 = readFileSync('frontend/src/services/transcription/engines/transformers-js.worker.ts', 'utf8');
-        const v4 = readFileSync('frontend/src/services/transcription/engines/TransformersJSV4Engine.ts', 'utf8');
-        for (const [name, source] of [['v2 worker', v2], ['v4 engine', v4]] as const) {
+        // REPLACED A PAIR OF PRESENCE CHECKS. This read both engine sources with a CWD-relative
+        // `readFileSync` — which resolves against vitest's working directory and had already produced a
+        // false "these files are failing" elsewhere in this project — and then matched a regex for the
+        // builder's NAME plus one for a re-derived stride. Both are source-text checks: a re-derivation
+        // written with different whitespace, or lifted into a local first, passes them while the engine
+        // silently decodes differently from the harness.
+        //
+        // The behavioural equivalent lives in `decodeRoute.test.ts`: the engines and the harness resolve
+        // a route from the same inputs and their identity hashes must be EQUAL. Drift is then caught by
+        // running the code rather than by describing it. Paths are resolved from `import.meta.url` so
+        // the remaining structural assertion cannot depend on the working directory.
+        const here = dirname(fileURLToPath(import.meta.url));
+        const engines = resolve(here, '..', 'engines');
+        for (const [name, file] of [
+            ['v2 worker', 'transformers-js.worker.ts'],
+            ['v4 engine', 'TransformersJSV4Engine.ts'],
+        ] as const) {
+            const source = readFileSync(resolve(engines, file), 'utf8');
             expect(source, `${name} must import the shared builder`).toMatch(/buildShippingDecodeOptions/);
-            // No local re-derivation of the conditional stride.
-            expect(source, `${name} must not re-derive the stride`)
-                .not.toMatch(/stride_length_s:\s*audioLengthSeconds\s*</);
         }
     });
 
