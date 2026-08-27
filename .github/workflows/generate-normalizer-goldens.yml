@@ -13,6 +13,15 @@
 name: '#1304 normalizer goldens'
 
 on:
+  # `workflow_dispatch` only becomes available once this file is on the DEFAULT branch, so before
+  # that a path-filtered `push` is the only way to run it. It fires solely when the generator, the
+  # input vectors, or this workflow itself change — which is exactly when goldens need regenerating —
+  # so it is self-limiting rather than running on every push.
+  push:
+    paths:
+      - '.github/workflows/generate-normalizer-goldens.yml'
+      - 'scripts/generate-normalizer-goldens.py'
+      - 'tests/evidence/normalization/vectors.input.json'
   workflow_dispatch:
     inputs:
       whisper_ref:
@@ -31,9 +40,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Reject a non-pinned upstream ref
+        env:
+          DEFAULT_WHISPER_REF: '5f86d1d86363843179951550570367b37c5d6f78'
         run: |
           set -euo pipefail
-          REF='${{ inputs.whisper_ref }}'
+          REF='${{ inputs.whisper_ref || env.DEFAULT_WHISPER_REF }}'
+          echo "PINNED_WHISPER_REF=$REF" >> "$GITHUB_ENV"
           # A branch name or short SHA is not a pin: it can move, and goldens must be reproducible.
           if ! printf '%s' "$REF" | grep -Eq '^[0-9a-f]{40}$'; then
             echo "FATAL: whisper_ref must be a full 40-character commit SHA, got: $REF" >&2
@@ -44,7 +56,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: openai/whisper
-          ref: ${{ inputs.whisper_ref }}
+          ref: ${{ env.PINNED_WHISPER_REF }}
           path: upstream-whisper
 
       - name: Record the resolved commit and fail closed on drift
@@ -52,7 +64,7 @@ jobs:
           set -euo pipefail
           cd upstream-whisper
           RESOLVED="$(git rev-parse HEAD)"
-          if [ "$RESOLVED" != '${{ inputs.whisper_ref }}' ]; then
+          if [ "$RESOLVED" != "$PINNED_WHISPER_REF" ]; then
             echo "FATAL: checkout resolved to $RESOLVED, not the requested pin" >&2
             exit 1
           fi
