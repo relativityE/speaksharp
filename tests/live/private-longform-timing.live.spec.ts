@@ -2,7 +2,8 @@ import { test, expect, type Page, type TestInfo } from '@playwright/test';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
-import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, preparePrivateModelIfPrompted, selectBenchmarkMode, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
+import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, preparePrivateModelIfPrompted, selectBenchmarkMode, waitForBenchmarkSaveCandidate, readBenchmarkTranscript, startBenchmarkRecording, stopBenchmarkRecording } from './helpers/benchmark-utils';
+import { RECORDER_BAR } from '../helpers/micControls';
 import { WASHINGTON_01 } from '../fixtures/stt-isomorphic/washington-speeches';
 
 const BASE_URL = process.env.BASE_URL;
@@ -40,13 +41,11 @@ test.describe('Private long-form timing branch proof @live', () => {
     await preparePrivateModelIfPrompted(page, 180_000);
 
     const beforeStart = await collectBenchmarkPreconditionSnapshot(page, 'private-longform-before-start');
-    const startStopButton = page.getByTestId('session-start-stop-button');
-    await expect(startStopButton).toBeVisible({ timeout: 30_000 });
-    await expect(startStopButton).toBeEnabled({ timeout: 60_000 });
-
-    await startStopButton.click();
+    // #1304 Task 2: see the note in private-decode-params-ab — the combined toggle is retired and the
+    // recorder bar's presence is the current recording signal.
+    await startBenchmarkRecording(page, 'private-longform');
     const recordingStartedAt = Date.now();
-    await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 60_000 });
+    await expect(page.getByTestId(RECORDER_BAR)).toBeVisible({ timeout: 60_000 });
 
     const firstVisibleText = await waitForNonPlaceholderTranscript(page);
     const elapsedSinceStartMs = Date.now() - recordingStartedAt;
@@ -56,8 +55,8 @@ test.describe('Private long-form timing branch proof @live', () => {
     ));
 
     const visibleAtStop = await readTranscriptText(page);
-    await startStopButton.click();
-    await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 90_000 });
+    // Stop through the shared helper (clicks `recorder-stop`, waits for the recorder bar to vanish).
+    await stopBenchmarkRecording(page, 'private-longform-washington', 90_000);
     const saveCandidate = await waitForBenchmarkSaveCandidate(page, 'private-longform-washington', 120_000);
     const diagnostics = await readDiagnostics(page);
     const afterStop = await collectBenchmarkPreconditionSnapshot(page, 'private-longform-after-stop');
@@ -94,7 +93,7 @@ test.describe('Private long-form timing branch proof @live', () => {
       rtf,
       stopPredecodeBreakdown: diagnostics.stopPredecodeBreakdown,
       privateTimelineTail: diagnostics.privateTimelineTail,
-      transcriptTextOnly: diagnostics.transcriptTextOnly,
+      transcriptContent: diagnostics.transcriptContent,
       selectedForSave,
       normalizedSelectedWordCount: normalizedSelected.split(/\s+/).filter(Boolean).length,
       normalizedTruthWordCount: normalizedTruth.split(/\s+/).filter(Boolean).length,
@@ -185,10 +184,22 @@ async function waitForNonPlaceholderTranscript(page: Page) {
   return text;
 }
 
+/**
+ * #1304 Task 2 — read the CURRENT rendered transcript surface, failing closed.
+ *
+ * This read `transcript-container`, which renders NOWHERE since the session overhaul. `textContent()`
+ * resolved to null and `normalizeText(null)` turned it into `''` — an empty transcript
+ * indistinguishable from a model that produced nothing, on every run.
+ *
+ * An absent or empty surface now THROWS with a named reason rather than returning empty text, so a
+ * run that observed nothing cannot contribute a WER row.
+ */
 async function readTranscriptText(page: Page) {
-  return page.getByTestId('transcript-container')
-    .textContent()
-    .then((text) => normalizeText(text));
+  const read = await readBenchmarkTranscript(page);
+  if (!read.ok) {
+    throw new Error(`transcript read INVALID (${read.invalidReason}) — no WER row may be emitted from an unobserved surface`);
+  }
+  return normalizeText(read.text);
 }
 
 async function readDiagnostics(page: Page) {
@@ -202,7 +213,9 @@ async function readDiagnostics(page: Page) {
       privateTiming: win.__PRIVATE_TIMING__ ?? null,
       stopPredecodeBreakdown: privateTimeline.filter((entry) => entry.event === 'stop_predecode_breakdown'),
       privateTimelineTail: privateTimeline.slice(-20),
-      transcriptTextOnly: document.querySelector('[data-testid="transcript-text-only"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      // #1304 Task 2: was `transcript-text-only`, a THIRD retired id that the surface guard caught —
+      // rendered by nothing, so this diagnostic reported null on every run and looked like "no text".
+      transcriptContent: document.querySelector('[data-testid="transcript-content"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
     };
   });
 }

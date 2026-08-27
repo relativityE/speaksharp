@@ -684,6 +684,62 @@ export async function expectBenchmarkRecordingStarted(page: Page, label: string)
  * `toHaveAttribute('data-recording', 'false')` on an unmounted element is an assertion about something
  * that does not exist. That was the third stale assertion in this journey.
  */
+/**
+ * #1304 Task 2 — START a benchmark recording through the CURRENT control.
+ *
+ * The three authoritative benchmark specs clicked `session-start-stop-button`, a combined toggle the
+ * product retired in the session overhaul. `MicCard` renders a status-dependent control and
+ * `RecorderBar` REPLACES it while recording — it does not toggle it — so the old selector could not
+ * resolve at all. Resolving the control from `MIC_CONTROL_BY_STATUS` keeps the harness and the product
+ * on one definition rather than a hand-copied id.
+ *
+ * A control that is absent is a harness/product MISMATCH, not slow work, so it fails in seconds
+ * instead of consuming the model budget.
+ */
+export async function startBenchmarkRecording(page: Page, label: string): Promise<void> {
+    const status = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
+    const control = micControlFor(status);
+    if (control === null) {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-no-actionable-control`);
+        throw new Error(`Benchmark start precondition failed for ${label}: model status '${String(status)}' has no actionable control\n${JSON.stringify(snapshot, null, 2)}`);
+    }
+    try {
+        const start = page.getByTestId(control);
+        await expect(start, `${label}: start control (${control})`).toBeEnabled({ timeout: MISSING_CONTROL_TIMEOUT_MS });
+        await start.click();
+    } catch (error) {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-recording-not-started`);
+        throw new Error(`Benchmark start precondition failed for ${label}\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+/**
+ * #1304 Task 2 — read the CURRENT rendered transcript surface, FAILING CLOSED.
+ *
+ * The retired `transcript-container` renders nowhere, so `textContent()` resolved to null and the
+ * callers' `normalizeText(null)` turned it into `''` — an empty transcript indistinguishable from a
+ * model that produced nothing. That is the vacuous-check pattern applied to every browser-path
+ * measurement.
+ *
+ * Absent or unreadable evidence now returns a NAMED invalid reason instead of empty text, so the
+ * caller emits no WER row rather than a confident zero.
+ */
+export type BenchmarkTranscriptRead =
+    | { ok: true; text: string }
+    | { ok: false; invalidReason: 'transcript_surface_absent' | 'transcript_surface_empty' };
+
+export async function readBenchmarkTranscript(page: Page): Promise<BenchmarkTranscriptRead> {
+    for (const testId of [TRANSCRIPT_CONTENT, LIVE_TRANSCRIPT]) {
+        const locator = page.getByTestId(testId);
+        if (await locator.count() === 0) continue;
+        const raw = await locator.first().textContent();
+        const text = (raw ?? '').replace(/\s+/g, ' ').trim();
+        if (text.length === 0) return { ok: false, invalidReason: 'transcript_surface_empty' };
+        return { ok: true, text };
+    }
+    return { ok: false, invalidReason: 'transcript_surface_absent' };
+}
+
 export async function stopBenchmarkRecording(page: Page, label: string, timeout = 120_000) {
     const stop = page.getByTestId(RECORDER_STOP);
     try {

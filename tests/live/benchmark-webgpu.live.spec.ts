@@ -1,10 +1,10 @@
 /**
  * Benchmark: Private — WhisperTurbo (WebGPU)
  */
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, waitForPrivateEngineReady, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, waitForPrivateEngineReady, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, startBenchmarkRecording, stopBenchmarkRecording, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
@@ -56,20 +56,33 @@ test('measure WhisperTurbo (WebGPU)', async ({ page }) => {
     // Ensure the WebGPU engine is fully initialized (WASM downloaded and booted) BEFORE starting.
     await waitForPrivateEngineReady(page, 180_000);
 
-    await page.getByTestId('session-start-stop-button').click();
+    await startBenchmarkRecording(page, 'private-webgpu');
     await expectBenchmarkRecordingStarted(page, 'private-webgpu');
 
     // Fast-fail: assert the engine is producing output during the recording window
-    // We use word count because transcript-container shows placeholder text ("Listening...")
+    // Word count, because the live surface also carries interim placeholder text.
     await expectBenchmarkTranscriptOutput(page, 'private-webgpu', 20_000);
 
     // Wait for the remainder of the audio fixture (35s total - 15s elapsed avg)
     await page.waitForTimeout(20_000);
 
     // Stop and collect transcript
-    await page.getByTestId('session-start-stop-button').click();
-    await expect(page.getByTestId('transcript-container')).not.toBeEmpty({ timeout: 15_000 });
-    const transcriptText = (await page.getByTestId('transcript-container').textContent() ?? '')
+    await stopBenchmarkRecording(page, 'private-webgpu');
+
+    // #1304 Task 2: the AUTHORITATIVE final transcript is the one the product selected to SAVE, not
+    // transient DOM text. Scraping the rendered surface measured whatever happened to be painted —
+    // including interim text — and the retired container it used to read renders nowhere at all, so
+    // every WER produced here was computed from an empty string.
+    const saveCandidate = await waitForBenchmarkSaveCandidate(page, 'private-webgpu');
+    const selectedForSave = saveCandidate.selectedForSave ?? '';
+    if (selectedForSave.trim().length === 0) {
+        throw new Error(
+            `Benchmark run INVALID for private-webgpu: no finalized saved transcript ` +
+            `(saveCandidate=${JSON.stringify(saveCandidate)}). No WER row is emitted — an absent ` +
+            `transcript is not a measurement.`
+        );
+    }
+    const transcriptText = selectedForSave
         .toLowerCase()
         .replace(/[^\w\s]/g, '')
         .replace(/\s+/g, ' ')

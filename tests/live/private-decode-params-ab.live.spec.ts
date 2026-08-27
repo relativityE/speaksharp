@@ -2,7 +2,8 @@ import { test, expect, type Page, type TestInfo } from '@playwright/test';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
-import { AUDIO_ARGS, preparePrivateModelIfPrompted, selectBenchmarkMode, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
+import { AUDIO_ARGS, preparePrivateModelIfPrompted, selectBenchmarkMode, waitForBenchmarkSaveCandidate, readBenchmarkTranscript, startBenchmarkRecording, stopBenchmarkRecording } from './helpers/benchmark-utils';
+import { RECORDER_BAR } from '../helpers/micControls';
 import { HARVARD_SENTENCES } from '../fixtures/stt-isomorphic/harvard-sentences';
 import { WASHINGTON_01 } from '../fixtures/stt-isomorphic/washington-speeches';
 
@@ -97,12 +98,13 @@ test.describe(`Private decode-parameter A/B — ${fixture.id}`, () => {
       await selectBenchmarkMode(page, 'private');
       await preparePrivateModelIfPrompted(page, 180_000);
 
-      const startStopButton = page.getByTestId('session-start-stop-button');
-      await expect(startStopButton).toBeEnabled({ timeout: 60_000 });
-
-      await startStopButton.click();
+      // #1304 Task 2: the combined toggle was retired in the session overhaul. `MicCard` renders a
+      // status-dependent start control and `RecorderBar` REPLACES it while recording, so the old
+      // `data-recording` attribute has no element to live on — the recorder bar's PRESENCE is the
+      // current signal.
+      await startBenchmarkRecording(page, 'decode-params-ab');
       const recordingStartedAt = Date.now();
-      await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 60_000 });
+      await expect(page.getByTestId(RECORDER_BAR)).toBeVisible({ timeout: 60_000 });
 
       await page.waitForTimeout(Math.max(
         0,
@@ -110,8 +112,9 @@ test.describe(`Private decode-parameter A/B — ${fixture.id}`, () => {
       ));
 
       const visibleAtStop = await readTranscriptText(page);
-      await startStopButton.click();
-      await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 120_000 });
+      // Stop through the shared helper: it clicks `recorder-stop` and waits for the recorder bar to
+      // disappear, which is the current end-of-recording signal.
+      await stopBenchmarkRecording(page, `private-decode-ab-${fixture.id}-${variant.id}`, 120_000);
       const saveCandidate = await waitForBenchmarkSaveCandidate(page, `private-decode-ab-${fixture.id}-${variant.id}`, 120_000);
       const diagnostics = await readDiagnostics(page);
 
@@ -134,7 +137,7 @@ test.describe(`Private decode-parameter A/B — ${fixture.id}`, () => {
         accuracyPct,
         privateTiming: diagnostics.privateTiming,
         privateTimelineTail: diagnostics.privateTimelineTail,
-        transcriptTextOnly: diagnostics.transcriptTextOnly,
+        transcriptContent: diagnostics.transcriptContent,
       };
 
       await attachJson(testInfo, `private-decode-ab-${fixture.id}-${variant.id}.json`, evidence);
@@ -203,10 +206,22 @@ async function signUp(page: Page, accountEmail: string, accountPassword: string)
   await expect(page).toHaveURL(/\/session|\/analytics/, { timeout: 30_000 });
 }
 
+/**
+ * #1304 Task 2 — read the CURRENT rendered transcript surface, failing closed.
+ *
+ * This read `transcript-container`, which renders NOWHERE since the session overhaul. `textContent()`
+ * resolved to null and `normalizeText(null)` turned it into `''` — an empty transcript
+ * indistinguishable from a model that produced nothing, on every run.
+ *
+ * An absent or empty surface now THROWS with a named reason rather than returning empty text, so a
+ * run that observed nothing cannot contribute a WER row.
+ */
 async function readTranscriptText(page: Page) {
-  return page.getByTestId('transcript-container')
-    .textContent()
-    .then((text) => normalizeText(text));
+  const read = await readBenchmarkTranscript(page);
+  if (!read.ok) {
+    throw new Error(`transcript read INVALID (${read.invalidReason}) — no WER row may be emitted from an unobserved surface`);
+  }
+  return normalizeText(read.text);
 }
 
 async function readDiagnostics(page: Page) {
@@ -219,7 +234,9 @@ async function readDiagnostics(page: Page) {
     return {
       privateTiming: win.__PRIVATE_TIMING__ ?? null,
       privateTimelineTail: privateTimeline.slice(-20),
-      transcriptTextOnly: document.querySelector('[data-testid="transcript-text-only"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      // #1304 Task 2: was `transcript-text-only`, a THIRD retired id that the surface guard caught —
+      // rendered by nothing, so this diagnostic reported null on every run and looked like "no text".
+      transcriptContent: document.querySelector('[data-testid="transcript-content"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
     };
   });
 }
