@@ -24,6 +24,17 @@ const M = (f: string) => readFileSync(resolve(process.cwd(), 'backend', 'supabas
 const TRANSCRIPT_STATE = M('20260801000000_sessions_transcript_state.sql');
 /** #1117 R1 — the newest-two policy, its read helper, its invariant validator, and the sweep. */
 const NEWEST_TWO = M('20260803000000_transcript_retention_newest_two.sql');
+/** #1045 — the Progress evaluation rows `converge_transcript_retention` reads for terminal evidence. */
+const PROGRESS_EVALS = M('20260731120000_session_progress_evaluations.sql');
+/** R2 — `converge_transcript_retention`: the per-save path, and the function the existing test STUBS. */
+const CONVERGE = M('20260804000000_transcript_retention_converge_on_save.sql');
+
+/**
+ * HELD, and asserted ABSENT. `20260812042000_trial_activation_stamp_1282` is deliberately not applied
+ * to production; loading it here would prove a schema nobody runs. Its absence is asserted rather than
+ * merely omitted, so a future edit that quietly adds it fails instead of silently changing the subject.
+ */
+const HELD_MIGRATION = '20260812042000_trial_activation_stamp_1282.sql';
 
 const U = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -42,6 +53,8 @@ const BOOTSTRAP = `
   CREATE TABLE auth.users (id uuid PRIMARY KEY);
   INSERT INTO auth.users (id) VALUES ('${U}'), ('${OTHER}');
   CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $fn$ SELECT '${U}'::uuid $fn$;
+  CREATE TABLE public.user_profiles (id uuid PRIMARY KEY, subscription_status text);
+  INSERT INTO public.user_profiles (id, subscription_status) VALUES ('${U}', 'pro'), ('${OTHER}', 'pro');
   CREATE TABLE public.sessions (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id uuid REFERENCES auth.users(id),
@@ -67,6 +80,8 @@ async function freshDb(): Promise<PGlite> {
     await db.exec(BOOTSTRAP);
     await db.exec(TRANSCRIPT_STATE);
     await db.exec(NEWEST_TWO);
+    await db.exec(PROGRESS_EVALS);
+    await db.exec(CONVERGE);
     return db;
 }
 
@@ -170,5 +185,118 @@ describe('#1352 the SHIPPED newest-two retention contract, executed', () => {
         // Only two transcript-BEARING rows exist, so nothing is over-retention.
         expect(toExpire.rows).toHaveLength(0);
         expect(a).toBeTruthy();
+    });
+});
+
+/** Record DURABLE TERMINAL Progress evidence for a session, as the product's evaluation write would. */
+async function recordTerminalEvidence(db: PGlite, userId: string, sessionId: string, formula = 'clarity_v1') {
+    // The REAL schema's `spe_eligible_payload` CHECK demands the full eligible payload — clarity, cohort,
+    // filler/error counts, engine identity, attribution 'verified'. My first fixture omitted them and the
+    // shipped constraint REJECTED it: the schema policing a test fixture is exactly why B loads real
+    // migrations instead of hand-writing tables.
+    await db.query(
+        `INSERT INTO public.session_progress_evaluations
+           (user_id, session_id, formula_version, duration_seconds, word_count,
+            clarity_evidence_available, attribution_status, eligible,
+            clarity_raw, cohort_key, filler_count, error_marker_count,
+            engine, engine_version, model_name)
+         VALUES ($1, $2, $3, 60, 100, true, 'verified', true,
+                 0.8, 'objective', 2, 0, 'private', 'private_v2:whisper-base.en', 'whisper-base.en')`,
+        [userId, sessionId, formula],
+    );
+}
+
+describe('#1352 converge_transcript_retention — the function attempt 9 actually hit', () => {
+    let db: PGlite; let oldest: string;
+
+    beforeEach(async () => {
+        db = await freshDb();
+        oldest = await seedSession(db, U, '2026-08-01T10:00:00Z', 'first', 100);
+        await seedSession(db, U, '2026-08-02T10:00:00Z', 'second', 200);
+        await seedSession(db, U, '2026-08-03T10:00:00Z', 'third', 300);
+    });
+
+    const converge = async (userId: string) => (await db.query<{ r: Record<string, unknown> }>(
+        'SELECT public.converge_transcript_retention($1) AS r', [userId],
+    )).rows[0].r;
+
+    it('DEFERS with status `pending` when an outgoing candidate has no terminal evidence', async () => {
+        // THIS IS ATTEMPT 9. Its envelope showed `retention_status: pending` on session 3 — the DB
+        // behaving to ratified policy, refusing to expire a transcript whose Progress evidence was not
+        // yet durable. #1354 fixed the CLIENT sequencing that produced it; this proves the server side
+        // of that contract directly, which nine browser attempts never reached.
+        const r = await converge(U);
+        expect(r).toMatchObject({ status: 'pending', policy_version: 'newest_two_v1', expired_count: 0 });
+        expect(r.pending_evidence_count).toBe(1);
+        expect((await readAll(db, U)).every((row) => row.has_text)).toBe(true);
+    });
+
+    it('the TRIGGER converges the moment terminal evidence persists — no explicit call needed', async () => {
+        // I first asserted that an explicit converge() after recording evidence would report
+        // expired_count: 1. It reported 0 — because the shipped system is BETTER than the assertion:
+        // `spe_converge_retention` (an AFTER-INSERT trigger on session_progress_evaluations) fires on any
+        // non-pending evaluation and converges immediately. By the time my explicit call ran, the oldest
+        // was already expired and there was nothing left to do. The test now asserts the real mechanism.
+        await recordTerminalEvidence(db, U, oldest);
+
+        // No converge() call — the trigger already did it.
+        const rows = await readAll(db, U);
+        const expired = rows.filter((row) => row.transcript_state === 'expired');
+        expect(expired).toHaveLength(1);
+        expect(expired[0].id).toBe(oldest);
+        expect(expired[0].has_text).toBe(false);
+        expect(expired[0].total_words).toBe(100);   // metrics survive convergence too
+
+        // And an explicit follow-up is an idempotent no-op reporting the converged steady state.
+        expect(await converge(U)).toMatchObject({ status: 'converged', eligible_candidate_count: 0, expired_count: 0 });
+    });
+
+    it('reports `converged` with nothing to do when only two sessions exist', async () => {
+        const two = await freshDb();
+        await seedSession(two, U, '2026-08-01T10:00:00Z', 'a', 10);
+        await seedSession(two, U, '2026-08-02T10:00:00Z', 'b', 20);
+        const r = (await two.query<{ r: Record<string, unknown> }>(
+            'SELECT public.converge_transcript_retention($1) AS r', [U],
+        )).rows[0].r;
+        expect(r).toMatchObject({ status: 'converged', eligible_candidate_count: 0, expired_count: 0 });
+    });
+
+    it('evidence at a DIFFERENT formula version does not count as terminal', async () => {
+        await recordTerminalEvidence(db, U, oldest, 'some_other_version');
+        expect(await converge(U)).toMatchObject({ status: 'pending', pending_evidence_count: 1 });
+    });
+
+    it('PENDING attribution is not terminal evidence', async () => {
+        // The schema makes `eligible=true` with pending attribution UNREPRESENTABLE (the CHECK requires
+        // 'verified'), so a pending-attribution row can only exist as an EXCLUSION — which is itself a
+        // fact this test learned from the real schema rather than from any doc.
+        await db.query(
+            `INSERT INTO public.session_progress_evaluations
+               (user_id, session_id, formula_version, duration_seconds, word_count,
+                clarity_evidence_available, attribution_status, eligible, exclusion_reasons)
+             VALUES ($1, $2, 'clarity_v1', 60, 100, true, 'pending', false, '{attribution_pending}')`,
+            [U, oldest],
+        );
+        expect(await converge(U)).toMatchObject({ status: 'pending', pending_evidence_count: 1 });
+    });
+
+    it('requires a user id — a null scope fails closed rather than sweeping everyone', async () => {
+        await expect(db.query('SELECT public.converge_transcript_retention(NULL)')).rejects.toThrow();
+    });
+});
+
+describe('#1352 the HELD migration is asserted ABSENT, not merely unloaded', () => {
+    it('the held trial-activation migration exists in the repo but is NOT applied here', async () => {
+        // Omission is invisible; assertion is not. If a future edit loads it, this fails rather than
+        // silently proving a schema production does not run.
+        expect(readFileSync(resolve(process.cwd(), 'backend', 'supabase', 'migrations', HELD_MIGRATION), 'utf8').length)
+            .toBeGreaterThan(0);
+        const db = await freshDb();
+        const applied = await db.query<{ n: number }>(
+            `SELECT count(*)::int AS n FROM information_schema.columns
+             WHERE table_schema='public' AND table_name='user_profiles'
+               AND column_name='commercial_trial_granted_at'`,
+        );
+        expect(applied.rows[0].n, 'the held migration must not be applied').toBe(0);
     });
 });
