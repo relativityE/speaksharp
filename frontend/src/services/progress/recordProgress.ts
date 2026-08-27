@@ -178,9 +178,42 @@ function isTerminalAttribution(status: string | null | undefined): boolean {
  * save journey, but a transient RPC error must not silently drop the record either. The RPC is idempotent
  * per (session, formula_version), so a retry can never create a duplicate.
  */
+/**
+ * #1354 — per-attempt NETWORK DEADLINE.
+ *
+ * Three attempts bound the COUNT, not the TIME. A `supabase.rpc(...)` promise that never settles — a
+ * dead connection, a proxy holding the socket open — would hang the whole completion path: the session
+ * never finishes saving, the gate stays `resolving` forever, and the user can neither record again nor
+ * reach the durable retry that exists precisely for this case. An unbounded await is the one failure
+ * the bounded-attempt loop cannot recover from.
+ *
+ * The obligation is already written and readback-verified BEFORE any attempt runs, so timing out is
+ * safe: the debt survives, reconciliation retries it, and the seam reports `queued` rather than pretending.
+ */
+export const PROGRESS_RPC_ATTEMPT_TIMEOUT_MS = 10_000;
+
+/**
+ * Resolve to `null` if `work` has not settled within `ms`.
+ *
+ * NOTE: this bounds the WAIT, not the request — the underlying call is not cancelled, because it is
+ * issued inside the Supabase client and we hold no AbortController for it. A late resolution is simply
+ * ignored; it cannot unlock anything, since the gate is published from the value we actually returned.
+ */
+async function withAttemptDeadline<T>(work: Promise<T>, ms: number): Promise<T | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            work,
+            new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), ms); }),
+        ]);
+    } finally {
+        if (timer !== undefined) clearTimeout(timer);
+    }
+}
+
 async function recordProgressEvaluationWithRetry(sessionId: string, attempts = 3): Promise<string | null> {
     for (let i = 0; i < attempts; i++) {
-        const id = await recordProgressEvaluation(sessionId);
+        const id = await withAttemptDeadline(recordProgressEvaluation(sessionId), PROGRESS_RPC_ATTEMPT_TIMEOUT_MS);
         if (id) return id;
         if (i < attempts - 1) await new Promise((r) => setTimeout(r, 250 * (i + 1)));
     }
