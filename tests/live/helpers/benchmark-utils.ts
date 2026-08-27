@@ -729,15 +729,22 @@ export type BenchmarkTranscriptRead =
     | { ok: false; invalidReason: 'transcript_surface_absent' | 'transcript_surface_empty' };
 
 export async function readBenchmarkTranscript(page: Page): Promise<BenchmarkTranscriptRead> {
+    // BOTH current surfaces are consulted before any verdict. Returning `empty` as soon as
+    // `transcript-content` existed-but-was-blank reported "no speech" while `live-transcript` was
+    // carrying healthy INTERIM text — the committed surface is legitimately empty mid-recording, so
+    // stopping at it recreated the very false-negative this helper exists to remove.
+    let anySurfacePresent = false;
     for (const testId of [TRANSCRIPT_CONTENT, LIVE_TRANSCRIPT]) {
         const locator = page.getByTestId(testId);
         if (await locator.count() === 0) continue;
+        anySurfacePresent = true;
         const raw = await locator.first().textContent();
         const text = (raw ?? '').replace(/\s+/g, ' ').trim();
-        if (text.length === 0) return { ok: false, invalidReason: 'transcript_surface_empty' };
-        return { ok: true, text };
+        if (text.length > 0) return { ok: true, text };
     }
-    return { ok: false, invalidReason: 'transcript_surface_absent' };
+    return anySurfacePresent
+        ? { ok: false, invalidReason: 'transcript_surface_empty' }
+        : { ok: false, invalidReason: 'transcript_surface_absent' };
 }
 
 export async function stopBenchmarkRecording(page: Page, label: string, timeout = 120_000) {

@@ -354,9 +354,17 @@ function sourceWithoutComments(relPath: string): string {
 }
 
 describe('#1304 the authoritative benchmark specs use CURRENT controls only', () => {
-    it.each(AUTHORITATIVE_BENCHMARK_SPECS)('%s names no retired control or surface', (relPath) => {
+    /**
+     * `expectBenchmarkTranscriptOutput` is DEPRECATED and prohibited here: it asserts COMMITTED output
+     * (empty by design while recording), still reaches the dead `transcript-container`, and its
+     * `.catch(() => '')` turns a READ ERROR into "no words". An authoritative spec calling it is
+     * measuring through the same blind surface these ids were removed for.
+     */
+    const PROHIBITED_HELPERS = ['expectBenchmarkTranscriptOutput'] as const;
+
+    it.each(AUTHORITATIVE_BENCHMARK_SPECS)('%s names no retired control, surface or helper', (relPath) => {
         const source = sourceWithoutComments(relPath);
-        for (const retired of [RETIRED_COMBINED_CONTROL, ...RETIRED_TRANSCRIPT_IDS]) {
+        for (const retired of [RETIRED_COMBINED_CONTROL, ...RETIRED_TRANSCRIPT_IDS, ...PROHIBITED_HELPERS]) {
             expect(source, `${relPath} must not reference the retired '${retired}'`).not.toContain(retired);
         }
     });
@@ -394,9 +402,54 @@ describe('#1304 an unobserved transcript surface yields an INVALID run, never an
         expect(read.ok ? null : read.invalidReason).toBe('transcript_surface_empty');
     });
 
+    it('INTERIM-ONLY: live text counts even when the committed surface is blank', async () => {
+        // The committed surface is legitimately empty MID-RECORDING. Reporting `empty` as soon as
+        // `transcript-content` existed-but-was-blank declared "no speech" while `live-transcript` was
+        // carrying healthy interim text — recreating the very false negative this helper removes.
+        const { readBenchmarkTranscript } = await import('../../../../../tests/live/helpers/benchmark-utils');
+        const read = await readBenchmarkTranscript(
+            fakePage({ 'transcript-content': '', 'live-transcript': 'the quick brown fox' }) as never,
+        );
+        expect(read).toEqual({ ok: true, text: 'the quick brown fox' });
+    });
+
+    it('BOTH surfaces blank is still empty, not absent', async () => {
+        const { readBenchmarkTranscript } = await import('../../../../../tests/live/helpers/benchmark-utils');
+        const read = await readBenchmarkTranscript(
+            fakePage({ 'transcript-content': '', 'live-transcript': '  ' }) as never,
+        );
+        expect(read.ok ? null : read.invalidReason).toBe('transcript_surface_empty');
+    });
+
     it('the CURRENT surface is read when it is actually rendered', async () => {
         const { readBenchmarkTranscript } = await import('../../../../../tests/live/helpers/benchmark-utils');
         const read = await readBenchmarkTranscript(fakePage({ 'transcript-content': 'hello   world' }) as never);
         expect(read).toEqual({ ok: true, text: 'hello world' });
+    });
+});
+
+
+describe('#1304 an invalid run must not leave a measurement behind', () => {
+    /**
+     * These specs computed the WER, built the evidence object, attached it and logged it — and only
+     * THEN asserted that a finalized saved transcript existed. A run with no transcript therefore
+     * emitted a WER row and an artifact before failing, so an invalid run left a number that reads
+     * exactly like a measurement.
+     *
+     * Order is asserted from source because the guard runs locally in seconds; the live specs
+     * themselves are workflow_dispatch-only and cannot gate a push.
+     */
+    const MEASURE_AFTER_VALIDATE = [
+        'tests/live/private-decode-params-ab.live.spec.ts',
+        'tests/live/private-longform-timing.live.spec.ts',
+    ] as const;
+
+    it.each(MEASURE_AFTER_VALIDATE)('%s validates the saved transcript BEFORE measuring', (relPath) => {
+        const source = sourceWithoutComments(relPath);
+        const guardAt = source.indexOf('no_finalized_saved_transcript');
+        const werAt = source.indexOf('calculateWordErrorRate(');
+        expect(guardAt, `${relPath} must name an invalid-run reason`).toBeGreaterThan(-1);
+        expect(werAt, `${relPath} must compute a WER`).toBeGreaterThan(-1);
+        expect(guardAt, `${relPath}: the invalid-run guard must precede the WER computation`).toBeLessThan(werAt);
     });
 });

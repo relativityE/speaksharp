@@ -61,7 +61,17 @@ test.describe('Private long-form timing branch proof @live', () => {
     const diagnostics = await readDiagnostics(page);
     const afterStop = await collectBenchmarkPreconditionSnapshot(page, 'private-longform-after-stop');
 
+    // #1304 Task 2: VALIDATE BEFORE MEASURING — see the note in private-decode-params-ab. The WER,
+    // the attached artifact and the PRIVATE_LONGFORM_TIMING_EVIDENCE log all preceded the check that
+    // a finalized transcript existed, so an invalid run still left a number behind.
     const selectedForSave = saveCandidate.selectedForSave ?? '';
+    if (selectedForSave.trim().length === 0) {
+      throw new Error(
+        `Run INVALID (no_finalized_saved_transcript) for private-longform-washington: ` +
+        `saveCandidate=${JSON.stringify(saveCandidate)}. No WER is computed and no artifact is ` +
+        `written — an absent transcript is not a measurement.`
+      );
+    }
     const normalizedTruth = normalizeForWer(WASHINGTON_01.transcript);
     const normalizedSelected = normalizeForWer(selectedForSave);
     const wer = calculateWordErrorRate(normalizedTruth, normalizedSelected);

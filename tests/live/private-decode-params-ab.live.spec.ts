@@ -118,7 +118,18 @@ test.describe(`Private decode-parameter A/B — ${fixture.id}`, () => {
       const saveCandidate = await waitForBenchmarkSaveCandidate(page, `private-decode-ab-${fixture.id}-${variant.id}`, 120_000);
       const diagnostics = await readDiagnostics(page);
 
+      // #1304 Task 2: VALIDATE BEFORE MEASURING. This previously computed the WER, built the evidence
+      // object, attached it and logged `PRIVATE_DECODE_AB_EVIDENCE` — and only then asserted that a
+      // saved transcript existed. A run with no finalized transcript therefore emitted a WER row and
+      // an artifact before failing, so an invalid run left a number behind that reads as a measurement.
       const selectedForSave = saveCandidate.selectedForSave ?? '';
+      if (selectedForSave.trim().length === 0) {
+        throw new Error(
+          `Run INVALID (no_finalized_saved_transcript) for ${fixture.id}/${variant.id}: ` +
+          `saveCandidate=${JSON.stringify(saveCandidate)}. No WER is computed and no artifact is ` +
+          `written — an absent transcript is not a measurement.`
+        );
+      }
       const wer = calculateWordErrorRate(normalizeForWer(fixture.transcript), normalizeForWer(selectedForSave));
       const accuracyPct = Number(((1 - wer) * 100).toFixed(2));
       const evidence = {
@@ -143,6 +154,7 @@ test.describe(`Private decode-parameter A/B — ${fixture.id}`, () => {
       await attachJson(testInfo, `private-decode-ab-${fixture.id}-${variant.id}.json`, evidence);
       console.log(`PRIVATE_DECODE_AB_EVIDENCE ${JSON.stringify(evidence)}`);
 
+      // The saved transcript was already proven non-empty above, before any measurement was taken.
       expect(saveCandidate.selectedForSaveLength ?? 0, JSON.stringify(evidence)).toBeGreaterThan(0);
     });
   }

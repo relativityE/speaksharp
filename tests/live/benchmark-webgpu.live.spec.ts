@@ -4,7 +4,7 @@
 import { test } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, waitForPrivateEngineReady, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, startBenchmarkRecording, stopBenchmarkRecording, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, waitForPrivateEngineReady, expectBenchmarkRecordingStarted, expectBenchmarkDraftActivity, startBenchmarkRecording, stopBenchmarkRecording, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
@@ -61,7 +61,12 @@ test('measure WhisperTurbo (WebGPU)', async ({ page }) => {
 
     // Fast-fail: assert the engine is producing output during the recording window
     // Word count, because the live surface also carries interim placeholder text.
-    await expectBenchmarkTranscriptOutput(page, 'private-webgpu', 20_000);
+    // #1304 Task 2: `expectBenchmarkTranscriptOutput` is deprecated — it asserts COMMITTED output
+    // (empty by design while recording), reaches the dead `transcript-container`, and its
+    // `.catch(() => '')` turns a READ ERROR into "no words". `expectBenchmarkDraftActivity` checks the
+    // during-state landmarks BY NAME first, so "the surface is not the one we think" can never again
+    // be misread as "the product produced nothing".
+    await expectBenchmarkDraftActivity(page, 'private-webgpu', 20_000);
 
     // Wait for the remainder of the audio fixture (35s total - 15s elapsed avg)
     await page.waitForTimeout(20_000);
