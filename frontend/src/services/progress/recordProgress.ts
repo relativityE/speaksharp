@@ -341,20 +341,28 @@ export async function wireProgressEvaluationOnSave(ctx: {
         return { kind: 'unresolved', reason: 'attribution_not_terminal' };
     }
 
+    // #1354 WRITE-AHEAD OBLIGATION. The debt is recorded BEFORE the attempt, not after it fails.
+    //
+    // The previous order — evaluate, then queue only on failure — lost the obligation in two ways.
+    // If the tab closed or crashed mid-evaluation nothing had been written, so a reload found an empty
+    // queue and concluded nothing was owed. And when the evaluation failed AND the enqueue also failed,
+    // the only record was an in-memory gate that a reload erased. In both cases ABSENCE OF AN ENTRY was
+    // being read as PROOF OF COMPLETION, which it never was: the session may still owe evidence.
+    //
+    // Writing first inverts that. From here on, an entry means "this session owes evidence until proven
+    // otherwise", and only a VERIFIED removal after terminal evidence may retire it.
+    const obligation = ctx.userId
+        ? enqueueProgressReconcile(ctx.sessionId, ctx.userId, new Date().toISOString())
+        : ({ ok: false } as const);
+
     const evalId = await recordProgressEvaluationWithRetry(ctx.sessionId);
     if (!evalId) {
-        // In-memory retries exhausted. DURABLY queue the session so a later authenticated load reattempts
-        // it — a closed tab or longer outage must not permanently drop the immutable record. Owner-scoped.
-        //
-        // Without an owner we cannot queue, so there is no durable record of the debt: that is
-        // `unresolved`, not `queued`. Reporting `queued` here would promise a retry that can never run.
-        if (!ctx.userId) return { kind: 'unresolved', reason: 'queue_unavailable' };
-        // `queued` is only claimable when the entry is VERIFIED present in storage — either it was
-        // already there, or the write was confirmed by readback. A void enqueue that swallowed a
-        // storage failure would promise a retry that never runs, and would unblock nothing safely.
-        const enqueued = enqueueProgressReconcile(ctx.sessionId, ctx.userId, new Date().toISOString());
-        if (!enqueued.ok) return { kind: 'unresolved', reason: 'queue_unavailable' };
-        return { kind: 'queued' };
+        // The evaluation failed. Whether this is retryable depends ENTIRELY on whether the obligation
+        // is durable: `queued` promises a retry, so it may only be claimed when one can actually run.
+        // Without a durable obligation there is no record of the debt at all — fail closed.
+        return obligation.ok
+            ? { kind: 'queued' }
+            : { kind: 'unresolved', reason: 'queue_unavailable' };
     }
     // A failed CLEAR leaves a stale debt that would re-block a later load, so it is reported: the
     // evaluation is durable, but the queue state is not trustworthy — fail closed on UNLOCKING.
@@ -363,7 +371,10 @@ export async function wireProgressEvaluationOnSave(ctx: {
     // creation — controls unlocking, so the recommendation and attempt resolution still run and their
     // outcomes never gate the recorder. An earlier version of this returned early on a failed clear and
     // silently dropped both, which would have made a storage hiccup cost the user their recommendation.
-    const cleared = ctx.userId ? clearProgressReconcileEntry(ctx.sessionId, ctx.userId) : { ok: true } as const;
+    // Retire the obligation ONLY now that terminal evidence exists — and only if we actually wrote one.
+    const cleared = ctx.userId && obligation.ok
+        ? clearProgressReconcileEntry(ctx.sessionId, ctx.userId)
+        : ({ ok: true } as const);
     await recordRecommendationForEvaluation(ctx.sessionId);
     if (ctx.userId) await resolveOpenAttemptWith(ctx.userId, ctx.sessionId);
     if (!cleared.ok) return { kind: 'unresolved', reason: 'queue_unavailable' };

@@ -119,7 +119,7 @@ describe('a real Progress failure creates durable debt, blocks Start, and one re
         // not a gate, so this drives the real controller entry.
         await controller.startRecording();
         expect(useSessionStore.getState().sttStatus.type).toBe('error');
-        expect(useSessionStore.getState().sttStatus.message ?? '').toMatch(/retry|couldn.t finish saving/i);
+        expect(useSessionStore.getState().sttStatus.message ?? '').toMatch(/retry|couldn.t confirm/i);
         expect(controller.ensureReady, 'Start must not reach any lifecycle work').not.toHaveBeenCalled();
 
         // ── 5. The REAL reconciler, with the evaluation now succeeding.
@@ -131,6 +131,30 @@ describe('a real Progress failure creates durable debt, blocks Start, and one re
         expect(getQueuedSessionIdsForUser(OWNER).sessionIds).toEqual([]);
         expect(useSessionStore.getState().progressGate, 'the writer tab must not stay stale').toBeNull();
         expect(unlocks(), 'exactly one unlock').toBe(1);
+    });
+
+    it('WRITE-AHEAD: the obligation is durable BEFORE the evaluation resolves', async () => {
+        // THE INVERSION. Previously the entry was written only AFTER the evaluation failed, so a tab
+        // closed or crashed mid-attempt left NOTHING durable — and a reload then read the empty queue as
+        // proof that nothing was owed. Absence of an entry is not proof of completion.
+        //
+        // Now the entry exists before the attempt, so an interrupted evaluation still leaves debt that a
+        // reload reconstructs, and it is retired ONLY after terminal evidence.
+        let release: (v: { data: string | null; error: unknown }) => void = () => {};
+        rpc.mockImplementation(() => new Promise((r) => { release = r as typeof release; }));
+
+        const controller = makeController(OWNER);
+        const completion = controller.completeProgressForRecording({ mode: 'open_mic' }, SESSION, 'verified', true);
+        for (let i = 0; i < 50; i++) await Promise.resolve();
+
+        // Mid-flight — this is the window a reload used to lose entirely.
+        expect(getQueuedSessionIdsForUser(OWNER).sessionIds, 'debt must already be durable').toEqual([SESSION]);
+
+        release({ data: 'eval-1', error: null });
+        const outcome = await completion;
+
+        expect(outcome.kind).toBe('recorded');
+        expect(getQueuedSessionIdsForUser(OWNER).sessionIds, 'retired only after terminal evidence').toEqual([]);
     });
 
     it('CONTROL: a retry that still fails leaves both the debt and the gate blocked', async () => {

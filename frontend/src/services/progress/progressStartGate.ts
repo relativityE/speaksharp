@@ -68,10 +68,13 @@ export function startGateMessage(verdict: StartGateVerdict): string | null {
             return 'Finishing up your last session — one moment.';
         case 'queued_debt':
             return 'Finishing up your last session — this will retry automatically. You can start again once it completes.';
+        // #1354: both of these mean the same thing to the user — we cannot PROVE the last session's
+        // progress was recorded — and both are usually browser storage being unavailable (private
+        // browsing, a full quota, site data blocked). Saying "reload to retry" alone was misleading:
+        // a reload does not fix unavailable storage, and there is deliberately no "continue anyway".
         case 'unresolved_evidence':
-            return "We couldn't finish saving your last session's progress. Reload to retry before recording again.";
         case 'queue_unreadable':
-            return "We couldn't confirm your last session was saved. Reload to retry before recording again.";
+            return "We couldn't confirm your last session's progress was saved. Check that browser storage is available, then reload to retry.";
     }
 }
 

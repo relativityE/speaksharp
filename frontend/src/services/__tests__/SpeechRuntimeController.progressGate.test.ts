@@ -47,12 +47,12 @@ describe('the Start entry enforces the gate', () => {
         const c = makeController();
         await c.startRecording().catch(() => undefined);
         const msg = useSessionStore.getState().sttStatus.message ?? '';
-        expect(msg).not.toMatch(/couldn.t finish saving|retry automatically/i);
+        expect(msg).not.toMatch(/couldn.t confirm|retry automatically/i);
     });
 
     it.each([
         ['queued', /retry/i],
-        ['unresolved', /couldn.t finish saving/i],
+        ['unresolved', /couldn.t confirm .*progress was saved/i],
     ])('a %s gate blocks Start and surfaces an actionable message', async (state, msgRe) => {
         useSessionStore.setState({ progressGate: { sessionId: 's-prev', ownerId: null, state } } as never);
         const c = makeController();
