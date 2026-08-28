@@ -20,7 +20,14 @@
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["vitest/globals", "node"]
+    "types": ["vitest/globals", "node"],
+    // #1304 Task 3C — the certified harness resolves its decode route from the SHIPPING module, which
+    // is the whole point of route parity. Reaching into `frontend/src` pulls that module's own `@/`
+    // imports along with it, so the alias must resolve here exactly as it does in the app build.
+    // Without it the gate would have to re-declare the route locally — a second definition of the very
+    // thing it exists to prove has only one.
+    "baseUrl": ".",
+    "paths": { "@/*": ["frontend/src/*"] }
   },
   "include": ["tests/evidence/**/*.ts"]
 }
