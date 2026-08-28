@@ -94,6 +94,9 @@ function routes(repoRoot: string): [string, string][] {
         // The frozen corpus audio, so a browser arm scores the same bytes the Node lane verified.
         ['/corpus/', join(repoRoot, 'bench-corpus')],
         ['/lib/', join(repoRoot, 'node_modules')],
+        // Locally cached third-party CDN assets (the official Moonshine component sets), served over
+        // ordinary HTTP from our own origin so a pinned run needs no network.
+        ['/external/', join(repoRoot, '.hf-cache', 'external')],
         ['/', join(repoRoot, 'tests/evidence/certification/browser')],
     ];
 }
@@ -201,6 +204,8 @@ export async function startHarnessServer(
                 'cross-origin-opener-policy': 'same-origin',
                 'cross-origin-embedder-policy': 'require-corp',
                 'cross-origin-resource-policy': 'cross-origin',
+                // Assets redirected here are fetched from a third-party origin's code path.
+                'access-control-allow-origin': '*',
                 'cache-control': 'no-store',
             });
             createReadStream(file).pipe(res);

@@ -45,6 +45,14 @@ export const EVIDENCE_SETS: Record<string, EvidenceSet> = {
             + 'hit it.',
         approximateReferenceWords: 459,
     },
+    longform: {
+        id: 'longform',
+        evidenceClass: 'smoke',
+        rationale:
+            'One 37.87s clip spanning two decode windows. It exists to expose truncation, a lost tail '
+            + 'and looping — failures a pooled WER over short clips averages away — not to rank models.',
+        approximateReferenceWords: 95,
+    },
     corpus: {
         id: 'corpus',
         evidenceClass: 'selection',

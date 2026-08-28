@@ -123,8 +123,19 @@ export function buildPreflightSet(manifest: ManifestShape, targetWords = 425): B
     };
 }
 
+/**
+ * The >30s control as a one-clip set, so long-form behaviour goes through the SAME certified path as
+ * everything else — truncation, a lost tail and a looping decode are the failures a pooled WER over
+ * short clips averages away.
+ */
+export function buildLongformSet(): BuiltEvidenceSet {
+    const clip = longformClip();
+    return { id: 'longform', corpusDigest: '', clips: [clip], expectedIds: [clip.id], referenceWords: words(clip.reference) };
+}
+
 export function buildEvidenceSet(setId: string, manifest: ManifestShape, targetWords?: number): BuiltEvidenceSet {
     if (setId === 'harvard') return buildHarvardSet();
+    if (setId === 'longform') return buildLongformSet();
     if (setId === 'preflight') return buildPreflightSet(manifest, targetWords);
     if (setId === 'corpus') return buildCorpusSet(manifest);
     throw new Error(`unknown evidence set: ${setId}`);

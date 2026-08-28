@@ -83,6 +83,13 @@ const mode = arg('mode', 'pinned') as 'pinned' | 'bootstrap';
 const pinsOnly = args.includes('--pins-only');
 
 const PIN_FILE = 'tests/fixtures/hf-asset-pins.json';
+const MOONSHINE_PIN_FILE = 'tests/fixtures/moonshine-asset-pins.json';
+/** Pins for assets the official Moonshine runtime fetches from its own catalog. */
+const moonshinePins: Record<string, { sha256: string; bytes: number }> = existsSync(MOONSHINE_PIN_FILE)
+    ? (JSON.parse(readFileSync(MOONSHINE_PIN_FILE, 'utf8')) as {
+          assets: Record<string, { sha256: string; bytes: number }>;
+      }).assets
+    : {};
 const pins: Record<string, string> = existsSync(PIN_FILE)
     ? (JSON.parse(readFileSync(PIN_FILE, 'utf8')) as { assets: Record<string, string> }).assets
     : {};
@@ -157,6 +164,54 @@ for (const spec of ARM_MATRIX) {
         const url = response.url();
         if (!url.startsWith(harness.origin) && /^https?:/.test(url)) externalUrls.add(url);
     });
+
+    /**
+     * OFFLINE ENFORCEMENT for a runtime that fetches from its own CDN.
+     *
+     * In pinned mode every external request is served from the LOCAL CACHE and verified against a
+     * committed digest. A miss, an alteration, or a path with no pin ABORTS the request and marks the
+     * arm — a silent network fallback would let an unpinned or changed asset produce a measurement
+     * that looks identical to a pinned one.
+     *
+     * Only these small `.ort`/`.bin`/`.json` component files are served this way. An earlier attempt
+     * routed EVERY request through Node and killed the page outright; here the page never waits on the
+     * automation channel for anything it could have fetched itself, because nothing reaches the network
+     * at all.
+     */
+    const pinViolations: { url: string; reason: 'unpinned' | 'missing_local' | 'digest_mismatch' }[] = [];
+    let networkAttempts = 0;
+    if (mode === 'pinned') {
+        await context.route((url) => !url.href.startsWith(harness.origin) && /^https?:/.test(url.href),
+            async (route) => {
+                networkAttempts += 1;
+                const url = route.request().url();
+                const key = url.replace(/^https?:\/\//, '').replace(/[?#].*$/, '');
+                const pin = moonshinePins[key];
+                const cached = join('.hf-cache', 'external', key);
+                if (!pin) { pinViolations.push({ url, reason: 'unpinned' }); return route.abort(); }
+                if (!existsSync(cached)) { pinViolations.push({ url, reason: 'missing_local' }); return route.abort(); }
+                const body = readFileSync(cached);
+                const digest = createHash('sha256').update(body).digest('hex');
+                if (digest !== pin.sha256) {
+                    pinViolations.push({ url, reason: 'digest_mismatch' });
+                    return route.abort();
+                }
+                // REDIRECT to the local server rather than fulfilling with the bytes. Pushing a 147 MB
+                // decoder through the automation channel killed the page outright — twice. The harness
+                // server already streams 122 MB of self-hosted models without trouble, so the
+                // verified bytes travel over ordinary HTTP and only the redirect crosses the channel.
+                await route.fulfill({
+                    status: 302,
+                    headers: {
+                        location: `${harness.origin}/external/${key}`,
+                        // The redirect is cross-origin, so it needs CORS headers of its own — without
+                        // them the runtime's fetch fails with a bare "Failed to fetch" and the arm
+                        // looks like a model failure rather than a harness one.
+                        'access-control-allow-origin': '*',
+                    },
+                });
+            });
+    }
 
     await page.goto(`${harness.origin}/harness.html`);
     await page.waitForFunction(() => (window as unknown as { __ready?: boolean }).__ready === true);
@@ -270,8 +325,22 @@ for (const spec of ARM_MATRIX) {
         } catch { /* recorded as absent rather than as zero */ }
     }
     if (!loaded.ok) {
-        console.log(`    LOAD FAILED: ${loaded.error}`);
-        results.push({ id: spec.id, lane: 'browser', set: setName, evidenceClass, freshSession, loadError: loaded.error, wer: null, selectionEligible: false, selectionIneligibleReason: 'model failed to load in this runtime' });
+        // NAME THE CAUSE. A pin violation surfaces inside the page as a bare "Failed to fetch", which
+        // reads as a model or network problem rather than as the harness correctly refusing an asset
+        // it did not commit to.
+        if (pinViolations.length > 0) {
+            console.log(`    LOAD REFUSED — ${pinViolations.length} pin violation(s):`);
+            for (const v of pinViolations.slice(0, 5)) console.log(`      ${v.reason}  ${v.url}`);
+        } else {
+            console.log(`    LOAD FAILED: ${loaded.error}`);
+        }
+        results.push({
+            id: spec.id, lane: 'browser', set: setName, evidenceClass, freshSession,
+            loadError: loaded.error, pinViolations, networkAttempts, wer: null, selectionEligible: false,
+            selectionIneligibleReason: pinViolations.length > 0
+                ? `asset pin violation: ${pinViolations.map((v) => v.reason).join(', ')}`
+                : 'model failed to load in this runtime',
+        });
         await context.close();
         continue;
     }
@@ -358,7 +427,14 @@ for (const spec of ARM_MATRIX) {
     const hardwareRepresentative = honored?.deviceClaim !== 'webgpu'
         || !isSoftwareAdapter((await page.evaluate(() => (window as unknown as { __BACKEND_EVIDENCE__: { gpuAdapterInfo: Record<string, string | null> | null } }).__BACKEND_EVIDENCE__.gpuAdapterInfo)));
 
-    const backendProven = certification.certified && honored?.deviceVerifiable === true;
+    // A PIN VIOLATION INVALIDATES THE ARM. An asset that was missing, altered or unpinned means the
+    // measurement was not taken on the bytes we committed to, whatever number came out.
+    const backendProven = certification.certified && honored?.deviceVerifiable === true
+        && pinViolations.length === 0;
+    if (pinViolations.length > 0) {
+        console.log(`    PIN VIOLATIONS (${pinViolations.length}) — arm invalidated:`);
+        for (const v of pinViolations.slice(0, 5)) console.log(`      ${v.reason}  ${v.url}`);
+    }
     // ELIGIBILITY NEEDS BOTH: a proven backend AND a selection-grade set. A proven backend is a fact
     // about the runtime; it was being read as a fact about the evidence.
     const selectionEligible = backendProven && result.ok && evidenceClass === 'selection'
@@ -438,6 +514,9 @@ for (const spec of ARM_MATRIX) {
             .filter(([path]) => /decoder/i.test(path))
             .map(([path, record]) => ({ path, sha256: record.sha256, bytes: record.bytes })),
         assetCount: Object.keys(armAssets).length,
+        pinViolations, networkAttempts,
+        // True only when nothing reached the network: every external byte came from a verified pin.
+        offlineEnforced: mode === 'pinned' && pinViolations.length === 0,
         assetFailures: harness.assetFailures,
         ...(result.ok
             ? { wer: result.row.wer, referenceWords: result.row.referenceWords, substitutions: result.row.substitutions, deletions: result.row.deletions, insertions: result.row.insertions, wallClockMs: result.row.provenance.resources.wallClockMs }
