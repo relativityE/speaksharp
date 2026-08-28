@@ -5,6 +5,7 @@
 // source-file-state vocabularies, and header-scoped metadata.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -365,5 +366,146 @@ describe('documentation contract — product_release/', () => {
 
   it('closeout arithmetic proves exactly 14 root files', () => {
     expect(LEDGER).toMatch(/2 retained \+ 12 new = \*\*14\*\*/);
+  });
+});
+
+/**
+ * #1258 — THE CURRENCY GUARD.
+ *
+ * `AGENTS.md` sends every agent to `RELEASE_STATUS.md` and `ACTIVE_COORDINATION.md` first, so a stale
+ * value here does not merely mislead a reader — it becomes wrong work. #1358 corrected a five-week
+ * drift, and one day later both files were stale again: they named a superseded baseline, described
+ * #1304 Task 3 and Task 4 as "not started" after both had merged, and still named the retention
+ * production proof as the release blocker after the stopping rule had fired.
+ *
+ * A date field cannot catch that — the stale files carried a fresh date. What these assert is INTERNAL
+ * CONTRADICTION: the same fact stated two ways in two places, or a task described as both merged and
+ * unstarted. They read only committed files, so they run in CI without network access.
+ */
+/** Parse the fixed-field CURRENCY-BLOCK. Prose is deliberately not consulted. */
+function currencyBlock(markdown: string): Record<string, string> {
+  const match = /<!-- CURRENCY-BLOCK\n([\s\S]*?)-->/.exec(markdown);
+  if (!match) return {};
+  const fields: Record<string, string> = {};
+  for (const line of match[1].split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const colon = trimmed.indexOf(':');
+    if (colon <= 0) continue;
+    fields[trimmed.slice(0, colon).trim()] = trimmed.slice(colon + 1).trim();
+  }
+  return fields;
+}
+
+describe('#1258 currency guard — the two agent-starting SSOTs must not contradict reality', () => {
+  const COORDINATION = read('ACTIVE_COORDINATION.md');
+  const status = currencyBlock(STATUS);
+  const coordination = currencyBlock(COORDINATION);
+
+  it('both SSOTs carry a currency block', () => {
+    expect(Object.keys(status).length, 'RELEASE_STATUS has no CURRENCY-BLOCK').toBeGreaterThan(5);
+    expect(Object.keys(coordination).length, 'ACTIVE_COORDINATION has no CURRENCY-BLOCK').toBeGreaterThan(5);
+  });
+
+  it('they agree on the baseline and the deployed release', () => {
+    // Written at different times by different edits; a divergence is the first symptom of one being
+    // left behind, which is exactly how the previous revision went stale.
+    expect(coordination.baseline).toBe(status.baseline);
+    expect(coordination['deployed-release']).toBe(status['deployed-release']);
+    expect(status.baseline).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it('the baseline SHA appears in the prose of BOTH files', () => {
+    // The block is the machine-readable copy; if the human-readable text still names an older commit,
+    // a reader and the guard would disagree.
+    const short = status.baseline.slice(0, 8);
+    expect(STATUS).toContain(short);
+    expect(COORDINATION).toContain(short);
+  });
+
+  it('the recorded baseline is a REAL, RECENT ancestor of this checkout', () => {
+    // The check that actually measures staleness. "Both files agree" and "the SHA appears in the
+    // prose" are both satisfied by a superseded commit — `5f378898` is still named in RELEASE_STATUS
+    // as a worked example, so a mutant that set the baseline back to it passed every other assertion
+    // here. Distance from HEAD is the thing that cannot be faked by editing prose.
+    let distance: number;
+    try {
+      execFileSync('git', ['cat-file', '-e', `${status.baseline}^{commit}`], { stdio: 'pipe' });
+      distance = Number(
+        execFileSync('git', ['rev-list', '--count', `${status.baseline}..HEAD`], { encoding: 'utf8' }).trim(),
+      );
+    } catch (error) {
+      throw new Error(
+        `recorded baseline ${status.baseline} is not a commit in this repository: `
+        + `${(error as Error).message.split('\n')[0]}`,
+      );
+    }
+    expect(Number.isFinite(distance)).toBe(true);
+    // Generous, because a long-running branch legitimately drifts — but a board thirty commits behind
+    // is describing a product state that no longer exists, which is the failure this exists to catch.
+    expect(distance, `baseline is ${distance} commits behind HEAD — currentize the SSOTs`)
+      .toBeLessThanOrEqual(25);
+  });
+
+  it('the block agrees with the CURRENT-baseline table row a reader actually consults', () => {
+    // Not "appears somewhere in the file": `5f378898` is still named in RELEASE_STATUS as a worked
+    // example of the product-behaviour criterion, so a mutant that set the block back to it satisfied
+    // a whole-file search. The row a reader looks at is the one the block must match.
+    const row = STATUS.split('\n').find((l) => l.includes('Repository `main`'));
+    expect(row, 'RELEASE_STATUS has no "Repository `main`" baseline row').toBeTruthy();
+    expect(row).toContain(status.baseline.slice(0, 8));
+
+    const deployedRow = STATUS.split('\n').find((l) => l.includes('__APP_RELEASE__ ='));
+    expect(deployedRow, 'RELEASE_STATUS records no verified deployed release').toBeTruthy();
+    expect(deployedRow).toContain(status['deployed-release']);
+  });
+
+  it('states its own limit, rather than implying it verifies more than it can', () => {
+    // This suite reads committed files and local git. It CANNOT know the tip of `origin/main`, so it
+    // catches gross staleness and internal contradiction — not "written one commit ago". Saying so is
+    // the difference between a guard and a false assurance.
+    expect(STATUS + COORDINATION).toMatch(/currency guard/i);
+  });
+
+  it('every #1304 task state is one of the allowed values — never both merged and unstarted', () => {
+    const allowed = new Set(['merged', 'open', 'not-started', 'returned', 'off-critical-path']);
+    for (const [field, value] of Object.entries(coordination)) {
+      if (!field.startsWith('task-') && !field.startsWith('lane-')) continue;
+      expect(allowed.has(value), `${field} has unknown state "${value}"`).toBe(true);
+    }
+  });
+
+  it('the merged #1304 tasks are recorded as merged', () => {
+    // 3A, 3B and Task 4 were all described as NOT STARTED after merging. That is the exact regression.
+    for (const task of ['task-1304-1', 'task-1304-2', 'task-1304-3a', 'task-1304-3b', 'task-1304-4']) {
+      expect(coordination[task], `${task} must be merged`).toBe('merged');
+    }
+    expect(coordination['task-1360-recovery-copy']).toBe('merged');
+  });
+
+  it('retention is off the critical path, and is NOT the stated release blocker', () => {
+    expect(status['retention-campaign']).toBe('off-critical-path');
+    expect(status['release-blocker']).not.toMatch(/retention/);
+    expect(status['release-blocker']).toBe('model-selection');
+  });
+
+  it('records the STT chain actually executing, including the ORT requalification', () => {
+    // int8/q8 are NOT rejected candidates; a board that omits why they failed invites someone to
+    // record a runtime bug as a model verdict.
+    expect(COORDINATION).toMatch(/onnxruntime-web/);
+    expect(COORDINATION).toMatch(/28306|28326/);
+    expect(COORDINATION).toMatch(/425/);
+    expect(COORDINATION).toMatch(/600/);
+  });
+
+  it('every parallel MVP lane has a recorded state, so none silently idles', () => {
+    for (const lane of ['lane-stage-b', 'lane-telemetry', 'lane-billing', 'lane-1258-journey']) {
+      expect(coordination[lane], `${lane} has no recorded state`).toBeTruthy();
+    }
+  });
+
+  it('a fallback is defined by dependability, not by second-best WER', () => {
+    // The judgement most likely to be lost between documents.
+    expect(STATUS).toMatch(/fallback is not "second-lowest WER"|dependable across MORE devices/i);
   });
 });
