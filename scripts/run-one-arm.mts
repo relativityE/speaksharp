@@ -32,12 +32,14 @@ const setName = arg('set', 'harvard');
 const spec = ARM_MATRIX.find((a) => a.id === armId);
 if (!spec) { console.error(`unknown arm ${armId}`); process.exit(2); }
 
+const set = buildEvidenceSet(setName, manifest as unknown as ManifestShape);
+
 const corpusProvenance = {
     version: manifest.corpusVersion,
+    // The exact selection this run scored, not just the corpus's version label.
+    digest: set.corpusDigest || `no-frozen-audio:${setName}`,
     archives: Object.fromEntries(Object.entries(manifest.archives).map(([n, a]) => [n, a.sha256])),
 };
-
-const set = buildEvidenceSet(setName, manifest as unknown as ManifestShape);
 
 // FROZEN AUDIO IS VERIFIED BEFORE ANY DECODE. A complete set of ids says nothing about whether the
 // files on disk are the ones the manifest describes.

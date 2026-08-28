@@ -21,10 +21,19 @@ export interface ArmProvenance {
     device: { platform: string; arch: string; cpuModel: string; cores: number };
     /** Route: the resolved decode configuration and its identity hash. */
     route: { hash: string; route: CandidateRoute };
-    /** Corpus: which frozen corpus, by version and archive digest. */
-    corpus: { version: string; archives: Record<string, string> };
-    /** Resources: what the run cost, so a cheap-and-fast arm is distinguishable from a slow one. */
-    resources: { wallClockMs: number; peakRssBytes: number };
+    /**
+     * Corpus: which frozen corpus — by version, archive digests, AND a digest of the exact selection.
+     *
+     * The version alone cannot distinguish a coherently shrunken manifest from the real one.
+     */
+    corpus: { version: string; digest: string; archives: Record<string, string> };
+    /**
+     * Resources: what the run cost, so a cheap-and-fast arm is distinguishable from a slow one.
+     *
+     * `peakRssBytes` is NULLABLE on purpose. A browser page cannot report it, and coercing that to 0 or
+     * 1 would present an absence as a measurement — the same class of claim as a fabricated WER.
+     */
+    resources: { wallClockMs: number; peakRssBytes: number | null };
 }
 
 /**

@@ -78,9 +78,6 @@ export interface BrowserArmOptions {
 
 export function createBrowserArm(options: BrowserArmOptions): DecodeArm {
     let wallClockMs = 0;
-    // The BROWSER's peak RSS is not observable from here. Reported as 0 and never dressed up as a
-    // measurement — a fabricated resource figure is the same class of claim as a fabricated WER.
-    const peakRssBytes = 0;
 
     const transcribe = async (locator: string, audioSeconds: number) => {
         const result = await options.page.evaluate(
@@ -167,7 +164,14 @@ export function createBrowserArm(options: BrowserArmOptions): DecodeArm {
                 device: options.device,
                 route: { hash: candidateRouteHash(route), route },
                 corpus: options.corpus,
-                resources: { wallClockMs: Math.max(1, wallClockMs), peakRssBytes: Math.max(1, peakRssBytes) },
+                resources: {
+                    wallClockMs,
+                    // NULL, not 0 and not 1. The browser page cannot report peak RSS, and the previous
+                    // `Math.max(1, …)` turned "unobservable" into a one-byte MEASUREMENT — the exact
+                    // placeholder-as-value defect the provenance gate exists to reject, committed by
+                    // the same file whose comment said the figure must never be fabricated.
+                    peakRssBytes: null,
+                },
             };
         },
     };

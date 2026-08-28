@@ -22,6 +22,8 @@ export interface EvidenceClip {
 
 export interface BuiltEvidenceSet {
     id: string;
+    /** Digest of the frozen selection this set was drawn from; empty for sets with no frozen audio. */
+    corpusDigest: string;
     clips: EvidenceClip[];
     /** The ids an arm must account for — from the SET's definition, never from what it decoded. */
     expectedIds: string[];
@@ -40,6 +42,8 @@ export function buildHarvardSet(): BuiltEvidenceSet {
         }));
     return {
         id: 'harvard',
+        // Harvard clips are committed fixtures, not frozen-corpus selections.
+        corpusDigest: '',
         clips,
         expectedIds: clips.map((c) => c.id),
         referenceWords: clips.reduce((n, c) => n + words(c.reference), 0),
@@ -58,6 +62,7 @@ export function buildCorpusSet(manifest: ManifestShape): BuiltEvidenceSet {
     }));
     return {
         id: 'corpus',
+        corpusDigest: loaded.corpus.digest,
         clips,
         // From the manifest's own declared counts, via loadFrozenCorpus — not from `clips`.
         expectedIds: loaded.corpus.expectedIds,
@@ -111,6 +116,7 @@ export function buildPreflightSet(manifest: ManifestShape, targetWords = 425): B
     }));
     return {
         id: 'preflight',
+        corpusDigest: loaded.corpus.digest,
         clips,
         expectedIds: clips.map((c) => c.id),
         referenceWords: total,

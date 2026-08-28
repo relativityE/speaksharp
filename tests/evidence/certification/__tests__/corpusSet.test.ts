@@ -14,7 +14,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { loadFrozenCorpus, verifyFrozenAudio, type ManifestShape } from '../corpusSet';
+import { loadFrozenCorpus, verifyFrozenAudio, frozenCorpusDigest, type ManifestShape } from '../corpusSet';
 
 const manifest = realManifest as unknown as ManifestShape;
 
@@ -162,5 +162,81 @@ describe('each clip must be the FROZEN clip, not merely a clip with the right na
         if (!loaded.ok) throw new Error(loaded.reason);
         const digests = loaded.corpus.utterances.map((u) => u.audioSha256);
         expect(new Set(digests).size).toBe(600);
+    });
+});
+
+/**
+ * #1304 — THE COHERENT SHRINK. A version string is not identity.
+ *
+ * `loadFrozenCorpus` checks the manifest against itself, and it is thorough: subset lengths against
+ * declared counts, declared counts against `subsetSize`, the total against sets × size, and duplicate
+ * ids. But an edit that reduces BOTH subsets, BOTH declared counts and `subsetSize` together satisfies
+ * every one of those checks. The version stays `librispeech_test_v1`, the arm is measured on 598
+ * clips, and its provenance says it ran the frozen corpus.
+ *
+ * Only a digest of the actual selection refuses that.
+ */
+describe('a coherently shrunken manifest is a DIFFERENT corpus', () => {
+    const shrinkBothSets = (by: number): ManifestShape => {
+        const m = clone();
+        for (const set of Object.keys(m.subsets)) {
+            m.subsets[set] = m.subsets[set].slice(0, m.subsets[set].length - by);
+            m.counts[set].selected -= by;
+        }
+        m.subsetSize -= by;
+        return m;
+    };
+
+    it('the shrunken manifest passes every INTERNAL consistency check', () => {
+        // The precondition. If it failed here, the digest would be untested.
+        const loaded = loadFrozenCorpus(shrinkBothSets(1));
+        expect(loaded.ok, 'internal checks were expected to pass on a coherent shrink').toBe(true);
+    });
+
+    it('...and keeps the same version string', () => {
+        expect(shrinkBothSets(1).corpusVersion).toBe('librispeech_test_v1');
+    });
+
+    it('but its DIGEST differs from the real corpus', () => {
+        const real = loadFrozenCorpus(manifest);
+        const shrunk = loadFrozenCorpus(shrinkBothSets(1));
+        if (!real.ok || !shrunk.ok) throw new Error('both were expected to load');
+        expect(shrunk.corpus.digest).not.toBe(real.corpus.digest);
+        expect(shrunk.corpus.utterances).toHaveLength(598);
+    });
+
+    it('the digest is stable across manifest ORDER — it identifies contents, not layout', () => {
+        const reordered = clone();
+        for (const set of Object.keys(reordered.subsets)) reordered.subsets[set].reverse();
+        const a = loadFrozenCorpus(manifest);
+        const b = loadFrozenCorpus(reordered);
+        if (!a.ok || !b.ok) throw new Error('both were expected to load');
+        expect(b.corpus.digest).toBe(a.corpus.digest);
+    });
+
+    it('a SUBSTITUTED clip moves the digest even with the id list untouched', () => {
+        // Built from the audio digests, so swapping the bytes behind an id cannot hide.
+        const swapped = clone();
+        swapped.subsets['test-clean'][0].audio!.sha256 = 'f'.repeat(64);
+        const real = loadFrozenCorpus(manifest);
+        const other = loadFrozenCorpus(swapped);
+        if (!real.ok || !other.ok) throw new Error('both were expected to load');
+        expect(other.corpus.digest).not.toBe(real.corpus.digest);
+    });
+
+    it('the digest function alone agrees with what loadFrozenCorpus records', () => {
+        // Binds the exported helper to the value that actually travels on a row, so a future caller
+        // computing it directly cannot drift from the loader.
+        const loaded = loadFrozenCorpus(manifest);
+        if (!loaded.ok) throw new Error(loaded.reason);
+        expect(frozenCorpusDigest(loaded.corpus.utterances)).toBe(loaded.corpus.digest);
+    });
+
+    it('the real corpus digest is stable run to run', () => {
+        const a = loadFrozenCorpus(manifest);
+        const b = loadFrozenCorpus(clone());
+        if (!a.ok || !b.ok) throw new Error('both were expected to load');
+        expect(b.corpus.digest).toBe(a.corpus.digest);
+        expect(a.corpus.digest).toMatch(/^[0-9a-f]{64}$/);
     });
 });

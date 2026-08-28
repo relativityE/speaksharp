@@ -45,6 +45,8 @@ const arm = createTransformersV2Arm({
     modelsRoot: resolve('frontend/public/models'),
     corpus: {
         version: manifest.corpusVersion,
+        // Harvard controls score committed fixtures, not a frozen-corpus selection.
+        digest: 'no-frozen-audio:harvard',
         archives: Object.fromEntries(Object.entries(manifest.archives).map(([n, a]) => [n, a.sha256])),
     },
 });

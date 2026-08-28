@@ -55,6 +55,9 @@ export function checkProvenance(provenance: ArmProvenance | null | undefined): P
         // One level down: a `model` whose `id` is blank is not a model, and a `filesSha256` with no
         // entries is a promise of digests rather than digests.
         for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
+            // An explicit `null` on a NULLABLE resource field means "not observable here" and is
+            // honest. Everywhere else null is absence, and absence is a gap.
+            if (inner === null && field === 'resources') continue;
             if (isBlank(inner) || isEmptyRecord(inner)) { empty.push(`${field}.${key}`); continue; }
             if (isPlaceholder(inner)) { placeholder.push(`${field}.${key}`); continue; }
             // A digest map whose values are placeholders is a map of nothing.

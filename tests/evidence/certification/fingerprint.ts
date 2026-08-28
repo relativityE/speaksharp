@@ -42,7 +42,9 @@ export function fingerprintConfiguration(
         deviceClaim,
         assets: `${provenance.assets.source}:${provenance.assets.verdict}`,
         route: provenance.route.hash,
-        corpus: provenance.corpus.version,
+        // The exact selection, not just its version label: a coherently shrunken manifest keeps the
+        // version and changes this.
+        corpus: `${provenance.corpus.version}@${provenance.corpus.digest}`,
     };
 
     // Sorted, so property order cannot change the digest.

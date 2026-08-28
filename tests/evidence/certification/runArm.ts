@@ -48,6 +48,23 @@ export interface SelectionRow {
  *  different events, and a run that cannot tell them apart cannot be diagnosed. */
 export interface DecodeFailure { utteranceId: string; message: string }
 
+/**
+ * What happened to ONE clip, timed.
+ *
+ * The schema in `deploymentMetrics.ts` declared cold load, warm p50/p95, RTF and reliability categories
+ * — and nothing collected them. A declared table is not a measured one, and shipping the 600 without
+ * this would have meant paying for the whole run twice.
+ */
+export interface ClipOutcome {
+    utteranceId: string;
+    audioSeconds: number;
+    /** Wall-clock for THIS decode. */
+    decodeMs: number;
+    /** decodeMs / (audioSeconds * 1000). Below 1.0 is faster than real time. */
+    realTimeFactor: number;
+    outcome: 'scored' | 'threw' | 'empty' | 'unmeasurable';
+}
+
 export type ArmRunResult =
     | {
           ok: true;
@@ -55,6 +72,7 @@ export type ArmRunResult =
           scores: readonly CorpusScore[];
           aggregate: AggregateWer;
           decodeFailures: readonly DecodeFailure[];
+          clipOutcomes: readonly ClipOutcome[];
       }
     | {
           ok: false;
@@ -69,6 +87,7 @@ export type ArmRunResult =
           scores: readonly CorpusScore[];
           aggregate: AggregateWer | null;
           decodeFailures: readonly DecodeFailure[];
+          clipOutcomes: readonly ClipOutcome[];
           certification: CertificationResult;
       };
 
@@ -96,6 +115,7 @@ export async function runArm(
     const expectedIds = expectedUtteranceIds;
     const scores: CorpusScore[] = [];
     const decodeFailures: DecodeFailure[] = [];
+    const clipOutcomes: ClipOutcome[] = [];
 
     // A CERTIFICATE IS NOT TRANSFERABLE. Nothing previously tied the certification to the arm being
     // run, so one model could be measured under another model's certificate — including a certificate
@@ -108,6 +128,7 @@ export async function runArm(
             scores,
             aggregate: null,
             decodeFailures,
+            clipOutcomes,
             certification,
         };
     }
@@ -126,6 +147,7 @@ export async function runArm(
             scores,
             aggregate: null,
             decodeFailures,
+            clipOutcomes,
             certification,
         };
     }
@@ -138,12 +160,14 @@ export async function runArm(
             scores,
             aggregate: null,
             decodeFailures,
+            clipOutcomes,
             certification,
         };
     }
 
     for (const utterance of utterances) {
         let hypothesis: string | null;
+        const started = Date.now();
         try {
             hypothesis = await arm.decode(utterance.locator, utterance.audioSeconds);
         } catch (error) {
@@ -156,7 +180,20 @@ export async function runArm(
             });
             hypothesis = null;
         }
-        scores.push(scoreUtterance(utterance.id, utterance.reference, hypothesis));
+        const decodeMs = Date.now() - started;
+        const score = scoreUtterance(utterance.id, utterance.reference, hypothesis);
+        scores.push(score);
+        clipOutcomes.push({
+            utteranceId: utterance.id,
+            audioSeconds: utterance.audioSeconds,
+            decodeMs,
+            realTimeFactor: utterance.audioSeconds > 0 ? decodeMs / (utterance.audioSeconds * 1000) : Number.NaN,
+            outcome: score.ok
+                ? 'scored'
+                : hypothesis === null && decodeFailures.some((f) => f.utteranceId === utterance.id)
+                    ? 'threw'
+                    : score.invalidReason === 'empty_hypothesis' ? 'empty' : 'unmeasurable',
+        });
     }
 
     const aggregate = aggregateArm(scores, expectedIds);
@@ -173,6 +210,7 @@ export async function runArm(
             scores,
             aggregate,
             decodeFailures,
+            clipOutcomes,
             certification,
         };
     }
@@ -185,6 +223,7 @@ export async function runArm(
             scores,
             aggregate,
             decodeFailures,
+            clipOutcomes,
             certification,
         };
     }
@@ -194,6 +233,7 @@ export async function runArm(
         scores,
         aggregate,
         decodeFailures,
+        clipOutcomes,
         row: {
             armId: arm.id,
             rulesVersion: certification.rulesVersion,

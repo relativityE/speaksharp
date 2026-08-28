@@ -39,7 +39,11 @@ const provenanceOf = (): ArmProvenance => ({
         hash: candidateRouteHash(resolveWhisperRoute('v2', MODEL_ID, 4.2)),
         route: resolveWhisperRoute('v2', MODEL_ID, 4.2),
     },
-    corpus: { version: 'librispeech_test_v1', archives: { 'test-clean.tar.gz': 'b'.repeat(64) } },
+    corpus: {
+        version: 'librispeech_test_v1',
+        digest: 'c'.repeat(64),
+        archives: { 'test-clean.tar.gz': 'b'.repeat(64) },
+    },
     resources: { wallClockMs: 1234, peakRssBytes: 2_000_000 },
 });
 
@@ -538,7 +542,9 @@ describe('a certificate belongs to the arm that earned it', () => {
         ['different weights', (p: ArmProvenance) => { p.model.filesSha256 = { 'model.onnx': 'b'.repeat(64) }; }],
         ['different runtime version', (p: ArmProvenance) => { p.runtime.version = '9.9.9'; }],
         ['different backend', (p: ArmProvenance) => { p.runtime.backend = 'webgpu'; }],
-        ['different corpus', (p: ArmProvenance) => { p.corpus.version = 'some_other_corpus'; }],
+        ['different corpus version', (p: ArmProvenance) => { p.corpus.version = 'some_other_corpus'; }],
+        // The coherent-shrink case: the VERSION is unchanged and only the selection digest moves.
+        ['same corpus version, different SELECTION', (p: ArmProvenance) => { p.corpus.digest = 'd'.repeat(64); }],
     ])('a %s also breaks the certificate', async (_name, mutate) => {
         const arm = makeArm({ '1': 'the cat sat down' });
         const certificate = certifyArm(arm, WHISPER_V2, ORACLE_VECTORS);

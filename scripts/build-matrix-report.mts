@@ -14,6 +14,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { ARM_MATRIX } from '../tests/evidence/certification/arms/registry';
+import { EVIDENCE_SETS, isSelectionGrade } from '../tests/evidence/certification/evidenceClass';
 
 const args = process.argv.slice(2);
 const arg = (name: string, fallback = '') =>
@@ -30,6 +31,10 @@ interface Row {
     runtime: string;
     requestedDevice: string;
     resolvedBackend: string | null;
+    /** Exact inference library + version. Rows from different runtimes must never be ranked together. */
+    runtimeLabel: string;
+    evidenceSet: string;
+    evidenceClass: string;
     backendProven: boolean;
     hardwareRepresentative: boolean | null;
     transcriptDigest: string | null;
@@ -48,8 +53,29 @@ interface Row {
 
 const rows: Row[] = [];
 
-/** Why a row may not inform the down-select. Absence of a reason is itself a defect. */
-function eligibility(spec: (typeof ARM_MATRIX)[number], lane: 'node' | 'browser', proven: boolean) {
+/**
+ * Why a row may not inform the down-select. Absence of a reason is itself a defect.
+ *
+ * EVIDENCE CLASS IS CHECKED FIRST, and it comes from the authority in `evidenceClass.ts` rather than
+ * being recomputed here. This reporter previously derived browser eligibility from backend proof
+ * alone, which would have RE-AUTHORIZED Harvard smoke rows the runner had already refused — a
+ * downstream consumer quietly overturning an upstream verdict.
+ */
+function eligibility(
+    spec: (typeof ARM_MATRIX)[number],
+    lane: 'node' | 'browser',
+    proven: boolean,
+    evidenceSet: string,
+) {
+    if (!isSelectionGrade(evidenceSet)) {
+        const known = EVIDENCE_SETS[evidenceSet];
+        return {
+            eligible: false,
+            reason: known
+                ? `${evidenceSet} is a ${known.evidenceClass} set — ${known.rationale}`
+                : `unknown evidence set "${evidenceSet}" — cannot be selection evidence`,
+        };
+    }
     if (spec.role === 'diagnostic') {
         return {
             eligible: false,
@@ -75,9 +101,12 @@ function eligibility(spec: (typeof ARM_MATRIX)[number], lane: 'node' | 'browser'
 for (const spec of ARM_MATRIX) {
     const nodeResult = nodeReport?.results?.find((r: { id: string }) => r.id === spec.id);
     if (nodeResult) {
-        const e = eligibility(spec, 'node', true);
+        const e = eligibility(spec, 'node', true, nodeResult.set ?? 'unknown');
         rows.push({
             id: spec.id, lane: 'node', label: spec.label,
+            runtimeLabel: nodeResult.runtimeLabel ?? `${nodeResult.provenance?.runtime?.library ?? '?'}@${nodeResult.provenance?.runtime?.version ?? '?'}`,
+            evidenceSet: nodeResult.set ?? 'unknown',
+            evidenceClass: nodeResult.evidenceClass ?? 'unknown',
             runtime: `${nodeResult.provenance?.runtime?.library ?? '?'}@${nodeResult.provenance?.runtime?.version ?? '?'}`,
             requestedDevice: spec.device,
             // Node exposes no execution providers on a loaded session, so nothing here may claim one.
@@ -101,9 +130,14 @@ for (const spec of ARM_MATRIX) {
     const browserResult = browserReport?.results?.find((r: { id: string }) => r.id === spec.id);
     if (browserResult) {
         const proven = Boolean(browserResult.claimSatisfied);
-        const e = eligibility(spec, 'browser', proven);
+        const e = eligibility(spec, 'browser', proven, browserResult.set ?? 'unknown');
         rows.push({
             id: spec.id, lane: 'browser', label: spec.label,
+            // The runner's OWN label, carrying the exact ORT version. Reconstructing it here from the
+            // family name would drop the version the whole requalification turns on.
+            runtimeLabel: browserResult.runtimeLabel ?? 'unknown',
+            evidenceSet: browserResult.set ?? 'unknown',
+            evidenceClass: browserResult.evidenceClass ?? 'unknown',
             runtime: spec.runtime === 'v2' ? '@xenova/transformers (browser bundle)' : '@huggingface/transformers (web bundle)',
             requestedDevice: spec.device === 'cpu' || spec.device === 'onnxruntime-node' ? 'wasm (cpu is not a browser backend)' : spec.device,
             resolvedBackend: browserResult.backendResolved ?? null,
@@ -116,7 +150,9 @@ for (const spec of ARM_MATRIX) {
             insertions: browserResult.insertions ?? null,
             referenceWords: browserResult.referenceWords ?? null,
             wallClockMs: browserResult.wallClockMs ?? null,
-            selectionEligible: e.eligible, selectionIneligibleReason: e.reason,
+            // The RUNNER's reason wins when it refused: it saw the run, this reporter did not.
+            selectionEligible: e.eligible && browserResult.selectionEligible !== false,
+            selectionIneligibleReason: browserResult.selectionIneligibleReason ?? e.reason,
             diagnosticPurpose: spec.diagnosticPurpose ?? null,
             duplicateOf: spec.duplicateInBrowserLaneOf ?? null,
             error: browserResult.error ?? null,

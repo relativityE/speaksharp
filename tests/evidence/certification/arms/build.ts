@@ -44,6 +44,13 @@ export function buildArm(spec: ArmSpec, corpus: ArmProvenance['corpus']): Decode
                 variantId: spec.variantId,
                 corpus,
             });
+        case 'moonshine-wasm':
+            // Browser-lane only: its runtime IS a browser runtime. `run-browser-matrix` constructs it
+            // directly against the page, so there is no Node arm to build.
+            throw new Error(
+                `arm ${spec.id} runs on @moonshine-ai/moonshine-wasm, which exists only in the browser `
+                + 'lane — build it there, not through the Node factory.',
+            );
         case 'moonshine':
             return createMoonshineArm({
                 id: spec.id,

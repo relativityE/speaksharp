@@ -7,7 +7,13 @@
  *
  * A rejection must name what was tried and what happened. "Unsupported" on its own is an opinion.
  */
-export type ArmRuntime = 'v2' | 'v4' | 'moonshine';
+/**
+ * `moonshine-wasm` is Moonshine's OWN browser runtime (`@moonshine-ai/moonshine-wasm`), loading
+ * official `.ort` components. It is a separate runtime from transformers.js, and that is fine: a
+ * primary and a fallback on different inference libraries have less correlated failure risk, and the
+ * runtime is part of each deployable candidate rather than a property of the comparison.
+ */
+export type ArmRuntime = 'v2' | 'v4' | 'moonshine' | 'moonshine-wasm';
 
 /**
  * THREE STATES, and the middle one matters most.
@@ -301,6 +307,40 @@ export const ARM_MATRIX: readonly ArmSpec[] = Object.freeze([
         // RESOLVED by the browser lane, with the same SwiftShader caveat: the product registry marks
         // this variant requiresWebGPU: true, so a hardware-GPU run is required before its latency can
         // be compared with anything.
+        admission: { status: 'admitted', lane: 'browser' },
+    },
+
+    // ------------------------------------------------- Moonshine Streaming (official WASM runtime)
+    {
+        id: 'moonshine:streaming-small',
+        role: 'selection',
+        runtime: 'moonshine-wasm',
+        modelId: 'moonshine-ai/streaming-small',
+        // The runtime resolves components from its own catalog; the revision is the quantized
+        // component set it served, recorded from the probe.
+        revision: 'quantized_26_07_30',
+        label: 'Moonshine Streaming Small (official @moonshine-ai/moonshine-wasm)',
+        dtype: 'quantized',
+        device: 'wasm',
+        family: 'moonshine',
+        // Load-proven: 165.5 MB over 7 files, 4,973 ms cold load, WASM counted, decoded a known
+        // fixture. Registered so it runs through `runArm` and the certified scorer like every other
+        // arm — a probe script is not a benchmark.
+        admission: { status: 'admitted', lane: 'browser' },
+    },
+    {
+        id: 'moonshine:streaming-medium',
+        role: 'selection',
+        runtime: 'moonshine-wasm',
+        modelId: 'moonshine-ai/streaming-medium',
+        revision: 'quantized_26_07_30',
+        label: 'Moonshine Streaming Medium (official @moonshine-ai/moonshine-wasm)',
+        dtype: 'quantized',
+        device: 'wasm',
+        family: 'moonshine',
+        // 304.7 MB over 7 files — near the ~255 MB the docs cite, not the 1.06 GB fp32 checkpoint.
+        // Technically viable on size; the download remains a major ACTIVATION disadvantage that must
+        // stay visible beside its accuracy rather than being folded into one score.
         admission: { status: 'admitted', lane: 'browser' },
     },
 

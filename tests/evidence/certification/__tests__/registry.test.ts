@@ -17,6 +17,11 @@ import { resolveWhisperRoute, candidateRouteHash } from '../candidateRoute';
 /** Every cell the corrected specification requires, by id. Adding a cell here without adding the arm
  *  fails; removing an arm without removing the requirement fails. */
 const REQUIRED_CELLS = [
+    // The two Moonshine Streaming arms, added once the OFFICIAL runtime probe proved they load and
+    // decode. They were briefly written off after a search that only covered the transformers.js /
+    // onnx-community route — a model is not rejected for failing to fit one adapter.
+    'moonshine:streaming-small',
+    'moonshine:streaming-medium',
     'v2:tiny.en',
     'v2:base.en',
     'v2:base.en:no-conditioning',
@@ -42,6 +47,19 @@ describe('the matrix covers every required candidate', () => {
             .toEqual(['moonshine:base', 'moonshine:tiny']);
     });
 
+    it('includes both Streaming candidates, on their OWN official runtime', () => {
+        const streaming = ARM_MATRIX.filter((a) => a.runtime === 'moonshine-wasm');
+        expect(streaming.map((a) => a.id).sort())
+            .toEqual(['moonshine:streaming-medium', 'moonshine:streaming-small']);
+        for (const arm of streaming) {
+            // Load-proven through @moonshine-ai/moonshine-wasm, so they are ADMITTED arms rather than
+            // a probe script sitting outside the certified path.
+            expect(arm.admission.status).toBe('admitted');
+            expect(arm.family).toBe('moonshine');
+            expect(arm.revision).toBe('quantized_26_07_30');
+        }
+    });
+
     it('covers all four v4 base decoder precisions', () => {
         const dtypes = ARM_MATRIX
             .filter((a) => a.runtime === 'v4' && a.modelId.includes('whisper-base.en'))
@@ -59,8 +77,8 @@ describe('the matrix covers every required candidate', () => {
 });
 
 describe('selection arms and diagnostic cells are distinguishable', () => {
-    it('exactly 12 selection arms — the corrected #1304 matrix', () => {
-        expect(SELECTION_ARMS).toHaveLength(12);
+    it('exactly 14 selection arms — the corrected matrix plus both Streaming candidates', () => {
+        expect(SELECTION_ARMS).toHaveLength(14);
         expect(SELECTION_ARMS.map((a) => a.id).sort()).toEqual([...REQUIRED_CELLS].sort());
     });
 
@@ -116,7 +134,8 @@ describe('nothing is omitted: every cell is admitted, pending, or rejected', () 
         // They were `pending_harness` while only a Node lane existed — a fact about the tooling, never
         // a property of the candidate. The browser lane resolves them.
         const deviceCells = ARM_MATRIX.filter((a) => a.device === 'wasm' || a.device === 'webgpu');
-        expect(deviceCells).toHaveLength(3);
+        // 3 transformers.js device cells + the 2 Moonshine Streaming arms, which are WASM by nature.
+        expect(deviceCells).toHaveLength(5);
         for (const cell of deviceCells) {
             expect(cell.admission.status).toBe('admitted');
             if (cell.admission.status !== 'admitted') continue;
@@ -168,8 +187,8 @@ describe('an unhonoured route fails certification', () => {
                 hash: candidateRouteHash(resolveWhisperRoute('v2', 'whisper-base.en', 4.2)),
                 route: resolveWhisperRoute('v2', 'whisper-base.en', 4.2),
             },
-            corpus: { version: 'v', archives: { a: 'b' } },
-            resources: { wallClockMs: 1, peakRssBytes: 1 },
+            corpus: { version: 'v', digest: 'e'.repeat(64), archives: { a: 'b' } },
+            resources: { wallClockMs: 1, peakRssBytes: null },
         }),
     });
 

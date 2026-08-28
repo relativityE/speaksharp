@@ -56,9 +56,32 @@ export function verifyFrozenAudio(
 
 export interface FrozenCorpus {
     version: string;
+    /**
+     * A digest over the CONTENTS: every expected id paired with its frozen audio digest.
+     *
+     * The version string alone is not identity. `librispeech_test_v1` survives a coherent edit that
+     * shrinks BOTH subsets, BOTH declared counts and `subsetSize` together — every internal check
+     * agrees, the version is unchanged, and the arm is measured on 598 clips while its provenance says
+     * it ran the frozen corpus. Only a digest of the actual selection can refuse that.
+     */
+    digest: string;
     utterances: FrozenUtterance[];
     /** Every id the arm MUST score, from the manifest's declared counts. */
     expectedIds: string[];
+}
+
+/**
+ * Canonical digest of a frozen selection: sorted `id\taudioSha256` pairs, hashed.
+ *
+ * Sorted so manifest ordering cannot change it, and built from the AUDIO digests so a substituted clip
+ * moves it even when the id list is untouched.
+ */
+export function frozenCorpusDigest(utterances: readonly FrozenUtterance[]): string {
+    const canonical = [...utterances]
+        .map((u) => `${u.id}\t${u.audioSha256}`)
+        .sort()
+        .join('\n');
+    return createHash('sha256').update(canonical).digest('hex');
 }
 
 export type CorpusLoadFailure =
@@ -131,5 +154,13 @@ export function loadFrozenCorpus(
         return { ok: false, reason: 'duplicate_utterance_id', detail: 'duplicate ids in the frozen set' };
     }
 
-    return { ok: true, corpus: { version: manifest.corpusVersion, utterances, expectedIds: ids } };
+    return {
+        ok: true,
+        corpus: {
+            version: manifest.corpusVersion,
+            digest: frozenCorpusDigest(utterances),
+            utterances,
+            expectedIds: ids,
+        },
+    };
 }
