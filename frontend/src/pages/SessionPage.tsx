@@ -90,7 +90,7 @@ export const SessionPage: React.FC = () => {
     // #1033 Part-2b (A5/A6): all owner-scoped recovery orchestration lives in this hook —
     // owner-scoped read, fail-closed on unresolved auth, same-user rehydrate-once, account-change
     // isolation, and scoped (never destructive no-arg) draft deletion.
-    const { recoveryDraft, restoreRecoveryDraft, dismissRecoveryDraft } = useUnresolvedRecovery({
+    const { recoveryDraft, dismissRecoveryDraft } = useUnresolvedRecovery({
         authUserId,
         isListening,
         sessionSaved,
@@ -301,27 +301,35 @@ export const SessionPage: React.FC = () => {
                     onDiscard={() => import('@/services/SpeechRuntimeController')
                         .then(m => m.speechRuntimeController.discardUnresolvedRecording())}
                 />
-                {recoveryDraft && !isListening && (
+                {/* #1360 — TRUTHFUL RECOVERY COPY.
+                    This surface used to promise "A locally saved transcript draft is available" and offer
+                    "Restore draft". Both were false: the recovery draft is CONTENT-FREE by construction
+                    (`sessionRecoveryDraft.ts` whitelists numeric fields and refuses any legacy
+                    transcript-bearing draft), and the handler cleared the draft rather than restoring
+                    anything. A user pressing "Restore draft" got a cleared draft and a status message.
+
+                    It is also suppressed while `UnresolvedRecoveryBanner` is showing: that banner owns
+                    the retry/discard contract for finalized pending-save work, and a second panel beside
+                    it offering a different action for the same session is a contradiction, not a choice. */}
+                {recoveryDraft && !isListening && !pendingResolutionKind && (
                     <div
                         className="mt-3 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between"
                         data-testid="session-recovery-actions"
+                        data-recovery-state={recoveryDraft.recoveryState}
                     >
-                        <span className="font-medium text-foreground/80">
-                            A locally saved transcript draft is available.
+                        <span className="font-medium text-foreground/80" data-testid="session-recovery-message">
+                            {recoveryDraft.recoveryState === 'finalized_pending_save'
+                                ? 'Your last session finished but was not saved. Its measurements were kept on this device; no transcript was stored.'
+                                : (recoveryDraft.metrics?.totalWords ?? 0) > 0
+                                    ? 'Your last session was interrupted before it was saved. No transcript was saved, and only partial measurements were captured.'
+                                    : 'Your last session was interrupted before it was saved. No transcript was saved.'}
                         </span>
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            {/* ONE action, and it does exactly what it says. There is no content to put
+                                back, so there is no restore affordance to offer. */}
                             <Button
                                 type="button"
                                 variant="outline"
-                                size="sm"
-                                onClick={() => restoreRecoveryDraft(recoveryDraft)}
-                                data-testid="session-recovery-restore"
-                            >
-                                Restore draft
-                            </Button>
-                            <Button
-                                type="button"
-                                variant="ghost"
                                 size="sm"
                                 onClick={() => dismissRecoveryDraft(recoveryDraft)}
                                 data-testid="session-recovery-dismiss"
