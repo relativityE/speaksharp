@@ -10,6 +10,11 @@ This document maps the test estate into release-candidate buckets. The goal is n
 
 ## Executive Summary
 
+> **The counts below are a 2026-07-20 measurement and are NOT updated here.** A count edited to match
+> today's tree would stop being the evidence this file exists to hold. Many test files have been added
+> since — the #1304 certification suites among them. For current test/gate authority see
+> [`QUALITY.md`](./QUALITY.md); for current release posture see [`RELEASE_STATUS.md`](./RELEASE_STATUS.md).
+
 Test inventory by file count — **regenerated from the repo on 2026-07-20** (`find` over the current tree; backend lives under `backend/supabase/`):
 
 | Bucket | Location (glob) | Test Files | Counts Toward RC Gate? |

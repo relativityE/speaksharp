@@ -1,5 +1,13 @@
 # Beta-50 Release Evidence — v0.9.0-rc0
 
+> **HISTORICAL EVIDENCE — point-in-time measurement, NOT current release truth.**
+> This report records what was measured on its own date. It is **not** rewritten to look current, and it
+> must not be: a measurement edited to match today's posture stops being evidence of anything.
+> Current release posture: [`RELEASE_STATUS.md`](../RELEASE_STATUS.md). Current work sequencing:
+> [`ACTIVE_COORDINATION.md`](../ACTIVE_COORDINATION.md).
+> STT model selection is **not complete** — no Private model has been chosen; any model ranking below
+> predates the #1304 certified harness and its frozen corpus.
+
 **Date:** 2026-07-09
 **Purpose:** controlled **50-user** beta sell-off (NOT 100). This packet is the single source for the GO / CONDITIONAL GO / NO-GO decision.
 **Rule:** Beta-50 is NOT declared ready from CI, merge status, release branch, or tag alone. The deployed-app QA runs (Sections 4–9) are required.

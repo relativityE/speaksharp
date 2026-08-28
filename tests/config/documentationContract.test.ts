@@ -504,6 +504,36 @@ describe('#1258 currency guard — the two agent-starting SSOTs must not contrad
     }
   });
 
+  it('every DATED evidence report outside the archive carries a historical banner', () => {
+    // Dated reports are historical evidence and must NOT be rewritten to look current — a measurement
+    // edited to match today's posture stops being evidence of anything. What they need instead is a
+    // banner and a pointer, so a reader cannot mistake a June measurement for current truth. Eleven of
+    // them had neither.
+    const evidenceDir = path.join(DOCS, 'evidence');
+    const dated: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir)) {
+        const full = path.join(dir, entry);
+        if (fs.statSync(full).isDirectory()) { walk(full); continue; }
+        if (!entry.endsWith('.md')) continue;
+        const body = fs.readFileSync(full, 'utf8');
+        if (!/20(25|26)-\d\d-\d\d/.test(body)) continue;
+        if (!/HISTORICAL/i.test(body)) dated.push(path.relative(DOCS, full));
+      }
+    };
+    walk(evidenceDir);
+    expect(dated, `dated evidence reports without a historical banner: ${dated.join(', ')}`).toEqual([]);
+  });
+
+  it('no historical evidence report titles itself "Current"', () => {
+    // Three did, directly above their own historical banners.
+    const reports = path.join(DOCS, 'evidence', 'test_reports');
+    for (const entry of fs.readdirSync(reports).filter((f) => f.endsWith('.md'))) {
+      const title = fs.readFileSync(path.join(reports, entry), 'utf8').split('\n')[0];
+      expect(title, `${entry} titles itself Current`).not.toMatch(/—\s*Current\s*$/);
+    }
+  });
+
   it('a fallback is defined by dependability, not by second-best WER', () => {
     // The judgement most likely to be lost between documents.
     expect(STATUS).toMatch(/fallback is not "second-lowest WER"|dependable across MORE devices/i);

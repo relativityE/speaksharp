@@ -1,4 +1,12 @@
-# Cloud STT Release Evidence — Current
+# Cloud STT Release Evidence — 2026-06-02 (historical)
+
+> **HISTORICAL EVIDENCE — point-in-time measurement, NOT current release truth.**
+> This report records what was measured on its own date. It is **not** rewritten to look current, and it
+> must not be: a measurement edited to match today's posture stops being evidence of anything.
+> Current release posture: [`RELEASE_STATUS.md`](../../RELEASE_STATUS.md). Current work sequencing:
+> [`ACTIVE_COORDINATION.md`](../../ACTIVE_COORDINATION.md).
+> STT model selection is **not complete** — no Private model has been chosen; any model ranking below
+> predates the #1304 certified harness and its frozen corpus.
 
 **Updated:** 2026-06-04T15:28Z
 **Scope:** AssemblyAI Cloud STT baseline, app journey, timing, tail/readability proof  

@@ -1,5 +1,13 @@
 # Beta-50 Option D — functional-QA sell-off
 
+> **HISTORICAL EVIDENCE — point-in-time measurement, NOT current release truth.**
+> This report records what was measured on its own date. It is **not** rewritten to look current, and it
+> must not be: a measurement edited to match today's posture stops being evidence of anything.
+> Current release posture: [`RELEASE_STATUS.md`](../../RELEASE_STATUS.md). Current work sequencing:
+> [`ACTIVE_COORDINATION.md`](../../ACTIVE_COORDINATION.md).
+> STT model selection is **not complete** — no Private model has been chosen; any model ranking below
+> predates the #1304 certified harness and its frozen corpus.
+
 **Scope:** the Option D functional QA gates (Browser · Private · Cloud paths + supporting surfaces), validated on the **deployed** production build. This is the **QA-gate verdict only** — the overall Beta-50 invite / release decision (incl. any latency / Ops gates) remains the release owner's call and is tracked in `RELEASE_STATUS.md`.
 
 **Deployed under test:** `899161b2` (`https://speaksharp-public.vercel.app`), test Pro account, read-only CDP on the instrumented Chrome, passive console/network monitor. Date: 2026-07-10.
