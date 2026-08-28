@@ -17,7 +17,7 @@ set -euo pipefail
 DEST="${1:-bench-corpus}"
 BASE="https://www.openslr.org/resources/12"
 
-# Expected byte counts. A mismatch means the upstream artifact changed and the pinned checksums no
+# Byte counts and official MD5s are pinned in verify-archive.mjs (OpenSLR md5sum.txt, read 2026-08-27).
 # longer describe what was downloaded — fail closed rather than proceed on a different corpus.
 declare -a SETS=("test-clean:346663984" "test-other:328757843")
 
@@ -45,13 +45,17 @@ for entry in "${SETS[@]}"; do
     echo "    size OK (${actual_bytes} bytes)"
 done
 
-echo "==> recording SHA-256 (the corpus's real identity)"
-if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum ./*.tar.gz > CHECKSUMS
-else
-    shasum -a 256 ./*.tar.gz > CHECKSUMS   # macOS
-fi
-cat CHECKSUMS
+echo "==> VERIFYING before extraction: byte count -> official MD5 -> SHA-256"
+# Layered, and the ORDER is the point. A byte count cannot see corruption at the correct length, and a
+# SHA-256 computed BEFORE the publisher's MD5 passes would pin whatever arrived — which is what the
+# first version of this script did and then called a pin.
+for entry in "${SETS[@]}"; do
+    name="${entry%%:*}"
+    node "$(dirname "$0")/verify-archive.mjs" "${name}.tar.gz" "${name}.tar.gz" || {
+        echo "FATAL: ${name}.tar.gz failed integrity verification — NOT extracting." >&2
+        exit 1
+    }
+done
 
 echo "==> extracting"
 for entry in "${SETS[@]}"; do tar xzf "${entry%%:*}.tar.gz"; done
