@@ -22,7 +22,8 @@ const setup = (kind: 'initial_save' | 'full_save' | 'attribution' | null, hasWor
     render(
         <UnresolvedRecoveryBanner
             pendingResolutionKind={kind}
-            hasRecoverableWords={hasWords}
+            hasTranscriptText={hasWords}
+            hasMeasurementsOnly={false}
             onRetry={onRetry as unknown as () => Promise<boolean>}
             onDiscard={onDiscard as unknown as () => Promise<{ outcome: 'discarded' | 'retryable' }>}
         />,
@@ -158,7 +159,8 @@ describe('#1033 A3/A4 unresolved-recording recovery surface', () => {
         const { unmount } = render(
             <UnresolvedRecoveryBanner
                 pendingResolutionKind={null}
-                hasRecoverableWords
+                hasTranscriptText
+                hasMeasurementsOnly={false}
                 onRetry={onRetry as unknown as () => Promise<boolean>}
                 onDiscard={onDiscard as unknown as () => Promise<{ outcome: 'discarded' | 'retryable' }>}
             />,
@@ -179,7 +181,8 @@ describe('#1033 A3/A4 unresolved-recording recovery surface', () => {
         const { unmount } = render(
             <UnresolvedRecoveryBanner
                 pendingResolutionKind="full_save"
-                hasRecoverableWords={false}
+                hasTranscriptText={false}
+                hasMeasurementsOnly={false}
                 onRetry={onRetry as unknown as () => Promise<boolean>}
                 onDiscard={onDiscard as unknown as () => Promise<{ outcome: 'discarded' | 'retryable' }>}
             />,
@@ -189,5 +192,101 @@ describe('#1033 A3/A4 unresolved-recording recovery surface', () => {
 
         setup('full_save', true);
         expect(screen.getByTestId('session-unresolved-message')).toHaveTextContent(/your words are still here/i);
+    });
+});
+
+/**
+ * #1360 — THE METRICS-ONLY STATE, which is where the remaining copy defect lived.
+ *
+ * The corrected recovery panel is suppressed while this banner is showing, so during the main retry
+ * path this banner is the ONLY thing the user reads. It used to take a single `hasRecoverableWords`
+ * that was true whenever a content-free draft carried a numeric `totalWords` — and then say "Your
+ * words are still here" and offer to remove "its recoverable transcript". No words and no transcript
+ * were ever stored. A COUNT of words is not words.
+ */
+describe('#1360 metrics-only: no transcript claim without transcript text', () => {
+    const renderMetricsOnly = (kind: 'initial_save' | 'full_save' = 'full_save') =>
+        render(
+            <UnresolvedRecoveryBanner
+                pendingResolutionKind={kind}
+                hasTranscriptText={false}
+                hasMeasurementsOnly
+                onRetry={async () => true}
+                onDiscard={async () => ({ outcome: 'discarded' as const })}
+            />,
+        );
+
+    it('does NOT say the user\'s words are still here', () => {
+        renderMetricsOnly();
+        expect(screen.getByTestId('session-unresolved-message').textContent ?? '')
+            .not.toMatch(/your words are still here/i);
+    });
+
+    it('says what actually survived — measurements on this device', () => {
+        renderMetricsOnly();
+        expect(screen.getByTestId('session-unresolved-message').textContent ?? '')
+            .toMatch(/measurements from this session are still on this device/i);
+    });
+
+    it('the discard confirmation does not promise to remove a transcript', async () => {
+        const user = userEvent.setup();
+        renderMetricsOnly();
+        // `userEvent`, not a raw `.click()`: the raw call does not flush React's state update, so the
+        // confirmation button never appears and the test fails for the wrong reason.
+        await user.click(screen.getByTestId('session-discard'));
+        const confirm = screen.getByTestId('session-discard-confirm').textContent ?? '';
+        expect(confirm).not.toMatch(/transcript will be removed/i);
+        expect(confirm).toMatch(/measurements will be removed/i);
+        expect(confirm).toMatch(/no transcript was stored/i);
+        // Still a real confirmation: destructive and irreversible.
+        expect(confirm).toMatch(/cannot be undone/i);
+    });
+
+    it('WITH transcript text, the transcript wording returns — the rule is conditional, not a ban', async () => {
+        // Positive control. Without it, simply deleting the transcript copy would pass every
+        // assertion above while making the banner wrong in the other direction.
+        const user = userEvent.setup();
+        render(
+            <UnresolvedRecoveryBanner
+                pendingResolutionKind="full_save"
+                hasTranscriptText
+                hasMeasurementsOnly={false}
+                onRetry={async () => true}
+                onDiscard={async () => ({ outcome: 'discarded' as const })}
+            />,
+        );
+        expect(screen.getByTestId('session-unresolved-message').textContent ?? '')
+            .toMatch(/your words are still here/i);
+        await user.click(screen.getByTestId('session-discard'));
+        expect(screen.getByTestId('session-discard-confirm').textContent)
+            .toBe(DISCARD_CONFIRMATION_COPY);
+    });
+
+    it('with NEITHER, it claims nothing about content at all', () => {
+        render(
+            <UnresolvedRecoveryBanner
+                pendingResolutionKind="initial_save"
+                hasTranscriptText={false}
+                hasMeasurementsOnly={false}
+                onRetry={async () => true}
+                onDiscard={async () => ({ outcome: 'discarded' as const })}
+            />,
+        );
+        const message = screen.getByTestId('session-unresolved-message').textContent ?? '';
+        expect(message).not.toMatch(/your words|transcript|measurements/i);
+    });
+
+    it('THE OLD INFERENCE FAILS: a numeric word count must not license transcript wording', async () => {
+        const user = userEvent.setup();
+        // This is the defect stated as a test. The old component derived one boolean from
+        // `totalWords > 0 || liveTranscript`, so a metrics-only draft rendered the transcript copy.
+        // The prop split makes that inference unrepresentable: there is no way to pass "a count" and
+        // have the transcript sentence appear.
+        renderMetricsOnly('initial_save');
+        const message = screen.getByTestId('session-unresolved-message').textContent ?? '';
+        expect(message).not.toMatch(/words/i);
+        await user.click(screen.getByTestId('session-discard'));
+        expect(screen.getByTestId('session-discard-confirm').textContent)
+            .not.toBe(DISCARD_CONFIRMATION_COPY);
     });
 });

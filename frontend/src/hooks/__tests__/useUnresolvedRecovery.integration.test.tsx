@@ -13,7 +13,7 @@ import { useSessionStore } from '@/stores/useSessionStore';
 // controller's rehydration primitive is spied so we can assert it is invoked exactly once, for the
 // right owner, and never for a foreign/ownerless draft.
 //
-// Model note: when the visible transcript is EMPTY the hook AUTO-RESTORES the owned draft (and the
+// Model note: when the visible transcript is EMPTY the hook AUTO-ACKNOWLEDGES the owned draft (and the
 // banner state clears); when a transcript is already on screen it KEEPS the draft for a manual
 // restore/dismiss banner. Tests set transcriptContent accordingly.
 const rehydrate = vi.fn();
@@ -44,18 +44,25 @@ beforeEach(() => {
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('#1033 A5/A6 — same-user recovery + cross-account isolation (integration)', () => {
-    it('1. same-user reload AUTO-RESTORES the owned draft (content-free status, no transcript) and rehydrates', async () => {
+    it('1. same-user reload AUTO-ACKNOWLEDGES the owned draft (content-free status, no transcript) and rehydrates', async () => {
         seed(USER_A, 'sess-A');
         renderHook(() => useUnresolvedRecovery(args({ authUserId: USER_A })));
-        expect(statusSpy).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/Recovered an unsaved session/) }));
+        // #1360: the status no longer says "Recovered an unsaved session". Nothing is recovered — the
+        // draft is content-free and this path clears it — so the message states what actually happened
+        // and what survived, and must not imply a transcript came back.
+        expect(statusSpy).toHaveBeenCalledWith(expect.objectContaining({
+            message: expect.stringMatching(/was not saved|was interrupted/),
+        }));
+        const [status] = statusSpy.mock.calls[0] as [{ message: string; detail?: string }];
+        expect(`${status.message} ${status.detail ?? ''}`).not.toMatch(/recovered|restore/i);
         await waitFor(() => expect(rehydrate).toHaveBeenCalledWith(USER_A));
     });
 
-    it('1b. with a transcript already on screen the owned draft is KEPT for a manual restore banner', () => {
+    it('1b. with a transcript already on screen the owned draft is KEPT for the manual dismiss banner', () => {
         seed(USER_A, 'sess-A');
         const { result } = renderHook(() => useUnresolvedRecovery(args({ authUserId: USER_A, transcriptContent: 'on screen' })));
         expect(result.current.recoveryDraft?.sessionId).toBe('sess-A');
-        expect(statusSpy).not.toHaveBeenCalled(); // not auto-restored while visible text exists
+        expect(statusSpy).not.toHaveBeenCalled(); // not auto-acknowledged while visible text exists
     });
 
     it('2. React Strict Mode / re-renders rehydrate EXACTLY ONCE', async () => {
@@ -135,7 +142,9 @@ describe('#1033 A5/A6 — same-user recovery + cross-account isolation (integrat
     it('prop-wiring: exposes restore + dismiss; dismiss clears the OWNED draft by its own session id', () => {
         seed(USER_A, 'sess-A');
         const { result } = renderHook(() => useUnresolvedRecovery(args({ authUserId: USER_A, transcriptContent: 'on screen' })));
-        expect(typeof result.current.restoreRecoveryDraft).toBe('function');
+        // #1360: renamed from `restoreRecoveryDraft`. It never restored anything — it clears the draft
+        // and reports what survived — and the old name told every reader of this file otherwise.
+        expect(typeof result.current.acknowledgeRecoveryDraft).toBe('function');
         expect(typeof result.current.dismissRecoveryDraft).toBe('function');
         act(() => result.current.dismissRecoveryDraft(fullDraft(USER_A, 'sess-A')));
         expect(getSessionRecoveryDraft()).toBeNull();

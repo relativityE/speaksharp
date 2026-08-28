@@ -42,14 +42,24 @@ export function useUnresolvedRecovery({
     // #1306: recovery is CONTENT-FREE — there is no transcript to rehydrate into the UI. A finalized draft's
     // metrics are re-armed for a save retry by the controller (rehydrateUnresolvedRecording); an interrupted
     // draft carries only partial counters and cannot be completed. Here we just surface an honest status.
-    const restoreRecoveryDraft = React.useCallback((draft: SessionRecoveryDraft) => {
+    /**
+     * ACKNOWLEDGE, not restore. This clears the draft and reports what actually survived; it has never
+     * put anything back, and the old name said otherwise to every reader of this file.
+     *
+     * The draft is CONTENT-FREE by construction (see `sessionRecoveryDraft.ts`: fields are whitelisted,
+     * and a legacy transcript-bearing draft is refused outright). So no wording here may suggest a
+     * transcript came back — there is none to come back.
+     */
+    const acknowledgeRecoveryDraft = React.useCallback((draft: SessionRecoveryDraft) => {
         clearSessionRecoveryDraft(draft.sessionId);
         setRecoveredStatus({
             type: 'warning',
-            message: 'Recovered an unsaved session.',
+            message: draft.recoveryState === 'finalized_pending_save'
+                ? 'Your last session finished but was not saved.'
+                : 'Your last session was interrupted before it was saved.',
             detail: draft.recoveryState === 'finalized_pending_save'
-                ? 'Your last session’s measurements were kept on this device.'
-                : 'Your last session was interrupted; only partial measurements were available.',
+                ? 'Its measurements were kept on this device. No transcript was stored.'
+                : 'No transcript was saved. Only partial measurements were captured.',
         });
         setRecoveryDraft(null);
     }, [setRecoveredStatus]);
@@ -76,8 +86,8 @@ export function useUnresolvedRecovery({
         const draft = getRecoverableDraftForUser(authUserId);
         setRecoveryDraft(draft);
         if (!draft || transcriptContent.trim()) return;
-        restoreRecoveryDraft(draft);
-    }, [isListening, sessionSaved, restoreRecoveryDraft, transcriptContent, authUserId]);
+        acknowledgeRecoveryDraft(draft);
+    }, [isListening, sessionSaved, acknowledgeRecoveryDraft, transcriptContent, authUserId]);
 
     // A5 + A6 in ONE effect (avoids cross-effect ordering fragility between the rehydrate-dedup and the
     // account-change reset): whenever the resolved owner CHANGES to a new value we have not yet
@@ -103,5 +113,5 @@ export function useUnresolvedRecovery({
         setRecoveryDraft(null);
     }, []);
 
-    return { recoveryDraft, restoreRecoveryDraft, dismissRecoveryDraft };
+    return { recoveryDraft, acknowledgeRecoveryDraft, dismissRecoveryDraft };
 }
