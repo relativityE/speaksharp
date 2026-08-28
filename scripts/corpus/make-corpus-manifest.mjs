@@ -19,6 +19,7 @@
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { verifyArchive } from './verify-archive.mjs';
 
 const SEED = 'speaksharp-1304-v1';
 const SUBSET_SIZE = 300;
@@ -83,13 +84,26 @@ function readUtterances(setDir) {
     return out;
 }
 
-function main() {
+async function main() {
     const root = resolve(process.cwd(), process.argv[2] ?? 'bench-corpus');
-    const checksumsPath = join(root, 'CHECKSUMS');
-    if (!existsSync(checksumsPath)) {
-        console.error(`FATAL: ${checksumsPath} missing. Run scripts/corpus/fetch-librispeech.sh first —`);
-        console.error('       a manifest without the archive checksums cannot identify what it describes.');
-        process.exit(1);
+
+    // THE MANIFEST RE-VERIFIES THE ARCHIVES ITSELF, in pinned mode, before describing anything.
+    //
+    // The previous version read a `CHECKSUMS` file that the fetch script had written from its own
+    // `sha256sum` of whatever downloaded — so the manifest's claim to identity was a hash of the file
+    // it was already describing. That is circular: it would have happily identified a corrupted corpus.
+    // Running the real verifier here means the manifest cannot be produced from archives that do not
+    // match the publisher's MD5 and our committed pin.
+    const archives = {};
+    for (const set of SETS) {
+        const name = `${set}.tar.gz`;
+        const result = await verifyArchive({ path: join(root, name), name, mode: 'pinned' });
+        if (!result.ok) {
+            console.error(`FATAL: ${name} failed pinned verification (${result.reason}: ${result.detail}).`);
+            console.error('       A manifest cannot describe a corpus whose archives are unverified.');
+            process.exit(1);
+        }
+        archives[name] = { bytes: result.bytes, officialMd5: result.md5, sha256: result.sha256 };
     }
 
     const subsets = {};
@@ -112,9 +126,9 @@ function main() {
             'LibriSpeech ASR corpus, Panayotov et al., ICASSP 2015. https://www.openslr.org/12/ — CC BY 4.0.',
         seed: SEED,
         subsetSize: SUBSET_SIZE,
-        // The archives' SHA-256s: the corpus's real identity. A size can coincide; a digest cannot.
-        archiveChecksums: readFileSync(checksumsPath, 'utf8').trim().split('\n').map((l) => l.trim()),
-        archiveBytes: { 'test-clean.tar.gz': 346663984, 'test-other.tar.gz': 328757843 },
+        // The corpus's real identity, recorded from the verification this run actually performed —
+        // not restated from a table, and not read back from a file we wrote ourselves.
+        archives,
         counts,
         generatorSha256: createHash('sha256')
             .update(readFileSync(new URL(import.meta.url), 'utf8')).digest('hex'),
@@ -127,4 +141,6 @@ function main() {
     for (const set of SETS) console.log(`  ${set}: ${counts[set].selected} of ${counts[set].available}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (import.meta.url === `file://${process.argv[1]}`) {
+    main().catch((e) => { console.error(e); process.exit(1); });
+}
