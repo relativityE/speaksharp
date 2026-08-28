@@ -11,10 +11,10 @@
  * arithmetic that has been run and checked. Each of those is proven by executing it.
  */
 import { runOracleVectorGate, type OracleGateResult } from './scoringAdapter';
-import { checkRouteParity, type RouteParityResult } from './routeParity';
+import { checkRouteParity, type RouteExpectation, type RouteParityResult } from './routeParity';
 import { checkProvenance, type ProvenanceCheck } from './provenance';
 import { CERTIFICATION_RULES } from './rules';
-import type { DecodeArm } from './engineArm';
+import type { DecodeArm, RouteHonorReport } from './engineArm';
 
 export interface CertificationResult {
     certified: boolean;
@@ -22,6 +22,8 @@ export interface CertificationResult {
     armId: string;
     gates: {
         routeParity: RouteParityResult;
+        /** Present only when a probe was supplied — see `certifyArmWithHonorProbe`. */
+        routeHonored: RouteHonorReport | null;
         oracleVectors: OracleGateResult;
         provenance: ProvenanceCheck;
     };
@@ -29,13 +31,18 @@ export interface CertificationResult {
     failedGates: string[];
 }
 
+/**
+ * Certify from the gates that need no audio. `routeHonored` is null here, and an arm certified this
+ * way has NOT been shown to have its route applied — only declared. Use `certifyArmWithHonorProbe`
+ * before measuring anything.
+ */
 export function certifyArm(
     arm: DecodeArm,
-    engine: 'v2' | 'v4',
-    modelId: string,
+    expectation: RouteExpectation,
     oracleVectors: readonly { category: string; input: string; expected: string }[],
+    routeHonored: RouteHonorReport | null = null,
 ): CertificationResult {
-    const routeParity = checkRouteParity(arm, engine, modelId);
+    const routeParity = checkRouteParity(arm, expectation);
     const oracle = runOracleVectorGate(oracleVectors);
     const provenance = checkProvenance(arm.provenance());
 
@@ -43,12 +50,50 @@ export function certifyArm(
     if (!routeParity.ok) failedGates.push('route_parity');
     if (!oracle.ok) failedGates.push('oracle_vectors');
     if (!provenance.ok) failedGates.push('provenance');
+    if (routeHonored !== null) {
+        // A requested setting the runtime silently dropped, or a device it cannot show it used.
+        if (routeHonored.timestampsRequested !== routeHonored.timestampsReturned) failedGates.push('route_not_honored');
+        // A DEVICE CLAIM must be proven; an accuracy arm makes none and is not asked to.
+        if (routeHonored.deviceClaim !== 'none') {
+            if (!routeHonored.deviceVerifiable) failedGates.push('device_unverifiable');
+            // Echoing the requested device back tells you nothing about what actually ran.
+            if (routeHonored.deviceResolved === null) failedGates.push('backend_unresolved');
+        }
+    }
 
     return {
         certified: failedGates.length === 0,
         rulesVersion: CERTIFICATION_RULES.version,
         armId: arm.id,
-        gates: { routeParity, oracleVectors: oracle, provenance },
+        gates: { routeParity, routeHonored, oracleVectors: oracle, provenance },
         failedGates,
     };
+}
+
+/**
+ * The full certification: everything above, plus a real short decode proving the runtime APPLIED the
+ * route rather than merely accepting it. This is the form that gates a measurement.
+ */
+export async function certifyArmWithHonorProbe(
+    arm: DecodeArm,
+    expectation: RouteExpectation,
+    oracleVectors: readonly { category: string; input: string; expected: string }[],
+    probeAudio: Float32Array,
+    probeSeconds: number,
+): Promise<CertificationResult> {
+    let honored: RouteHonorReport;
+    try {
+        honored = await arm.probeRouteHonored(probeAudio, probeSeconds);
+    } catch (error) {
+        honored = {
+            timestampsRequested: true,
+            timestampsReturned: false,
+            deviceRequested: 'unknown',
+            deviceClaim: 'none',
+            deviceResolved: null,
+            deviceVerifiable: false,
+            detail: `probe threw: ${error instanceof Error ? error.message : String(error)}`,
+        };
+    }
+    return certifyArm(arm, expectation, oracleVectors, honored);
 }

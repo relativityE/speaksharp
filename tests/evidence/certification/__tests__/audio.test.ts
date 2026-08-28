@@ -139,6 +139,64 @@ describe('a mismatch is REFUSED, never reinterpreted', () => {
     });
 });
 
+describe('a TRUNCATED file is refused, not quietly shortened (blocker 4)', () => {
+    const refusalReason = (name: string, buffer: Buffer): string => {
+        const path = write(name, buffer);
+        try {
+            decodeWav(path);
+        } catch (error) {
+            if (error instanceof AudioFormatError) return error.reason;
+            return `threw the wrong error type: ${String(error)}`;
+        }
+        return 'DECODED — no refusal';
+    };
+
+    const longWav = () => makeWav({ samples: Array.from({ length: 400 }, (_, i) => (i % 200) - 100) });
+
+    it('a file cut short mid-data fails on the RIFF size — the outer check catches it first', () => {
+        // `subarray` CLAMPS. A download that stopped halfway used to decode, score, and drag an arm's
+        // WER down for a reason nothing recorded — the clip was simply shorter than its transcript.
+        // Layered like the archive chain: the cheapest check fires first, and it is enough here.
+        const full = longWav();
+        // Cut RELATIVE to the file's own length. A fixed byte offset was wrong: this fixture is only
+        // ~844 bytes, so "cut at 900" removed nothing and the file decoded perfectly.
+        const cut = full.subarray(0, Math.floor(full.length * 0.6));
+        expect(cut.length).toBeLessThan(full.length);
+        expect(refusalReason('cut.wav', cut)).toBe('truncated_riff');
+    });
+
+    it('a data chunk over-declaring inside a CONSISTENT RIFF still fails', () => {
+        // The case the outer check cannot see: the file's overall size is honest, but the data chunk
+        // claims more bytes than follow it. Without this, the inner check would never run.
+        const buffer = longWav();
+        const dataAt = buffer.indexOf(Buffer.from('data'));
+        buffer.writeUInt32LE(buffer.readUInt32LE(dataAt + 4) + 64, dataAt + 4);
+        expect(refusalReason('overdeclared.wav', buffer)).toBe('truncated_data_chunk');
+    });
+
+    it('the SAME file untruncated decodes — so the refusal is about the cut, not the fixture', () => {
+        expect(decodeWav(write('uncut.wav', longWav())).samples).toHaveLength(400);
+    });
+
+    it('a RIFF header claiming more than the file holds fails', () => {
+        const buffer = makeWav();
+        buffer.writeUInt32LE(buffer.length * 4, 4);
+        expect(refusalReason('bigriff.wav', buffer)).toBe('truncated_riff');
+    });
+
+    it('a data chunk of zero length is refused rather than scored as silence', () => {
+        // Zero samples score as an empty hypothesis on every clip — a total miss attributed to the
+        // model rather than to the file.
+        expect(refusalReason('silent.wav', makeWav({ samples: [] }))).toBe('empty_audio');
+    });
+
+    it('the committed fixtures pass the truncation checks', () => {
+        // A regression here would mean the checks are too strict, not that the fixtures are broken.
+        expect(decodeWav('tests/fixtures/corpus-longform/long-01.wav').samples.length).toBeGreaterThan(0);
+        expect(decodeWav('tests/fixtures/stt-isomorphic/audio/h1_1.wav').samples.length).toBeGreaterThan(0);
+    });
+});
+
 describe('the committed fixtures decode as the branches they are meant to exercise', () => {
     it('the long-form fixture is over 30s and the short one is under', () => {
         // If these ever stopped straddling the window, the certification controls would silently prove

@@ -14,7 +14,22 @@ export interface ProvenanceCheck {
     missing: RequiredProvenanceField[];
     /** Fields present in shape but carrying nothing — an empty digest map is not provenance. */
     empty: string[];
+    /** Fields carrying a placeholder such as `unknown`, which is an absent value that reads as answered. */
+    placeholder: string[];
 }
+
+/**
+ * Values that LOOK like provenance and carry none. `runtime: { version: 'unknown' }` passed every
+ * emptiness check while saying precisely as much as an absent field — and worse, it said it in a shape
+ * that reads as answered. A placeholder is a missing value wearing a value's clothes.
+ */
+const PLACEHOLDERS = new Set([
+    'unknown', 'unpinned', 'n/a', 'na', 'none', 'null', 'undefined', 'tbd', 'todo',
+    'placeholder', 'default', '-', '?', 'xxx', 'foo', 'bar', 'test',
+]);
+
+export const isPlaceholder = (v: unknown): boolean =>
+    typeof v === 'string' && PLACEHOLDERS.has(v.trim().toLowerCase());
 
 const isBlank = (v: unknown): boolean =>
     v === null || v === undefined || (typeof v === 'string' && v.trim().length === 0);
@@ -26,9 +41,10 @@ const isEmptyRecord = (v: unknown): boolean =>
 export function checkProvenance(provenance: ArmProvenance | null | undefined): ProvenanceCheck {
     const missing: RequiredProvenanceField[] = [];
     const empty: string[] = [];
+    const placeholder: string[] = [];
 
     if (!provenance) {
-        return { ok: false, missing: [...CERTIFICATION_RULES.requiredProvenance], empty };
+        return { ok: false, missing: [...CERTIFICATION_RULES.requiredProvenance], empty, placeholder };
     }
 
     for (const field of CERTIFICATION_RULES.requiredProvenance) {
@@ -39,9 +55,21 @@ export function checkProvenance(provenance: ArmProvenance | null | undefined): P
         // One level down: a `model` whose `id` is blank is not a model, and a `filesSha256` with no
         // entries is a promise of digests rather than digests.
         for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
-            if (isBlank(inner) || isEmptyRecord(inner)) empty.push(`${field}.${key}`);
+            if (isBlank(inner) || isEmptyRecord(inner)) { empty.push(`${field}.${key}`); continue; }
+            if (isPlaceholder(inner)) { placeholder.push(`${field}.${key}`); continue; }
+            // A digest map whose values are placeholders is a map of nothing.
+            if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+                for (const [k, v] of Object.entries(inner as Record<string, unknown>)) {
+                    if (isBlank(v) || isPlaceholder(v)) placeholder.push(`${field}.${key}.${k}`);
+                }
+            }
         }
     }
 
-    return { ok: missing.length === 0 && empty.length === 0, missing, empty };
+    return {
+        ok: missing.length === 0 && empty.length === 0 && placeholder.length === 0,
+        missing,
+        empty,
+        placeholder,
+    };
 }

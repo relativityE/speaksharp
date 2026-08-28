@@ -17,8 +17,20 @@ export interface DecodedAudio {
     seconds: number;
 }
 
+export type AudioFormatReason =
+    | 'not_a_wav'
+    | 'truncated_riff'
+    | 'missing_fmt_chunk'
+    | 'missing_data_chunk'
+    | 'truncated_data_chunk'
+    | 'not_pcm'
+    | 'not_mono'
+    | 'not_16_bit'
+    | 'wrong_sample_rate'
+    | 'empty_audio';
+
 export class AudioFormatError extends Error {
-    constructor(readonly reason: string, detail: string) {
+    constructor(readonly reason: AudioFormatReason, detail: string) {
         super(`${reason}: ${detail}`);
         this.name = 'AudioFormatError';
     }
@@ -37,6 +49,16 @@ export function decodeWav(path: string): DecodedAudio {
         throw new AudioFormatError('not_a_wav', path);
     }
 
+    // The RIFF header declares the size of everything after it. A mismatch means the file is not the
+    // file it says it is, and every duration computed from it would be wrong.
+    const declaredRiffSize = buffer.readUInt32LE(4);
+    if (declaredRiffSize + 8 > buffer.length) {
+        throw new AudioFormatError(
+            'truncated_riff',
+            `RIFF declares ${declaredRiffSize + 8} bytes, file holds ${buffer.length}`,
+        );
+    }
+
     let offset = 12;
     let format: { audioFormat: number; channels: number; sampleRate: number; bitsPerSample: number } | null = null;
     let data: Buffer | null = null;
@@ -53,6 +75,16 @@ export function decodeWav(path: string): DecodedAudio {
                 bitsPerSample: buffer.readUInt16LE(body + 14),
             };
         } else if (id === 'data') {
+            // A TRUNCATED FILE IS NOT A SHORT FILE. `subarray` clamps silently, so a download that
+            // stopped halfway produced a shorter clip that decoded, scored, and dragged an arm's WER
+            // down for a reason nothing recorded. The declared size is the file's own claim about
+            // itself; if the bytes are not there, the claim is false.
+            if (body + size > buffer.length) {
+                throw new AudioFormatError(
+                    'truncated_data_chunk',
+                    `data chunk declares ${size} bytes, file holds ${buffer.length - body}`,
+                );
+            }
             data = buffer.subarray(body, body + size);
         }
         // Chunks are word-aligned; an odd size carries a pad byte.
@@ -71,6 +103,9 @@ export function decodeWav(path: string): DecodedAudio {
     }
 
     const count = Math.floor(data.length / 2);
+    // Zero samples would score as an empty hypothesis on every clip — a total miss attributed to the
+    // model rather than to the file.
+    if (count === 0) throw new AudioFormatError('empty_audio', path);
     const samples = new Float32Array(count);
     // 16-bit signed PCM spans -32768..32767; dividing by 32768 keeps the range within [-1, 1).
     for (let i = 0; i < count; i++) samples[i] = data.readInt16LE(i * 2) / 32768;

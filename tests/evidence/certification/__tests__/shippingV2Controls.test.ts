@@ -34,6 +34,7 @@ import { decodeWav } from '../audio';
 import { certifyArm } from '../certify';
 import { scoreUtterance, aggregateArm, type CorpusScore } from '../scoringAdapter';
 import type { CertificationResult } from '../certify';
+import type { CandidateRoute } from '../candidateRoute';
 
 const MODEL = 'whisper-base.en';
 const ORACLE = (goldens as unknown as { cases: { category: string; input: string; expected: string }[] }).cases;
@@ -48,6 +49,10 @@ const arm = createTransformersV2Arm({
     },
 });
 
+/** Every arm in this file is a Whisper arm; a Moonshine route has no stride to read. */
+const whisperStride = (route: CandidateRoute): number =>
+    route.family === 'whisper' ? route.decode.stride_length_s : -1;
+
 interface Control { seconds: number; stride: number; score: CorpusScore }
 let certification: CertificationResult;
 let shortControl: Control;
@@ -55,14 +60,14 @@ let longControl: Control;
 let harvardScores: CorpusScore[];
 
 beforeAll(async () => {
-    certification = certifyArm(arm, 'v2', MODEL, ORACLE);
+    certification = certifyArm(arm, { family: 'whisper', engine: 'v2', modelId: MODEL }, ORACLE);
 
     const run = async (id: string, wav: string, reference: string): Promise<Control> => {
         const audio = decodeWav(wav);
         const hypothesis = await arm.decode(audio.samples, audio.seconds);
         return {
             seconds: audio.seconds,
-            stride: arm.declareRoute(audio.seconds).stride_length_s,
+            stride: whisperStride(arm.declareRoute(audio.seconds)),
             score: scoreUtterance(id, reference, hypothesis),
         };
     };

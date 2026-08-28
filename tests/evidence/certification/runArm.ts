@@ -55,7 +55,11 @@ export type ArmRunResult =
     | {
           ok: false;
           /** Why no row exists. Absence is always explained. */
-          reason: 'not_certified' | 'incomplete_provenance' | 'unscoreable_arm';
+          reason:
+              | 'not_certified'
+              | 'certificate_arm_mismatch'
+              | 'incomplete_provenance'
+              | 'unscoreable_arm';
           detail: string;
           scores: readonly CorpusScore[];
           aggregate: AggregateWer | null;
@@ -78,6 +82,21 @@ export async function runArm(
     const expectedIds = utterances.map((u) => u.id);
     const scores: CorpusScore[] = [];
     const decodeFailures: DecodeFailure[] = [];
+
+    // A CERTIFICATE IS NOT TRANSFERABLE. Nothing previously tied the certification to the arm being
+    // run, so one model could be measured under another model's certificate — including a certificate
+    // earned by an arm on a different route, device or model entirely.
+    if (certification.armId !== arm.id) {
+        return {
+            ok: false,
+            reason: 'certificate_arm_mismatch',
+            detail: `certificate belongs to ${certification.armId}, run is ${arm.id}`,
+            scores,
+            aggregate: null,
+            decodeFailures,
+            certification,
+        };
+    }
 
     if (!certification.certified) {
         return {
@@ -118,7 +137,7 @@ export async function runArm(
         return {
             ok: false,
             reason: 'incomplete_provenance',
-            detail: [...provenanceCheck.missing, ...provenanceCheck.empty].join(','),
+            detail: [...provenanceCheck.missing, ...provenanceCheck.empty, ...provenanceCheck.placeholder].join(','),
             scores,
             aggregate,
             decodeFailures,

@@ -20,20 +20,25 @@ import { certifyArm } from '../certify';
 import { runArm, type CorpusUtterance } from '../runArm';
 import type { ArmProvenance, DecodeArm } from '../engineArm';
 import {
-    resolveDecodeRoute,
-    routeHash,
+    resolveWhisperRoute,
+    resolveMoonshineRoute,
+    candidateRouteHash,
     DECODE_WINDOW_SECONDS,
-} from '../../../../frontend/src/services/transcription/decodeRoute';
+} from '../candidateRoute';
 
 const ORACLE_VECTORS = (goldens as unknown as { cases: { category: string; input: string; expected: string }[] }).cases;
 const MODEL_ID = 'Xenova/whisper-base.en';
+const WHISPER_V2 = { family: 'whisper', engine: 'v2', modelId: MODEL_ID } as const;
 
 const provenanceOf = (): ArmProvenance => ({
     model: { id: MODEL_ID, revision: 'abc123', filesSha256: { 'model.onnx': 'a'.repeat(64) } },
     runtime: { library: '@xenova/transformers', version: '2.17.2', backend: 'wasm' },
     assets: { source: 'self-hosted /models/', verdict: 'identical' },
     device: { platform: 'darwin', arch: 'arm64', cpuModel: 'Apple M-series', cores: 10 },
-    route: { hash: routeHash(resolveDecodeRoute('v2', MODEL_ID, 4.2)), route: resolveDecodeRoute('v2', MODEL_ID, 4.2) },
+    route: {
+        hash: candidateRouteHash(resolveWhisperRoute('v2', MODEL_ID, 4.2)),
+        route: resolveWhisperRoute('v2', MODEL_ID, 4.2),
+    },
     corpus: { version: 'librispeech_test_v1', archives: { 'test-clean.tar.gz': 'b'.repeat(64) } },
     resources: { wallClockMs: 1234, peakRssBytes: 2_000_000 },
 });
@@ -41,8 +46,17 @@ const provenanceOf = (): ArmProvenance => ({
 /** An arm that decodes from a fixed lookup — deterministic, so the expected arithmetic is knowable. */
 const makeArm = (transcripts: Record<string, string | null>, overrides: Partial<DecodeArm> = {}): DecodeArm => ({
     id: 'injected-arm',
-    declareRoute: (seconds) => resolveDecodeRoute('v2', MODEL_ID, seconds),
+    declareRoute: (seconds) => resolveWhisperRoute('v2', MODEL_ID, seconds),
     decode: async (_audio, seconds) => transcripts[String(seconds)] ?? null,
+    probeRouteHonored: async () => ({
+        timestampsRequested: true,
+        timestampsReturned: true,
+        deviceRequested: 'injected',
+        deviceClaim: 'none' as const,
+        deviceResolved: 'injected-backend',
+        deviceVerifiable: true,
+        detail: 'injected engine',
+    }),
     provenance: provenanceOf,
     ...overrides,
 });
@@ -122,12 +136,12 @@ describe('GATE — route parity with the shipping decode path', () => {
         // If every probe landed on the same branch, parity would be checked three times over the same
         // configuration and the long-form path would go unverified while appearing covered.
         const strides = Object.values(PARITY_PROBE_SECONDS)
-            .map((s) => resolveDecodeRoute('v2', MODEL_ID, s).stride_length_s);
+            .map((s) => resolveWhisperRoute('v2', MODEL_ID, s).decode.stride_length_s);
         expect(new Set(strides).size).toBe(2);
     });
 
     it('an arm resolving from the shipping module passes', () => {
-        const result = checkRouteParity(makeArm({}), 'v2', MODEL_ID);
+        const result = checkRouteParity(makeArm({}), WHISPER_V2);
         expect(result.ok).toBe(true);
         expect(result.probes.map((p) => p.probe)).toEqual(['short', 'boundary', 'long']);
     });
@@ -137,30 +151,38 @@ describe('GATE — route parity with the shipping decode path', () => {
         // 5-second stride on clips far below the context window. It measures a configuration no user
         // runs, and it must not be certifiable.
         const arm = makeArm({}, {
-            declareRoute: (seconds) => ({ ...resolveDecodeRoute('v2', MODEL_ID, seconds), stride_length_s: 5 }),
+            declareRoute: (seconds) => {
+                const route = resolveWhisperRoute('v2', MODEL_ID, seconds);
+                return { ...route, decode: { ...route.decode, stride_length_s: 5 } };
+            },
         });
-        const result = checkRouteParity(arm, 'v2', MODEL_ID);
+        const result = checkRouteParity(arm, WHISPER_V2);
         expect(result.ok).toBe(false);
         expect(result.probes.find((p) => p.probe === 'short')?.matched).toBe(false);
     });
 
     it('an arm that omits timestamps is refused', () => {
         const arm = makeArm({}, {
-            declareRoute: (seconds) => ({ ...resolveDecodeRoute('v2', MODEL_ID, seconds), return_timestamps: false }),
+            declareRoute: (seconds) => {
+                const route = resolveWhisperRoute('v2', MODEL_ID, seconds);
+                return { ...route, decode: { ...route.decode, return_timestamps: false } };
+            },
         });
-        expect(checkRouteParity(arm, 'v2', MODEL_ID).ok).toBe(false);
+        expect(checkRouteParity(arm, WHISPER_V2).ok).toBe(false);
     });
 
     it('an arm that agrees everywhere EXCEPT the boundary is refused', () => {
         // The boundary is where an off-by-one lives: the product uses `<`, so the window itself is
         // long-form. Short and long probes alone would both pass.
         const arm = makeArm({}, {
-            declareRoute: (seconds) =>
-                seconds === DECODE_WINDOW_SECONDS
-                    ? { ...resolveDecodeRoute('v2', MODEL_ID, seconds), stride_length_s: 0 }
-                    : resolveDecodeRoute('v2', MODEL_ID, seconds),
+            declareRoute: (seconds) => {
+                const route = resolveWhisperRoute('v2', MODEL_ID, seconds);
+                return seconds === DECODE_WINDOW_SECONDS
+                    ? { ...route, decode: { ...route.decode, stride_length_s: 0 } }
+                    : route;
+            },
         });
-        const result = checkRouteParity(arm, 'v2', MODEL_ID);
+        const result = checkRouteParity(arm, WHISPER_V2);
         expect(result.ok).toBe(false);
         expect(result.probes.filter((p) => !p.matched).map((p) => p.probe)).toEqual(['boundary']);
     });
@@ -232,7 +254,7 @@ describe('END TO END — audio to a pooled WER, on an injected engine', () => {
         '3': 'birds fly quickly and',
     };
 
-    const certifyInjected = (arm: DecodeArm) => certifyArm(arm, 'v2', MODEL_ID, ORACLE_VECTORS);
+    const certifyInjected = (arm: DecodeArm) => certifyArm(arm, WHISPER_V2, ORACLE_VECTORS);
 
     it('produces the hand-computed pooled WER, and the S/D/I that make it up', async () => {
         const arm = makeArm(TRANSCRIPTS);
@@ -261,7 +283,10 @@ describe('END TO END — audio to a pooled WER, on an injected engine', () => {
 
     it('an UNCERTIFIED arm produces no row at all', async () => {
         const arm = makeArm(TRANSCRIPTS, {
-            declareRoute: (seconds) => ({ ...resolveDecodeRoute('v2', MODEL_ID, seconds), stride_length_s: 5 }),
+            declareRoute: (seconds) => {
+                const route = resolveWhisperRoute('v2', MODEL_ID, seconds);
+                return { ...route, decode: { ...route.decode, stride_length_s: 5 } };
+            },
         });
         const result = await runArm(arm, certifyInjected(arm), UTTERANCES);
         expect(result.ok).toBe(false);
@@ -344,5 +369,167 @@ describe('END TO END — audio to a pooled WER, on an injected engine', () => {
         if (!result.ok) throw new Error(result.reason);
         expect(result.row.rulesVersion).toBe(CERTIFICATION_RULES.version);
         expect(result.row.armId).toBe('injected-arm');
+    });
+});
+
+/**
+ * VARIANT-AWARE PARITY (blocker 5).
+ *
+ * The v4 `base_q4` arm failed parity against a route resolved WITHOUT its variant id, so the dtype
+ * appeared on one side only. The gate was comparing a correctly-configured arm against a configuration
+ * the product does not ship. Both sides must carry the SAME variant, and changing or omitting it on
+ * either side must fail.
+ */
+describe('v4 parity carries the variant on BOTH sides', () => {
+    const V4_MODEL = 'onnx-community/whisper-base.en';
+    const expectation = { family: 'whisper', engine: 'v4', modelId: V4_MODEL, variantId: 'base_q4' } as const;
+
+    const v4Arm = (variantId?: 'base_q4' | 'distil_q4'): DecodeArm => ({
+        ...makeArm({}),
+        declareRoute: (seconds) => resolveWhisperRoute('v4', V4_MODEL, seconds, variantId),
+    });
+
+    it('the same variant on both sides MATCHES', () => {
+        expect(checkRouteParity(v4Arm('base_q4'), expectation).ok).toBe(true);
+    });
+
+    it('the dtype is actually present — otherwise this test proves nothing', () => {
+        // Precondition. If the variant contributed no dtype, omitting it below could not fail.
+        const route = resolveWhisperRoute('v4', V4_MODEL, 4.2, 'base_q4');
+        expect(route.decode.dtype).toEqual({ encoder_model: 'fp32', decoder_model_merged: 'q4' });
+    });
+
+    it('OMITTING the variant on the arm side FAILS', () => {
+        expect(checkRouteParity(v4Arm(undefined), expectation).ok).toBe(false);
+    });
+
+    it('a DIFFERENT variant FAILS', () => {
+        expect(checkRouteParity(v4Arm('distil_q4'), expectation).ok).toBe(false);
+    });
+
+    it('omitting it on BOTH sides matches — a variant-less arm against a variant-less expectation', () => {
+        // The v4 dtype arms the product does not ship have no variant, and comparing them to one
+        // would be claiming parity with something that does not exist.
+        const bare = { family: 'whisper', engine: 'v4', modelId: V4_MODEL } as const;
+        expect(checkRouteParity(v4Arm(undefined), bare).ok).toBe(true);
+    });
+});
+
+/**
+ * MOONSHINE'S OWN ROUTE (blocker 6).
+ *
+ * It was previously compared against the Whisper route and marked as failing for not returning
+ * Whisper timestamp chunks. The product consumes transcript TEXT, so that was a requirement the
+ * product does not have — a false verdict produced by comparing across families.
+ */
+describe('Moonshine is measured against its native route, not Whisper\'s', () => {
+    const MOONSHINE = 'onnx-community/moonshine-tiny-ONNX';
+    const expectation = { family: 'moonshine', engine: 'v2', modelId: MOONSHINE } as const;
+
+    const moonshineArm = (): DecodeArm => ({
+        ...makeArm({}),
+        declareRoute: (seconds) => resolveMoonshineRoute(MOONSHINE, seconds),
+        probeRouteHonored: async () => ({
+            // Its route asks for no timestamps, so returning none is the route being HONOURED.
+            timestampsRequested: false,
+            timestampsReturned: false,
+            deviceRequested: 'cpu',
+            deviceClaim: 'none' as const,
+            deviceResolved: 'test',
+            deviceVerifiable: true,
+            detail: 'moonshine native',
+        }),
+    });
+
+    it('a native-route arm passes parity', () => {
+        expect(checkRouteParity(moonshineArm(), expectation).ok).toBe(true);
+    });
+
+    it('the native route asks for NO timestamps and carries a duration-derived bound', () => {
+        const short = resolveMoonshineRoute(MOONSHINE, 4);
+        const long = resolveMoonshineRoute(MOONSHINE, 40);
+        expect(short.returnTimestamps).toBe(false);
+        expect(short.rawWaveform).toBe(true);
+        expect(short.maxPositionEmbeddings).toBe(512);
+        // Unbounded generation is what let a looped fixture produce a "the model loops" conclusion.
+        expect(long.maxNewTokens).toBeGreaterThan(short.maxNewTokens);
+        expect(long.maxNewTokens).toBeLessThanOrEqual(512);
+    });
+
+    it('NOT returning timestamps is no longer a failure for it', async () => {
+        const arm = moonshineArm();
+        const honor = await arm.probeRouteHonored(new Float32Array(1), 1);
+        const result = certifyArm(arm, expectation, ORACLE_VECTORS, honor);
+        expect(result.failedGates).not.toContain('route_not_honored');
+        expect(result.certified).toBe(true);
+    });
+
+    it('a Moonshine arm declaring a WHISPER route fails — families must not be crossed', () => {
+        const wrong: DecodeArm = {
+            ...moonshineArm(),
+            declareRoute: (seconds) => resolveWhisperRoute('v2', MOONSHINE, seconds),
+        };
+        expect(checkRouteParity(wrong, expectation).ok).toBe(false);
+    });
+});
+
+/**
+ * A CERTIFICATE IS NOT TRANSFERABLE (blocker 2).
+ *
+ * Nothing previously tied a certification to the arm being run, so one model could be measured under
+ * another model's certificate — including one earned on a different route, device or model entirely.
+ */
+describe('a certificate belongs to the arm that earned it', () => {
+    const UTTERANCES: CorpusUtterance[] = [utterance('u1', 'THE CAT SAT DOWN', 1)];
+
+    it('running arm B under arm A\'s certificate produces no row', async () => {
+        const armA = makeArm({ '1': 'the cat sat down' });
+        const certificate = certifyArm(armA, WHISPER_V2, ORACLE_VECTORS);
+        expect(certificate.certified).toBe(true);
+
+        const armB: DecodeArm = { ...armA, id: 'a-different-model' };
+        const result = await runArm(armB, certificate, UTTERANCES);
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.reason).toBe('certificate_arm_mismatch');
+        expect(result.detail).toContain('injected-arm');
+        expect(result.detail).toContain('a-different-model');
+    });
+
+    it('the same arm under its own certificate still runs — the check is binding, not blocking', async () => {
+        const arm = makeArm({ '1': 'the cat sat down' });
+        const result = await runArm(arm, certifyArm(arm, WHISPER_V2, ORACLE_VECTORS), UTTERANCES);
+        expect(result.ok).toBe(true);
+    });
+});
+
+/**
+ * PLACEHOLDER PROVENANCE (blocker 3). `runtime: { version: 'unknown' }` passed every emptiness check
+ * while saying exactly as much as an absent field — and saying it in a shape that reads as answered.
+ */
+describe('placeholder provenance is not provenance', () => {
+    it.each(['unknown', 'unpinned', 'TBD', 'n/a', 'none', 'placeholder', '-'])(
+        'a runtime version of "%s" fails',
+        (value) => {
+            const provenance = provenanceOf();
+            provenance.runtime.version = value;
+            const check = checkProvenance(provenance);
+            expect(check.ok).toBe(false);
+            expect(check.placeholder).toContain('runtime.version');
+        },
+    );
+
+    it('a placeholder DIGEST inside a map fails', () => {
+        // A digest map whose values are placeholders is a map of nothing.
+        const provenance = provenanceOf();
+        provenance.model.filesSha256 = { 'model.onnx': 'unknown' };
+        expect(checkProvenance(provenance).placeholder).toContain('model.filesSha256.model.onnx');
+    });
+
+    it('a real value that merely CONTAINS a placeholder word still passes', () => {
+        // The check is exact-match, not substring: "unknown-quantity-v2" is a real identifier.
+        const provenance = provenanceOf();
+        provenance.model.id = 'unknown-quantity-v2';
+        expect(checkProvenance(provenance).ok).toBe(true);
     });
 });
