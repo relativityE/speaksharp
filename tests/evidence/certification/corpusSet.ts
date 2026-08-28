@@ -8,7 +8,12 @@
  * The manifest states its own size (`subsetSize`, and `counts[set].selected` per set). Those are the
  * authority, and they are checked BEFORE any expected-id list is derived from the entries. A manifest
  * that disagrees with itself is refused rather than measured.
+ *
+ * `verifyFrozenAudio` closes the other half: a complete set of ids says nothing about whether the
+ * FILES are the ones that were frozen.
  */
+import { createHash } from 'node:crypto';
+import { readFileSync, statSync } from 'node:fs';
 export interface FrozenUtterance {
     id: string;
     reference: string;
@@ -16,6 +21,37 @@ export interface FrozenUtterance {
     audioPath: string;
     audioSha256: string;
     audioBytes: number;
+}
+
+/**
+ * Verify one clip's ACTUAL BYTES against the digest the manifest froze.
+ *
+ * The completeness check answers "were all 600 scored?". This answers the other half: "were they the
+ * 600 that were frozen?". Without it, a corpus directory could be re-extracted, substituted or
+ * partially overwritten and every id would still be present — the arm would score 600 clips, none of
+ * which the manifest describes. The frozen digest is the only thing that ties a file on disk to the
+ * corpus a result claims to be about.
+ */
+export function verifyFrozenAudio(
+    absolutePath: string,
+    expected: { audioSha256: string; audioBytes: number },
+): { ok: true } | { ok: false; reason: 'audio_missing' | 'audio_bytes_mismatch' | 'audio_digest_mismatch'; detail: string } {
+    let size: number;
+    try {
+        size = statSync(absolutePath).size;
+    } catch {
+        return { ok: false, reason: 'audio_missing', detail: absolutePath };
+    }
+    if (size !== expected.audioBytes) {
+        return { ok: false, reason: 'audio_bytes_mismatch', detail: `${size} != ${expected.audioBytes}` };
+    }
+    // Byte count first because it is free, then the digest — the only check that sees a substitution
+    // at the correct length, exactly as in the archive chain.
+    const digest = createHash('sha256').update(readFileSync(absolutePath)).digest('hex');
+    if (digest !== expected.audioSha256) {
+        return { ok: false, reason: 'audio_digest_mismatch', detail: `${digest.slice(0, 16)}... != ${expected.audioSha256.slice(0, 16)}...` };
+    }
+    return { ok: true };
 }
 
 export interface FrozenCorpus {

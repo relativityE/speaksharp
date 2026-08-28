@@ -496,6 +496,47 @@ describe('a certificate belongs to the arm that earned it', () => {
         expect(result.detail).toContain('a-different-model');
     });
 
+    it('an arm that keeps its NAME but changes its CONFIGURATION is refused', async () => {
+        // A name is not a configuration. Without the fingerprint, an arm could keep its id and change
+        // its dtype, device, model revision or runtime version, and the certificate would still appear
+        // to belong to it — vouching for a decode that never happened.
+        const arm = makeArm({ '1': 'the cat sat down' });
+        const certificate = certifyArm(arm, WHISPER_V2, ORACLE_VECTORS);
+
+        const reconfigured: DecodeArm = {
+            ...arm,
+            provenance: () => {
+                const p = provenanceOf();
+                p.model.revision = 'a-different-revision';
+                return p;
+            },
+        };
+        const result = await runArm(reconfigured, certificate, UTTERANCES);
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.reason).toBe('certificate_configuration_mismatch');
+        // And it names WHICH field moved, so a mismatch is actionable rather than just reported.
+        expect(result.detail).toContain('modelRevision');
+    });
+
+    it.each([
+        ['different weights', (p: ArmProvenance) => { p.model.filesSha256 = { 'model.onnx': 'b'.repeat(64) }; }],
+        ['different runtime version', (p: ArmProvenance) => { p.runtime.version = '9.9.9'; }],
+        ['different backend', (p: ArmProvenance) => { p.runtime.backend = 'webgpu'; }],
+        ['different corpus', (p: ArmProvenance) => { p.corpus.version = 'some_other_corpus'; }],
+    ])('a %s also breaks the certificate', async (_name, mutate) => {
+        const arm = makeArm({ '1': 'the cat sat down' });
+        const certificate = certifyArm(arm, WHISPER_V2, ORACLE_VECTORS);
+        const changed: DecodeArm = {
+            ...arm,
+            provenance: () => { const p = provenanceOf(); mutate(p); return p; },
+        };
+        const result = await runArm(changed, certificate, UTTERANCES);
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.reason).toBe('certificate_configuration_mismatch');
+    });
+
     it('the same arm under its own certificate still runs — the check is binding, not blocking', async () => {
         const arm = makeArm({ '1': 'the cat sat down' });
         const result = await runArm(arm, certifyArm(arm, WHISPER_V2, ORACLE_VECTORS), UTTERANCES);

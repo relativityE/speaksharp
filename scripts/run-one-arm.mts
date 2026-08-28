@@ -20,7 +20,7 @@ import { buildArm, expectationFor } from '../tests/evidence/certification/arms/b
 import { certifyArmWithHonorProbe } from '../tests/evidence/certification/certify';
 import { scoreUtterance, aggregateArm } from '../tests/evidence/certification/scoringAdapter';
 import { decodeWav } from '../tests/evidence/certification/audio';
-import { loadFrozenCorpus, type ManifestShape } from '../tests/evidence/certification/corpusSet';
+import { loadFrozenCorpus, verifyFrozenAudio, type ManifestShape } from '../tests/evidence/certification/corpusSet';
 import { HARVARD_SENTENCES } from '../tests/fixtures/stt-isomorphic/harvard-sentences';
 
 const args = process.argv.slice(2);
@@ -37,7 +37,13 @@ const corpus = {
     archives: Object.fromEntries(Object.entries(manifest.archives).map(([n, a]) => [n, a.sha256])),
 };
 
-interface Utterance { id: string; reference: string; wav: string }
+interface Utterance {
+    id: string;
+    reference: string;
+    wav: string;
+    /** Present for corpus clips: the identity the manifest froze, verified before the clip is decoded. */
+    frozen?: { audioSha256: string; audioBytes: number };
+}
 const harvard: Utterance[] = HARVARD_SENTENCES
     .filter((s) => /^h1_\d+$/.test(s.id))
     .map((s) => ({ id: s.id, reference: s.transcript, wav: `tests/fixtures/stt-isomorphic/audio/${s.id}.wav` }));
@@ -50,7 +56,10 @@ if (setName === 'corpus') {
         process.exit(1);
     }
     utterances = loaded.corpus.utterances.map((u) => ({
-        id: u.id, reference: u.reference, wav: `bench-corpus/${u.audioPath}`,
+        id: u.id,
+        reference: u.reference,
+        wav: `bench-corpus/${u.audioPath}`,
+        frozen: { audioSha256: u.audioSha256, audioBytes: u.audioBytes },
     }));
 }
 
@@ -70,8 +79,22 @@ if (!certification.certified) {
 
 const scores = [];
 const decodeFailures: string[] = [];
+const audioMismatches: string[] = [];
 for (const u of utterances) {
     let hypothesis: string | null = null;
+    // THE CLIP MUST BE THE FROZEN ONE. A complete set of ids says nothing about whether the files on
+    // disk are the files the manifest describes — a re-extraction, a substitution, or a partial
+    // overwrite leaves every id present while the audio is different.
+    if (u.frozen) {
+        const verified = verifyFrozenAudio(u.wav, u.frozen);
+        if (!verified.ok) {
+            audioMismatches.push(`${u.id}: ${verified.reason} (${verified.detail})`);
+            // Scored as an invalid utterance, which invalidates the ARM. Skipping it would remove the
+            // clip from both numerator and denominator and quietly improve the result.
+            scores.push(scoreUtterance(u.id, u.reference, null));
+            continue;
+        }
+    }
     try {
         const audio = decodeWav(u.wav);
         hypothesis = await arm.decode(audio.samples, audio.seconds);
@@ -89,7 +112,8 @@ console.log(JSON.stringify({
     wer: aggregate.wer, referenceWords: aggregate.referenceWords,
     substitutions: aggregate.substitutions, deletions: aggregate.deletions, insertions: aggregate.insertions,
     scoredCount: aggregate.scoredCount, armInvalidReason: aggregate.armInvalidReason,
-    decodeFailures, wallClockMs: provenance.resources.wallClockMs,
+    decodeFailures, audioMismatches, wallClockMs: provenance.resources.wallClockMs,
+    fingerprint: certification.fingerprint.digest,
     peakRssBytes: provenance.resources.peakRssBytes,
     deviceClaim: certification.gates.routeHonored?.deviceClaim ?? 'none',
     routeHash: provenance.route.hash,

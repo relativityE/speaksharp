@@ -14,6 +14,7 @@
  */
 import { scoreUtterance, aggregateArm, type CorpusScore, type AggregateWer } from './scoringAdapter';
 import { checkProvenance } from './provenance';
+import { fingerprintConfiguration, fingerprintDifferences } from './fingerprint';
 import { CERTIFICATION_RULES } from './rules';
 import type { CertificationResult } from './certify';
 import type { ArmProvenance, DecodeArm } from './engineArm';
@@ -38,6 +39,8 @@ export interface SelectionRow {
     insertions: number;
     scoredCount: number;
     provenance: ArmProvenance;
+    /** The configuration digest this row was produced under. */
+    fingerprint: string;
 }
 
 /** A decode that THREW. Distinct from a decode that returned nothing — a crash and a silent model are
@@ -58,6 +61,7 @@ export type ArmRunResult =
           reason:
               | 'not_certified'
               | 'certificate_arm_mismatch'
+              | 'certificate_configuration_mismatch'
               | 'incomplete_provenance'
               | 'unscoreable_arm';
           detail: string;
@@ -91,6 +95,24 @@ export async function runArm(
             ok: false,
             reason: 'certificate_arm_mismatch',
             detail: `certificate belongs to ${certification.armId}, run is ${arm.id}`,
+            scores,
+            aggregate: null,
+            decodeFailures,
+            certification,
+        };
+    }
+
+    // AND the CONFIGURATION must match, not merely the name. Model, revision, weight digests, runtime
+    // version, backend, device claim, route and corpus all change what a decode IS; a certificate that
+    // only checked the id would vouch for a decode that never happened.
+    const runFingerprint = fingerprintConfiguration(
+        arm.id, arm.provenance(), certification.gates.routeHonored?.deviceClaim ?? 'none',
+    );
+    if (runFingerprint.digest !== certification.fingerprint.digest) {
+        return {
+            ok: false,
+            reason: 'certificate_configuration_mismatch',
+            detail: `differs in: ${fingerprintDifferences(certification.fingerprint, runFingerprint).join(', ')}`,
             scores,
             aggregate: null,
             decodeFailures,
@@ -174,6 +196,7 @@ export async function runArm(
             insertions: aggregate.insertions,
             scoredCount: aggregate.scoredCount,
             provenance,
+            fingerprint: certification.fingerprint.digest,
         },
     };
 }

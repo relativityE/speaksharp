@@ -14,12 +14,19 @@ import { runOracleVectorGate, type OracleGateResult } from './scoringAdapter';
 import { checkRouteParity, type RouteExpectation, type RouteParityResult } from './routeParity';
 import { checkProvenance, type ProvenanceCheck } from './provenance';
 import { CERTIFICATION_RULES } from './rules';
+import { fingerprintConfiguration, type ConfigurationFingerprint } from './fingerprint';
 import type { DecodeArm, RouteHonorReport } from './engineArm';
 
 export interface CertificationResult {
     certified: boolean;
     rulesVersion: string;
     armId: string;
+    /**
+     * The configuration this certificate vouches for. Re-computed at emission and compared, because a
+     * name is not a configuration: an arm can keep its id and change its dtype, device, revision or
+     * runtime version.
+     */
+    fingerprint: ConfigurationFingerprint;
     gates: {
         routeParity: RouteParityResult;
         /** Present only when a probe was supplied — see `certifyArmWithHonorProbe`. */
@@ -65,6 +72,7 @@ export function certifyArm(
         certified: failedGates.length === 0,
         rulesVersion: CERTIFICATION_RULES.version,
         armId: arm.id,
+        fingerprint: fingerprintConfiguration(arm.id, arm.provenance(), routeHonored?.deviceClaim ?? 'none'),
         gates: { routeParity, routeHonored, oracleVectors: oracle, provenance },
         failedGates,
     };

@@ -1,0 +1,147 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>#1304 browser arm harness</title>
+<body>
+<!--
+  The `@huggingface/transformers` web bundle carries a BARE import of `onnxruntime-web/webgpu`, so it
+  is not self-contained: dropped straight into a page it fails with "Failed to resolve module
+  specifier". An import map points that specifier at the copy already in node_modules, served from
+  this same origin — which keeps the harness free of a bundler. A bundler between the harness and the
+  library would be one more place for the two to diverge.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "onnxruntime-web/webgpu": "/lib/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs",
+    "onnxruntime-web": "/lib/onnxruntime-web/dist/ort.bundle.min.mjs",
+    "onnxruntime-common": "/lib/onnxruntime-common/dist/esm/index.js",
+    "@huggingface/transformers": "/lib/@huggingface/transformers/dist/transformers.web.js"
+  }
+}
+</script>
+<script>
+/**
+ * #1304 Task 3C — BROWSER BACKEND EVIDENCE.
+ *
+ * Instrumentation is installed BEFORE any library loads, because the only admissible proof that a
+ * backend ran is a record of it running. Asking the runtime which device it used is not available —
+ * neither transformers package exposes execution providers on a loaded session — and echoing back the
+ * device that was REQUESTED is what let `device: 'webgpu'` pass in Node, where there is no GPU at all.
+ *
+ * So: count what the backends actually do.
+ *   WebGPU — an adapter obtained, a device created, compute pipelines built, queue submissions made.
+ *   WASM   — WebAssembly modules instantiated, and their byte sizes.
+ * A claim is proven by the counters, not by the request.
+ */
+window.__BACKEND_EVIDENCE__ = {
+  wasmInstantiations: 0,
+  wasmBytes: 0,
+  gpuAdapterRequests: 0,
+  gpuDevicesCreated: 0,
+  gpuComputePipelines: 0,
+  gpuQueueSubmits: 0,
+  gpuAdapterInfo: null,
+  gpuAvailable: typeof navigator !== 'undefined' && !!navigator.gpu,
+};
+const ev = window.__BACKEND_EVIDENCE__;
+
+// ---- WebAssembly -------------------------------------------------------------------------------
+const sizeOf = (src) => {
+  if (src instanceof ArrayBuffer) return src.byteLength;
+  if (ArrayBuffer.isView(src)) return src.byteLength;
+  return 0;
+};
+const realInstantiate = WebAssembly.instantiate.bind(WebAssembly);
+WebAssembly.instantiate = function (src, ...rest) {
+  ev.wasmInstantiations += 1;
+  ev.wasmBytes += sizeOf(src);
+  return realInstantiate(src, ...rest);
+};
+if (WebAssembly.instantiateStreaming) {
+  const realStreaming = WebAssembly.instantiateStreaming.bind(WebAssembly);
+  WebAssembly.instantiateStreaming = function (response, ...rest) {
+    ev.wasmInstantiations += 1;
+    // Streaming never materialises an ArrayBuffer here; the count is the evidence that matters.
+    return realStreaming(response, ...rest);
+  };
+}
+
+// ---- WebGPU ------------------------------------------------------------------------------------
+if (navigator.gpu) {
+  const realRequestAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
+  navigator.gpu.requestAdapter = async function (...args) {
+    ev.gpuAdapterRequests += 1;
+    const adapter = await realRequestAdapter(...args);
+    if (!adapter) return adapter;
+    try {
+      const info = adapter.info ?? (adapter.requestAdapterInfo ? await adapter.requestAdapterInfo() : null);
+      if (info) {
+        ev.gpuAdapterInfo = {
+          vendor: info.vendor ?? null, architecture: info.architecture ?? null,
+          device: info.device ?? null, description: info.description ?? null,
+        };
+      }
+    } catch { /* adapter info is optional in some builds; the counters remain the proof */ }
+
+    const realRequestDevice = adapter.requestDevice.bind(adapter);
+    adapter.requestDevice = async function (...deviceArgs) {
+      const device = await realRequestDevice(...deviceArgs);
+      ev.gpuDevicesCreated += 1;
+      for (const name of ['createComputePipeline', 'createComputePipelineAsync']) {
+        if (typeof device[name] === 'function') {
+          const real = device[name].bind(device);
+          device[name] = function (...pipelineArgs) { ev.gpuComputePipelines += 1; return real(...pipelineArgs); };
+        }
+      }
+      const realSubmit = device.queue.submit.bind(device.queue);
+      device.queue.submit = function (...submitArgs) { ev.gpuQueueSubmits += 1; return realSubmit(...submitArgs); };
+      return device;
+    };
+    return adapter;
+  };
+}
+
+// ---- 16 kHz mono PCM WAV ------------------------------------------------------------------------
+// Deliberately the same refusals as the Node loader. The two are bound behaviourally: the runner
+// asserts this parser's sample count against Node's for every fixture, so a divergence fails rather
+// than quietly feeding the browser arm different audio.
+window.__decodeWav = async function (url) {
+  const buffer = await (await fetch(url)).arrayBuffer();
+  const view = new DataView(buffer);
+  const ascii = (o, n) => String.fromCharCode(...new Uint8Array(buffer, o, n));
+  if (buffer.byteLength < 12 || ascii(0, 4) !== 'RIFF' || ascii(8, 4) !== 'WAVE') throw new Error('not_a_wav');
+  if (view.getUint32(4, true) + 8 > buffer.byteLength) throw new Error('truncated_riff');
+
+  let offset = 12, fmt = null, dataOffset = -1, dataSize = 0;
+  while (offset + 8 <= buffer.byteLength) {
+    const id = ascii(offset, 4);
+    const size = view.getUint32(offset + 4, true);
+    const body = offset + 8;
+    if (id === 'fmt ') {
+      fmt = {
+        audioFormat: view.getUint16(body, true), channels: view.getUint16(body + 2, true),
+        sampleRate: view.getUint32(body + 4, true), bitsPerSample: view.getUint16(body + 14, true),
+      };
+    } else if (id === 'data') {
+      if (body + size > buffer.byteLength) throw new Error('truncated_data_chunk');
+      dataOffset = body; dataSize = size;
+    }
+    offset = body + size + (size % 2);
+  }
+  if (!fmt) throw new Error('missing_fmt_chunk');
+  if (dataOffset < 0) throw new Error('missing_data_chunk');
+  if (fmt.audioFormat !== 1) throw new Error('not_pcm');
+  if (fmt.channels !== 1) throw new Error('not_mono');
+  if (fmt.bitsPerSample !== 16) throw new Error('not_16_bit');
+  if (fmt.sampleRate !== 16000) throw new Error('wrong_sample_rate');
+
+  const count = Math.floor(dataSize / 2);
+  if (count === 0) throw new Error('empty_audio');
+  const samples = new Float32Array(count);
+  for (let i = 0; i < count; i++) samples[i] = view.getInt16(dataOffset + i * 2, true) / 32768;
+  return { samples, seconds: count / fmt.sampleRate };
+};
+
+window.__ready = true;
+</script>
+</body>

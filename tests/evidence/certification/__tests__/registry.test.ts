@@ -6,7 +6,9 @@
  * visible — including the ones this harness cannot run.
  */
 import { describe, it, expect } from 'vitest';
-import { ARM_MATRIX, ADMITTED_ARMS, PENDING_ARMS, REJECTED_ARMS } from '../arms/registry';
+import {
+    ARM_MATRIX, ADMITTED_ARMS, PENDING_ARMS, REJECTED_ARMS, SELECTION_ARMS, DIAGNOSTIC_ARMS,
+} from '../arms/registry';
 import { certifyArm } from '../certify';
 import type { DecodeArm, RouteHonorReport } from '../engineArm';
 import { resolveWhisperRoute, candidateRouteHash } from '../candidateRoute';
@@ -55,6 +57,46 @@ describe('the matrix covers every required candidate', () => {
     });
 });
 
+describe('selection arms and diagnostic cells are distinguishable', () => {
+    it('exactly 12 selection arms — the corrected #1304 matrix', () => {
+        expect(SELECTION_ARMS).toHaveLength(12);
+        expect(SELECTION_ARMS.map((a) => a.id).sort()).toEqual([...REQUIRED_CELLS].sort());
+    });
+
+    it('the 13th cell is DIAGNOSTIC and cannot be selected', () => {
+        // `v4:base:q4-decoder:cpu` runs on onnxruntime-node, which the product does not ship. It
+        // answers "is the q4 figure a property of the model or of the browser runtime?" — a question
+        // about the harness. Leaving it unlabelled would let a stand-in read as a candidate.
+        expect(DIAGNOSTIC_ARMS.map((a) => a.id)).toEqual(['v4:base:q4-decoder:cpu']);
+        expect(SELECTION_ARMS.map((a) => a.id)).not.toContain('v4:base:q4-decoder:cpu');
+    });
+
+    it('the two roles account for every cell', () => {
+        expect(SELECTION_ARMS.length + DIAGNOSTIC_ARMS.length).toBe(ARM_MATRIX.length);
+    });
+});
+
+describe('the no-conditioning arm is rejected for a RUNTIME reason, with evidence', () => {
+    const arm = ARM_MATRIX.find((a) => a.id === 'v2:base.en:no-conditioning');
+
+    it('is rejected as runtime_option_unsupported', () => {
+        expect(arm?.admission.status).toBe('rejected');
+        if (arm?.admission.status !== 'rejected') return;
+        expect(arm.admission.reason).toBe('runtime_option_unsupported');
+    });
+
+    it('the evidence records BOTH proofs, and claims no effect rather than equivalence', () => {
+        if (arm?.admission.status !== 'rejected') throw new Error('not rejected');
+        // The option is absent from both bundles...
+        expect(arm.admission.evidence).toMatch(/0 occurrences/);
+        // ...and the two-window comparison produced identical output.
+        expect(arm.admission.evidence).toMatch(/37\.87s|two-window/);
+        // "no measured effect" is the claim; "equivalent" would assert the option works.
+        expect(arm.admission.evidence).toMatch(/no measured effect/);
+        expect(arm.admission.evidence).not.toMatch(/equivalent(?!, which)/);
+    });
+});
+
 describe('nothing is omitted: every cell is admitted, pending, or rejected', () => {
     it('the three states account for the whole matrix', () => {
         expect(ADMITTED_ARMS.length + PENDING_ARMS.length + REJECTED_ARMS.length).toBe(ARM_MATRIX.length);
@@ -69,12 +111,17 @@ describe('nothing is omitted: every cell is admitted, pending, or rejected', () 
         },
     );
 
-    it('WASM and WebGPU cells are PENDING A HARNESS, never rejected', () => {
-        // "Node cannot run it" is a fact about the tooling. Recording it as a property of the
-        // candidate is how a capable model gets eliminated by an accident of infrastructure.
+    it('the WASM and WebGPU cells are now RUN BY THE BROWSER LANE, not pending', () => {
+        // They were `pending_harness` while only a Node lane existed — a fact about the tooling, never
+        // a property of the candidate. The browser lane resolves them.
         const deviceCells = ARM_MATRIX.filter((a) => a.device === 'wasm' || a.device === 'webgpu');
         expect(deviceCells).toHaveLength(3);
-        for (const cell of deviceCells) expect(cell.admission.status).toBe('pending_harness');
+        for (const cell of deviceCells) {
+            expect(cell.admission.status).toBe('admitted');
+            if (cell.admission.status !== 'admitted') continue;
+            expect(cell.admission.lane).toBe('browser');
+        }
+        expect(PENDING_ARMS).toHaveLength(0);
     });
 
     it('Moonshine is ADMITTED on its own native route', () => {

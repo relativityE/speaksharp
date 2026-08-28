@@ -8,9 +8,13 @@
  * The manifest states its own size in two independent places: `subsetSize`, and `counts[set].selected`
  * per set. Those are the authority, and they are checked BEFORE any id list is derived from entries.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import realManifest from '../../../fixtures/corpus-manifest.json';
-import { loadFrozenCorpus, type ManifestShape } from '../corpusSet';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { loadFrozenCorpus, verifyFrozenAudio, type ManifestShape } from '../corpusSet';
 
 const manifest = realManifest as unknown as ManifestShape;
 
@@ -98,5 +102,65 @@ describe('a corpus that is one clip short is REFUSED, not measured', () => {
         const empty = clone();
         empty.subsets['test-clean'] = [];
         expect(loadFrozenCorpus(empty).ok).toBe(false);
+    });
+});
+
+/**
+ * THE OTHER HALF OF COMPLETENESS.
+ *
+ * A complete set of ids says nothing about whether the FILES on disk are the ones that were frozen. A
+ * re-extraction, a substitution, or a partial overwrite leaves every id present while the audio is
+ * different — 600 clips scored, none of them the corpus the result claims to describe.
+ */
+describe('each clip must be the FROZEN clip, not merely a clip with the right name', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'frozen-audio-'));
+    const bytes = Buffer.from('the frozen audio for this utterance');
+    const path = join(dir, 'clip.flac');
+    writeFileSync(path, bytes);
+    const frozen = {
+        audioSha256: createHash('sha256').update(bytes).digest('hex'),
+        audioBytes: bytes.length,
+    };
+    afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+    it('the untouched file verifies', () => {
+        expect(verifyFrozenAudio(path, frozen)).toEqual({ ok: true });
+    });
+
+    it('a SUBSTITUTED file of the same length is caught by the digest', () => {
+        // The case a byte count cannot see — the same failure mode as the archive chain, one level down.
+        const swapped = join(dir, 'swapped.flac');
+        const other = Buffer.from('THE frozen audio for this utterance');
+        expect(other.length).toBe(bytes.length);
+        writeFileSync(swapped, other);
+        const result = verifyFrozenAudio(swapped, frozen);
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.reason).toBe('audio_digest_mismatch');
+    });
+
+    it('a file of the wrong length fails on the byte count first', () => {
+        const truncated = join(dir, 'short.flac');
+        writeFileSync(truncated, bytes.subarray(0, 10));
+        const result = verifyFrozenAudio(truncated, frozen);
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.reason).toBe('audio_bytes_mismatch');
+    });
+
+    it('a missing file is named, not thrown', () => {
+        const result = verifyFrozenAudio(join(dir, 'nope.flac'), frozen);
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.reason).toBe('audio_missing');
+    });
+
+    it('the committed manifest carries a distinct digest for every clip', () => {
+        // 600 identical digests would satisfy every per-clip check while meaning one clip was frozen
+        // 600 times.
+        const loaded = loadFrozenCorpus(manifest);
+        if (!loaded.ok) throw new Error(loaded.reason);
+        const digests = loaded.corpus.utterances.map((u) => u.audioSha256);
+        expect(new Set(digests).size).toBe(600);
     });
 });
