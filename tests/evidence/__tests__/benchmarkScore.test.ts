@@ -7,7 +7,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-    scoreProductPathRun, scoreCorpusUtterance, aggregateBenchmarkScores, type BenchmarkScore,
+    scoreProductPathRun, scoreCorpusUtterance, aggregateCorpusArm, aggregateProductPathRuns,
+    type CorpusScore,
 } from '../benchmarkScore';
 import { TRACK_NORMALIZATION } from '../normalization/tracks';
 
@@ -85,7 +86,7 @@ describe('AGGREGATE — pooled, and STRICT about completeness', () => {
             'juliet', 'kilo', 'lima', 'mike', 'november', 'oscar', 'papa', 'quebec', 'romeo', 'sierra', 'tango'];
         const long = WORDS.join(' ');
         const ids = ['short', 'long'];
-        const agg = aggregateBenchmarkScores([
+        const agg = aggregateCorpusArm([
             utt('short', 'uniform victor', 'uniform wrong'),
             utt('long', long, long.replace('alpha', 'wrong')),
         ], ids);
@@ -101,7 +102,7 @@ describe('AGGREGATE — pooled, and STRICT about completeness', () => {
         // counter nobody had to read: one success among six hundred failures produced a plausible
         // number. A partial corpus is not a smaller corpus — it is a DIFFERENT one, silently selected
         // by whichever clips happened to work.
-        const agg = aggregateBenchmarkScores([
+        const agg = aggregateCorpusArm([
             utt('a', 'alpha beta', 'alpha beta'),
             utt('b', 'gamma delta', ''),          // empty decode
         ], ['a', 'b']);
@@ -113,7 +114,7 @@ describe('AGGREGATE — pooled, and STRICT about completeness', () => {
     });
 
     it('STRICT: a MISSING utterance invalidates the arm and names which', () => {
-        const agg = aggregateBenchmarkScores([utt('a', 'alpha beta', 'alpha beta')], ['a', 'b', 'c']);
+        const agg = aggregateCorpusArm([utt('a', 'alpha beta', 'alpha beta')], ['a', 'b', 'c']);
         expect(agg.wer).toBeNull();
         expect(agg.armInvalidReason).toBe('incomplete_corpus');
         expect(agg.missingUtteranceIds).toEqual(['b', 'c']);
@@ -122,7 +123,7 @@ describe('AGGREGATE — pooled, and STRICT about completeness', () => {
     it('STRICT: a DUPLICATED utterance invalidates the arm', () => {
         // Without id tracking, "600 scored" cannot be distinguished from "600 scores, some the same
         // clip twice" — which would weight that clip double in a pooled figure.
-        const agg = aggregateBenchmarkScores([
+        const agg = aggregateCorpusArm([
             utt('a', 'alpha beta', 'alpha beta'),
             utt('a', 'alpha beta', 'alpha beta'),
         ], ['a', 'b']);
@@ -132,7 +133,7 @@ describe('AGGREGATE — pooled, and STRICT about completeness', () => {
 
     it('STRICT: an UNEXPECTED utterance invalidates the arm', () => {
         // A clip not in the frozen manifest means a different corpus was scored.
-        const agg = aggregateBenchmarkScores([
+        const agg = aggregateCorpusArm([
             utt('a', 'alpha beta', 'alpha beta'),
             utt('rogue', 'gamma delta', 'gamma delta'),
         ], ['a']);
@@ -142,7 +143,7 @@ describe('AGGREGATE — pooled, and STRICT about completeness', () => {
 
     it('a COMPLETE corpus scores normally — the positive control', () => {
         // Without this, an aggregate that always returned null would pass every assertion above.
-        const agg = aggregateBenchmarkScores([
+        const agg = aggregateCorpusArm([
             utt('a', 'alpha beta', 'alpha beta'),
             utt('b', 'gamma delta', 'gamma delta'),
         ], ['a', 'b']);
@@ -152,16 +153,75 @@ describe('AGGREGATE — pooled, and STRICT about completeness', () => {
     });
 
     it('an empty corpus is UNMEASURABLE, not 0% WER', () => {
-        expect(aggregateBenchmarkScores([], []).wer).toBeNull();
-        expect(aggregateBenchmarkScores([], []).armInvalidReason).toBe('no_scoreable_utterances');
+        // An EMPTY manifest cannot certify completeness against anything — it is an invalid manifest,
+        // not an arm that happened to score nothing.
+        expect(aggregateCorpusArm([], []).wer).toBeNull();
+        expect(aggregateCorpusArm([], []).armInvalidReason).toBe('invalid_manifest');
+        // A valid manifest with no scores at all is the no-scoreable-utterances case.
+        expect(aggregateCorpusArm([], ['a']).armInvalidReason).toBe('incomplete_corpus');
     });
 
     it('invalid reasons are counted BY NAME so a failure mode is legible', () => {
-        const agg = aggregateBenchmarkScores([
+        const agg = aggregateCorpusArm([
             utt('a', 'alpha beta', ''),
             utt('b', 'gamma delta', ''),
-            { ok: false, path: 'corpus', utteranceId: 'c', invalidReason: 'unmeasurable_reference' } as BenchmarkScore,
+            { ok: false, path: 'corpus', utteranceId: 'c', invalidReason: 'unmeasurable_reference' } as CorpusScore,
         ], ['a', 'b', 'c']);
         expect(agg.invalidReasons).toEqual({ empty_hypothesis: 2, unmeasurable_reference: 1 });
+    });
+});
+
+describe('the manifest is REQUIRED, and the paths cannot mix — enforced, not documented', () => {
+    const utt = (id: string, reference: string, hypothesis: string) =>
+        scoreCorpusUtterance(id, reference, hypothesis);
+
+    it('COMPILE-TIME: corpus aggregation cannot be called without expected ids', () => {
+        // THE REMAINING BYPASS. The signature was `aggregateBenchmarkScores(scores, expected?)`, so a
+        // corpus caller could simply omit the manifest and receive a WER from an incomplete corpus —
+        // the exact defect the strictness exists to prevent, reachable by leaving off an argument.
+        // A rule the type system does not enforce is a rule that depends on everyone remembering it.
+        // Never INVOKED — the point is that this does not compile. Executing it would only prove that
+        // a missing argument throws at runtime, which is a weaker and different claim.
+        const wouldNotCompile = () =>
+            // @ts-expect-error — the expected-manifest argument is required. If it is ever made
+            // optional again, this directive becomes unused and `typecheck:evidence` FAILS.
+            aggregateCorpusArm([scoreCorpusUtterance('a', 'alpha beta', 'alpha beta')]);
+        expect(typeof wouldNotCompile).toBe('function');
+    });
+
+    it('COMPILE-TIME: a product-path score cannot enter corpus aggregation', () => {
+        const product = scoreProductPathRun(READ_OK, 'the quick brown fox', SAVED);
+        const wouldNotCompile = () =>
+            // @ts-expect-error — ProductPathScore is not a CorpusScore: it has no utteranceId, so
+            // completeness against a manifest is unanswerable for it.
+            aggregateCorpusArm([product], ['a']);
+        expect(typeof wouldNotCompile).toBe('function');
+        expect(product.path).toBe('product_path');
+    });
+
+    it('a DUPLICATE id in the expected manifest is an invalid manifest', () => {
+        // A manifest that lists the same clip twice cannot state how many distinct utterances an arm
+        // must cover, so completeness is undefined before any score is considered.
+        const agg = aggregateCorpusArm([utt('a', 'alpha beta', 'alpha beta')], ['a', 'a']);
+        expect(agg.wer).toBeNull();
+        expect(agg.armInvalidReason).toBe('invalid_manifest');
+    });
+
+    it('a BLANK id in the expected manifest is an invalid manifest', () => {
+        expect(aggregateCorpusArm([utt('a', 'alpha beta', 'alpha beta')], ['a', '  ']).armInvalidReason)
+            .toBe('invalid_manifest');
+    });
+
+    it('a BLANK utterance id is rejected at the SCORE, before it can pollute totals', () => {
+        const scored = scoreCorpusUtterance('   ', 'alpha beta', 'alpha beta');
+        expect(scored).toMatchObject({ ok: false, path: 'corpus', invalidReason: 'blank_utterance_id' });
+    });
+
+    it('PRODUCT PATH has its own entry point and is still strict about validity', () => {
+        expect(aggregateProductPathRuns([scoreProductPathRun(READ_OK, 'the quick brown fox', SAVED)]).wer).toBe(0);
+        expect(aggregateProductPathRuns([
+            scoreProductPathRun(READ_OK, 'the quick brown fox', SAVED),
+            scoreProductPathRun(READ_OK, 'ref', { selectedForSave: null }),
+        ]).wer, 'one invalid run means no number').toBeNull();
     });
 });

@@ -27,6 +27,7 @@ export type BenchmarkInvalidReason =
     | 'transcript_surface_empty'
     | 'no_finalized_saved_transcript'
     | 'empty_hypothesis'
+    | 'blank_utterance_id'
     | 'unmeasurable_reference';
 
 /** What a browser harness read from the page. Mirrors `BenchmarkTranscriptRead` without importing Playwright. */
@@ -36,16 +37,31 @@ export type TranscriptRead =
 
 export type ScorePath = 'product_path' | 'corpus';
 
-export type BenchmarkScore =
-    | { ok: true; path: ScorePath; utteranceId?: string; row: WerResult<'track_a'> }
-    | { ok: false; path: ScorePath; utteranceId?: string; invalidReason: BenchmarkInvalidReason };
+/**
+ * The two score kinds are DISTINCT TYPES, not one type with a discriminant field.
+ *
+ * A shared shape plus a `path` string relies on every caller checking it. Separate types mean the
+ * compiler refuses the mix — a product-path score cannot reach corpus aggregation at all, so the
+ * "paths must not mix" rule is enforced rather than documented.
+ *
+ * A corpus score ALWAYS carries its `utteranceId`: completeness against a frozen manifest is
+ * unanswerable without it, and making it optional is what allowed a partial corpus to score.
+ */
+export type ProductPathScore =
+    | { ok: true; path: 'product_path'; row: WerResult<'track_a'> }
+    | { ok: false; path: 'product_path'; invalidReason: BenchmarkInvalidReason };
+
+export type CorpusScore =
+    | { ok: true; path: 'corpus'; utteranceId: string; row: WerResult<'track_a'> }
+    | { ok: false; path: 'corpus'; utteranceId: string; invalidReason: BenchmarkInvalidReason };
+
+export type BenchmarkScore = ProductPathScore | CorpusScore;
 
 /** Shared tail: score, and refuse an unmeasurable reference rather than coercing it to zero. */
-function scoreOrRefuse(path: ScorePath, reference: string, hypothesis: string, utteranceId?: string): BenchmarkScore {
+function scoreRow(reference: string, hypothesis: string): WerResult<'track_a'> | null {
     const row = wordErrorRate(reference, hypothesis, { track: 'track_a' });
     // A fabricated perfect score is the failure this whole program exists to prevent.
-    if (row.wer === null) return { ok: false, path, utteranceId, invalidReason: 'unmeasurable_reference' };
-    return { ok: true, path, utteranceId, row };
+    return row.wer === null ? null : row;
 }
 
 /**
@@ -59,7 +75,7 @@ export function scoreProductPathRun(
     read: TranscriptRead,
     reference: string,
     saved: { selectedForSave: string | null | undefined },
-): BenchmarkScore {
+): ProductPathScore {
     const selected = (saved.selectedForSave ?? '').trim();
     if (selected.length === 0) {
         return { ok: false, path: 'product_path', invalidReason: 'no_finalized_saved_transcript' };
@@ -67,7 +83,10 @@ export function scoreProductPathRun(
     // The surface read is a precondition for a TRUSTWORTHY browser run: observing nothing means the
     // run did not exercise the path it claims to have measured, even though a saved transcript exists.
     if (!read.ok) return { ok: false, path: 'product_path', invalidReason: read.invalidReason };
-    return scoreOrRefuse('product_path', reference, selected);
+    const row = scoreRow(reference, selected);
+    return row === null
+        ? { ok: false, path: 'product_path', invalidReason: 'unmeasurable_reference' }
+        : { ok: true, path: 'product_path', row };
 }
 
 /**
@@ -80,12 +99,20 @@ export function scoreCorpusUtterance(
     utteranceId: string,
     reference: string,
     hypothesis: string | null | undefined,
-): BenchmarkScore {
+): CorpusScore {
+    const id = utteranceId?.trim() ?? '';
+    // A blank id makes completeness unanswerable — it cannot be matched against the manifest, deduped,
+    // or reported as missing. It is rejected here rather than at the aggregate, where it would already
+    // have polluted the totals.
+    if (id.length === 0) return { ok: false, path: 'corpus', utteranceId, invalidReason: 'blank_utterance_id' };
     const hyp = (hypothesis ?? '').trim();
     // An empty decode is a RESULT — the model produced nothing — and must be named, not scored as a
     // total miss and not silently dropped. Either would change the arm's number.
-    if (hyp.length === 0) return { ok: false, path: 'corpus', utteranceId, invalidReason: 'empty_hypothesis' };
-    return scoreOrRefuse('corpus', reference, hyp, utteranceId);
+    if (hyp.length === 0) return { ok: false, path: 'corpus', utteranceId: id, invalidReason: 'empty_hypothesis' };
+    const row = scoreRow(reference, hyp);
+    return row === null
+        ? { ok: false, path: 'corpus', utteranceId: id, invalidReason: 'unmeasurable_reference' }
+        : { ok: true, path: 'corpus', utteranceId: id, row };
 }
 
 export interface AggregateWer {
@@ -99,69 +126,105 @@ export interface AggregateWer {
     invalidCount: number;
     invalidReasons: Record<string, number>;
     /** Present only when the arm is invalid — why it produced no number. */
-    armInvalidReason?: 'incomplete_corpus' | 'no_scoreable_utterances' | 'duplicate_utterances' | 'unexpected_utterances';
+    armInvalidReason?:
+        | 'incomplete_corpus'
+        | 'no_scoreable_utterances'
+        | 'duplicate_utterances'
+        | 'unexpected_utterances'
+        | 'blank_utterance_id'
+        | 'invalid_manifest';
     missingUtteranceIds?: string[];
 }
 
-/**
- * Aggregate an ARM. Pooled WER = Σ(S+D+I) / Σ(referenceWords) — never the mean of per-utterance WERs,
- * which over-weights short clips and makes the figure non-comparable with every published number.
- *
- * STRICT COMPLETENESS (RETURN correction). The first version returned a WER whenever ANY utterance
- * scored, with the failures counted in a separate field nobody was forced to read. One success among
- * six hundred failures produced a plausible number. An arm is now scoreable ONLY when every expected
- * utterance scored: any missing, invalid, duplicated or unexpected item invalidates the arm and `wer`
- * is null. A partial corpus is not a smaller corpus — it is a different one, silently selected by
- * whichever clips happened to work.
- *
- * @param expectedUtteranceIds the frozen manifest's ids. Omit ONLY for a product-path run, which has
- *                             no manifest; corpus arms must always pass it.
- */
-export function aggregateBenchmarkScores(
-    scores: readonly BenchmarkScore[],
-    expectedUtteranceIds?: readonly string[],
-): AggregateWer {
-    let refWords = 0, sub = 0, del = 0, ins = 0, scored = 0, invalid = 0;
+/** Pooled totals over whatever scored. Shared by both entry points; neither exposes it. */
+function poolTotals(scores: readonly BenchmarkScore[]) {
+    let referenceWords = 0, substitutions = 0, deletions = 0, insertions = 0, scoredCount = 0, invalidCount = 0;
     const invalidReasons: Record<string, number> = {};
-    const seen = new Map<string, number>();
-
     for (const s of scores) {
-        if (s.utteranceId !== undefined) seen.set(s.utteranceId, (seen.get(s.utteranceId) ?? 0) + 1);
         if (!s.ok) {
-            invalid += 1;
+            invalidCount += 1;
             invalidReasons[s.invalidReason] = (invalidReasons[s.invalidReason] ?? 0) + 1;
             continue;
         }
-        refWords += s.row.referenceWords;
-        sub += s.row.substitutions;
-        del += s.row.deletions;
-        ins += s.row.insertions;
-        scored += 1;
+        referenceWords += s.row.referenceWords;
+        substitutions += s.row.substitutions;
+        deletions += s.row.deletions;
+        insertions += s.row.insertions;
+        scoredCount += 1;
     }
+    return { referenceWords, substitutions, deletions, insertions, scoredCount, invalidCount, invalidReasons };
+}
 
-    const totals = {
-        referenceWords: refWords, substitutions: sub, deletions: del, insertions: ins,
-        scoredCount: scored, invalidCount: invalid, invalidReasons,
-    };
-    const unscoreable = (
-        reason: NonNullable<AggregateWer['armInvalidReason']>,
-        missing?: string[],
-    ): AggregateWer => ({ wer: null, ...totals, armInvalidReason: reason, ...(missing ? { missingUtteranceIds: missing } : {}) });
+const unscoreable = (
+    totals: ReturnType<typeof poolTotals>,
+    reason: NonNullable<AggregateWer['armInvalidReason']>,
+    missingUtteranceIds?: string[],
+): AggregateWer => ({ wer: null, ...totals, armInvalidReason: reason, ...(missingUtteranceIds ? { missingUtteranceIds } : {}) });
 
-    // Any invalid utterance invalidates the ARM — not just itself.
-    if (invalid > 0) return unscoreable('incomplete_corpus');
+/**
+ * Aggregate a CORPUS ARM against its frozen manifest.
+ *
+ * `expectedUtteranceIds` is REQUIRED — not optional-with-a-contract. The previous signature took it as
+ * `expectedUtteranceIds?`, so a corpus caller could simply omit it and receive a WER from an incomplete
+ * corpus: the exact defect the strictness was added to prevent, reachable by leaving off an argument.
+ * A rule the type system does not enforce is a rule that depends on everyone remembering it.
+ *
+ * Pooled WER = Σ(S+D+I) / Σ(referenceWords) — never the mean of per-utterance WERs, which over-weights
+ * short clips and makes the figure non-comparable with published numbers.
+ *
+ * The arm is scoreable ONLY when the manifest is valid and every expected utterance scored. A partial
+ * corpus is not a smaller corpus — it is a DIFFERENT one, silently selected by whichever clips happened
+ * to work, and the ones that fail are systematically the hard ones.
+ */
+export function aggregateCorpusArm(
+    scores: readonly CorpusScore[],
+    expectedUtteranceIds: readonly string[],
+): AggregateWer {
+    const totals = poolTotals(scores);
 
-    if (expectedUtteranceIds) {
-        const expected = new Set(expectedUtteranceIds);
-        const duplicates = [...seen.entries()].filter(([, n]) => n > 1);
-        if (duplicates.length > 0) return unscoreable('duplicate_utterances');
-        const unexpected = [...seen.keys()].filter((id) => !expected.has(id));
-        if (unexpected.length > 0) return unscoreable('unexpected_utterances');
-        const missing = expectedUtteranceIds.filter((id) => !seen.has(id));
-        if (missing.length > 0) return unscoreable('incomplete_corpus', missing);
-    }
+    // A manifest that cannot identify its own contents cannot certify completeness against anything.
+    if (expectedUtteranceIds.length === 0) return unscoreable(totals, 'invalid_manifest');
+    if (expectedUtteranceIds.some((id) => (id ?? '').trim().length === 0)) return unscoreable(totals, 'invalid_manifest');
+    if (new Set(expectedUtteranceIds).size !== expectedUtteranceIds.length) return unscoreable(totals, 'invalid_manifest');
+
+    // A blank id on a score is unmatchable: it can be neither deduped nor reported missing.
+    if (scores.some((s) => (s.utteranceId ?? '').trim().length === 0)) return unscoreable(totals, 'blank_utterance_id');
+
+    const seen = new Map<string, number>();
+    for (const s of scores) seen.set(s.utteranceId, (seen.get(s.utteranceId) ?? 0) + 1);
+
+    if ([...seen.values()].some((n) => n > 1)) return unscoreable(totals, 'duplicate_utterances');
+
+    const expected = new Set(expectedUtteranceIds);
+    if ([...seen.keys()].some((id) => !expected.has(id))) return unscoreable(totals, 'unexpected_utterances');
+
+    // Any invalid utterance invalidates the ARM, not just itself.
+    if (totals.invalidCount > 0) return unscoreable(totals, 'incomplete_corpus');
+
+    const missing = expectedUtteranceIds.filter((id) => !seen.has(id));
+    if (missing.length > 0) return unscoreable(totals, 'incomplete_corpus', missing);
 
     // Zero reference words is UNMEASURABLE, not a perfect score.
-    if (scored === 0 || refWords === 0) return unscoreable('no_scoreable_utterances');
-    return { wer: (sub + del + ins) / refWords, ...totals };
+    if (totals.scoredCount === 0 || totals.referenceWords === 0) return unscoreable(totals, 'no_scoreable_utterances');
+
+    return {
+        wer: (totals.substitutions + totals.deletions + totals.insertions) / totals.referenceWords,
+        ...totals,
+    };
+}
+
+/**
+ * Aggregate PRODUCT-PATH runs. A separate entry point because there is no manifest to be complete
+ * against — a browser journey is not a corpus, and pretending otherwise is what coupled the two.
+ *
+ * Still strict about validity: any invalid run means no number.
+ */
+export function aggregateProductPathRuns(scores: readonly ProductPathScore[]): AggregateWer {
+    const totals = poolTotals(scores);
+    if (totals.invalidCount > 0) return unscoreable(totals, 'incomplete_corpus');
+    if (totals.scoredCount === 0 || totals.referenceWords === 0) return unscoreable(totals, 'no_scoreable_utterances');
+    return {
+        wer: (totals.substitutions + totals.deletions + totals.insertions) / totals.referenceWords,
+        ...totals,
+    };
 }
