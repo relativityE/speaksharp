@@ -80,14 +80,24 @@ export interface DecodeArm {
      * whatever made it comparable.
      */
     declareRoute(audioSeconds: number): CandidateRoute;
-    /** Decode. Returns the transcript, or null when the arm produced nothing — a result, not an error. */
-    decode(audio: Float32Array, audioSeconds: number): Promise<string | null>;
+    /**
+     * Decode ONE clip, addressed by a LOCATOR the arm knows how to resolve — a file path in Node, a URL
+     * in the browser.
+     *
+     * It used to take a `Float32Array`, which forced the caller to load the audio and made the browser
+     * lane unable to use the certified path at all: samples cannot be shipped into a page per clip
+     * without absurd cost, so that lane grew its own decode-and-score loop and drifted. One contract
+     * both lanes can satisfy is what keeps them on one path.
+     *
+     * Returns the transcript, or null when the arm produced nothing — a result, not an error.
+     */
+    decode(locator: string, audioSeconds: number): Promise<string | null>;
     /**
      * Run ONE short decode and report whether the runtime honoured the declared route. REQUIRED, not
      * optional: an optional method is one an arm can skip, and skipping is how a divergence gets past
      * a gate without anybody choosing to let it.
      */
-    probeRouteHonored(audio: Float32Array, audioSeconds: number): Promise<RouteHonorReport>;
+    probeRouteHonored(locator: string, audioSeconds: number): Promise<RouteHonorReport>;
 
     /** Everything needed to know what produced the numbers. */
     provenance(): ArmProvenance;

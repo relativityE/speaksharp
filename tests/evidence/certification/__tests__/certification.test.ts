@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import goldens from '../../normalization/goldens.json';
 import { CERTIFICATION_RULES } from '../rules';
-import { runOracleVectorGate, scoringTokens, scoreUtterance, aggregateArm } from '../scoringAdapter';
+import { runOracleVectorGate, scoringTokens, scoreUtterance } from '../scoringAdapter';
 import { checkRouteParity, PARITY_PROBE_SECONDS } from '../routeParity';
 import { checkProvenance } from '../provenance';
 import { certifyArm } from '../certify';
@@ -47,7 +47,7 @@ const provenanceOf = (): ArmProvenance => ({
 const makeArm = (transcripts: Record<string, string | null>, overrides: Partial<DecodeArm> = {}): DecodeArm => ({
     id: 'injected-arm',
     declareRoute: (seconds) => resolveWhisperRoute('v2', MODEL_ID, seconds),
-    decode: async (_audio, seconds) => transcripts[String(seconds)] ?? null,
+    decode: async (_locator, seconds) => transcripts[String(seconds)] ?? null,
     probeRouteHonored: async () => ({
         timestampsRequested: true,
         timestampsReturned: true,
@@ -62,7 +62,8 @@ const makeArm = (transcripts: Record<string, string | null>, overrides: Partial<
 });
 
 const utterance = (id: string, reference: string, audioSeconds: number): CorpusUtterance => ({
-    id, reference, audioSeconds, audio: new Float32Array(Math.round(audioSeconds * 16000)),
+    // A locator the injected arm keys off; nothing here touches the filesystem.
+    id, reference, audioSeconds, locator: `injected://${id}`,
 });
 
 describe('the certification rules are immutable', () => {
@@ -258,7 +259,7 @@ describe('END TO END — audio to a pooled WER, on an injected engine', () => {
 
     it('produces the hand-computed pooled WER, and the S/D/I that make it up', async () => {
         const arm = makeArm(TRANSCRIPTS);
-        const result = await runArm(arm, certifyInjected(arm), UTTERANCES);
+        const result = await runArm(arm, certifyInjected(arm), UTTERANCES, UTTERANCES.map((u) => u.id));
         expect(result.ok, `${result.ok ? '' : `${result.reason}: ${result.detail}`}`).toBe(true);
         if (!result.ok) return;
 
@@ -273,7 +274,7 @@ describe('END TO END — audio to a pooled WER, on an injected engine', () => {
         // Same data, two statistics. Publishing one under the other's name is how a benchmark stops
         // being comparable with anything.
         const arm = makeArm(TRANSCRIPTS);
-        const result = await runArm(arm, certifyInjected(arm), UTTERANCES);
+        const result = await runArm(arm, certifyInjected(arm), UTTERANCES, UTTERANCES.map((u) => u.id));
         if (!result.ok) throw new Error(result.reason);
         const perUtterance = result.scores.map((s) => (s.ok ? s.row.wer ?? 0 : 0));
         const mean = perUtterance.reduce((a, b) => a + b, 0) / perUtterance.length;
@@ -288,7 +289,7 @@ describe('END TO END — audio to a pooled WER, on an injected engine', () => {
                 return { ...route, decode: { ...route.decode, stride_length_s: 5 } };
             },
         });
-        const result = await runArm(arm, certifyInjected(arm), UTTERANCES);
+        const result = await runArm(arm, certifyInjected(arm), UTTERANCES, UTTERANCES.map((u) => u.id));
         expect(result.ok).toBe(false);
         if (result.ok) return;
         expect(result.reason).toBe('not_certified');
@@ -299,12 +300,12 @@ describe('END TO END — audio to a pooled WER, on an injected engine', () => {
         // The retired harnesses caught the exception, skipped the clip, and divided by the survivors.
         // The clips that fail are systematically the hard ones, so skipping them raises the score.
         const arm = makeArm(TRANSCRIPTS, {
-            decode: async (_audio, seconds) => {
+            decode: async (_locator, seconds) => {
                 if (seconds === 3) throw new Error('decode exploded');
                 return TRANSCRIPTS[String(seconds)];
             },
         });
-        const result = await runArm(arm, certifyInjected(arm), UTTERANCES);
+        const result = await runArm(arm, certifyInjected(arm), UTTERANCES, UTTERANCES.map((u) => u.id));
         expect(result.ok).toBe(false);
         if (result.ok) return;
         expect(result.reason).toBe('unscoreable_arm');
@@ -321,7 +322,7 @@ describe('END TO END — audio to a pooled WER, on an injected engine', () => {
 
     it('an EMPTY decode is a named result, not a total miss and not a skip', async () => {
         const arm = makeArm({ ...TRANSCRIPTS, '2': '' });
-        const result = await runArm(arm, certifyInjected(arm), UTTERANCES);
+        const result = await runArm(arm, certifyInjected(arm), UTTERANCES, UTTERANCES.map((u) => u.id));
         expect(result.ok).toBe(false);
         if (result.ok) return;
         expect(result.scores.find((s) => s.utteranceId === 'u2')).toMatchObject({
@@ -331,17 +332,31 @@ describe('END TO END — audio to a pooled WER, on an injected engine', () => {
         expect(result.decodeFailures).toEqual([]);
     });
 
-    it('a PARTIAL corpus produces no WER — a smaller corpus is a different corpus', async () => {
+    it('a PARTIAL corpus produces no WER — the expected ids are INDEPENDENT of what ran', async () => {
+        // THE BYPASS THIS CLOSES. Every runner used to pass `utterances.map(u => u.id)` as the expected
+        // set, so dropping a clip shrank both lists and 599 of 600 read as complete — the check
+        // compared a list against itself. `runArm` now REQUIRES the expected ids as a separate
+        // argument, taken from the set's own definition.
         const arm = makeArm(TRANSCRIPTS);
-        const certification = certifyInjected(arm);
-        // Two of the three run, but the manifest expects three.
-        const result = await runArm(arm, certification, UTTERANCES.slice(0, 2));
+        const result = await runArm(
+            arm,
+            certifyInjected(arm),
+            UTTERANCES.slice(0, 2),               // only two decoded
+            UTTERANCES.map((u) => u.id),          // three expected, from the set
+        );
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.reason).toBe('unscoreable_arm');
+        expect(result.aggregate?.armInvalidReason).toBe('incomplete_corpus');
+        expect(result.aggregate?.missingUtteranceIds).toEqual(['u3']);
+    });
+
+    it('the SAME two clips DO score when the set genuinely expects two — strictness, not refusal', async () => {
+        // Positive control. Without it, a `runArm` that rejected everything would satisfy the test above.
+        const arm = makeArm(TRANSCRIPTS);
+        const two = UTTERANCES.slice(0, 2);
+        const result = await runArm(arm, certifyInjected(arm), two, two.map((u) => u.id));
         expect(result.ok).toBe(true);
-        // ...and scoring those two against the FULL expected set is what must be refused.
-        const scores = result.ok ? result.scores : [];
-        expect(aggregateArm(scores, UTTERANCES.map((u) => u.id))).toMatchObject({
-            wer: null, armInvalidReason: 'incomplete_corpus', missingUtteranceIds: ['u3'],
-        });
     });
 
     it('provenance that goes missing between certification and emission still blocks the row', async () => {
@@ -356,7 +371,7 @@ describe('END TO END — audio to a pooled WER, on an injected engine', () => {
                 return p;
             },
         });
-        const result = await runArm(arm, certifyInjected(arm), UTTERANCES);
+        const result = await runArm(arm, certifyInjected(arm), UTTERANCES, UTTERANCES.map((u) => u.id));
         expect(result.ok).toBe(false);
         if (result.ok) return;
         expect(result.reason).toBe('incomplete_provenance');
@@ -365,7 +380,7 @@ describe('END TO END — audio to a pooled WER, on an injected engine', () => {
 
     it('the emitted row carries the rules version that certified it', async () => {
         const arm = makeArm(TRANSCRIPTS);
-        const result = await runArm(arm, certifyInjected(arm), UTTERANCES);
+        const result = await runArm(arm, certifyInjected(arm), UTTERANCES, UTTERANCES.map((u) => u.id));
         if (!result.ok) throw new Error(result.reason);
         expect(result.row.rulesVersion).toBe(CERTIFICATION_RULES.version);
         expect(result.row.armId).toBe('injected-arm');
@@ -458,7 +473,7 @@ describe('Moonshine is measured against its native route, not Whisper\'s', () =>
 
     it('NOT returning timestamps is no longer a failure for it', async () => {
         const arm = moonshineArm();
-        const honor = await arm.probeRouteHonored(new Float32Array(1), 1);
+        const honor = await arm.probeRouteHonored('injected://probe', 1);
         const result = certifyArm(arm, expectation, ORACLE_VECTORS, honor);
         expect(result.failedGates).not.toContain('route_not_honored');
         expect(result.certified).toBe(true);
@@ -488,7 +503,7 @@ describe('a certificate belongs to the arm that earned it', () => {
         expect(certificate.certified).toBe(true);
 
         const armB: DecodeArm = { ...armA, id: 'a-different-model' };
-        const result = await runArm(armB, certificate, UTTERANCES);
+        const result = await runArm(armB, certificate, UTTERANCES, UTTERANCES.map((u) => u.id));
         expect(result.ok).toBe(false);
         if (result.ok) return;
         expect(result.reason).toBe('certificate_arm_mismatch');
@@ -511,7 +526,7 @@ describe('a certificate belongs to the arm that earned it', () => {
                 return p;
             },
         };
-        const result = await runArm(reconfigured, certificate, UTTERANCES);
+        const result = await runArm(reconfigured, certificate, UTTERANCES, UTTERANCES.map((u) => u.id));
         expect(result.ok).toBe(false);
         if (result.ok) return;
         expect(result.reason).toBe('certificate_configuration_mismatch');
@@ -531,7 +546,7 @@ describe('a certificate belongs to the arm that earned it', () => {
             ...arm,
             provenance: () => { const p = provenanceOf(); mutate(p); return p; },
         };
-        const result = await runArm(changed, certificate, UTTERANCES);
+        const result = await runArm(changed, certificate, UTTERANCES, UTTERANCES.map((u) => u.id));
         expect(result.ok).toBe(false);
         if (result.ok) return;
         expect(result.reason).toBe('certificate_configuration_mismatch');
@@ -539,7 +554,7 @@ describe('a certificate belongs to the arm that earned it', () => {
 
     it('the same arm under its own certificate still runs — the check is binding, not blocking', async () => {
         const arm = makeArm({ '1': 'the cat sat down' });
-        const result = await runArm(arm, certifyArm(arm, WHISPER_V2, ORACLE_VECTORS), UTTERANCES);
+        const result = await runArm(arm, certifyArm(arm, WHISPER_V2, ORACLE_VECTORS), UTTERANCES, UTTERANCES.map((u) => u.id));
         expect(result.ok).toBe(true);
     });
 });

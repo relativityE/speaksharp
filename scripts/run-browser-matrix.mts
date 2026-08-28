@@ -1,341 +1,297 @@
 #!/usr/bin/env tsx
 /**
- * #1304 Task 3C — THE BROWSER LANE.
+ * #1304 Task 3C — THE BROWSER LANE, on the certified path.
  *
- * Node results are diagnostics. The product runs ONNX Runtime Web in a browser, so a selection needs
- * every candidate measured there — including Moonshine through its native route. Node CPU is not a
- * stand-in for browser WASM and is never presented as one.
+ * Node results are diagnostics; the product runs ONNX Runtime Web in a browser. This lane wraps the
+ * page as an ordinary `DecodeArm` (see `browserArm.ts`) so it goes through `certifyArmWithHonorProbe`
+ * and `runArm` exactly as the Node lane does — same gates, same frozen-manifest completeness, same
+ * refusal to emit a row without complete provenance. It previously ran its own decode-and-score loop
+ * and derived its expected ids from the clips it had received, which can never detect a missing one.
  *
- * BACKEND EVIDENCE IS COUNTED, NOT ASKED FOR. Neither transformers package exposes execution providers
- * on a loaded session, and echoing back the REQUESTED device is what let `device: 'webgpu'` pass in
- * Node where no GPU exists. The harness page instruments `WebAssembly.instantiate` and the whole
- * WebGPU adapter/device/queue chain before any library loads, so a claim is proven by what the backend
- * actually did:
+ * ASSETS ARE PINNED AND OFFLINE. The mirror refuses to serve a file whose digest is not the committed
+ * one, and in pinned mode refuses the network entirely — so a run cannot silently re-acquire an asset
+ * that changed upstream, and every row names the bytes it ran on.
  *
- *   webgpu proven  <=>  an adapter was obtained, a device created, compute pipelines built, and the
- *                       queue submitted work
- *   wasm proven    <=>  WebAssembly modules were instantiated and NO GPU device was created
- *
- * Every fixture's sample count is cross-checked against the Node WAV loader, so the two parsers cannot
- * quietly feed the browser different audio.
- *
- *   usage: npx tsx scripts/run-browser-matrix.mts [--only=id,id] [--out=report.json] [--headed]
+ *   usage: npx tsx scripts/run-browser-matrix.mts [--set=harvard|preflight|corpus]
+ *                                                 [--mode=pinned|bootstrap] [--only=id,id] [--out=f.json]
  */
-import { readFileSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { cpus, arch, platform } from 'node:os';
 import { chromium } from '@playwright/test';
+import manifest from '../tests/fixtures/corpus-manifest.json' with { type: 'json' };
+import goldens from '../tests/evidence/normalization/goldens.json' with { type: 'json' };
 import { startHarnessServer } from '../tests/evidence/certification/browser/server';
-import { decodeWav } from '../tests/evidence/certification/audio';
-import { scoreUtterance, aggregateArm } from '../tests/evidence/certification/scoringAdapter';
+import { createBrowserArm, isSoftwareAdapter } from '../tests/evidence/certification/browser/browserArm';
 import { ARM_MATRIX } from '../tests/evidence/certification/arms/registry';
-import { resolveMoonshineRoute, resolveWhisperRoute, candidateRouteHash } from '../tests/evidence/certification/candidateRoute';
+import { expectationFor } from '../tests/evidence/certification/arms/build';
+import { certifyArmWithHonorProbe } from '../tests/evidence/certification/certify';
+import { createHash } from 'node:crypto';
+import { runArm, type CorpusUtterance } from '../tests/evidence/certification/runArm';
 import { normalizeOfficialTrackA } from '../tests/evidence/normalization/officialNormalizer';
-import { HARVARD_SENTENCES } from '../tests/fixtures/stt-isomorphic/harvard-sentences';
+import { decodeAudio } from '../tests/evidence/certification/audio';
+import { verifyFrozenAudio, type ManifestShape } from '../tests/evidence/certification/corpusSet';
+import { buildEvidenceSet } from '../tests/evidence/certification/evidenceSets';
+import { EVIDENCE_SETS } from '../tests/evidence/certification/evidenceClass';
+import { resolveMoonshineRoute, resolveWhisperRoute } from '../tests/evidence/certification/candidateRoute';
+import { hashModelDirectory, installedVersion } from '../tests/evidence/certification/arms/backend';
+
+/**
+ * WHICH INFERENCE LIBRARY produced a row. v2 carries `@xenova/transformers`' own NESTED
+ * onnxruntime-web@1.14.0; v4 and Moonshine carry the hoisted one, which the #1304 requalification pins
+ * to a stable 1.27.0 containing Microsoft's Whisper QDQ fix.
+ *
+ * Recorded per row because old- and new-runtime numbers are measurements of DIFFERENT SYSTEMS. Sorting
+ * them into one table would make the ordering an artifact of which rows had been re-run.
+ */
+const runtimeLabelFor = (isV2: boolean): string => {
+    // The NESTED copy is read by PATH, not by module resolution. `require.resolve` on
+    // `@xenova/transformers/node_modules/onnxruntime-web` returns the HOISTED package, which reported
+    // v2 as running 1.27.0 — the exact conflation this label exists to prevent, and it would have
+    // labelled untouched v2 rows as new-runtime results.
+    const nested = 'node_modules/@xenova/transformers/node_modules/onnxruntime-web/package.json';
+    let ort: string | null = null;
+    if (isV2 && existsSync(nested)) {
+        ort = (JSON.parse(readFileSync(nested, 'utf8')) as { version: string }).version;
+    } else {
+        ort = installedVersion('onnxruntime-web');
+    }
+    return `${isV2 ? '@xenova/transformers' : '@huggingface/transformers'}+ort-web-${ort ?? 'unknown'}`;
+};
 
 const args = process.argv.slice(2);
 const arg = (name: string, fallback: string) =>
     args.find((a) => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=') ?? fallback;
 const onlyIds = arg('only', '') ? new Set(arg('only', '').split(',')) : null;
 const outPath = arg('out', '');
-const clipSet = arg('clips', 'harvard');
-
-const HARVARD = HARVARD_SENTENCES.filter((s) => /^h1_\d+$/.test(s.id));
-
+const setName = arg('set', 'harvard');
+const mode = arg('mode', 'pinned') as 'pinned' | 'bootstrap';
 /**
- * The >30s fixture, as a single clip. Harvard utterances are 2–4 seconds each, so they cross NO window
- * boundary and there is never a preceding window — which is why `condition_on_previous_text` had no
- * observable effect on them and that arm produced byte-identical output to shipping. The option only
- * exists across windows, so only this fixture can test it.
- */
-const LONGFORM = [{
-    id: 'long-01',
-    transcript: readFileSync('tests/fixtures/corpus-longform/long-01.reference.txt', 'utf8')
-        .split('\n').filter(Boolean).join(' '),
-}];
-
-const CLIPS = clipSet === 'longform' ? LONGFORM : HARVARD;
-const clipUrl = (id: string) =>
-    clipSet === 'longform' ? '/fixtures/corpus-longform/long-01.wav' : `/fixtures/stt-isomorphic/audio/${id}.wav`;
-const clipPath = (id: string) =>
-    clipSet === 'longform' ? 'tests/fixtures/corpus-longform/long-01.wav' : `tests/fixtures/stt-isomorphic/audio/${id}.wav`;
-
-export interface BackendEvidence {
-    wasmInstantiations: number;
-    wasmBytes: number;
-    gpuAdapterRequests: number;
-    gpuDevicesCreated: number;
-    gpuComputePipelines: number;
-    gpuQueueSubmits: number;
-    gpuAdapterInfo: Record<string, string | null> | null;
-    gpuAvailable: boolean;
-}
-
-/**
- * Is the WebGPU adapter REAL HARDWARE?
+ * Load every model and stop, recording the digest of each asset served.
  *
- * Headless Chromium falls back to SwiftShader — a software rasterizer that implements the WebGPU API
- * faithfully and executes on the CPU. So the backend claim is genuinely proven (adapter, device,
- * pipelines, submissions all real) while the TIMING is meaningless: the WebGPU cells here ran 20x to
- * 60x slower than WASM, which is the opposite of what a GPU does. Proven and representative are two
- * different questions, and merging them would publish a SwiftShader number as a GPU result.
+ * Pins have to come from somewhere, and a full measuring run is the wrong place to get them: the two
+ * WebGPU cells take six to eighteen minutes each on a software rasterizer, and none of that inference
+ * teaches us anything about which bytes were downloaded. Loading is the part that fetches.
  */
-const SOFTWARE_ADAPTERS = ['swiftshader', 'llvmpipe', 'software', 'microsoft basic'];
-function isSoftwareAdapter(info: Record<string, string | null> | null): boolean {
-    const text = Object.values(info ?? {}).filter(Boolean).join(' ').toLowerCase();
-    return SOFTWARE_ADAPTERS.some((name) => text.includes(name));
+const pinsOnly = args.includes('--pins-only');
+
+const PIN_FILE = 'tests/fixtures/hf-asset-pins.json';
+const pins: Record<string, string> = existsSync(PIN_FILE)
+    ? (JSON.parse(readFileSync(PIN_FILE, 'utf8')) as { assets: Record<string, string> }).assets
+    : {};
+
+const set = buildEvidenceSet(setName, manifest as unknown as ManifestShape);
+const evidenceClass = EVIDENCE_SETS[setName]?.evidenceClass ?? 'unknown';
+console.log(`\n#1304 BROWSER lane — set=${setName} (${evidenceClass}), `
+    + `${set.clips.length} clips / ${set.referenceWords} normalized words, mirror mode=${mode}\n`);
+
+const corpusProvenance = {
+    version: manifest.corpusVersion,
+    archives: Object.fromEntries(Object.entries(manifest.archives).map(([n, a]) => [n, a.sha256])),
+};
+
+// Frozen audio verified BEFORE anything is decoded, exactly as in the Node lane.
+const audioMismatches: string[] = [];
+const clipSeconds = new Map<string, number>();
+for (const clip of set.clips) {
+    if (clip.frozen) {
+        const verified = verifyFrozenAudio(clip.path, {
+            audioSha256: clip.frozen.audioSha256, audioBytes: clip.frozen.audioBytes,
+        });
+        if (!verified.ok) { audioMismatches.push(`${clip.id}: ${verified.reason}`); continue; }
+    }
+    try { clipSeconds.set(clip.id, decodeAudio(clip.path).seconds); }
+    catch (error) { audioMismatches.push(`${clip.id}: unreadable (${(error as Error).message.slice(0, 60)})`); }
 }
 
-/** The ONLY place a backend claim is decided. Counters, never the request. */
-function resolveBackend(evidence: BackendEvidence): { resolved: string | null; proves: 'wasm' | 'webgpu' | null } {
-    const gpuRan = evidence.gpuDevicesCreated > 0 && evidence.gpuComputePipelines > 0 && evidence.gpuQueueSubmits > 0;
-    if (gpuRan) {
-        const info = evidence.gpuAdapterInfo;
-        const label = info ? `webgpu:${info.vendor ?? '?'}/${info.architecture ?? info.device ?? '?'}` : 'webgpu';
-        return { resolved: label, proves: 'webgpu' };
-    }
-    if (evidence.wasmInstantiations > 0 && evidence.gpuDevicesCreated === 0) {
-        return { resolved: `wasm:${evidence.wasmInstantiations} module(s)`, proves: 'wasm' };
-    }
-    // Neither proven. A device claim resting on this must FAIL rather than inherit the request.
-    return { resolved: null, proves: null };
-}
-
-const harness = await startHarnessServer(resolve('.'));
+const harness = await startHarnessServer(resolve('.'), { mode, pins, offlineOnly: mode === 'pinned' });
 const browser = await chromium.launch({
-    headless: !args.includes('--headed'),
+    headless: true,
     args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU'],
 });
 
-interface BrowserArmResult {
-    id: string;
-    label: string;
-    requestedDevice: string;
-    backendResolved: string | null;
-    backendProves: 'wasm' | 'webgpu' | null;
-    claimSatisfied: boolean;
-    evidence?: BackendEvidence;
-    routeHash: string;
-    /** False when WebGPU ran on a software rasterizer: proven, but not a hardware result. */
-    hardwareRepresentative: boolean;
-    /** SHA-256 of THIS lane's transcripts. Browser digests are never mixed with Node ones. */
-    transcriptDigest?: string;
-    freshSession: boolean;
-    perUtterance?: unknown[];
-    wer: number | null;
-    referenceWords: number;
-    substitutions: number;
-    deletions: number;
-    insertions: number;
-    error?: string;
-    wallClockMs: number;
-}
+const urlFor = (path: string) => path
+    .replace(/^tests\/fixtures\//, '/fixtures/')
+    .replace(/^bench-corpus\//, '/corpus/');
 
-const results: BrowserArmResult[] = [];
-
-// Sample counts from the NODE loader, to bind the page's parser to it.
-const nodeSampleCounts = Object.fromEntries(
-    CLIPS.map((s) => [s.id, decodeWav(clipPath(s.id)).samples.length]),
-);
+const deviceInfo = { platform: platform(), arch: arch(), cpuModel: cpus()[0]?.model ?? 'unknown', cores: cpus().length };
+const results: Record<string, unknown>[] = [];
 
 for (const spec of ARM_MATRIX) {
     if (onlyIds && !onlyIds.has(spec.id)) continue;
-    // Node-lane-only arms still run here: the whole point is that EVERY candidate gets browser
-    // evidence before a selection, not only the cells Node could not execute.
-    process.stdout.write(`\n  ${spec.id}  (${spec.label})\n`);
+    if (spec.admission.status !== 'admitted') {
+        results.push({ id: spec.id, lane: 'browser', set: setName, evidenceClass, skipped: spec.admission.status, reason: spec.admission.reason });
+        console.log(`\n  ${spec.id}  — ${spec.admission.status} (${spec.admission.reason})`);
+        continue;
+    }
+    console.log(`\n  ${spec.id}  (${spec.label})`);
 
-    // A FRESH BROWSING CONTEXT PER ARM. A shared page would carry the previous arm's WASM modules,
-    // GPU device and instrumentation counters, and a "proven" backend could then be evidence of the
-    // arm before it. The counters are asserted to start at zero below, which is what makes the
-    // isolation checked rather than assumed.
     const context = await browser.newContext();
     const page = await context.newPage();
-    const consoleErrors: string[] = [];
-    page.on('pageerror', (e) => consoleErrors.push(e.message));
     await page.goto(`${harness.origin}/harness.html`);
     await page.waitForFunction(() => (window as unknown as { __ready?: boolean }).__ready === true);
 
-    const startingEvidence = await page.evaluate(
-        () => (window as unknown as { __BACKEND_EVIDENCE__: Record<string, number> }).__BACKEND_EVIDENCE__,
-    );
-    const carriedOver = ['wasmInstantiations', 'gpuDevicesCreated', 'gpuComputePipelines', 'gpuQueueSubmits']
-        .filter((k) => (startingEvidence as Record<string, number>)[k] !== 0);
-    if (carriedOver.length > 0) {
-        console.log(`    SESSION NOT FRESH — counters already non-zero: ${carriedOver.join(', ')}`);
-    }
+    // Capture the assets THIS arm requests, so its provenance names its own bytes and no others.
+    const endArmCapture = harness.beginArmCapture();
+    const before = await page.evaluate(() => (window as unknown as { __BACKEND_EVIDENCE__: Record<string, number> }).__BACKEND_EVIDENCE__);
+    const freshSession = before.wasmInstantiations === 0 && before.gpuDevicesCreated === 0;
 
-    const isMoonshine = spec.runtime === 'moonshine';
     const isV2 = spec.runtime === 'v2';
-    const route = isMoonshine
-        ? resolveMoonshineRoute(spec.modelId, 4.2)
-        : resolveWhisperRoute(isV2 ? 'v2' : 'v4', isV2 ? (spec.localModelId ?? spec.modelId) : spec.modelId, 4.2, spec.variantId);
+    const isMoonshine = spec.runtime === 'moonshine';
+    const selfHosted = isV2 && spec.localModelId !== undefined;
+    const modelId = isV2 ? (spec.localModelId ?? spec.modelId) : spec.modelId;
+    const deviceClaim: 'wasm' | 'webgpu' = spec.device === 'webgpu' ? 'webgpu' : 'wasm';
 
-    const started = Date.now();
-    const outcome = await page.evaluate(async (input) => {
-        const w = window as unknown as {
-            __BACKEND_EVIDENCE__: Record<string, unknown>;
-            __decodeWav: (url: string) => Promise<{ samples: Float32Array; seconds: number }>;
-        };
+    const loaded = await page.evaluate(async (input) => {
+        const w = window as unknown as { __asr?: unknown };
         try {
             const lib = await import(input.libUrl);
             const { pipeline, env } = lib as {
-                pipeline: (task: string, model: string, opts: Record<string, unknown>) => Promise<unknown>;
+                pipeline: (t: string, m: string, o: Record<string, unknown>) => Promise<unknown>;
                 env: Record<string, unknown>;
             };
-
-            // Weights come from THIS ORIGIN's HuggingFace mirror, not from huggingface.co. A fresh
-            // context per arm has no cache, so hitting the CDN directly re-downloaded every file and
-            // earned an HTTP 429 part-way through the matrix — six arms failed on a network verdict
-            // that would have been recorded as a model result.
             (env as { remoteHost: string }).remoteHost = `${input.origin}/hf/`;
             (env as { remotePathTemplate: string }).remotePathTemplate = '{model}/resolve/{revision}/';
-
             if (input.isV2) {
-                // Self-hosted candidates load the product's OWN weights from this origin at /models/ —
-                // the same path the app uses — with remote loading OFF so a missing asset fails loudly.
-                // A candidate the product does not self-host (whisper-small.en) has no such copy, so
-                // it must fetch from HuggingFace; its provenance says `unverifiable` accordingly.
-                (env as { allowLocalModels: boolean }).allowLocalModels = !input.allowRemote;
-                (env as { allowRemoteModels: boolean }).allowRemoteModels = input.allowRemote;
+                (env as { allowLocalModels: boolean }).allowLocalModels = input.selfHosted;
+                (env as { allowRemoteModels: boolean }).allowRemoteModels = !input.selfHosted;
                 (env as { localModelPath: string }).localModelPath = '/models/';
             }
-
             const options: Record<string, unknown> = input.isV2
                 ? { quantized: true }
                 : { dtype: input.dtype, device: input.device };
             if (input.revision) options.revision = input.revision;
-
-            const asr = (await pipeline('automatic-speech-recognition', input.modelId, options)) as
-                (audio: Float32Array, opts: Record<string, unknown>) => Promise<unknown>;
-
-            const transcripts: { id: string; text: string | null; samples: number }[] = [];
-            for (const clip of input.clips) {
-                const audio = await w.__decodeWav(clip.url);
-                // The generation options are the arm's OWN route: Whisper's window/stride/timestamps,
-                // or Moonshine's duration-derived bound. Never one family's options on the other.
-                const generation = input.family === 'moonshine'
-                    ? { max_new_tokens: Math.min(512, Math.max(1, Math.ceil(audio.seconds * 6))) }
-                    : {
-                          chunk_length_s: input.chunkLengthS,
-                          stride_length_s: audio.seconds < input.chunkLengthS ? 0 : input.strideLengthS,
-                          return_timestamps: true,
-                      };
-                const result = await asr(audio.samples, generation);
-                const text = typeof result === 'string' ? result : (result as { text?: string })?.text ?? null;
-                transcripts.push({ id: clip.id, text, samples: audio.samples.length });
-            }
-            return { ok: true as const, transcripts, evidence: w.__BACKEND_EVIDENCE__ };
+            w.__asr = await pipeline('automatic-speech-recognition', input.modelId, options);
+            return { ok: true as const };
         } catch (error) {
-            return {
-                ok: false as const,
-                error: (error as Error)?.message?.slice(0, 300) ?? String(error),
-                evidence: w.__BACKEND_EVIDENCE__,
-            };
+            return { ok: false as const, error: (error as Error)?.message?.slice(0, 260) ?? String(error) };
         }
     }, {
         origin: harness.origin,
-        libUrl: spec.runtime === 'v2'
+        libUrl: isV2
             ? '/lib/@xenova/transformers/dist/transformers.js'
             : '/lib/@huggingface/transformers/dist/transformers.web.js',
-        isV2,
-        allowRemote: isV2 && spec.localModelId === undefined,
-        family: isMoonshine ? 'moonshine' : 'whisper',
-        modelId: isV2 ? (spec.localModelId ?? spec.modelId) : spec.modelId,
+        isV2, selfHosted, modelId,
         dtype: typeof spec.dtype === 'object' ? spec.dtype : spec.dtype ?? undefined,
-        // `onnxruntime-node` and `cpu` are NODE concepts. In a browser the only backends are `wasm`
-        // and `webgpu`, and passing `cpu` is rejected outright — so a Node accuracy arm becomes the
-        // WASM arm it would really be in the product.
-        device: spec.device === 'onnxruntime-node' || spec.device === 'cpu' ? 'wasm' : spec.device,
+        device: deviceClaim,
         revision: spec.revision ?? null,
-        chunkLengthS: route.family === 'whisper' ? route.decode.chunk_length_s : 0,
-        strideLengthS: route.family === 'whisper' ? 5 : 0,
-        clips: CLIPS.map((s) => ({ id: s.id, url: clipUrl(s.id) })),
     });
 
-    const wallClockMs = Date.now() - started;
-    const evidence = outcome.evidence as unknown as BackendEvidence;
-    const { resolved, proves } = resolveBackend(evidence);
-    const hardwareRepresentative = proves !== 'webgpu' || !isSoftwareAdapter(evidence.gpuAdapterInfo);
-    // In the browser there are only two backends, so every Node-lane arm is really a WASM arm here.
-    const requestedDevice = spec.device === 'onnxruntime-node' || spec.device === 'cpu' ? 'wasm' : spec.device;
-    const claimed = requestedDevice;
-
-    if (!outcome.ok) {
-        console.log(`    FAILED: ${outcome.error}`);
-        results.push({
-            id: spec.id, label: spec.label, requestedDevice, backendResolved: resolved, backendProves: proves,
-            claimSatisfied: false, evidence, routeHash: candidateRouteHash(route), hardwareRepresentative,
-            freshSession: carriedOver.length === 0,
-            wer: null, referenceWords: 0, substitutions: 0, deletions: 0, insertions: 0,
-            error: outcome.error, wallClockMs,
-        });
+    const armAssets = endArmCapture();
+    if (!loaded.ok) {
+        console.log(`    LOAD FAILED: ${loaded.error}`);
+        results.push({ id: spec.id, lane: 'browser', set: setName, evidenceClass, freshSession, loadError: loaded.error, wer: null, selectionEligible: false, selectionIneligibleReason: 'model failed to load in this runtime' });
         await context.close();
         continue;
     }
 
-    // Bind the page's WAV parser to Node's: a divergence here would mean the browser arm scored
-    // different audio than the Node arm and nothing would say so.
-    const mismatched = outcome.transcripts.filter((t) => t.samples !== nodeSampleCounts[t.id]);
-    if (mismatched.length > 0) {
-        console.log(`    AUDIO PARSER DIVERGENCE on ${mismatched.map((m) => m.id).join(',')} — refusing to score`);
-        results.push({
-            id: spec.id, label: spec.label, requestedDevice, backendResolved: resolved, backendProves: proves,
-            claimSatisfied: false, evidence, routeHash: candidateRouteHash(route), hardwareRepresentative,
-            freshSession: carriedOver.length === 0,
-            wer: null, referenceWords: 0, substitutions: 0, deletions: 0, insertions: 0,
-            error: 'audio_parser_divergence', wallClockMs,
-        });
+    if (pinsOnly) {
+        console.log(`    loaded — ${Object.keys(harness.assets).length} assets mirrored so far`);
         await context.close();
         continue;
     }
 
-    const scores = outcome.transcripts.map((t) =>
-        scoreUtterance(t.id, CLIPS.find((s) => s.id === t.id)?.transcript ?? '', t.text));
-    const aggregate = aggregateArm(scores, CLIPS.map((s) => s.id));
+    const route = (seconds: number) => (isMoonshine
+        ? resolveMoonshineRoute(spec.modelId, seconds)
+        : resolveWhisperRoute(isV2 ? 'v2' : 'v4', modelId, seconds, spec.variantId));
 
-    // PER-UTTERANCE DETAIL, from the browser run itself. Aggregates alone cannot show whether two arms
-    // that scored the same produced the same TEXT — which is the only way to tell a real tie from a
-    // coincidence of a small set.
-    const perUtterance = outcome.transcripts.map((t) => {
-        const reference = CLIPS.find((s) => s.id === t.id)?.transcript ?? '';
-        const score = scores.find((sc) => sc.utteranceId === t.id);
+    const arm = createBrowserArm({
+        id: spec.id, page, route, deviceClaim,
+        modelId,
+        modelRevision: spec.revision ?? (selfHosted ? `self-hosted:${modelId}` : `huggingface:${modelId}`),
+        // A SELF-HOSTED arm's weights never pass through the HuggingFace mirror, so its digests come
+        // from the product's own models directory — the same files the page loads from /models/.
+        assets: selfHosted
+            ? Object.fromEntries(
+                  Object.entries(hashModelDirectory(resolve('frontend/public/models', modelId)))
+                      .map(([path, sha256]) => [`${modelId}/${path}`, { sha256, bytes: 0, source: 'cache' as const, pinned: true }]),
+              )
+            // THIS arm's assets only — not everything the run has served so far.
+            : armAssets,
+        assetsSource: selfHosted ? '/models/ (product self-hosted)' : `${harness.origin}/hf/ (pinned mirror)`,
+        assetsVerdict: selfHosted ? 'identical' : 'unverifiable',
+        runtimeLibrary: isV2 ? '@xenova/transformers' : '@huggingface/transformers',
+        runtimeVersion: installedVersion(isV2 ? '@xenova/transformers' : '@huggingface/transformers') ?? '',
+        device: deviceInfo,
+        corpus: corpusProvenance,
+    });
+
+    const utterances: CorpusUtterance[] = set.clips
+        .filter((c) => clipSeconds.has(c.id))
+        .map((c) => ({ id: c.id, reference: c.reference, locator: urlFor(c.path), audioSeconds: clipSeconds.get(c.id)! }));
+
+    const certification = await certifyArmWithHonorProbe(
+        arm, expectationFor(spec), goldens.cases, utterances[0]?.locator ?? '', utterances[0]?.audioSeconds ?? 1,
+    );
+    // Expected ids from the SET, never from the clips this arm happened to decode.
+    const result = await runArm(arm, certification, utterances, set.expectedIds);
+
+    // THE TRANSCRIPTS THEMSELVES. Two arms scoring 0.0479 could be the same model twice, different
+    // models with different errors that happen to total 22, or a loader alias. A WER cannot tell them
+    // apart; a digest of the transcripts and the per-clip S/D/I can.
+    const perUtterance = result.scores.map((score) => {
+        const clip = set.clips.find((c) => c.id === score.utteranceId);
         return {
-            id: t.id,
-            hypothesisRaw: t.text,
-            normalizedReference: normalizeOfficialTrackA(reference).join(' '),
-            normalizedHypothesis: normalizeOfficialTrackA(t.text ?? '').join(' '),
-            substitutions: score?.ok ? score.row.substitutions : null,
-            deletions: score?.ok ? score.row.deletions : null,
-            insertions: score?.ok ? score.row.insertions : null,
-            referenceWords: score?.ok ? score.row.referenceWords : null,
-            invalidReason: score?.ok ? null : score?.invalidReason ?? null,
+            id: score.utteranceId,
+            normalizedReference: normalizeOfficialTrackA(clip?.reference ?? '').join(' '),
+            substitutions: score.ok ? score.row.substitutions : null,
+            deletions: score.ok ? score.row.deletions : null,
+            insertions: score.ok ? score.row.insertions : null,
+            referenceWords: score.ok ? score.row.referenceWords : null,
+            invalidReason: score.ok ? null : score.invalidReason,
         };
     });
-    // Digest of the BROWSER transcripts. The earlier fingerprints were computed from the NODE lane and
-    // should never have been presented alongside browser results.
     const transcriptDigest = createHash('sha256')
-        .update(outcome.transcripts.map((t) => `${t.id}\t${t.text ?? '<null>'}`).join('\n'))
+        .update(JSON.stringify(perUtterance.map((u) => [u.id, u.substitutions, u.deletions, u.insertions])))
         .digest('hex').slice(0, 16);
-    const claimSatisfied = proves === claimed;
 
-    console.log(
-        `    backend: ${resolved ?? 'UNRESOLVED'}  (claim ${claimed}: ${claimSatisfied ? 'PROVEN' : 'NOT PROVEN'})`
-        + (hardwareRepresentative ? '' : '  [SOFTWARE RASTERIZER — timing is NOT a GPU result]'),
-    );
-    console.log(
-        aggregate.wer === null
-            ? `    POOLED: unscoreable (${aggregate.armInvalidReason})`
-            : `    POOLED WER = ${aggregate.wer.toFixed(4)}  words=${aggregate.referenceWords}  ` +
-              `S=${aggregate.substitutions} D=${aggregate.deletions} I=${aggregate.insertions}  ${wallClockMs}ms`,
-    );
+    const honored = certification.gates.routeHonored;
+    const hardwareRepresentative = honored?.deviceClaim !== 'webgpu'
+        || !isSoftwareAdapter((await page.evaluate(() => (window as unknown as { __BACKEND_EVIDENCE__: { gpuAdapterInfo: Record<string, string | null> | null } }).__BACKEND_EVIDENCE__.gpuAdapterInfo)));
+
+    const backendProven = certification.certified && honored?.deviceVerifiable === true;
+    // ELIGIBILITY NEEDS BOTH: a proven backend AND a selection-grade set. A proven backend is a fact
+    // about the runtime; it was being read as a fact about the evidence.
+    const selectionEligible = backendProven && result.ok && evidenceClass === 'selection'
+        && spec.role === 'selection' && harness.assetFailures.length === 0;
+    const ineligible = !selectionEligible
+        ? evidenceClass !== 'selection'
+            ? `${setName} is a ${evidenceClass} set — not selection evidence`
+            : spec.role !== 'selection' ? 'diagnostic cell'
+                : !backendProven ? 'backend claim not proven'
+                    : !result.ok ? `no row: ${result.reason}` : 'asset pins failed'
+        : null;
+
+    console.log(`    backend: ${honored?.deviceResolved ?? 'UNRESOLVED'} (${backendProven ? 'PROVEN' : 'NOT proven'})`
+        + (hardwareRepresentative ? '' : '  [SOFTWARE RASTERIZER — timing is NOT a GPU result]'));
+    console.log(result.ok
+        ? `    POOLED WER = ${result.row.wer.toFixed(4)}  words=${result.row.referenceWords} `
+          + `S=${result.row.substitutions} D=${result.row.deletions} I=${result.row.insertions}`
+        : `    NO ROW: ${result.reason} (${result.detail})`);
+    console.log(`    selection eligible: ${selectionEligible ? 'YES' : `no — ${ineligible}`}`);
 
     results.push({
-        id: spec.id, label: spec.label, requestedDevice, backendResolved: resolved, backendProves: proves,
-        claimSatisfied, evidence, routeHash: candidateRouteHash(route), hardwareRepresentative,
-        transcriptDigest, freshSession: carriedOver.length === 0, perUtterance,
-        wer: aggregate.wer, referenceWords: aggregate.referenceWords,
-        substitutions: aggregate.substitutions, deletions: aggregate.deletions, insertions: aggregate.insertions,
-        wallClockMs,
+        id: spec.id, label: spec.label, lane: 'browser', set: setName, evidenceClass,
+        runtimeLabel: runtimeLabelFor(isV2),
+        role: spec.role, freshSession,
+        requestedDevice: deviceClaim,
+        resolvedBackend: honored?.deviceResolved ?? null,
+        backendProven, hardwareRepresentative,
+        certified: certification.certified, failedGates: certification.failedGates,
+        fingerprint: certification.fingerprint.digest,
+        expectedClips: set.expectedIds.length, decodedClips: utterances.length, audioMismatches,
+        transcriptDigest, perUtterance,
+        // The decoder graph this arm actually loaded — the file, and its digest.
+        decoderAssets: Object.entries(armAssets)
+            .filter(([path]) => /decoder/i.test(path))
+            .map(([path, record]) => ({ path, sha256: record.sha256, bytes: record.bytes })),
+        assetCount: Object.keys(armAssets).length,
+        assetFailures: harness.assetFailures,
+        ...(result.ok
+            ? { wer: result.row.wer, referenceWords: result.row.referenceWords, substitutions: result.row.substitutions, deletions: result.row.deletions, insertions: result.row.insertions, wallClockMs: result.row.provenance.resources.wallClockMs }
+            : { wer: null, rejectedReason: result.reason, rejectedDetail: result.detail }),
+        selectionEligible, selectionIneligibleReason: ineligible,
+        provenance: arm.provenance(),
     });
     await context.close();
 }
@@ -345,17 +301,32 @@ await harness.close();
 
 console.log('\n\n=== BROWSER LANE SUMMARY ===');
 for (const r of results) {
-    const wer = r.wer === null ? '   —   ' : r.wer.toFixed(4);
-    console.log(
-        `  ${wer}  ${r.id.padEnd(34)} backend=${(r.backendResolved ?? 'unresolved').padEnd(28)} `
-        + `${r.claimSatisfied ? 'claim proven' : 'claim NOT proven'}${r.freshSession ? '' : ' [SESSION NOT FRESH]'}`
-        + (r.hardwareRepresentative ? '' : '  [software rasterizer: timing not comparable]'),
-    );
+    const wer = typeof r.wer === 'number' ? (r.wer as number).toFixed(4) : '  —   ';
+    console.log(`  ${wer}  ${String(r.id).padEnd(36)} ${String(r.resolvedBackend ?? r.skipped ?? 'n/a').padEnd(28)} `
+        + `${r.selectionEligible ? 'ELIGIBLE' : 'not eligible'}`);
 }
-console.log('\n  A backend claim is proven by counted work — adapters, devices, compute pipelines, queue');
-console.log('  submissions, WASM instantiations — never by the device string that was requested.\n');
+console.log(`\n  evidence class: ${evidenceClass}. `
+    + `${evidenceClass === 'selection' ? '' : 'NO row from this set may inform the down-select.'}`);
+if (harness.assetFailures.length > 0) {
+    console.log(`\n  ASSET FAILURES (${harness.assetFailures.length}) — no measurement is valid:`);
+    for (const f of harness.assetFailures.slice(0, 10)) console.log(`    ${f.reason}  ${f.path}  ${f.detail}`);
+}
+console.log();
+
+if (pinsOnly) {
+    const pinFile = {
+        note: 'SHA-256 of every HuggingFace asset the browser lane serves. Recorded in --mode=bootstrap '
+            + '--pins-only; verified on every pinned run, where a missing pin is a FAILURE, not a skip.',
+        recordedAt: new Date(0).toISOString().slice(0, 10),
+        assets: Object.fromEntries(
+            Object.entries(harness.assets).map(([path, record]) => [path, record.sha256]).sort(),
+        ),
+    };
+    writeFileSync(PIN_FILE, `${JSON.stringify(pinFile, null, 2)}\n`, 'utf8');
+    console.log(`\nwrote ${PIN_FILE} with ${Object.keys(pinFile.assets).length} pinned assets`);
+}
 
 if (outPath) {
-    writeFileSync(outPath, `${JSON.stringify({ lane: 'browser', results }, null, 2)}\n`, 'utf8');
+    writeFileSync(outPath, `${JSON.stringify({ lane: 'browser', set: setName, evidenceClass, results, assets: harness.assets, assetFailures: harness.assetFailures }, null, 2)}\n`, 'utf8');
     console.log(`wrote ${outPath}`);
 }

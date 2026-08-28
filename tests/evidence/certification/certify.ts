@@ -86,12 +86,13 @@ export async function certifyArmWithHonorProbe(
     arm: DecodeArm,
     expectation: RouteExpectation,
     oracleVectors: readonly { category: string; input: string; expected: string }[],
-    probeAudio: Float32Array,
+    /** File path or URL of the probe clip — the arm resolves it, exactly as it does a corpus clip. */
+    probeLocator: string,
     probeSeconds: number,
 ): Promise<CertificationResult> {
     let honored: RouteHonorReport;
     try {
-        honored = await arm.probeRouteHonored(probeAudio, probeSeconds);
+        honored = await arm.probeRouteHonored(probeLocator, probeSeconds);
     } catch (error) {
         honored = {
             timestampsRequested: true,

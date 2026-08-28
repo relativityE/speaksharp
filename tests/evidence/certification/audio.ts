@@ -8,6 +8,8 @@
  * nothing downstream would ever say why.
  */
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { extname } from 'node:path';
 
 export const REQUIRED_SAMPLE_RATE_HZ = 16_000;
 
@@ -18,6 +20,8 @@ export interface DecodedAudio {
 }
 
 export type AudioFormatReason =
+    | 'flac_probe_failed'
+    | 'flac_decode_failed'
     | 'not_a_wav'
     | 'truncated_riff'
     | 'missing_fmt_chunk'
@@ -111,4 +115,56 @@ export function decodeWav(path: string): DecodedAudio {
     for (let i = 0; i < count; i++) samples[i] = data.readInt16LE(i * 2) / 32768;
 
     return { samples, sampleRate: format.sampleRate, seconds: count / format.sampleRate };
+}
+
+/**
+ * FLAC, via ffmpeg — because the FROZEN CORPUS IS FLAC and this loader only ever read WAV.
+ *
+ * That gap was invisible for a long time: every smoke fixture is a WAV, so Harvard-10 passed while no
+ * corpus clip had ever been decoded at all. The preflight run found it immediately — 0 of 23 clips
+ * decoded, every one `not_a_wav` — which is exactly what a preflight is for.
+ *
+ * The sample rate is PROBED and REFUSED on mismatch rather than resampled. Passing `-ar 16000` would
+ * have quietly converted a wrong-rate source and produced a plausible, wrong transcript with nothing
+ * recording why — the same policy the WAV path already holds.
+ */
+function decodeFlac(path: string): DecodedAudio {
+    let probed: string;
+    try {
+        probed = execFileSync(
+            'ffprobe',
+            ['-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=sample_rate,channels',
+             '-of', 'default=nw=1:nk=1', path],
+            { encoding: 'utf8' },
+        ).trim();
+    } catch (error) {
+        throw new AudioFormatError('flac_probe_failed', `${path}: ${(error as Error).message.slice(0, 120)}`);
+    }
+    const [sampleRateText, channelsText] = probed.split('\n');
+    const sampleRate = Number(sampleRateText);
+    const channels = Number(channelsText);
+    if (channels !== 1) throw new AudioFormatError('not_mono', `channels=${channels}`);
+    if (sampleRate !== REQUIRED_SAMPLE_RATE_HZ) {
+        throw new AudioFormatError('wrong_sample_rate', `${sampleRate} != ${REQUIRED_SAMPLE_RATE_HZ}`);
+    }
+
+    let raw: Buffer;
+    try {
+        // No `-ar`: the rate is already verified, so ffmpeg must not be given licence to change it.
+        raw = execFileSync('ffmpeg', ['-v', 'error', '-i', path, '-f', 's16le', '-ac', '1', '-'],
+            { maxBuffer: 256 * 1024 * 1024 });
+    } catch (error) {
+        throw new AudioFormatError('flac_decode_failed', `${path}: ${(error as Error).message.slice(0, 120)}`);
+    }
+
+    const count = Math.floor(raw.length / 2);
+    if (count === 0) throw new AudioFormatError('empty_audio', path);
+    const samples = new Float32Array(count);
+    for (let i = 0; i < count; i++) samples[i] = raw.readInt16LE(i * 2) / 32768;
+    return { samples, sampleRate, seconds: count / sampleRate };
+}
+
+/** Decode by container. The corpus is FLAC; the committed fixtures are WAV. */
+export function decodeAudio(path: string): DecodedAudio {
+    return extname(path).toLowerCase() === '.flac' ? decodeFlac(path) : decodeWav(path);
 }

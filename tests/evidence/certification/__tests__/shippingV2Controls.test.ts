@@ -64,7 +64,7 @@ beforeAll(async () => {
 
     const run = async (id: string, wav: string, reference: string): Promise<Control> => {
         const audio = decodeWav(wav);
-        const hypothesis = await arm.decode(audio.samples, audio.seconds);
+        const hypothesis = await arm.decode(wav, audio.seconds);
         return {
             seconds: audio.seconds,
             stride: whisperStride(arm.declareRoute(audio.seconds)),
@@ -81,8 +81,9 @@ beforeAll(async () => {
 
     harvardScores = [];
     for (const sentence of HARVARD) {
-        const audio = decodeWav(`tests/fixtures/stt-isomorphic/audio/${sentence.id}.wav`);
-        const hypothesis = await arm.decode(audio.samples, audio.seconds);
+        const wav = `tests/fixtures/stt-isomorphic/audio/${sentence.id}.wav`;
+        const audio = decodeWav(wav);
+        const hypothesis = await arm.decode(wav, audio.seconds);
         harvardScores.push(scoreUtterance(sentence.id, sentence.transcript, hypothesis));
     }
 }, 600_000);

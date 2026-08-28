@@ -14,6 +14,7 @@
 import { createHash } from 'node:crypto';
 import { cpus, arch, platform } from 'node:os';
 import { resolveWhisperRoute, candidateRouteHash, type CandidateRoute } from '../candidateRoute';
+import { decodeAudio } from '../audio';
 import { installedVersion, readSessionProviders } from './backend';
 
 /** Read, not guessed: a provenance row that cannot name its runtime is not provenance. */
@@ -64,9 +65,10 @@ export function createTransformersV4Arm(options: TransformersV4ArmOptions): Deco
         return pipe;
     };
 
-    const runRaw = async (audio: Float32Array, audioSeconds: number): Promise<unknown> => {
+    const runRaw = async (locator: string, audioSeconds: number): Promise<unknown> => {
         const run = await load();
         if (!run) throw new Error('pipeline unavailable');
+        const audio = decodeAudio(locator).samples;
         const started = Date.now();
         // The shipping builder, unmodified — the same source the v2 worker and v4 engine both use.
         const result = await run(audio, { ...buildShippingDecodeOptions(audioSeconds) });
@@ -85,16 +87,16 @@ export function createTransformersV4Arm(options: TransformersV4ArmOptions): Deco
             return resolveWhisperRoute('v4', options.modelId, audioSeconds, options.variantId);
         },
 
-        async decode(audio: Float32Array, audioSeconds: number): Promise<string | null> {
-            const result = await runRaw(audio, audioSeconds);
+        async decode(locator: string, audioSeconds: number): Promise<string | null> {
+            const result = await runRaw(locator, audioSeconds);
             const text = typeof result === 'string' ? result : (result as { text?: string })?.text;
             const trimmed = (text ?? '').trim();
             return trimmed.length === 0 ? null : trimmed;
         },
 
-        async probeRouteHonored(audio: Float32Array, audioSeconds: number): Promise<RouteHonorReport> {
+        async probeRouteHonored(locator: string, audioSeconds: number): Promise<RouteHonorReport> {
             const requested = buildShippingDecodeOptions(audioSeconds).return_timestamps;
-            const result = await runRaw(audio, audioSeconds);
+            const result = await runRaw(locator, audioSeconds);
             const chunks = (result as { chunks?: { timestamp?: unknown }[] })?.chunks;
             // `cpu` in Node is an ACCURACY stand-in and claims no device. `webgpu`/`wasm` are device
             // claims, and in Node they cannot be substantiated: navigator.gpu does not exist, and the

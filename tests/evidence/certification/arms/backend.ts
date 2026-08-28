@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
-import { readFileSync, existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { dirname, join, relative } from 'node:path';
 
 const require_ = createRequire(import.meta.url);
 
@@ -66,4 +67,24 @@ export function readSessionProviders(pipelineOrModel: unknown): string | null {
 
     walk(pipelineOrModel, 0);
     return providers.size > 0 ? [...providers].sort().join('+') : null;
+}
+
+/**
+ * Digest every file in a model directory, so provenance names the bytes that ran.
+ *
+ * The browser lane needs this for SELF-HOSTED arms: the HuggingFace mirror only sees assets it serves,
+ * and the product's own `/models/` files never pass through it — so those arms reported an EMPTY
+ * digest map and correctly failed the provenance gate. An empty map is a promise of provenance.
+ */
+export function hashModelDirectory(root: string): Record<string, string> {
+    const out: Record<string, string> = {};
+    const walk = (dir: string) => {
+        for (const entry of readdirSync(dir)) {
+            const p = join(dir, entry);
+            if (statSync(p).isDirectory()) { walk(p); continue; }
+            out[relative(root, p)] = createHash('sha256').update(readFileSync(p)).digest('hex');
+        }
+    };
+    walk(root);
+    return out;
 }

@@ -29,8 +29,19 @@ const TYPES: Record<string, string> = {
 export interface HarnessServer {
     server: Server;
     origin: string;
-    /** SHA-256 of every HuggingFace asset this run served, keyed by repo-relative path. */
-    assetDigests: Record<string, string>;
+    /** Every HuggingFace asset this run served, keyed by repo-relative path. */
+    assets: Record<string, AssetRecord>;
+    /**
+     * Start recording which assets are requested from HERE, and return the set when done.
+     *
+     * WITHOUT THIS, every arm's provenance listed every asset the whole RUN had served so far — a v4
+     * q8 arm claiming the digests of the q4 files loaded three arms earlier. That is worse than no
+     * attribution: it is attribution that names the wrong bytes while looking precise, and it is the
+     * exact evidence needed to tell an int8/q8 tie from a loader alias.
+     */
+    beginArmCapture: () => () => Record<string, AssetRecord>;
+    /** Assets that failed their pin, or had none in pinned mode. Non-empty means no valid measurement. */
+    assetFailures: { path: string; reason: 'pin_mismatch' | 'missing_pin' | 'offline_miss' | 'fetch_failed'; detail: string }[];
     close: () => Promise<void>;
 }
 
@@ -40,46 +51,113 @@ export interface HarnessServer {
  *
  * That is not a theoretical concern: it got the run HTTP 429'd part-way through, and six arms failed
  * with `Error (429) ... resolve/main/onnx/decoder_model_merged.onnx` — a network verdict, recorded as
- * if it were a model result. Mirroring makes the lane reproducible, offline after the first fetch, and
- * — the part that matters for evidence — lets every served file be DIGESTED, so an arm's provenance
- * names the exact bytes it ran on rather than "whatever the CDN had".
+ * if it were a model result.
+ *
+ * MIRRORING ALONE IS NOT PINNING. The first version hashed whatever it downloaded or happened to find
+ * in the cache and reported that as the asset's identity — the same defect as recording `sha256sum` of
+ * a download and calling it a pin. A digest computed from the artifact it describes constrains
+ * nothing.
+ *
+ * So the mirror now has two modes:
+ *   'pinned'  — every asset must match a committed expected digest, and a MISSING pin is a failure,
+ *               not a skip. This is the mode a measurement runs in.
+ *   'bootstrap' — no pins exist yet; assets are fetched and their digests printed for committing.
+ *
+ * `offlineOnly` additionally refuses the network entirely, so a run cannot silently re-acquire an
+ * asset that has changed upstream.
  */
 const HF_CACHE = '.hf-cache';
+
+export type MirrorMode = 'pinned' | 'bootstrap';
+
+export interface HarnessServerOptions {
+    mode?: MirrorMode;
+    /** Refuse to fetch anything not already mirrored. A measurement run should set this. */
+    offlineOnly?: boolean;
+    /** Committed expected digests, keyed by repo-relative asset path. */
+    pins?: Record<string, string>;
+}
+
+export interface AssetRecord {
+    sha256: string;
+    bytes: number;
+    /** How this asset was obtained and checked. */
+    source: 'cache' | 'network';
+    pinned: boolean;
+}
 
 /** Prefix -> directory. Order matters: the first matching prefix wins. */
 function routes(repoRoot: string): [string, string][] {
     return [
         ['/models/', join(repoRoot, 'frontend/public/models')],
         ['/fixtures/', join(repoRoot, 'tests/fixtures')],
+        // The frozen corpus audio, so a browser arm scores the same bytes the Node lane verified.
+        ['/corpus/', join(repoRoot, 'bench-corpus')],
         ['/lib/', join(repoRoot, 'node_modules')],
         ['/', join(repoRoot, 'tests/evidence/certification/browser')],
     ];
 }
 
-export async function startHarnessServer(repoRoot = resolve('.')): Promise<HarnessServer> {
+export async function startHarnessServer(
+    repoRoot = resolve('.'),
+    options: HarnessServerOptions = {},
+): Promise<HarnessServer> {
     const mounts = routes(repoRoot);
     const cacheRoot = join(repoRoot, HF_CACHE);
-    const assetDigests: Record<string, string> = {};
+    const mode: MirrorMode = options.mode ?? 'pinned';
+    const offlineOnly = options.offlineOnly ?? mode === 'pinned';
+    const pins = options.pins ?? {};
+    const assets: Record<string, AssetRecord> = {};
+    const assetFailures: HarnessServer['assetFailures'] = [];
+    /** Paths requested since the current arm's capture began. */
+    let armCapture: Set<string> | null = null;
 
-    /** Fetch once, keep forever, and record the digest of what was served. */
+    /** Serve an asset, and CHECK it. A digest computed from the artifact it describes proves nothing. */
     const mirrorAsset = async (relative: string): Promise<Buffer | null> => {
         const file = join(cacheRoot, relative);
         if (!file.startsWith(cacheRoot)) return null;
+
+        let bytes: Buffer | null = null;
+        let source: AssetRecord['source'] = 'cache';
+
         if (existsSync(file)) {
-            const bytes = readFileSync(file);
-            assetDigests[relative] ??= createHash('sha256').update(bytes).digest('hex');
-            return bytes;
+            bytes = readFileSync(file);
+        } else if (offlineOnly) {
+            // A measurement must not silently re-acquire an asset that may have changed upstream.
+            assetFailures.push({ path: relative, reason: 'offline_miss', detail: 'not mirrored, and the network is refused in this mode' });
+            return null;
+        } else {
+            const upstream = await fetch(`https://huggingface.co/${relative}`);
+            if (!upstream.ok) {
+                assetFailures.push({ path: relative, reason: 'fetch_failed', detail: `HTTP ${upstream.status}` });
+                return null;
+            }
+            bytes = Buffer.from(await upstream.arrayBuffer());
+            mkdirSync(dirname(file), { recursive: true });
+            // Write via a temporary name so an interrupted fetch cannot leave a truncated file that
+            // later runs would happily serve and digest as if it were complete.
+            const temporary = `${file}.partial`;
+            writeFileSync(temporary, bytes);
+            renameSync(temporary, file);
+            source = 'network';
         }
-        const upstream = await fetch(`https://huggingface.co/${relative}`);
-        if (!upstream.ok) return null;
-        const bytes = Buffer.from(await upstream.arrayBuffer());
-        mkdirSync(dirname(file), { recursive: true });
-        // Write via a temporary name so an interrupted fetch cannot leave a truncated file that later
-        // runs would happily serve and digest as if it were complete.
-        const temporary = `${file}.partial`;
-        writeFileSync(temporary, bytes);
-        renameSync(temporary, file);
-        assetDigests[relative] = createHash('sha256').update(bytes).digest('hex');
+
+        const sha256 = createHash('sha256').update(bytes).digest('hex');
+        const expected = pins[relative];
+
+        if (mode === 'pinned') {
+            if (expected === undefined) {
+                assetFailures.push({ path: relative, reason: 'missing_pin', detail: sha256 });
+                return null;
+            }
+            if (expected !== sha256) {
+                assetFailures.push({ path: relative, reason: 'pin_mismatch', detail: `${sha256} != ${expected}` });
+                return null;
+            }
+        }
+
+        assets[relative] = { sha256, bytes: bytes.length, source, pinned: mode === 'pinned' };
+        armCapture?.add(relative);
         return bytes;
     };
 
@@ -139,7 +217,16 @@ export async function startHarnessServer(repoRoot = resolve('.')): Promise<Harne
     return {
         server,
         origin: `http://127.0.0.1:${port}`,
-        assetDigests,
+        assets,
+        assetFailures,
+        beginArmCapture: () => {
+            const capture = new Set<string>();
+            armCapture = capture;
+            return () => {
+                armCapture = null;
+                return Object.fromEntries([...capture].sort().map((path) => [path, assets[path]]));
+            };
+        },
         close: () => new Promise<void>((done) => { server.close(() => done()); }),
     };
 }

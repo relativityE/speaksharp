@@ -27,6 +27,7 @@ import {
     type CandidateRoute,
 } from '../candidateRoute';
 import { installedVersion, readSessionProviders } from './backend';
+import { decodeAudio } from '../audio';
 
 /** Read, not guessed: a provenance row that cannot name its runtime is not provenance. */
 const HF_VERSION = installedVersion('@huggingface/transformers') ?? '';
@@ -74,9 +75,10 @@ export function createMoonshineArm(options: MoonshineArmOptions): DecodeArm {
      * is the duration-derived generation bound — the parameter whose absence once produced a
      * "the model loops" conclusion that had to be retracted.
      */
-    const runRaw = async (audio: Float32Array, audioSeconds: number): Promise<unknown> => {
+    const runRaw = async (locator: string, audioSeconds: number): Promise<unknown> => {
         const run = await load();
         if (!run) throw new Error('pipeline unavailable');
+        const audio = decodeAudio(locator).samples;
         const route = resolveMoonshineRoute(options.modelId, audioSeconds);
         const started = Date.now();
         const result = await run(audio, { max_new_tokens: route.maxNewTokens });
@@ -93,17 +95,17 @@ export function createMoonshineArm(options: MoonshineArmOptions): DecodeArm {
             return resolveMoonshineRoute(options.modelId, audioSeconds);
         },
 
-        async decode(audio: Float32Array, audioSeconds: number): Promise<string | null> {
-            const result = await runRaw(audio, audioSeconds);
+        async decode(locator: string, audioSeconds: number): Promise<string | null> {
+            const result = await runRaw(locator, audioSeconds);
             const text = typeof result === 'string' ? result : (result as { text?: string })?.text;
             const trimmed = (text ?? '').trim();
             return trimmed.length === 0 ? null : trimmed;
         },
 
-        async probeRouteHonored(audio: Float32Array, audioSeconds: number): Promise<RouteHonorReport> {
+        async probeRouteHonored(locator: string, audioSeconds: number): Promise<RouteHonorReport> {
             const route = resolveMoonshineRoute(options.modelId, audioSeconds);
             const requested = routeRequestsTimestamps(route); // false — Moonshine's route asks for none
-            const result = await runRaw(audio, audioSeconds);
+            const result = await runRaw(locator, audioSeconds);
             const chunks = (result as { chunks?: { timestamp?: unknown }[] })?.chunks;
             const returned = Array.isArray(chunks) && chunks.length > 0 && Array.isArray(chunks[0]?.timestamp);
             return {

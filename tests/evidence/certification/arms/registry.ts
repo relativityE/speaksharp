@@ -59,6 +59,12 @@ export interface ArmSpec {
      */
     diagnosticPurpose?: string;
     /**
+     * This cell requests a DIFFERENT dtype name that resolves to the SAME published artifact as
+     * another cell. Recorded rather than deleted, so the matrix still shows both dtypes were tried
+     * and where they landed — but the two must never appear as independent results.
+     */
+    dtypeAliasOf?: string;
+    /**
      * A diagnostic cell that becomes a DUPLICATE of another cell in a given lane. `v4:...:cpu` is a
      * distinct configuration in Node (onnxruntime-node) but collapses onto the WASM cell in a browser,
      * where `cpu` is not a backend at all — so its browser row is the same experiment run twice under
@@ -261,6 +267,18 @@ export const ARM_MATRIX: readonly ArmSpec[] = Object.freeze([
         dtype: { encoder_model: 'fp32', decoder_model_merged: 'q8' },
         device: 'cpu',
         family: 'whisper',
+        // ALIAS, proven by digest — not inferred from a matching WER.
+        //
+        //   dd4761a3f7add26afda3512abff4706920404c2517e85a9f2ff090b0c0987909  decoder_model_merged_int8.onnx
+        //   dd4761a3f7add26afda3512abff4706920404c2517e85a9f2ff090b0c0987909  decoder_model_merged_quantized.onnx
+        //   cmp: byte-identical, 53,692,803 bytes each
+        //
+        // transformers.js maps `int8` -> `_int8.onnx` and `q8` -> `_quantized.onnx`, and
+        // onnx-community/whisper-base.en published the SAME BYTES under both names. Both arms load
+        // that decoder against the same fp32 encoder, so they are ONE candidate. Both scored 0.0479
+        // on the 459-word set, which is what a single model measured twice looks like — and equal
+        // file size alone would not have proven it, which is why the bytes were hashed and compared.
+        dtypeAliasOf: 'v4:base:int8-decoder:cpu',
         // Loads and scores under onnxruntime-node, but ONNX Runtime WEB refuses to create a session:
         //   qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits
         //   Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale
@@ -332,6 +350,15 @@ export const ARM_MATRIX: readonly ArmSpec[] = Object.freeze([
 export const ADMITTED_ARMS = ARM_MATRIX.filter((a) => a.admission.status === 'admitted');
 export const PENDING_ARMS = ARM_MATRIX.filter((a) => a.admission.status === 'pending_harness');
 export const REJECTED_ARMS = ARM_MATRIX.filter((a) => a.admission.status === 'rejected');
+/**
+ * DISTINCT candidates: aliases collapsed onto the arm they duplicate.
+ *
+ * A ranking built from `SELECTION_ARMS` would list one model twice and read as two independent
+ * results agreeing with each other.
+ */
+export const DISTINCT_CANDIDATES = ARM_MATRIX.filter((a) => a.role === 'selection' && !a.dtypeAliasOf);
+export const ALIASED_ARMS = ARM_MATRIX.filter((a) => a.dtypeAliasOf !== undefined);
+
 export const SELECTION_ARMS = ARM_MATRIX.filter((a) => a.role === 'selection');
 export const DIAGNOSTIC_ARMS = ARM_MATRIX.filter((a) => a.role === 'diagnostic');
 export const NODE_ARMS = ARM_MATRIX.filter((a) => a.admission.status === 'admitted' && a.admission.lane === 'node');

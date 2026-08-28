@@ -142,6 +142,44 @@ window.__decodeWav = async function (url) {
   return { samples, seconds: count / fmt.sampleRate };
 };
 
+/**
+ * FLAC (and anything else the browser can decode). The frozen corpus is FLAC; only the smoke fixtures
+ * are WAV, which is why a WAV-only loader looked fine for a long time while no corpus clip had ever
+ * been decoded.
+ *
+ * The context is pinned to 16 kHz. `decodeAudioData` resamples to the context rate, so a wrong-rate
+ * source would be silently converted — the runner therefore cross-checks the returned sample count
+ * against the count Node computed from the same file, and a divergence refuses the clip.
+ */
+window.__decodeAudio = async function (url) {
+  if (/\.wav($|\?)/i.test(url)) return window.__decodeWav(url);
+  const bytes = await (await fetch(url)).arrayBuffer();
+  const context = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+  try {
+    const buffer = await context.decodeAudioData(bytes);
+    if (buffer.numberOfChannels !== 1) throw new Error('not_mono');
+    if (buffer.sampleRate !== 16000) throw new Error('wrong_sample_rate');
+    const samples = buffer.getChannelData(0);
+    if (samples.length === 0) throw new Error('empty_audio');
+    return { samples: new Float32Array(samples), seconds: samples.length / buffer.sampleRate };
+  } finally {
+    void context.close();
+  }
+};
+
+/**
+ * esbuild's `--keep-names` helper. `@moonshine-ai/moonshine-wasm`'s published ESM calls `__name(...)`
+ * but does not define or import it — the helper is normally injected by the consumer's bundler. Loaded
+ * as a raw module in a page it dies with "__name is not defined" before any model is fetched.
+ *
+ * This is a PACKAGING gap in the dependency, not a property of the model, and shimming it is what makes
+ * the difference between "Moonshine Streaming cannot be evaluated" and an actual measurement. The shim
+ * is identity: it exists only so the name-preserving wrapper resolves.
+ */
+if (typeof globalThis.__name === 'undefined') {
+  globalThis.__name = (target, _value) => target;
+}
+
 window.__ready = true;
 </script>
 </body>

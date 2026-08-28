@@ -19,6 +19,7 @@ import { join, relative } from 'node:path';
 import { cpus, arch, platform } from 'node:os';
 import { resolveWhisperRoute, candidateRouteHash, type CandidateRoute } from '../candidateRoute';
 import { installedVersion, readSessionProviders } from './backend';
+import { decodeAudio } from '../audio';
 
 /** Read, not guessed: a provenance row that cannot name its runtime is not provenance. */
 const XENOVA_VERSION = installedVersion('@xenova/transformers') ?? '';
@@ -105,9 +106,12 @@ export function createTransformersV2Arm(options: TransformersV2ArmOptions): Deco
         return transcriber;
     };
 
-    const runRaw = async (audio: Float32Array, audioSeconds: number): Promise<unknown> => {
+    const runRaw = async (locator: string, audioSeconds: number): Promise<unknown> => {
         const run = await load();
         if (!run) throw new Error('pipeline unavailable');
+        // The arm loads its own audio from the locator. The runner never holds samples, which is what
+        // lets a browser arm satisfy the same contract.
+        const audio = decodeAudio(locator).samples;
         const started = Date.now();
         // The SAME builder the v2 worker uses. Any divergence would show up in the route hash.
         // Route options FIRST so an override cannot quietly replace one: a `decodeOverrides` that set
@@ -130,8 +134,8 @@ export function createTransformersV2Arm(options: TransformersV2ArmOptions): Deco
             return resolveWhisperRoute('v2', options.localModelId, audioSeconds);
         },
 
-        async decode(audio: Float32Array, audioSeconds: number): Promise<string | null> {
-            const result = await runRaw(audio, audioSeconds);
+        async decode(locator: string, audioSeconds: number): Promise<string | null> {
+            const result = await runRaw(locator, audioSeconds);
             const text = typeof result === 'string' ? result : (result as { text?: string })?.text;
             const trimmed = (text ?? '').trim();
             // An empty decode is a RESULT. Returning null lets the seam name it rather than scoring a
@@ -139,9 +143,9 @@ export function createTransformersV2Arm(options: TransformersV2ArmOptions): Deco
             return trimmed.length === 0 ? null : trimmed;
         },
 
-        async probeRouteHonored(audio: Float32Array, audioSeconds: number): Promise<RouteHonorReport> {
+        async probeRouteHonored(locator: string, audioSeconds: number): Promise<RouteHonorReport> {
             const options = buildShippingDecodeOptions(audioSeconds);
-            const result = await runRaw(audio, audioSeconds);
+            const result = await runRaw(locator, audioSeconds);
             // Timestamps are proven by the decode CARRYING them. A runtime that quietly drops the
             // option returns an ordinary transcript and says nothing — which is exactly what Moonshine
             // does through this same library.

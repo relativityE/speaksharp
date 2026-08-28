@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     ARM_MATRIX, ADMITTED_ARMS, PENDING_ARMS, REJECTED_ARMS, SELECTION_ARMS, DIAGNOSTIC_ARMS,
+    DISTINCT_CANDIDATES, ALIASED_ARMS,
 } from '../arms/registry';
 import { certifyArm } from '../certify';
 import type { DecodeArm, RouteHonorReport } from '../engineArm';
@@ -174,7 +175,7 @@ describe('an unhonoured route fails certification', () => {
 
     const certify = (arm: DecodeArm, honor: RouteHonorReport) =>
         certifyArm(arm, { family: 'whisper', engine: 'v2', modelId: 'whisper-base.en' }, [], honor);
-    const honorOf = async (arm: DecodeArm) => arm.probeRouteHonored(new Float32Array(1), 1);
+    const honorOf = async (arm: DecodeArm) => arm.probeRouteHonored('injected://probe', 1);
 
     it('timestamps requested but not returned fails on route_not_honored', async () => {
         const arm = armWith({ timestampsReturned: false });
@@ -211,5 +212,50 @@ describe('an unhonoured route fails certification', () => {
         expect(result.failedGates).not.toContain('route_not_honored');
         expect(result.failedGates).not.toContain('device_unverifiable');
         expect(result.failedGates).toContain('oracle_vectors');
+    });
+});
+
+/**
+ * #1304 — a dtype ALIAS is one candidate under two names.
+ *
+ * `v4:base:int8` and `v4:base:q8` both scored 0.0479 on the 459-word set. A matching WER proves
+ * nothing on its own — two models can make 22 errors in different places — so the decoder graphs were
+ * hashed:
+ *
+ *   dd4761a3f7add26a…  decoder_model_merged_int8.onnx
+ *   dd4761a3f7add26a…  decoder_model_merged_quantized.onnx      cmp: byte-identical
+ *
+ * transformers.js maps `int8` → `_int8.onnx` and `q8` → `_quantized.onnx`, and upstream published the
+ * SAME BYTES under both names. Ranking both would list one model twice and read as two independent
+ * results agreeing with each other.
+ */
+describe('a dtype alias never counts twice', () => {
+    it('q8 is recorded as an alias of int8', () => {
+        const q8 = ARM_MATRIX.find((a) => a.id === 'v4:base:q8-decoder:cpu');
+        expect(q8?.dtypeAliasOf).toBe('v4:base:int8-decoder:cpu');
+    });
+
+    it('the alias target exists and is NOT itself an alias', () => {
+        // Otherwise a chain of aliases could collapse to nothing.
+        const q8 = ARM_MATRIX.find((a) => a.id === 'v4:base:q8-decoder:cpu');
+        const target = ARM_MATRIX.find((a) => a.id === q8?.dtypeAliasOf);
+        expect(target).toBeTruthy();
+        expect(target?.dtypeAliasOf).toBeUndefined();
+    });
+
+    it('the alias is EXCLUDED from distinct candidates but RETAINED in the matrix', () => {
+        // Retained, because the matrix must still show that both dtypes were requested and where they
+        // landed. Deleting the row would hide a real question someone will ask again.
+        expect(DISTINCT_CANDIDATES.map((a) => a.id)).not.toContain('v4:base:q8-decoder:cpu');
+        expect(ARM_MATRIX.map((a) => a.id)).toContain('v4:base:q8-decoder:cpu');
+        expect(ALIASED_ARMS.map((a) => a.id)).toEqual(['v4:base:q8-decoder:cpu']);
+    });
+
+    it('distinct candidates are exactly the selection arms minus the aliases', () => {
+        expect(DISTINCT_CANDIDATES.length).toBe(SELECTION_ARMS.length - ALIASED_ARMS.length);
+    });
+
+    it('every alias names a DIFFERENT arm — an arm cannot alias itself', () => {
+        for (const arm of ALIASED_ARMS) expect(arm.dtypeAliasOf).not.toBe(arm.id);
     });
 });

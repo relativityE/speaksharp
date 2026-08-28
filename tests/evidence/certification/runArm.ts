@@ -19,11 +19,12 @@ import { CERTIFICATION_RULES } from './rules';
 import type { CertificationResult } from './certify';
 import type { ArmProvenance, DecodeArm } from './engineArm';
 
-/** One frozen utterance: its id, its reference, and the audio the manifest bound it to. */
+/** One frozen utterance: its id, its reference, and where its audio lives for this lane. */
 export interface CorpusUtterance {
     id: string;
     reference: string;
-    audio: Float32Array;
+    /** File path (Node) or URL (browser). The ARM resolves it; the runner never loads samples itself. */
+    locator: string;
     audioSeconds: number;
 }
 
@@ -82,8 +83,17 @@ export async function runArm(
     arm: DecodeArm,
     certification: CertificationResult,
     utterances: readonly CorpusUtterance[],
+    /**
+     * The ids the arm MUST account for, from an INDEPENDENT authority — the frozen manifest's own
+     * declared counts, not this call's `utterances`.
+     *
+     * REQUIRED, and required for a reason. Deriving it from `utterances` compares a list against
+     * itself: drop a clip and both shrink, so 599 of 600 reads as complete. Every runner previously
+     * passed `utterances.map(u => u.id)` and reintroduced exactly that.
+     */
+    expectedUtteranceIds: readonly string[],
 ): Promise<ArmRunResult> {
-    const expectedIds = utterances.map((u) => u.id);
+    const expectedIds = expectedUtteranceIds;
     const scores: CorpusScore[] = [];
     const decodeFailures: DecodeFailure[] = [];
 
@@ -135,7 +145,7 @@ export async function runArm(
     for (const utterance of utterances) {
         let hypothesis: string | null;
         try {
-            hypothesis = await arm.decode(utterance.audio, utterance.audioSeconds);
+            hypothesis = await arm.decode(utterance.locator, utterance.audioSeconds);
         } catch (error) {
             // Recorded, and STILL SCORED. Skipping it would remove the clip from both numerator and
             // denominator — and the clips that fail are systematically the hard ones, so a skip
