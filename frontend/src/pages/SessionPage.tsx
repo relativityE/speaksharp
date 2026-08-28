@@ -291,10 +291,12 @@ export const SessionPage: React.FC = () => {
                     persistence could not be reconciled (outcome 'retryable'), instead of claiming success. */}
                 <UnresolvedRecoveryBanner
                     pendingResolutionKind={pendingResolutionKind}
-                    hasRecoverableWords={Boolean(
-                        // #1306 content-free: gauge recoverable work by the draft's word COUNT (never a transcript)
-                        // or the live in-memory transcript still on the page.
-                        (recoveryDraft?.metrics?.totalWords ?? 0) > 0 || (transcriptContent ?? '').trim()
+                    // #1360: transcript claims rest ONLY on transcript TEXT. The draft is content-free,
+                    // so its numeric `totalWords` can never license "Your words are still here" — that
+                    // is what it used to do, and a count of words is not words.
+                    hasTranscriptText={Boolean((transcriptContent ?? '').trim())}
+                    hasMeasurementsOnly={Boolean(
+                        !(transcriptContent ?? '').trim() && (recoveryDraft?.metrics?.totalWords ?? 0) > 0
                     )}
                     onRetry={() => import('@/services/SpeechRuntimeController')
                         .then(m => m.speechRuntimeController.retryRecordingSave())}

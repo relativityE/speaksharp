@@ -3,15 +3,36 @@ import { Button } from '@/components/ui/button';
 
 export type PendingResolutionKind = 'initial_save' | 'full_save' | 'attribution' | null;
 
-/** Exact Product-Owner-approved discard confirmation. Exported so tests assert the real string. */
+/**
+ * Discard confirmations. Exported so tests assert the real strings.
+ *
+ * TWO of them, because the destructive action removes different things in different states and a
+ * confirmation that names the wrong one is asking for consent the user did not give. The transcript
+ * wording may be used ONLY when transcript TEXT is actually present.
+ */
 export const DISCARD_CONFIRMATION_COPY =
     'Permanently discard this unsaved recording? Its recoverable transcript will be removed. This cannot be undone.';
+
+/** #1360 — metrics-only: there is no transcript to remove, so the confirmation must not claim one. */
+export const DISCARD_CONFIRMATION_COPY_METRICS_ONLY =
+    'Permanently discard this unsaved recording? Its saved measurements will be removed. No transcript was stored. This cannot be undone.';
 
 export interface UnresolvedRecoveryBannerProps {
     /** Authoritative resolution state published by the controller. `null` renders nothing. */
     pendingResolutionKind: PendingResolutionKind;
-    /** TRUE only when an owned recovery draft or the live transcript actually holds meaningful text. */
-    hasRecoverableWords: boolean;
+    /**
+     * TRUE only when TRANSCRIPT TEXT is actually present — the live transcript still on the page.
+     *
+     * #1360: this used to be a single `hasRecoverableWords` that was ALSO true when a content-free
+     * recovery draft happened to carry a numeric `totalWords`. The banner then told the user "Your
+     * words are still here" when no words were stored anywhere — a count of words is not words.
+     */
+    hasTranscriptText: boolean;
+    /**
+     * TRUE when only NUMERIC measurements survived. Never licenses transcript wording; it only lets the
+     * banner say, accurately, that measurements are on the device.
+     */
+    hasMeasurementsOnly: boolean;
     /** Retries the operation that actually failed. Resolves false when it failed again. */
     onRetry: () => Promise<boolean>;
     /** Confirmed discard. `retryable` means persistence could NOT be reconciled — not a clean discard. */
@@ -21,6 +42,11 @@ export interface UnresolvedRecoveryBannerProps {
 /**
  * #1033 Part-2b (A3/A4) — the single recovery surface for an unresolved recording.
  *
+ * #1360 — a second invariant, learned the same way as the first: EVERY claim this banner makes must be
+ * true of the state it is in. "Your words are still here" was shown whenever a numeric word COUNT
+ * survived on a content-free draft, and the discard confirmation promised to remove "its recoverable
+ * transcript" in a state where no transcript was ever stored. A count of words is not words.
+ *
  * The critical invariant: an `attribution` failure means the transcript IS persisted and only its
  * producing-engine verification failed. In that state the destructive discard control must be
  * STRUCTURALLY ABSENT — not disabled, not visually hidden, not relabelled — so it can never be
@@ -29,7 +55,8 @@ export interface UnresolvedRecoveryBannerProps {
  */
 export const UnresolvedRecoveryBanner: React.FC<UnresolvedRecoveryBannerProps> = ({
     pendingResolutionKind,
-    hasRecoverableWords,
+    hasTranscriptText,
+    hasMeasurementsOnly,
     onRetry,
     onDiscard,
 }) => {
@@ -42,7 +69,15 @@ export const UnresolvedRecoveryBanner: React.FC<UnresolvedRecoveryBannerProps> =
     if (!pendingResolutionKind) return null;
 
     const isAttributionOnly = pendingResolutionKind === 'attribution';
-    const recoverableSuffix = hasRecoverableWords ? ' Your words are still here.' : '';
+    // A claim about WORDS requires words. A claim about measurements requires only measurements.
+    const recoverableSuffix = hasTranscriptText
+        ? ' Your words are still here.'
+        : hasMeasurementsOnly
+            ? ' Your measurements from this session are still on this device.'
+            : '';
+    const discardCopy = hasTranscriptText
+        ? DISCARD_CONFIRMATION_COPY
+        : DISCARD_CONFIRMATION_COPY_METRICS_ONLY;
 
     const message = busy
         ? 'Working…'
@@ -119,7 +154,7 @@ export const UnresolvedRecoveryBanner: React.FC<UnresolvedRecoveryBannerProps> =
                         data-testid="session-discard-confirm"
                         onClick={() => run('discard')}
                     >
-                        {DISCARD_CONFIRMATION_COPY}
+                        {discardCopy}
                     </Button>
                 ) : (
                     <Button
