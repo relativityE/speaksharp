@@ -13,16 +13,16 @@ The current active-coordination board — the working subset of `BACKLOG.md`. It
 # "retention". A guard that cannot tell a description of a defect from the defect is not a guard.
 #
 # So state lives here, in fixed fields, and prose stays prose.
-baseline: 2d6398d603ce06221c888e7473c3cabe2725e168
-deployed-release: 2d6398d603ce06221c888e7473c3cabe2725e168
-verified-on: 2026-08-28
+baseline: 0e2fffd16224063e18b40174d92393632f1c1e47
+deployed-release: 0e2fffd16224063e18b40174d92393632f1c1e47
+verified-on: 2026-08-29
 release-blocker: model-selection
 retention-campaign: off-critical-path
 task-1304-1: merged
 task-1304-2: merged
 task-1304-3a: merged
 task-1304-3b: merged
-task-1304-3c: open
+task-1304-3c: merged
 task-1304-4: merged
 task-1360-recovery-copy: merged
 lane-stage-b: not-started
@@ -32,8 +32,8 @@ lane-1258-journey: not-started
 -->
 
 ## Current baseline
-- **Product code baseline:** `main` `2d6398d6` (#1366, #1360 truthful recovery copy). Verified `git rev-parse origin/main` on 2026-08-28.
-- **Deployed production:** `window.__APP_RELEASE__ = 2d6398d603ce06221c888e7473c3cabe2725e168`, read cache-busted from `https://speaksharp-public.vercel.app/` (HTTP 200) on 2026-08-28. Production **==** `main` HEAD at that read.
+- **Product code baseline:** `main` `0e2fffd1` (#1366, #1360 truthful recovery copy). Verified `git rev-parse origin/main` on 2026-08-28.
+- **Deployed production:** `window.__APP_RELEASE__ = 0e2fffd16224063e18b40174d92393632f1c1e47`, read cache-busted from `https://speaksharp-public.vercel.app/` (HTTP 200) on 2026-08-28. Production **==** `main` HEAD at that read.
 
 > **Currency note (second correction).** #1358 fixed a five-week drift and this board was stale again within a day: it named `5f378898`, called #1304 Task 3 and Task 4 "NOT STARTED" after both had merged, and listed the retention Attempt 10 campaign as active. `AGENTS.md` sends every agent here first, so a stale board becomes wrong work. The states below are verified reads, not copied values.
 
@@ -46,16 +46,18 @@ lane-1258-journey: not-started
 | #1304 Task 3A — decode route identity | **MERGED** `7db695f4` (#1346) — `resolveDecodeRoute` + `routeHash` |
 | #1304 Task 3B — scoring seam | **MERGED** `20f3ce85` (#1362) — strict corpus invalidation, type-separated paths |
 | #1304 Task 4 — frozen corpus | **MERGED** `d702d8c5` (#1363) + `2f1152c0` (#1364) — LibriSpeech pinned publisher-MD5→SHA-256, 300+300 manifest, per-clip audio digests, 37.87s long-form fixture |
-| #1304 Task 3C — certified harness | **OPEN #1365**, RETURNED. Certification gates + browser lane with counted backend evidence; closing three evidence-authority defects |
-| #1360 recovery copy | **MERGED** `2d6398d6` (#1366) — truthful copy; no transcript promise the draft cannot keep |
+| #1304 Task 3C — certified harness | **MERGED** `054745d7` (#1365) — certification gates, browser lane with counted backend evidence, immutable selection policy |
+| #1304 — inference runtimes pinned | **MERGED** `0e2fffd1` (#1368) — both browser runtimes were fetching their WASM from jsDelivr, so offline enforcement refused every affected arm; they are now served through a verifying endpoint and bound into the certificate fingerprint |
+| #1304 — frozen 600 benchmark | **RUNNING** on `main@0e2fffd1`. 600 clips / 10,894 normalized words. No ranking exists yet. |
+| #1360 recovery copy | **MERGED** `0e2fffd1` (#1366) — truthful copy; no transcript promise the draft cannot keep |
 | Retention production proof | **OFF THE CRITICAL PATH.** Ten browser attempts failed on instrumentation, never on the product; the stopping rule fired. #1359 executed the shipped newest-two contract against real migrations instead. A production run is a future, separately authorized gate. |
 
 ## The STT sequence now executing
 
-1. #1365's three fixes — one certified execution path; pinned/offline assets with digests on every row; Harvard-10 reclassified as a **smoke** set that cannot be selection evidence.
-2. **ORT Web int8/q8 requalification.** v4 int8/q8 are **not rejected**: they load under `onnxruntime-node@1.24.3` and fail under `onnxruntime-web@1.26.0-dev.20260416` with `TransposeDQWeightsForMatMulNBits — Missing required scale`. That is Microsoft's Whisper regression ([#28306](https://github.com/microsoft/onnxruntime/issues/28306), fixed by [#28326](https://github.com/microsoft/onnxruntime/pull/28326) on 2026-05-12); our browser build predates the fix by four weeks.
-3. Unseen **425-word preflight** over frozen-corpus clips.
-4. **Frozen 600-clip benchmark**, automatically if the preflight is clean.
+1. **DONE** — #1365's three fixes: one certified execution path; pinned/offline assets with digests on every row; Harvard-10 reclassified as a **smoke** set that cannot be selection evidence.
+2. **DONE** — ORT Web int8/q8 requalification. v4 int8/q8 are **not rejected**: they load under `onnxruntime-node@1.24.3` and fail under `onnxruntime-web@1.26.0-dev.20260416` with `TransposeDQWeightsForMatMulNBits — Missing required scale`. That is Microsoft's Whisper regression ([#28306](https://github.com/microsoft/onnxruntime/issues/28306), fixed by [#28326](https://github.com/microsoft/onnxruntime/pull/28326) on 2026-05-12); our browser build predates the fix by four weeks.
+3. **DONE** — the unseen preflight, called the **459-word** preflight because that is what the deterministic selection produced; 425 was the planning target and a rounded label invites the assumption that the set was trimmed to hit it.
+4. **RUNNING** — the frozen 600-clip benchmark on `main@0e2fffd1`.
 5. Primary/fallback recommendation on accuracy + reliability + speed + size + memory + browser coverage + long/short behaviour + offline/privacy + **forced-failover** + product journey. A fallback must be dependable across MORE devices and fail DIFFERENTLY from the primary — not merely second-best WER.
 6. Track-B human disfluency validation, **last**, on the two finalists only.
 

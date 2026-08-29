@@ -2,8 +2,8 @@
 
 **Status:** Authoritative (SSOT for release/deployment posture)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-08-28
-**Last Verified:** 2026-08-28 (production `window.__APP_RELEASE__` read read-only and CACHE-BUSTED from `https://speaksharp-public.vercel.app/` = `2d6398d603ce06221c888e7473c3cabe2725e168`, HTTP 200; `origin/main` verified by `git rev-parse` at the same time. Production **==** `main` HEAD at this read.)
+**Last Reviewed:** 2026-08-29
+**Last Verified:** 2026-08-29 (production `window.__APP_RELEASE__` read read-only and CACHE-BUSTED from `https://speaksharp-public.vercel.app/` = `0e2fffd16224063e18b40174d92393632f1c1e47`, HTTP 200; `origin/main` verified by `git rev-parse` at the same time. Production **==** `main` HEAD at this read.)
 
 > **Currency correction (second).** #1358 corrected a 34-day drift; one day later this file was stale again — it named `5f378898` as both `main` and the deployed release, called #1304 Task 3 and Task 4 "not started" after both had merged, and still named the retention production proof as *the* release blocker after the stopping rule fired and that campaign moved off the critical path. A stale SSOT is worse than an absent one: `AGENTS.md` sends every agent here first, so wrong values here become wrong work. The values below are verified reads taken on 2026-08-28, not copied forward. The currency guard in `tests/config/documentationContract.test.ts` now fails when these task states contradict merged/open PR reality.
 **Applies To:** Current production deployment + release tracks for the SpeakSharp beta.
@@ -22,16 +22,16 @@
 # "retention". A guard that cannot tell a description of a defect from the defect is not a guard.
 #
 # So state lives here, in fixed fields, and prose stays prose.
-baseline: 2d6398d603ce06221c888e7473c3cabe2725e168
-deployed-release: 2d6398d603ce06221c888e7473c3cabe2725e168
-verified-on: 2026-08-28
+baseline: 0e2fffd16224063e18b40174d92393632f1c1e47
+deployed-release: 0e2fffd16224063e18b40174d92393632f1c1e47
+verified-on: 2026-08-29
 release-blocker: model-selection
 retention-campaign: off-critical-path
 task-1304-1: merged
 task-1304-2: merged
 task-1304-3a: merged
 task-1304-3b: merged
-task-1304-3c: open
+task-1304-3c: merged
 task-1304-4: merged
 task-1360-recovery-copy: merged
 lane-stage-b: not-started
@@ -46,10 +46,10 @@ Four distinct identities — do not conflate them:
 
 | Identity | Value | How to verify |
 |---|---|---|
-| **Repository `main` (moving branch pointer)** | `2d6398d603ce06221c888e7473c3cabe2725e168` (#1366, #1360 truthful recovery copy) at 2026-08-28 | **Moving** — verify the live pointer directly (`git rev-parse origin/main`); do not treat this SHA as fixed. |
-| **Last product-behavior release** | `2d6398d6` (#1366, #1360) — truthful recovery copy. It changes `SessionPage` and `UnresolvedRecoveryBanner`, both shipped, so it IS a product-behavior release. The prior one was `781e8ad6` (#1355). | Apply the criterion below; do not eyeball the PR title. |
+| **Repository `main` (moving branch pointer)** | `0e2fffd16224063e18b40174d92393632f1c1e47` (#1366, #1360 truthful recovery copy) at 2026-08-28 | **Moving** — verify the live pointer directly (`git rev-parse origin/main`); do not treat this SHA as fixed. |
+| **Last product-behavior release** | `0e2fffd1` (#1366, #1360) — truthful recovery copy. It changes `SessionPage` and `UnresolvedRecoveryBanner`, both shipped, so it IS a product-behavior release. The prior one was `781e8ad6` (#1355). | Apply the criterion below; do not eyeball the PR title. |
 | **Later test/evidence commits (NOT product-behavior deployments)** | `574422ed` (#1356 scorer), `5f378898` (#1357 specs), `7db695f4` (#1346 3A), `20f3ce85` (#1362 3B), `d702d8c5`/`2f1152c0` (#1363/#1364 corpus), `069dc9e2` (#1359 retention contract) — all under `tests/**` or `scripts/**` | These change **no** deployed product behavior. |
-| **Deployed product release (verified)** | `window.__APP_RELEASE__ = 2d6398d603ce06221c888e7473c3cabe2725e168`, read cache-busted from `https://speaksharp-public.vercel.app/` (HTTP 200) on **2026-08-28**. Production == `main` HEAD at this read, but that is **not** guaranteed by auto-deploy alone: a Vercel "Ignored Build Step" can leave production behind `main`, so the deployed SHA must be **read**, not inferred. | Re-read `window.__APP_RELEASE__` from the deployed page with a cache-busting query and `Cache-Control: no-cache`, then update the value + date here. |
+| **Deployed product release (verified)** | `window.__APP_RELEASE__ = 0e2fffd16224063e18b40174d92393632f1c1e47`, read cache-busted from `https://speaksharp-public.vercel.app/` (HTTP 200) on **2026-08-29**. Production == `main` HEAD at this read, but that is **not** guaranteed by auto-deploy alone: a Vercel "Ignored Build Step" can leave production behind `main`, so the deployed SHA must be **read**, not inferred. | Re-read `window.__APP_RELEASE__` from the deployed page with a cache-busting query and `Cache-Control: no-cache`, then update the value + date here. |
 
 **Release-identity mechanism (per #1027):** the deployed `index.html` injects an inline `window.__APP_RELEASE__ = <VERCEL_GIT_COMMIT_SHA>`, surfaced at runtime as `window.__APP_RUNTIME_CONFIG__.release`. The old `__BUILD_ID__` JS `define` was **removed** in #1027 (it rotated chunk hashes every deploy → stale-chunk crashes); Sentry release is set at **runtime** (`release.inject:false`). Verify SHA-equality by reading `window.__APP_RELEASE__` from the deployed `index.html` — see [frontend/vite.config.mjs](../frontend/vite.config.mjs) + [CODEBASE_MAP.md](CODEBASE_MAP.md).
 
@@ -83,9 +83,10 @@ Four distinct identities — do not conflate them:
 
 The MVP-blocking lane is **#1304 (STT down-select)**. See `ACTIVE_COORDINATION.md` for the working board; this section carries only release posture.
 
-- **Merged and deployed (2026-08-28):** #1360 truthful recovery copy (`2d6398d6`, #1366) — the last **product-behavior** change.
+- **Merged and deployed (2026-08-28):** #1360 truthful recovery copy (`0e2fffd1`, #1366) — the last **product-behavior** change.
 - **Merged test/evidence since (no runtime change):** #1304 Task 3A decode-route identity (`7db695f4`, #1346); Task 3B scoring seam (`20f3ce85`, #1362); Task 4 frozen corpus, acquired and bound to its artifacts (`d702d8c5` #1363, `2f1152c0` #1364); the shipped newest-two retention contract executed against real migrations (`069dc9e2`, #1359).
-- **Open:** **#1365** — #1304 Task 3C, the certified harness. Currently RETURNED; see the STT chain below.
+- **Merged since:** #1304 Task 3C certified harness (`054745d7`, #1365) and the inference-runtime pinning that followed it (`0e2fffd1`, #1368). Both are test/evidence infrastructure and change no deployed product behaviour.
+- **Open:** the frozen 600-clip benchmark is RUNNING on `main@0e2fffd1`. No model has been selected and no ranking exists.
 - **RETENTION IS NO LONGER THE RELEASE BLOCKER.** Ten browser production-proof attempts failed, every one on the test harness and never on the product; the stopping rule fired and that campaign is **off the MVP critical path**. What replaced it: #1359 executed the shipped newest-two retention contract against the real migrations in-process (PGlite) — the first time that contract has been checked anywhere. A production run remains a future, separately authorized gate, not a blocker on this release.
 - **THE RELEASE BLOCKER IS NOW MODEL SELECTION.** No Private STT model has been chosen. Shipping `v2 base.en` remains the default by absence of qualifying evidence, not by measurement.
 - **Accepted post-MVP debt:** the #1354 write-ahead obligation is client-only. If the Progress evaluation fails, the browser obligation write also fails, and the user reloads after storage recovers, the client cannot reconstruct that obligation. Eliminating it requires a server-side obligation record.
@@ -100,16 +101,21 @@ plan, it is what the open PR is executing.
    `runArm`, with the expected-id list supplied by the SET rather than derived from the clips that were
    decoded); pinned, offline, self-hosted model assets with their digests on every row; and Harvard-10
    reclassified as a **smoke** set that can never be selection evidence.
-2. **ORT Web int8/q8 requalification.** `v4` int8 and q8 are **not rejected candidates**. They load
+2. **ORT Web int8/q8 requalification — DONE.** `v4` int8 and q8 were **not rejected candidates**. They load
    under `onnxruntime-node@1.24.3` and fail under the browser's
    `onnxruntime-web@1.26.0-dev.20260416` with `TransposeDQWeightsForMatMulNBits — Missing required
    scale`. That is Microsoft's documented Whisper regression
    ([onnxruntime#28306](https://github.com/microsoft/onnxruntime/issues/28306), fixed by
    [#28326](https://github.com/microsoft/onnxruntime/pull/28326) on 2026-05-12). Our browser build was
-   cut on **2026-04-16**, before the fix. They require a bounded re-test on a corrected runtime.
-3. **The unseen 425-word preflight** over frozen-corpus clips not used by any earlier round — a
-   cost-effective check for a harness or model-loading defect before committing hours to the full run.
-4. **The frozen 600-clip benchmark**, run automatically if the preflight evidence is clean.
+   cut on **2026-04-16**, before the fix. Pinned to stable `1.27.0` for the HuggingFace tree only —
+   `@xenova/transformers` keeps its own nested `1.14.0`, and different candidates may legitimately ship
+   different inference libraries. Both now load and score; they are one arm, not two, because their
+   decoder graphs are byte-identical (`dd4761a3…`) under two dtype names.
+3. **The unseen 459-word preflight — DONE.** Named for what the deterministic selection produced, not
+   the 425-word planning target. It earned its cost immediately: the frozen corpus is FLAC and the
+   audio loader only read WAV, so **no corpus clip had ever been decoded** and the 600 would have
+   failed at the starting line.
+4. **The frozen 600-clip benchmark — RUNNING** on `main@0e2fffd1`, 600 clips / 10,894 normalized words.
 5. **A primary/fallback recommendation** on the full evidence set — see below for what "full" means.
 
 ### WER alone cannot choose a model
