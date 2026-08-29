@@ -414,6 +414,22 @@ for (const spec of ARM_MATRIX) {
 
     if (pinsOnly) {
         console.log(`    loaded — ${Object.keys(harness.assets).length} assets mirrored so far`);
+        // RECORD A ROW PER ARM. This mode used to `continue` without pushing anything, so a retained
+        // artifact carried a single result while its log showed fourteen arms loading. An artifact
+        // that does not stand on its own is not evidence — the reader has to trust a log beside it.
+        results.push({
+            id: spec.id, label: spec.label, lane: 'browser', set: setName, evidenceClass,
+            runtimeLabel: runtimeLabelFor(isV2, isMoonshineWasm),
+            mode: 'load-only', loaded: true, freshSession,
+            runtimeAssets: Object.fromEntries(
+                Object.entries(runtimeAssetRecords).map(([k, v]) => [k, { sha256: v.sha256, bytes: v.bytes }]),
+            ),
+            runtimeAssetFailures, pinViolations, networkAttempts,
+            offlineEnforced: mode === 'pinned' && pinViolations.length === 0
+                && runtimeAssetFailures.length === 0,
+            wer: null, selectionEligible: false,
+            selectionIneligibleReason: 'load-only run: no decode was performed',
+        });
         await context.close();
         continue;
     }

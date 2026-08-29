@@ -1,0 +1,644 @@
+{
+  "lane": "browser",
+  "set": "harvard",
+  "evidenceClass": "smoke",
+  "results": [
+    {
+      "id": "v2:tiny.en",
+      "label": "v2 whisper-tiny.en (self-hosted)",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@xenova/transformers+ort-web-1.14.0",
+      "mode": "load-only",
+      "loaded": true,
+      "freshSession": true,
+      "runtimeAssets": {
+        "node_modules/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm": {
+          "sha256": "ac23f2f3cbd519a65a0796f7c79eb34ead4c1f6f31eb06e14ed8a9579d697ef6",
+          "bytes": 9960821
+        }
+      },
+      "runtimeAssetFailures": [],
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "wer": null,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "load-only run: no decode was performed"
+    },
+    {
+      "id": "v2:base.en",
+      "label": "v2 whisper-base.en — SHIPPING",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@xenova/transformers+ort-web-1.14.0",
+      "mode": "load-only",
+      "loaded": true,
+      "freshSession": true,
+      "runtimeAssets": {
+        "node_modules/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm": {
+          "sha256": "ac23f2f3cbd519a65a0796f7c79eb34ead4c1f6f31eb06e14ed8a9579d697ef6",
+          "bytes": 9960821
+        }
+      },
+      "runtimeAssetFailures": [],
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "wer": null,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "load-only run: no decode was performed"
+    },
+    {
+      "id": "v2:base.en:no-conditioning",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "skipped": "rejected",
+      "reason": "runtime_option_unsupported"
+    },
+    {
+      "id": "v2:small.en",
+      "label": "v2 whisper-small.en (HuggingFace — NOT self-hosted)",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@xenova/transformers+ort-web-1.14.0",
+      "mode": "load-only",
+      "loaded": true,
+      "freshSession": true,
+      "runtimeAssets": {
+        "node_modules/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm": {
+          "sha256": "ac23f2f3cbd519a65a0796f7c79eb34ead4c1f6f31eb06e14ed8a9579d697ef6",
+          "bytes": 9960821
+        }
+      },
+      "runtimeAssetFailures": [],
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "wer": null,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "load-only run: no decode was performed"
+    },
+    {
+      "id": "v4:base:q4-decoder:wasm",
+      "label": "v4 base, fp32 encoder + q4 decoder, WASM",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+      "mode": "load-only",
+      "loaded": true,
+      "freshSession": true,
+      "runtimeAssets": {
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs": {
+          "sha256": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+          "bytes": 47507
+        },
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm": {
+          "sha256": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+          "bytes": 24254953
+        }
+      },
+      "runtimeAssetFailures": [],
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "wer": null,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "load-only run: no decode was performed"
+    },
+    {
+      "id": "v4:base:q4-decoder:cpu",
+      "label": "v4 base, fp32 encoder + q4 decoder, onnxruntime-node CPU (accuracy stand-in for WASM)",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+      "mode": "load-only",
+      "loaded": true,
+      "freshSession": true,
+      "runtimeAssets": {
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs": {
+          "sha256": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+          "bytes": 47507
+        },
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm": {
+          "sha256": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+          "bytes": 24254953
+        }
+      },
+      "runtimeAssetFailures": [],
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "wer": null,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "load-only run: no decode was performed"
+    },
+    {
+      "id": "v4:base:q4-decoder:webgpu",
+      "label": "v4 base, q4 decoder, WebGPU",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+      "mode": "load-only",
+      "loaded": true,
+      "freshSession": true,
+      "runtimeAssets": {
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs": {
+          "sha256": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+          "bytes": 47507
+        },
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm": {
+          "sha256": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+          "bytes": 24254953
+        }
+      },
+      "runtimeAssetFailures": [],
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "wer": null,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "load-only run: no decode was performed"
+    },
+    {
+      "id": "v4:base:fp32-decoder:cpu",
+      "label": "v4 base, fp32 decoder",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+      "mode": "load-only",
+      "loaded": true,
+      "freshSession": true,
+      "runtimeAssets": {
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs": {
+          "sha256": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+          "bytes": 47507
+        },
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm": {
+          "sha256": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+          "bytes": 24254953
+        }
+      },
+      "runtimeAssetFailures": [],
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "wer": null,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "load-only run: no decode was performed"
+    },
+    {
+      "id": "v4:base:int8-decoder:cpu",
+      "label": "v4 base, int8 decoder",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+      "mode": "load-only",
+      "loaded": true,
+      "freshSession": true,
+      "runtimeAssets": {
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs": {
+          "sha256": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+          "bytes": 47507
+        },
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm": {
+          "sha256": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+          "bytes": 24254953
+        }
+      },
+      "runtimeAssetFailures": [],
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "wer": null,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "load-only run: no decode was performed"
+    },
+    {
+      "id": "v4:base:q8-decoder:cpu",
+      "label": "v4 base, q8 decoder",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+      "mode": "load-only",
+      "loaded": true,
+      "freshSession": true,
+      "runtimeAssets": {
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs": {
+          "sha256": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+          "bytes": 47507
+        },
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm": {
+          "sha256": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+          "bytes": 24254953
+        }
+      },
+      "runtimeAssetFailures": [],
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "wer": null,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "load-only run: no decode was performed"
+    },
+    {
+      "id": "v4:distil-small.en:q4-decoder:webgpu",
+      "label": "v4 distil-small.en, q4 decoder, WebGPU",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+      "mode": "load-only",
+      "loaded": true,
+      "freshSession": true,
+      "runtimeAssets": {
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs": {
+          "sha256": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+          "bytes": 47507
+        },
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm": {
+          "sha256": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+          "bytes": 24254953
+        }
+      },
+      "runtimeAssetFailures": [],
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "wer": null,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "load-only run: no decode was performed"
+    },
+    {
+      "id": "moonshine:streaming-small",
+      "label": "Moonshine Streaming Small (official @moonshine-ai/moonshine-wasm)",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@moonshine-ai/moonshine-wasm@0.1.5",
+      "mode": "load-only",
+      "loaded": true,
+      "freshSession": true,
+      "runtimeAssets": {},
+      "runtimeAssetFailures": [],
+      "pinViolations": [],
+      "networkAttempts": 7,
+      "offlineEnforced": true,
+      "wer": null,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "load-only run: no decode was performed"
+    },
+    {
+      "id": "moonshine:streaming-medium",
+      "label": "Moonshine Streaming Medium (official @moonshine-ai/moonshine-wasm)",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@moonshine-ai/moonshine-wasm@0.1.5",
+      "mode": "load-only",
+      "loaded": true,
+      "freshSession": true,
+      "runtimeAssets": {},
+      "runtimeAssetFailures": [],
+      "pinViolations": [],
+      "networkAttempts": 7,
+      "offlineEnforced": true,
+      "wer": null,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "load-only run: no decode was performed"
+    },
+    {
+      "id": "moonshine:tiny",
+      "label": "Moonshine tiny (fp32 — the precision ORT Web can load)",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+      "mode": "load-only",
+      "loaded": true,
+      "freshSession": true,
+      "runtimeAssets": {
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs": {
+          "sha256": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+          "bytes": 47507
+        },
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm": {
+          "sha256": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+          "bytes": 24254953
+        }
+      },
+      "runtimeAssetFailures": [],
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "wer": null,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "load-only run: no decode was performed"
+    },
+    {
+      "id": "moonshine:base",
+      "label": "Moonshine base (fp32 — the precision ORT Web can load)",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+      "mode": "load-only",
+      "loaded": true,
+      "freshSession": true,
+      "runtimeAssets": {
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs": {
+          "sha256": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+          "bytes": 47507
+        },
+        "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm": {
+          "sha256": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+          "bytes": 24254953
+        }
+      },
+      "runtimeAssetFailures": [],
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "wer": null,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "load-only run: no decode was performed"
+    }
+  ],
+  "assets": {
+    "Xenova/whisper-small.en/resolve/main/tokenizer.json": {
+      "sha256": "c6ee8f089220a5b1188f6426456772572671c6141ae007eecb83c6a8349f5deb",
+      "bytes": 2128494,
+      "source": "cache",
+      "pinned": true
+    },
+    "Xenova/whisper-small.en/resolve/main/tokenizer_config.json": {
+      "sha256": "e082c1ad251541bf277967a703252cddd4bb37a71a43737e03d050c22ec08238",
+      "bytes": 835,
+      "source": "cache",
+      "pinned": true
+    },
+    "Xenova/whisper-small.en/resolve/main/config.json": {
+      "sha256": "afddc76e1d6b2e13e5a85a385d55d272ed61f6797d7d32895492620387336cf6",
+      "bytes": 2208,
+      "source": "cache",
+      "pinned": true
+    },
+    "Xenova/whisper-small.en/resolve/main/preprocessor_config.json": {
+      "sha256": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+      "bytes": 339,
+      "source": "cache",
+      "pinned": true
+    },
+    "Xenova/whisper-small.en/resolve/main/onnx/encoder_model_quantized.onnx": {
+      "sha256": "dd37efa07dad7619592ef849a40317dcfd182a2e632275a53a023f02f685cfa7",
+      "bytes": 92324819,
+      "source": "cache",
+      "pinned": true
+    },
+    "Xenova/whisper-small.en/resolve/main/onnx/decoder_model_merged_quantized.onnx": {
+      "sha256": "7cff5df61a1809654a5e62d89cbb99e8231b229f41412ab626a1d8fff77397ab",
+      "bytes": 156780181,
+      "source": "cache",
+      "pinned": true
+    },
+    "Xenova/whisper-small.en/resolve/main/generation_config.json": {
+      "sha256": "dde54f4ed982cf4f57450f2d23eb5f97dd64dbc390c66a635a34a57e965b16a7",
+      "bytes": 1900,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/config.json": {
+      "sha256": "c8a0de5ed8a083565a4319db29d0c210fda35b4d6076c2d711cae53ae00f3cb1",
+      "bytes": 2197,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/tokenizer_config.json": {
+      "sha256": "93879c3dccdd4b976f709acd85b44778873f30c275e67026f30ca1e4c975230c",
+      "bytes": 282662,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/preprocessor_config.json": {
+      "sha256": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+      "bytes": 339,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/tokenizer.json": {
+      "sha256": "5eb60cec1e77aeeb6869a2bb5a8e01a84c3fe5d072d75369343021fe6f5310d0",
+      "bytes": 2405679,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/onnx/encoder_model.onnx": {
+      "sha256": "1cc86302d480b061452d348638064383ab41b6f3333ddd0e423532d14edaf535",
+      "bytes": 82468078,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged_q4.onnx": {
+      "sha256": "7770ac574b71a704191ec52becac42b4a4126af26f54ed653f31c8f16af31f99",
+      "bytes": 123600371,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/generation_config.json": {
+      "sha256": "3479b1f44a07e41db799e22599222fee5816738036def94a39841cb9cdbb4120",
+      "bytes": 1556,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged.onnx": {
+      "sha256": "e98d168e2d82e7fb4fabcceabc4ec8ef986c864ddd5fc66ff3ef1410cd2c5cff",
+      "bytes": 208519480,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged_int8.onnx": {
+      "sha256": "dd4761a3f7add26afda3512abff4706920404c2517e85a9f2ff090b0c0987909",
+      "bytes": 53692803,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged_quantized.onnx": {
+      "sha256": "dd4761a3f7add26afda3512abff4706920404c2517e85a9f2ff090b0c0987909",
+      "bytes": 53692803,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/distil-small.en/resolve/main/config.json": {
+      "sha256": "424d6e09098ea1c7753a675ec727f3adf540bb8591e2a20c4fdf6dca3b832673",
+      "bytes": 2209,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/distil-small.en/resolve/main/tokenizer_config.json": {
+      "sha256": "a1df3522291588718cf9de70cb1b9f3cd39915a2eb4748353b071023a01d73ac",
+      "bytes": 282499,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/distil-small.en/resolve/main/preprocessor_config.json": {
+      "sha256": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+      "bytes": 339,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/distil-small.en/resolve/main/tokenizer.json": {
+      "sha256": "c9c77688528c0509abbd41873edab16384b8f041531b1d3092ab4d1d83a02a50",
+      "bytes": 2405466,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/distil-small.en/resolve/main/onnx/encoder_model.onnx": {
+      "sha256": "695836adae236d456605813b548bdab33df8924587e2252d7eba01cdfeb015b3",
+      "bytes": 352825870,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/distil-small.en/resolve/main/onnx/decoder_model_merged_q4.onnx": {
+      "sha256": "fd4974f6f7037ea27c6c5c6cb77615b2c7b4e21bd65832696e32f392a47f9433",
+      "bytes": 184865718,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/distil-small.en/resolve/main/generation_config.json": {
+      "sha256": "ef5b12f82dfc48930897d96c7ab7cbc86e521078015e27052badc281bca52d63",
+      "bytes": 1913,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-tiny-ONNX/resolve/main/config.json": {
+      "sha256": "558e1e02069137c796ace1e50c48d8fe451f04a295929138e6bea885517f0edb",
+      "bytes": 921,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-tiny-ONNX/resolve/main/tokenizer_config.json": {
+      "sha256": "edaee394565d428ea98a663ae7209cdcfeefc5585c42d7a570ff7c986df2cd15",
+      "bytes": 135735,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-tiny-ONNX/resolve/main/preprocessor_config.json": {
+      "sha256": "fa43a7017ef85cd1d0fba0d9aae77c8adb16990ae6f11115631f41ec5d8aa679",
+      "bytes": 128,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-tiny-ONNX/resolve/a6da1241cd305dcd64eab1edbd615f2bb9aabb95/config.json": {
+      "sha256": "558e1e02069137c796ace1e50c48d8fe451f04a295929138e6bea885517f0edb",
+      "bytes": 921,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-tiny-ONNX/resolve/a6da1241cd305dcd64eab1edbd615f2bb9aabb95/preprocessor_config.json": {
+      "sha256": "fa43a7017ef85cd1d0fba0d9aae77c8adb16990ae6f11115631f41ec5d8aa679",
+      "bytes": 128,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-tiny-ONNX/resolve/a6da1241cd305dcd64eab1edbd615f2bb9aabb95/tokenizer.json": {
+      "sha256": "7b913404bdd039af4756783218af4440bc07fb7d6d8258d677e34f95b3ec416f",
+      "bytes": 3761754,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-tiny-ONNX/resolve/a6da1241cd305dcd64eab1edbd615f2bb9aabb95/tokenizer_config.json": {
+      "sha256": "edaee394565d428ea98a663ae7209cdcfeefc5585c42d7a570ff7c986df2cd15",
+      "bytes": 135735,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-tiny-ONNX/resolve/a6da1241cd305dcd64eab1edbd615f2bb9aabb95/onnx/encoder_model.onnx": {
+      "sha256": "cbbf580f703b2af2137e0f6d14cd87f31cc67bd858bfd8715403a9489982d1a5",
+      "bytes": 30882331,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-tiny-ONNX/resolve/a6da1241cd305dcd64eab1edbd615f2bb9aabb95/onnx/decoder_model_merged.onnx": {
+      "sha256": "4131cef00b62942e9cdef691101f2cc7dbbcd828d71eee8c6c46c28fd051d6cb",
+      "bytes": 78227550,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-tiny-ONNX/resolve/a6da1241cd305dcd64eab1edbd615f2bb9aabb95/generation_config.json": {
+      "sha256": "f9b3f711b57be7def2e50a8942f64f36ee0a55fad5b84ff93a687b6c5bcc1d44",
+      "bytes": 147,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/main/config.json": {
+      "sha256": "fab7241d1e9fc6c2370c4c6dfb5da79bb54d67ed9ab6b507ac51d29d2abe01d1",
+      "bytes": 922,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/main/tokenizer_config.json": {
+      "sha256": "edaee394565d428ea98a663ae7209cdcfeefc5585c42d7a570ff7c986df2cd15",
+      "bytes": 135735,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/main/preprocessor_config.json": {
+      "sha256": "fa43a7017ef85cd1d0fba0d9aae77c8adb16990ae6f11115631f41ec5d8aa679",
+      "bytes": 128,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/config.json": {
+      "sha256": "fab7241d1e9fc6c2370c4c6dfb5da79bb54d67ed9ab6b507ac51d29d2abe01d1",
+      "bytes": 922,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/preprocessor_config.json": {
+      "sha256": "fa43a7017ef85cd1d0fba0d9aae77c8adb16990ae6f11115631f41ec5d8aa679",
+      "bytes": 128,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/tokenizer.json": {
+      "sha256": "7b913404bdd039af4756783218af4440bc07fb7d6d8258d677e34f95b3ec416f",
+      "bytes": 3761754,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/tokenizer_config.json": {
+      "sha256": "edaee394565d428ea98a663ae7209cdcfeefc5585c42d7a570ff7c986df2cd15",
+      "bytes": 135735,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/onnx/encoder_model.onnx": {
+      "sha256": "153e128e7abd64a74ee47f2c3f585c3171c4d46cbb368b032827934c4e01e779",
+      "bytes": 80818781,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/onnx/decoder_model_merged.onnx": {
+      "sha256": "58778763ca8438963190244d6b26572bdca2cedec56a4b91e828f3f2d69ef3c5",
+      "bytes": 166211345,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/generation_config.json": {
+      "sha256": "f9b3f711b57be7def2e50a8942f64f36ee0a55fad5b84ff93a687b6c5bcc1d44",
+      "bytes": 147,
+      "source": "cache",
+      "pinned": true
+    }
+  },
+  "assetFailures": []
+}
