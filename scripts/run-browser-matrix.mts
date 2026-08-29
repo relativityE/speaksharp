@@ -30,6 +30,7 @@ import { ARM_MATRIX, ADMITTED_ARMS, SELECTION_EXECUTION_SET, NOT_EXECUTED_REASON
 import { planResume, validateCompleteness, type RunIdentity, type CheckpointRow } from '../tests/evidence/certification/checkpoint';
 import { atomicWriteFileSync } from '../tests/evidence/certification/atomicWrite';
 import { ProbeRecorder, type ProbeInvocation } from '../tests/evidence/certification/probeArtifact';
+import { buildAssetInventory } from '../tests/evidence/certification/assetInventory';
 import { resolveRetention } from '../tests/evidence/certification/retention';
 import { expectationFor } from '../tests/evidence/certification/arms/build';
 import { certifyArmWithHonorProbe } from '../tests/evidence/certification/certify';
@@ -996,12 +997,19 @@ for (const spec of ARM_MATRIX) {
             realTimeFactor: Number.isFinite(c.realTimeFactor) ? c.realTimeFactor : null,
             outcome: c.outcome,
         })),
-        // The decoder graph this arm actually loaded — the file, and its digest.
-        decoderAssets: Object.entries(armAssets)
+        /**
+         * FULL PER-ARM ASSET INVENTORY — name, role, hash, bytes — and a total that reconciles against
+         * the reported modelBytes.
+         *
+         * The row previously carried only `assetCount` and a `decoderAssets` list filtered from
+         * `armAssets`, which is empty for self-hosted arms. So `modelBytes` could not be decomposed, and
+         * v4-q4-wasm's 233.1 MB against a registered 142 MB was unexplainable from the artifact.
+         */
+        assetInventory: buildAssetInventory(allArmAssets, (verdict.footprint?.modelBytes ?? null) as number | null),
+        // Kept for continuity with earlier artifacts; the inventory above is the authority.
+        decoderAssets: Object.entries(allArmAssets)
             .filter(([path]) => /decoder/i.test(path))
             .map(([path, record]) => ({ path, sha256: record.sha256, bytes: record.bytes })),
-        // From the SAME object as provenance and the verdict; `armAssets` omitted the runtime binaries
-        // and was the third disagreeing count in one artifact.
         assetCount: Object.keys(allArmAssets).length,
         pinViolations, networkAttempts,
         // True only when nothing reached the network: every external byte came from a verified pin.

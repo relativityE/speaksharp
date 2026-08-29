@@ -1,0 +1,26 @@
+
+#1304 BROWSER lane — set=corpus (selection), 600 clips / 10894 normalized words, mirror mode=pinned
+
+
+  v2:tiny.en  (v2 whisper-tiny.en (self-hosted))
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0991  words=10894 S=820 D=104 I=156
+    selection eligible: YES
+    cold load 778ms · warm p50 970ms p95 1669ms · RTF p50 0.184 p95 0.344
+    download 54.5 MB over 13 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  v2:base.en  (v2 whisper-base.en — SHIPPING)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0690  words=10894 S=568 D=71 I=113
+    selection eligible: YES
+    cold load 871ms · warm p50 1546ms p95 2407ms · RTF p50 0.297 p95 0.573
+    download 90.5 MB over 13 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+
+=== BROWSER LANE SUMMARY ===
+  0.0991  v2:tiny.en                           wasm:1 module(s)             ELIGIBLE
+  0.0690  v2:base.en                           wasm:1 module(s)             ELIGIBLE
+
+  evidence class: selection. 
+
+wrote evidence-runs/v2-timing-quiet-527bd179.json

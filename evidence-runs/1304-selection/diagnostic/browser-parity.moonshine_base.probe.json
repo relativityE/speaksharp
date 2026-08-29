@@ -1,0 +1,229 @@
+{
+  "kind": "diagnostic_probe",
+  "armId": "moonshine:base",
+  "command": "/private/tmp/claude-501/-Users-fibonacci-SW-Dev-Antigravity-Dev-speaksharp/740b2a98-e232-4e3a-88a8-275ff1166daf/wt-exec/scripts/run-browser-matrix.mts --set=corpus --only=moonshine:tiny,moonshine:base --probe-clips=2414-128291-0008,1089-134686-0002 --out=/private/tmp/claude-501/-Users-fibonacci-SW-Dev-Antigravity-Dev-speaksharp/740b2a98-e232-4e3a-88a8-275ff1166daf/scratchpad/browser-parity.json",
+  "executionSha": "ba11b0e3",
+  "expectedCells": [
+    "1089-134686-0002",
+    "2414-128291-0008"
+  ],
+  "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+  "modelId": "onnx-community/moonshine-base-ONNX",
+  "modelRevision": "b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad",
+  "probeMaxNewTokens": null,
+  "assets": {
+    "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs": {
+      "sha256": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+      "bytes": 47507,
+      "source": "cache",
+      "pinned": true
+    },
+    "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm": {
+      "sha256": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+      "bytes": 24254953,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/config.json": {
+      "sha256": "fab7241d1e9fc6c2370c4c6dfb5da79bb54d67ed9ab6b507ac51d29d2abe01d1",
+      "bytes": 922,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/generation_config.json": {
+      "sha256": "f9b3f711b57be7def2e50a8942f64f36ee0a55fad5b84ff93a687b6c5bcc1d44",
+      "bytes": 147,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/onnx/decoder_model_merged.onnx": {
+      "sha256": "58778763ca8438963190244d6b26572bdca2cedec56a4b91e828f3f2d69ef3c5",
+      "bytes": 166211345,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/onnx/encoder_model.onnx": {
+      "sha256": "153e128e7abd64a74ee47f2c3f585c3171c4d46cbb368b032827934c4e01e779",
+      "bytes": 80818781,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/preprocessor_config.json": {
+      "sha256": "fa43a7017ef85cd1d0fba0d9aae77c8adb16990ae6f11115631f41ec5d8aa679",
+      "bytes": 128,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/tokenizer.json": {
+      "sha256": "7b913404bdd039af4756783218af4440bc07fb7d6d8258d677e34f95b3ec416f",
+      "bytes": 3761754,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/tokenizer_config.json": {
+      "sha256": "edaee394565d428ea98a663ae7209cdcfeefc5585c42d7a570ff7c986df2cd15",
+      "bytes": 135735,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/main/config.json": {
+      "sha256": "fab7241d1e9fc6c2370c4c6dfb5da79bb54d67ed9ab6b507ac51d29d2abe01d1",
+      "bytes": 922,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/main/preprocessor_config.json": {
+      "sha256": "fa43a7017ef85cd1d0fba0d9aae77c8adb16990ae6f11115631f41ec5d8aa679",
+      "bytes": 128,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/main/tokenizer_config.json": {
+      "sha256": "edaee394565d428ea98a663ae7209cdcfeefc5585c42d7a570ff7c986df2cd15",
+      "bytes": 135735,
+      "source": "cache",
+      "pinned": true
+    }
+  },
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpus": 8
+  },
+  "partialArtifact": "/private/tmp/claude-501/-Users-fibonacci-SW-Dev-Antigravity-Dev-speaksharp/740b2a98-e232-4e3a-88a8-275ff1166daf/scratchpad/browser-parity.moonshine_base.probe-partial.json",
+  "complete": true,
+  "cells": [
+    {
+      "utteranceId": "1089-134686-0002",
+      "reference": "AFTER EARLY NIGHTFALL THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE THE SQUALID QUARTER OF THE BROTHELS",
+      "audioSeconds": 6.625,
+      "maxNewTokens": 40,
+      "invocations": [
+        {
+          "invocationId": "1089-134686-0002:adapter",
+          "kind": "adapter.decode",
+          "observations": {
+            "result": "After early nightfall, the yellow lamps would light up here and there the squalid quarter of the brothels.",
+            "isNull": false
+          }
+        },
+        {
+          "invocationId": "1089-134686-0002:pipeline",
+          "kind": "pipeline.call",
+          "observations": {
+            "pcmSamples": 106000,
+            "rms": 0.0470920291243059,
+            "jsType": "object",
+            "isArray": false,
+            "topLevelKeys": [
+              "text"
+            ],
+            "elementKeys": null,
+            "text": "After early nightfall, the yellow lamps would light up here and there the squalid quarter of the brothels.",
+            "elementText": null
+          }
+        },
+        {
+          "invocationId": "1089-134686-0002:generate",
+          "kind": "model.generate",
+          "observations": {
+            "pcmSamples": 106000,
+            "rms": 0.0470920291243059,
+            "available": true,
+            "reason": null,
+            "tokenIds": [
+              1,
+              2860,
+              4688,
+              4646,
+              11950,
+              29892,
+              278,
+              13328,
+              301,
+              15092,
+              723,
+              3578,
+              701,
+              1244,
+              322,
+              727,
+              278,
+              10674,
+              284,
+              333,
+              12616,
+              310,
+              278,
+              2545,
+              386,
+              1379,
+              29889,
+              2
+            ],
+            "generatedCount": 28,
+            "firstToken": 1,
+            "eosTokenId": 2,
+            "eosPosition": 27,
+            "decoderStartTokenId": 1,
+            "decodedFromTheseTokens": "<s> After early nightfall, the yellow lamps would light up here and there the squalid quarter of the brothels.</s>",
+            "terminationReason": "eos"
+          }
+        }
+      ]
+    },
+    {
+      "utteranceId": "2414-128291-0008",
+      "reference": "THOU ALSO THOU ALSO",
+      "audioSeconds": 3.03,
+      "maxNewTokens": 19,
+      "invocations": [
+        {
+          "invocationId": "2414-128291-0008:adapter",
+          "kind": "adapter.decode",
+          "observations": {
+            "result": null,
+            "isNull": true
+          }
+        },
+        {
+          "invocationId": "2414-128291-0008:pipeline",
+          "kind": "pipeline.call",
+          "observations": {
+            "pcmSamples": 48480,
+            "rms": 0.026497420744793564,
+            "jsType": "object",
+            "isArray": false,
+            "topLevelKeys": [
+              "text"
+            ],
+            "elementKeys": null,
+            "text": "",
+            "elementText": null
+          }
+        },
+        {
+          "invocationId": "2414-128291-0008:generate",
+          "kind": "model.generate",
+          "observations": {
+            "pcmSamples": 48480,
+            "rms": 0.026497420744793564,
+            "available": true,
+            "reason": null,
+            "tokenIds": [
+              1,
+              2
+            ],
+            "generatedCount": 2,
+            "firstToken": 1,
+            "eosTokenId": 2,
+            "eosPosition": 1,
+            "decoderStartTokenId": 1,
+            "decodedFromTheseTokens": "<s></s>",
+            "terminationReason": "eos"
+          }
+        }
+      ]
+    }
+  ]
+}

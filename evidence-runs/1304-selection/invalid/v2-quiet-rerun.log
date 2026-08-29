@@ -1,0 +1,20 @@
+
+#1304 BROWSER lane — set=corpus (selection), 600 clips / 10894 normalized words, mirror mode=pinned
+
+
+  v2:tiny.en  (v2 whisper-tiny.en (self-hosted))
+    backend: wasm:1 module(s) (PROVEN)
+    NO ROW: unscoreable_arm (incomplete_corpus)
+    selection eligible: no — no row: unscoreable_arm
+    cold load 920ms · warm p50 1162ms p95 2003ms · RTF p50 0.208 p95 0.406
+    download 54.5 MB over 13 files · reliability decoded=600/600 threw=148 empty=0 missing=0 truncated=0
+
+  v2:base.en  (v2 whisper-base.en — SHIPPING)
+node:internal/modules/run_main:122
+    triggerUncaughtException(
+    ^
+
+browser.newContext: Target page, context or browser has been closed
+    at async <anonymous> (/private/tmp/claude-501/-Users-fibonacci-SW-Dev-Antigravity-Dev-speaksharp/740b2a98-e232-4e3a-88a8-275ff1166daf/wt-exec/scripts/run-browser-matrix.mts:287:21)
+
+Node.js v22.12.0

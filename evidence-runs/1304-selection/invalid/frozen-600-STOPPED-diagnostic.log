@@ -1,0 +1,35 @@
+
+#1304 BROWSER lane — set=corpus (selection), 600 clips / 10894 normalized words, mirror mode=pinned
+
+
+  v2:tiny.en  (v2 whisper-tiny.en (self-hosted))
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0991  words=10894 S=820 D=104 I=156
+    selection eligible: YES
+    cold load 684ms · warm p50 1088ms p95 1872ms · RTF p50 0.207 p95 0.395
+    download 54.5 MB over 13 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  v2:base.en  (v2 whisper-base.en — SHIPPING)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0690  words=10894 S=568 D=71 I=113
+    selection eligible: YES
+    cold load 1005ms · warm p50 2510ms p95 4882ms · RTF p50 0.480 p95 1.177
+    download 90.5 MB over 13 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  v2:base.en:no-conditioning  — rejected (runtime_option_unsupported)
+
+  v2:small.en  (v2 whisper-small.en (HuggingFace — NOT self-hosted))
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0548  words=10894 S=422 D=89 I=86
+    selection eligible: YES
+    cold load 2250ms · warm p50 9692ms p95 24165ms · RTF p50 1.851 p95 6.073
+    download 261.2 MB over 8 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=1
+
+  v4:base:q4-decoder:wasm  (v4 base, fp32 encoder + q4 decoder, WASM)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0699  words=10894 S=580 D=75 I=106
+    selection eligible: YES
+    cold load 2120ms · warm p50 1868ms p95 2952ms · RTF p50 0.360 p95 0.708
+    download 233.1 MB over 9 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=1
+
+  v4:base:q4-decoder:cpu  (v4 base, fp32 encoder + q4 decoder, onnxruntime-node CPU (accuracy stand-in for WASM))

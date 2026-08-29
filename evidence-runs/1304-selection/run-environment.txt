@@ -1,0 +1,15 @@
+# Environment captured DURING the run (not reconstructed afterwards)
+captured_at_utc: 2026-08-29T14:41:54Z
+host_os: macOS 26.5.2 (arm64)
+cpu_cores: 8
+memory_gb: 8
+node: v22.12.0
+run_command: npx tsx scripts/run-browser-matrix.mts --set=corpus --out=evidence-runs/frozen-600-selection-3efbcab4.json
+execution_tree: 3efbcab402fe85e619c7e192b5dfb9b5a518d216
+product_baseline: 0e2fffd16224063e18b40174d92393632f1c1e47
+policy_authority: 07b49c0027d8c84ca910e1a83f811c0b4acda4bc
+test_only_descendant: df43ec50c0e845d2c1b25e02bf0a4f051c10f13a
+chromium: chromium_headless_shell-1194
+asset_cache_verified: 58/58 (44 huggingface + 14 moonshine)
+corpus: 600 utterances / 10894 normalized words (300 test-clean + 300 test-other)
+concurrency_note: single run; npm exec -> tsx -> node chain, one --out

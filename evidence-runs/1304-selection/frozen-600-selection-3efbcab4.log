@@ -1,0 +1,105 @@
+
+#1304 BROWSER lane — set=corpus (selection), 600 clips / 10894 normalized words, mirror mode=pinned
+
+
+  v2:tiny.en  (v2 whisper-tiny.en (self-hosted))
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0991  words=10894 S=820 D=104 I=156
+    selection eligible: YES
+    cold load 773ms · warm p50 1024ms p95 1824ms · RTF p50 0.197 p95 0.363
+    download 54.5 MB over 13 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  v2:base.en  (v2 whisper-base.en — SHIPPING)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0690  words=10894 S=568 D=71 I=113
+    selection eligible: YES
+    cold load 840ms · warm p50 1737ms p95 2758ms · RTF p50 0.335 p95 0.661
+    download 90.5 MB over 13 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  v2:base.en:no-conditioning  — not executed (invalid_runtime_option_unsupported)
+
+  v2:small.en  (v2 whisper-small.en (HuggingFace — NOT self-hosted))
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0548  words=10894 S=422 D=89 I=86
+    selection eligible: YES
+    cold load 1837ms · warm p50 8410ms p95 26583ms · RTF p50 1.763 p95 5.969
+    download 261.2 MB over 8 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=1
+
+  v4:base:q4-decoder:wasm  (v4 base, fp32 encoder + q4 decoder, WASM)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0699  words=10894 S=580 D=75 I=106
+    selection eligible: YES
+    cold load 2569ms · warm p50 2019ms p95 3177ms · RTF p50 0.387 p95 0.779
+    download 233.1 MB over 9 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=1
+
+  v4:base:q4-decoder:cpu  — not executed (diagnostic_duplicate_of_q4_wasm)
+
+  v4:base:q4-decoder:webgpu  — not executed (not_run_hardware_unrepresentative)
+
+  v4:base:fp32-decoder:cpu  (v4 base, fp32 decoder)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0673  words=10894 S=557 D=71 I=105
+    selection eligible: YES
+    cold load 3225ms · warm p50 1700ms p95 2711ms · RTF p50 0.332 p95 0.783
+    download 318.0 MB over 9 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  v4:base:int8-decoder:cpu  (v4 base, int8 decoder)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0681  words=10894 S=560 D=73 I=109
+    selection eligible: YES
+    cold load 1744ms · warm p50 1750ms p95 2588ms · RTF p50 0.345 p95 0.694
+    download 163.2 MB over 9 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  v4:base:q8-decoder:cpu  — not executed (alias_of_int8)
+
+  v4:distil-small.en:q4-decoder:webgpu  — not executed (not_run_hardware_unrepresentative)
+
+  moonshine:streaming-small  (Moonshine Streaming Small (official @moonshine-ai/moonshine-wasm))
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0793  words=10894 S=531 D=70 I=263
+    selection eligible: YES
+    cold load 1179ms · warm p50 824ms p95 2478ms · RTF p50 0.155 p95 0.204
+    download 165.5 MB over 7 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  moonshine:streaming-medium  (Moonshine Streaming Medium (official @moonshine-ai/moonshine-wasm))
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0619  words=10894 S=416 D=46 I=212
+    selection eligible: YES
+    cold load 2090ms · warm p50 1542ms p95 5285ms · RTF p50 0.278 p95 0.485
+    download 304.7 MB over 7 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  moonshine:tiny  (Moonshine tiny (fp32 — the precision ORT Web can load))
+    backend: wasm:1 module(s) (PROVEN)
+    NO ROW: unscoreable_arm (incomplete_corpus)
+    selection eligible: no — no row: unscoreable_arm
+    cold load 1640ms · warm p50 188ms p95 644ms · RTF p50 0.036 p95 0.051
+    download 137.4 MB over 12 files · reliability decoded=600/600 threw=0 empty=4 missing=0 truncated=0
+
+  moonshine:base  (Moonshine base (fp32 — the precision ORT Web can load))
+    backend: wasm:1 module(s) (PROVEN)
+    NO ROW: unscoreable_arm (incomplete_corpus)
+    selection eligible: no — no row: unscoreable_arm
+    cold load 3308ms · warm p50 328ms p95 1096ms · RTF p50 0.062 p95 0.078
+    download 275.4 MB over 12 files · reliability decoded=600/600 threw=0 empty=1 missing=0 truncated=0
+
+
+=== BROWSER LANE SUMMARY ===
+  0.0991  v2:tiny.en                           wasm:1 module(s)             ELIGIBLE
+  0.0690  v2:base.en                           wasm:1 module(s)             ELIGIBLE
+    —     v2:base.en:no-conditioning           n/a                          not eligible
+  0.0548  v2:small.en                          wasm:1 module(s)             ELIGIBLE
+  0.0699  v4:base:q4-decoder:wasm              wasm:1 module(s)             ELIGIBLE
+    —     v4:base:q4-decoder:cpu               n/a                          not eligible
+    —     v4:base:q4-decoder:webgpu            n/a                          not eligible
+  0.0673  v4:base:fp32-decoder:cpu             wasm:1 module(s)             ELIGIBLE
+  0.0681  v4:base:int8-decoder:cpu             wasm:1 module(s)             ELIGIBLE
+    —     v4:base:q8-decoder:cpu               n/a                          not eligible
+    —     v4:distil-small.en:q4-decoder:webgpu n/a                          not eligible
+  0.0793  moonshine:streaming-small            wasm:1 module(s)             ELIGIBLE
+  0.0619  moonshine:streaming-medium           wasm:1 module(s)             ELIGIBLE
+    —     moonshine:tiny                       wasm:1 module(s)             not eligible
+    —     moonshine:base                       wasm:1 module(s)             not eligible
+
+  evidence class: selection. 
+
+wrote evidence-runs/frozen-600-selection-3efbcab4.json
