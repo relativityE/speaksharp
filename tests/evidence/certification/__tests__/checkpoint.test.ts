@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { planResume, validateCompleteness, identityMismatch, type RunIdentity } from '../checkpoint';
+import { planResume, validateCompleteness, identityMismatch, isCompleteRow, type RunIdentity } from '../checkpoint';
 import { atomicWriteFileSync } from '../atomicWrite';
 import { SELECTION_EXECUTION_SET, NOT_EXECUTED_REASONS, REQUIRED_MATRIX_ROWS } from '../arms/registry';
 
@@ -19,7 +19,7 @@ afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, f
 
 describe('#1304 checkpoint resume — accepts only an identical experiment', () => {
     it('resumes when every identity field matches', () => {
-        const d = planResume(cp([{ id: 'v2:tiny.en' }]), ID);
+        const d = planResume(cp([{ id: 'v2:tiny.en', verdict: { wer: 0.0991 } }]), ID);
         expect(d.kind).toBe('resume');
         expect(d.kind === 'resume' && d.completed).toEqual(['v2:tiny.en']);
     });
@@ -32,19 +32,19 @@ describe('#1304 checkpoint resume — accepts only an identical experiment', () 
         // MISMATCHED RESUME IDENTITY. Splicing rows measured under a different scorer, corpus, policy or
         // tree produces a table that reads as one experiment and is not one.
         const stale = { ...ID, [field]: value } as RunIdentity;
-        const d = planResume(cp([{ id: 'v2:tiny.en' }], stale), ID);
+        const d = planResume(cp([{ id: 'v2:tiny.en', verdict: { wer: 0.0991 } }], stale), ID);
         expect(d.kind).toBe('start-clean');
         expect(d.kind === 'start-clean' && d.reason).toContain(field);
     });
 
     it('refuses to extend a FINAL artifact', () => {
         // A final artifact is immutable evidence, not a work buffer.
-        const d = planResume({ identity: ID, rows: [{ id: 'v2:tiny.en' }] }, ID);
+        const d = planResume({ identity: ID, rows: [{ id: 'v2:tiny.en', verdict: { wer: 0.0991 } }] }, ID);
         expect(d).toEqual({ kind: 'start-clean', reason: 'not a partial checkpoint' });
     });
 
     it('starts clean on a DUPLICATE arm — nothing can say which measurement is authoritative', () => {
-        const d = planResume(cp([{ id: 'v2:tiny.en' }, { id: 'v2:tiny.en' }]), ID);
+        const d = planResume(cp([{ id: 'v2:tiny.en', verdict: {} }, { id: 'v2:tiny.en', verdict: {} }]), ID);
         expect(d.kind).toBe('start-clean');
         expect(d.kind === 'start-clean' && d.reason).toContain('duplicate arm');
     });
@@ -64,8 +64,42 @@ describe('#1304 checkpoint resume — accepts only an identical experiment', () 
     });
 });
 
+describe('#1304 unfinished arms are never mistaken for measured ones', () => {
+    // REGRESSION. A run with a missing asset cache failed every arm in 45 seconds and checkpointed
+    // eleven rows carrying no verdict. Resuming would have treated all eleven as measured and skipped
+    // them permanently, producing a table of silent holes that looks complete.
+    const started = { id: 'v2:tiny.en' };                                   // began, produced nothing
+    const measured = { id: 'v2:base.en', verdict: { wer: 0.069 } };
+    const notExecuted = { id: 'v4:base:q8-decoder:cpu', executed: false, reason: 'alias_of_int8' };
+    const skipped = { id: 'v2:base.en:no-conditioning', skipped: 'rejected' };
+
+    it('classifies a started-but-unfinished row as incomplete', () => {
+        expect(isCompleteRow(started)).toBe(false);
+        expect(isCompleteRow(measured)).toBe(true);
+        expect(isCompleteRow(notExecuted)).toBe(true);
+        expect(isCompleteRow(skipped)).toBe(true);
+    });
+
+    it('DROPS unfinished rows on resume so the arm is measured again', () => {
+        const d = planResume(cp([started, measured, notExecuted]), ID);
+        expect(d.kind).toBe('resume');
+        // v2:tiny.en must NOT be reported as done.
+        expect(d.kind === 'resume' && d.completed.sort())
+            .toEqual(['v2:base.en', 'v4:base:q8-decoder:cpu']);
+        expect(d.kind === 'resume' && d.rows.map(r => r.id)).not.toContain('v2:tiny.en');
+    });
+
+    it('refuses to finalise an artifact containing an unfinished arm', () => {
+        const rows = REQUIRED_MATRIX_ROWS.map(id => (
+            id === 'v2:tiny.en' ? { id } : { id, verdict: { wer: 0.1 } }
+        ));
+        expect(validateCompleteness(rows, REQUIRED_MATRIX_ROWS))
+            .toMatchObject({ ok: false, reason: 'unfinished_arms', detail: 'v2:tiny.en' });
+    });
+});
+
 describe('#1304 completeness — every arm accounted for, measured or named', () => {
-    const allRows = REQUIRED_MATRIX_ROWS.map(id => ({ id }));
+    const allRows = REQUIRED_MATRIX_ROWS.map(id => ({ id, verdict: { wer: 0.1 } }));
 
     it('accepts the full matrix', () => {
         expect(validateCompleteness(allRows, REQUIRED_MATRIX_ROWS)).toEqual({ ok: true });
@@ -83,7 +117,7 @@ describe('#1304 completeness — every arm accounted for, measured or named', ()
     });
 
     it('rejects an arm that is not in the registry at all', () => {
-        const v = validateCompleteness([...allRows, { id: 'v9:invented' }], REQUIRED_MATRIX_ROWS);
+        const v = validateCompleteness([...allRows, { id: 'v9:invented', verdict: { wer: 0.1 } }], REQUIRED_MATRIX_ROWS);
         expect(v).toMatchObject({ ok: false, reason: 'unexpected_arms', detail: 'v9:invented' });
     });
 });
@@ -129,7 +163,7 @@ describe('#1304 atomic write — an interrupted write never corrupts the checkpo
         // Simulates a crash mid-write. A truncating writeFileSync would leave unparseable JSON here;
         // the temp-file + rename never touches the original until the new content is complete.
         const d = tmp(); const p = join(d, 'run.partial.json');
-        atomicWriteFileSync(p, JSON.stringify(cp([{ id: 'v2:tiny.en' }])));
+        atomicWriteFileSync(p, JSON.stringify(cp([{ id: 'v2:tiny.en', verdict: { wer: 0.0991 } }])));
         writeFileSync(`${p}.tmp-99999`, '{"partial":true,"rows":[{"id":"v2:base'); // half-written, abandoned
         const recovered = JSON.parse(readFileSync(p, 'utf8'));
         expect(planResume(recovered, ID).kind).toBe('resume');

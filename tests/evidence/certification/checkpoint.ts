@@ -36,6 +36,22 @@ export interface RunIdentity {
 
 export interface CheckpointRow { id: string; [k: string]: unknown }
 
+/**
+ * Is this row a FINISHED account of its arm?
+ *
+ * Found the hard way: a run whose asset cache was missing failed every arm in 45 seconds and checkpointed
+ * eleven rows carrying no verdict. Resuming from it would have treated all eleven as measured and skipped
+ * them for good — a table of silent holes that looks complete. Presence in a checkpoint is not completion.
+ *
+ * A row is finished when it is deliberately not executed, deliberately skipped, or carries an actual
+ * verdict. Anything else is an arm that started and did not finish, and must be measured again.
+ */
+export function isCompleteRow(row: CheckpointRow): boolean {
+    if (row.executed === false) return true;          // preserved with a named not-executed reason
+    if (typeof row.skipped === 'string' && row.skipped) return true; // registry admission (rejected/pending)
+    return row.verdict != null;                        // a real measurement
+}
+
 export interface Checkpoint {
     /** Present on `.partial.json` only. Its absence is what makes an artifact final. */
     partial: true;
@@ -90,12 +106,15 @@ export function planResume(existing: unknown, current: RunIdentity): ResumeDecis
         if (seen.has(row.id)) return { kind: 'start-clean', reason: `duplicate arm in checkpoint: ${row.id}` };
         seen.add(row.id);
     }
-    return { kind: 'resume', rows: cp.rows, completed: [...seen] };
+    // UNFINISHED rows are dropped, not resumed. Keeping them would let an arm that started and failed
+    // masquerade as measured for the rest of the run's life.
+    const finished = cp.rows.filter(isCompleteRow);
+    return { kind: 'resume', rows: finished, completed: finished.map(r => r.id) };
 }
 
 export type CompletenessVerdict =
     | { ok: true }
-    | { ok: false; reason: 'missing_arms' | 'duplicate_arms' | 'unexpected_arms'; detail: string };
+    | { ok: false; reason: 'missing_arms' | 'duplicate_arms' | 'unexpected_arms' | 'unfinished_arms'; detail: string };
 
 /**
  * A checkpoint may only become the final artifact when EVERY required row is accounted for — the arms
@@ -103,6 +122,12 @@ export type CompletenessVerdict =
  * absent row is a hole, and a hole in a selection table reads as "not applicable" rather than "unknown".
  */
 export function validateCompleteness(rows: CheckpointRow[], required: string[]): CompletenessVerdict {
+    // An UNFINISHED row is not an account of its arm. Counting it would let a failed arm satisfy
+    // completeness and become a silent hole in the final table.
+    const unfinished = rows.filter(r => !isCompleteRow(r)).map(r => r.id).sort();
+    if (unfinished.length) {
+        return { ok: false, reason: 'unfinished_arms', detail: unfinished.join(', ') };
+    }
     const seen = new Set<string>();
     const dupes: string[] = [];
     for (const r of rows) {
