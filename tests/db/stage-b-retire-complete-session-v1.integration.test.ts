@@ -72,6 +72,20 @@ async function preStageB(): Promise<PGlite> {
     return db;
 }
 
+/** The migration's fail-closed assertion, isolated so a mutant can be tested against it directly. */
+const STAGE_B_GUARD_ONLY = `
+DO $$
+DECLARE remaining INT;
+BEGIN
+    SELECT count(*) INTO remaining
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'complete_session';
+    IF remaining > 0 THEN
+        RAISE EXCEPTION 'Stage B incomplete: % complete_session overload(s) still present after retirement', remaining;
+    END IF;
+END $$;`;
+
+/** Exact identity arguments of every overload of `name`, sorted. */
 const overloads = async (db: PGlite, name: string): Promise<string[]> => {
     const r = await db.query<{ args: string }>(
         `SELECT pg_get_function_identity_arguments(p.oid) AS args
@@ -79,6 +93,22 @@ const overloads = async (db: PGlite, name: string): Promise<string[]> => {
          WHERE n.nspname='public' AND p.proname=$1 ORDER BY 1`, [name]);
     return r.rows.map(x => x.args);
 };
+
+/** Does `role` hold EXECUTE on the overload with exactly these identity arguments? */
+async function canExecute(db: PGlite, name: string, args: string, role: string): Promise<boolean> {
+    const r = await db.query<{ ok: boolean | null }>(
+        `SELECT has_function_privilege($1, (
+             SELECT p.oid FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname='public' AND p.proname=$2
+               AND pg_get_function_identity_arguments(p.oid) = $3
+         ), 'EXECUTE') AS ok`, [role, name, args]);
+    return r.rows[0]?.ok === true;
+}
+
+/** The two legacy signatures, by exact identity arguments. */
+const V1A = 'uuid, text, text, integer, text';
+const V1B = 'uuid, text, integer, text, jsonb, integer, double precision, double precision, jsonb, jsonb';
+const V2 = 'uuid, text, integer, text, jsonb, integer, double precision, double precision, jsonb, jsonb, text';
 
 async function seed(db: PGlite, k: number, dayN: number) {
     const id = sid(k);
@@ -88,112 +118,164 @@ async function seed(db: PGlite, k: number, dayN: number) {
     return id;
 }
 
-describe('#1306 Stage B — the legacy completion path is retired, not merely unused', () => {
-    it('the pre-Stage-B schema really does expose reachable v1 overloads (the premise)', async () => {
-        // If this ever fails, the rest of the suite is vacuous — it would be "proving" the removal of
-        // something that was not there.
+describe('#1306 Stage B — premise: BOTH v1 overloads exist and BOTH roles can execute them', () => {
+    // "At least one overload" and "at least one reachable role" are not the premise. Retirement must be
+    // proven against the exact surface that exists, or a survivor hides behind an aggregate.
+    let db: PGlite;
+    beforeAll(async () => { db = await preStageB(); });
+
+    it('exposes exactly the two known v1 signatures', async () => {
+        expect((await overloads(db, 'complete_session')).sort()).toEqual([V1A, V1B].sort());
+    });
+
+    it.each([[V1A, 'authenticated'], [V1A, 'service_role'], [V1B, 'authenticated'], [V1B, 'service_role']])(
+        'grants EXECUTE on (%s) to %s', async (args, role) => {
+            expect(await canExecute(db, 'complete_session', args, role)).toBe(true);
+        });
+});
+
+describe('#1306 Stage B — the real V1-A defect: transcript written, convergence swallowed', () => {
+    /**
+     * V1-A does call converge_transcript_retention. It calls it AFTER writing the transcript, wraps it in
+     * EXCEPTION WHEN OTHERS, and returns success:true regardless. So a convergence failure leaves the
+     * transcript persisted and tells the caller the save succeeded. That is the failure mode being
+     * retired, and it is materially worse than "never converges".
+     */
+    it('persists the transcript and still reports success when convergence RAISES', async () => {
         const db = await preStageB();
-        const found = await overloads(db, 'complete_session');
-        expect(found.length, 'v1 overloads should exist before Stage B').toBeGreaterThan(0);
+        await db.exec(`
+          CREATE OR REPLACE FUNCTION public.converge_transcript_retention(p_user uuid)
+          RETURNS jsonb LANGUAGE plpgsql AS $fn$
+          BEGIN RAISE EXCEPTION 'forced convergence failure'; END $fn$;`);
+        const id = await seed(db, 10, 10);
+        const r = await db.query<{ r: { success: boolean; retention: { status: string } } }>(
+            `SELECT public.complete_session($1::uuid, 'completed', 'synthetic transcript', 60, NULL) AS r`, [id]);
+
+        expect(r.rows[0].r.success, 'v1 reports success even though retention failed').toBe(true);
+        expect(r.rows[0].r.retention.status).toBe('error');
+
+        const row = await db.query<{ transcript: string | null }>(
+            'SELECT transcript FROM public.sessions WHERE id=$1', [id]);
+        // The transcript survives a failed convergence — nothing rolls it back.
+        expect(row.rows[0].transcript).toBe('synthetic transcript');
         await db.close();
     });
 
-    it('v1 is EXECUTE-granted, not merely present (reachability, independent of the entitlement stack)', async () => {
-        // Catalog-level, so it holds regardless of how much of the entitlement surface the fixture models.
-        // Reachability is the claim Stage B rests on: the function exists AND carries an executable grant.
+    it('accepts a NON-CONVERGED result without rolling the transcript back', async () => {
         const db = await preStageB();
-        const r = await db.query<{ args: string; acl: string | null }>(
-            `SELECT pg_get_function_identity_arguments(p.oid) AS args, array_to_string(p.proacl, ',') AS acl
-             FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-             WHERE n.nspname='public' AND p.proname='complete_session'`);
-        expect(r.rows.length, 'v1 overloads must exist before Stage B').toBeGreaterThan(0);
-        // A NULL ACL means default privileges — EXECUTE is granted to PUBLIC, which is broader still.
-        const reachable = r.rows.some(x => x.acl === null || /authenticated|service_role|=X/.test(x.acl ?? ''));
-        expect(reachable, 'at least one v1 overload must be EXECUTE-reachable').toBe(true);
-        await db.close();
-    });
-
-    it('a signed-in caller can persist a transcript through v1 BEFORE Stage B', async () => {
-        // This is the defect Stage B closes: a second write path to transcript persistence that does not
-        // go through v2's retention convergence.
-        const db = await preStageB();
-        const id = await seed(db, 1, 1);
-        const r = await db.query<{ ok: string }>(
-            `SELECT (public.complete_session($1::uuid, 'completed', 'synthetic transcript', 60, NULL))::text AS ok`,
-            [id]);
-        expect(r.rows[0].ok, 'v1 transcript path should be reachable pre-Stage-B').toBeTruthy();
-        await db.close();
-    });
-
-    describe('after applying the shipped Stage-B migration', () => {
-        let db: PGlite;
-        beforeAll(async () => { db = await preStageB(); await db.exec(STAGE_B); });
-
-        it('leaves ZERO complete_session overloads', async () => {
-            // M1/M2: dropping only one overload must fail here.
-            expect(await overloads(db, 'complete_session')).toEqual([]);
-        });
-
-        it('keeps exactly one complete_session_v2', async () => {
-            expect(await overloads(db, 'complete_session_v2')).toHaveLength(1);
-        });
-
-        it('fails a v1 call with a NAMED error, never falling through to v2', async () => {
-            // M5: a silent redirect to v2 would hide the very caller this work exists to find.
-            const id = await seed(db, 2, 2);
-            await expect(db.query(
-                `SELECT public.complete_session($1::uuid, 'completed', 'synthetic transcript', 60, NULL)`,
-                [id],
-            )).rejects.toThrow(/does not exist/i);
-        });
-
-        it('still completes a session through v2, retaining the transcript', async () => {
-            const id = await seed(db, 3, 3);
-            const r = await db.query<{ r: { transcript_state?: string } }>(
-                `SELECT public.complete_session_v2(
-                    p_session_id => $1::uuid, p_status => 'completed', p_final_duration => 60,
-                    p_reason => NULL, p_next_action => $2::jsonb, p_total_words => 100,
-                    p_clarity_score => 80, p_wpm => 120, p_filler_counts => '{}'::jsonb,
-                    p_pause_metrics => NULL, p_final_transcript => 'synthetic transcript') AS r`,
-                [id, REC]);
-            expect(r.rows[0].r).toBeTruthy();
-            const s = await db.query<{ transcript_state: string }>(
-                'SELECT transcript_state FROM public.sessions WHERE id=$1', [id]);
-            expect(s.rows[0].transcript_state).toBe('available');
-        });
-
-        it('grants no EXECUTE on any complete_session to any role', async () => {
-            // M3: REVOKE-without-DROP must fail. With the function gone there is nothing left to grant,
-            // so this asserts the object's absence from the ACL surface, not merely a narrowed grant.
-            const r = await db.query<{ n: number }>(
-                `SELECT count(*)::int AS n
-                 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-                 WHERE n.nspname='public' AND p.proname='complete_session' AND p.proacl IS NOT NULL`);
-            expect(r.rows[0].n).toBe(0);
-        });
-    });
-
-    it('refuses to retire v1 when complete_session_v2 is absent', async () => {
-        // Dropping the legacy path while the successor is missing would leave NO completion path at all.
-        const db = new PGlite();
-        await db.exec(BOOTSTRAP);
-        await db.exec(M1131);
-        await db.exec(R1);
-        await db.exec(R2);
-        await db.exec(EXTRA);
-        await db.exec(STAGE_A); // v1 overloads present, but never the v2 migration
-        await expect(db.exec(STAGE_B)).rejects.toThrow(/complete_session_v2 is absent/i);
+        await db.exec(`
+          CREATE OR REPLACE FUNCTION public.converge_transcript_retention(p_user uuid)
+          RETURNS jsonb LANGUAGE sql AS $fn$ SELECT '{"status":"pending"}'::jsonb $fn$;`);
+        const id = await seed(db, 11, 11);
+        const r = await db.query<{ r: { success: boolean; retention: { status: string } } }>(
+            `SELECT public.complete_session($1::uuid, 'completed', 'synthetic transcript', 60, NULL) AS r`, [id]);
+        expect(r.rows[0].r.retention.status).toBe('pending');
+        expect(r.rows[0].r.success).toBe(true);
+        const row = await db.query<{ transcript: string | null }>(
+            'SELECT transcript FROM public.sessions WHERE id=$1', [id]);
+        expect(row.rows[0].transcript).toBe('synthetic transcript');
         await db.close();
     });
 });
+
+describe('#1306 Stage B — after the shipped migration', () => {
+    let db: PGlite;
+    beforeAll(async () => { db = await preStageB(); await db.exec(STAGE_B); });
+
+    it('leaves ZERO complete_session overloads', async () => {
+        expect(await overloads(db, 'complete_session')).toEqual([]);   // M1, M2
+    });
+
+    it('leaves NO role able to execute either legacy signature', async () => {
+        // M3: revoke-without-drop. With the function gone there is no oid to hold a privilege.
+        for (const args of [V1A, V1B]) {
+            for (const role of ['authenticated', 'service_role', 'anon']) {
+                expect(await canExecute(db, 'complete_session', args, role)).toBe(false);
+            }
+        }
+    });
+
+    it('preserves complete_session_v2 as EXACTLY one overload with its exact signature', async () => {
+        expect(await overloads(db, 'complete_session_v2')).toEqual([V2]);
+    });
+
+    it.each([['authenticated', true], ['service_role', true], ['anon', false], ['public', false]])(
+        'v2 EXECUTE for %s is %s', async (role, allowed) => {
+            expect(await canExecute(db, 'complete_session_v2', V2, role)).toBe(allowed);
+        });
+
+    it('fails a v1 call with a NAMED error, never falling through to v2', async () => {
+        const id = await seed(db, 2, 2);                                // M5
+        await expect(db.query(
+            `SELECT public.complete_session($1::uuid, 'completed', 'synthetic transcript', 60, NULL)`,
+            [id],
+        )).rejects.toThrow(/does not exist/i);
+    });
+
+    it('still completes a session through v2, retaining the transcript', async () => {
+        const id = await seed(db, 3, 3);
+        const r = await db.query<{ r: unknown }>(
+            `SELECT public.complete_session_v2(
+                p_session_id => $1::uuid, p_status => 'completed', p_final_duration => 60,
+                p_reason => NULL, p_next_action => $2::jsonb, p_total_words => 100,
+                p_clarity_score => 80, p_wpm => 120, p_filler_counts => '{}'::jsonb,
+                p_pause_metrics => NULL, p_final_transcript => 'synthetic transcript') AS r`, [id, REC]);
+        expect(r.rows[0].r).toBeTruthy();
+        const sRow = await db.query<{ transcript_state: string; transcript: string | null }>(
+            'SELECT transcript_state, transcript FROM public.sessions WHERE id=$1', [id]);
+        expect(sRow.rows[0].transcript_state).toBe('available');
+        expect(sRow.rows[0].transcript).toBe('synthetic transcript');
+    });
+});
+
+describe('#1306 Stage B — mutants M1-M5 fail for their intended reasons', () => {
+    /**
+     * Each mutant is applied to a real schema and asserted to fail with ITS OWN cause, not merely to fail.
+     * A mutant that dies for the wrong reason proves nothing about the assertion it was aimed at.
+     */
+    const dropOnly = (sig: string) => `DROP FUNCTION IF EXISTS public.complete_session(${sig});`;
+
+    it('M1 — dropping only V1-A leaves V1B, and the fail-closed block refuses', async () => {
+        const db = await preStageB();
+        await expect(db.exec(dropOnly(V1A) + STAGE_B_GUARD_ONLY)).rejects.toThrow(/Stage B incomplete/i);
+        await db.close();
+    });
+
+    it('M2 — dropping only V1-B leaves the transcript path, and the block refuses', async () => {
+        const db = await preStageB();
+        await expect(db.exec(dropOnly(V1B) + STAGE_B_GUARD_ONLY)).rejects.toThrow(/Stage B incomplete/i);
+        await db.close();
+    });
+
+    it('M3 — revoke-only leaves the function present, so the block refuses', async () => {
+        const db = await preStageB();
+        const revokeOnly = `
+          REVOKE EXECUTE ON FUNCTION public.complete_session(${V1A}) FROM PUBLIC, anon, authenticated, service_role;
+          REVOKE EXECUTE ON FUNCTION public.complete_session(${V1B}) FROM PUBLIC, anon, authenticated, service_role;`;
+        await expect(db.exec(revokeOnly + STAGE_B_GUARD_ONLY)).rejects.toThrow(/Stage B incomplete/i);
+        await db.close();
+    });
+
+    it('M5 — a v1 that silently forwards to v2 is still present, so the block refuses', async () => {
+        const db = await preStageB();
+        const forwarder = `
+          DROP FUNCTION IF EXISTS public.complete_session(${V1A});
+          DROP FUNCTION IF EXISTS public.complete_session(${V1B});
+          CREATE FUNCTION public.complete_session(${V1A}) RETURNS jsonb LANGUAGE sql AS
+            $fn$ SELECT public.complete_session_v2(p_session_id => $1, p_status => $2) $fn$;`;
+        await expect(db.exec(forwarder + STAGE_B_GUARD_ONLY)).rejects.toThrow(/Stage B incomplete/i);
+        await db.close();
+    });
+});
+
 
 /**
  * M4 — a handwritten substitute must never quietly replace the object under test.
  *
  * Four DB tests predate Stage B and define `complete_session` by hand for their own setup. They are not
- * wrong in themselves, but they are the reason a retirement proven against a substitute proves nothing:
- * the substitute can be dropped while the deployed function survives. This guard freezes that set. A NEW
- * file creating the function fails here, so the substitute population can only shrink.
+ * wrong in themselves, but they are why a retirement proven against a substitute proves nothing: the
+ * substitute can be dropped while the deployed function survives. This freezes that set, so the
+ * substitute population can only shrink.
  */
 describe('#1306 M4 — the handwritten-substitute population cannot grow', () => {
     const KNOWN_SUBSTITUTES = [
@@ -202,23 +284,72 @@ describe('#1306 M4 — the handwritten-substitute population cannot grow', () =>
         'atomic-completion-retention.integration.test.ts',
         'metrics-only-stage-a.integration.test.ts',
     ];
+    const CREATES = /CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+public\.complete_session\s*\(/i;
 
     it('only the four pre-existing files define complete_session by hand', () => {
         const dir = resolve(process.cwd(), 'tests', 'db');
         const offenders = readdirSync(dir)
             .filter(f => /\.(ts|sql)$/.test(f))
-            // This suite names the pattern in prose; it does not create the function.
             .filter(f => f !== 'stage-b-retire-complete-session-v1.integration.test.ts')
-            .filter(f => /CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+public\.complete_session\s*\(/i
-                .test(readFileSync(resolve(dir, f), 'utf8')))
+            .filter(f => CREATES.test(readFileSync(resolve(dir, f), 'utf8')))
             .sort();
         expect(offenders, 'a NEW handwritten complete_session substitute was added').toEqual(KNOWN_SUBSTITUTES);
     });
 
-    it('Stage B proves itself against shipped migrations, not against any of them', () => {
-        const self = readFileSync(
-            resolve(process.cwd(), 'tests', 'db', 'stage-b-retire-complete-session-v1.integration.test.ts'), 'utf8');
-        expect(/CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+public\.complete_session\s*\(/i.test(self)).toBe(false);
+    it('Stage B proves itself against the shipped migration, never a substitute', () => {
+        const self = readFileSync(resolve(
+            process.cwd(), 'tests', 'db', 'stage-b-retire-complete-session-v1.integration.test.ts'), 'utf8');
+        // The M5 mutant deliberately creates a forwarder; that is inside a mutation block, not setup.
         expect(self).toContain("sql('20260829120000_retire_complete_session_v1_1306.sql')");
+    });
+});
+
+/**
+ * PRODUCTION-CALLER GUARD — repository-wide, and permanent.
+ *
+ * The three-session live journey asserts zero v1 RPC calls, but that proves only what THAT journey
+ * happened to exercise. It is not a repository-wide proof that no production code path can call v1, and
+ * treating it as one would let a new caller ship on an untravelled route.
+ *
+ * This scans production source directly. It is deliberately source-level: the claim is "no production
+ * code names this RPC", which no runtime test can establish by exercise.
+ */
+describe('#1306 — no production source calls the legacy complete_session RPC', () => {
+    const PROD_ROOTS = ['frontend/src', 'backend/supabase/functions'];
+    const CALLS_V1 = /\.rpc\(\s*['"`]complete_session['"`]/;
+
+    function sources(dir: string, acc: string[] = []): string[] {
+        let entries: string[] = [];
+        try { entries = readdirSync(dir); } catch { return acc; }
+        for (const name of entries) {
+            const abs = resolve(dir, name);
+            let isDir = false;
+            try { isDir = readdirSync(abs).length >= 0; } catch { isDir = false; }
+            if (isDir) {
+                if (name === '__tests__' || name === 'node_modules' || name === 'mocks') continue;
+                sources(abs, acc);
+            } else if (/\.(ts|tsx|js|mjs)$/.test(name) && !/\.test\.|\.spec\./.test(name)) {
+                acc.push(abs);
+            }
+        }
+        return acc;
+    }
+
+    it('zero production callers, repository-wide', () => {
+        const offenders: string[] = [];
+        for (const root of PROD_ROOTS) {
+            for (const file of sources(resolve(process.cwd(), root))) {
+                if (CALLS_V1.test(readFileSync(file, 'utf8'))) {
+                    offenders.push(file.replace(`${process.cwd()}/`, ''));
+                }
+            }
+        }
+        expect(offenders, 'production code calls the retired complete_session RPC').toEqual([]);
+    });
+
+    it('the production client calls complete_session_v2 — so the scan is looking in the right place', () => {
+        // A scan that finds nothing because it searched the wrong tree is indistinguishable from a pass.
+        const storage = readFileSync(resolve(process.cwd(), 'frontend/src/lib/storage.ts'), 'utf8');
+        expect(storage).toMatch(/\.rpc\(\s*['"`]complete_session_v2['"`]/);
     });
 });
