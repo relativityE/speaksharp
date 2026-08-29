@@ -154,6 +154,25 @@ const urlFor = (path: string) => path
     .replace(/^bench-corpus\//, '/corpus/');
 
 const deviceInfo = { platform: platform(), arch: arch(), cpuModel: cpus()[0]?.model ?? 'unknown', cores: cpus().length };
+/**
+ * Distinct decode-failure messages with counts and a bounded sample of affected utterances.
+ *
+ * Sorted by descending count so the dominant cause reads first. `sample` is capped because an artifact
+ * should identify a failure mode, not enumerate every instance of it.
+ */
+const summarizeDecodeFailures = (
+    failures: readonly { utteranceId: string; message: string }[],
+): Array<{ message: string; count: number; sample: string[] }> => {
+    const byMessage = new Map<string, string[]>();
+    for (const f of failures) {
+        const key = (f.message ?? 'unknown').slice(0, 300);
+        byMessage.set(key, [...(byMessage.get(key) ?? []), f.utteranceId]);
+    }
+    return [...byMessage.entries()]
+        .map(([message, ids]) => ({ message, count: ids.length, sample: ids.slice(0, 5) }))
+        .sort((a, b) => b.count - a.count);
+};
+
 const headSha = (): string => {
     try {
         return execFileSync('git', ['rev-parse', '--short=8', 'HEAD'], { encoding: 'utf8' }).trim();
@@ -732,6 +751,18 @@ for (const spec of ARM_MATRIX) {
         fingerprint: certification.fingerprint.digest,
         expectedClips: set.expectedIds.length, decodedClips: utterances.length, audioMismatches,
         transcriptDigest, perUtterance,
+        // #1304 — DECODE FAILURES ARE RETAINED, deduplicated by message.
+        //
+        // A quiet-rerun attempt reported `threw=148` and kept nothing about WHY. runArm captured
+        // {utteranceId, message} for every failure, but the artifact writer never referenced it, so the
+        // messages existed only in memory and died with the process. A run that records 148 failures and
+        // no cause cannot be diagnosed afterwards — the same defect class as writing the artifact once at
+        // the end, evidence gathered and then discarded at the boundary.
+        //
+        // Deduplicated because 148 copies of one message is noise; the DISTINCT messages plus their counts
+        // and a bounded sample of affected utterances are what identify a cause. Messages are truncated:
+        // a decode error is a diagnostic, not a place to accumulate unbounded text in an artifact.
+        decodeFailures: summarizeDecodeFailures(result.decodeFailures),
         // The decoder graph this arm actually loaded — the file, and its digest.
         decoderAssets: Object.entries(armAssets)
             .filter(([path]) => /decoder/i.test(path))
