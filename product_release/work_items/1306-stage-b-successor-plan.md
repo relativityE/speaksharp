@@ -46,9 +46,10 @@ comment, or a SQL fixture — **no production code path calls v1**:
 
 ## 3. Named blocker — the DB tests build their own schema
 
-`tests/db/metrics-only-stage-a.integration.test.ts:41`, `tests/db/analytics-summary-rpc.integration.test.ts:54`
-and `tests/db/atomic-completion-concurrency-realpg.sql:32` each **`CREATE FUNCTION public.complete_session(...)`
-by hand**. They therefore test a handwritten substitute, not the shipped migration.
+**Four** files — `tests/db/metrics-only-stage-a.integration.test.ts`, `tests/db/analytics-summary-rpc.integration.test.ts`,
+`tests/db/atomic-completion-retention.integration.test.ts` and `tests/db/atomic-completion-concurrency-realpg.sql` —
+each **`CREATE FUNCTION public.complete_session(...)` by hand**. (An earlier draft of this plan said three; the
+fourth was missed on the first pass and is named here rather than quietly corrected.) They therefore test a handwritten substitute, not the shipped migration.
 
 A retirement proven against a handwritten definition proves nothing about production: the substitute can be
 dropped while the deployed function survives. **The successor must exercise the shipped migrations**, applied in

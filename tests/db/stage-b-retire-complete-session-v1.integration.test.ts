@@ -2,7 +2,7 @@
 //
 // #1306 Stage B — retiring the legacy `complete_session` (v1) overloads.
 //
-// THIS APPLIES THE SHIPPED MIGRATIONS. Three existing DB tests `CREATE FUNCTION public.complete_session(...)`
+// THIS APPLIES THE SHIPPED MIGRATIONS. Four existing DB tests `CREATE FUNCTION public.complete_session(...)`
 // by hand, so they exercise a handwritten substitute; a retirement proven against a substitute proves nothing
 // about production, because the substitute can be dropped while the deployed function survives. Every
 // statement here comes from backend/supabase/migrations, applied in shipped order.
@@ -10,7 +10,7 @@
 // Content-free: synthetic strings only.
 import { describe, it, expect, beforeAll } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const M = resolve(process.cwd(), 'backend', 'supabase', 'migrations');
@@ -184,5 +184,41 @@ describe('#1306 Stage B — the legacy completion path is retired, not merely un
         await db.exec(STAGE_A); // v1 overloads present, but never the v2 migration
         await expect(db.exec(STAGE_B)).rejects.toThrow(/complete_session_v2 is absent/i);
         await db.close();
+    });
+});
+
+/**
+ * M4 — a handwritten substitute must never quietly replace the object under test.
+ *
+ * Four DB tests predate Stage B and define `complete_session` by hand for their own setup. They are not
+ * wrong in themselves, but they are the reason a retirement proven against a substitute proves nothing:
+ * the substitute can be dropped while the deployed function survives. This guard freezes that set. A NEW
+ * file creating the function fails here, so the substitute population can only shrink.
+ */
+describe('#1306 M4 — the handwritten-substitute population cannot grow', () => {
+    const KNOWN_SUBSTITUTES = [
+        'analytics-summary-rpc.integration.test.ts',
+        'atomic-completion-concurrency-realpg.sql',
+        'atomic-completion-retention.integration.test.ts',
+        'metrics-only-stage-a.integration.test.ts',
+    ];
+
+    it('only the four pre-existing files define complete_session by hand', () => {
+        const dir = resolve(process.cwd(), 'tests', 'db');
+        const offenders = readdirSync(dir)
+            .filter(f => /\.(ts|sql)$/.test(f))
+            // This suite names the pattern in prose; it does not create the function.
+            .filter(f => f !== 'stage-b-retire-complete-session-v1.integration.test.ts')
+            .filter(f => /CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+public\.complete_session\s*\(/i
+                .test(readFileSync(resolve(dir, f), 'utf8')))
+            .sort();
+        expect(offenders, 'a NEW handwritten complete_session substitute was added').toEqual(KNOWN_SUBSTITUTES);
+    });
+
+    it('Stage B proves itself against shipped migrations, not against any of them', () => {
+        const self = readFileSync(
+            resolve(process.cwd(), 'tests', 'db', 'stage-b-retire-complete-session-v1.integration.test.ts'), 'utf8');
+        expect(/CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+public\.complete_session\s*\(/i.test(self)).toBe(false);
+        expect(self).toContain("sql('20260829120000_retire_complete_session_v1_1306.sql')");
     });
 });
