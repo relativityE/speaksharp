@@ -144,6 +144,18 @@ describe('#1367 product-status claims — the ones that were wrong', () => {
     }
   });
 
+  it('states an owner-gap count that matches the rows it is derived from', () => {
+    // A hand-counted number in prose is exactly the kind of claim this ledger exists to stop. I got this
+    // one wrong (34) on the first pass; asserting it means the next edit cannot quietly repeat that.
+    const rows = zoneRowKeys().length && LEDGER
+      .slice(LEDGER.indexOf('## 3. Zone A'), LEDGER.indexOf('## 10. Claim-by-claim'))
+      .split('\n')
+      .filter(l => /^\|\s*`/.test(l) && l.includes('NEEDS-OWNER')).length;
+    expect(LEDGER, 'GAP-2 count must equal the NEEDS-OWNER rows').toContain(
+      `**GAP-2 — ${rows} live files declare no owner.**`,
+    );
+  });
+
   it('carries the unvalidated-economics limitation into the product requirements', () => {
     expect(PR).toMatch(/not validated with users|no user research/i);
   });

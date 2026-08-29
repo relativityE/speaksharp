@@ -94,4 +94,4 @@ Two items need Product Owner action and are recorded rather than decided here:
 - **GAP-1** — canonical #3 `ROADMAP.md` is absent, and #1272 (its stated deferral) **closed without producing
   it**. Live successor: **#1257**. The ledger registers it as the single permitted exception so no further
   canonical drift can pass silently.
-- **GAP-2** — 34 live documents declare no owner. Owner assignment is a PO decision.
+- **GAP-2** — 26 live documents declare no owner. Owner assignment is a PO decision.

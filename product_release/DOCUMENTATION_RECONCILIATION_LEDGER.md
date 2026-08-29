@@ -473,7 +473,7 @@ outside the #1257 decision. `tests/config/documentationLedger.test.ts` now asser
 Propagation content that would have gone to `ROADMAP.md` is routed to `PROGRESS_AND_NEXT_ACTION.md` and
 `RELEASE_STATUS.md` until #1257 lands.
 
-**GAP-2 — 34 live files declare no owner.** Every `NEEDS-OWNER` row above. Owner assignment is a Product Owner
+**GAP-2 — 26 live files declare no owner.** Every `NEEDS-OWNER` row above. Owner assignment is a Product Owner
 action; this ledger records the exposure rather than assigning owners unilaterally.
 
 ---
