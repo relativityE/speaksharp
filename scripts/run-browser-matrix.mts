@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { resolve } from 'node:path';
-import { cpus, arch, platform } from 'node:os';
+import { cpus, arch, platform, loadavg } from 'node:os';
 import { chromium } from '@playwright/test';
 import manifest from '../tests/fixtures/corpus-manifest.json' with { type: 'json' };
 import goldens from '../tests/evidence/normalization/goldens.json' with { type: 'json' };
@@ -186,6 +186,37 @@ const summarizeDecodeFailures = (
         .sort((a, b) => b.count - a.count);
 };
 
+/**
+ * Host state at run start, RECORDED IN THE ARTIFACT rather than asserted in prose.
+ *
+ * Two arms of the frozen 600 were latency-contaminated by competing local work, and a later rerun failed
+ * with 148 throws under suspected memory pressure. In both cases the host condition was described in
+ * conversation and retained nowhere, so neither claim could be checked afterwards. A timing figure whose
+ * host state is unrecorded is not reproducible.
+ */
+const hostGate = (): Record<string, unknown> => {
+    const read = (cmd: string, args: string[]) => {
+        try { return execFileSync(cmd, args, { encoding: 'utf8' }); } catch { return ''; }
+    };
+    const vm = read('vm_stat', []);
+    const num = (label: string) => {
+        const m = new RegExp(`${label}[^0-9]*([0-9]+)`).exec(vm);
+        return m ? Number(m[1]) : null;
+    };
+    const swap = /used = ([0-9.]+)M/.exec(read('sysctl', ['-n', 'vm.swapusage']));
+    return {
+        capturedAt: new Date().toISOString(),
+        cpuCores: cpus().length,
+        platform: platform(),
+        arch: arch(),
+        loadAverage: loadavg(),
+        pageouts: num('Pageouts'),
+        swapouts: num('Swapouts'),
+        swapUsedMb: swap ? Number(swap[1]) : null,
+        note: 'Point-in-time at run start. Counter DELTAS across a run are what indicate pressure; a high historical swap allocation is not itself a gate.',
+    };
+};
+
 const headSha = (): string => {
     try {
         return execFileSync('git', ['rev-parse', '--short=8', 'HEAD'], { encoding: 'utf8' }).trim();
@@ -259,6 +290,7 @@ const runIdentity: RunIdentity = {
     evidenceClass,
 };
 
+const hostAtStart = hostGate();
 const partialPath = outPath ? outPath.replace(/\.json$/, '') + '.partial.json' : '';
 
 /** Rows already measured under an IDENTICAL identity, if any. */
@@ -686,7 +718,12 @@ for (const spec of ARM_MATRIX) {
      * legitimately fails route parity, and certifying a probe would be false.
      */
     if (probeMaxNewTokens !== null || probeClips) {
-        const base = (outPath || 'evidence-runs/probe').replace(/\.json$/, '');
+        // PER-ARM PATHS. Without the arm id every arm in one run writes the SAME file, and the second
+        // silently replaces the first — the exact overwrite the recorder refuses within a cell, reached
+        // instead by two recorders sharing a path. Found when a two-arm parity probe produced a
+        // one-arm artifact.
+        const armSlug = spec.id.replace(/[^a-zA-Z0-9]+/g, '_');
+        const base = `${(outPath || 'evidence-runs/probe').replace(/\.json$/, '')}.${armSlug}`;
         const recorder = new ProbeRecorder(`${base}.probe-partial.json`, `${base}.probe.json`, {
             kind: 'diagnostic_probe',
             armId: spec.id,
@@ -941,6 +978,24 @@ for (const spec of ARM_MATRIX) {
         // and a bounded sample of affected utterances are what identify a cause. Messages are truncated:
         // a decode error is a diagnostic, not a place to accumulate unbounded text in an artifact.
         decodeFailures: summarizeDecodeFailures(result.decodeFailures),
+        /**
+         * PER-CLIP TIMING, RETAINED — so p50/p95/RTF can be RECOMPUTED from evidence rather than trusted
+         * as the runner emitted them.
+         *
+         * These were computed and then dropped at the serialization boundary, which left the aggregate
+         * percentiles unfalsifiable: a reviewer could read RTF p95 = 5.969 and had no way to check it.
+         * An aggregate nobody can re-derive is an assertion, not a measurement — the same defect that
+         * discarded 148 decode-failure messages.
+         *
+         * Audio seconds travel with each clip because RTF is meaningless without the duration it divides.
+         */
+        clipTimings: result.clipOutcomes.map((c) => ({
+            utteranceId: c.utteranceId,
+            audioSeconds: c.audioSeconds,
+            decodeMs: c.decodeMs,
+            realTimeFactor: Number.isFinite(c.realTimeFactor) ? c.realTimeFactor : null,
+            outcome: c.outcome,
+        })),
         // The decoder graph this arm actually loaded — the file, and its digest.
         decoderAssets: Object.entries(armAssets)
             .filter(([path]) => /decoder/i.test(path))
@@ -1041,7 +1096,11 @@ if (outPath) {
             process.exit(1);
         }
     }
-    atomicWriteFileSync(outPath, `${JSON.stringify({ lane: 'browser', set: setName, evidenceClass, identity: runIdentity, results, assets: harness.assets, assetFailures: harness.assetFailures }, null, 2)}\n`);
+    atomicWriteFileSync(outPath, `${JSON.stringify({
+        lane: 'browser', set: setName, evidenceClass, identity: runIdentity,
+        hostAtStart, hostAtEnd: hostGate(),
+        results, assets: harness.assets, assetFailures: harness.assetFailures,
+    }, null, 2)}\n`);
     console.log(`wrote ${outPath}`);
     // The partial has served its purpose; the immutable artifact is now the record.
     if (partialPath && existsSync(partialPath)) {

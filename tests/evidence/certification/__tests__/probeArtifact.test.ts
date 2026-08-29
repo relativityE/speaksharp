@@ -168,3 +168,22 @@ describe('#1304 a probe artifact can never become selection evidence', () => {
         expect(doc.cells.every((c: ProbeCell) => !('wer' in c))).toBe(true);
     });
 });
+
+describe('#1304 two arms in one run cannot share an artifact path', () => {
+    it('distinct arms produce distinct paths, so neither silently replaces the other', () => {
+        // Regression: a two-arm parity probe produced a ONE-arm artifact because both recorders wrote
+        // the same file. The recorder refuses a duplicate cell, but nothing stopped two recorders from
+        // sharing a path — the same overwrite reached from outside.
+        const d = tmp();
+        const slug = (id: string) => id.replace(/[^a-zA-Z0-9]+/g, '_');
+        const pathFor = (id: string) => join(d, `probe.${slug(id)}.json`);
+        const a = new ProbeRecorder(join(d, `p.${slug('moonshine:tiny')}.json`), pathFor('moonshine:tiny'), header(['x']));
+        const b = new ProbeRecorder(join(d, `p.${slug('moonshine:base')}.json`), pathFor('moonshine:base'), header(['x']));
+        a.addCell(cell('x')); b.addCell(cell('x'));
+        expect(a.finalize()).toEqual({ ok: true });
+        expect(b.finalize()).toEqual({ ok: true });
+        expect(pathFor('moonshine:tiny')).not.toBe(pathFor('moonshine:base'));
+        expect(existsSync(pathFor('moonshine:tiny'))).toBe(true);
+        expect(existsSync(pathFor('moonshine:base'))).toBe(true);
+    });
+});
