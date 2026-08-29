@@ -1,10 +1,10 @@
 // Documentation-contract test for the product_release/ canonical documentation system.
 // Runs under `pnpm test:unit` (the CI - Test Audit gate). Deterministic; reads only committed files.
-// Central purpose: PROVE the section-level extraction coverage claimed by DOC_MIGRATION_LEDGER.md,
-// so later consolidation PRs cannot silently drop content. Also validates the disposition and
-// source-file-state vocabularies, and header-scoped metadata.
+// Central purpose: prove the closed canonical documentation surface and preserve the historical
+// section-level extraction record without leaving superseded sources in the active root.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,7 +12,7 @@ const DOCS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../p
 const read = (rel: string) => fs.readFileSync(path.join(DOCS, rel), 'utf8');
 
 const README = read('README.md');
-const LEDGER = read('DOC_MIGRATION_LEDGER.md');
+const LEDGER = read('archive/superseded-docs-2026-08-29/DOC_MIGRATION_LEDGER.md');
 const STATUS = read('RELEASE_STATUS.md');
 const PRODUCT_REQUIREMENTS = read('PRODUCT_REQUIREMENTS.md'); // canonical #2 (#1038)
 const ARCHITECTURE = read('ARCHITECTURE.md'); // canonical #4 (#1039)
@@ -52,34 +52,34 @@ const SOURCES: Array<{ label: string; path: string; key: string }> = [
   { label: 'hist ROADMAP', path: 'archive/legacy-docs/d31102a8/ROADMAP.md', key: 'd31102a8/ROADMAP.md' },
   { label: 'CHANGELOG', path: 'archive/legacy-docs/d31102a8/CHANGELOG.md', key: 'd31102a8/CHANGELOG.md' },
   // current
-  { label: 'PRECEDENCE.md', path: 'PRECEDENCE.md', key: '`PRECEDENCE.md`' },
-  { label: 'PRD.operational', path: 'PRD.operational.md', key: '`PRD.operational.md`' },
-  { label: 'PRODUCT_FEATURES', path: 'PRODUCT_FEATURES.operational.md', key: '`PRODUCT_FEATURES.operational.md`' },
-  { label: 'SESSION_PROGRESS', path: 'SPEAKSHARP_SESSION_PROGRESS.operational.md', key: '`SPEAKSHARP_SESSION_PROGRESS.operational.md`' },
-  { label: 'ARCHITECTURE.operational', path: 'ARCHITECTURE.operational.md', key: '`ARCHITECTURE.operational.md`' },
-  { label: 'CODEBASE_MAP.md', path: 'CODEBASE_MAP.md', key: '`CODEBASE_MAP.md`' },
-  { label: 'STT_BASELINE', path: 'STT_BASELINE_CONTRACTS.operational.md', key: '`STT_BASELINE_CONTRACTS.operational.md`' },
-  { label: 'ACCURACY_LEVERS', path: 'PRIVATE_STT_ACCURACY_LEVERS.md', key: '`PRIVATE_STT_ACCURACY_LEVERS.md`' },
-  { label: 'perf-proof', path: 'stt-perf-proof-protocol.md', key: '`stt-perf-proof-protocol.md`' },
-  { label: 'SOFTWARE_QUALITY', path: 'SOFTWARE_QUALITY.operational.md', key: '`SOFTWARE_QUALITY.operational.md`' },
-  { label: 'QUALITY_METRICS', path: 'QUALITY_METRICS.md', key: '`QUALITY_METRICS.md`' },
-  { label: 'SERVICE_LEVELS', path: 'SERVICE_LEVELS.operational.md', key: '`SERVICE_LEVELS.operational.md`' },
-  { label: 'RC_GATES', path: 'RC_GATES.md', key: '`RC_GATES.md`' },
-  { label: 'RC_TEST_INVENTORY', path: 'RC_TEST_INVENTORY.md', key: '`RC_TEST_INVENTORY.md`' },
-  { label: 'RELEASE_RECOVERY', path: 'RELEASE_RECOVERY.md', key: '`RELEASE_RECOVERY.md`' },
-  { label: 'RELEASE_CLOSEOUT', path: 'RELEASE_CLOSEOUT_LEDGER.md', key: '`RELEASE_CLOSEOUT_LEDGER.md`' },
-  { label: 'BACKLOG', path: 'BACKLOG.md', key: 'BACKLOG · ' },
-  { label: 'LAUNCH_ENV', path: 'LAUNCH_ENV_CHECKLIST.md', key: '`LAUNCH_ENV_CHECKLIST.md`' },
-  { label: 'ENV_INVENTORY', path: 'ENV_INVENTORY.md', key: '`ENV_INVENTORY.md`' },
-  { label: 'SECRET_ROTATION', path: 'SECRET_ROTATION_RUNBOOK.md', key: '`SECRET_ROTATION_RUNBOOK.md`' },
-  { label: 'PAID_OPS', path: 'PAID_OPS_HARDENING_RUNBOOK.md', key: '`PAID_OPS_HARDENING_RUNBOOK.md`' },
-  { label: 'OPS_HEALTH', path: 'OPS_HEALTH_DASHBOARD.md', key: '`OPS_HEALTH_DASHBOARD.md`' },
-  { label: 'SCA_EXCEPTIONS', path: 'SCA_EXCEPTIONS.md', key: '`SCA_EXCEPTIONS.md`' },
-  { label: 'INTERNAL_TEST', path: 'INTERNAL_TEST_PROTOCOL.md', key: '`INTERNAL_TEST_PROTOCOL.md`' },
-  { label: 'MANUAL_HARDWARE', path: 'MANUAL_HARDWARE_VALIDATION.md', key: '`MANUAL_HARDWARE_VALIDATION.md`' },
-  { label: 'TESTER_INSTRUCTIONS', path: 'SOFT_RELEASE_TESTER_INSTRUCTIONS.md', key: '`SOFT_RELEASE_TESTER_INSTRUCTIONS.md`' },
-  { label: 'PUBLIC_LAUNCH', path: 'PUBLIC_LAUNCH_LEDGER.md', key: '`PUBLIC_LAUNCH_LEDGER.md`' },
-  { label: 'ENTITLEMENT_EVIDENCE', path: 'ENTITLEMENT_PRO_LIMIT_EVIDENCE.md', key: '`ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`' },
+  { label: 'PRECEDENCE.md', path: 'archive/superseded-docs-2026-08-29/PRECEDENCE.md', key: '`PRECEDENCE.md`' },
+  { label: 'PRD.operational', path: 'archive/superseded-docs-2026-08-29/PRD.operational.md', key: '`PRD.operational.md`' },
+  { label: 'PRODUCT_FEATURES', path: 'archive/superseded-docs-2026-08-29/PRODUCT_FEATURES.operational.md', key: '`PRODUCT_FEATURES.operational.md`' },
+  { label: 'SESSION_PROGRESS', path: 'archive/superseded-docs-2026-08-29/SPEAKSHARP_SESSION_PROGRESS.operational.md', key: '`SPEAKSHARP_SESSION_PROGRESS.operational.md`' },
+  { label: 'ARCHITECTURE.operational', path: 'archive/superseded-docs-2026-08-29/ARCHITECTURE.operational.md', key: '`ARCHITECTURE.operational.md`' },
+  { label: 'CODEBASE_MAP.md', path: 'archive/superseded-docs-2026-08-29/CODEBASE_MAP.md', key: '`CODEBASE_MAP.md`' },
+  { label: 'STT_BASELINE', path: 'evidence/stt/retained-contracts/STT_BASELINE_CONTRACTS.operational.md', key: '`STT_BASELINE_CONTRACTS.operational.md`' },
+  { label: 'ACCURACY_LEVERS', path: 'evidence/stt/retained-contracts/PRIVATE_STT_ACCURACY_LEVERS.md', key: '`PRIVATE_STT_ACCURACY_LEVERS.md`' },
+  { label: 'perf-proof', path: 'evidence/stt/retained-contracts/stt-perf-proof-protocol.md', key: '`stt-perf-proof-protocol.md`' },
+  { label: 'SOFTWARE_QUALITY', path: 'archive/superseded-docs-2026-08-29/SOFTWARE_QUALITY.operational.md', key: '`SOFTWARE_QUALITY.operational.md`' },
+  { label: 'QUALITY_METRICS', path: 'archive/superseded-docs-2026-08-29/QUALITY_METRICS.md', key: '`QUALITY_METRICS.md`' },
+  { label: 'SERVICE_LEVELS', path: 'archive/superseded-docs-2026-08-29/SERVICE_LEVELS.operational.md', key: '`SERVICE_LEVELS.operational.md`' },
+  { label: 'RC_GATES', path: 'archive/superseded-docs-2026-08-29/RC_GATES.md', key: '`RC_GATES.md`' },
+  { label: 'RC_TEST_INVENTORY', path: 'archive/superseded-docs-2026-08-29/RC_TEST_INVENTORY.md', key: '`RC_TEST_INVENTORY.md`' },
+  { label: 'RELEASE_RECOVERY', path: 'archive/superseded-docs-2026-08-29/RELEASE_RECOVERY.md', key: '`RELEASE_RECOVERY.md`' },
+  { label: 'RELEASE_CLOSEOUT', path: 'evidence/retained/RELEASE_CLOSEOUT_LEDGER.md', key: '`RELEASE_CLOSEOUT_LEDGER.md`' },
+  { label: 'BACKLOG', path: 'archive/superseded-docs-2026-08-29/BACKLOG.md', key: 'BACKLOG · ' },
+  { label: 'LAUNCH_ENV', path: 'archive/superseded-docs-2026-08-29/LAUNCH_ENV_CHECKLIST.md', key: '`LAUNCH_ENV_CHECKLIST.md`' },
+  { label: 'ENV_INVENTORY', path: 'archive/superseded-docs-2026-08-29/ENV_INVENTORY.md', key: '`ENV_INVENTORY.md`' },
+  { label: 'SECRET_ROTATION', path: 'archive/superseded-docs-2026-08-29/SECRET_ROTATION_RUNBOOK.md', key: '`SECRET_ROTATION_RUNBOOK.md`' },
+  { label: 'PAID_OPS', path: 'archive/superseded-docs-2026-08-29/PAID_OPS_HARDENING_RUNBOOK.md', key: '`PAID_OPS_HARDENING_RUNBOOK.md`' },
+  { label: 'OPS_HEALTH', path: 'archive/superseded-docs-2026-08-29/OPS_HEALTH_DASHBOARD.md', key: '`OPS_HEALTH_DASHBOARD.md`' },
+  { label: 'SCA_EXCEPTIONS', path: 'archive/superseded-docs-2026-08-29/SCA_EXCEPTIONS.md', key: '`SCA_EXCEPTIONS.md`' },
+  { label: 'INTERNAL_TEST', path: 'archive/superseded-docs-2026-08-29/INTERNAL_TEST_PROTOCOL.md', key: '`INTERNAL_TEST_PROTOCOL.md`' },
+  { label: 'MANUAL_HARDWARE', path: 'archive/superseded-docs-2026-08-29/MANUAL_HARDWARE_VALIDATION.md', key: '`MANUAL_HARDWARE_VALIDATION.md`' },
+  { label: 'TESTER_INSTRUCTIONS', path: 'archive/superseded-docs-2026-08-29/SOFT_RELEASE_TESTER_INSTRUCTIONS.md', key: '`SOFT_RELEASE_TESTER_INSTRUCTIONS.md`' },
+  { label: 'PUBLIC_LAUNCH', path: 'evidence/retained/PUBLIC_LAUNCH_LEDGER.md', key: '`PUBLIC_LAUNCH_LEDGER.md`' },
+  { label: 'ENTITLEMENT_EVIDENCE', path: 'evidence/retained/ENTITLEMENT_PRO_LIMIT_EVIDENCE.md', key: '`ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`' },
 ];
 
 // Explicit, heading-level allowlist for intentionally grouped / provenance-only headings, WITH a reason.
@@ -90,7 +90,10 @@ function allowReason(label: string, heading: string): string | null {
   // (`[x.y.z] - date`) and their change-type H3 sub-entries (Added/Fixed/Changed/...). This is the
   // ONLY whole-source allowance; every other source (incl. CODEBASE_MAP) is enumerated per heading.
   if (label === 'CHANGELOG') return 'CHANGELOG version/change entries — provenance-only, grouped as one NO_DURABLE_CONTENT row (permitted exception).';
-  void heading;
+  // #1367 reconciliation notes correct a STATUS claim in an already-mapped source (e.g. "Personal Progress is
+  // no longer backlog — it ships"). They are not new durable content migrating to a canonical target, so they
+  // have no ledger subsection to be covered by; their authority is DOCUMENTATION_RECONCILIATION_LEDGER §10.
+  if (/^#1367 status reconciliation/.test(heading)) return '#1367 status reconciliation note — corrects a status claim in place; authority is DOCUMENTATION_RECONCILIATION_LEDGER.md §10.';
   return null;
 }
 
@@ -183,7 +186,9 @@ describe('documentation contract — product_release/', () => {
 
   it('every pre-foundation root Markdown source is mapped in the ledger', () => {
     const rootMd = fs.readdirSync(DOCS).filter(f => f.endsWith('.md'));
-    const foundation = new Set(['README.md', 'DOC_MIGRATION_LEDGER.md', 'RELEASE_STATUS.md']);
+    // Closeout is complete: every root Markdown file is canonical. The dated #1367 audit and migration ledger
+    // are retained below `evidence/` and `archive/`; neither may masquerade as a fifteenth root authority.
+    const foundation = new Set(CANONICAL_14);
     const unmapped = rootMd.filter(f => !foundation.has(f) && !LEDGER.includes(f));
     expect(unmapped).toEqual([]);
   });
@@ -365,5 +370,210 @@ describe('documentation contract — product_release/', () => {
 
   it('closeout arithmetic proves exactly 14 root files', () => {
     expect(LEDGER).toMatch(/2 retained \+ 12 new = \*\*14\*\*/);
+  });
+
+  it('closeout is real: the active product_release root contains exactly the canonical 14', () => {
+    const active = fs.readdirSync(DOCS)
+      .filter((name) => name.endsWith('.md'))
+      .sort();
+    expect(active).toEqual([...CANONICAL_14].sort());
+    for (const retired of ['ACTIVE_COORDINATION.md', 'BACKLOG.md', 'RC_GATES.md',
+      'RC_TEST_INVENTORY.md', 'content_list.md', 'PRECEDENCE.md']) {
+      expect(active, `${retired} is still masquerading as an active root document`).not.toContain(retired);
+    }
+  });
+});
+
+/**
+ * #1258 — THE CURRENCY GUARD.
+ *
+ * `AGENTS.md` sends every agent to `RELEASE_STATUS.md` and `ACTIVE_COORDINATION.md` first, so a stale
+ * value here does not merely mislead a reader — it becomes wrong work. #1358 corrected a five-week
+ * drift, and one day later both files were stale again: they named a superseded baseline, described
+ * #1304 Task 3 and Task 4 as "not started" after both had merged, and still named the retention
+ * production proof as the release blocker after the stopping rule had fired.
+ *
+ * A date field cannot catch that — the stale files carried a fresh date. What these assert is INTERNAL
+ * CONTRADICTION: the same fact stated two ways in two places, or a task described as both merged and
+ * unstarted. They read only committed files, so they run in CI without network access.
+ */
+/** Parse the fixed-field CURRENCY-BLOCK. Prose is deliberately not consulted. */
+function currencyBlock(markdown: string): Record<string, string> {
+  const match = /<!-- CURRENCY-BLOCK\n([\s\S]*?)-->/.exec(markdown);
+  if (!match) return {};
+  const fields: Record<string, string> = {};
+  for (const line of match[1].split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const colon = trimmed.indexOf(':');
+    if (colon <= 0) continue;
+    fields[trimmed.slice(0, colon).trim()] = trimmed.slice(colon + 1).trim();
+  }
+  return fields;
+}
+
+describe('#1258 currency guard — release status and roadmap must not contradict reality', () => {
+  const COORDINATION = read('ROADMAP.md');
+  const status = currencyBlock(STATUS);
+  const coordination = currencyBlock(COORDINATION);
+
+  it('both SSOTs carry a currency block', () => {
+    expect(Object.keys(status).length, 'RELEASE_STATUS has no CURRENCY-BLOCK').toBeGreaterThan(5);
+    expect(Object.keys(coordination).length, 'ROADMAP has no CURRENCY-BLOCK').toBeGreaterThan(5);
+  });
+
+  it('they agree on the baseline and the deployed release', () => {
+    // Written at different times by different edits; a divergence is the first symptom of one being
+    // left behind, which is exactly how the previous revision went stale.
+    expect(coordination.baseline).toBe(status.baseline);
+    expect(coordination['deployed-release']).toBe(status['deployed-release']);
+    expect(status.baseline).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it('the baseline SHA appears in the prose of BOTH files', () => {
+    // The block is the machine-readable copy; if the human-readable text still names an older commit,
+    // a reader and the guard would disagree.
+    const short = status.baseline.slice(0, 8);
+    expect(STATUS).toContain(short);
+    expect(COORDINATION).toContain(short);
+  });
+
+  it('the recorded baseline is a REAL, RECENT ancestor of this checkout', () => {
+    // The check that actually measures staleness. "Both files agree" and "the SHA appears in the
+    // prose" are both satisfied by a superseded commit — `5f378898` is still named in RELEASE_STATUS
+    // as a worked example, so a mutant that set the baseline back to it passed every other assertion
+    // here. Distance from HEAD is the thing that cannot be faked by editing prose.
+    let distance: number;
+    try {
+      execFileSync('git', ['cat-file', '-e', `${status.baseline}^{commit}`], { stdio: 'pipe' });
+      distance = Number(
+        execFileSync('git', ['rev-list', '--count', `${status.baseline}..HEAD`], { encoding: 'utf8' }).trim(),
+      );
+    } catch (error) {
+      throw new Error(
+        `recorded baseline ${status.baseline} is not a commit in this repository: `
+        + `${(error as Error).message.split('\n')[0]}`,
+      );
+    }
+    expect(Number.isFinite(distance)).toBe(true);
+    // Generous, because a long-running branch legitimately drifts — but a board thirty commits behind
+    // is describing a product state that no longer exists, which is the failure this exists to catch.
+    expect(distance, `baseline is ${distance} commits behind HEAD — currentize the SSOTs`)
+      .toBeLessThanOrEqual(25);
+  });
+
+  it('the block agrees with the CURRENT-baseline table row a reader actually consults', () => {
+    // Not "appears somewhere in the file": `5f378898` is still named in RELEASE_STATUS as a worked
+    // example of the product-behaviour criterion, so a mutant that set the block back to it satisfied
+    // a whole-file search. The row a reader looks at is the one the block must match.
+    const row = STATUS.split('\n').find((l) => l.includes('Repository `main`'));
+    expect(row, 'RELEASE_STATUS has no "Repository `main`" baseline row').toBeTruthy();
+    expect(row).toContain(status.baseline.slice(0, 8));
+
+    const deployedRow = STATUS.split('\n').find((l) => l.includes('__APP_RELEASE__ ='));
+    expect(deployedRow, 'RELEASE_STATUS records no verified deployed release').toBeTruthy();
+    expect(deployedRow).toContain(status['deployed-release']);
+  });
+
+  it('states its own limit, rather than implying it verifies more than it can', () => {
+    // This suite reads committed files and local git. It CANNOT know the tip of `origin/main`, so it
+    // catches gross staleness and internal contradiction — not "written one commit ago". Saying so is
+    // the difference between a guard and a false assurance.
+    expect(STATUS + COORDINATION).toMatch(/currency guard/i);
+  });
+
+  it('every #1304 task state is one of the allowed values — never both merged and unstarted', () => {
+    const allowed = new Set(['merged', 'open', 'not-started', 'returned', 'off-critical-path']);
+    for (const [field, value] of Object.entries(coordination)) {
+      if (!field.startsWith('task-') && !field.startsWith('lane-')) continue;
+      expect(allowed.has(value), `${field} has unknown state "${value}"`).toBe(true);
+    }
+  });
+
+  it('the merged #1304 tasks are recorded as merged', () => {
+    // 3A, 3B and Task 4 were all described as NOT STARTED after merging. That is the exact regression.
+    for (const task of ['task-1304-1', 'task-1304-2', 'task-1304-3a', 'task-1304-3b', 'task-1304-4']) {
+      expect(coordination[task], `${task} must be merged`).toBe('merged');
+    }
+    expect(coordination['task-1360-recovery-copy']).toBe('merged');
+  });
+
+  it('retention is off the critical path, and is NOT the stated release blocker', () => {
+    expect(status['retention-campaign']).toBe('off-critical-path');
+    expect(status['release-blocker']).not.toMatch(/retention/);
+    expect(status['release-blocker']).toBe('model-selection');
+  });
+
+  it('records the STT chain actually executing, including the ORT requalification', () => {
+    // int8/q8 are NOT rejected candidates; a board that omits why they failed invites someone to
+    // record a runtime bug as a model verdict.
+    expect(COORDINATION).toMatch(/onnxruntime-web/);
+    expect(COORDINATION).toMatch(/28306|28326/);
+    expect(COORDINATION).toMatch(/459/);
+    expect(COORDINATION).toMatch(/600/);
+    expect(COORDINATION).not.toMatch(/600-word/i);
+  });
+
+  it('every parallel MVP lane has a recorded state, so none silently idles', () => {
+    for (const lane of ['lane-stage-b', 'lane-telemetry', 'lane-billing', 'lane-1258-journey']) {
+      expect(coordination[lane], `${lane} has no recorded state`).toBeTruthy();
+    }
+  });
+
+  it('every DATED evidence report outside the archive carries a historical banner', () => {
+    // Dated reports are historical evidence and must NOT be rewritten to look current — a measurement
+    // edited to match today's posture stops being evidence of anything. What they need instead is a
+    // banner and a pointer, so a reader cannot mistake a June measurement for current truth. Eleven of
+    // them had neither.
+    const evidenceDir = path.join(DOCS, 'evidence');
+    const dated: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir)) {
+        const full = path.join(dir, entry);
+        if (fs.statSync(full).isDirectory()) { walk(full); continue; }
+        if (!entry.endsWith('.md')) continue;
+        const body = fs.readFileSync(full, 'utf8');
+        if (!/20(25|26)-\d\d-\d\d/.test(body)) continue;
+        if (!/HISTORICAL/i.test(body)) dated.push(path.relative(DOCS, full));
+      }
+    };
+    walk(evidenceDir);
+    expect(dated, `dated evidence reports without a historical banner: ${dated.join(', ')}`).toEqual([]);
+  });
+
+  it('no historical evidence report titles itself "Current"', () => {
+    // Three did, directly above their own historical banners.
+    const reports = path.join(DOCS, 'evidence', 'stt', 'reports');
+    for (const entry of fs.readdirSync(reports).filter((f) => f.endsWith('.md'))) {
+      const title = fs.readFileSync(path.join(reports, entry), 'utf8').split('\n')[0];
+      expect(title, `${entry} titles itself Current`).not.toMatch(/—\s*Current\s*$/);
+    }
+  });
+
+  it('keeps permanent STT model evidence outside the disposable archive', () => {
+    const sttRoot = path.join(DOCS, 'evidence', 'stt');
+    expect(fs.existsSync(path.join(sttRoot, 'README.md'))).toBe(true);
+    expect(fs.existsSync(path.join(sttRoot, 'reports', 'stt_product_metrics_release_matrix_2026-06-02.json'))).toBe(true);
+    expect(fs.existsSync(path.join(sttRoot, 'retained-contracts', 'STT_BASELINE_CONTRACTS.operational.md'))).toBe(true);
+
+    const archive = path.join(DOCS, 'archive');
+    const misplaced: string[] = [];
+    const walk = (dir: string) => {
+      if (!fs.existsSync(dir)) return;
+      for (const entry of fs.readdirSync(dir)) {
+        const full = path.join(dir, entry);
+        if (fs.statSync(full).isDirectory()) { walk(full); continue; }
+        if (/(stt|whisper|speech[-_ ]?to[-_ ]?text).*(benchmark|accuracy|model|evidence|proof|audit)|(benchmark|accuracy).*(stt|whisper)/i.test(entry)) {
+          misplaced.push(path.relative(DOCS, full));
+        }
+      }
+    };
+    walk(archive);
+    expect(misplaced, `STT evaluation artifacts must not live in archive: ${misplaced.join(', ')}`).toEqual([]);
+  });
+
+  it('a fallback is defined by dependability, not by second-best WER', () => {
+    // The judgement most likely to be lost between documents.
+    expect(STATUS).toMatch(/fallback is not "second-lowest WER"|dependable across MORE devices/i);
   });
 });

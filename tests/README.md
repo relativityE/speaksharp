@@ -25,4 +25,4 @@ By injecting signals into the app (e.g., `__e2eProfileLoaded`, `__e2eBridgeReady
 2.  **Runtime Layer (`e2e-bridge.ts`):** Mocks browser APIs (SpeechRecognition) and injects initial state.
 3.  **Orchestration Layer (`helpers.ts`):** Shared test utilities like `programmaticLoginWithRoutes`.
 
-Refer to [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) for full technical details.
+Refer to [product_release/ARCHITECTURE.md](../product_release/ARCHITECTURE.md) for the current architecture contract.

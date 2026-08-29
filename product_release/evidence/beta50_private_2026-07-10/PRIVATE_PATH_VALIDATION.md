@@ -1,5 +1,13 @@
 # Beta-50 Option D — Private path deployed validation
 
+> **HISTORICAL EVIDENCE — point-in-time measurement, NOT current release truth.**
+> This report records what was measured on its own date. It is **not** rewritten to look current, and it
+> must not be: a measurement edited to match today's posture stops being evidence of anything.
+> Current release posture: [`RELEASE_STATUS.md`](../../RELEASE_STATUS.md). Current work sequencing:
+> [`ROADMAP.md`](../../ROADMAP.md).
+> STT model selection is **not complete** — no Private model has been chosen; any model ranking below
+> predates the #1304 certified harness and its frozen corpus.
+
 **Verdict: Private path = PASS** (owner-accepted 2026-07-10).
 **Caveat (non-blocking follow-up):** deterministic live harness for the forced `download-required` / remote-model path — the literal download percentage-progress branch was unit-tested but not production-reproducible on the default served model (see below).
 

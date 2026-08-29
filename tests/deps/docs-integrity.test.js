@@ -126,6 +126,12 @@ const scanDocForLiveMoney = (doc) =>
   scanUnits(read(doc)).filter(staleLiveMoneyPolicy).map((u) => `${rel(doc)}: ${u.slice(0, 160)}`);
 
 describe('product_release documentation integrity', () => {
+  // #1367 — the 14-document consolidation archived CODEBASE_MAP.md, BACKLOG.md, ENV_INVENTORY.md and
+  // SOFT_RELEASE_TESTER_INSTRUCTIONS.md into product_release/archive/superseded-docs-2026-08-29/.
+  // Their guards are retired rather than repointed: this suite guards the ACTIVE SSOT, and asserting on
+  // archived content would make the archive load-bearing again — the opposite of consolidating.
+  // The one requirement with a living owner (both payment switches documented) moved to
+  // OPERATIONS_AND_SECURITY.md below.
   it('every relative Markdown link in active docs resolves to a real repo path', () => {
     const broken = [];
     const linkRe = /\[[^\]]*\]\(([^)]+)\)/g;
@@ -144,22 +150,6 @@ describe('product_release documentation integrity', () => {
     expect(broken, `broken links:\n${broken.join('\n')}`).toEqual([]);
   });
 
-  it('CODEBASE_MAP.md points at real code/test paths', () => {
-    const map = resolve(PR_DIR, 'CODEBASE_MAP.md');
-    expect(existsSync(map), 'CODEBASE_MAP.md must exist').toBe(true);
-    const text = read(map);
-    const broken = [];
-    const linkRe = /\[[^\]]*\]\(([^)]+)\)/g;
-    let m;
-    while ((m = linkRe.exec(text)) !== null) {
-      let t = m[1].trim();
-      if (/^(https?:|mailto:|#)/i.test(t)) continue;
-      t = t.split('#')[0].replace(/:\d+(-\d+)?$/, '');
-      const abs = resolve(PR_DIR, t);
-      if (!existsSync(abs)) broken.push(m[1]);
-    }
-    expect(broken, `CODEBASE_MAP broken paths:\n${broken.join('\n')}`).toEqual([]);
-  });
 
   it('no active doc describes the completion toast / PostSaveToast / "Next: Analytics" overlay as current', () => {
     const offenders = [];
@@ -172,18 +162,7 @@ describe('product_release documentation integrity', () => {
     expect(offenders, `stale current-toast claims:\n${offenders.join('\n')}`).toEqual([]);
   });
 
-  it('SOFT_RELEASE_TESTER_INSTRUCTIONS.md has no [insert link] placeholder or 1–10 rating', () => {
-    const p = resolve(PR_DIR, 'SOFT_RELEASE_TESTER_INSTRUCTIONS.md');
-    const text = read(p);
-    expect(text.includes('[insert link]'), 'contains [insert link] placeholder').toBe(false);
-    expect(/\b1\s*[–-]\s*10\b/.test(text), 'contains a 1–10 rating request').toBe(false);
-  });
 
-  it('BACKLOG.md does not re-list the completed P0.2 / P1.1 headings', () => {
-    const text = read(resolve(PR_DIR, 'BACKLOG.md'));
-    expect(text.includes('P0.2 — Private-first mode hierarchy'), 'P0.2 completed heading present').toBe(false);
-    expect(text.includes('P1.1 — Private-first UX polish'), 'P1.1 completed heading present').toBe(false);
-  });
 
   it('no active doc asserts #1006 is shipped/deployed/activated (it is DRAFT)', () => {
     const offenders = [];
@@ -200,14 +179,6 @@ describe('product_release documentation integrity', () => {
     expect(offenders, `#1006-shipped claims:\n${offenders.join('\n')}`).toEqual([]);
   });
 
-  it('SOFT_RELEASE_TESTER_INSTRUCTIONS.md is not branded with the historical v0.9.0-rc4 / first-batch labels', () => {
-    const text = read(resolve(PR_DIR, 'SOFT_RELEASE_TESTER_INSTRUCTIONS.md'));
-    const offenders = text.split('\n')
-      .map((l, i) => ({ l, i }))
-      .filter(({ l }) => /\brc4\b|v0\.9\.0-rc4|first(-| )controlled batch|controlled first batch/i.test(l))
-      .map(({ l, i }) => `${i + 1}: ${l.trim()}`);
-    expect(offenders, `rc4/first-batch branding in tester instructions:\n${offenders.join('\n')}`).toEqual([]);
-  });
 
   it('no active doc asserts Cloud is unavailable without the Free / existing-paid-Pro distinction', () => {
     const offenders = [];
@@ -260,9 +231,11 @@ describe('product_release documentation integrity', () => {
     expect(offenders, `stale billing-loading-model (key-absent / key-class) claims:\n${offenders.join('\n')}`).toEqual([]);
 
     // ...and the canonical inventory must document BOTH payment switches (the real closure control).
-    const env = read(resolve(PR_DIR, 'ENV_INVENTORY.md'));
-    expect(env.includes('VITE_PAYMENTS_ENABLED'), 'ENV_INVENTORY must document VITE_PAYMENTS_ENABLED').toBe(true);
-    expect(/(^|[^_A-Z])PAYMENTS_ENABLED\b/m.test(env), 'ENV_INVENTORY must document PAYMENTS_ENABLED').toBe(true);
+    // The 14-document consolidation archived ENV_INVENTORY.md; OPERATIONS_AND_SECURITY.md is the
+    // canonical owner of env/secret inventory, so the requirement moves with the content.
+    const env = read(resolve(PR_DIR, 'OPERATIONS_AND_SECURITY.md'));
+    expect(env.includes('VITE_PAYMENTS_ENABLED'), 'OPERATIONS_AND_SECURITY must document VITE_PAYMENTS_ENABLED').toBe(true);
+    expect(/(^|[^_A-Z])PAYMENTS_ENABLED\b/m.test(env), 'OPERATIONS_AND_SECURITY must document PAYMENTS_ENABLED').toBe(true);
   });
 
   it('no active doc contradicts the billing-switch / v4-OFF posture (block-normalized scan)', () => {
