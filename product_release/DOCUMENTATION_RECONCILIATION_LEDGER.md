@@ -136,7 +136,7 @@ documents are present.
 | `product_release/content_list.md` | Content inventory | PROC | sha·gate·run | NEEDS-OWNER | → `README.md` |
 | `product_release/ARCHITECTURE.operational.md` | Pre-consolidation copy | STAGING | wer·gate·run | ROUTED | → `ARCHITECTURE.md` |
 | `product_release/PRD.operational.md` | Pre-consolidation copy | STAGING | wer·ver·gate | ROUTED | → `PRODUCT_REQUIREMENTS.md` |
-| `product_release/ROADMAP.operational.md` | Pre-consolidation copy | STAGING | wer·gate·$ | ROUTED — points to #1272 for the canonical roadmap | → GAP-1 |
+| `product_release/ROADMAP.operational.md` | Pre-consolidation copy | STAGING | wer·gate·$ | **STALE ROUTING** — points to #1272, which closed without producing `ROADMAP.md` | → GAP-1; live successor #1257 |
 | `product_release/PRODUCT_FEATURES.operational.md` | Pre-consolidation copy | STAGING | wer(9)·priv(4) | ROUTED — feature statuses re-verified in §10 | → `PRODUCT_REQUIREMENTS.md` |
 | `product_release/SPEAKSHARP_SESSION_PROGRESS.operational.md` | Session-progress copy | STAGING | wer(11) | ROUTED | → `PROGRESS_AND_NEXT_ACTION.md` |
 | `product_release/STT_BASELINE_CONTRACTS.operational.md` | STT baselines | STAGING | wer(65)·ver | ROUTED — highest WER-claim density in the tree; superseded by #1304 | → `STT.md`, #1304 |
@@ -456,18 +456,22 @@ carried prominently into `PRODUCT_REQUIREMENTS.md` rather than buried here.
 
 ## 11. Gaps
 
-**GAP-1 — canonical #3 `ROADMAP.md` does not exist.** `README.md` §2 and
-`tests/config/documentationContract.test.ts:35` both declare a fourteen-document canonical set, but
-`product_release/ROADMAP.md` is absent; only the superseded `ROADMAP.operational.md` and the legacy
-`docs/ROADMAP.md` exist. The staging copy routes the canonical roadmap to **#1272** ("final-last canonical roadmap
-reconciliation"), so the absence is a deliberate deferral — but nothing enforced it, and no test asserted the
-declared set matches the files present. **13 of 14 canonical documents exist.**
+**GAP-1 — canonical #3 `ROADMAP.md` does not exist, and the deferral that was supposed to create it has
+already closed.** `README.md` §2 and `tests/config/documentationContract.test.ts:35` both declare a
+fourteen-document canonical set, but `product_release/ROADMAP.md` is absent; only the superseded
+`ROADMAP.operational.md` and the legacy `docs/ROADMAP.md` exist.
+
+`ROADMAP.operational.md` routes the canonical roadmap to **#1272** — but **#1272 is CLOSED** and no
+`ROADMAP.md` was produced. The deferral lapsed without anyone noticing, which is precisely the failure this
+ledger exists to make impossible: nothing enforced the declared set, and no test asserted that it matched the
+files present. The live successor is **#1257** (open — "rebuild the canonical ledger, requirements, roadmap, and
+backlog from current main"), with **#1318** as the final currentization. **13 of 14 canonical documents exist.**
 
 This ledger does **not** invent a canonical roadmap to close the gap: doing so would create a canonical document
-outside the #1272 decision. `tests/config/documentationLedger.test.ts` now asserts the canonical set is present
+outside the #1257 decision. `tests/config/documentationLedger.test.ts` now asserts the canonical set is present
 **with GAP-1 as the single registered exception**, so the deferral is explicit and any *further* drift fails.
 Propagation content that would have gone to `ROADMAP.md` is routed to `PROGRESS_AND_NEXT_ACTION.md` and
-`RELEASE_STATUS.md` until #1272 lands.
+`RELEASE_STATUS.md` until #1257 lands.
 
 **GAP-2 — 34 live files declare no owner.** Every `NEEDS-OWNER` row above. Owner assignment is a Product Owner
 action; this ledger records the exposure rather than assigning owners unilaterally.

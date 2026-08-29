@@ -192,4 +192,5 @@ against current code. Completeness is enforced by `tests/config/documentationLed
 that is not classified there fails the suite.
 
 It is a **procedure record, not a canonical document** — the canonical set below is unchanged. Note GAP-1:
-canonical #3 `ROADMAP.md` does not exist and is deferred to #1272, so **13 of 14** canonical documents are present.
+canonical #3 `ROADMAP.md` does not exist, and #1272 (its deferral) closed without producing it — live successor
+**#1257**. **13 of 14** canonical documents are present.

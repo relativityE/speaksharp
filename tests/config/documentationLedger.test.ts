@@ -98,7 +98,7 @@ describe('#1367 documentation ledger — canonical set', () => {
 
   it('records the deferral as GAP-1 rather than leaving it silent', () => {
     expect(LEDGER).toContain('GAP-1');
-    expect(LEDGER).toContain('#1272');
+    expect(LEDGER).toContain('#1257');
     expect(LEDGER).toContain('13 of 14 canonical documents exist');
   });
 });
