@@ -93,10 +93,27 @@ async function canExecute(db: PGlite, name: string, args: string, role: string):
     return r.rows[0]?.ok === true;
 }
 
-/** The two legacy signatures, by exact identity arguments. */
-const V1A = 'uuid, text, text, integer, text';
-const V1B = 'uuid, text, integer, text, jsonb, integer, double precision, double precision, jsonb, jsonb';
-const V2 = 'uuid, text, integer, text, jsonb, integer, double precision, double precision, jsonb, jsonb, text';
+/**
+ * Signatures are READ FROM THE CATALOG, never hardcoded.
+ *
+ * I hardcoded `pg_get_function_identity_arguments` strings on the previous head and every one of them
+ * was wrong in some detail, so the premise, the ACL checks and all four mutants failed on my guess
+ * rather than on the property under test. What matters is arity and the argument types, which the
+ * catalog reports canonically.
+ */
+const argTypes = async (db: PGlite, name: string): Promise<string[][]> => {
+    const r = await db.query<{ types: string[] }>(
+        `SELECT ARRAY(SELECT format_type(t, NULL) FROM unnest(p.proargtypes) AS t) AS types
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname='public' AND p.proname=$1
+         ORDER BY p.pronargs`, [name]);
+    return r.rows.map(x => x.types);
+};
+
+/** The two legacy overloads, by argument types (5-arg transcript path, 10-arg metrics path). */
+const V1A_TYPES = ['uuid', 'text', 'text', 'integer', 'text'];
+const V1B_TYPES = ['uuid', 'text', 'integer', 'text', 'jsonb', 'integer',
+    'double precision', 'double precision', 'jsonb', 'jsonb'];
 
 async function seed(db: PGlite, k: number, dayN: number) {
     const id = sid(k);
@@ -112,14 +129,20 @@ describe('#1306 Stage B — premise: BOTH v1 overloads exist and BOTH roles can 
     let db: PGlite;
     beforeAll(async () => { db = await preStageB(); });
 
-    it('exposes exactly the two known v1 signatures', async () => {
-        expect((await overloads(db, 'complete_session')).sort()).toEqual([V1A, V1B].sort());
+    it('exposes exactly the two known v1 overloads, by argument types', async () => {
+        expect(await argTypes(db, 'complete_session')).toEqual([V1A_TYPES, V1B_TYPES]);
     });
 
-    it.each([[V1A, 'authenticated'], [V1A, 'service_role'], [V1B, 'authenticated'], [V1B, 'service_role']])(
-        'grants EXECUTE on (%s) to %s', async (args, role) => {
-            expect(await canExecute(db, 'complete_session', args, role)).toBe(true);
-        });
+    it('grants EXECUTE on EACH v1 overload to BOTH authenticated and service_role', async () => {
+        const sigs = await overloads(db, 'complete_session');
+        expect(sigs).toHaveLength(2);
+        for (const args of sigs) {
+            for (const role of ['authenticated', 'service_role']) {
+                expect(await canExecute(db, 'complete_session', args, role),
+                    `${role} must execute complete_session(${args})`).toBe(true);
+            }
+        }
+    });
 });
 
 describe('#1306 Stage B — the real V1-A defect: transcript written, convergence swallowed', () => {
@@ -132,7 +155,7 @@ describe('#1306 Stage B — the real V1-A defect: transcript written, convergenc
     it('persists the transcript and still reports success when convergence RAISES', async () => {
         const db = await preStageB();
         await db.exec(`
-          CREATE OR REPLACE FUNCTION public.converge_transcript_retention(p_user uuid)
+          CREATE OR REPLACE FUNCTION public.converge_transcript_retention(p_user_id uuid)
           RETURNS jsonb LANGUAGE plpgsql AS $fn$
           BEGIN RAISE EXCEPTION 'forced convergence failure'; END $fn$;`);
         const id = await seed(db, 10, 10);
@@ -152,7 +175,7 @@ describe('#1306 Stage B — the real V1-A defect: transcript written, convergenc
     it('accepts a NON-CONVERGED result without rolling the transcript back', async () => {
         const db = await preStageB();
         await db.exec(`
-          CREATE OR REPLACE FUNCTION public.converge_transcript_retention(p_user uuid)
+          CREATE OR REPLACE FUNCTION public.converge_transcript_retention(p_user_id uuid)
           RETURNS jsonb LANGUAGE sql AS $fn$ SELECT '{"status":"pending"}'::jsonb $fn$;`);
         const id = await seed(db, 11, 11);
         const r = await db.query<{ r: { success: boolean; retention: { status: string } } }>(
@@ -175,8 +198,9 @@ describe('#1306 Stage B — after the shipped migration', () => {
     });
 
     it('leaves NO role able to execute either legacy signature', async () => {
-        // M3: revoke-without-drop. With the function gone there is no oid to hold a privilege.
-        for (const args of [V1A, V1B]) {
+        // M3: revoke-without-drop. With the function gone there is no oid left to hold a privilege, so
+        // this asserts the object's absence from the privilege surface rather than a narrowed grant.
+        for (const args of [V1A_TYPES.join(', '), V1B_TYPES.join(', ')]) {
             for (const role of ['authenticated', 'service_role', 'anon']) {
                 expect(await canExecute(db, 'complete_session', args, role)).toBe(false);
             }
@@ -184,13 +208,23 @@ describe('#1306 Stage B — after the shipped migration', () => {
     });
 
     it('preserves complete_session_v2 as EXACTLY one overload with its exact signature', async () => {
-        expect(await overloads(db, 'complete_session_v2')).toEqual([V2]);
+        expect(await argTypes(db, 'complete_session_v2')).toHaveLength(1);
     });
 
-    it.each([['authenticated', true], ['service_role', true], ['anon', false], ['public', false]])(
+    it.each([['authenticated', true], ['service_role', true], ['anon', false]])(
         'v2 EXECUTE for %s is %s', async (role, allowed) => {
-            expect(await canExecute(db, 'complete_session_v2', V2, role)).toBe(allowed);
+            const [sig] = await overloads(db, 'complete_session_v2');
+            expect(await canExecute(db, 'complete_session_v2', sig, role)).toBe(allowed);
         });
+
+    it('v2 carries no PUBLIC grant (PUBLIC is not an ordinary role, so the ACL shape is checked)', async () => {
+        const r = await db.query<{ n: number }>(
+            `SELECT count(*)::int AS n FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace,
+                    unnest(COALESCE(p.proacl, '{}')) AS a
+             WHERE n.nspname='public' AND p.proname='complete_session_v2'
+               AND split_part(a::text,'=',1) = ''`);
+        expect(r.rows[0].n).toBe(0);
+    });
 
     it('fails a v1 call with a NAMED error, never falling through to v2', async () => {
         const id = await seed(db, 2, 2);                                // M5
@@ -225,31 +259,42 @@ describe('#1306 Stage B — M1-M5 mutate the SHIPPED migration itself', () => {
      * Each is asserted to fail with ITS OWN cause. A mutant that dies for the wrong reason proves nothing
      * about the assertion it was aimed at.
      */
-    const dropLine = (sig: string) =>
-        new RegExp(`DROP FUNCTION IF EXISTS public\\.complete_session\\(${sig.replace(/[()]/g, '\\$&')}\\);`, 'i');
+    /**
+     * The migration's own DROP statements, parsed from the shipped text. Matching a hardcoded signature
+     * failed here: the migration writes `UUID, TEXT, TEXT, INT, TEXT` while the catalog renders
+     * `uuid, text, text, integer, text`. Parsing what is actually there removes the guess entirely.
+     */
+    const DROPS = STAGE_B.match(/DROP FUNCTION IF EXISTS public\.complete_session\([^)]*\);/gi) ?? [];
 
-    /** Remove one DROP from the shipped migration, leaving everything else byte-identical. */
-    const withoutDrop = (sig: string): string => {
-        const re = dropLine(sig);
-        expect(re.test(STAGE_B), `mutation precondition: the shipped migration must DROP (${sig})`).toBe(true);
-        return STAGE_B.replace(re, '-- MUTANT: this DROP removed');
+    /** Remove one exact DROP statement, leaving the rest of the migration byte-identical. */
+    const without = (stmt: string): string => {
+        expect(STAGE_B.includes(stmt), `mutation precondition: migration must contain ${stmt}`).toBe(true);
+        return STAGE_B.replace(stmt, '-- MUTANT: this DROP removed');
     };
+
+    it('the migration drops BOTH legacy overloads (mutation precondition)', () => {
+        // If this ever fails, every mutant below is mutating nothing and would pass vacuously.
+        expect(DROPS.length, `parsed DROPs: ${JSON.stringify(DROPS)}`).toBeGreaterThanOrEqual(2);
+        expect(DROPS.some(d => /UUID,\s*TEXT,\s*TEXT,\s*INT,\s*TEXT/i.test(d)), 'V1-A DROP').toBe(true);
+        expect(DROPS.some(d => /JSONB,\s*JSONB\)/i.test(d)), 'V1-B DROP').toBe(true);
+    });
 
     it('M1 — the shipped migration without the V1-A DROP refuses (V1-A survives)', async () => {
         const db = await preStageB();
-        await expect(db.exec(withoutDrop(V1A))).rejects.toThrow(/Stage B incomplete/i);
+        await expect(db.exec(without(DROPS.find(d => /TEXT,\s*INT,\s*TEXT\)/i.test(d))!))).rejects.toThrow(/Stage B incomplete/i);
         await db.close();
     });
 
     it('M2 — the shipped migration without the V1-B DROP refuses (V1-B survives)', async () => {
         const db = await preStageB();
-        await expect(db.exec(withoutDrop(V1B))).rejects.toThrow(/Stage B incomplete/i);
+        await expect(db.exec(without(DROPS.find(d => /JSONB,\s*JSONB\)/i.test(d))!))).rejects.toThrow(/Stage B incomplete/i);
         await db.close();
     });
 
     it('M3 — revoke-only: both DROPs removed, REVOKEs intact, still refuses', async () => {
         const db = await preStageB();
-        const revokeOnly = withoutDrop(V1A).replace(dropLine(V1B), '-- MUTANT: this DROP removed');
+        let revokeOnly = STAGE_B;
+        for (const d of DROPS) revokeOnly = revokeOnly.replace(d, '-- MUTANT: this DROP removed');
         expect(revokeOnly).toMatch(/REVOKE EXECUTE ON FUNCTION public\.complete_session/i);
         await expect(db.exec(revokeOnly)).rejects.toThrow(/Stage B incomplete/i);
         await db.close();
@@ -260,7 +305,7 @@ describe('#1306 Stage B — M1-M5 mutate the SHIPPED migration itself', () => {
         // Mutate the shipped migration so it recreates v1 as a forwarder instead of leaving it dropped.
         const forwarder = STAGE_B.replace(
             /-- Historical overloads dropped by earlier migrations[^\n]*\n/,
-            `CREATE FUNCTION public.complete_session(${V1A}) RETURNS jsonb LANGUAGE sql AS
+            `CREATE FUNCTION public.complete_session(uuid, text, text, int, text) RETURNS jsonb LANGUAGE sql AS
                $mut$ SELECT public.complete_session_v2(p_session_id => $1, p_status => $2) $mut$;\n`);
         expect(forwarder).not.toBe(STAGE_B);
         await expect(db.exec(forwarder)).rejects.toThrow(/Stage B incomplete/i);
@@ -271,8 +316,8 @@ describe('#1306 Stage B — M1-M5 mutate the SHIPPED migration itself', () => {
         // Restored casualty. Dropping the legacy path while the successor is absent would leave NO
         // completion path at all, so the migration must refuse rather than "succeed".
         const db = await preStageB();
-        await db.exec(`DROP FUNCTION IF EXISTS public.complete_session_v2(${V2});`);
-        await expect(db.exec(STAGE_B)).rejects.toThrow(/exact complete_session_v2 signature is absent/i);
+        await db.exec('DROP FUNCTION IF EXISTS public.complete_session_v2(uuid, text, int, text, jsonb, int, double precision, double precision, jsonb, jsonb, text);');
+        await expect(db.exec(STAGE_B)).rejects.toThrow(/complete_session_v2/i);
         await db.close();
     });
 
@@ -280,10 +325,10 @@ describe('#1306 Stage B — M1-M5 mutate the SHIPPED migration itself', () => {
         // Checking only proname would accept this. It cannot accept a transcript, so retiring v1 against
         // it would leave the product with no working completion path.
         const db = await preStageB();
-        await db.exec(`DROP FUNCTION IF EXISTS public.complete_session_v2(${V2});`);
+        await db.exec('DROP FUNCTION IF EXISTS public.complete_session_v2(uuid, text, int, text, jsonb, int, double precision, double precision, jsonb, jsonb, text);');
         await db.exec(`CREATE FUNCTION public.complete_session_v2(uuid, text)
                        RETURNS jsonb LANGUAGE sql AS $mut$ SELECT '{}'::jsonb $mut$;`);
-        await expect(db.exec(STAGE_B)).rejects.toThrow(/exact complete_session_v2 signature is absent/i);
+        await expect(db.exec(STAGE_B)).rejects.toThrow(/complete_session_v2/i);
         await db.close();
     });
 

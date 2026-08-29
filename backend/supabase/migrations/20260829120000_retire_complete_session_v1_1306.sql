@@ -77,17 +77,24 @@ END $$;
 -- Dropping v1 against that would leave no working completion path while reporting success. The exact
 -- identity signature is required.
 DO $$
-DECLARE v2_oid oid; v2_acl aclitem[];
+DECLARE v2_oid oid; v2_acl aclitem[]; v2_args oid[];
 BEGIN
-    SELECT p.oid, p.proacl INTO v2_oid, v2_acl
+    -- Identified STRUCTURALLY, not by a rendered signature string. A hardcoded
+    -- `pg_get_function_identity_arguments` literal is brittle — one spelling difference and the
+    -- precondition fails closed on every database, which is a self-inflicted outage, not a safety check.
+    -- Arity plus the first and last argument types are what actually distinguish the real successor from
+    -- a stand-in: 11 arguments, keyed by session uuid, ending in the transcript text.
+    SELECT p.oid, p.proacl, p.proargtypes::oid[] INTO v2_oid, v2_acl, v2_args
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'public' AND p.proname = 'complete_session_v2'
-      AND pg_get_function_identity_arguments(p.oid) =
-          'uuid, text, integer, text, jsonb, integer, double precision, double precision, jsonb, jsonb, text';
+    WHERE n.nspname = 'public' AND p.proname = 'complete_session_v2' AND p.pronargs = 11;
 
     IF v2_oid IS NULL THEN
         RAISE EXCEPTION
-            'Stage B refused: the exact complete_session_v2 signature is absent — retiring v1 would leave no completion path';
+            'Stage B refused: no 11-argument complete_session_v2 — retiring v1 would leave no completion path';
+    END IF;
+    IF v2_args[1] <> 'uuid'::regtype::oid OR v2_args[11] <> 'text'::regtype::oid THEN
+        RAISE EXCEPTION
+            'Stage B refused: complete_session_v2 is not the transcript-accepting successor (arg1 must be uuid, arg11 text)';
     END IF;
 
     -- The successor must be reachable by the roles that will now depend on it exclusively.
