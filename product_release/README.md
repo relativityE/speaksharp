@@ -1,21 +1,21 @@
 **Status:** Authoritative (canonical portal)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-07-24
-**Last Verified:** 2026-07-24 (canonical set, precedence model, and links verified against the repo tree)
+**Last Reviewed:** 2026-08-29
+**Last Verified:** 2026-08-29 — canonical consolidation closed: exactly 14 active Markdown documents remain at the root of `product_release/`; superseded sources moved to `archive/superseded-docs-2026-08-29/`, retained evidence moved under `evidence/retained/`, and repository entry-point links were updated.
 **Applies To:** All SpeakSharp product/release documentation under `product_release/`
 **Class:** Procedure (documentation portal)
 **Authority:** Entry point, precedence model, and canonical-document map — the SSOT for *documentation structure and authority*.
 **Not Authoritative For:** current release/deployment status (→ `RELEASE_STATUS.md`); PR/merge state (→ the PR description).
-**Supersedes:** `content_list.md`; absorbs `PRECEDENCE.md` (§1).
-**Evidence Sources:** the 14 canonical documents (§2) and `DOC_MIGRATION_LEDGER.md`.
+**Supersedes:** archived `content_list.md`; absorbs archived `PRECEDENCE.md` (§1).
+**Evidence Sources:** the 14 canonical documents (§2) and the archived migration ledger.
 
 # SpeakSharp Documentation Portal
 
-This is the entry point and authority map for SpeakSharp documentation. It defines the **precedence model** used to resolve conflicts, the **14 canonical documents** that will be the only active product docs at the root of `product_release/` after migration, the **classification/disposition taxonomies**, and the **metadata schema**.
+This is the entry point and authority map for SpeakSharp documentation. It defines the **precedence model** used to resolve conflicts and the **14 canonical documents**, which are the only active Markdown documents at the root of `product_release/`.
 
-It replaces [`content_list.md`](./content_list.md) as the index and **absorbs [`PRECEDENCE.md`](./PRECEDENCE.md)** (its conflict-resolution rules live in §1 below). The source-by-source, section-level migration record is in [`DOC_MIGRATION_LEDGER.md`](./DOC_MIGRATION_LEDGER.md).
+It replaces the archived [`content_list.md`](./archive/superseded-docs-2026-08-29/content_list.md) as the index and **absorbs archived [`PRECEDENCE.md`](./archive/superseded-docs-2026-08-29/PRECEDENCE.md)** (its conflict-resolution rules live in §1 below). The completed source-by-source migration record is retained at [`archive/superseded-docs-2026-08-29/DOC_MIGRATION_LEDGER.md`](./archive/superseded-docs-2026-08-29/DOC_MIGRATION_LEDGER.md).
 
-> **The migration model.** The canonicalization proceeds as a sequence of docs-only reconciliation steps. The foundation establishes this portal, the section-level extraction ledger, the pinned historical sources, and the repaired `RELEASE_STATUS.md`. Consolidation into the 14 targets happens in subsequent single-topic steps; the final step moves superseded active files into `archive/`/`evidence/` and leaves **exactly 14** canonical Markdown files at the root of `product_release/`. During the migration the active root count is temporarily higher than 14. `DOC_MIGRATION_LEDGER.md` is **temporary** — archived at closeout; it is **not** a fifteenth canonical document. The migration changes no code, telemetry, DB values, or product behavior.
+> **Consolidation closed 2026-08-29.** Superseded contracts and runbooks were moved to `archive/superseded-docs-2026-08-29/`; dated proof that still matters was retained under `evidence/retained/`; the old top-level `docs/*.md` duplicates were removed because pinned copies already exist under `archive/legacy-docs/`. Exactly 14 active Markdown documents remain at this root. Historical source names in the “Consolidates” column below are provenance, not live links.
 
 ---
 
@@ -92,9 +92,11 @@ Ownership is per-document by accountable role (Product Owner remains final appro
 | **Product Owner (SSOT)** | RELEASE_STATUS, README |
 
 **Retained by classification, NOT canonical (indexed by `EVIDENCE_INDEX.md` or kept in `archive/`):**
-- **Evidence** (dated proof; cite for rationale): `evidence/**`, `PUBLIC_LAUNCH_LEDGER.md`, `ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`.
-- **Superseded / historical**: `attribution-sanitation-crosswalk.md`, `archive/**`, `archive/legacy-docs/**`, and — at closeout — `content_list.md`, `DOC_MIGRATION_LEDGER.md`.
+- **Evidence** (dated proof; cite for rationale): `evidence/**`, including permanent STT model/benchmark history under `evidence/stt/` and retained launch/security proof under `evidence/retained/`.
+- **Superseded / historical**: `archive/**`, including the completed migration sources and pinned legacy docs.
 - **Exploratory** (not release-path): `v4_work/**` — reference for the deferred Private v4 disposition.
+
+`archive/**` is disposable after its remaining migration dependencies are removed. No STT model evaluation, benchmark protocol, raw result, or down-selection record may rely on it; those belong permanently under `evidence/stt/`.
 
 ---
 
@@ -177,7 +179,7 @@ Each canonical document carries this header:
 
 ## 7. Related records
 
-- [`DOC_MIGRATION_LEDGER.md`](./DOC_MIGRATION_LEDGER.md) — historical section-level source→target inventory and retired naming decisions. **Temporary**; archived at closeout and never current product authority.
+- [`archive/superseded-docs-2026-08-29/DOC_MIGRATION_LEDGER.md`](./archive/superseded-docs-2026-08-29/DOC_MIGRATION_LEDGER.md) — completed historical source→target inventory; never current product authority.
 - [`RELEASE_STATUS.md`](./RELEASE_STATUS.md) — current posture (SSOT).
 
 *This portal is navigational and structural. It records no changing release status; that lives only in `RELEASE_STATUS.md`.*

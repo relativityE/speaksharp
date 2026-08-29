@@ -1,0 +1,2654 @@
+{
+  "baseUrl": "http://localhost:5174",
+  "environmentProof": {
+    "url": "http://localhost:5174/session",
+    "port": 5174,
+    "authMode": "real",
+    "mockAuth": false,
+    "releaseProofEligible": true,
+    "cdpSameTab": true,
+    "invalidReasons": []
+  },
+  "modes": [
+    "private"
+  ],
+  "fixtures": [
+    "h1_6",
+    "conv_02"
+  ],
+  "maxWer": null,
+  "clearPrivateCache": true,
+  "privateEngine": "default",
+  "privateMicConstraints": "default-product",
+  "privateVad": "default-rms",
+  "privateModel": "default-whisper-tiny.en",
+  "privateResampler": "default-box",
+  "nativeConfig": {
+    "continuous": "default",
+    "interimResults": "default",
+    "maxAlternatives": "default"
+  },
+  "fakeAudioCapture": {
+    "enabled": false
+  },
+  "injectedMicAudio": {
+    "enabled": true,
+    "validForNativeWebSpeechWer": false,
+    "route": "page getUserMedia override; WAV starts when the app requests mic input"
+  },
+  "webgpuDisabledForRun": false,
+  "customWord": null,
+  "microphonePath": "page getUserMedia override with per-fixture WAV injected at mic request time",
+  "auth": {
+    "mode": "fresh",
+    "email": "stt-corpus-1780675058782@speaksharp.app",
+    "password": "SttCorpus1780675058782!Aa9"
+  },
+  "startedAt": "2026-06-05T15:57:38.782Z",
+  "consoleEvents": [
+    {
+      "type": "info",
+      "text": "{project: yxlapjuovrsvjswkwnrk} [Supabase] Real client connected"
+    },
+    {
+      "type": "info",
+      "text": "[SpeechRuntimeController] 🏁 Infrastructure initialization started"
+    },
+    {
+      "type": "info",
+      "text": "{from: IDLE, to: READY} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: stt"
+    },
+    {
+      "type": "info",
+      "text": "[SpeechRuntimeController] Infrastructure ready (Lazy)"
+    },
+    {
+      "type": "info",
+      "text": "[main.tsx] STT Infrastructure Ready"
+    },
+    {
+      "type": "info",
+      "text": "{event: INITIAL_SESSION, userId: undefined, expiresAt: undefined, timestamp: 2026-06-05T15:57:43.685Z} [Supabase Auth] 🔐 Auth event: INITIAL_SESSION"
+    },
+    {
+      "type": "info",
+      "text": "{project: yxlapjuovrsvjswkwnrk} [Supabase] Real client connected"
+    },
+    {
+      "type": "info",
+      "text": "[SpeechRuntimeController] 🏁 Infrastructure initialization started"
+    },
+    {
+      "type": "info",
+      "text": "{from: IDLE, to: READY} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: stt"
+    },
+    {
+      "type": "info",
+      "text": "[SpeechRuntimeController] Infrastructure ready (Lazy)"
+    },
+    {
+      "type": "info",
+      "text": "[main.tsx] STT Infrastructure Ready"
+    },
+    {
+      "type": "info",
+      "text": "{event: INITIAL_SESSION, userId: undefined, expiresAt: undefined, timestamp: 2026-06-05T15:57:43.823Z} [Supabase Auth] 🔐 Auth event: INITIAL_SESSION"
+    },
+    {
+      "type": "info",
+      "text": "{email: stt-corpus-1780675058782@speaksharp.app} [AuthPage] Attempting sign_up"
+    },
+    {
+      "type": "info",
+      "text": "{event: SIGNED_IN, userId: e9d6b376-adef-42f6-9a5e-392c5d219a7a, expiresAt: 1780678665, timestamp: 2026-06-05T15:57:45.608Z} [Supabase Auth] 🔐 Auth event: SIGNED_IN"
+    },
+    {
+      "type": "info",
+      "text": "{event: SIGNED_IN, userId: e9d6b376-adef-42f6-9a5e-392c5d219a7a, expiresAt: 1780678665, timestamp: 2026-06-05T15:57:45.793Z} [Supabase Auth] 🔐 Auth event: SIGNED_IN"
+    },
+    {
+      "type": "info",
+      "text": "{project: yxlapjuovrsvjswkwnrk} [Supabase] Real client connected"
+    },
+    {
+      "type": "info",
+      "text": "{event: SIGNED_IN, userId: e9d6b376-adef-42f6-9a5e-392c5d219a7a, expiresAt: 1780678665, timestamp: 2026-06-05T15:57:46.316Z} [Supabase Auth] 🔐 Auth event: SIGNED_IN"
+    },
+    {
+      "type": "info",
+      "text": "[SpeechRuntimeController] 🏁 Infrastructure initialization started"
+    },
+    {
+      "type": "info",
+      "text": "{from: IDLE, to: READY} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: stt"
+    },
+    {
+      "type": "info",
+      "text": "[SpeechRuntimeController] Infrastructure ready (Lazy)"
+    },
+    {
+      "type": "info",
+      "text": "[main.tsx] STT Infrastructure Ready"
+    },
+    {
+      "type": "info",
+      "text": "{event: INITIAL_SESSION, userId: e9d6b376-adef-42f6-9a5e-392c5d219a7a, expiresAt: 1780678665, timestamp: 2026-06-05T15:57:46.320Z} [Supabase Auth] 🔐 Auth event: INITIAL_SESSION"
+    },
+    {
+      "type": "info",
+      "text": "{subscriptionStatus: pro, selectedMode: private, intent: Syncing policy and setting E2E gate} [TranscriptionProvider] Syncing policy"
+    },
+    {
+      "type": "info",
+      "text": "{subscriptionStatus: pro, selectedMode: private, intent: Syncing policy and setting E2E gate} [TranscriptionProvider] Syncing policy"
+    },
+    {
+      "type": "info",
+      "text": "[useSessionLifecycle] Mode set to private - triggering warm-up"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: undefined, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{policy: Object, from: prod-free, mode: private, to: prod-pro-private} [TranscriptionService] 🔄 Policy updated"
+    },
+    {
+      "type": "info",
+      "text": "[TranscriptionProvider] ✅ Provider handshake ready"
+    },
+    {
+      "type": "info",
+      "text": "[TranscriptionProvider] ✅ Provider handshake ready"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: undefined, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{policy: Object, from: prod-pro-private, mode: private, to: prod-pro-private} [TranscriptionService] 🔄 Policy updated"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: private, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{resolved: private, source: user-preference} [TranscriptionPolicy] Resolved mode"
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, isMock: false} [STTNegotiator] Decision"
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: unknown, eId: kiy90o} [PrivateWhisper] Initialized (dual-engine facade)."
+    },
+    {
+      "type": "info",
+      "text": "{from: IDLE, to: DOWNLOAD_REQUIRED, event: DOWNLOAD_REQUIRED, error: undefined} [FSM] ⚡ Transition: IDLE --(DOWNLOAD_REQUIRED)--> DOWNLOAD_REQUIRED"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: undefined, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: private, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{resolved: private, source: user-preference} [TranscriptionPolicy] Resolved mode"
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, isMock: false} [STTNegotiator] Decision"
+    },
+    {
+      "type": "info",
+      "text": "{from: DOWNLOAD_REQUIRED, to: ENGINE_INITIALIZING, event: ENGINE_INIT_REQUESTED, error: undefined} [FSM] ⚡ Transition: DOWNLOAD_REQUIRED --(ENGINE_INIT_REQUESTED)--> ENGINE_INITIALIZING"
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: kiy90o, serviceId: sug16} [STTEngine] Initializing transformers-js..."
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: kiy90o} [PrivateWhisper] 🔄 init() START - Dual-Engine Mode"
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: 9rxwss, serviceId: unknown} [STTEngine] Initializing transformers-js..."
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: unknown} [PrivateSTT] 🚀 Privacy-first engine selection started..."
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: unknown, runtimeDecision: Object, configured: transformers-js} [PrivateSTT] Resolved private runtime decision"
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: unknown, provider: transformers-js, configured: transformers-js, source: auto} [PrivateSTT] Initializing auto-selected private provider"
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: unknown} [PrivateSTT] 📦 Loading production TransformersJS module..."
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: g3xx3c, serviceId: unknown} [STTEngine] Initializing transformers-js..."
+    },
+    {
+      "type": "error",
+      "text": "Warning: Maximum update depth exceeded. This can happen when a component calls setState inside useEffect, but useEffect either doesn't have a dependency array, or one of the dependencies changes on every render."
+    },
+    {
+      "type": "error",
+      "text": "Warning: Maximum update depth exceeded. This can happen when a component calls setState inside useEffect, but useEffect either doesn't have a dependency array, or one of the dependencies changes on every render."
+    },
+    {
+      "type": "error",
+      "text": "Warning: Maximum update depth exceeded. This can happen when a component calls setState inside useEffect, but useEffect either doesn't have a dependency array, or one of the dependencies changes on every render."
+    },
+    {
+      "type": "error",
+      "text": "Warning: Maximum update depth exceeded. This can happen when a component calls setState inside useEffect, but useEffect either doesn't have a dependency array, or one of the dependencies changes on every render."
+    },
+    {
+      "type": "error",
+      "text": "Warning: Maximum update depth exceeded. This can happen when a component calls setState inside useEffect, but useEffect either doesn't have a dependency array, or one of the dependencies changes on every render."
+    },
+    {
+      "type": "error",
+      "text": "Warning: Maximum update depth exceeded. This can happen when a component calls setState inside useEffect, but useEffect either doesn't have a dependency array, or one of the dependencies changes on every render."
+    },
+    {
+      "type": "error",
+      "text": "Warning: Maximum update depth exceeded. This can happen when a component calls setState inside useEffect, but useEffect either doesn't have a dependency array, or one of the dependencies changes on every render."
+    },
+    {
+      "type": "error",
+      "text": "Warning: Maximum update depth exceeded. This can happen when a component calls setState inside useEffect, but useEffect either doesn't have a dependency array, or one of the dependencies changes on every render."
+    },
+    {
+      "type": "error",
+      "text": "Warning: Maximum update depth exceeded. This can happen when a component calls setState inside useEffect, but useEffect either doesn't have a dependency array, or one of the dependencies changes on every render."
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: kiy90o, engineType: transformers-js} [PrivateWhisper] ✅ Engine initialized"
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: kiy90o} [PrivateWhisper] Model ready! Using CPU mode."
+    },
+    {
+      "type": "info",
+      "text": "{runId: null, mode: private} [TranscriptionService] Strategy initialized. Transitioning to READY."
+    },
+    {
+      "type": "info",
+      "text": "{from: ENGINE_INITIALIZING, to: READY, event: ENGINE_INIT_SUCCESS, error: undefined} [FSM] ⚡ Transition: ENGINE_INITIALIZING --(ENGINE_INIT_SUCCESS)--> READY"
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: INITIATING} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: private, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{resolved: private, source: user-preference} [TranscriptionPolicy] Resolved mode"
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, isMock: false} [STTNegotiator] Decision"
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: ENGINE_INITIALIZING, event: ENGINE_INIT_REQUESTED, error: undefined} [FSM] ⚡ Transition: READY --(ENGINE_INIT_REQUESTED)--> ENGINE_INITIALIZING"
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: kiy90o, serviceId: sug16} [STTEngine] Initializing transformers-js..."
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: kiy90o} [PrivateWhisper] Already idle, skipping init."
+    },
+    {
+      "type": "info",
+      "text": "{runId: null, mode: private} [TranscriptionService] Strategy initialized. Transitioning to READY."
+    },
+    {
+      "type": "info",
+      "text": "{from: ENGINE_INITIALIZING, to: READY, event: ENGINE_INIT_SUCCESS, error: undefined} [FSM] ⚡ Transition: ENGINE_INITIALIZING --(ENGINE_INIT_SUCCESS)--> READY"
+    },
+    {
+      "type": "info",
+      "text": "{from: INITIATING, to: ENGINE_INITIALIZING} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: undefined, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: private, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{resolved: private, source: user-preference} [TranscriptionPolicy] Resolved mode"
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, isMock: false} [STTNegotiator] Decision"
+    },
+    {
+      "type": "info",
+      "text": "{serviceId: sug16, runId: n5ufre, mode: private} [TranscriptionService] 🚀 Start requested"
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: ENGINE_INITIALIZING, event: ENGINE_INIT_REQUESTED, error: undefined} [FSM] ⚡ Transition: READY --(ENGINE_INIT_REQUESTED)--> ENGINE_INITIALIZING"
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: kiy90o, serviceId: sug16} [STTEngine] Initializing transformers-js..."
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: kiy90o} [PrivateWhisper] Already idle, skipping init."
+    },
+    {
+      "type": "info",
+      "text": "{runId: n5ufre, mode: private} [TranscriptionService] Strategy initialized. Transitioning to READY."
+    },
+    {
+      "type": "info",
+      "text": "{from: ENGINE_INITIALIZING, to: READY, event: ENGINE_INIT_SUCCESS, error: undefined} [FSM] ⚡ Transition: ENGINE_INITIALIZING --(ENGINE_INIT_SUCCESS)--> READY"
+    },
+    {
+      "type": "info",
+      "text": "{runId: n5ufre, engine: transformers-js, strategyObj: PrivateWhisper} [TranscriptionService] 🚦 Executing strategy start..."
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: kiy90o} [PrivateWhisper] start() called."
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: kiy90o} [PrivateWhisper] Streaming started."
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: RECORDING, event: ENGINE_STARTED, error: undefined} [FSM] ⚡ Transition: READY --(ENGINE_STARTED)--> RECORDING"
+    },
+    {
+      "type": "info",
+      "text": "{runId: n5ufre} [TranscriptionService] Strategy started successfully"
+    },
+    {
+      "type": "info",
+      "text": "{from: ENGINE_INITIALIZING, to: RECORDING} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "{userId: e9d6b376-adef-42f6-9a5e-392c5d219a7a, duration: 0, engineType: private, idempotencyKey: 79a71e88-2cf5-49c2-b0a5-3933c29b2b19} [Supabase DB] 💾 Saving session via RPC"
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: kiy90o, frameSamples: 42, frameRms: 0, isSpeechFrame: false} [PRIVATE_TRACE] audio_frame_in"
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: kiy90o, frameSamples: 43, frameRms: 0, isSpeechFrame: false} [PRIVATE_TRACE] audio_frame_in"
+    },
+    {
+      "type": "info",
+      "text": "{from: RECORDING, to: STOPPING} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "{wasRecording: true, state: STOPPING, sessionId: d551d399-8358-4d05-b2e0-3cd8cfc42025} [DEBUG-STOP] state-check"
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: n5ufre, mode: private, fsmState: RECORDING, hasStrategy: true} [DEBUG-STOP] TranscriptionService.stopTranscription entry"
+    },
+    {
+      "type": "info",
+      "text": "{from: RECORDING, to: STOPPING, event: STOP_REQUESTED, error: undefined} [FSM] ⚡ Transition: RECORDING --(STOP_REQUESTED)--> STOPPING"
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: unknown} [PrivateWhisper] 🛑 Stopping engine..."
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: n5ufre, mode: private, strategyTranscriptLength: 0, currentTranscriptLength: 0} [DEBUG-STOP] TranscriptionService.stopTranscription transcript selected"
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: n5ufre, mode: private, duration: 103.229, transcriptLength: 0} [DEBUG-STOP] TranscriptionService.stopTranscription returning result"
+    },
+    {
+      "type": "info",
+      "text": "{from: STOPPING, to: READY, event: STOP_COMPLETED, error: undefined} [FSM] ⚡ Transition: STOPPING --(STOP_COMPLETED)--> READY"
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, sessionId: d551d399-8358-4d05-b2e0-3cd8cfc42025, hasResult: true, resultSuccess: true, resultTranscriptLength: 0} [DEBUG-STOP] after service.stopTranscription"
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, sessionId: d551d399-8358-4d05-b2e0-3cd8cfc42025, hasResult: true, willEnterFinalizationBranch: true, reasonIfNot: null} [DEBUG-STOP] before result/session branch"
+    },
+    {
+      "type": "info",
+      "text": "{sessionId: d551d399-8358-4d05-b2e0-3cd8cfc42025, mode: private, duration: 103.231, resultSuccess: true, resultTranscriptLength: 0} [DEBUG-STOP] finalization transcript decision"
+    },
+    {
+      "type": "warning",
+      "text": "{sessionId: d551d399-8358-4d05-b2e0-3cd8cfc42025, transcriptLength: 0, duration: 103.231, mode: private, meaningfulWordCount: 0} [SESSION_SAVE_GUARD] Empty, low-quality, or non-speech session discarded"
+    },
+    {
+      "type": "info",
+      "text": "{sessionId: d551d399-8358-4d05-b2e0-3cd8cfc42025, finalTranscriptLength: 0, meaningfulWordCount: 0} [DEBUG-STOP] completeSession failed-status starting"
+    },
+    {
+      "type": "info",
+      "text": "{sessionId: d551d399-8358-4d05-b2e0-3cd8cfc42025} [DEBUG-STOP] completeSession failed-status done"
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, state: READY} [TranscriptionService] destroy() invoked"
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: CLEANING_UP, event: TERMINATE_REQUESTED, error: undefined} [FSM] ⚡ Transition: READY --(TERMINATE_REQUESTED)--> CLEANING_UP"
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: kiy90o} [STTEngine] 🛑 Nuclear termination requested for transformers-js"
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, rId: kiy90o} [PrivateWhisper] Terminating service..."
+    },
+    {
+      "type": "info",
+      "text": "{from: CLEANING_UP, to: TERMINATED, event: TERMINATE_COMPLETED, error: undefined} [FSM] ⚡ Transition: CLEANING_UP --(TERMINATE_COMPLETED)--> TERMINATED"
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16, targetState: TERMINATED} [TranscriptionService] ☢️ NUCLEAR RESET: Clearing all async state and buffers"
+    },
+    {
+      "type": "info",
+      "text": "{sId: sug16} [TranscriptionService] ✅ destroy() complete, lock released"
+    },
+    {
+      "type": "info",
+      "text": "{from: STOPPING, to: READY} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "{project: yxlapjuovrsvjswkwnrk} [Supabase] Real client connected"
+    },
+    {
+      "type": "info",
+      "text": "{event: SIGNED_IN, userId: e9d6b376-adef-42f6-9a5e-392c5d219a7a, expiresAt: 1780678665, timestamp: 2026-06-05T16:00:15.853Z} [Supabase Auth] 🔐 Auth event: SIGNED_IN"
+    },
+    {
+      "type": "info",
+      "text": "[SpeechRuntimeController] 🏁 Infrastructure initialization started"
+    },
+    {
+      "type": "info",
+      "text": "{from: IDLE, to: READY} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: stt"
+    },
+    {
+      "type": "info",
+      "text": "[SpeechRuntimeController] Infrastructure ready (Lazy)"
+    },
+    {
+      "type": "info",
+      "text": "[main.tsx] STT Infrastructure Ready"
+    },
+    {
+      "type": "info",
+      "text": "{event: INITIAL_SESSION, userId: e9d6b376-adef-42f6-9a5e-392c5d219a7a, expiresAt: 1780678665, timestamp: 2026-06-05T16:00:15.859Z} [Supabase Auth] 🔐 Auth event: INITIAL_SESSION"
+    },
+    {
+      "type": "info",
+      "text": "{userId: e9d6b376...} [Supabase DB] 📥 Fetching sessions"
+    },
+    {
+      "type": "info",
+      "text": "{requestUrl: https://yxlapjuovrsvjswkwnrk.supabase.co/rest/v1/sessions} [Supabase DB] Request URL"
+    },
+    {
+      "type": "info",
+      "text": "{subscriptionStatus: pro, selectedMode: null, intent: Syncing policy and setting E2E gate} [TranscriptionProvider] Syncing policy"
+    },
+    {
+      "type": "info",
+      "text": "{subscriptionStatus: pro, selectedMode: null, intent: Syncing policy and setting E2E gate} [TranscriptionProvider] Syncing policy"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: undefined, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{policy: Object, from: prod-free, mode: private, to: prod-pro-private} [TranscriptionService] 🔄 Policy updated"
+    },
+    {
+      "type": "info",
+      "text": "[TranscriptionProvider] ✅ Provider handshake ready"
+    },
+    {
+      "type": "info",
+      "text": "[TranscriptionProvider] ✅ Provider handshake ready"
+    },
+    {
+      "type": "info",
+      "text": "{sessionCount: 0} [Supabase DB] ✅ Sessions fetched"
+    },
+    {
+      "type": "info",
+      "text": "{isLoading: false, hasError: false} [useAnalytics] ✅ Analytics Ready Signal"
+    },
+    {
+      "type": "info",
+      "text": "{project: yxlapjuovrsvjswkwnrk} [Supabase] Real client connected"
+    },
+    {
+      "type": "info",
+      "text": "[SpeechRuntimeController] 🏁 Infrastructure initialization started"
+    },
+    {
+      "type": "info",
+      "text": "{from: IDLE, to: READY} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: stt"
+    },
+    {
+      "type": "info",
+      "text": "[SpeechRuntimeController] Infrastructure ready (Lazy)"
+    },
+    {
+      "type": "info",
+      "text": "[main.tsx] STT Infrastructure Ready"
+    },
+    {
+      "type": "info",
+      "text": "{event: SIGNED_IN, userId: e9d6b376-adef-42f6-9a5e-392c5d219a7a, expiresAt: 1780678665, timestamp: 2026-06-05T16:01:01.217Z} [Supabase Auth] 🔐 Auth event: SIGNED_IN"
+    },
+    {
+      "type": "info",
+      "text": "{event: INITIAL_SESSION, userId: e9d6b376-adef-42f6-9a5e-392c5d219a7a, expiresAt: 1780678665, timestamp: 2026-06-05T16:01:01.218Z} [Supabase Auth] 🔐 Auth event: INITIAL_SESSION"
+    },
+    {
+      "type": "info",
+      "text": "{subscriptionStatus: pro, selectedMode: private, intent: Syncing policy and setting E2E gate} [TranscriptionProvider] Syncing policy"
+    },
+    {
+      "type": "info",
+      "text": "{subscriptionStatus: pro, selectedMode: private, intent: Syncing policy and setting E2E gate} [TranscriptionProvider] Syncing policy"
+    },
+    {
+      "type": "info",
+      "text": "[useSessionLifecycle] Mode set to private - triggering warm-up"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: undefined, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{policy: Object, from: prod-free, mode: private, to: prod-pro-private} [TranscriptionService] 🔄 Policy updated"
+    },
+    {
+      "type": "info",
+      "text": "[TranscriptionProvider] ✅ Provider handshake ready"
+    },
+    {
+      "type": "info",
+      "text": "[TranscriptionProvider] ✅ Provider handshake ready"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: undefined, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{policy: Object, from: prod-pro-private, mode: private, to: prod-pro-private} [TranscriptionService] 🔄 Policy updated"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: private, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{resolved: private, source: user-preference} [TranscriptionPolicy] Resolved mode"
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, isMock: false} [STTNegotiator] Decision"
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: unknown, eId: yydy98} [PrivateWhisper] Initialized (dual-engine facade)."
+    },
+    {
+      "type": "info",
+      "text": "{from: IDLE, to: ENGINE_INITIALIZING, event: ENGINE_INIT_REQUESTED, error: undefined} [FSM] ⚡ Transition: IDLE --(ENGINE_INIT_REQUESTED)--> ENGINE_INITIALIZING"
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: yydy98, serviceId: cb9j5pm} [STTEngine] Initializing transformers-js..."
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: yydy98} [PrivateWhisper] 🔄 init() START - Dual-Engine Mode"
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: m8raj, serviceId: unknown} [STTEngine] Initializing transformers-js..."
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: unknown} [PrivateSTT] 🚀 Privacy-first engine selection started..."
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: unknown, runtimeDecision: Object, configured: transformers-js} [PrivateSTT] Resolved private runtime decision"
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: unknown, provider: transformers-js, configured: transformers-js, source: auto} [PrivateSTT] Initializing auto-selected private provider"
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: unknown} [PrivateSTT] 📦 Loading production TransformersJS module..."
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: ixgtcg, serviceId: unknown} [STTEngine] Initializing transformers-js..."
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: yydy98, engineType: transformers-js} [PrivateWhisper] ✅ Engine initialized"
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: yydy98} [PrivateWhisper] Model ready! Using CPU mode."
+    },
+    {
+      "type": "info",
+      "text": "{runId: null, mode: private} [TranscriptionService] Strategy initialized. Transitioning to READY."
+    },
+    {
+      "type": "info",
+      "text": "{from: ENGINE_INITIALIZING, to: READY, event: ENGINE_INIT_SUCCESS, error: undefined} [FSM] ⚡ Transition: ENGINE_INITIALIZING --(ENGINE_INIT_SUCCESS)--> READY"
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: INITIATING} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: private, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{resolved: private, source: user-preference} [TranscriptionPolicy] Resolved mode"
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, isMock: false} [STTNegotiator] Decision"
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: ENGINE_INITIALIZING, event: ENGINE_INIT_REQUESTED, error: undefined} [FSM] ⚡ Transition: READY --(ENGINE_INIT_REQUESTED)--> ENGINE_INITIALIZING"
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: yydy98, serviceId: cb9j5pm} [STTEngine] Initializing transformers-js..."
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: yydy98} [PrivateWhisper] Already idle, skipping init."
+    },
+    {
+      "type": "info",
+      "text": "{runId: null, mode: private} [TranscriptionService] Strategy initialized. Transitioning to READY."
+    },
+    {
+      "type": "info",
+      "text": "{from: ENGINE_INITIALIZING, to: READY, event: ENGINE_INIT_SUCCESS, error: undefined} [FSM] ⚡ Transition: ENGINE_INITIALIZING --(ENGINE_INIT_SUCCESS)--> READY"
+    },
+    {
+      "type": "info",
+      "text": "{from: INITIATING, to: ENGINE_INITIALIZING} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: undefined, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: private, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{resolved: private, source: user-preference} [TranscriptionPolicy] Resolved mode"
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, isMock: false} [STTNegotiator] Decision"
+    },
+    {
+      "type": "info",
+      "text": "{serviceId: cb9j5pm, runId: 6d4dlf, mode: private} [TranscriptionService] 🚀 Start requested"
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: ENGINE_INITIALIZING, event: ENGINE_INIT_REQUESTED, error: undefined} [FSM] ⚡ Transition: READY --(ENGINE_INIT_REQUESTED)--> ENGINE_INITIALIZING"
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: yydy98, serviceId: cb9j5pm} [STTEngine] Initializing transformers-js..."
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: yydy98} [PrivateWhisper] Already idle, skipping init."
+    },
+    {
+      "type": "info",
+      "text": "{runId: 6d4dlf, mode: private} [TranscriptionService] Strategy initialized. Transitioning to READY."
+    },
+    {
+      "type": "info",
+      "text": "{from: ENGINE_INITIALIZING, to: READY, event: ENGINE_INIT_SUCCESS, error: undefined} [FSM] ⚡ Transition: ENGINE_INITIALIZING --(ENGINE_INIT_SUCCESS)--> READY"
+    },
+    {
+      "type": "info",
+      "text": "{runId: 6d4dlf, engine: transformers-js, strategyObj: PrivateWhisper} [TranscriptionService] 🚦 Executing strategy start..."
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: yydy98} [PrivateWhisper] start() called."
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: yydy98} [PrivateWhisper] Streaming started."
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: RECORDING, event: ENGINE_STARTED, error: undefined} [FSM] ⚡ Transition: READY --(ENGINE_STARTED)--> RECORDING"
+    },
+    {
+      "type": "info",
+      "text": "{runId: 6d4dlf} [TranscriptionService] Strategy started successfully"
+    },
+    {
+      "type": "info",
+      "text": "{from: ENGINE_INITIALIZING, to: RECORDING} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "{userId: e9d6b376-adef-42f6-9a5e-392c5d219a7a, duration: 0, engineType: private, idempotencyKey: 33e49f23-380c-47a4-9a6c-45f3aa831a73} [Supabase DB] 💾 Saving session via RPC"
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: yydy98, frameSamples: 42, frameRms: 0, isSpeechFrame: false} [PRIVATE_TRACE] audio_frame_in"
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: yydy98, frameSamples: 43, frameRms: 0, isSpeechFrame: false} [PRIVATE_TRACE] audio_frame_in"
+    },
+    {
+      "type": "info",
+      "text": "{from: RECORDING, to: STOPPING} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "{wasRecording: true, state: STOPPING, sessionId: 9282c553-d016-4dce-9d1d-bb9bd136ad92} [DEBUG-STOP] state-check"
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: 6d4dlf, mode: private, fsmState: RECORDING, hasStrategy: true} [DEBUG-STOP] TranscriptionService.stopTranscription entry"
+    },
+    {
+      "type": "info",
+      "text": "{from: RECORDING, to: STOPPING, event: STOP_REQUESTED, error: undefined} [FSM] ⚡ Transition: RECORDING --(STOP_REQUESTED)--> STOPPING"
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: unknown} [PrivateWhisper] 🛑 Stopping engine..."
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: 6d4dlf, mode: private, strategyTranscriptLength: 0, currentTranscriptLength: 0} [DEBUG-STOP] TranscriptionService.stopTranscription transcript selected"
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: 6d4dlf, mode: private, duration: 1001.964, transcriptLength: 0} [DEBUG-STOP] TranscriptionService.stopTranscription returning result"
+    },
+    {
+      "type": "info",
+      "text": "{from: STOPPING, to: READY, event: STOP_COMPLETED, error: undefined} [FSM] ⚡ Transition: STOPPING --(STOP_COMPLETED)--> READY"
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, sessionId: 9282c553-d016-4dce-9d1d-bb9bd136ad92, hasResult: true, resultSuccess: true, resultTranscriptLength: 0} [DEBUG-STOP] after service.stopTranscription"
+    },
+    {
+      "type": "info",
+      "text": "{mode: private, sessionId: 9282c553-d016-4dce-9d1d-bb9bd136ad92, hasResult: true, willEnterFinalizationBranch: true, reasonIfNot: null} [DEBUG-STOP] before result/session branch"
+    },
+    {
+      "type": "info",
+      "text": "{sessionId: 9282c553-d016-4dce-9d1d-bb9bd136ad92, mode: private, duration: 1001.97, resultSuccess: true, resultTranscriptLength: 0} [DEBUG-STOP] finalization transcript decision"
+    },
+    {
+      "type": "warning",
+      "text": "{sessionId: 9282c553-d016-4dce-9d1d-bb9bd136ad92, transcriptLength: 0, duration: 1001.97, mode: private, meaningfulWordCount: 0} [SESSION_SAVE_GUARD] Empty, low-quality, or non-speech session discarded"
+    },
+    {
+      "type": "info",
+      "text": "{sessionId: 9282c553-d016-4dce-9d1d-bb9bd136ad92, finalTranscriptLength: 0, meaningfulWordCount: 0} [DEBUG-STOP] completeSession failed-status starting"
+    },
+    {
+      "type": "info",
+      "text": "{sessionId: 9282c553-d016-4dce-9d1d-bb9bd136ad92} [DEBUG-STOP] completeSession failed-status done"
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, state: READY} [TranscriptionService] destroy() invoked"
+    },
+    {
+      "type": "info",
+      "text": "{from: READY, to: CLEANING_UP, event: TERMINATE_REQUESTED, error: undefined} [FSM] ⚡ Transition: READY --(TERMINATE_REQUESTED)--> CLEANING_UP"
+    },
+    {
+      "type": "info",
+      "text": "{type: transformers-js, instanceId: yydy98} [STTEngine] 🛑 Nuclear termination requested for transformers-js"
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, rId: yydy98} [PrivateWhisper] Terminating service..."
+    },
+    {
+      "type": "info",
+      "text": "{from: CLEANING_UP, to: TERMINATED, event: TERMINATE_COMPLETED, error: undefined} [FSM] ⚡ Transition: CLEANING_UP --(TERMINATE_COMPLETED)--> TERMINATED"
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm, targetState: TERMINATED} [TranscriptionService] ☢️ NUCLEAR RESET: Clearing all async state and buffers"
+    },
+    {
+      "type": "info",
+      "text": "{sId: cb9j5pm} [TranscriptionService] ✅ destroy() complete, lock released"
+    },
+    {
+      "type": "info",
+      "text": "{from: STOPPING, to: READY} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "{project: yxlapjuovrsvjswkwnrk} [Supabase] Real client connected"
+    },
+    {
+      "type": "info",
+      "text": "{event: SIGNED_IN, userId: e9d6b376-adef-42f6-9a5e-392c5d219a7a, expiresAt: 1780678665, timestamp: 2026-06-05T16:18:12.762Z} [Supabase Auth] 🔐 Auth event: SIGNED_IN"
+    },
+    {
+      "type": "info",
+      "text": "[SpeechRuntimeController] 🏁 Infrastructure initialization started"
+    },
+    {
+      "type": "info",
+      "text": "{from: IDLE, to: READY} [SpeechRuntimeController] ⚡ Transition"
+    },
+    {
+      "type": "info",
+      "text": "[useReadinessStore] Signal set: stt"
+    },
+    {
+      "type": "info",
+      "text": "[SpeechRuntimeController] Infrastructure ready (Lazy)"
+    },
+    {
+      "type": "info",
+      "text": "[main.tsx] STT Infrastructure Ready"
+    },
+    {
+      "type": "info",
+      "text": "{event: INITIAL_SESSION, userId: e9d6b376-adef-42f6-9a5e-392c5d219a7a, expiresAt: 1780678665, timestamp: 2026-06-05T16:18:12.766Z} [Supabase Auth] 🔐 Auth event: INITIAL_SESSION"
+    },
+    {
+      "type": "info",
+      "text": "{userId: e9d6b376...} [Supabase DB] 📥 Fetching sessions"
+    },
+    {
+      "type": "info",
+      "text": "{requestUrl: https://yxlapjuovrsvjswkwnrk.supabase.co/rest/v1/sessions} [Supabase DB] Request URL"
+    },
+    {
+      "type": "info",
+      "text": "{subscriptionStatus: pro, selectedMode: null, intent: Syncing policy and setting E2E gate} [TranscriptionProvider] Syncing policy"
+    },
+    {
+      "type": "info",
+      "text": "{subscriptionStatus: pro, selectedMode: null, intent: Syncing policy and setting E2E gate} [TranscriptionProvider] Syncing policy"
+    },
+    {
+      "type": "info",
+      "text": "{policyId: prod-pro-private, userPref: undefined, policyPref: private, allowNative: true, allowCloud: false} [TranscriptionPolicy] Resolving mode:"
+    },
+    {
+      "type": "info",
+      "text": "{policy: Object, from: prod-free, mode: private, to: prod-pro-private} [TranscriptionService] 🔄 Policy updated"
+    },
+    {
+      "type": "info",
+      "text": "[TranscriptionProvider] ✅ Provider handshake ready"
+    },
+    {
+      "type": "info",
+      "text": "[TranscriptionProvider] ✅ Provider handshake ready"
+    },
+    {
+      "type": "info",
+      "text": "{sessionCount: 0} [Supabase DB] ✅ Sessions fetched"
+    },
+    {
+      "type": "info",
+      "text": "{isLoading: false, hasError: false} [useAnalytics] ✅ Analytics Ready Signal"
+    }
+  ],
+  "pageErrors": [],
+  "failedRequests": [
+    {
+      "url": "http://localhost:5174/src/components/ui/alert.tsx",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5174/src/components/landing/BenefitsSection.tsx",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5174/src/components/landing/CTASection.tsx",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5174/src/components/landing/HeroSection.tsx",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5174/src/components/landing/LandingFooter.tsx",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5174/src/hooks/useBrowserSupport.ts",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:5174/src/components/landing/FeaturesSection.tsx",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/check-usage-limit",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://yxlapjuovrsvjswkwnrk.supabase.co/rest/v1/sessions?select=*&user_id=eq.e9d6b376-adef-42f6-9a5e-392c5d219a7a&or=%28status.is.null%2Cstatus.eq.completed%29",
+      "errorText": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://yxlapjuovrsvjswkwnrk.supabase.co/rest/v1/sessions?select=*&user_id=eq.e9d6b376-adef-42f6-9a5e-392c5d219a7a&or=%28status.is.null%2Cstatus.eq.completed%29",
+      "errorText": "net::ERR_ABORTED"
+    }
+  ],
+  "results": [
+    {
+      "mode": "private",
+      "fixture": "h1_6",
+      "fixtureType": "harvard",
+      "audioPath": "/private/tmp/speaksharp-base-70746410/tests/fixtures/stt-isomorphic/audio/h1_6.wav",
+      "truth": "They, like, told wild tales to frighten him.",
+      "transcript": "",
+      "visibleAtStopTranscript": "",
+      "postStopTranscript": "",
+      "selectedForSaveTranscript": "",
+      "normalizedTranscript": "",
+      "wordCount": 0,
+      "wer": 1,
+      "accuracyPct": 0,
+      "visibleAtStopWer": 1,
+      "visibleAtStopAccuracyPct": 0,
+      "postStopWer": 1,
+      "postStopAccuracyPct": 0,
+      "selectedForSaveWer": 1,
+      "selectedForSaveAccuracyPct": 0,
+      "firstText": {
+        "timestampMs": null,
+        "text": ""
+      },
+      "sessionPersisted": false,
+      "privateReadiness": {
+        "before": {
+          "modelStatus": "download-required",
+          "runtimeState": "READY",
+          "sttReady": "false",
+          "statusText": "Private model required",
+          "downloadVisible": true,
+          "downloadButtonText": "Set Up",
+          "setupPanelText": null,
+          "transformerCacheName": null,
+          "transformerCacheKeyCount": 0
+        },
+        "after": {
+          "modelStatus": "ready",
+          "runtimeState": "READY",
+          "sttReady": "false",
+          "statusText": "Private ready. Nothing leaves your browser.",
+          "downloadVisible": false,
+          "downloadButtonText": null,
+          "setupPanelText": null,
+          "transformerCacheName": "transformers-cache",
+          "transformerCacheKeyCount": 7
+        }
+      },
+      "phases": [
+        {
+          "phase": "ready_to_start",
+          "t": 1780675067411,
+          "detail": {
+            "mode": "private",
+            "fixture": "h1_6"
+          },
+          "perfNow": 1162.1,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Private model required",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "private_model_readiness_before",
+          "t": 1780675067414,
+          "detail": {
+            "modelStatus": "download-required",
+            "runtimeState": "READY",
+            "sttReady": "false",
+            "statusText": "Private model required",
+            "downloadVisible": true,
+            "downloadButtonText": "Set Up",
+            "setupPanelText": null,
+            "transformerCacheName": null,
+            "transformerCacheKeyCount": 0
+          },
+          "perfNow": 1164.8,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Private model required",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "private_model_download_click",
+          "t": 1780675067420,
+          "detail": {
+            "modelStatus": "download-required",
+            "runtimeState": "READY",
+            "sttReady": "false",
+            "statusText": "Private model required",
+            "downloadVisible": true,
+            "downloadButtonText": "Set Up",
+            "setupPanelText": null,
+            "transformerCacheName": null,
+            "transformerCacheKeyCount": 0
+          },
+          "perfNow": 1170.4,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Private model required",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "private_model_download_click_delayed",
+          "t": 1780675067512,
+          "detail": {
+            "modelStatus": "loading",
+            "runtimeState": "ENGINE_INITIALIZING",
+            "sttReady": "false",
+            "statusText": "Downloading private model... 0%",
+            "downloadVisible": false,
+            "downloadButtonText": null,
+            "setupPanelText": null,
+            "transformerCacheName": null,
+            "transformerCacheKeyCount": 0
+          },
+          "perfNow": 1262.6,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Downloading private model... 0%",
+          "runtimeState": "ENGINE_INITIALIZING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "private_model_download_click_skipped_ready",
+          "t": 1780675107573,
+          "detail": {
+            "message": "locator.click: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"status-download-model-button\"], [data-testid=\"download-model-button\"], [data-testid=\"download-model-button-inline\"]').first()\u001b[22m\n",
+            "readiness": {
+              "modelStatus": "ready",
+              "runtimeState": "READY",
+              "sttReady": "false",
+              "statusText": "Private ready. Nothing leaves your browser.",
+              "downloadVisible": false,
+              "downloadButtonText": null,
+              "setupPanelText": null,
+              "transformerCacheName": "transformers-cache",
+              "transformerCacheKeyCount": 7
+            }
+          },
+          "perfNow": 41325,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Private ready. Nothing leaves your browser.",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "private_model_readiness_after",
+          "t": 1780675108590,
+          "detail": {
+            "modelStatus": "ready",
+            "runtimeState": "READY",
+            "sttReady": "false",
+            "statusText": "Private ready. Nothing leaves your browser.",
+            "downloadVisible": false,
+            "downloadButtonText": null,
+            "setupPanelText": null,
+            "transformerCacheName": "transformers-cache",
+            "transformerCacheKeyCount": 7
+          },
+          "perfNow": 42341.5,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Private ready. Nothing leaves your browser.",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "click_start",
+          "t": 1780675108593,
+          "detail": {},
+          "perfNow": 42345.1,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Private ready. Nothing leaves your browser.",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "click_start_done",
+          "t": 1780675108749,
+          "detail": {
+            "method": "playwright-click"
+          },
+          "perfNow": 42500.9,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Private ready. Nothing leaves your browser.",
+          "runtimeState": "ENGINE_INITIALIZING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "private_go_signal_check",
+          "t": 1780675110087,
+          "detail": {
+            "modelStatus": "ready",
+            "runtimeState": "RECORDING",
+            "sttReady": "true",
+            "statusText": "Recording active",
+            "downloadVisible": false,
+            "downloadButtonText": null,
+            "setupPanelText": null,
+            "transformerCacheName": "transformers-cache",
+            "transformerCacheKeyCount": 7
+          },
+          "perfNow": 43839.1,
+          "recording": "true",
+          "rawTranscript": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+          "transcript": "",
+          "transcriptState": "listening",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Recording active",
+          "runtimeState": "RECORDING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "recording_attribute_true",
+          "t": 1780675110090,
+          "detail": {},
+          "perfNow": 43840.9,
+          "recording": "true",
+          "rawTranscript": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+          "transcript": "",
+          "transcriptState": "listening",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Recording active",
+          "runtimeState": "RECORDING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "playback_grace_done",
+          "t": 1780675110893,
+          "detail": {
+            "playbackGraceMs": 800
+          },
+          "perfNow": 44644.5,
+          "recording": "true",
+          "rawTranscript": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+          "transcript": "",
+          "transcriptState": "listening",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Recording active",
+          "runtimeState": "RECORDING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "afplay_start",
+          "t": 1780675110896,
+          "detail": {
+            "audioPath": "/private/tmp/speaksharp-base-70746410/tests/fixtures/stt-isomorphic/audio/h1_6.wav"
+          },
+          "perfNow": 44647.3,
+          "recording": "true",
+          "rawTranscript": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+          "transcript": "",
+          "transcriptState": "listening",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Recording active",
+          "runtimeState": "RECORDING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "afplay_end",
+          "t": 1780675110907,
+          "detail": {
+            "audioPath": "/private/tmp/speaksharp-base-70746410/tests/fixtures/stt-isomorphic/audio/h1_6.wav",
+            "playbackResult": {
+              "source": "page-getUserMedia-injected-wav",
+              "audioPath": "/private/tmp/speaksharp-base-70746410/tests/fixtures/stt-isomorphic/audio/h1_6.wav",
+              "durationMs": null
+            }
+          },
+          "perfNow": 44658.3,
+          "recording": "true",
+          "rawTranscript": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+          "transcript": "",
+          "transcriptState": "listening",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Recording active",
+          "runtimeState": "RECORDING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "first_text_observed",
+          "t": 1780675201059,
+          "detail": {
+            "timestampMs": null,
+            "text": ""
+          },
+          "perfNow": 134813.4,
+          "recording": "true",
+          "rawTranscript": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+          "transcript": "",
+          "transcriptState": "listening",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Recording active",
+          "runtimeState": "RECORDING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "post_playback_wait_done",
+          "t": 1780675213076,
+          "detail": {
+            "postPlaybackWaitMs": 12000
+          },
+          "perfNow": 146834.8,
+          "recording": "true",
+          "rawTranscript": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+          "transcript": "",
+          "transcriptState": "listening",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Recording active",
+          "runtimeState": "RECORDING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "click_stop",
+          "t": 1780675213089,
+          "detail": {
+            "transcript": ""
+          },
+          "perfNow": 146839.5,
+          "recording": "true",
+          "rawTranscript": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+          "transcript": "",
+          "transcriptState": "listening",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Recording active",
+          "runtimeState": "RECORDING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "click_stop_done",
+          "t": 1780675213268,
+          "detail": {
+            "method": "playwright-click"
+          },
+          "perfNow": 147018.8,
+          "recording": "true",
+          "rawTranscript": "Processing speech locally…Finalizing local transcript…Your final transcript will appear here when local processing finishes.",
+          "transcript": "",
+          "transcriptState": "finalizing",
+          "draftVisible": false,
+          "finalizingVisible": true,
+          "draftText": null,
+          "statusText": "Mic ready",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "recording_attribute_false",
+          "t": 1780675213538,
+          "detail": {},
+          "perfNow": 147288.5,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "We didn't detect enough speech to save this session.",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "after_stop_settle",
+          "t": 1780675215540,
+          "detail": {},
+          "perfNow": 149293.9,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "We didn't detect enough speech to save this session.",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        }
+      ],
+      "privateTrace": [
+        {
+          "event": "stream_start",
+          "createdAt": "2026-06-05T15:58:29.985Z",
+          "epochMs": 1780675109985,
+          "perfMs": 43734.6,
+          "payload": {
+            "serviceId": "sug16",
+            "runId": "kiy90o",
+            "minTranscriptionSamples": 16000,
+            "minTranscriptionSeconds": 1,
+            "processingIntervalMs": 250,
+            "postTranscriptPaintGraceMs": 600,
+            "speechStartMinSamples": 1600,
+            "speechStartMinMs": 100,
+            "speechStartPrerollSamples": 4800,
+            "speechStartPrerollMs": 300,
+            "speechStartResetToleranceSamples": 4800,
+            "speechStartResetToleranceMs": 300
+          }
+        },
+        {
+          "event": "stop_requested",
+          "createdAt": "2026-06-05T16:00:13.213Z",
+          "epochMs": 1780675213213,
+          "perfMs": 146963.1,
+          "payload": {
+            "serviceId": "sug16",
+            "runId": "kiy90o",
+            "bufferedSamples": 0,
+            "audioChunks": 0,
+            "retrySamples": 0,
+            "hasDetectedSpeech": false,
+            "currentTranscriptLength": 0
+          }
+        },
+        {
+          "event": "stop_predecode_breakdown",
+          "createdAt": "2026-06-05T16:00:13.213Z",
+          "epochMs": 1780675213213,
+          "perfMs": 146963.1,
+          "payload": {
+            "serviceId": "sug16",
+            "runId": "kiy90o",
+            "wasProcessingAtStop": false,
+            "drainWaitMs": 0,
+            "sinceStopMs": 0.6
+          }
+        },
+        {
+          "event": "stop_whole_utterance_decode_start",
+          "createdAt": "2026-06-05T16:00:13.213Z",
+          "epochMs": 1780675213213,
+          "perfMs": 146963.1,
+          "payload": {
+            "serviceId": "sug16",
+            "runId": "kiy90o",
+            "utteranceSamples": 0
+          }
+        },
+        {
+          "event": "whole_utterance_commit_skip",
+          "createdAt": "2026-06-05T16:00:13.213Z",
+          "epochMs": 1780675213213,
+          "perfMs": 146963.3,
+          "payload": {
+            "serviceId": "sug16",
+            "runId": "kiy90o",
+            "reason": "insufficient_audio",
+            "samples": 0
+          }
+        },
+        {
+          "event": "stop_force_tail_fallback",
+          "createdAt": "2026-06-05T16:00:13.213Z",
+          "epochMs": 1780675213213,
+          "perfMs": 146963.3,
+          "payload": {
+            "serviceId": "sug16",
+            "runId": "kiy90o",
+            "reason": "whole_utterance_commit_empty"
+          }
+        },
+        {
+          "event": "stop_force_processing_complete",
+          "createdAt": "2026-06-05T16:00:13.214Z",
+          "epochMs": 1780675213214,
+          "perfMs": 146963.5,
+          "payload": {
+            "serviceId": "sug16",
+            "runId": "kiy90o",
+            "currentTranscriptLength": 0,
+            "wholeUtteranceTranscriptLength": 0
+          }
+        }
+      ],
+      "privateAudioChunks": [],
+      "privateUtteranceAudioChunks": [],
+      "privateEngineVariant": null,
+      "privateMicConstraintsDebug": {
+        "mode": "raw",
+        "requestedConstraints": {
+          "echoCancellation": false,
+          "noiseSuppression": false,
+          "autoGainControl": false,
+          "channelCount": 1
+        },
+        "actualTrackSettings": {
+          "channelCount": 2,
+          "sampleRate": 16000
+        },
+        "capturedAt": "2026-06-05T15:58:29.959Z"
+      },
+      "transcriptUiState": {
+        "state": "idle",
+        "rawTranscript": "Start recording and your words will appear here.",
+        "transcript": "",
+        "draftVisible": false,
+        "finalizingVisible": false,
+        "draftText": null
+      },
+      "stopStatusSnapshots": [
+        {
+          "t": 1780675213272,
+          "perfNow": 147021.8,
+          "recording": "true",
+          "runtimeState": "READY",
+          "rawTranscript": "Processing speech locally…Finalizing local transcript…Your final transcript will appear here when local processing finishes.",
+          "transcript": "",
+          "transcriptState": "finalizing",
+          "draftVisible": false,
+          "finalizingVisible": true,
+          "draftText": null,
+          "statusText": "Mic ready"
+        },
+        {
+          "t": 1780675213535,
+          "perfNow": 147283.3,
+          "recording": "false",
+          "runtimeState": "READY",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "We didn't detect enough speech to save this session."
+        }
+      ],
+      "transcriptLifecycleTrace": [
+        {
+          "sequence": 1,
+          "t": 146936,
+          "stage": "lifecycle:stop",
+          "timestamp": 1780675213186,
+          "mode": "private",
+          "visibleAtStopLength": 0,
+          "committedLength": 0,
+          "partialLength": 0,
+          "preview": ""
+        },
+        {
+          "sequence": 2,
+          "t": 146966.9,
+          "stage": "save:candidate",
+          "timestamp": 1780675213217,
+          "mode": "private",
+          "selectedLength": 0,
+          "reason": "empty",
+          "preview": ""
+        }
+      ],
+      "transcriptLifecycleSummary": {
+        "traceEventCount": 2,
+        "stageCounts": {
+          "lifecycle:stop": 1,
+          "save:candidate": 1
+        },
+        "boundaryStatus": {
+          "engine_emits_text": false,
+          "service_normalized_event": false,
+          "controller_updates_lifecycle": false,
+          "store_updates": false,
+          "ui_visible_before_stop": false,
+          "stop_called": true,
+          "save_candidate_selected": false
+        },
+        "firstBrokenBoundary": "engine_emits_text",
+        "stopSelectedSource": "empty",
+        "stopSelectedTranscriptLength": 0,
+        "visibleTranscriptAtStopLength": 0,
+        "stopPreview": "",
+        "saveCandidatePreview": "",
+        "saveCandidateSelectedTranscript": ""
+      },
+      "traceStageCounts": {
+        "lifecycle:stop": 1,
+        "save:candidate": 1
+      },
+      "traceBoundaryStatus": {
+        "engine_emits_text": false,
+        "service_normalized_event": false,
+        "controller_updates_lifecycle": false,
+        "store_updates": false,
+        "ui_visible_before_stop": false,
+        "stop_called": true,
+        "save_candidate_selected": false
+      },
+      "firstBrokenBoundary": "engine_emits_text",
+      "stopSelectedSource": "empty",
+      "stopSelectedTranscriptLength": 0,
+      "visibleTranscriptAtStopLength": 0,
+      "savePayloadTranscriptLength": 0,
+      "speechRuntimeDebug": {
+        "controllerState": "READY",
+        "policy": {
+          "allowNative": true,
+          "allowCloud": false,
+          "allowPrivate": true,
+          "preferredMode": "private",
+          "allowFallback": false,
+          "executionIntent": "prod-pro-private"
+        },
+        "controllerPreferredMode": "private",
+        "serviceMode": null,
+        "serviceState": null,
+        "sessionId": "d551d399-8358-4d05-b2e0-3cd8cfc42025",
+        "lifecycleVersion": 1,
+        "transcriptLength": 0,
+        "saveCandidate": {
+          "sessionId": "d551d399-8358-4d05-b2e0-3cd8cfc42025",
+          "saveCandidateReason": "empty",
+          "selectedForSave": "",
+          "selectedForSaveLength": 0,
+          "finalWordCount": 0,
+          "meaningfulWordCount": 0,
+          "resultTranscriptLength": 0,
+          "chunkTranscriptLength": 0,
+          "storeTranscriptLength": 0,
+          "storePartialTranscriptLength": 0,
+          "visibleStoreTranscriptLength": 0,
+          "frozenStopTranscriptLength": 0,
+          "candidateLengths": [],
+          "capturedAt": 1780675213217
+        },
+        "selectedTranscriptForSave": null,
+        "selectedTranscriptSource": "empty"
+      },
+      "privateRuntimeDuringRecording": {
+        "speechRuntimeDebug": {
+          "controllerState": "RECORDING",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": "private",
+          "serviceState": "RECORDING",
+          "sessionId": null,
+          "lifecycleVersion": 0,
+          "transcriptLength": 0,
+          "saveCandidate": null,
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": null
+        },
+        "runtimePath": {
+          "runtime": "wasm-singlethread",
+          "provider": "transformers-js",
+          "acceleration": "cpu",
+          "reason": "no_webgpu_or_isolation",
+          "webgpuAvailable": true,
+          "turboCached": false,
+          "crossOriginIsolated": false,
+          "wasmThreadCount": 1,
+          "fallbackAvailable": false,
+          "cloudFallbackAttempted": false,
+          "selectedAt": "2026-06-05T15:57:47.528Z"
+        },
+        "engineVariant": "transformers-js"
+      },
+      "privateVadTelemetry": null,
+      "privateModelTelemetry": {
+        "model": "whisper-base.en",
+        "runtime": "transformers-js",
+        "approxMB": 145,
+        "overridden": false,
+        "selectionSource": "default",
+        "loadTimeMs": 1543,
+        "fallbackPath": "local-then-remote",
+        "cloudFallbackAttempted": false
+      },
+      "privateResamplerTelemetry": null,
+      "privateRuntimePath": {
+        "runtime": "wasm-singlethread",
+        "provider": "transformers-js",
+        "acceleration": "cpu",
+        "reason": "no_webgpu_or_isolation",
+        "webgpuAvailable": true,
+        "turboCached": false,
+        "crossOriginIsolated": false,
+        "wasmThreadCount": 1,
+        "fallbackAvailable": false,
+        "cloudFallbackAttempted": false,
+        "selectedAt": "2026-06-05T15:57:47.528Z"
+      },
+      "privateRuntime": "wasm-singlethread",
+      "privateProvider": "transformers-js",
+      "privateWebgpuAvailable": true,
+      "privateTurboCached": false,
+      "privateCrossOriginIsolated": false,
+      "privateWasmThreadCount": 1,
+      "privateCloudFallbackAttempted": false,
+      "historyVisible": false,
+      "analyticsBodySample": "Skip to contentSpeakSharpHomeSessionAnalyticsPROReport issuestt-corpus-1780675058782@speaksharp.appSign OutHomeSessionAnalyticsYour AnalyticsTrack your speaking progress and improvementsPro activeYour trends start after one saved sessionSave a practice session to see pace, filler words, clarity, PDF reports, and progress history here.Start Practice Session",
+      "analyticsTranscriptEvidence": {
+        "bodyLength": 358,
+        "uniqueTranscriptWordCount": 0,
+        "matchedUniqueTranscriptWordCount": 0,
+        "matchedUniqueTranscriptWords": [],
+        "containsAtLeastHalfUniqueTranscriptWords": false
+      },
+      "directSavedSessionQuery": {
+        "skipped": false,
+        "ok": true,
+        "status": 200,
+        "userId": "e9d6b376-adef-42f6-9a5e-392c5d219a7a",
+        "rowCount": 0,
+        "latest": null
+      },
+      "detailVisible": false,
+      "savedTranscriptLength": null,
+      "truthWordsHeard": [],
+      "truthWordRecall": 0,
+      "inputLikelyContaminated": false,
+      "journeyPass": false,
+      "processingSpeechLocallyShown": false,
+      "stopFinalizationMs": 125,
+      "meetsWerThreshold": null,
+      "verdict": "journey-incomplete"
+    },
+    {
+      "mode": "private",
+      "fixture": "conv_02",
+      "fixtureType": "filler",
+      "audioPath": "/private/tmp/speaksharp-base-70746410/tests/fixtures/stt-isomorphic/audio/conv_02.wav",
+      "truth": "Well, I mean, you know, it is what it is.",
+      "expectedFillers": {
+        "i mean": 1,
+        "you know": 1
+      },
+      "transcript": "",
+      "visibleAtStopTranscript": "",
+      "postStopTranscript": "",
+      "selectedForSaveTranscript": "",
+      "normalizedTranscript": "",
+      "wordCount": 0,
+      "wer": 1,
+      "accuracyPct": 0,
+      "visibleAtStopWer": 1,
+      "visibleAtStopAccuracyPct": 0,
+      "postStopWer": 1,
+      "postStopAccuracyPct": 0,
+      "selectedForSaveWer": 1,
+      "selectedForSaveAccuracyPct": 0,
+      "firstText": {
+        "timestampMs": null,
+        "text": ""
+      },
+      "sessionPersisted": false,
+      "privateReadiness": {
+        "before": {
+          "modelStatus": "loading",
+          "runtimeState": "ENGINE_INITIALIZING",
+          "sttReady": "false",
+          "statusText": "Download complete. Preparing Private model...",
+          "downloadVisible": false,
+          "downloadButtonText": null,
+          "setupPanelText": null,
+          "transformerCacheName": "transformers-cache",
+          "transformerCacheKeyCount": 7
+        },
+        "after": {
+          "modelStatus": "ready",
+          "runtimeState": "READY",
+          "sttReady": "false",
+          "statusText": "Mic ready",
+          "downloadVisible": false,
+          "downloadButtonText": null,
+          "setupPanelText": null,
+          "transformerCacheName": "transformers-cache",
+          "transformerCacheKeyCount": 7
+        }
+      },
+      "phases": [
+        {
+          "phase": "ready_to_start",
+          "t": 1780675262223,
+          "detail": {
+            "mode": "private",
+            "fixture": "conv_02"
+          },
+          "perfNow": 1111.3,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Download complete. Preparing Private model...",
+          "runtimeState": "ENGINE_INITIALIZING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "private_model_readiness_before",
+          "t": 1780675262225,
+          "detail": {
+            "modelStatus": "loading",
+            "runtimeState": "ENGINE_INITIALIZING",
+            "sttReady": "false",
+            "statusText": "Download complete. Preparing Private model...",
+            "downloadVisible": false,
+            "downloadButtonText": null,
+            "setupPanelText": null,
+            "transformerCacheName": "transformers-cache",
+            "transformerCacheKeyCount": 7
+          },
+          "perfNow": 1113.4,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Download complete. Preparing Private model...",
+          "runtimeState": "ENGINE_INITIALIZING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "private_model_readiness_after",
+          "t": 1780675266309,
+          "detail": {
+            "modelStatus": "ready",
+            "runtimeState": "READY",
+            "sttReady": "false",
+            "statusText": "Mic ready",
+            "downloadVisible": false,
+            "downloadButtonText": null,
+            "setupPanelText": null,
+            "transformerCacheName": "transformers-cache",
+            "transformerCacheKeyCount": 7
+          },
+          "perfNow": 5198,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Mic ready",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "click_start",
+          "t": 1780675266311,
+          "detail": {},
+          "perfNow": 5200,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Mic ready",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "click_start_playwright_click_failed",
+          "t": 1780675271328,
+          "detail": {
+            "message": "locator.click: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('session-start-stop-button')\u001b[22m\n\u001b[2m    - locator resolved to <button data-recording=\"false\" title=\"Start Recording\" aria-label=\"Start Recording\" data-testid=\"session-start-stop-button\" class=\"inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-semibold ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 cta-shadow transform hover:-translate-y-0.5 w-12 h-12 rounded-full bg-primary text-primary-foreground ring…>…</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <html lang=\"en\" data-app-ready=\"true\" data-stt-ready=\"false\" data-stt-mode=\"private\" data-stt-is-mock=\"false\" data-engine-ready=\"true\" data-model-status=\"ready\" data-profile-ready=\"true\" data-runtime-state=\"READY\" data-error-visible=\"false\" data-services-ready=\"true\" data-app-visible-ready=\"true\" data-stt-resolved-mode=\"private\">…</html> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <html lang=\"en\" data-app-ready=\"true\" data-stt-ready=\"false\" data-stt-mode=\"private\" data-stt-is-mock=\"false\" data-engine-ready=\"true\" data-model-status=\"ready\" data-profile-ready=\"true\" data-runtime-state=\"READY\" data-error-visible=\"false\" data-services-ready=\"true\" data-app-visible-ready=\"true\" data-stt-resolved-mode=\"private\">…</html> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    9 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <html lang=\"en\" data-app-ready=\"true\" data-stt-ready=\"false\" data-stt-mode=\"private\" data-stt-is-mock=\"false\" data-engine-ready=\"true\" data-model-status=\"ready\" data-profile-ready=\"true\" data-runtime-state=\"READY\" data-error-visible=\"false\" data-services-ready=\"true\" data-app-visible-ready=\"true\" data-stt-resolved-mode=\"private\">…</html> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 500ms\u001b[22m\n"
+          },
+          "perfNow": 10219.5,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Mic ready",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "click_start_post_click_state",
+          "t": 1780675271334,
+          "detail": {
+            "recording": "false",
+            "runtimeState": "READY",
+            "modelStatus": "ready",
+            "disabled": false
+          },
+          "perfNow": 10222,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Mic ready",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "click_start_dom_click_fallback",
+          "t": 1780675271361,
+          "detail": {
+            "clicked": true
+          },
+          "perfNow": 10254,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Private ready. Nothing leaves your browser.",
+          "runtimeState": "ENGINE_INITIALIZING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "click_start_done",
+          "t": 1780675271367,
+          "detail": {
+            "method": "dom-click-fallback",
+            "originalError": "locator.click: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('session-start-stop-button')\u001b[22m\n\u001b[2m    - locator resolved to <button data-recording=\"false\" title=\"Start Recording\" aria-label=\"Start Recording\" data-testid=\"session-start-stop-button\" class=\"inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-semibold ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 cta-shadow transform hover:-translate-y-0.5 w-12 h-12 rounded-full bg-primary text-primary-foreground ring…>…</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <html lang=\"en\" data-app-ready=\"true\" data-stt-ready=\"false\" data-stt-mode=\"private\" data-stt-is-mock=\"false\" data-engine-ready=\"true\" data-model-status=\"ready\" data-profile-ready=\"true\" data-runtime-state=\"READY\" data-error-visible=\"false\" data-services-ready=\"true\" data-app-visible-ready=\"true\" data-stt-resolved-mode=\"private\">…</html> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <html lang=\"en\" data-app-ready=\"true\" data-stt-ready=\"false\" data-stt-mode=\"private\" data-stt-is-mock=\"false\" data-engine-ready=\"true\" data-model-status=\"ready\" data-profile-ready=\"true\" data-runtime-state=\"READY\" data-error-visible=\"false\" data-services-ready=\"true\" data-app-visible-ready=\"true\" data-stt-resolved-mode=\"private\">…</html> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    9 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <html lang=\"en\" data-app-ready=\"true\" data-stt-ready=\"false\" data-stt-mode=\"private\" data-stt-is-mock=\"false\" data-engine-ready=\"true\" data-model-status=\"ready\" data-profile-ready=\"true\" data-runtime-state=\"READY\" data-error-visible=\"false\" data-services-ready=\"true\" data-app-visible-ready=\"true\" data-stt-resolved-mode=\"private\">…</html> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 500ms\u001b[22m\n"
+          },
+          "perfNow": 10255.5,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Private ready. Nothing leaves your browser.",
+          "runtimeState": "ENGINE_INITIALIZING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "private_go_signal_check",
+          "t": 1780675271503,
+          "detail": {
+            "modelStatus": "ready",
+            "runtimeState": "RECORDING",
+            "sttReady": "true",
+            "statusText": "Recording active",
+            "downloadVisible": false,
+            "downloadButtonText": null,
+            "setupPanelText": null,
+            "transformerCacheName": "transformers-cache",
+            "transformerCacheKeyCount": 7
+          },
+          "perfNow": 10391.8,
+          "recording": "true",
+          "rawTranscript": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+          "transcript": "",
+          "transcriptState": "listening",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Recording active",
+          "runtimeState": "RECORDING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "recording_attribute_true",
+          "t": 1780675271506,
+          "detail": {},
+          "perfNow": 10393.5,
+          "recording": "true",
+          "rawTranscript": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+          "transcript": "",
+          "transcriptState": "listening",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Recording active",
+          "runtimeState": "RECORDING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "playback_grace_done",
+          "t": 1780675272309,
+          "detail": {
+            "playbackGraceMs": 800
+          },
+          "perfNow": 11199.1,
+          "recording": "true",
+          "rawTranscript": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+          "transcript": "",
+          "transcriptState": "listening",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Recording active",
+          "runtimeState": "RECORDING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "afplay_start",
+          "t": 1780675272313,
+          "detail": {
+            "audioPath": "/private/tmp/speaksharp-base-70746410/tests/fixtures/stt-isomorphic/audio/conv_02.wav"
+          },
+          "perfNow": 11202.3,
+          "recording": "true",
+          "rawTranscript": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+          "transcript": "",
+          "transcriptState": "listening",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Recording active",
+          "runtimeState": "RECORDING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "afplay_end",
+          "t": 1780675276301,
+          "detail": {
+            "audioPath": "/private/tmp/speaksharp-base-70746410/tests/fixtures/stt-isomorphic/audio/conv_02.wav",
+            "playbackResult": {
+              "source": "page-getUserMedia-injected-wav",
+              "audioPath": "/private/tmp/speaksharp-base-70746410/tests/fixtures/stt-isomorphic/audio/conv_02.wav",
+              "durationMs": 3182
+            }
+          },
+          "perfNow": 15189.9,
+          "recording": "true",
+          "rawTranscript": "Draft transcript Text may change before the final transcript is saved.Listening locally…",
+          "transcript": "",
+          "transcriptState": "listening",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "Recording active",
+          "runtimeState": "RECORDING",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "first_text_observed",
+          "t": 1780676273324,
+          "detail": {
+            "timestampMs": null,
+            "text": ""
+          },
+          "perfNow": 76490.4,
+          "recording": "true",
+          "rawTranscript": "Processing speech locally…Finalizing local transcript…Your final transcript will appear here when local processing finishes.",
+          "transcript": "",
+          "transcriptState": "finalizing",
+          "draftVisible": false,
+          "finalizingVisible": true,
+          "draftText": null,
+          "statusText": "Mic ready",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "post_playback_wait_done",
+          "t": 1780676285440,
+          "detail": {
+            "postPlaybackWaitMs": 12000
+          },
+          "perfNow": 88500,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "We didn't detect enough speech to save this session.",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "click_stop",
+          "t": 1780676285451,
+          "detail": {
+            "transcript": ""
+          },
+          "perfNow": 88504.8,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "We didn't detect enough speech to save this session.",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "click_stop_playwright_click_failed",
+          "t": 1780676290460,
+          "detail": {
+            "message": "locator.click: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('session-start-stop-button')\u001b[22m\n\u001b[2m    - locator resolved to <button data-recording=\"false\" title=\"Start Recording\" aria-label=\"Start Recording\" data-testid=\"session-start-stop-button\" class=\"inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-semibold ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 cta-shadow transform hover:-translate-y-0.5 w-12 h-12 rounded-full bg-primary text-primary-foreground ring…>…</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <html lang=\"en\" data-stt-ready=\"true\" data-app-ready=\"true\" data-stt-mode=\"private\" data-model-status=\"idle\" data-stt-is-mock=\"false\" data-engine-ready=\"true\" data-profile-ready=\"true\" data-runtime-state=\"READY\" data-error-visible=\"false\" data-services-ready=\"true\" data-app-visible-ready=\"true\" data-stt-resolved-mode=\"private\">…</html> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <html lang=\"en\" data-stt-ready=\"true\" data-app-ready=\"true\" data-stt-mode=\"private\" data-model-status=\"idle\" data-stt-is-mock=\"false\" data-engine-ready=\"true\" data-profile-ready=\"true\" data-runtime-state=\"READY\" data-error-visible=\"false\" data-services-ready=\"true\" data-app-visible-ready=\"true\" data-stt-resolved-mode=\"private\">…</html> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    9 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <html lang=\"en\" data-stt-ready=\"true\" data-app-ready=\"true\" data-stt-mode=\"private\" data-model-status=\"idle\" data-stt-is-mock=\"false\" data-engine-ready=\"true\" data-profile-ready=\"true\" data-runtime-state=\"READY\" data-error-visible=\"false\" data-services-ready=\"true\" data-app-visible-ready=\"true\" data-stt-resolved-mode=\"private\">…</html> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 500ms\u001b[22m\n"
+          },
+          "perfNow": 93516.2,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "We didn't detect enough speech to save this session.",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "click_stop_post_click_state",
+          "t": 1780676290471,
+          "detail": {
+            "recording": "false",
+            "runtimeState": "READY",
+            "modelStatus": "idle",
+            "disabled": false
+          },
+          "perfNow": 93525.8,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "We didn't detect enough speech to save this session.",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "click_stop_done",
+          "t": 1780676290473,
+          "detail": {
+            "method": "playwright-click-transition-observed",
+            "originalError": "locator.click: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('session-start-stop-button')\u001b[22m\n\u001b[2m    - locator resolved to <button data-recording=\"false\" title=\"Start Recording\" aria-label=\"Start Recording\" data-testid=\"session-start-stop-button\" class=\"inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-semibold ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 cta-shadow transform hover:-translate-y-0.5 w-12 h-12 rounded-full bg-primary text-primary-foreground ring…>…</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <html lang=\"en\" data-stt-ready=\"true\" data-app-ready=\"true\" data-stt-mode=\"private\" data-model-status=\"idle\" data-stt-is-mock=\"false\" data-engine-ready=\"true\" data-profile-ready=\"true\" data-runtime-state=\"READY\" data-error-visible=\"false\" data-services-ready=\"true\" data-app-visible-ready=\"true\" data-stt-resolved-mode=\"private\">…</html> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <html lang=\"en\" data-stt-ready=\"true\" data-app-ready=\"true\" data-stt-mode=\"private\" data-model-status=\"idle\" data-stt-is-mock=\"false\" data-engine-ready=\"true\" data-profile-ready=\"true\" data-runtime-state=\"READY\" data-error-visible=\"false\" data-services-ready=\"true\" data-app-visible-ready=\"true\" data-stt-resolved-mode=\"private\">…</html> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    9 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <html lang=\"en\" data-stt-ready=\"true\" data-app-ready=\"true\" data-stt-mode=\"private\" data-model-status=\"idle\" data-stt-is-mock=\"false\" data-engine-ready=\"true\" data-profile-ready=\"true\" data-runtime-state=\"READY\" data-error-visible=\"false\" data-services-ready=\"true\" data-app-visible-ready=\"true\" data-stt-resolved-mode=\"private\">…</html> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 500ms\u001b[22m\n",
+            "postClickState": {
+              "recording": "false",
+              "runtimeState": "READY",
+              "modelStatus": "idle",
+              "disabled": false
+            }
+          },
+          "perfNow": 93527.4,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "We didn't detect enough speech to save this session.",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "recording_attribute_false",
+          "t": 1780676290478,
+          "detail": {},
+          "perfNow": 93532.1,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "We didn't detect enough speech to save this session.",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        },
+        {
+          "phase": "after_stop_settle",
+          "t": 1780676292482,
+          "detail": {},
+          "perfNow": 95538.5,
+          "recording": "false",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "We didn't detect enough speech to save this session.",
+          "runtimeState": "READY",
+          "sessionPersisted": null
+        }
+      ],
+      "privateTrace": [
+        {
+          "event": "stream_start",
+          "createdAt": "2026-06-05T16:01:11.467Z",
+          "epochMs": 1780675271467,
+          "perfMs": 10354.5,
+          "payload": {
+            "serviceId": "cb9j5pm",
+            "runId": "yydy98",
+            "minTranscriptionSamples": 16000,
+            "minTranscriptionSeconds": 1,
+            "processingIntervalMs": 250,
+            "postTranscriptPaintGraceMs": 600,
+            "speechStartMinSamples": 1600,
+            "speechStartMinMs": 100,
+            "speechStartPrerollSamples": 4800,
+            "speechStartPrerollMs": 300,
+            "speechStartResetToleranceSamples": 4800,
+            "speechStartResetToleranceMs": 300
+          }
+        },
+        {
+          "event": "stop_requested",
+          "createdAt": "2026-06-05T16:17:53.430Z",
+          "epochMs": 1780676273431,
+          "perfMs": 76483.6,
+          "payload": {
+            "serviceId": "cb9j5pm",
+            "runId": "yydy98",
+            "bufferedSamples": 0,
+            "audioChunks": 0,
+            "retrySamples": 0,
+            "hasDetectedSpeech": false,
+            "currentTranscriptLength": 0
+          }
+        },
+        {
+          "event": "stop_predecode_breakdown",
+          "createdAt": "2026-06-05T16:17:53.431Z",
+          "epochMs": 1780676273431,
+          "perfMs": 76483.7,
+          "payload": {
+            "serviceId": "cb9j5pm",
+            "runId": "yydy98",
+            "wasProcessingAtStop": false,
+            "drainWaitMs": 0,
+            "sinceStopMs": 1.1
+          }
+        },
+        {
+          "event": "stop_whole_utterance_decode_start",
+          "createdAt": "2026-06-05T16:17:53.431Z",
+          "epochMs": 1780676273431,
+          "perfMs": 76483.7,
+          "payload": {
+            "serviceId": "cb9j5pm",
+            "runId": "yydy98",
+            "utteranceSamples": 0
+          }
+        },
+        {
+          "event": "whole_utterance_commit_skip",
+          "createdAt": "2026-06-05T16:17:53.431Z",
+          "epochMs": 1780676273431,
+          "perfMs": 76483.7,
+          "payload": {
+            "serviceId": "cb9j5pm",
+            "runId": "yydy98",
+            "reason": "insufficient_audio",
+            "samples": 0
+          }
+        },
+        {
+          "event": "stop_force_tail_fallback",
+          "createdAt": "2026-06-05T16:17:53.431Z",
+          "epochMs": 1780676273431,
+          "perfMs": 76483.9,
+          "payload": {
+            "serviceId": "cb9j5pm",
+            "runId": "yydy98",
+            "reason": "whole_utterance_commit_empty"
+          }
+        },
+        {
+          "event": "stop_force_processing_complete",
+          "createdAt": "2026-06-05T16:17:53.431Z",
+          "epochMs": 1780676273431,
+          "perfMs": 76483.9,
+          "payload": {
+            "serviceId": "cb9j5pm",
+            "runId": "yydy98",
+            "currentTranscriptLength": 0,
+            "wholeUtteranceTranscriptLength": 0
+          }
+        }
+      ],
+      "privateAudioChunks": [],
+      "privateUtteranceAudioChunks": [],
+      "privateEngineVariant": null,
+      "privateMicConstraintsDebug": {
+        "mode": "raw",
+        "requestedConstraints": {
+          "echoCancellation": false,
+          "noiseSuppression": false,
+          "autoGainControl": false,
+          "channelCount": 1
+        },
+        "actualTrackSettings": {
+          "channelCount": 2,
+          "sampleRate": 16000
+        },
+        "capturedAt": "2026-06-05T16:01:11.432Z"
+      },
+      "transcriptUiState": {
+        "state": "idle",
+        "rawTranscript": "Start recording and your words will appear here.",
+        "transcript": "",
+        "draftVisible": false,
+        "finalizingVisible": false,
+        "draftText": null
+      },
+      "stopStatusSnapshots": [
+        {
+          "t": 1780676290476,
+          "perfNow": 93529.1,
+          "recording": "false",
+          "runtimeState": "READY",
+          "rawTranscript": "Start recording and your words will appear here.",
+          "transcript": "",
+          "transcriptState": "idle",
+          "draftVisible": false,
+          "finalizingVisible": false,
+          "draftText": null,
+          "statusText": "We didn't detect enough speech to save this session."
+        }
+      ],
+      "transcriptLifecycleTrace": [
+        {
+          "sequence": 1,
+          "t": 76460.7,
+          "stage": "lifecycle:stop",
+          "timestamp": 1780676273408,
+          "mode": "private",
+          "visibleAtStopLength": 0,
+          "committedLength": 0,
+          "partialLength": 0,
+          "preview": ""
+        },
+        {
+          "sequence": 2,
+          "t": 76489.6,
+          "stage": "save:candidate",
+          "timestamp": 1780676273437,
+          "mode": "private",
+          "selectedLength": 0,
+          "reason": "empty",
+          "preview": ""
+        }
+      ],
+      "transcriptLifecycleSummary": {
+        "traceEventCount": 2,
+        "stageCounts": {
+          "lifecycle:stop": 1,
+          "save:candidate": 1
+        },
+        "boundaryStatus": {
+          "engine_emits_text": false,
+          "service_normalized_event": false,
+          "controller_updates_lifecycle": false,
+          "store_updates": false,
+          "ui_visible_before_stop": false,
+          "stop_called": true,
+          "save_candidate_selected": false
+        },
+        "firstBrokenBoundary": "engine_emits_text",
+        "stopSelectedSource": "empty",
+        "stopSelectedTranscriptLength": 0,
+        "visibleTranscriptAtStopLength": 0,
+        "stopPreview": "",
+        "saveCandidatePreview": "",
+        "saveCandidateSelectedTranscript": ""
+      },
+      "traceStageCounts": {
+        "lifecycle:stop": 1,
+        "save:candidate": 1
+      },
+      "traceBoundaryStatus": {
+        "engine_emits_text": false,
+        "service_normalized_event": false,
+        "controller_updates_lifecycle": false,
+        "store_updates": false,
+        "ui_visible_before_stop": false,
+        "stop_called": true,
+        "save_candidate_selected": false
+      },
+      "firstBrokenBoundary": "engine_emits_text",
+      "stopSelectedSource": "empty",
+      "stopSelectedTranscriptLength": 0,
+      "visibleTranscriptAtStopLength": 0,
+      "savePayloadTranscriptLength": 0,
+      "speechRuntimeDebug": {
+        "controllerState": "READY",
+        "policy": {
+          "allowNative": true,
+          "allowCloud": false,
+          "allowPrivate": true,
+          "preferredMode": "private",
+          "allowFallback": false,
+          "executionIntent": "prod-pro-private"
+        },
+        "controllerPreferredMode": "private",
+        "serviceMode": null,
+        "serviceState": null,
+        "sessionId": "9282c553-d016-4dce-9d1d-bb9bd136ad92",
+        "lifecycleVersion": 1,
+        "transcriptLength": 0,
+        "saveCandidate": {
+          "sessionId": "9282c553-d016-4dce-9d1d-bb9bd136ad92",
+          "saveCandidateReason": "empty",
+          "selectedForSave": "",
+          "selectedForSaveLength": 0,
+          "finalWordCount": 0,
+          "meaningfulWordCount": 0,
+          "resultTranscriptLength": 0,
+          "chunkTranscriptLength": 0,
+          "storeTranscriptLength": 0,
+          "storePartialTranscriptLength": 0,
+          "visibleStoreTranscriptLength": 0,
+          "frozenStopTranscriptLength": 0,
+          "candidateLengths": [],
+          "capturedAt": 1780676273437
+        },
+        "selectedTranscriptForSave": null,
+        "selectedTranscriptSource": "empty"
+      },
+      "privateRuntimeDuringRecording": {
+        "speechRuntimeDebug": {
+          "controllerState": "RECORDING",
+          "policy": {
+            "allowNative": true,
+            "allowCloud": false,
+            "allowPrivate": true,
+            "preferredMode": "private",
+            "allowFallback": false,
+            "executionIntent": "prod-pro-private"
+          },
+          "controllerPreferredMode": "private",
+          "serviceMode": "private",
+          "serviceState": "RECORDING",
+          "sessionId": null,
+          "lifecycleVersion": 0,
+          "transcriptLength": 0,
+          "saveCandidate": null,
+          "selectedTranscriptForSave": null,
+          "selectedTranscriptSource": null
+        },
+        "runtimePath": {
+          "runtime": "wasm-singlethread",
+          "provider": "transformers-js",
+          "acceleration": "cpu",
+          "reason": "no_webgpu_or_isolation",
+          "webgpuAvailable": true,
+          "turboCached": false,
+          "crossOriginIsolated": false,
+          "wasmThreadCount": 1,
+          "fallbackAvailable": false,
+          "cloudFallbackAttempted": false,
+          "selectedAt": "2026-06-05T16:01:01.371Z"
+        },
+        "engineVariant": "transformers-js"
+      },
+      "privateVadTelemetry": null,
+      "privateModelTelemetry": {
+        "model": "whisper-base.en",
+        "runtime": "transformers-js",
+        "approxMB": 145,
+        "overridden": false,
+        "selectionSource": "default",
+        "loadTimeMs": 752,
+        "fallbackPath": "local-then-remote",
+        "cloudFallbackAttempted": false
+      },
+      "privateResamplerTelemetry": null,
+      "privateRuntimePath": {
+        "runtime": "wasm-singlethread",
+        "provider": "transformers-js",
+        "acceleration": "cpu",
+        "reason": "no_webgpu_or_isolation",
+        "webgpuAvailable": true,
+        "turboCached": false,
+        "crossOriginIsolated": false,
+        "wasmThreadCount": 1,
+        "fallbackAvailable": false,
+        "cloudFallbackAttempted": false,
+        "selectedAt": "2026-06-05T16:01:01.371Z"
+      },
+      "privateRuntime": "wasm-singlethread",
+      "privateProvider": "transformers-js",
+      "privateWebgpuAvailable": true,
+      "privateTurboCached": false,
+      "privateCrossOriginIsolated": false,
+      "privateWasmThreadCount": 1,
+      "privateCloudFallbackAttempted": false,
+      "historyVisible": false,
+      "analyticsBodySample": "Skip to contentSpeakSharpHomeSessionAnalyticsPROReport issuestt-corpus-1780675058782@speaksharp.appSign OutHomeSessionAnalyticsYour AnalyticsTrack your speaking progress and improvementsPro activeYour trends start after one saved sessionSave a practice session to see pace, filler words, clarity, PDF reports, and progress history here.Start Practice Session",
+      "analyticsTranscriptEvidence": {
+        "bodyLength": 358,
+        "uniqueTranscriptWordCount": 0,
+        "matchedUniqueTranscriptWordCount": 0,
+        "matchedUniqueTranscriptWords": [],
+        "containsAtLeastHalfUniqueTranscriptWords": false
+      },
+      "directSavedSessionQuery": {
+        "skipped": false,
+        "ok": true,
+        "status": 200,
+        "userId": "e9d6b376-adef-42f6-9a5e-392c5d219a7a",
+        "rowCount": 0,
+        "latest": null
+      },
+      "detailVisible": false,
+      "savedTranscriptLength": null,
+      "truthWordsHeard": [],
+      "truthWordRecall": 0,
+      "inputLikelyContaminated": false,
+      "observedFillers": {
+        "i mean": 0,
+        "you know": 0,
+        "um": 0,
+        "uh": 0,
+        "like": 0,
+        "basically": 0,
+        "literally": 0,
+        "well": 0
+      },
+      "fillerPass": false,
+      "journeyPass": false,
+      "processingSpeechLocallyShown": false,
+      "stopFinalizationMs": -12020,
+      "meetsWerThreshold": null,
+      "verdict": "filler-count-mismatch"
+    }
+  ],
+  "privateCacheReset": {
+    "deletedCaches": [],
+    "deletedDatabases": [
+      "models",
+      "transformers-cache",
+      "whisper-models"
+    ]
+  },
+  "completedAt": "2026-06-05T16:20:41.447Z",
+  "runnerPass": true,
+  "gatePass": false,
+  "pass": false
+}

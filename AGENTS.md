@@ -49,15 +49,15 @@ No ceremonial acknowledgement that this file was read is required.
 - [product_release/RELEASE_STATUS.md](./product_release/RELEASE_STATUS.md) is the only
   authority for current release/deployment posture, blockers, baselines, and workflow
   evidence. Verify moving SHAs and live state; do not copy stale values into this file.
-- [product_release/ENV_INVENTORY.md](./product_release/ENV_INVENTORY.md) is the authority
-  for environment-variable names, storage homes, consumers, and scopes.
-- [product_release/RC_GATES.md](./product_release/RC_GATES.md) defines release gates.
-- [product_release/RC_TEST_INVENTORY.md](./product_release/RC_TEST_INVENTORY.md) defines
-  which tests and workflows count as release evidence.
-- [product_release/SOFT_RELEASE_TESTER_INSTRUCTIONS.md](./product_release/SOFT_RELEASE_TESTER_INSTRUCTIONS.md)
-  owns current external tester instructions until the canonical tester guide replaces it.
-- [product_release/OPS_HEALTH_DASHBOARD.md](./product_release/OPS_HEALTH_DASHBOARD.md)
-  owns the current ops-health surface until operations documentation is consolidated.
+- [product_release/OPERATIONS_AND_SECURITY.md](./product_release/OPERATIONS_AND_SECURITY.md) is the authority
+  for environment-variable names, storage homes, consumers, scopes, and operational security.
+- [product_release/RELEASE_PROCESS.md](./product_release/RELEASE_PROCESS.md) defines release gates,
+  artifact freshness, rollback, and recovery.
+- [product_release/QUALITY.md](./product_release/QUALITY.md) defines which tests and workflows count
+  as release evidence.
+- [product_release/TESTER_GUIDE.md](./product_release/TESTER_GUIDE.md) owns current external tester instructions.
+- [product_release/OPERATIONS_AND_SECURITY.md](./product_release/OPERATIONS_AND_SECURITY.md) owns
+  environment, secrets, ops-health, SCA, and paid-path operational controls.
 - Historical reports, archived documents, and superseded PRs are evidence and provenance,
   not current product or release truth.
 
@@ -221,7 +221,7 @@ Evidence sufficiency and stopping rules:
 - Reuse still-valid evidence when later commits do not affect the behavior or visual output
   it proves; record the evidence's exact provenance. This general allowance does NOT relax the
   stricter release-candidate rule: for RC gate artifacts, apply the Artifact Freshness Rule in
-  [product_release/RC_GATES.md](product_release/RC_GATES.md) — any change to a gate item's
+  [product_release/RELEASE_PROCESS.md](product_release/RELEASE_PROCESS.md) — any change to a gate item's
   dependency surface makes its artifact stale, even a behavior-neutral one, and it must be rerun.
 - After the acceptance criteria are proven, focused checks pass, required exact-head CI is
   green, and review threads are resolved, stop expanding the PR and return it for the
@@ -305,11 +305,11 @@ Environment ownership is scoped, not universal:
 - **Vercel:** production frontend/build configuration.
 - **Supabase:** production Edge runtime secrets and provider-managed production values.
 - **Local gitignored `.env*`:** local development/test values only, as permitted by
-  `ENV_INVENTORY.md`.
+  `product_release/OPERATIONS_AND_SECURITY.md`.
 
 Do not assume a production runtime secret should be copied into GitHub. In particular,
 the current deployment workflow intentionally does not synchronize live Stripe runtime
-secrets from GitHub to Supabase. Follow `ENV_INVENTORY.md` and the workflow comments.
+secrets from GitHub to Supabase. Follow `product_release/OPERATIONS_AND_SECURITY.md` and the workflow comments.
 
 If GitHub access or a workflow is unavailable, confirm the repository documentation,
 workflow filename, authentication state, and required secret/variable names before
@@ -481,8 +481,7 @@ home; do not guess based on a familiar legacy filename.
   `product_release/RELEASE_STATUS.md`.
 - Stable product promises belong in the current product-requirements authority.
 - Architecture invariants and ADRs belong in the current architecture authority.
-- Environment and secret ownership belongs in `product_release/ENV_INVENTORY.md` until
-  consolidated into `OPERATIONS_AND_SECURITY.md`.
+- Environment and secret ownership belongs in `product_release/OPERATIONS_AND_SECURITY.md`.
 - Temporary implementation plans belong in issues and PR descriptions, not permanent
   documentation.
 - Archived and evidence documents retain provenance but must not be revived as current

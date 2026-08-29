@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for system structure, boundaries, persistence & retention, and authority ADRs)
 **Owner:** Engineering (relativityE)
-**Last Reviewed:** 2026-07-28
-**Last Verified:** 2026-07-28 — consolidated from approved sources (`ARCHITECTURE.operational.md`, `CODEBASE_MAP.md`) and cross-checked against the cited `frontend/` and `backend/` code paths. No volatile run IDs or SHAs are carried here — release posture lives in `RELEASE_STATUS.md`.
+**Last Reviewed:** 2026-08-29
+**Last Verified:** 2026-08-29 — reconciled to `complete_session_v2`, the server-owned `transcript_state`, newest-two retention, and the current content-free `PracticeSession` read model. No volatile run IDs or SHAs are carried here — release posture lives in `RELEASE_STATUS.md`.
 **Applies To:** The SpeakSharp beta platform — the React/Vite SPA, the Supabase persistence + Edge Function layer, and the CI/release machinery that ships them.
 **Class:** Architecture invariant / ADR.
 **Authority:** The source for system context, component boundaries and ownership, trust/data-flow, persistence & retention boundaries, identity & session lifecycle, the engine identity/provenance contract, requested-mode vs normalized-capability separation, failure/fail-closed boundaries, the release-identity mechanism, and the authoritative-source ADRs (entitlement, retention).
@@ -47,7 +47,7 @@ Each capability has exactly one owning component, so behavior cannot silently di
 | :--- | :--- | :--- |
 | Billing limits / quota | Postgres migration schema + `check-usage-limit` RPC | frontend constants / pre-checks |
 | Transcript state (in-session) | `useSessionStore` / same-session client memory | component local state |
-| Saved session history | Supabase `sessions` row (transcript, duration, counts, filler/pause metrics, AI suggestions, engine/mode fields) | ephemeral UI-only metrics |
+| Saved session history | Supabase `sessions` row: metrics, structured next action, producer identity and — while `transcript_state = available` — the retained transcript | ephemeral UI-only metrics; removed legacy content fields |
 | Issue / feedback reports | Supabase `user_issue_reports` (insert via `issueReportService.ts`) | PostHog capture / Sentry event id |
 | Session lifecycle | the transcription FSM state | browser mount/unmount events |
 | Telemetry / observability | — (never a persistence truth) | PostHog capture, Sentry events |
@@ -63,8 +63,8 @@ Each capability has exactly one owning component, so behavior cannot silently di
 ## 5. Transcript & audio storage & retention boundaries
 
 - **Private STT audio never leaves the browser.** Private transcription runs on-device (Transformers.js, same-origin worker/model assets); raw audio is not uploaded.
-- **Final transcript text MAY be persisted** as part of the finalized session snapshot (the `sessions` row) so returning-user coaching, AI-feedback caching, PDF regeneration, WER-ready validation, and session comparison have a stable source of truth. Transcripts are **append-only and monotonic** — segments are ordered by absolute timestamp and never overwritten by late partials.
-- **Retention boundary (ADR-2):** persisted session snapshots and issue reports are stored in Supabase under RLS; on-device Private audio is transient and never persisted server-side; CI UX screenshots are ephemeral (`retention-days: 1`). This does **not** approve indefinite transcript retention or set a deletion SLA — **retention duration, user deletion, and account-deletion policy remain unresolved** and require Product Owner approval (→ the enterprise/operations contracts). Any change to what is persisted is an architectural decision recorded here.
+- **Final transcript text is persisted only for the two newest transcript-bearing saved sessions per user.** `complete_session_v2` writes the final transcript and invokes the evidence-gated `newest_two_v1` retention coordinator. Older transcript text expires; derived metrics and the structured next action remain. The server-owned `transcript_state` (`available | expired | not_captured`) is the only authority for the distinction — clients never infer expiry from an empty string.
+- **Retention boundary (ADR-2):** persisted session snapshots and issue reports are stored in Supabase under RLS; on-device Private audio is transient and never persisted server-side; CI UX screenshots are ephemeral (`retention-days: 1`). Transcript-derived `ai_suggestions` age out with transcript expiry and are absent from the current `PracticeSession` read model. The newest-two policy does not replace account deletion: user/account deletion and the zero-residue contract still apply independently. Any change to what is persisted is an architectural decision recorded here.
 
 ## 6. Identity & session lifecycle
 
@@ -134,7 +134,7 @@ There is **no `version.json` endpoint** and no `__BUILD_ID__` JS define (removed
   - Final transcript / session data MAY persist in `sessions` under RLS (see §5).
   - Raw Private audio remains on-device and is **never uploaded or persisted server-side**.
   - CI UX screenshots remain ephemeral (1-day retention).
-  - This ADR does **not** approve indefinite transcript retention or establish a deletion SLA. **Retention duration, user deletion, and account-deletion requirements remain unresolved policy** for the appropriate enterprise/operations contracts and require Product Owner approval.
+  - This ADR does **not** approve indefinite transcript retention: the active policy is `newest_two_v1`. Account deletion and zero-residue obligations remain separate and binding; retention convergence is not a substitute for deletion.
 - **ADR-3 — Persistence vs observability.** Supabase is the sole persistence truth; PostHog/Sentry are never a durable-write guarantee (§3).
 - **ADR-4 — Private-only producer.** Private is the only customer STT producer. There is no customer engine selector or silent fallback; the internal Native hook remains isolated to deterministic E2E, and producer provenance is truthful (§8).
 

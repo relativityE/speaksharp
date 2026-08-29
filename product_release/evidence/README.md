@@ -1,38 +1,29 @@
 # Release Evidence Index
 
-> **HISTORICAL EVIDENCE.** Dated artifacts here are point-in-time proofs; they are not current release truth. Commit SHAs recorded before **2026-07-15** predate the attribution history sanitation — map old→new via `../attribution-sanitation-crosswalk.md`. Historical PostHog `release_sha` values also retain the old SHAs by design.
+> **HISTORICAL EVIDENCE.** Dated artifacts here are point-in-time proofs; they are not current release truth. Commit SHAs recorded before **2026-07-15** predate the attribution history sanitation — map old→new via `retained/attribution-sanitation-crosswalk.md`. Historical PostHog `release_sha` values also retain the old SHAs by design.
 
-This directory stores dated release-proof artifacts and historical STT/UX reports.
-It is an evidence archive, not the current coordination board.
+This directory stores dated release-proof artifacts. It is retained evidence, not the current coordination board and not the disposable `product_release/archive/` tree.
 
-## Current Truth Source
+## Current truth sources
 
-- Exhaustive backlog: `product_release/BACKLOG.md`
-- Active work subset: `product_release/ACTIVE_COORDINATION.md` (tracked SSOT)
-- Current release verdicts should point at the newest validated artifact and the
-  commit SHA under test.
+- Current release verdict: `product_release/RELEASE_STATUS.md`.
+- Open and deferred work: `product_release/ROADMAP.md`.
+- STT interpretation: `product_release/STT.md`.
+- Evidence locations: `product_release/EVIDENCE_INDEX.md`.
 
 ## Evidence Rules
 
 - Dated JSON/Markdown files are retained as audit trail.
-- Older reports may contain superseded conclusions; do not treat them as current
-  release policy without checking `BACKLOG.md`.
-- `test_reports/` files are historical running reports. They are useful for
-  root-cause archaeology, but not authoritative after newer proof exists.
+- Older reports may contain superseded conclusions; do not treat them as current release policy without checking the owning canonical document.
+- STT model evaluations, raw benchmark data, protocols, and down-selection history live under `stt/`; they must not be moved to or depend on `archive/`.
 - `*.latest.json` and `*.latest.md` names are rolling snapshots. They are not
   stable proof references unless copied to a dated artifact.
 - Any STT proof from mock auth, `localhost:5173`, bad fixtures, or wrong CDP tab
   is invalid for release evidence unless explicitly labeled mocked diagnostic.
 
-## Inventory Snapshot
+## Durable sub-indexes
 
-As of 2026-06-08:
+- [`stt/README.md`](./stt/README.md): permanent STT model-evaluation and benchmark history.
+- [`retained/`](./retained/): dated launch, entitlement, closeout, and security proof retained after canonical consolidation.
 
-- Tracked evidence files: 25
-- Disk footprint: approximately 460 KB
-- `test_reports/`: 4 historical Markdown reports
-- Ignored local debris observed: `.DS_Store`
-
-This folder is not a repository-size blocker. The release risk is stale or
-contradictory interpretation, so new findings should update the backlog rather
-than rewriting historical evidence.
+The release risk is stale or contradictory interpretation, so new findings update the owning canonical document and append evidence; they do not rewrite historical results.

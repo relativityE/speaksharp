@@ -1,8 +1,7 @@
 // Documentation-contract test for the product_release/ canonical documentation system.
 // Runs under `pnpm test:unit` (the CI - Test Audit gate). Deterministic; reads only committed files.
-// Central purpose: PROVE the section-level extraction coverage claimed by DOC_MIGRATION_LEDGER.md,
-// so later consolidation PRs cannot silently drop content. Also validates the disposition and
-// source-file-state vocabularies, and header-scoped metadata.
+// Central purpose: prove the closed canonical documentation surface and preserve the historical
+// section-level extraction record without leaving superseded sources in the active root.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -13,7 +12,7 @@ const DOCS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../p
 const read = (rel: string) => fs.readFileSync(path.join(DOCS, rel), 'utf8');
 
 const README = read('README.md');
-const LEDGER = read('DOC_MIGRATION_LEDGER.md');
+const LEDGER = read('archive/superseded-docs-2026-08-29/DOC_MIGRATION_LEDGER.md');
 const STATUS = read('RELEASE_STATUS.md');
 const PRODUCT_REQUIREMENTS = read('PRODUCT_REQUIREMENTS.md'); // canonical #2 (#1038)
 const ARCHITECTURE = read('ARCHITECTURE.md'); // canonical #4 (#1039)
@@ -53,34 +52,34 @@ const SOURCES: Array<{ label: string; path: string; key: string }> = [
   { label: 'hist ROADMAP', path: 'archive/legacy-docs/d31102a8/ROADMAP.md', key: 'd31102a8/ROADMAP.md' },
   { label: 'CHANGELOG', path: 'archive/legacy-docs/d31102a8/CHANGELOG.md', key: 'd31102a8/CHANGELOG.md' },
   // current
-  { label: 'PRECEDENCE.md', path: 'PRECEDENCE.md', key: '`PRECEDENCE.md`' },
-  { label: 'PRD.operational', path: 'PRD.operational.md', key: '`PRD.operational.md`' },
-  { label: 'PRODUCT_FEATURES', path: 'PRODUCT_FEATURES.operational.md', key: '`PRODUCT_FEATURES.operational.md`' },
-  { label: 'SESSION_PROGRESS', path: 'SPEAKSHARP_SESSION_PROGRESS.operational.md', key: '`SPEAKSHARP_SESSION_PROGRESS.operational.md`' },
-  { label: 'ARCHITECTURE.operational', path: 'ARCHITECTURE.operational.md', key: '`ARCHITECTURE.operational.md`' },
-  { label: 'CODEBASE_MAP.md', path: 'CODEBASE_MAP.md', key: '`CODEBASE_MAP.md`' },
-  { label: 'STT_BASELINE', path: 'STT_BASELINE_CONTRACTS.operational.md', key: '`STT_BASELINE_CONTRACTS.operational.md`' },
-  { label: 'ACCURACY_LEVERS', path: 'PRIVATE_STT_ACCURACY_LEVERS.md', key: '`PRIVATE_STT_ACCURACY_LEVERS.md`' },
-  { label: 'perf-proof', path: 'stt-perf-proof-protocol.md', key: '`stt-perf-proof-protocol.md`' },
-  { label: 'SOFTWARE_QUALITY', path: 'SOFTWARE_QUALITY.operational.md', key: '`SOFTWARE_QUALITY.operational.md`' },
-  { label: 'QUALITY_METRICS', path: 'QUALITY_METRICS.md', key: '`QUALITY_METRICS.md`' },
-  { label: 'SERVICE_LEVELS', path: 'SERVICE_LEVELS.operational.md', key: '`SERVICE_LEVELS.operational.md`' },
-  { label: 'RC_GATES', path: 'RC_GATES.md', key: '`RC_GATES.md`' },
-  { label: 'RC_TEST_INVENTORY', path: 'RC_TEST_INVENTORY.md', key: '`RC_TEST_INVENTORY.md`' },
-  { label: 'RELEASE_RECOVERY', path: 'RELEASE_RECOVERY.md', key: '`RELEASE_RECOVERY.md`' },
-  { label: 'RELEASE_CLOSEOUT', path: 'RELEASE_CLOSEOUT_LEDGER.md', key: '`RELEASE_CLOSEOUT_LEDGER.md`' },
-  { label: 'BACKLOG', path: 'BACKLOG.md', key: 'BACKLOG · ' },
-  { label: 'LAUNCH_ENV', path: 'LAUNCH_ENV_CHECKLIST.md', key: '`LAUNCH_ENV_CHECKLIST.md`' },
-  { label: 'ENV_INVENTORY', path: 'ENV_INVENTORY.md', key: '`ENV_INVENTORY.md`' },
-  { label: 'SECRET_ROTATION', path: 'SECRET_ROTATION_RUNBOOK.md', key: '`SECRET_ROTATION_RUNBOOK.md`' },
-  { label: 'PAID_OPS', path: 'PAID_OPS_HARDENING_RUNBOOK.md', key: '`PAID_OPS_HARDENING_RUNBOOK.md`' },
-  { label: 'OPS_HEALTH', path: 'OPS_HEALTH_DASHBOARD.md', key: '`OPS_HEALTH_DASHBOARD.md`' },
-  { label: 'SCA_EXCEPTIONS', path: 'SCA_EXCEPTIONS.md', key: '`SCA_EXCEPTIONS.md`' },
-  { label: 'INTERNAL_TEST', path: 'INTERNAL_TEST_PROTOCOL.md', key: '`INTERNAL_TEST_PROTOCOL.md`' },
-  { label: 'MANUAL_HARDWARE', path: 'MANUAL_HARDWARE_VALIDATION.md', key: '`MANUAL_HARDWARE_VALIDATION.md`' },
-  { label: 'TESTER_INSTRUCTIONS', path: 'SOFT_RELEASE_TESTER_INSTRUCTIONS.md', key: '`SOFT_RELEASE_TESTER_INSTRUCTIONS.md`' },
-  { label: 'PUBLIC_LAUNCH', path: 'PUBLIC_LAUNCH_LEDGER.md', key: '`PUBLIC_LAUNCH_LEDGER.md`' },
-  { label: 'ENTITLEMENT_EVIDENCE', path: 'ENTITLEMENT_PRO_LIMIT_EVIDENCE.md', key: '`ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`' },
+  { label: 'PRECEDENCE.md', path: 'archive/superseded-docs-2026-08-29/PRECEDENCE.md', key: '`PRECEDENCE.md`' },
+  { label: 'PRD.operational', path: 'archive/superseded-docs-2026-08-29/PRD.operational.md', key: '`PRD.operational.md`' },
+  { label: 'PRODUCT_FEATURES', path: 'archive/superseded-docs-2026-08-29/PRODUCT_FEATURES.operational.md', key: '`PRODUCT_FEATURES.operational.md`' },
+  { label: 'SESSION_PROGRESS', path: 'archive/superseded-docs-2026-08-29/SPEAKSHARP_SESSION_PROGRESS.operational.md', key: '`SPEAKSHARP_SESSION_PROGRESS.operational.md`' },
+  { label: 'ARCHITECTURE.operational', path: 'archive/superseded-docs-2026-08-29/ARCHITECTURE.operational.md', key: '`ARCHITECTURE.operational.md`' },
+  { label: 'CODEBASE_MAP.md', path: 'archive/superseded-docs-2026-08-29/CODEBASE_MAP.md', key: '`CODEBASE_MAP.md`' },
+  { label: 'STT_BASELINE', path: 'evidence/stt/retained-contracts/STT_BASELINE_CONTRACTS.operational.md', key: '`STT_BASELINE_CONTRACTS.operational.md`' },
+  { label: 'ACCURACY_LEVERS', path: 'evidence/stt/retained-contracts/PRIVATE_STT_ACCURACY_LEVERS.md', key: '`PRIVATE_STT_ACCURACY_LEVERS.md`' },
+  { label: 'perf-proof', path: 'evidence/stt/retained-contracts/stt-perf-proof-protocol.md', key: '`stt-perf-proof-protocol.md`' },
+  { label: 'SOFTWARE_QUALITY', path: 'archive/superseded-docs-2026-08-29/SOFTWARE_QUALITY.operational.md', key: '`SOFTWARE_QUALITY.operational.md`' },
+  { label: 'QUALITY_METRICS', path: 'archive/superseded-docs-2026-08-29/QUALITY_METRICS.md', key: '`QUALITY_METRICS.md`' },
+  { label: 'SERVICE_LEVELS', path: 'archive/superseded-docs-2026-08-29/SERVICE_LEVELS.operational.md', key: '`SERVICE_LEVELS.operational.md`' },
+  { label: 'RC_GATES', path: 'archive/superseded-docs-2026-08-29/RC_GATES.md', key: '`RC_GATES.md`' },
+  { label: 'RC_TEST_INVENTORY', path: 'archive/superseded-docs-2026-08-29/RC_TEST_INVENTORY.md', key: '`RC_TEST_INVENTORY.md`' },
+  { label: 'RELEASE_RECOVERY', path: 'archive/superseded-docs-2026-08-29/RELEASE_RECOVERY.md', key: '`RELEASE_RECOVERY.md`' },
+  { label: 'RELEASE_CLOSEOUT', path: 'evidence/retained/RELEASE_CLOSEOUT_LEDGER.md', key: '`RELEASE_CLOSEOUT_LEDGER.md`' },
+  { label: 'BACKLOG', path: 'archive/superseded-docs-2026-08-29/BACKLOG.md', key: 'BACKLOG · ' },
+  { label: 'LAUNCH_ENV', path: 'archive/superseded-docs-2026-08-29/LAUNCH_ENV_CHECKLIST.md', key: '`LAUNCH_ENV_CHECKLIST.md`' },
+  { label: 'ENV_INVENTORY', path: 'archive/superseded-docs-2026-08-29/ENV_INVENTORY.md', key: '`ENV_INVENTORY.md`' },
+  { label: 'SECRET_ROTATION', path: 'archive/superseded-docs-2026-08-29/SECRET_ROTATION_RUNBOOK.md', key: '`SECRET_ROTATION_RUNBOOK.md`' },
+  { label: 'PAID_OPS', path: 'archive/superseded-docs-2026-08-29/PAID_OPS_HARDENING_RUNBOOK.md', key: '`PAID_OPS_HARDENING_RUNBOOK.md`' },
+  { label: 'OPS_HEALTH', path: 'archive/superseded-docs-2026-08-29/OPS_HEALTH_DASHBOARD.md', key: '`OPS_HEALTH_DASHBOARD.md`' },
+  { label: 'SCA_EXCEPTIONS', path: 'archive/superseded-docs-2026-08-29/SCA_EXCEPTIONS.md', key: '`SCA_EXCEPTIONS.md`' },
+  { label: 'INTERNAL_TEST', path: 'archive/superseded-docs-2026-08-29/INTERNAL_TEST_PROTOCOL.md', key: '`INTERNAL_TEST_PROTOCOL.md`' },
+  { label: 'MANUAL_HARDWARE', path: 'archive/superseded-docs-2026-08-29/MANUAL_HARDWARE_VALIDATION.md', key: '`MANUAL_HARDWARE_VALIDATION.md`' },
+  { label: 'TESTER_INSTRUCTIONS', path: 'archive/superseded-docs-2026-08-29/SOFT_RELEASE_TESTER_INSTRUCTIONS.md', key: '`SOFT_RELEASE_TESTER_INSTRUCTIONS.md`' },
+  { label: 'PUBLIC_LAUNCH', path: 'evidence/retained/PUBLIC_LAUNCH_LEDGER.md', key: '`PUBLIC_LAUNCH_LEDGER.md`' },
+  { label: 'ENTITLEMENT_EVIDENCE', path: 'evidence/retained/ENTITLEMENT_PRO_LIMIT_EVIDENCE.md', key: '`ENTITLEMENT_PRO_LIMIT_EVIDENCE.md`' },
 ];
 
 // Explicit, heading-level allowlist for intentionally grouped / provenance-only headings, WITH a reason.
@@ -375,6 +374,17 @@ describe('documentation contract — product_release/', () => {
   it('closeout arithmetic proves exactly 14 root files', () => {
     expect(LEDGER).toMatch(/2 retained \+ 12 new = \*\*14\*\*/);
   });
+
+  it('closeout is real: the active product_release root contains exactly the canonical 14', () => {
+    const active = fs.readdirSync(DOCS)
+      .filter((name) => name.endsWith('.md'))
+      .sort();
+    expect(active).toEqual([...CANONICAL_14].sort());
+    for (const retired of ['ACTIVE_COORDINATION.md', 'BACKLOG.md', 'RC_GATES.md',
+      'RC_TEST_INVENTORY.md', 'content_list.md', 'PRECEDENCE.md']) {
+      expect(active, `${retired} is still masquerading as an active root document`).not.toContain(retired);
+    }
+  });
 });
 
 /**
@@ -405,14 +415,14 @@ function currencyBlock(markdown: string): Record<string, string> {
   return fields;
 }
 
-describe('#1258 currency guard — the two agent-starting SSOTs must not contradict reality', () => {
-  const COORDINATION = read('ACTIVE_COORDINATION.md');
+describe('#1258 currency guard — release status and roadmap must not contradict reality', () => {
+  const COORDINATION = read('ROADMAP.md');
   const status = currencyBlock(STATUS);
   const coordination = currencyBlock(COORDINATION);
 
   it('both SSOTs carry a currency block', () => {
     expect(Object.keys(status).length, 'RELEASE_STATUS has no CURRENCY-BLOCK').toBeGreaterThan(5);
-    expect(Object.keys(coordination).length, 'ACTIVE_COORDINATION has no CURRENCY-BLOCK').toBeGreaterThan(5);
+    expect(Object.keys(coordination).length, 'ROADMAP has no CURRENCY-BLOCK').toBeGreaterThan(5);
   });
 
   it('they agree on the baseline and the deployed release', () => {
@@ -502,8 +512,9 @@ describe('#1258 currency guard — the two agent-starting SSOTs must not contrad
     // record a runtime bug as a model verdict.
     expect(COORDINATION).toMatch(/onnxruntime-web/);
     expect(COORDINATION).toMatch(/28306|28326/);
-    expect(COORDINATION).toMatch(/425/);
+    expect(COORDINATION).toMatch(/459/);
     expect(COORDINATION).toMatch(/600/);
+    expect(COORDINATION).not.toMatch(/600-word/i);
   });
 
   it('every parallel MVP lane has a recorded state, so none silently idles', () => {
@@ -535,11 +546,33 @@ describe('#1258 currency guard — the two agent-starting SSOTs must not contrad
 
   it('no historical evidence report titles itself "Current"', () => {
     // Three did, directly above their own historical banners.
-    const reports = path.join(DOCS, 'evidence', 'test_reports');
+    const reports = path.join(DOCS, 'evidence', 'stt', 'reports');
     for (const entry of fs.readdirSync(reports).filter((f) => f.endsWith('.md'))) {
       const title = fs.readFileSync(path.join(reports, entry), 'utf8').split('\n')[0];
       expect(title, `${entry} titles itself Current`).not.toMatch(/—\s*Current\s*$/);
     }
+  });
+
+  it('keeps permanent STT model evidence outside the disposable archive', () => {
+    const sttRoot = path.join(DOCS, 'evidence', 'stt');
+    expect(fs.existsSync(path.join(sttRoot, 'README.md'))).toBe(true);
+    expect(fs.existsSync(path.join(sttRoot, 'reports', 'stt_product_metrics_release_matrix_2026-06-02.json'))).toBe(true);
+    expect(fs.existsSync(path.join(sttRoot, 'retained-contracts', 'STT_BASELINE_CONTRACTS.operational.md'))).toBe(true);
+
+    const archive = path.join(DOCS, 'archive');
+    const misplaced: string[] = [];
+    const walk = (dir: string) => {
+      if (!fs.existsSync(dir)) return;
+      for (const entry of fs.readdirSync(dir)) {
+        const full = path.join(dir, entry);
+        if (fs.statSync(full).isDirectory()) { walk(full); continue; }
+        if (/(stt|whisper|speech[-_ ]?to[-_ ]?text).*(benchmark|accuracy|model|evidence|proof|audit)|(benchmark|accuracy).*(stt|whisper)/i.test(entry)) {
+          misplaced.push(path.relative(DOCS, full));
+        }
+      }
+    };
+    walk(archive);
+    expect(misplaced, `STT evaluation artifacts must not live in archive: ${misplaced.join(', ')}`).toEqual([]);
   });
 
   it('a fallback is defined by dependability, not by second-best WER', () => {

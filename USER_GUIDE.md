@@ -35,7 +35,7 @@ unavailable checkout never grants access.
 ## Privacy
 
 Customer recordings use on-device Private transcription. Audio is not sent to a transcription provider.
-Saved transcripts and derived practice metrics follow the retention terms described in the Privacy Policy.
+Transcript text is retained for the two newest transcript-bearing saved sessions; older transcript text expires while derived practice metrics and the structured next action remain. Some optional later features may process saved text on a server. On-device transcription does not mean every downstream text operation is local.
 
 ## Recording tips
 

@@ -4,7 +4,7 @@
 > This report records what was measured on its own date. It is **not** rewritten to look current, and it
 > must not be: a measurement edited to match today's posture stops being evidence of anything.
 > Current release posture: [`RELEASE_STATUS.md`](../RELEASE_STATUS.md). Current work sequencing:
-> [`ACTIVE_COORDINATION.md`](../ACTIVE_COORDINATION.md).
+> [`ROADMAP.md`](../ROADMAP.md).
 > STT model selection is **not complete** — no Private model has been chosen; any model ranking below
 > predates the #1304 certified harness and its frozen corpus.
 

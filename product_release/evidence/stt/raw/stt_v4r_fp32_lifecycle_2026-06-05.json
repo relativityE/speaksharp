@@ -1,0 +1,45 @@
+{
+  "id": "stt-v4r-fp32-lifecycle-703d845d",
+  "branch": "dev/v4-recovery@703d845d snapshot",
+  "url": "http://localhost:5174/v4-decode-probe.html?wav=%2F%40fs%2Fprivate%2Ftmp%2Fspeaksharp-v4-703d845d%2Ftests%2Ffixtures%2Fstt-isomorphic%2Faudio%2Fh1_6.wav&encoder=fp32&decoder=fp32&device=wasm&threads=1&proxy=0",
+  "elapsedMs": 4650,
+  "result": {
+    "ok": false,
+    "modelId": "onnx-community/whisper-tiny.en",
+    "transformersVersion": "",
+    "onnxRuntimeVersion": "",
+    "backend": "wasm",
+    "encoderDtype": "fp32",
+    "decoderDtype": "fp32",
+    "proxy": false,
+    "threads": 1,
+    "ortVersionRequested": "1.26.0",
+    "error": "Error: invalid data location: undefined for input \"a\"",
+    "modelFilesLoaded": [
+      "config.json",
+      "preprocessor_config.json",
+      "tokenizer.json",
+      "tokenizer_config.json",
+      "onnx/encoder_model.onnx",
+      "onnx/decoder_model_merged.onnx",
+      "generation_config.json"
+    ]
+  },
+  "error": null,
+  "logs": [
+    {
+      "type": "debug",
+      "text": "[vite] connecting..."
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected."
+    },
+    {
+      "type": "warning",
+      "text": "No available adapters."
+    }
+  ],
+  "body": "Private v4 Decode Probe\n\nStandalone @huggingface/transformers (v4) + onnx-community Whisper browser decode test. NO SpeakSharp app code (no session, controller, store, save, analytics). First milestone: decode ONE WAV to a non-empty transcript, or capture the exact failure.\n\nParams: ?wav=<url>&encoder=fp32&decoder=q4&device=wasm&model=onnx-community/whisper-tiny.en\nMatrix: encoder ∈ {fp32,q8} · decoder ∈ {q8,q4} · device ∈ {wasm,webgpu}. Start with wasm + q8 decoder.\n\nOr pick a local WAV: \n\n❌ DECODE FAILED: Error: invalid data location: undefined for input \"a\"\nResult (also on window.__V4_PROBE_RESULT__)\n{\n  \"ok\": false,\n  \"modelId\": \"onnx-community/whisper-tiny.en\",\n  \"transformersVersion\": \"\",\n  \"onnxRuntimeVersion\": \"\",\n  \"backend\": \"wasm\",\n  \"encoderDtype\": \"fp32\",\n  \"decoderDtype\": \"fp32\",\n  \"proxy\": false,\n  \"threads\": 1,\n  \"ortVersionRequested\": \"1.26.0\",\n  \"error\": \"Error: invalid data location: undefined for input \\\"a\\\"\",\n  \"modelFilesLoaded\": [\n    \"config.json\",\n    \"preprocessor_config.json\",\n    \"tokenizer.json\",\n    \"tokenizer_config.json\",\n    \"onnx/encoder_model.onnx\",\n    \"onnx/decoder_model_merged.onnx\",\n    \"generation_config.json\"\n  ]\n}",
+  "verdict": "FAIL_NO_NON_EMPTY_TRANSCRIPT"
+}

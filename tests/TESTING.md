@@ -4,7 +4,7 @@
 > The authoritative testing strategy, mock hierarchy, and decision tree have been centralized in the main architecture documentation.
 
 Please refer to:
-👉 **[docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md#3-testing-strategy--governance)**
+👉 **[product_release/QUALITY.md](../product_release/QUALITY.md)**
 
 ## Summary of Strategy
 

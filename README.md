@@ -1,54 +1,20 @@
-**Owner:** [unassigned]
-**Last Reviewed:** 2026-05-06
+**Owner:** Engineering
+**Last Reviewed:** 2026-08-29
 
 # SpeakSharp
 
-- **Phase 8: SpeechRuntime Stabilization (v0.6.18):** **Deterministic Engine Signaling**.
-    - **Token-First warmUp Pattern**: Implemented safe, enqueued re-initialization in `SpeechRuntimeController.updatePolicy` to eliminate race conditions during tier-switch hydration.
-    - **MockEngine Signaling Hardening**: Explicitly triggered connection status events in `MockEngine` to satisfy E2E signal chains.
-    - **FSM Transition Expansion**: Allow `RESET_REQUESTED` from all active/idle states to ensure deterministic recovery.
-    - **Test Precedence Sync**: Aligned all test assertions with v0.6.0 Negotiator precedence logic (User Preference > Policy Default).
-
-SpeakSharp is an AI-powered speech coaching application that helps users improve their public speaking skills. It provides real-time feedback on filler words, speaking pace, and more.
+SpeakSharp is a private speaking-practice application. Customer speech-to-text runs on-device; the saved Practice Loop provides concise feedback, one next action and comparable personal progress.
 
 ### 🎙️ Core Features
 
--   **Private-only transcription:** Every customer recording uses on-device Private STT. Open Mic is
-    primary and Focus Points is optional guidance. Native exists only as an internal deterministic E2E hook.
+-   **Private-only transcription:** Every customer recording uses on-device Private STT. Audio used for STT is not uploaded to a transcription provider. Saved transcript text and later server-side text features follow the narrower contracts in `product_release/PRODUCT_REQUIREMENTS.md` and `product_release/ARCHITECTURE.md`.
 -   **One complete product:** The complete Practice Loop is free for 30 days, then $10/month for the same
     product. There are no accumulated daily or monthly recording-minute gates. Each recording retains a
     ten-minute technical cap.
--   **Advanced Vocal Analytics:**
-    -   **Adaptive Noise Floor:** Intelligently filters background noise to provide precision pause detection.
-    -   **Rolling WPM:** Smooth, 15-second rolling window for real-time speaking pace feedback.
-    -   **Optimal Pace Targeting:** Real-time guidance toward the 130-150 WPM professional standard.
--   **Session History & Insights:** 
-    -   Interactive dashboards with streak tracking.
-    -   AI-powered speaking tips and clarity scores.
-    -   Detailed PDF report export for every session.
--   **Production Grade:** Full Sentry monitoring, PostHog product analytics, and Stripe payment integration.
--   **Integration & Metering Hardening (Mar 2026):** **3-PR Integration Baseline**.
-    -   **SQL Extraction (PR #732):** Atomic session creation and hardened usage metering in the database layer.
-    -   **Tier Limits (PR #731):** Dynamic `tier_configs` enforcement with strict concurrency protection.
-    -   **3-Layer Runtime (PR #729):** Resilient STT hierarchy (WebGPU -> WASM -> Native) with model loading progress.
-    -   **Zero-Debt Audit:** 100% pass rate in Vitest (Unit) and Playwright (E2E) suites.
--   **Zero-Debt & Scalability Hardening (Feb 2026):** **"Zero-Debt" & Scalability Baseline**.
-    -   **O(1) Live Analytics:** Infinite-duration sessions supported via incremental observer pattern.
-    -   **NLP Caching:** 500x faster re-renders for multi-speaker dialog via LRU document cache.
-    -   **Atomic Consistency:** Restored row-locking prevents usage limit bypass under high concurrency.
-    - **Concurrent PDF Parsing (PR #735):** ~90% reduction in extraction latency via `Promise.all` orchestration.
-- **v0.6.0 Finalization (Apr 2026):** **Deterministic Bridge Baseline**.
-    - **T=0 Bridge Reset:** Mandatory reset of bridge signals on page load to eliminate "Bridge Drift."
-    - **isEngineInitialized Signal:** Verified unambiguous engine-level synchronization for flake-free E2E runs.
-    - **Zero-Regress Audit:** Achieved 100% deterministic green status for the Infrastructure Probe.
-- **Mar 2026 Stabilization Audit (v0.6.0):** **High-Fidelity Contract Baseline**.
-    - **Deterministic STT Infrastructure:** Achieved 100% contract compliance via `STTEngine` unification.
-    - **Environment Bridge (Strangler Pattern):** Centralized environmental logic in `TestFlags.ts` with logic-free projection in `env.ts`.
-    - **Industrial Alias Resolution:** Synchronized Vitest with `tsconfig.json` paths via `vite-tsconfig-paths`.
-    - **Monotonic Readiness:** Replaced `networkidle` with explicit `data-route-ready` DOM signals.
-    - **Strict Zero Manifest:** Implemented `window.__SS_E2E__` as the synchronous source of truth for all environment flags.
-    - **Telemetry Decoupling:** Implemented `AnalyticsBuffer` (Queue + Flush) for non-blocking boot performance.
-    - **Observability Hardening:** CI-blocking console error detection and global exception escalation.
+-   **Practice Loop:** Open Mic is primary; Focus Points is optional; saved review carries delivery evidence and one next action.
+-   **Personal progress:** comparisons are between eligible sessions from the same user, mode and STT cohort. A user may explicitly accept an action and see the directional outcome of the linked repeat.
+-   **Bounded retention:** transcript text is retained for the two newest transcript-bearing sessions; older text expires while derived metrics remain.
+-   **Fail-closed commercial path:** the product contract is 30 days then $10/month, but payments remain disabled until separately qualified and authorized.
 
 ---
 
@@ -61,9 +27,9 @@ SpeakSharp is an AI-powered speech coaching application that helps users improve
 
 ## 🗺️ Documentation Map
 
-Before diving deeper, read [docs/OUTLINE.md](./docs/OUTLINE.md) for the documentation map.
+Before diving deeper, read the [product-release documentation portal](./product_release/README.md).
 
-Current release posture, blockers, and latest workflow evidence live in [product_release/RELEASE_STATUS.md](./product_release/RELEASE_STATUS.md). The release-doc inventory and archive pointers live in [product_release/content_list.md](./product_release/content_list.md).
+Current release posture, blockers, and latest workflow evidence live in [product_release/RELEASE_STATUS.md](./product_release/RELEASE_STATUS.md). The canonical document map and archive pointers live in [product_release/README.md](./product_release/README.md).
 
 ## Project Structure
 
@@ -314,18 +280,7 @@ The same gates are available as a manual GitHub workflow: **Release Candidate Ga
 
 ### Software Quality Metrics (SQM)
 
-This section provides an up-to-date snapshot of the project's software quality. Local runs print SQM to the console; GitHub CI owns the automated PRD metrics update.
-
-Current release evidence lives in `product_release/` and GitHub Actions run artifacts. Do not treat old README timing/count snapshots as release proof.
-
-**Lighthouse Scores** (2026-05-06 local audit):
-- **Performance:** 87-90%
-- **Accessibility:** 100%
-- **Best Practices:** 78%
-- **SEO:** 91%
-- **Policy:** Lighthouse runs locally and in GitHub, but its threshold policy still needs final release tuning because Performance varies around the current 90% target.
-
-For detailed test metrics, coverage, and E2E results, see the latest [PRD.md Software Quality Metrics](./docs/PRD.md#software-quality-metrics-sqm) section.
+Current quality evidence lives in CI artifacts and dated reports indexed by `product_release/EVIDENCE_INDEX.md`. Do not copy volatile test counts, coverage percentages or Lighthouse snapshots into this README. For the quality-evidence taxonomy, targets and release-test interpretation, see [product_release/QUALITY.md](./product_release/QUALITY.md).
 
 ### Live, Deploy, Soak, And Ops
 

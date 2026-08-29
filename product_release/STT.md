@@ -1,13 +1,13 @@
 **Status:** Authoritative (SSOT for STT runtime and data contracts, baselines, accuracy, and SLOs)
 **Owner:** Engineering / Product Owner (relativityE)
-**Last Reviewed:** 2026-08-13
-**Last Verified:** 2026-08-13 — reconciled to the Product Owner-locked Private-only launch contract; release evidence remains separately gated.
+**Last Reviewed:** 2026-08-29
+**Last Verified:** 2026-08-29 — contract reconciled to the certified benchmark pipeline merged through #1368. The frozen selection run is still in progress; this document defines the evidence that must exist before a down-select may be recorded.
 **Applies To:** Customer Private STT, the internal deterministic E2E hook, and the inactive Private v4 candidate.
 **Class:** Runtime and data contract.
 **Authority:** STT audio route, lifecycle, attribution, failure behavior, metric validity, and evidence requirements.
 **Not Authoritative For:** customer product copy (→ `PRODUCT_REQUIREMENTS.md`); commercial access mechanics (→ `ENTITLEMENTS_AND_BILLING.md`); persistence and retention (→ `ARCHITECTURE.md`); deployed status (→ `RELEASE_STATUS.md`).
 **Supersedes:** Earlier Browser/Cloud customer-engine maps, sample eligibility, and multi-engine selector requirements in this file.
-**Evidence Sources:** `tests/STT_BENCHMARKS.json`; current `frontend/src/services/transcription/` implementation and tests; issue #1033 single-producer decision; #1044 v4 HOLD decision; qualification artifacts indexed by `EVIDENCE_INDEX.md`.
+**Evidence Sources:** `tests/STT_BENCHMARKS.json`; permanent model-evaluation history at [`evidence/stt/README.md`](./evidence/stt/README.md); current `frontend/src/services/transcription/` implementation and tests; issue #1033 single-producer decision; #1044 v4 HOLD decision; qualification artifacts indexed by `EVIDENCE_INDEX.md`.
 
 # SpeakSharp STT Contract
 
@@ -150,7 +150,49 @@ Until those proofs and approval exist, Private v2 remains the only customer prod
 
 ---
 
-## 9. Release gate
+## 9. Model-selection evidence history
+
+Model selection is a reproducible decision record, not a winning WER copied from a log. The three evidence sets have different jobs and must never be renamed or blended:
+
+| Evidence set | Exact identity | Permitted use |
+|---|---|---|
+| Harvard smoke | 10 clips / **85 normalized words** | Pipeline smoke and known-answer characterization only. Never selection evidence. |
+| Preflight | 23 clips / **459 normalized words** | Unseen-corpus defect discovery and candidate triage. The planning target was 425 words; 459 is what the deterministic selection produced. Never selection evidence. |
+| Frozen selection | **600 utterances / 10,894 normalized words** | Selection-grade accuracy, reliability and performance evidence when every gate below passes. This is not a “600-word test.” |
+
+The 85-word set produced a ceiling effect: several distinct models differed by only one or two errors and some scored zero, so it could not support a ranking. The 459-word set then separated the candidates and exposed corpus/runtime defects before the expensive frozen run. Only the frozen 600-utterance set may drive the down-select, using the decision policy fixed before its results existed.
+
+### Required matrix and artifacts
+
+Every proposed model/configuration has one cell in every evidence set. A cell contains metrics or a named `not_run` / `invalid` / `rejected` reason; absence is never a pass. The matrix retains scored candidates, load failures, unsupported options, aliases, diagnostic duplicates, contaminated runs and hardware-unrepresentative runs. Aliases and diagnostics remain visible but cannot enter a ranking.
+
+For each cell, retain:
+
+- model id, revision, exact asset digests, dtype/quantization, runtime and version;
+- lane, requested device, resolved/proven backend, and whether the hardware is representative;
+- corpus id, utterance count, normalized reference-word count, normalizer version and Track A/B identity;
+- pooled WER, substitutions, deletions, insertions, reference words, and all reliability counters;
+- cold load, warm-decode p50/p95, RTF p50/p95, actual downloaded bytes, and peak memory or an explicit `unmeasured`;
+- short- and long-form integrity, including truncation, preserved tail and repetition checks;
+- contamination state, selection eligibility and the named reason for any exclusion; and
+- per-utterance score/timing data sufficient to reproduce pooled totals and paired bootstrap intervals without decoding again.
+
+The evidence has four durable layers:
+
+1. immutable raw artifacts with per-utterance data and exact execution identity;
+2. a versioned registry at `tests/STT_BENCHMARKS.json` containing every matrix cell;
+3. a dated human-readable report indexed by `EVIDENCE_INDEX.md`; and
+4. the current primary/fallback product contract in this document after Product Owner approval.
+
+The dated report must distinguish the product baseline, measurement execution tree and selection-policy tree. It must explain the 85-word ceiling, the defects and requalifications found at 459 words, the complete 600-utterance results, and how paired bootstrap intervals produced a winner or a statistical tie. It reports three separate conclusions: **technical winner**, **MVP activation readiness**, and **failure-diverse fallback**. Integration convenience cannot change the technical ranking.
+
+SwiftShader proves WebGPU compatibility only; it is not hardware performance evidence. Rows from different corpora, normalizers, runtime versions or evidence classes cannot be ranked together. A contaminated timing is `unmeasured`, not slow or fast. The quiet reruns for contaminated `v2:tiny.en` and `v2:base.en` may replace performance fields only after every per-utterance score profile reconciles; any accuracy difference invalidates the replacement.
+
+Historical results are append-only. When a harness, model asset or inference runtime is later found defective, preserve the old row, mark it invalid with the reason and link the requalification. Never delete the evidence that explains why an earlier decision changed.
+
+---
+
+## 10. Release gate
 
 STT is release-qualified only when the integrated deployed merge SHA proves:
 

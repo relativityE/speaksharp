@@ -1,15 +1,13 @@
 **Status:** Authoritative (SSOT for personal session-over-session Progress and the single next practice action)
 **Owner:** Product Owner (relativityE)
 
-> **UPDATE 2026-08-09 (PO decision):** the headline comparison target changed from the **baseline (first) session** to the user's **PREVIOUS comparable session** — "±n% vs your previous session". The code (`utils/aggregateProgress.ts`, `components/session/ProgressVsBaseline.tsx`) and the user-facing FAQ already reflect this. §5/§6/§7 below still describe the earlier baseline framing (including the illustrative tables and `baseline_session_id` telemetry) and are pending a full reconcile under **#1051** (docs closeout). Where this note and the sections below disagree, **this note wins** on the comparison target. The first session still shows a no-delta starting state.
-
-**Last Reviewed:** 2026-08-08
-**Last Verified:** 2026-08-08 — §5/§6/§7 reconciled per the #1222 Product-Owner decision (2026-08-08): Progress is the **SpeakSharp Score successor** — a session-over-session improvement in a **composite clear-delivery measure**, now expressed as a **signed percentage** vs baseline (points → percentage, for defensibility). **Filler rate is one component** of that composite and is the component **v1 surfaces** (`frontend/src/utils/progressVsBaseline.ts`, session-page card `components/session/ProgressVsBaseline.tsx`, filler-evidence `validatedFillerTotal`/`sessionAnalysis.ts`); more components are added later without changing this contract. No run IDs, SHAs, or current release posture are carried here.
+**Last Reviewed:** 2026-08-29
+**Last Verified:** 2026-08-29 — the previous-comparable comparison, persisted evaluations, immutable recommendations, explicit acceptance attempts and server-derived directional outcomes are implemented and wired through the save journey and `ProgressPanel`. This proves mechanism, not customer retention or causal coaching efficacy.
 **Applies To:** Every surface that tells a user how their practice is changing over time and what to practise next — Progress, Session review, and history.
 **Class:** Product requirement / decision.
 **Authority:** The source for what Progress means, which sessions may influence it, how direction is derived and worded, the exactly-two-takeaway output contract (of which exactly one is an action), and what must never be claimed.
 **Not Authoritative For:** STT engine behaviour, accuracy, latency and attribution mechanics (→ `STT.md`); persisted schema and retention (→ `ARCHITECTURE.md`); tier / entitlement / quota gating (→ `ENTITLEMENTS_AND_BILLING.md`); general product guarantees and copy outside this loop (→ `PRODUCT_REQUIREMENTS.md`); evidence taxonomy and test protocol (→ `QUALITY.md`); current release posture, run IDs and SHAs (→ `RELEASE_STATUS.md`); dated proof artifacts and one-off audit runs (→ `EVIDENCE_INDEX.md`); open/deferred items (→ `ROADMAP.md`).
-**Not authoritative for:** current release posture, baselines or work sequencing (→ [`RELEASE_STATUS.md`](./RELEASE_STATUS.md), [`ACTIVE_COORDINATION.md`](./ACTIVE_COORDINATION.md)). This file defines the Progress CONTRACT; it deliberately carries no SHAs or run IDs, so a reader must not infer current status from its review date.
+**Not authoritative for:** current release posture, baselines or work sequencing (→ [`RELEASE_STATUS.md`](./RELEASE_STATUS.md), [`ROADMAP.md`](./ROADMAP.md)). This file defines the Progress contract; it deliberately carries no run IDs, so a reader must not infer current status from its review date.
 
 **Supersedes:** the planned canonical destination formerly named `COACHING_SCORE.md` (never created) and the Personal-Progress direction in `SPEAKSHARP_SESSION_PROGRESS.operational.md` (interim source; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` extraction mapping; the code paths cited inline; #1045 Product-Owner decisions.
@@ -95,7 +93,7 @@ Every excluded session records a deterministic exclusion reason (`too_short`, `t
 
 ## 5. The measurement
 
-**Value:** the signed **percentage** change in the user's **clear-delivery progress measure** against their **baseline**; the change against the previous comparable session is also recorded. This is the **successor to the retired SpeakSharp Score** — the same session-over-session improvement idea, now expressed as a **percentage** rather than points because a percentage is easier to explain and to defend ("+18% since your baseline"). *(Metric-unit decision: #1222, Product Owner, 2026-08-08 — points → percentage.)*
+**Value:** the signed **percentage** change in the user's **clear-delivery progress measure** against the **previous comparable session**. The first comparable session remains baseline context; it is not the headline comparison once a previous comparable session exists. This is the successor to the retired SpeakSharp Score and is expressed as a percentage rather than a universal grade.
 
 - **A composite of a few delivery components — not a single metric.** Clear delivery is made up of a handful of measured components; **filler rate (fillers per minute) is one of them**, and it is the component **v1 surfaces** (the mockups' "N% fewer fillers than session 1"). Additional components are added over time **without changing this contract** — each is still a session-over-session percentage against the same baseline, and no single component is ever presented as the whole of Progress (§2).
 - **Rates, never raw counts.** Each component is a rate or ratio, so a longer session is never penalised for having more of something. For the v1 filler component the canonical per-session total is the validated total (`validatedFillerTotal`, `sessionAnalysis.ts`); a session with **no valid evidence for a component** contributes nothing to that component — never counted as a flattering zero.
@@ -190,9 +188,11 @@ Finishing a session, practising often, or maintaining a streak are **participati
 
 ---
 
-## 8. What must be persisted
+## 8. What is persisted
 
-*None of the records below exist yet. This section is a **requirement**, not a description of current behaviour; implementation status → `ROADMAP.md` / `RELEASE_STATUS.md`.*
+The persistence model below is implemented through `session_progress_evaluations`, `progress_recommendations` and `progress_recommendation_attempts`, with owner-scoped RPCs and the save/reconciliation path in `frontend/src/services/progress/`. A recommendation is not treated as attempted merely because it was shown: the user explicitly accepts **Practice this next**, creating an attempt; the next saved session then resolves it as `moved`, `did_not_move`, `not_comparable` or `not_completed` under server-side comparability checks.
+
+This is directional outcome evidence, not causal proof. “Moved after accepting the action” must never be rewritten as “the advice caused improvement.” Customer repeat use, retention lift and willingness to pay remain unproven business evidence.
 
 **Every future persisted `completed` session must receive one versioned Progress evaluation record.** This single model carries both outcomes, so eligibility and exclusion are never tracked in two places:
 

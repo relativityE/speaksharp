@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for user-visible product requirements)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-08-13
-**Last Verified:** 2026-08-13 — reconciled to the Product Owner-locked Private-only launch contract; implementation and operational proof remain separately gated.
+**Last Reviewed:** 2026-08-29
+**Last Verified:** 2026-08-29 — reconciled to the current Private Practice implementation and the codebase-vs-strategy audit indexed by `EVIDENCE_INDEX.md`; implementation, customer validation and operational proof remain separately gated.
 **Applies To:** The SpeakSharp individual speaking-practice product. Enterprise expansion is future direction, not current scope.
 **Class:** Product requirement.
 **Authority:** User-visible product guarantees, failure behavior, non-goals, and the feature contract.
@@ -29,6 +29,20 @@ The product must let that user:
 - understand where their audio and saved records go.
 
 Enterprise and team features are deferred until the individual Practice Loop proves demand.
+
+### Strategic hierarchy and present evidence
+
+These terms are deliberately separate; shipping a feature does not prove the next layer:
+
+| Level | SpeakSharp position | Present evidence state |
+|---|---|---|
+| **Differentiator** | On-device transcription combined with a private Practice Loop, one next action and personal comparable progress | **Credible and implemented.** The precise promise is local STT audio processing, not that every transcript-derived operation is local. |
+| **Value proposition** | Rehearse an important speaking moment privately, understand one thing to change and see whether comparable practice improves | **Clear product hypothesis; customer demand and willingness to pay are unvalidated.** |
+| **Competitive advantage** | Trust from a specific data boundary plus low marginal transcription cost and a focused repeat-practice experience | **Possible, not proven.** No conversion, retention, CAC, serving-cost or gross-margin evidence establishes superior economics. |
+| **Economic moat** | Privacy reputation plus accumulated, consented personal progress and evidence about which accepted actions are followed by improvement | **No established moat.** The recommendation→attempt→directional-outcome loop exists technically, but durable retention, outcome lift and pricing power are not demonstrated. Compliance/test machinery may support trust and enterprise sales; it is reproducible and is not a moat by itself. |
+| **Alpha** | Excess investor return from an underpriced durable business | **Not applicable today.** SpeakSharp is private and pre-revenue; the analogous privacy-constrained demand thesis remains untested. |
+
+Filler counts, pace, clarity metrics, generic AI advice, reports and real-time feedback are competitive-parity capabilities. They support the Practice Loop but do not carry the strategy alone. Personal Progress being implemented is also not proof of switching costs: users must return, accept actions and value the accumulated history before that claim is earned.
 
 ---
 

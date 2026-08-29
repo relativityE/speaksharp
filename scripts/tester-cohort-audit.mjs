@@ -32,7 +32,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SANITIZED_OUT = process.env.COHORT_SANITIZED_FILE || 'cohort-sanitized.json';
 const RESTRICTED_OUT = process.env.COHORT_RESTRICTED_FILE || 'cohort-restricted.json';
-/** Invitation cutoff (UTC). Source: product_release/SOFT_RELEASE_TESTER_INSTRUCTIONS.md finalized #993/#994. */
+/** Invitation cutoff (UTC). Historical source archived after canonical tester-doc consolidation. */
 const INVITE_CUTOFF = process.env.INVITE_CUTOFF || '2026-07-18T00:00:00Z';
 /** A session shorter than this is "short/junk" — it cannot support a precise delivery judgement. */
 const SHORT_SESSION_SECONDS = Number(process.env.SHORT_SESSION_SECONDS || 20);
@@ -193,7 +193,7 @@ const counts = all.reduce((m, a) => ({ ...m, [a.cohort]: (m[a.cohort] ?? 0) + 1 
 const sanitized = {
     generated_at: new Date().toISOString(),
     invite_cutoff_utc: INVITE_CUTOFF,
-    invite_cutoff_source: 'product_release/SOFT_RELEASE_TESTER_INSTRUCTIONS.md (finalized #993/#994)',
+    invite_cutoff_source: 'product_release/archive/superseded-docs-2026-08-29/SOFT_RELEASE_TESTER_INSTRUCTIONS.md (finalized #993/#994)',
     totals: {
         auth_accounts: all.length,
         by_cohort: counts,

@@ -11,7 +11,7 @@
 **Authority:** The only source for changing release/deployment status, baselines, run IDs, blockers, and go/no-go.
 **Not Authoritative For:** stable product contracts (→ `PRODUCT_REQUIREMENTS.md`), architecture (→ `ARCHITECTURE.md`), STT contracts (→ `STT.md`); documentation structure (→ `README.md`).
 **Supersedes:** any conflicting current-status claim in `product_release/archive/` or older files.
-**Evidence Sources:** GitHub `origin/main`; the production deployment's `window.__APP_RELEASE__`; the required release workflows (see `RC_GATES.md`).
+**Evidence Sources:** GitHub `origin/main`; the production deployment's `window.__APP_RELEASE__`; the required release workflows defined in `RELEASE_PROCESS.md`.
 
 <!-- CURRENCY-BLOCK
 # Machine-readable state, parsed by the #1258 currency guard in tests/config/documentationContract.test.ts.
@@ -51,13 +51,13 @@ Four distinct identities — do not conflate them:
 | **Later test/evidence commits (NOT product-behavior deployments)** | `574422ed` (#1356 scorer), `5f378898` (#1357 specs), `7db695f4` (#1346 3A), `20f3ce85` (#1362 3B), `d702d8c5`/`2f1152c0` (#1363/#1364 corpus), `069dc9e2` (#1359 retention contract) — all under `tests/**` or `scripts/**` | These change **no** deployed product behavior. |
 | **Deployed product release (verified)** | `window.__APP_RELEASE__ = 0e2fffd16224063e18b40174d92393632f1c1e47`, read cache-busted from `https://speaksharp-public.vercel.app/` (HTTP 200) on **2026-08-29**. Production == `main` HEAD at this read, but that is **not** guaranteed by auto-deploy alone: a Vercel "Ignored Build Step" can leave production behind `main`, so the deployed SHA must be **read**, not inferred. | Re-read `window.__APP_RELEASE__` from the deployed page with a cache-busting query and `Cache-Control: no-cache`, then update the value + date here. |
 
-**Release-identity mechanism (per #1027):** the deployed `index.html` injects an inline `window.__APP_RELEASE__ = <VERCEL_GIT_COMMIT_SHA>`, surfaced at runtime as `window.__APP_RUNTIME_CONFIG__.release`. The old `__BUILD_ID__` JS `define` was **removed** in #1027 (it rotated chunk hashes every deploy → stale-chunk crashes); Sentry release is set at **runtime** (`release.inject:false`). Verify SHA-equality by reading `window.__APP_RELEASE__` from the deployed `index.html` — see [frontend/vite.config.mjs](../frontend/vite.config.mjs) + [CODEBASE_MAP.md](CODEBASE_MAP.md).
+**Release-identity mechanism (per #1027):** the deployed `index.html` injects an inline `window.__APP_RELEASE__ = <VERCEL_GIT_COMMIT_SHA>`, surfaced at runtime as `window.__APP_RUNTIME_CONFIG__.release`. The old `__BUILD_ID__` JS `define` was **removed** in #1027 (it rotated chunk hashes every deploy → stale-chunk crashes); Sentry release is set at **runtime** (`release.inject:false`). Verify SHA-equality by reading `window.__APP_RELEASE__` from the deployed `index.html` — see [frontend/vite.config.mjs](../frontend/vite.config.mjs) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
 **Historical frozen tag:** `v0.9.0-rc4` (annotated) peels to `df909805…` — a **historical, frozen** release point, **NOT** the current `main`/product baseline.
 
 | Item | Value |
 |---|---|
-| Deployment | Auto-deploy on push to `main`. Live gate posture is read from the required workflows on `main` (**CI - Test Audit**, **RC Gates** incl. live Gate 3 DAST, **OSV SCA — Gate 4**, **Production Canary**, **Ops Health**, **Billing Freeze**, **DB grant**) — see [RC_GATES.md](RC_GATES.md); do not copy run IDs here. |
+| Deployment | Auto-deploy on push to `main`. Live gate posture is read from the required workflows on `main` (**CI - Test Audit**, **RC Gates** incl. live Gate 3 DAST, **OSV SCA — Gate 4**, **Production Canary**, **Ops Health**, **Billing Freeze**, **DB grant**) — see [RELEASE_PROCESS.md](RELEASE_PROCESS.md); do not copy run IDs here. |
 | Payments | **Closed.** Billing is independently fail-closed in frontend AND backend — **either switch OFF keeps checkout closed**; the billing-freeze check proves CLOSED. Opening paid enrollment requires ALL of: `VITE_PAYMENTS_ENABLED=true`, `PAYMENTS_ENABLED=true`, aligned live Stripe keys, and webhook/price/entitlement verification. A separate future sequence, not a pending test. |
 | CORS | Exact-origin CORS deployed and live-DAST proven (rc-gates Gate 3; allowlist in [backend/supabase/functions/_shared/cors.ts](../backend/supabase/functions/_shared/cors.ts)). |
 | Private v4 | **OFF.** The `VITE_PRIVATE_STT_V4_DISABLED` build-time hard kill is **authoritative** — when set it disables v4 unconditionally. PostHog flags are a **secondary** rollout control and **cannot override** the hard kill. |
@@ -81,12 +81,12 @@ Four distinct identities — do not conflate them:
 
 ## Current open work
 
-The MVP-blocking lane is **#1304 (STT down-select)**. See `ACTIVE_COORDINATION.md` for the working board; this section carries only release posture.
+The MVP-blocking lane is **#1304 (STT down-select)**. See `ROADMAP.md` for the working sequence; this section carries only release posture.
 
 - **Merged and deployed (2026-08-28):** #1360 truthful recovery copy (`0e2fffd1`, #1366) — the last **product-behavior** change.
 - **Merged test/evidence since (no runtime change):** #1304 Task 3A decode-route identity (`7db695f4`, #1346); Task 3B scoring seam (`20f3ce85`, #1362); Task 4 frozen corpus, acquired and bound to its artifacts (`d702d8c5` #1363, `2f1152c0` #1364); the shipped newest-two retention contract executed against real migrations (`069dc9e2`, #1359).
 - **Merged since:** #1304 Task 3C certified harness (`054745d7`, #1365) and the inference-runtime pinning that followed it (`0e2fffd1`, #1368). Both are test/evidence infrastructure and change no deployed product behaviour.
-- **Open:** the frozen 600-clip benchmark is RUNNING on `main@0e2fffd1`. No model has been selected and no ranking exists.
+- **Open:** the frozen selection benchmark is RUNNING on `main@0e2fffd1`: **600 utterances / 10,894 normalized words**. It is not a 600-word test. No model has been selected and no ranking exists.
 - **RETENTION IS NO LONGER THE RELEASE BLOCKER.** Ten browser production-proof attempts failed, every one on the test harness and never on the product; the stopping rule fired and that campaign is **off the MVP critical path**. What replaced it: #1359 executed the shipped newest-two retention contract against the real migrations in-process (PGlite) — the first time that contract has been checked anywhere. A production run remains a future, separately authorized gate, not a blocker on this release.
 - **THE RELEASE BLOCKER IS NOW MODEL SELECTION.** No Private STT model has been chosen. Shipping `v2 base.en` remains the default by absence of qualifying evidence, not by measurement.
 - **Accepted post-MVP debt:** the #1354 write-ahead obligation is client-only. If the Progress evaluation fails, the browser obligation write also fails, and the user reloads after storage recovers, the client cannot reconstruct that obligation. Eliminating it requires a server-side obligation record.
@@ -172,10 +172,10 @@ Everything else — `tests/**`, `scripts/**`, `backend/supabase/migrations/**` (
 | Broad public launch | **NO-GO** — separately gated. |
 
 ## Historical evidence (pointers, not current status)
-- **Attribution history sanitation** (2026-07-15): historical SHA crosswalk + provenance in [attribution-sanitation-crosswalk.md](attribution-sanitation-crosswalk.md). Historical PostHog `release_sha` values retain OLD SHAs (immutable telemetry) — correlate via the crosswalk.
+- **Attribution history sanitation** (2026-07-15): historical SHA crosswalk + provenance in [the retained attribution crosswalk](evidence/retained/attribution-sanitation-crosswalk.md). Historical PostHog `release_sha` values retain OLD SHAs (immutable telemetry) — correlate via the crosswalk.
 
 ## Evidence contract + named STT gate artifacts
-The stable **Evidence Freshness Contract** (latest complete passing run; a newer failing run returns the parent gate to red; `Last updated by: [initials] [date] [artifact path]`) and the **Named STT Gate Artifacts** now live in **[RC_GATES.md](RC_GATES.md)**. This file keeps only current run/status posture.
+The stable **Evidence Freshness Contract** (latest complete passing run; a newer failing run returns the parent gate to red; `Last updated by: [initials] [date] [artifact path]`) and the named STT gate artifacts live in **[RELEASE_PROCESS.md](RELEASE_PROCESS.md)**. This file keeps only current run/status posture.
 
 ## Update rule
 Only this file receives changing release/deployment status, latest run IDs, blocker state, or go/no-go decisions. Other Markdown files should be stable contracts, procedures, tester copy, or archived evidence.
