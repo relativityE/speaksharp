@@ -148,11 +148,13 @@ jobs:
 
       - name: Prove verification path reachable and TLS-encrypted BEFORE the irreversible apply
         id: connectivity_preflight
-        # SAME applicability predicate as the #1314 postflight below. Scoped deliberately: only targets
-        # that are verified through raw psql need the pooler reachable, and making every allowlisted
-        # migration depend on the Management API would broaden this recovery beyond its frozen scope.
-        # A general policy for all migrations belongs in the catch-all, not here.
-        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') }}
+        # Applies to every target whose postflight verifies through raw psql — currently #1314 and #1306
+        # Stage B. Still scoped deliberately: making every allowlisted migration depend on the Management
+        # API would broaden this recovery beyond its frozen scope. A general policy belongs in the catch-all.
+        # ONE resolution serves both. Stage B originally resolved the pooler a second time, which the
+        # SEC-002 contract rejects: two resolutions can drift, leaving this proof attesting to parameters
+        # the postflight never uses.
+        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') || contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') }}
         run: |
           set -euo pipefail
           sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
@@ -183,12 +185,12 @@ jobs:
             exit 1
           fi
           sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
-          # Prove the verification path works BEFORE the irreversible apply — an unusable path must stop
-          # the apply rather than strand a landed change nobody can confirm (SEC-002).
-          bash scripts/supabase-pooler-connection.sh "$RUNNER_TEMP/pooler.env"
+          # Reuse the pooler parameters resolved ONCE by the shared reachability proof above, which runs
+          # for this target too. Fails closed if that proof never ran, so this gate can never execute
+          # against parameters nothing proved reachable (SEC-002).
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
           set -a; . "$RUNNER_TEMP/pooler.env"; set +a
           export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
-          bash scripts/assert-db-connectivity-tls.sh
           unset DB_URL
           # THE PREMISE. If v1 is already absent there is nothing to retire, and continuing would report a
           # success this migration did not cause.

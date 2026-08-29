@@ -55,7 +55,10 @@ jobs:
           echo "ready=$(jq -r '.ready' <<<"$result")" >> "$GITHUB_OUTPUT"
           echo "state=$(jq -r '.state' <<<"$result")" >> "$GITHUB_OUTPUT"
           echo "### Canary migration readiness" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Required ordered set (all must be applied): \`20260812002000\` → \`20260811143000\` → \`20260812030000\` → \`20260812039500\` → \`20260812040000\` → \`20260812041000\` → \`20260812041500\`" >> "$GITHUB_STEP_SUMMARY"
+          # Render the set the gate ACTUALLY enforces. This line used to be a hardcoded list, and it had
+          # already drifted: it never mentioned 20260819120000 (#1314), so the summary advertised a
+          # required set smaller than the one being enforced.
+          echo "- Required ordered set (all must be applied): $(jq -r '((.required // .appliedSet) // []) | map("`" + . + "`") | join(" → ")' <<<"$result")" >> "$GITHUB_STEP_SUMMARY"
           echo "- Held (must NOT be applied): \`20260812042000\` (commercial activation)" >> "$GITHUB_STEP_SUMMARY"
           echo "- Read-only state: \`$(jq -r '.state' <<<"$result")\`" >> "$GITHUB_STEP_SUMMARY"
           state="$(jq -r '.state' <<<"$result")"
@@ -67,7 +70,12 @@ jobs:
             exit 1
           fi
           if [ "$(jq -r '.ready' <<<"$result")" != 'true' ]; then
-            echo "- **HOLD — required migration(s) pending: \`$(jq -r '(.pending // []) | join(", ")' <<<"$result")\`; canary product lanes were not executed.**" >> "$GITHUB_STEP_SUMMARY"
+            pending="$(jq -r '(.pending // []) | join(", ")' <<<"$result")"
+            echo "- **HOLD — required migration(s) pending: \`$pending\`; canary product lanes were not executed.**" >> "$GITHUB_STEP_SUMMARY"
+            # A HOLD skips `canary-check` while the run still concludes SUCCESS. Without an annotation that
+            # is a green run with ZERO product qualification, which reads exactly like a passing canary.
+            # This does not change pass/fail — it only makes the silence visible.
+            echo "::warning::CANARY HELD — no product qualification ran. Pending required migration(s): $pending"
           fi
 
   canary-check:
