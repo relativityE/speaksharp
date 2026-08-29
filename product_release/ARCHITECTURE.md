@@ -154,3 +154,22 @@ Requirements and triggers are owned by `PRODUCT_REQUIREMENTS.md` §10a; this rec
 - **Retention duration & deletion — unresolved policy.** ADR-2 fixes *where* data lives and that Private audio never persists, but retention duration, user deletion, and account-deletion (SLA/erasure) are **not decided here**; they belong to the enterprise/operations contracts and require Product Owner approval.
 - **Durable telemetry/alert outbox + provenance registry** — DRAFT design only (#1006), **NOT shipped / NOT activated**. The persistence-vs-observability invariants above stand unchanged; do not cite the outbox as current behavior.
 - **Private STT device verification** — every supported browser/device requires Private setup, record, finalize, save, and reopen proof before it is marketed as supported (→ `STT.md`).
+
+---
+
+## #1367 boundary reconciliation (2026-08-29)
+
+The audio-boundary invariants above were re-verified against code and **hold**: transcription runs in a
+same-origin worker and no audio upload path exists on the Private route.
+
+To prevent that invariant being over-read, the transcript boundary is stated explicitly — it is a **different**
+boundary:
+
+| Data | Leaves the device? | Stored server-side? | Third party? |
+|---|---|---|---|
+| Raw audio | No | No | No |
+| Transcript text | **Yes**, on save (`p_final_transcript` → `complete_session_v2`) | **Yes**, bounded to the two newest saved sessions | **Yes**, on explicit user request — `get-ai-suggestions` → Google Gemini |
+| Derived metrics | Yes | Yes | Only within a coaching request |
+
+"Private STT audio never leaves the browser" is correct. It does **not** imply the transcript stays local.
+See `PRODUCT_REQUIREMENTS.md` §7.1 and [`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) §10.1.

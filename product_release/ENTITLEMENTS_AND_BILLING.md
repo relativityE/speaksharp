@@ -75,3 +75,22 @@ client-clock tampering, one-time legacy activation, paid continuity, the expired
 Private-only behavior for both trial and paid accounts. Accounts with exhausted historical one-shot fields or
 usage above former aggregate thresholds must remain able to record, save, and analyze while entitled and fail
 only at server-authoritative expiry.
+
+---
+
+## #1367 reconciliation (2026-08-29)
+
+Four states that must never be reported as one ([`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) §10.9):
+
+| State | Status |
+|---|---|
+| Contracted pricing | Defined in this document |
+| Implemented Stripe components | Built; checkout → webhook → billing-portal journey proven in **test mode** |
+| Activation qualification | **Not activated** — both payment switches on, aligned live configuration, and separate written owner authorization are all required |
+| Actual revenue | **None** — the billing freeze forbids live charges in testing |
+
+"Stripe is implemented" therefore does not mean billing is live, and neither implies revenue.
+
+**Competitor pricing must be dated and reverified from an authoritative source before use.**
+`research/pricing_analysis.md` carries competitor prices with no visible as-of date and no source citation; it
+must not be quoted as current.

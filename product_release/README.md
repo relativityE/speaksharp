@@ -181,3 +181,15 @@ Each canonical document carries this header:
 - [`RELEASE_STATUS.md`](./RELEASE_STATUS.md) — current posture (SSOT).
 
 *This portal is navigational and structural. It records no changing release status; that lives only in `RELEASE_STATUS.md`.*
+
+---
+
+## Documentation reconciliation (#1367)
+
+[`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) classifies **every** tracked non-archive Markdown file in the repository — authority, class, staleness
+exposure, correction status and canonical routing — and carries the claim-by-claim product-evaluation audit
+against current code. Completeness is enforced by `tests/config/documentationLedger.test.ts`: a new Markdown file
+that is not classified there fails the suite.
+
+It is a **procedure record, not a canonical document** — the canonical set below is unchanged. Note GAP-1:
+canonical #3 `ROADMAP.md` does not exist and is deferred to #1272, so **13 of 14** canonical documents are present.

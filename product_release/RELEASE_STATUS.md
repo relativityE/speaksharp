@@ -179,3 +179,24 @@ The stable **Evidence Freshness Contract** (latest complete passing run; a newer
 
 ## Update rule
 Only this file receives changing release/deployment status, latest run IDs, blocker state, or go/no-go decisions. Other Markdown files should be stable contracts, procedures, tester copy, or archived evidence.
+
+---
+
+## #1367 documentation reconciliation (2026-08-29)
+
+Docs-only; no change to release posture, gates, or the approved MVP sequence.
+
+Every tracked non-archive Markdown file is now classified in [`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md), with completeness enforced structurally by
+`tests/config/documentationLedger.test.ts`.
+
+Product-status corrections that affect what we may claim:
+
+- **Personal Progress and Focus Point coverage ship** and are user-reachable; the complete Executive Rehearsal
+  experience does not, and Pro-interest capture does not.
+- **The universal score is fully retired from the rendered UI** (0 live consumers); still computed in 3
+  shadow-telemetry paths.
+- **Transcript text leaves the device and is stored** (bounded to the two newest saved sessions), and reaches
+  Google Gemini on an explicit user coaching request. Only **audio** is device-local.
+- **No moat is proven**, and there is **no user research** — no willingness-to-pay, conversion, retention or CAC
+  evidence. Billing is implemented but not activated; revenue is zero.
+- **GAP-1:** canonical #3 `ROADMAP.md` does not exist (deferred to #1272); **13 of 14** canonical documents exist.

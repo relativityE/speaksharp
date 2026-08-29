@@ -204,3 +204,23 @@ No individual names are assigned here.
 - If a prior "closed" claim conflicts with current code, delete the false closure and write one concise current defect row (CORS is the known example → P0.3).
 - Do not keep a row merely for useful historical context.
 - **Execution order:** all P0 (in order) → P0 exit gate → all P1 (in order). New P0s discovered mid-cycle are inserted and resolved before continuing.
+
+---
+
+## #1367 status reconciliation (2026-08-29)
+
+Verified against the code on `main`; full audit in [`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) §10.
+
+- **Personal Progress is no longer backlog — it ships.** It renders in slot C of every session state
+  (`SessionOverhaulView` → `SessionBeforeState` / `SessionDuringState` / `SessionAfterState`) and is reachable by
+  any authenticated user at `/session`. Item 8 above describes a **delivered** capability; the "record only — do
+  NOT implement" note on the feature train no longer applies to the progress half of it.
+- **Focus Point coverage ships** (`FocusPointsRail`, `CoverageRail`, `utils/focusCoverage.ts`). The complete
+  **Executive Rehearsal** experience does not; `frontend/src/services/rehearsal/` remains enabling code. Track
+  these as two separate statuses — neither "unwired" nor "fully shipped" is accurate for the pair.
+- **Pro-interest capture (P2, above) remains correctly listed as backlog.** Verified: no `pro_interest` object
+  exists in `backend/`, and no reachable frontend action or submission journey exists. A backend surface alone
+  would not change this.
+- **The universal score is fully retired from the rendered UI** — 0 live consumers. It is still computed in three
+  shadow-telemetry paths, and `LiveCoachingScoreCard` / `SpeakingTipsCard` are dead components pending deletion.
+  Do not restate a retirement percentage; state the denominator ([`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) §10.3).

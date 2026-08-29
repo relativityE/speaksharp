@@ -163,3 +163,18 @@ STT is release-qualified only when the integrated deployed merge SHA proves:
 - zero unresolved critical STT residue.
 
 Mocks, an open provider socket, a token response, local unit tests, or green PR CI alone are not deployed STT qualification.
+
+---
+
+## #1367 reconciliation (2026-08-29)
+
+- **On-device transcription confirmed.** Same-origin Transformers.js worker; no audio upload path on the Private
+  route. The claim in this document holds.
+- **Filler counting is competitive parity and product quality — not a differentiator and not a moat.** It is
+  **currently unqualified on annotated disfluent human speech**: the #1304 corpus is read LibriSpeech and Track A
+  removes fillers by construction, so no F1 against annotated disfluency exists.
+- **Do not cite a fixed pin count.** Earlier documentation stated a total that is now stale; the pinned-asset
+  structure spans `tests/fixtures/moonshine-asset-pins.json` and the ORT runtime binaries in
+  `tests/evidence/certification/arms/runtimeAssets.ts`. Cite the fixtures, not a number that will rot.
+
+Full audit: [`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) §10.1, §10.7, §10.8.

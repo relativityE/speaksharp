@@ -81,3 +81,16 @@ lane-1258-journey: not-started
 The #1354 write-ahead obligation is **client-only**. If the Progress evaluation fails, the browser obligation write also fails, and the user reloads after storage recovers, the client cannot reconstruct that obligation. Three coincident events; eliminating it needs a **server-side obligation record**, which is accepted post-MVP debt.
 
 _This file lists only current work. Merged PRs live in git history; deployment posture lives in `RELEASE_STATUS.md`._
+
+---
+
+## #1367 documentation reconciliation (2026-08-29)
+
+Complete non-archive Markdown reconciliation committed: [`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) — every tracked file classified, zero unclassified,
+enforced by `tests/config/documentationLedger.test.ts`.
+
+Two items need Product Owner action and are recorded rather than decided here:
+
+- **GAP-1** — canonical #3 `ROADMAP.md` is absent, deferred to #1272. The ledger registers it as the single
+  permitted exception so no further canonical drift can pass silently.
+- **GAP-2** — 34 live documents declare no owner. Owner assignment is a PO decision.

@@ -243,3 +243,19 @@ Pause rhythm (insufficient measured coverage), message structure and punctuation
 ---
 
 *Personal progress contract. It defines comparison, direction, evidence and one next action for a single user against their own practice — never a grade, never a ranking, never a claim about overall speaking ability.*
+
+---
+
+## #1367 reconciliation (2026-08-29)
+
+- **Personal Progress is built, wired and user-reachable.** Entry `/session` → `SessionPage` →
+  `SessionOverhaulView` → `ProgressVsBaseline` in slot C of the before/during/after states. No feature flag and no
+  entitlement gate on that path. Eligibility: `durationSeconds >= 30` **and** a non-null composite quality
+  (`utils/aggregateProgress.ts`). Any remaining "unbuilt" assertion elsewhere is stale.
+- **The next action is persisted but the outcome loop is not closed.** `sessions.next_action_signal` stores the
+  prior recommendation, and `AnalyticsDashboard` renders it. Attempt evidence, comparable-session eligibility,
+  target-specific outcomes and attribution limits are all **absent** — so advice plus later improvement can show
+  **association only**, never that the user attempted the advice and never causation. #1259 is an instrumentation
+  and attribution gap, not a database join. Full audit: [`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) §10.4.
+- **Canonical roadmap gap:** `ROADMAP.md` (canonical #3) does not exist and is deferred to #1272, so roadmap-level
+  propagation lands here and in `RELEASE_STATUS.md` until it does ([`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) §11, GAP-1).

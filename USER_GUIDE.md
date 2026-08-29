@@ -51,3 +51,14 @@ After each saved session, SpeakSharp shows speaking pace, filler-word counts, tr
 Progress compares like with like: Open Mic history remains separate from Focus Points history.
 
 For support, use **Report issue** inside SpeakSharp.
+
+---
+
+## What leaves your device (#1367, verified 2026-08-29)
+
+- **Your audio never leaves your device.** Transcription runs locally in your browser.
+- **Your transcript is saved to your account** when you save a session, so you can review it and export a report.
+  Only your two most recent saved sessions keep their transcript text.
+- **If you ask for AI coaching**, that saved transcript is sent to Google's Gemini model to generate the
+  suggestions. This happens only when you request coaching — never in the background.
+- **Your session measurements** (word count, filler counts, clarity, pace, pauses) are saved to your account.

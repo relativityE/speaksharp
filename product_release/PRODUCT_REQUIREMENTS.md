@@ -117,6 +117,23 @@ Exact database, checkout, webhook, activation, and price-validation mechanics be
 - Saved evidence is protected by per-user access control and available to the user through the product's review, export, and deletion surfaces.
 - Feedback reports persist independently of best-effort analytics or error-reporting delivery.
 
+### 7.1 The four boundary claims (#1367)
+
+These are four separate claims. Collapsing them produces a false promise: **"the transcript never reaches a
+server" and "the transcript is never stored" are different statements, and neither is true as written.**
+
+| Claim | Status | Where it is decided in code |
+|---|---|---|
+| Audio transcription runs on the user's device | **True** | Same-origin worker `services/transcription/engines/transformers-js.worker.ts`; no upload path exists on the Private route |
+| Raw audio leaves the device | **Never** | No audio upload path; `ARCHITECTURE.md` §"Retention boundary" |
+| Transcript text leaves the device | **Yes, on save** | `lib/storage.ts` sends `p_final_transcript` to `complete_session_v2`; a `failed`/discarded session sends `null` |
+| Transcript text is stored server-side | **Yes, bounded** | `sessions.transcript`, retained for the two newest saved sessions only |
+| Transcript text reaches a third party | **Yes, on user request** | `get-ai-suggestions` reads the saved transcript and sends it to Google Gemini; user-initiated, and refused unless `transcript_state = 'available'` |
+| Derived metrics are stored | **Yes** | Word counts, filler counts, clarity score, WPM, pause metrics |
+
+Customer copy may say that **audio** never leaves the device. It may **not** say or imply that nothing leaves the
+device, that the transcript stays local, or that all processing is local.
+
 Retention duration and schema details belong to `ARCHITECTURE.md`; customer-facing disclosures must match the actual deployed contract.
 
 ---
@@ -189,3 +206,47 @@ Green pull-request CI is not acceptance, deployment proof, migration proof, or l
 - Integrated release posture and identities → `RELEASE_STATUS.md`
 
 Historical documents and code may explain provenance, but they do not override this Product Owner-approved contract.
+
+---
+
+## 13. Strategic assessment (#1367)
+
+Reconciled against the code on `main`; the full claim-by-claim audit is in
+[`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) §10. **This assessment does
+not reorder the approved MVP sequence — strategic importance and release order are separate decisions.**
+
+| Dimension | Assessment |
+|---|---|
+| **Differentiator** | Precise on-device transcription and a focused private-practice loop. |
+| **Value proposition** | Clear, but **not validated with users**. |
+| **Competitive advantage** | Plausible trust and serving-cost advantages; **not demonstrated economics**. |
+| **Moat** | **None proven today.** Longitudinal, consented coaching-outcome evidence is the strongest path. |
+| **Alpha** | Not applicable in the public-market sense; the underlying market thesis remains **untested**. |
+
+### 13.1 Validation limits — read before quoting any advantage above
+
+**There is no user research in this repository.** No willingness-to-pay study, no conversion or retention
+comparison, no CAC measurement, no cohort analysis. Actual revenue is zero and billing is not activated, so none
+of these could have been measured. Every economic advantage above is a **hypothesis**, and must be labelled as
+one wherever it is repeated.
+
+Serving cost is **lower, not zero**: transcription is on-device, but AI coaching calls a paid third-party model
+per request (§7.1).
+
+### 13.2 What is built, and what that does not prove
+
+- **Personal Progress ships** and is reachable by any authenticated user at `/session`, rendered in every session
+  state. Its baseline excludes sessions under 30 seconds and sessions without a composite quality value, so a new
+  user sees an insufficient-evidence state rather than an invented trend. **That it exists does not make it a
+  moat** — switching costs and retention effects are unproven.
+- **Focus Point coverage ships.** The complete Executive Rehearsal experience does **not**. These are two
+  statuses, not one.
+- **Pro-interest capture does not ship.** No reachable frontend action and no complete submission journey exist.
+- **The advice → attempt → outcome loop is an instrumentation and attribution gap, not a database join.** The
+  prior recommendation is persisted (`next_action_signal`), but attempt evidence, comparable-session eligibility,
+  target-specific outcomes and stated attribution limits are all absent. Existing advice plus later improvement
+  shows **association only** — never that the user attempted the advice, and never causation.
+- **Filler counting is competitive parity and product quality**, currently **unqualified on annotated disfluent
+  human speech**. It is not part of any moat claim.
+- **The evidence and compliance discipline is genuine trust and sales collateral** and demonstrates execution
+  capability. It is reproducible by a competent team and is **not** a durable moat by itself.

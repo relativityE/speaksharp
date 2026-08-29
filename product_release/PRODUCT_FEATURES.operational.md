@@ -339,3 +339,18 @@ Avoid:
 - Release posture: `RELEASE_STATUS.md`
 - Deferred work: `BACKLOG.md`
 - Risk tracker: `ROADMAP.operational.md`
+
+---
+
+## #1367 status reconciliation (2026-08-29)
+
+This staging copy is superseded by `PRODUCT_REQUIREMENTS.md`. Statuses re-verified against code; audit in [`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) §10.
+
+- **Personal Progress: shipped and reachable.** Baseline eligibility excludes sessions under 30 seconds and
+  sessions without a composite quality value, so a new user sees an insufficient-evidence state.
+- **Executive Rehearsal: not shipped as an experience.** The passive Focus Point coverage layer ships; the
+  assembled rehearsal product does not.
+- **"SpeakSharp Score + live coaching card (legacy 0–10, scheduled for retirement)" — retirement is complete on
+  the UI surface.** Zero live consumers render it. It is still computed in shadow telemetry.
+- **Semantic AI over transcripts is not hypothetical**: `get-ai-suggestions` sends the saved transcript to Google
+  Gemini on explicit user request. See `PRODUCT_REQUIREMENTS.md` §7.1.
