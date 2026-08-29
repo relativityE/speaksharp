@@ -7,16 +7,29 @@
  * it says — but their latency fields are unmeasured rather than slow.
  *
  * The rule this implements: DO NOT ASSUME contention touched only timing. Compare the per-utterance
- * evidence first. Only if accuracy is byte-identical may the performance fields be replaced in place;
+ * evidence first. Only if the rerun is SCORE-EQUIVALENT may the performance fields be replaced in place;
  * anything else means the whole row is replaced and the difference investigated.
+ *
+ * WHAT "SCORE-EQUIVALENT" MEANS, EXACTLY — and what it does not. The retained artifact supports five
+ * comparisons: the same 600 utterance ids, the same reference-word counts, the same per-utterance
+ * substitutions/deletions/insertions, the same invalid reasons, and the same aggregate WER. When all
+ * five match, replacing only the timing fields is defensible BECAUSE THOSE ARE THE VALUES THE BENCHMARK
+ * RANKS ACCURACY BY. It does NOT establish that the two runs emitted identical transcript text, and no
+ * report produced from this script may say "byte-identical transcripts".
  *
  * A LIMIT OF THE RETAINED DATA, stated because it bears directly on what this can prove.
  * `transcriptDigest` in the artifact is computed over `[id, substitutions, deletions, insertions]` —
  * it is an ERROR-PROFILE digest, not a digest of the transcript text, which the run never stored. Two
  * different transcripts that make the same errors in the same places would collide. Across 600 clips
  * with greedy decoding that is strong evidence of identical output, but it is evidence, not proof, and
- * the field's name overstates it. Renaming it is a follow-up: changing it now would alter the
- * execution tree and make the rerun no longer comparable with the original.
+ * the field's name overstates it. The original frozen artifact does NOT contain transcript hashes and
+ * must never be described as if it did.
+ *
+ * Renaming is a deliberate follow-up, NOT done here: changing it now would alter the active execution
+ * tree and make the rerun no longer comparable with the original. The follow-up is to rename the field
+ * to `errorProfileDigest`, keep reading the legacy `transcriptDigest` with its existing meaning when
+ * loading older artifacts, and add a correctly named digest of the normalized hypothesis text for
+ * future corpus runs.
  *
  *   usage: npx tsx scripts/reconcile-contaminated-arms.mts --original=a.json --rerun=b.json --arm=<id>
  */
@@ -102,14 +115,16 @@ console.log(`  aggregate diffs     : ${differences.length}`);
 console.log(`  per-utterance diffs : ${utteranceDifferences.length}`);
 
 if (differences.length === 0 && utteranceDifferences.length === 0) {
-    console.log('\n  ACCURACY IDENTICAL — replace ONLY the performance fields:');
+    console.log('\n  SCORE-EQUIVALENT — replace ONLY the performance fields:');
+    console.log('    (same utterance ids, reference-word counts, per-utterance S/D/I, invalid reasons and aggregate WER)');
     console.log(`    speed     ${JSON.stringify(rerun.verdict?.speed)}`);
     console.log(`    footprint ${JSON.stringify(rerun.verdict?.footprint)}`);
-    console.log('\n  The original accuracy stands; contention did not reach it.');
+    console.log('\n  The original accuracy stands; contention did not reach the values the ranking uses.');
+    console.log('  This is score equivalence, NOT proof of byte-identical transcripts — the run never stored text.');
     process.exit(0);
 }
 
-console.log('\n  ACCURACY DIFFERS — the whole row is replaced, and the difference is investigated.');
+console.log('\n  NOT SCORE-EQUIVALENT — the whole row is replaced, and the difference is investigated.');
 console.log('  Contention affecting output would mean the decode is not deterministic, which would');
 console.log('  put every arm measured under load in question, not only this one.\n');
 for (const d of differences) console.log(`    aggregate     ${d}`);
