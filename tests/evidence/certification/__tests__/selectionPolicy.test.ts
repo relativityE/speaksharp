@@ -10,7 +10,7 @@ import {
     SELECTION_POLICY, qualify, pairedBootstrapInterval, select, decideActivation,
     type PairedUtterance,
 } from '../selectionPolicy';
-import type { TechnicalVerdict } from '../deploymentMetrics';
+import { rankTechnical, type TechnicalVerdict } from '../deploymentMetrics';
 
 const perfect = (over: Partial<TechnicalVerdict> = {}): TechnicalVerdict => ({
     armId: 'arm', runtimeLabel: 'rt', evidenceSet: 'corpus', evidenceClass: 'selection',
@@ -229,5 +229,46 @@ describe('rule 8 — activation never rewrites who technically won', () => {
         const d = decideActivation('best', ready([], { best: ['blocked'] }), ['best']);
         expect(d.activated).toBeNull();
         expect(d.divergenceReason).toMatch(/no qualified candidate is ready/);
+    });
+});
+
+/**
+ * #1304 — the runner iterates the WHOLE matrix, so two measured arms must never rank.
+ *
+ * "Every distinct candidate" was my phrasing and it was wrong: the runner walks `ARM_MATRIX`, which
+ * measures 14 admitted arms while only 13 are distinct candidates. The two extras are the q8 alias of
+ * int8 and the q4 CPU diagnostic, which collapses onto the WASM cell in a browser.
+ *
+ * The alias was already excluded. The DIAGNOSTIC was not — a row that qualified on every other axis
+ * could have entered the ranking as a second copy of an arm already in it.
+ */
+describe('measured arms that must never rank', () => {
+    it('a DIAGNOSTIC row is disqualified, however good its numbers', () => {
+        const result = qualify(perfect({ armId: 'v4:base:q4-decoder:cpu', role: 'diagnostic', wer: 0.001 }));
+        expect(result.qualified).toBe(false);
+        expect(result.reasons).toContain('diagnostic_row');
+    });
+
+    it('a selection row with the same numbers DOES qualify — the role is what differs', () => {
+        // Positive control: without it, a `qualify` that rejected everything would pass the above.
+        expect(qualify(perfect({ role: 'selection' })).qualified).toBe(true);
+    });
+
+    it('both extras are excluded from a ranking, and the rest survive', () => {
+        const rows = [
+            perfect({ armId: 'real-a', wer: 0.040, role: 'selection' }),
+            perfect({ armId: 'v4:base:q4-decoder:cpu', wer: 0.001, role: 'diagnostic' }),
+            perfect({ armId: 'v4:base:q8-decoder:cpu', wer: 0.002, dtypeAliasOf: 'v4:base:int8-decoder:cpu' }),
+            perfect({ armId: 'real-b', wer: 0.050, role: 'selection' }),
+        ];
+        const ranked = rankTechnical(rows, { requireSelectionGrade: true });
+        // Both would have taken the top two places on WER alone.
+        expect(ranked.map((r) => r.armId)).toEqual(['real-a', 'real-b']);
+    });
+
+    it('a row with no role recorded still ranks — absence is not a diagnostic claim', () => {
+        // Rows predating the field must not be silently dropped from a ranking.
+        expect(rankTechnical([perfect({ armId: 'legacy' })], { requireSelectionGrade: true }))
+            .toHaveLength(1);
     });
 });

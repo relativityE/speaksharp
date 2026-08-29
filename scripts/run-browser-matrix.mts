@@ -560,6 +560,7 @@ for (const spec of ARM_MATRIX) {
         evidenceSet: setName,
         evidenceClass,
         dtypeAliasOf: spec.dtypeAliasOf,
+        role: spec.role,
         result,
         coldLoadMs,
         stopToFinalMs: null, // set by the long-form control, which this set does not include

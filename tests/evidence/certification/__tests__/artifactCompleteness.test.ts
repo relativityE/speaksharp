@@ -81,16 +81,19 @@ describe('a complete artifact accounts for every arm in the matrix', () => {
         expect(result.reason).toBe('unknown_rows');
     });
 
-    it('the retained offline-load artifact, if present, is complete', async () => {
-        // Reads the committed artifact and holds it to the same rule. If regeneration is still
-        // outstanding this states that plainly rather than passing by absence.
+    it('the retained offline-load artifact is complete', async () => {
+        // Reads the committed artifact and holds it to the same rule as anything the runner writes.
+        // A missing file reports as `not_generated` rather than passing by absence — regeneration is
+        // deferred until the live 600 finishes, because a second browser would compete for the machine
+        // and distort the latency percentiles that run exists to measure.
         const fs = await import('node:fs');
         const path = 'evidence-runs/offline-load-0e2fffd1.json';
-        if (!fs.existsSync(path)) {
-            expect(fs.existsSync(path), `${path} has not been regenerated yet`).toBe(false);
-            return;
-        }
-        const artifact = JSON.parse(fs.readFileSync(path, 'utf8')) as { results: { id: string }[] };
-        expect(checkArtifactCompleteness(artifact.results, EXPECTED)).toEqual({ ok: true });
+        const outcome = fs.existsSync(path)
+            ? checkArtifactCompleteness(
+                  (JSON.parse(fs.readFileSync(path, 'utf8')) as { results: { id: string }[] }).results,
+                  EXPECTED,
+              )
+            : { ok: false as const, reason: 'not_generated' as const, detail: path };
+        expect(outcome).toEqual({ ok: true });
     });
 });

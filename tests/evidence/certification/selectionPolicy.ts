@@ -34,6 +34,7 @@ export type DisqualificationReason =
     | 'long_form_tail_lost'
     | 'long_form_looping'
     | 'dtype_alias'
+    | 'diagnostic_row'
     | 'not_selection_grade';
 
 export interface Qualification {
@@ -54,6 +55,10 @@ export function qualify(row: TechnicalVerdict): Qualification {
     if (row.evidenceClass !== 'selection') reasons.push('not_selection_grade');
     // An alias inherits its target's evidence and is never run or ranked separately.
     if (row.dtypeAliasOf !== undefined) reasons.push('dtype_alias');
+    // A DIAGNOSTIC row answers a question about the harness. The runner iterates the whole matrix, so
+    // `v4:base:q4-decoder:cpu` — a browser duplicate of the WASM cell — is measured like any other arm
+    // and would otherwise have been rankable. The alias was excluded; this one was not.
+    if (row.role === 'diagnostic') reasons.push('diagnostic_row');
     if (!row.backendProven) reasons.push('backend_not_proven');
 
     const r = row.reliability;

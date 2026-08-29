@@ -20,6 +20,7 @@ export interface VerdictInputs {
     evidenceSet: string;
     evidenceClass: string;
     dtypeAliasOf?: string;
+    role?: 'selection' | 'diagnostic';
     result: ArmRunResult;
     /** Time to load the model into a FRESH context — what a new user waits for once. */
     coldLoadMs: number | null;
@@ -108,6 +109,7 @@ export function buildTechnicalVerdict(inputs: VerdictInputs): TechnicalVerdict {
     return {
         armId: inputs.armId,
         ...(inputs.dtypeAliasOf ? { dtypeAliasOf: inputs.dtypeAliasOf } : {}),
+        ...(inputs.role ? { role: inputs.role } : {}),
         runtimeLabel: inputs.runtimeLabel,
         evidenceSet: inputs.evidenceSet,
         evidenceClass: inputs.evidenceClass,
