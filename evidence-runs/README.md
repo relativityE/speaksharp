@@ -55,9 +55,9 @@ Stated here rather than discovered later at down-select.
 | Set | Words | Class | Retained | Gap |
 |---|---:|---|---|---|
 | `harvard` (offline-load) | — | smoke | **15 / 15 arms** — 14 loaded, 1 documented rejection | none |
-| `harvard` (counted WER) | 85 | smoke | **6 / 14 admitted arms** | 8 admitted arms have no 85-word WER row |
-| `preflight` | 459 | preflight | **0 arms** | the entire set — artifact never written |
-| `corpus` | 600 utterances / 10,894 words | **selection** | run in flight | — |
+| `harvard` (counted WER) | **10 clips / 85 normalized words** | smoke | **6 / 14 admitted arms** | 8 admitted arms have no 85-word WER row |
+| `preflight` | **23 clips / 459 normalized words** | preflight | **0 arms** | the entire set — artifact never written |
+| `corpus` | **600 utterances / 10,894 words** | **selection** | run in flight | — |
 
 The 85-word and 459-word sets are **characterization, not targets**, and the harness refuses to let any
 non-`selection` row inform the down-select. Their absence therefore does not invalidate the selection
@@ -65,3 +65,30 @@ decision — but it does leave the qualification trail incomplete, and both must
 the benchmark host is free.
 
 At 85 reference words one word is ~1.2% WER, so small differences on that set are not differences.
+
+## Set names, stated once so they are not paraphrased
+
+- **Harvard** — 10 clips / 85 normalized words. Evidence class `smoke`.
+- **Preflight** — 23 clips / 459 normalized words. Evidence class `preflight`. (Not 485. Its prior numbers are
+  **not durable evidence**: no raw artifact was retained, so they cannot be cited.)
+- **Corpus** — 600 utterances / 10,894 normalized words. Evidence class `selection`. **Never call this a
+  "600-word test"** — it is 600 utterances.
+
+## Closure requirements before any down-select is announced
+
+1. Preserve the completed 600 artifact **unchanged**, including every per-utterance score and timing row.
+2. Quiet-rerun `v2:tiny.en` and `v2:base.en` for **performance only**. Reconcile all 600 per-utterance
+   S/D/I profiles before replacing contaminated timing fields; **any accuracy difference fails
+   reconciliation**. The retained digest is an **error-profile digest**, not a transcript digest.
+3. Rerun the **complete registered matrix** on Harvard (10/85) and Preflight (23/459).
+4. Retain raw immutable artifacts for both reruns. Every model × set cell must carry measurements **or** a
+   named `rejected` / `alias` / `diagnostic` / `invalid` / `not_run` reason. **A printed console table is not
+   retained evidence.**
+5. Apply the already-frozen selection policy **only** to the complete 600-utterance / 10,894-word artifact.
+   Exclude the q8→int8 alias and the q4 CPU diagnostic duplicate from ranking, but **preserve them in the
+   matrix**.
+6. Publish `tests/STT_BENCHMARKS.json`, a dated report under `product_release/evidence/stt/reports/`, the
+   immutable raw per-utterance artifacts, and the complete 85 / 459 / 600 matrix with provenance — linked
+   from `STT.md` and `EVIDENCE_INDEX.md`.
+7. State **technical winner**, **activation readiness**, and **failure-diverse fallback** separately.
+   SwiftShader proves WebGPU **compatibility**, never hardware speed.
