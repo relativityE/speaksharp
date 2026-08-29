@@ -2,8 +2,8 @@
 import posthog from 'posthog-js';
 import * as Sentry from "@sentry/react";
 import logger from '../lib/logger';
-import { redactTranscript } from '../lib/logRedaction';
 import { sanitizePrivateTelemetryProps } from './transcription/privateTelemetry';
+import { projectEventProps, isGovernedEvent } from './telemetryAllowlist';
 
 
 /**
@@ -20,33 +20,12 @@ interface AnalyticsEvent {
   timestamp: number;
 }
 
-const SENSITIVE_ANALYTICS_KEY = /(transcript|audio|wav|blob|base64)/i;
-
-const sanitizeAnalyticsValue = (key: string, value: unknown): unknown => {
-  if (SENSITIVE_ANALYTICS_KEY.test(key)) {
-    return typeof value === 'string'
-      ? redactTranscript(value)
-      : { redacted: true };
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeAnalyticsValue(key, item));
-  }
-
-  if (value && typeof value === 'object') {
-    return sanitizeAnalyticsProperties(value as Record<string, unknown>);
-  }
-
-  return value;
-};
-
-const sanitizeAnalyticsProperties = (
-  properties?: Record<string, unknown>,
-): Record<string, unknown> | undefined => {
-  if (!properties) return undefined;
-  // Imperative single pass: avoids the intermediate entries[] + mapped[] arrays that
-  // Object.fromEntries(Object.entries().map()) allocates per event.
-  const sanitized: Record<string, unknown> = {};
+// #1259 T1 — the key-NAME denylist that used to live here is GONE, deliberately.
+//
+// It tested the key's name against /(transcript|audio|wav|blob|base64)/i, so any field whose name did not
+// happen to match — `message`, `reason`, `error_message`, `notes` — carried its value to PostHog verbatim.
+// Widening the pattern only defers the problem to the next field someone invents. Event properties are now
+// projected onto a per-event allowlist in `telemetryAllowlist.ts`, which fails CLOSED on anything unknown.
   for (const key of Object.keys(properties)) {
     sanitized[key] = sanitizeAnalyticsValue(key, properties[key]);
   }
@@ -195,10 +174,29 @@ class AnalyticsBuffer {
       // any `private_*` event's props are re-projected through that SAME allowlist, so a Private event can
       // never carry a non-allowlisted field even if a caller bypassed the emitter. Non-Private events use
       // the general transcript/audio key redaction.
+      // #1259 T1 — EVERY non-Private event is projected onto its approved, content-free schema HERE, at
+      // the real capture boundary, immediately before posthog.capture. Not in the producer, not in a
+      // helper a caller can skip: a projection a producer can bypass is not a boundary.
+      //
+      // The previous policy was a DENYLIST on key NAMES, so `message`, `reason` and `error_message`
+      // reached PostHog verbatim. Error text is the worst carrier — PostgREST and Postgres echo request
+      // material back in message/details/hint, and `lib/storage.ts` already refuses to log raw errors
+      // precisely because a completion request carries the full transcript.
       const isPrivateEvent = event.event.startsWith('private_');
-      const sanitized = isPrivateEvent
-        ? sanitizePrivateTelemetryProps(event.properties)
-        : sanitizeAnalyticsProperties(event.properties);
+      let sanitized: Record<string, unknown> | undefined;
+      if (isPrivateEvent) {
+        sanitized = sanitizePrivateTelemetryProps(event.properties);
+      } else {
+        const projected = projectEventProps(event.event, event.properties);
+        sanitized = projected.props;
+        if (projected.dropped.length > 0) {
+          // Log the KEYS only. Logging the values would re-leak exactly what was just dropped.
+          logger.warn(
+            { event: event.event, droppedKeys: projected.dropped, governed: isGovernedEvent(event.event) },
+            '[AnalyticsBuffer] dropped non-allowlisted telemetry properties',
+          );
+        }
+      }
       posthog.capture(event.event, {
         ...sanitized,
         $priority: event.priority,
