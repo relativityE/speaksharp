@@ -26,11 +26,6 @@ interface AnalyticsEvent {
 // happen to match — `message`, `reason`, `error_message`, `notes` — carried its value to PostHog verbatim.
 // Widening the pattern only defers the problem to the next field someone invents. Event properties are now
 // projected onto a per-event allowlist in `telemetryAllowlist.ts`, which fails CLOSED on anything unknown.
-  for (const key of Object.keys(properties)) {
-    sanitized[key] = sanitizeAnalyticsValue(key, properties[key]);
-  }
-  return sanitized;
-};
 
 class AnalyticsBuffer {
   private static instance: AnalyticsBuffer;
