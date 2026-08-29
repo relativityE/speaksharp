@@ -38,7 +38,7 @@ import { buildEvidenceSet } from '../tests/evidence/certification/evidenceSets';
 import { EVIDENCE_SETS } from '../tests/evidence/certification/evidenceClass';
 import { resolveMoonshineRoute, resolveWhisperRoute } from '../tests/evidence/certification/candidateRoute';
 import { hashModelDirectory, installedVersion } from '../tests/evidence/certification/arms/backend';
-import { runtimeAssetsFor, verifyRuntimeAsset } from '../tests/evidence/certification/arms/runtimeAssets';
+import { RUNTIME_ASSET_PINS } from '../tests/evidence/certification/arms/runtimeAssets';
 
 /**
  * WHICH INFERENCE LIBRARY produced a row. v2 carries `@xenova/transformers`' own NESTED
@@ -123,7 +123,11 @@ for (const clip of set.clips) {
     catch (error) { audioMismatches.push(`${clip.id}: unreadable (${(error as Error).message.slice(0, 60)})`); }
 }
 
-const harness = await startHarnessServer(resolve('.'), { mode, pins, offlineOnly: mode === 'pinned' });
+const harness = await startHarnessServer(resolve('.'), {
+    mode, pins, offlineOnly: mode === 'pinned',
+    // Runtime binaries are verified BY THE SERVER on every request, not merely checked to exist once.
+    runtimePins: RUNTIME_ASSET_PINS,
+});
 const browser = await chromium.launch({
     headless: true,
     args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU'],
@@ -229,31 +233,19 @@ for (const spec of ARM_MATRIX) {
     const modelId = isV2 ? (spec.localModelId ?? spec.modelId) : spec.modelId;
     const deviceClaim: 'wasm' | 'webgpu' = spec.device === 'webgpu' ? 'webgpu' : 'wasm';
 
-    // VERIFY THE RUNTIME BINARY BEFORE LOADING ANYTHING. A model measured by an unverified runtime is
-    // not a pinned measurement, and this is the asset class that was missing entirely.
-    const runtimeAssetRecords: Record<string, { sha256: string; bytes: number; source: 'cache'; pinned: true }> = {};
-    const runtimeAssetFailures: { path: string; reason: string; detail: string }[] = [];
-    for (const assetPath of runtimeAssetsFor(spec.runtime)) {
-        const verified = verifyRuntimeAsset(assetPath);
-        if (!verified.ok) {
-            runtimeAssetFailures.push({ path: assetPath, reason: verified.reason, detail: verified.detail });
-            continue;
-        }
-        runtimeAssetRecords[assetPath] = {
-            sha256: verified.asset.sha256, bytes: verified.asset.bytes, source: 'cache', pinned: true,
-        };
-    }
-    if (runtimeAssetFailures.length > 0) {
-        console.log(`    RUNTIME ASSET REFUSED (${runtimeAssetFailures.length}):`);
-        for (const f of runtimeAssetFailures) console.log(`      ${f.reason}  ${f.path}  ${f.detail}`);
-        results.push({
-            id: spec.id, lane: 'browser', set: setName, evidenceClass, freshSession,
-            runtimeAssetFailures, wer: null, selectionEligible: false,
-            selectionIneligibleReason: `runtime asset: ${runtimeAssetFailures.map((f) => f.reason).join(', ')}`,
-        });
-        await context.close();
-        continue;
-    }
+    /**
+     * CAPTURE THE RUNTIME BINARIES THIS ARM ACTUALLY REQUESTS.
+     *
+     * The previous version verified the files listed in a hand-maintained `runtimeAssetsFor()` table.
+     * That proves declared files exist; it cannot discover an unlisted dependency, which was the
+     * entire defect. The server now refuses anything unlisted and records what it served, so the
+     * evidence comes from the run rather than from the list.
+     *
+     * It also keeps the download total HONEST: ORT Web ships eight binaries totalling 79.8 MB, but an
+     * arm fetches only the subset its backend selects. Counting all eight would overstate every v4
+     * arm's first-run cost.
+     */
+    const endRuntimeCapture = harness.beginRuntimeCapture();
 
     // COLD LOAD, measured in a FRESH context: what a new user waits for once.
     const coldLoadStarted = Date.now();
@@ -305,7 +297,7 @@ for (const spec of ARM_MATRIX) {
              */
             const ortEnv = (env as { backends?: { onnx?: { wasm?: { wasmPaths?: string } } } });
             if (ortEnv.backends?.onnx?.wasm) {
-                ortEnv.backends.onnx.wasm.wasmPaths = `${input.origin}/lib/onnxruntime-web/dist/`;
+                ortEnv.backends.onnx.wasm.wasmPaths = `${input.origin}/runtime/ortweb/`;
             }
 
             (env as { remoteHost: string }).remoteHost = `${input.origin}/hf/`;
@@ -326,7 +318,7 @@ for (const spec of ARM_MATRIX) {
                  * installed copy on our own origin makes the runtime binary as pinned as the weights.
                  */
                 (env as { backends: { onnx: { wasm: { wasmPaths: string } } } })
-                    .backends.onnx.wasm.wasmPaths = `${input.origin}/lib/@xenova/transformers/dist/`;
+                    .backends.onnx.wasm.wasmPaths = `${input.origin}/runtime/xenova/`;
                 (env as { allowLocalModels: boolean }).allowLocalModels = input.selfHosted;
                 (env as { allowRemoteModels: boolean }).allowRemoteModels = !input.selfHosted;
                 (env as { localModelPath: string }).localModelPath = '/models/';
@@ -357,6 +349,14 @@ for (const spec of ARM_MATRIX) {
 
     const coldLoadMs = Date.now() - coldLoadStarted;
     const armAssets = endArmCapture();
+    const runtimeAssetRecords = endRuntimeCapture();
+    const runtimeAssetFailures = harness.runtimeFailures;
+    if (runtimeAssetFailures.length > 0) {
+        console.log(`    RUNTIME ASSET REFUSED (${runtimeAssetFailures.length}):`);
+        for (const f of runtimeAssetFailures.slice(0, 5)) {
+            console.log(`      ${f.reason}  ${f.path}  ${f.detail}`);
+        }
+    }
 
     // Hash whatever the arm fetched from outside our origin, in Node, cached on disk so a re-run does
     // not re-download. This is what lets a CDN-fetching runtime carry real provenance.
@@ -418,9 +418,11 @@ for (const spec of ARM_MATRIX) {
         modelRevision: spec.revision ?? (selfHosted ? `self-hosted:${modelId}` : `huggingface:${modelId}`),
         // A SELF-HOSTED arm's weights never pass through the HuggingFace mirror, so its digests come
         // from the product's own models directory — the same files the page loads from /models/.
+        // The runtime binaries travel with the weights they executed — on EVERY arm. They were
+        // previously folded in only for self-hosted v2, so v2-small, every v4 and both non-streaming
+        // Moonshine rows understated both their provenance and their download.
         assets: selfHosted
             ? Object.fromEntries([
-                  // The runtime binary travels with the weights it executed.
                   ...Object.entries(runtimeAssetRecords),
                   ...Object.entries(hashModelDirectory(resolve('frontend/public/models', modelId)))
                       // REAL sizes, read from disk. `bytes: 0` made every self-hosted arm's download
@@ -489,7 +491,7 @@ for (const spec of ARM_MATRIX) {
     // A PIN VIOLATION INVALIDATES THE ARM. An asset that was missing, altered or unpinned means the
     // measurement was not taken on the bytes we committed to, whatever number came out.
     const backendProven = certification.certified && honored?.deviceVerifiable === true
-        && pinViolations.length === 0;
+        && pinViolations.length === 0 && runtimeAssetFailures.length === 0;
     if (pinViolations.length > 0) {
         console.log(`    PIN VIOLATIONS (${pinViolations.length}) — arm invalidated:`);
         for (const v of pinViolations.slice(0, 5)) console.log(`      ${v.reason}  ${v.url}`);
@@ -529,9 +531,11 @@ for (const spec of ARM_MATRIX) {
         hardwareRepresentative,
         transcriptDigest,
         fingerprint: certification.fingerprint.digest,
+        // The runtime binaries travel with the weights they executed — on EVERY arm. They were
+        // previously folded in only for self-hosted v2, so v2-small, every v4 and both non-streaming
+        // Moonshine rows understated both their provenance and their download.
         assets: selfHosted
             ? Object.fromEntries([
-                  // The runtime binary travels with the weights it executed.
                   ...Object.entries(runtimeAssetRecords),
                   ...Object.entries(hashModelDirectory(resolve('frontend/public/models', modelId)))
                       .map(([path, sha256]) => [`${modelId}/${path}`, {
@@ -540,11 +544,14 @@ for (const spec of ARM_MATRIX) {
                           source: 'cache' as const, pinned: true,
                       }]),
               ])
-            : Object.keys(armAssets).length > 0
-                ? armAssets
-                : Object.fromEntries(Object.entries(cdnAssets).map(([k, v]) => [k, {
-                      ...v, source: 'network' as const, pinned: false,
-                  }])),
+            : Object.fromEntries([
+                  ...Object.entries(runtimeAssetRecords),
+                  ...(Object.keys(armAssets).length > 0
+                      ? Object.entries(armAssets)
+                      : Object.entries(cdnAssets).map(([k, v]) => [k, {
+                            ...v, source: 'network' as const, pinned: false,
+                        }] as const)),
+              ]),
         expectedClips: set.expectedIds.length,
         audioRejected: audioMismatches.length,
     });

@@ -42,6 +42,12 @@ export interface HarnessServer {
     beginArmCapture: () => () => Record<string, AssetRecord>;
     /** Assets that failed their pin, or had none in pinned mode. Non-empty means no valid measurement. */
     assetFailures: { path: string; reason: 'pin_mismatch' | 'missing_pin' | 'offline_miss' | 'fetch_failed'; detail: string }[];
+    /** Runtime binaries actually SERVED, keyed by repo-relative path. Only what was requested. */
+    runtimeServed: Record<string, AssetRecord>;
+    /** Runtime requests refused: unlisted filename, missing file, or a digest that did not match. */
+    runtimeFailures: { path: string; reason: 'runtime_asset_unpinned' | 'runtime_asset_missing' | 'runtime_asset_digest_mismatch'; detail: string }[];
+    /** Start recording which runtime binaries an arm requests; the returned function ends the capture. */
+    beginRuntimeCapture: () => () => Record<string, AssetRecord>;
     close: () => Promise<void>;
 }
 
@@ -72,6 +78,15 @@ export type MirrorMode = 'pinned' | 'bootstrap';
 
 export interface HarnessServerOptions {
     mode?: MirrorMode;
+    /**
+     * Committed digests for INFERENCE RUNTIME binaries, keyed by repo-relative path.
+     *
+     * Served only through `/runtime/`, which verifies every byte. The generic `/lib/` mount does NOT
+     * — and pointing `wasmPaths` at `/lib/` is precisely how a CDN fetch that offline enforcement had
+     * correctly REFUSED became a same-origin fetch nothing checked. The request stopped failing; it did
+     * not start being verified.
+     */
+    runtimePins?: Record<string, string>;
     /** Refuse to fetch anything not already mirrored. A measurement run should set this. */
     offlineOnly?: boolean;
     /** Committed expected digests, keyed by repo-relative asset path. */
@@ -93,6 +108,9 @@ function routes(repoRoot: string): [string, string][] {
         ['/fixtures/', join(repoRoot, 'tests/fixtures')],
         // The frozen corpus audio, so a browser arm scores the same bytes the Node lane verified.
         ['/corpus/', join(repoRoot, 'bench-corpus')],
+        // Library CODE only. Runtime BINARIES are deliberately excluded below and must go through the
+        // pin-enforcing `/runtime/` endpoint; serving them here is what let an unpinned
+        // `ort-wasm.wasm` return 9,223,228 bytes with zero recorded failures.
         ['/lib/', join(repoRoot, 'node_modules')],
         // Locally cached third-party CDN assets (the official Moonshine component sets), served over
         // ordinary HTTP from our own origin so a pinned run needs no network.
@@ -114,6 +132,16 @@ export async function startHarnessServer(
     const assetFailures: HarnessServer['assetFailures'] = [];
     /** Paths requested since the current arm's capture began. */
     let armCapture: Set<string> | null = null;
+    const runtimePins = options.runtimePins ?? {};
+    const runtimeServed: Record<string, AssetRecord> = {};
+    const runtimeFailures: HarnessServer['runtimeFailures'] = [];
+    let runtimeCapture: Set<string> | null = null;
+
+    /** Where a `/runtime/<family>/<file>` request resolves to on disk. */
+    const RUNTIME_ROOTS: Record<string, string> = {
+        xenova: 'node_modules/@xenova/transformers/dist',
+        ortweb: 'node_modules/onnxruntime-web/dist',
+    };
 
     /** Serve an asset, and CHECK it. A digest computed from the artifact it describes proves nothing. */
     const mirrorAsset = async (relative: string): Promise<Buffer | null> => {
@@ -168,6 +196,52 @@ export async function startHarnessServer(
         const url = new URL(req.url ?? '/', 'http://localhost');
         const path = url.pathname === '/' ? '/harness.html' : url.pathname;
 
+        /**
+         * PIN-ENFORCING RUNTIME ENDPOINT.
+         *
+         * Every byte served here is checked against the committed table first. A filename that is not
+         * in the table is REFUSED — not served from disk because it happens to exist — because the
+         * original defect was a runtime file nobody had listed, and a mount that serves whatever is
+         * present reproduces it exactly.
+         */
+        if (path.startsWith('/runtime/')) {
+            const [family, ...rest] = path.slice('/runtime/'.length).split('/');
+            const file = normalize(rest.join('/')).replace(/^(\.\.[/\\])+/, '');
+            const root = RUNTIME_ROOTS[family];
+            const refuse = (reason: HarnessServer['runtimeFailures'][number]['reason'], detail: string) => {
+                runtimeFailures.push({ path: `${family}/${file}`, reason, detail });
+                res.writeHead(403, { 'content-type': 'text/plain' });
+                res.end(`${reason}: ${detail}`);
+            };
+            if (!root) return refuse('runtime_asset_unpinned', `unknown runtime family "${family}"`);
+
+            const diskPath = join(root, file);
+            const expected = runtimePins[diskPath];
+            if (expected === undefined) return refuse('runtime_asset_unpinned', diskPath);
+            const absolute = join(repoRoot, diskPath);
+            if (!absolute.startsWith(join(repoRoot, root)) || !existsSync(absolute)) {
+                return refuse('runtime_asset_missing', diskPath);
+            }
+            const bytes = readFileSync(absolute);
+            const sha256 = createHash('sha256').update(bytes).digest('hex');
+            if (sha256 !== expected) {
+                return refuse('runtime_asset_digest_mismatch', `${diskPath}: ${sha256} != ${expected}`);
+            }
+
+            runtimeServed[diskPath] = { sha256, bytes: bytes.length, source: 'cache', pinned: true };
+            runtimeCapture?.add(diskPath);
+            res.writeHead(200, {
+                'content-type': TYPES[extname(file)] ?? 'application/octet-stream',
+                'cross-origin-opener-policy': 'same-origin',
+                'cross-origin-embedder-policy': 'require-corp',
+                'cross-origin-resource-policy': 'cross-origin',
+                'access-control-allow-origin': '*',
+                'cache-control': 'no-store',
+            });
+            res.end(bytes);
+            return;
+        }
+
         if (path.startsWith('/hf/')) {
             const relative = normalize(decodeURIComponent(path.slice('/hf/'.length)))
                 .replace(/^(\.\.[/\\])+/, '');
@@ -191,6 +265,15 @@ export async function startHarnessServer(
 
         for (const [prefix, dir] of mounts) {
             if (!path.startsWith(prefix)) continue;
+            if (prefix === '/lib/' && /ort-wasm[^/]*\.(wasm|mjs)$/.test(path)) {
+                runtimeFailures.push({
+                    path, reason: 'runtime_asset_unpinned',
+                    detail: 'runtime binaries must be requested through /runtime/, which verifies them',
+                });
+                res.writeHead(403, { 'content-type': 'text/plain' });
+                res.end('runtime binaries are not served from /lib/; use /runtime/');
+                return;
+            }
             // `normalize` collapses `..` before the prefix check below, so a crafted path cannot
             // escape the mounted directory.
             const relative = normalize(path.slice(prefix.length)).replace(/^(\.\.[/\\])+/, '');
@@ -224,6 +307,16 @@ export async function startHarnessServer(
         origin: `http://127.0.0.1:${port}`,
         assets,
         assetFailures,
+        runtimeServed,
+        runtimeFailures,
+        beginRuntimeCapture: () => {
+            const capture = new Set<string>();
+            runtimeCapture = capture;
+            return () => {
+                runtimeCapture = null;
+                return Object.fromEntries([...capture].sort().map((p) => [p, runtimeServed[p]]));
+            };
+        },
         beginArmCapture: () => {
             const capture = new Set<string>();
             armCapture = capture;

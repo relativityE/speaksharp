@@ -18,13 +18,19 @@ import { createHash } from 'node:crypto';
 import { RUNTIME_ASSET_PINS, runtimeAssetsFor, verifyRuntimeAsset } from '../arms/runtimeAssets';
 import { ADMITTED_ARMS } from '../arms/registry';
 
-describe('every admitted arm can load with the network prohibited', () => {
+describe('the pinned runtime table is well formed', () => {
+    /**
+     * WHAT THIS FILE CAN AND CANNOT PROVE. It checks that DECLARED files exist and match their
+     * digests. That is a question about the list — it could never have discovered an unlisted runtime
+     * dependency, which was the entire defect, and it did not.
+     *
+     * The proof that every byte SERVED is pinned lives in `runtimeEndpoint.test.ts`, which starts the
+     * real server and asks what actually comes back. These two are complementary; only the second one
+     * closes the bypass.
+     */
     it.each(ADMITTED_ARMS.map((a) => [a.id, a] as const))(
-        '%s has every runtime asset present and pinned',
+        '%s has every declared runtime asset present and pinned',
         (_id, arm) => {
-            // The clean-workspace question, asked per arm: is every byte this arm needs at load time
-            // either self-hosted or committed? An arm that answers "no" cannot run offline, and will
-            // be refused rather than measured.
             for (const path of runtimeAssetsFor(arm.runtime)) {
                 const verified = verifyRuntimeAsset(path);
                 expect(verified.ok, `${arm.id} runtime asset ${path}: ${verified.ok ? '' : verified.reason}`)

@@ -13,7 +13,7 @@
  *   usage: npx tsx scripts/verify-asset-cache.mts [--repair]
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 const repair = process.argv.includes('--repair');
@@ -75,11 +75,18 @@ for (const manifest of MANIFESTS) {
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const body = Buffer.from(await response.arrayBuffer());
             mkdirSync(dirname(path), { recursive: true });
-            writeFileSync(path, body);
+            // ATOMIC: write to a temporary name and rename. A repair interrupted mid-write would
+            // otherwise leave a TRUNCATED file where a corrupt one used to be — the same failure this
+            // tool exists to remove, in a form that looks like a successful repair.
+            const temporary = `${path}.partial`;
+            writeFileSync(temporary, body);
+            renameSync(temporary, path);
             // Re-verify AFTER writing: a re-fetch that still mismatches means the pin and upstream
             // disagree, which is a much more serious finding than a corrupt local copy.
             if (digestOf() !== expected) {
                 console.log('STILL MISMATCHED after re-fetch');
+                // Leave nothing that a later run would mistake for a good cache entry.
+                try { unlinkSync(path); } catch { /* already gone */ }
                 failures.push({ manifest: manifest.label, key, reason: 'upstream_disagrees_with_pin' });
                 continue;
             }
