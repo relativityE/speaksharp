@@ -25,10 +25,11 @@ import { chromium } from '@playwright/test';
 import manifest from '../tests/fixtures/corpus-manifest.json' with { type: 'json' };
 import goldens from '../tests/evidence/normalization/goldens.json' with { type: 'json' };
 import { startHarnessServer } from '../tests/evidence/certification/browser/server';
-import { createBrowserArm, isSoftwareAdapter } from '../tests/evidence/certification/browser/browserArm';
+import { createBrowserArm, isSoftwareAdapter, generationFor } from '../tests/evidence/certification/browser/browserArm';
 import { ARM_MATRIX, ADMITTED_ARMS, SELECTION_EXECUTION_SET, NOT_EXECUTED_REASONS, REQUIRED_MATRIX_ROWS } from '../tests/evidence/certification/arms/registry';
 import { planResume, validateCompleteness, type RunIdentity, type CheckpointRow } from '../tests/evidence/certification/checkpoint';
 import { atomicWriteFileSync } from '../tests/evidence/certification/atomicWrite';
+import { ProbeRecorder, type ProbeInvocation } from '../tests/evidence/certification/probeArtifact';
 import { resolveRetention } from '../tests/evidence/certification/retention';
 import { expectationFor } from '../tests/evidence/certification/arms/build';
 import { certifyArmWithHonorProbe } from '../tests/evidence/certification/certify';
@@ -98,6 +99,18 @@ const mode = arg('mode', 'pinned') as 'pinned' | 'bootstrap';
  * teaches us anything about which bytes were downloaded. Loading is the part that fetches.
  */
 const pinsOnly = args.includes('--pins-only');
+
+/**
+ * DIAGNOSTIC-ONLY probe flags (#1304 Moonshine empty-hypothesis isolation).
+ *
+ * `--probe-clips` narrows to specific utterance ids; `--probe-max-new-tokens` overrides the Moonshine
+ * generation bound. Both exist to ISOLATE a cause, never to produce a selection row: a run using either
+ * is a subset run, which the retention rule already refuses to treat as complete evidence, and the
+ * corrected configuration they help identify would need its own fingerprint and a full selection-grade
+ * rerun before it could rank.
+ */
+const probeClips = arg('probe-clips', '') ? new Set(arg('probe-clips', '').split(',')) : null;
+const probeMaxNewTokens = arg('probe-max-new-tokens', '') ? Number(arg('probe-max-new-tokens', '')) : null;
 
 const PIN_FILE = 'tests/fixtures/hf-asset-pins.json';
 const MOONSHINE_PIN_FILE = 'tests/fixtures/moonshine-asset-pins.json';
@@ -588,9 +601,17 @@ for (const spec of ARM_MATRIX) {
         continue;
     }
 
-    const route = (seconds: number) => (isMoonshine
-        ? resolveMoonshineRoute(spec.modelId, seconds)
-        : resolveWhisperRoute(isV2 ? 'v2' : 'v4', modelId, seconds, spec.variantId));
+    const route = (seconds: number) => {
+        const resolved = isMoonshine
+            ? resolveMoonshineRoute(spec.modelId, seconds)
+            : resolveWhisperRoute(isV2 ? 'v2' : 'v4', modelId, seconds, spec.variantId);
+        // DIAGNOSTIC OVERRIDE. Applies to the Moonshine family only — the whisper route's bound is a
+        // different mechanism and overriding it here would silently change an unrelated experiment.
+        if (probeMaxNewTokens !== null && resolved.family === 'moonshine') {
+            return { ...resolved, maxNewTokens: probeMaxNewTokens };
+        }
+        return resolved;
+    };
 
     /**
      * ONE ASSET OBJECT, used by the arm's provenance, the verdict's footprint and the serialized
@@ -647,7 +668,164 @@ for (const spec of ARM_MATRIX) {
 
     const utterances: CorpusUtterance[] = set.clips
         .filter((c) => clipSeconds.has(c.id))
+        .filter((c) => !probeClips || probeClips.has(c.id))
         .map((c) => ({ id: c.id, reference: c.reference, locator: urlFor(c.path), audioSeconds: clipSeconds.get(c.id)! }));
+
+    /**
+     * DIAGNOSTIC PROBE PATH (#1304 Moonshine empty-hypothesis isolation).
+     *
+     * Persistence is delegated to ProbeRecorder, whose behaviour is proven by tests rather than by this
+     * call site: skeleton before the first decode, every cell durable before anything derived from it is
+     * printed, and a final artifact only once the exact expected set is covered.
+     *
+     * Every observation is tagged with the INVOCATION it came from. A cell holds no bare result fields,
+     * so token ids from `model.generate` cannot be reported beside a `{text}` from a different pipeline
+     * call as though one traced path produced both.
+     *
+     * Bypasses runArm, certification and scoring, and constructs NO SelectionRow: an overridden route
+     * legitimately fails route parity, and certifying a probe would be false.
+     */
+    if (probeMaxNewTokens !== null || probeClips) {
+        const base = (outPath || 'evidence-runs/probe').replace(/\.json$/, '');
+        const recorder = new ProbeRecorder(`${base}.probe-partial.json`, `${base}.probe.json`, {
+            kind: 'diagnostic_probe',
+            armId: spec.id,
+            command: process.argv.slice(1).join(' '),
+            executionSha: headSha(),
+            expectedCells: utterances.map((u) => u.id),
+            runtimeLabel: runtimeLabelFor(isV2, isMoonshineWasm),
+            modelId,
+            modelRevision: spec.revision ?? null,
+            probeMaxNewTokens,
+            assets: allArmAssets,
+            host: { platform: platform(), arch: arch(), cpus: cpus().length },
+        });
+
+        for (const u of utterances) {
+            const declared = route(u.audioSeconds);
+            const invocations: ProbeInvocation[] = [];
+
+            // INVOCATION 1 — the adapter's own call, exactly as a measured run would make it.
+            const inv1 = `${u.id}:adapter`;
+            try {
+                const adapter = await arm.decode(u.locator, u.audioSeconds);
+                invocations.push({
+                    invocationId: inv1, kind: 'adapter.decode',
+                    observations: { result: adapter, isNull: adapter === null },
+                });
+            } catch (error) {
+                invocations.push({
+                    invocationId: inv1, kind: 'adapter.decode', observations: {},
+                    error: { name: error instanceof Error ? error.name : 'unknown',
+                             message: (error instanceof Error ? error.message : String(error)).slice(0, 300) },
+                });
+            }
+
+            // INVOCATIONS 2 and 3 — a separate pipeline call, and a separate direct generate. Tagged
+            // separately because they ARE separate: nothing here may be attributed across them.
+            try {
+                const deep = await page.evaluate(async (input) => {
+                    const w = window as unknown as {
+                        __asr: ((a: Float32Array, o: Record<string, unknown>) => Promise<unknown>) & {
+                            model?: Record<string, unknown>; tokenizer?: Record<string, unknown>;
+                            processor?: (a: Float32Array) => Promise<Record<string, unknown>>;
+                        };
+                        __decodeAudio: (url: string) => Promise<{ samples: Float32Array; seconds: number }>;
+                    };
+                    const audio = await w.__decodeAudio(input.locator);
+                    const audioFacts = {
+                        pcmSamples: audio.samples.length,
+                        rms: Math.sqrt(audio.samples.reduce((a, v) => a + v * v, 0) / audio.samples.length),
+                    };
+
+                    const result = await w.__asr(audio.samples, input.generation);
+                    const el = Array.isArray(result) ? (result as unknown[])[0] : undefined;
+                    const pipelineObs = {
+                        ...audioFacts,
+                        jsType: typeof result,
+                        isArray: Array.isArray(result),
+                        topLevelKeys: result && typeof result === 'object' && !Array.isArray(result)
+                            ? Object.keys(result as object) : null,
+                        elementKeys: el && typeof el === 'object' ? Object.keys(el as object) : null,
+                        text: (result as { text?: unknown })?.text ?? null,
+                        elementText: (el as { text?: unknown })?.text ?? null,
+                    };
+
+                    const genObs: Record<string, unknown> = { ...audioFacts, available: false, reason: null };
+                    try {
+                        const pipe = w.__asr;
+                        const model = pipe.model as { generate?: (a: unknown) => Promise<unknown>; config?: Record<string, unknown> } | undefined;
+                        const tokenizer = pipe.tokenizer as { eos_token_id?: number; decode?: (i: number[], o?: unknown) => string } | undefined;
+                        if (!model?.generate || !pipe.processor) {
+                            genObs.reason = `pipeline exposes no ${!model?.generate ? 'model.generate' : 'processor'}`;
+                        } else {
+                            const feats = await pipe.processor(audio.samples);
+                            const gen = await model.generate({ ...feats, ...input.generation }) as
+                                { tolist?: () => number[][]; data?: ArrayLike<number> };
+                            const toNum = (v: unknown) => Number(v);
+                            const ids: number[] = gen?.tolist ? (gen.tolist()[0] ?? []).map(toNum)
+                                : gen?.data ? Array.from(gen.data as ArrayLike<number>, toNum) : [];
+                            const eosId = (tokenizer?.eos_token_id
+                                ?? (model.config as { eos_token_id?: number } | undefined)?.eos_token_id) ?? null;
+                            genObs.available = ids.length > 0;
+                            genObs.tokenIds = ids.slice(0, 128);
+                            genObs.generatedCount = ids.length;
+                            genObs.firstToken = ids[0] ?? null;
+                            genObs.eosTokenId = eosId;
+                            genObs.eosPosition = eosId === null ? null : ids.indexOf(eosId);
+                            genObs.decoderStartTokenId =
+                                (model.config as { decoder_start_token_id?: number } | undefined)?.decoder_start_token_id ?? null;
+                            // Decoded from THESE ids, in THIS invocation — so text and tokens here are
+                            // attributable to one another, unlike the pipeline call above.
+                            genObs.decodedFromTheseTokens = tokenizer?.decode
+                                ? tokenizer.decode(ids, { skip_special_tokens: false }) : null;
+                            genObs.terminationReason = eosId !== null && ids.includes(eosId) ? 'eos'
+                                : ids.length >= Number(input.generation.max_new_tokens ?? 0) ? 'max_new_tokens' : 'unknown';
+                        }
+                    } catch (err) {
+                        genObs.reason = err instanceof Error ? err.message.slice(0, 300) : String(err);
+                    }
+                    return { pipelineObs, genObs };
+                }, { locator: u.locator, generation: generationFor(declared) });
+
+                invocations.push({ invocationId: `${u.id}:pipeline`, kind: 'pipeline.call', observations: deep.pipelineObs });
+                invocations.push({ invocationId: `${u.id}:generate`, kind: 'model.generate', observations: deep.genObs });
+            } catch (error) {
+                invocations.push({
+                    invocationId: `${u.id}:pipeline`, kind: 'pipeline.call', observations: {},
+                    error: { name: error instanceof Error ? error.name : 'unknown',
+                             message: (error instanceof Error ? error.message : String(error)).slice(0, 300) },
+                });
+            }
+
+            recorder.addCell({
+                utteranceId: u.id, reference: u.reference, audioSeconds: u.audioSeconds,
+                maxNewTokens: declared.family === 'moonshine' ? declared.maxNewTokens : null,
+                invocations,
+            });
+
+            // Printed ONLY after the cell is durable, and labelled by invocation so the console cannot
+            // suggest a relationship the artifact does not record.
+            const gen = invocations.find((i) => i.kind === 'model.generate')?.observations as { generatedCount?: number } | undefined;
+            const pipe = invocations.find((i) => i.kind === 'pipeline.call')?.observations as { text?: unknown } | undefined;
+            console.log(`      ${u.id.padEnd(22)} [pipeline]text=${JSON.stringify(pipe?.text ?? null).slice(0, 24)} `
+                + `[generate]tokens=${gen?.generatedCount ?? 'n/a'}`);
+        }
+
+        const finalized = recorder.finalize();
+        if (!finalized.ok) {
+            console.error(`\n  PROBE NOT FINALIZED for ${spec.id}: ${finalized.reason} (${finalized.detail}) — partial retained`);
+        }
+        results.push({
+            id: spec.id, lane: 'browser', set: setName, evidenceClass: 'diagnostic_probe',
+            probe: true, certified: false, selectionEligible: false,
+            selectionIneligibleReason: 'diagnostic probe: uncertified route override, never selection evidence',
+            probeMaxNewTokens, artifact: `${base}.probe.json`, finalized: finalized.ok,
+        });
+        checkpoint();
+        await context.close();
+        continue;
+    }
 
     const certification = await certifyArmWithHonorProbe(
         arm, expectationFor(spec), goldens.cases, utterances[0]?.locator ?? '', utterances[0]?.audioSeconds ?? 1,

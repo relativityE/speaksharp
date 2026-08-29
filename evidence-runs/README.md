@@ -92,3 +92,41 @@ At 85 reference words one word is ~1.2% WER, so small differences on that set ar
    from `STT.md` and `EVIDENCE_INDEX.md`.
 7. State **technical winner**, **activation readiness**, and **failure-diverse fallback** separately.
    SwiftShader proves WebGPU **compatibility**, never hardware speed.
+
+## Process safety: never terminate by pattern
+
+**Rule.** Before terminating any process during benchmark work:
+
+1. Enumerate candidate PIDs with **full command lines and parent PIDs**.
+2. **Exclude the inspection command itself** — a `ps | grep` matches its own shell.
+3. Identify the exact benchmark process tree and executable paths.
+4. Operate only on an **explicit, reviewed PID list**.
+5. Send graceful termination, wait a bounded interval, then force-terminate **only an exact PID** that remains.
+6. If identity is ambiguous, **take no action and report**.
+
+**Never** use `pkill`, `killall`, a name pattern, a wildcard, or a *count* as the destructive target.
+
+### Why this rule exists — the Chrome near-miss, 2026-08-29
+
+After a benchmark run crashed, `ps aux | grep -c "[c]hromium"` reported **3 processes**, and I described them
+as "3 stray chromium processes left by the crash" and proposed `pkill -9 -f chromium_headless`.
+
+Verification under this rule showed all three matches were **my own inspection shells**, whose command lines
+contained the search string. A proper check found:
+
+- **zero** Playwright browsers — no `ms-playwright` or `headless_shell` process existed;
+- **38** `chrom` matches that were the **user's own Google Chrome** (20 renderer helpers plus the main app);
+- two `node` processes that were `mcp-remote` connectors, unrelated to the benchmark;
+- **no** benchmark runner at all — the crashed run had cleaned up after itself.
+
+Running the proposed command would have killed the user's browser and terminated unrelated work, to clean up
+processes that did not exist.
+
+Three details make this worth keeping rather than compressing to the rule alone:
+
+- **A count is not a target.** `grep -c` produced a plausible number that referred to nothing real.
+- **The self-match is invisible.** The `[c]hromium` bracket trick prevents `grep` matching its own *pattern*,
+  but not other shells whose arguments contain the string.
+- **The crash had already cleaned up.** The premise — that orphans existed — was never checked.
+
+Enumerate, exclude yourself, verify parentage, then act on named PIDs only.
