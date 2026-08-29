@@ -1,0 +1,80 @@
+{
+  "note": "SHA-256 and byte count of every asset the OFFICIAL Moonshine browser runtime fetches. Recorded once from a bootstrap run; verified on every pinned run, where a missing, altered, unexpected or unpinned asset is a FAILURE, not a skip. These weights never pass through the HuggingFace mirror because the runtime resolves them from its own catalog, which is why they need their own pin file.",
+  "runtimePackage": "@moonshine-ai/moonshine-wasm",
+  "runtimeVersion": "0.1.5",
+  "componentSet": "quantized_26_07_30",
+  "licence": "MIT (moonshine-ai/moonshine). The ONNX/.ort artifact hosts carry no travelling LICENSE file, so the notice is bundled with these pins rather than assumed to arrive with the bytes.",
+  "recordedAt": "2026-08-28",
+  "assets": {
+    "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/adapter.ort": {
+      "sha256": "3f2a287def57cc094367a0eec3c4f5fc36a32ec420e86764b696920991b20281",
+      "bytes": 3651296,
+      "url": "https://download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/adapter.ort"
+    },
+    "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/cross_kv.ort": {
+      "sha256": "642f6e21cd305be79342207c6f9e6b681d469d55bc48c72b27b84846fb71fd1e",
+      "bytes": 11643776,
+      "url": "https://download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/cross_kv.ort"
+    },
+    "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/decoder_kv.ort": {
+      "sha256": "193bb366492b74fc4ad338c6778e8d8eb916aaa11b5aa264f9057f4db7759486",
+      "bytes": 146972408,
+      "url": "https://download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/decoder_kv.ort"
+    },
+    "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/encoder.ort": {
+      "sha256": "12915e76ebac7dd287c5ea63965d06103a53ba1ce242a4a34f318f3958c60c37",
+      "bytes": 94705376,
+      "url": "https://download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/encoder.ort"
+    },
+    "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/frontend.ort": {
+      "sha256": "100a4cbc1e96f4f5586330ff60d5f6240813dbb399a0b9c6a187a9491ab716cc",
+      "bytes": 47467576,
+      "url": "https://download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/frontend.ort"
+    },
+    "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/streaming_config.json": {
+      "sha256": "28e83b7a28e91472692a035e0dae3116422ae43aeb2bef5ed822c44ce89b88af",
+      "bytes": 513,
+      "url": "https://download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/streaming_config.json"
+    },
+    "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/tokenizer.bin": {
+      "sha256": "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d",
+      "bytes": 249974,
+      "url": "https://download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/tokenizer.bin"
+    },
+    "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/adapter.ort": {
+      "sha256": "c665f742364febad597cc9ac1e0b341ffbee0e24a1466e2f3bde95e6e4771762",
+      "bytes": 2870368,
+      "url": "https://download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/adapter.ort"
+    },
+    "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/cross_kv.ort": {
+      "sha256": "e2d3417144e9514055ebfefe8dcc4c0a55a55adcb8530435844c75c53e352bf6",
+      "bytes": 5356536,
+      "url": "https://download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/cross_kv.ort"
+    },
+    "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/decoder_kv.ort": {
+      "sha256": "1a05465b1dd955858dfcbee039c0020fb5dd982b0f5094c34e61735d518d771b",
+      "bytes": 81878600,
+      "url": "https://download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/decoder_kv.ort"
+    },
+    "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/encoder.ort": {
+      "sha256": "2d4d973e91e8aca08c51e7e7efa28a46ab265b63d809d5294d18b86bcd85b993",
+      "bytes": 44148576,
+      "url": "https://download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/encoder.ort"
+    },
+    "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/frontend.ort": {
+      "sha256": "d1be8145bc9ef3e8625bb7bcb7a5b2930eeb828c91d6c1897bc215d7de6f2b93",
+      "bytes": 30984520,
+      "url": "https://download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/frontend.ort"
+    },
+    "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/streaming_config.json": {
+      "sha256": "26f02b6afb22d60871a5efd85c3d38e569cc0ddb6c5eb6e93d3260152ae8a47a",
+      "bytes": 512,
+      "url": "https://download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/streaming_config.json"
+    },
+    "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/tokenizer.bin": {
+      "sha256": "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d",
+      "bytes": 249974,
+      "url": "https://download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/tokenizer.bin"
+    }
+  }
+}

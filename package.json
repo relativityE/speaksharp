@@ -150,6 +150,7 @@
     "@axe-core/playwright": "4.11.0",
     "@esbuild/darwin-arm64": "^0.25.12",
     "@lhci/cli": "^0.15.1",
+    "@moonshine-ai/moonshine-wasm": "0.1.5",
     "@playwright/test": "^1.57.0",
     "@rollup/rollup-darwin-arm64": "^4.53.2",
     "@tailwindcss/oxide-darwin-arm64": "^4.1.17",
@@ -241,7 +242,8 @@
       "glob": ">=10.5.0",
       "basic-ftp": "^5.2.0",
       "protobufjs": "^7.5.5",
-      "shell-quote": ">=1.8.4"
+      "shell-quote": ">=1.8.4",
+      "@huggingface/transformers>onnxruntime-web": "1.27.0"
     },
     "auditConfig": {
       "ignoreGhsas": [
