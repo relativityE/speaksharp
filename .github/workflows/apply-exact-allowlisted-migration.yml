@@ -18,6 +18,7 @@ on:
           - '20260812041500'
           - '20260812041600'
           - '20260819120000'
+          - '20260829120000'
           - '20260812042000'
       expected_head_sha:
         description: 'Exact 40-character main SHA authorized by the Product Owner'
@@ -166,6 +167,33 @@ jobs:
           export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
           bash scripts/assert-db-connectivity-tls.sh
 
+      - name: Preflight #1306 Stage B credentials and BEFORE state (before the irreversible apply)
+        # SAME scoping discipline as #1314: only targets verified through raw psql need the pooler, and
+        # making every allowlisted migration depend on it would broaden this beyond its frozen scope.
+        if: ${{ contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          [ -n "${SUPABASE_URL:-}" ] || missing+=(SUPABASE_URL)
+          [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || missing+=(SUPABASE_SERVICE_ROLE_KEY)
+          [ -n "${SUPABASE_PROJECT_ID:-}" ] || missing+=(SUPABASE_PROJECT_ID)
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::#1306 postflight credentials missing BEFORE apply: ${missing[*]} — refusing to apply, as the postflight could not run"
+            exit 1
+          fi
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # Prove the verification path works BEFORE the irreversible apply — an unusable path must stop
+          # the apply rather than strand a landed change nobody can confirm (SEC-002).
+          bash scripts/supabase-pooler-connection.sh "$RUNNER_TEMP/pooler.env"
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          bash scripts/assert-db-connectivity-tls.sh
+          unset DB_URL
+          # THE PREMISE. If v1 is already absent there is nothing to retire, and continuing would report a
+          # success this migration did not cause.
+          bash scripts/postflight-gate-1306.sh before
+
       - name: Revalidate main IMMEDIATELY before the irreversible apply
         env:
           EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
@@ -269,6 +297,56 @@ jobs:
             exit 1
           fi
           echo "#1314 postflight enforced: success"
+
+      - name: Enforce reviewed #1306 Stage B operation (postflight gate)
+        id: postflight_1306
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # REUSE the parameters proven reachable before the apply — never re-resolve, or the postflight
+          # could attest to a path the pre-apply proof never validated.
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          # Both v1 signatures absent; v2 signature, grants and anon/PUBLIC denial retained.
+          bash scripts/postflight-gate-1306.sh after
+          # POSITIVE v2 READBACK. Absence of v1 is not proof the successor still works. A full-args call
+          # with a nonexistent session id resolves only if the function exists: HTTP 200 carrying
+          # profile_not_found or session_not_found. Anything else — non-200, PGRST202, empty or malformed
+          # body, transport failure — is a FAILURE. Absence-of-PGRST202 alone is NOT sufficient.
+          psql -v ON_ERROR_STOP=1 -qAtc "NOTIFY pgrst, 'reload schema';"
+          BOGUS='{"p_session_id":"00000000-0000-0000-0000-000000000000","p_status":"completed","p_final_duration":1,"p_reason":null,"p_next_action":null,"p_total_words":null,"p_clarity_score":null,"p_wpm":null,"p_filler_counts":null,"p_pause_metrics":null,"p_final_transcript":null}'
+          ok=no
+          for i in $(seq 1 15); do
+            code=$(curl -sS -o /tmp/probe1306.json -w '%{http_code}' \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H 'Content-Type: application/json' \
+              -X POST "${SUPABASE_URL}/rest/v1/rpc/complete_session_v2" -d "$BOGUS") || { sleep 2; continue; }
+            if bash scripts/postgrest-reload-confirmed.sh "$code" /tmp/probe1306.json; then ok=yes; break; fi
+            sleep 2
+          done
+          if [ "$ok" != yes ]; then
+            echo "::error::v2 readback did not observe the frozen resolved-function response (last http=$code, body: $(head -c 200 /tmp/probe1306.json))"
+            exit 1
+          fi
+          # NO UNRELATED CHANGE. Exactly one migration may have moved from pending to applied.
+          node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" after \
+            "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"
+          echo "#1306 Stage B postflight passed on production"
+
+      - name: Require #1306 postflight when applicable
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') }}
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.postflight_1306.outcome }}'
+          if [ "$outcome" != 'success' ]; then
+            echo "::error::#1306 applied but its postflight gate outcome was '$outcome' (must be success)"
+            exit 1
+          fi
+          echo "#1306 postflight enforced: success"
 
       - name: Require unambiguous exact-operation success
         id: terminal

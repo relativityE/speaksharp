@@ -65,6 +65,18 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // #1306 Stage B — retire the legacy complete_session (v1) overloads. Source merged at 8f770766.
+        //
+        // Placed BEFORE the held commercial-activation entry because that entry must remain last, and
+        // because Stage B is an MVP prerequisite rather than an activation step. Its version
+        // (20260829...) is chronologically later than the activation entry's (20260812...), which the
+        // allowlist explicitly permits: the array encodes operational prerequisite order, not chronology.
+        version: '20260829120000',
+        file: '20260829120000_retire_complete_session_v1_1306.sql',
+        sha256: 'db760dad491ea52330cf3e99dd7e9ea78d6277c1e4ef9d8b29d51d7168f23ee9',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',

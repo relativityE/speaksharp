@@ -64,11 +64,22 @@ describe('#1314 exact-migration allowlist', () => {
 describe('#1314 pending-set enforcement (does not require activation, keeps unselected pending)', () => {
   const cfg = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: V1314 });
 
+  /**
+   * The excluded set is DERIVED, never hardcoded.
+   *
+   * It was previously written out as just the activation entry, so adding #1306 Stage B to the allowlist
+   * broke these tests even though the enforcement was working correctly — the pending set is
+   * position-based, so every entry after the target is legitimately excluded. Deriving it keeps the
+   * assertions honest and stops the next allowlist addition from looking like a regression.
+   */
+  const excludedPending = cfg.excludedMigrations.map((m) => ({ v: m.version, local: true, remote: false }));
+  const excludedApplied = cfg.excludedMigrations.map((m) => ({ v: m.version, local: true, remote: true }));
+
   it('BEFORE apply: exactly {target, excluded} pending, prerequisites applied — passes', () => {
     const rows = [
       ...cfg.requiredAppliedVersions.map((v) => ({ v, local: true, remote: true })), // prerequisites applied
       { v: V1314, local: true, remote: false },            // target pending
-      { v: ACTIVATION, local: true, remote: false },        // activation still pending (excluded)
+      ...excludedPending,                                   // every later entry stays pending
     ];
     expect(() => assertBeforeApply(migrationList(rows), cfg)).not.toThrow();
   });
@@ -77,7 +88,7 @@ describe('#1314 pending-set enforcement (does not require activation, keeps unse
     const rows = [
       ...cfg.requiredAppliedVersions.map((v) => ({ v, local: true, remote: true })),
       { v: V1314, local: true, remote: false },
-      { v: ACTIVATION, local: true, remote: true },   // activation applied -> not pending -> wrong set
+      ...excludedApplied,   // an excluded entry already applied -> not pending -> wrong set
     ];
     expect(() => assertBeforeApply(migrationList(rows), cfg)).toThrow(/pending/);
   });
@@ -86,12 +97,12 @@ describe('#1314 pending-set enforcement (does not require activation, keeps unse
     const before = migrationList([
       ...cfg.requiredAppliedVersions.map((v) => ({ v, local: true, remote: true })),
       { v: V1314, local: true, remote: false },
-      { v: ACTIVATION, local: true, remote: false },
+      ...excludedPending,
     ]);
     const after = migrationList([
       ...cfg.requiredAppliedVersions.map((v) => ({ v, local: true, remote: true })),
       { v: V1314, local: true, remote: true },       // now applied
-      { v: ACTIVATION, local: true, remote: false },  // still pending
+      ...excludedPending,                             // every excluded entry still pending
     ]);
     expect(() => assertAfterApply(before, after, cfg)).not.toThrow();
   });
