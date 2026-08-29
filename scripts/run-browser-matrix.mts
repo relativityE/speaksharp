@@ -38,6 +38,7 @@ import { buildEvidenceSet } from '../tests/evidence/certification/evidenceSets';
 import { EVIDENCE_SETS } from '../tests/evidence/certification/evidenceClass';
 import { resolveMoonshineRoute, resolveWhisperRoute } from '../tests/evidence/certification/candidateRoute';
 import { hashModelDirectory, installedVersion } from '../tests/evidence/certification/arms/backend';
+import { RUNTIME_ASSET_PINS } from '../tests/evidence/certification/arms/runtimeAssets';
 
 /**
  * WHICH INFERENCE LIBRARY produced a row. v2 carries `@xenova/transformers`' own NESTED
@@ -122,7 +123,11 @@ for (const clip of set.clips) {
     catch (error) { audioMismatches.push(`${clip.id}: unreadable (${(error as Error).message.slice(0, 60)})`); }
 }
 
-const harness = await startHarnessServer(resolve('.'), { mode, pins, offlineOnly: mode === 'pinned' });
+const harness = await startHarnessServer(resolve('.'), {
+    mode, pins, offlineOnly: mode === 'pinned',
+    // Runtime binaries are verified BY THE SERVER on every request, not merely checked to exist once.
+    runtimePins: RUNTIME_ASSET_PINS,
+});
 const browser = await chromium.launch({
     headless: true,
     args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU'],
@@ -228,6 +233,21 @@ for (const spec of ARM_MATRIX) {
     const modelId = isV2 ? (spec.localModelId ?? spec.modelId) : spec.modelId;
     const deviceClaim: 'wasm' | 'webgpu' = spec.device === 'webgpu' ? 'webgpu' : 'wasm';
 
+    /**
+     * CAPTURE THE RUNTIME BINARIES THIS ARM ACTUALLY REQUESTS.
+     *
+     * The previous version verified the files listed in a hand-maintained `runtimeAssetsFor()` table.
+     * That proves declared files exist; it cannot discover an unlisted dependency, which was the
+     * entire defect. The server now refuses anything unlisted and records what it served, so the
+     * evidence comes from the run rather than from the list.
+     *
+     * It also keeps the download total HONEST: ORT Web ships eight binaries totalling 79.8 MB, but an
+     * arm fetches only the subset its backend selects. Counting all eight would overstate every v4
+     * arm's first-run cost.
+     */
+    const endRuntimeCapture = harness.beginRuntimeCapture();
+    const runtimeFailuresBefore = harness.runtimeFailures.length;
+
     // COLD LOAD, measured in a FRESH context: what a new user waits for once.
     const coldLoadStarted = Date.now();
     const loaded = await page.evaluate(async (input) => {
@@ -267,9 +287,39 @@ for (const spec of ARM_MATRIX) {
                 pipeline: (t: string, m: string, o: Record<string, unknown>) => Promise<unknown>;
                 env: Record<string, unknown>;
             };
+            /**
+             * SELF-HOST THE ORT WEB RUNTIME TOO.
+             *
+             * `onnxruntime-web` defaults its `wasmPaths` to
+             * `https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/`, so every v4 and Moonshine
+             * arm fetched three runtime binaries from a CDN. Same defect as v2, second package —
+             * found by the clean-workspace check, not by reasoning, after I had asserted these
+             * families bundled their runtime.
+             */
+            const ortEnv = (env as { backends?: { onnx?: { wasm?: { wasmPaths?: string } } } });
+            if (ortEnv.backends?.onnx?.wasm) {
+                ortEnv.backends.onnx.wasm.wasmPaths = `${input.origin}/runtime/ortweb/`;
+            }
+
             (env as { remoteHost: string }).remoteHost = `${input.origin}/hf/`;
             (env as { remotePathTemplate: string }).remotePathTemplate = '{model}/resolve/{revision}/';
             if (input.isV2) {
+                /**
+                 * SELF-HOST THE RUNTIME'S OWN WASM.
+                 *
+                 * `@xenova/transformers` defaults `wasmPaths` to
+                 * `https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/`, so the ONNX
+                 * Runtime binary is fetched from a CDN at load time. Neither pin manifest listed it —
+                 * they pin MODEL assets — so under offline enforcement every v2 arm was refused as
+                 * `unpinned` and produced no WER.
+                 *
+                 * The enforcement was right; the omission was mine. I added external blocking in the
+                 * final commit before merge and re-ran only the Streaming arms under it, so no v2 arm
+                 * was ever exercised against the rule that broke it. Pointing `wasmPaths` at the
+                 * installed copy on our own origin makes the runtime binary as pinned as the weights.
+                 */
+                (env as { backends: { onnx: { wasm: { wasmPaths: string } } } })
+                    .backends.onnx.wasm.wasmPaths = `${input.origin}/runtime/xenova/`;
                 (env as { allowLocalModels: boolean }).allowLocalModels = input.selfHosted;
                 (env as { allowRemoteModels: boolean }).allowRemoteModels = !input.selfHosted;
                 (env as { localModelPath: string }).localModelPath = '/models/';
@@ -300,6 +350,16 @@ for (const spec of ARM_MATRIX) {
 
     const coldLoadMs = Date.now() - coldLoadStarted;
     const armAssets = endArmCapture();
+    const runtimeAssetRecords = endRuntimeCapture();
+    // ARM-SCOPED. `harness.runtimeFailures` accumulates for the life of the server, so one arm's
+    // refusal would follow every later arm and invalidate runs that were themselves clean.
+    const runtimeAssetFailures = harness.runtimeFailures.slice(runtimeFailuresBefore);
+    if (runtimeAssetFailures.length > 0) {
+        console.log(`    RUNTIME ASSET REFUSED (${runtimeAssetFailures.length}):`);
+        for (const f of runtimeAssetFailures.slice(0, 5)) {
+            console.log(`      ${f.reason}  ${f.path}  ${f.detail}`);
+        }
+    }
 
     // Hash whatever the arm fetched from outside our origin, in Node, cached on disk so a re-run does
     // not re-download. This is what lets a CDN-fetching runtime carry real provenance.
@@ -330,16 +390,23 @@ for (const spec of ARM_MATRIX) {
         // it did not commit to.
         if (pinViolations.length > 0) {
             console.log(`    LOAD REFUSED — ${pinViolations.length} pin violation(s):`);
-            for (const v of pinViolations.slice(0, 5)) console.log(`      ${v.reason}  ${v.url}`);
+            for (const v of pinViolations.slice(0, 6)) console.log(`      ${v.reason}  ${v.url}`);
         } else {
             console.log(`    LOAD FAILED: ${loaded.error}`);
         }
         results.push({
             id: spec.id, lane: 'browser', set: setName, evidenceClass, freshSession,
-            loadError: loaded.error, pinViolations, networkAttempts, wer: null, selectionEligible: false,
-            selectionIneligibleReason: pinViolations.length > 0
-                ? `asset pin violation: ${pinViolations.map((v) => v.reason).join(', ')}`
-                : 'model failed to load in this runtime',
+            loadError: loaded.error, pinViolations, networkAttempts,
+            // The NAMED runtime reason survives into the artifact. It was being degraded to a generic
+            // "model failed to load in this runtime", which reads as a model problem and loses the one
+            // fact that explains it.
+            runtimeAssetFailures,
+            wer: null, selectionEligible: false,
+            selectionIneligibleReason: runtimeAssetFailures.length > 0
+                ? `runtime asset: ${[...new Set(runtimeAssetFailures.map((f) => f.reason))].join(', ')}`
+                : pinViolations.length > 0
+                    ? `asset pin violation: ${pinViolations.map((v) => v.reason).join(', ')}`
+                    : 'model failed to load in this runtime',
         });
         await context.close();
         continue;
@@ -355,31 +422,45 @@ for (const spec of ARM_MATRIX) {
         ? resolveMoonshineRoute(spec.modelId, seconds)
         : resolveWhisperRoute(isV2 ? 'v2' : 'v4', modelId, seconds, spec.variantId));
 
+    /**
+     * ONE ASSET OBJECT, used by the arm's provenance, the verdict's footprint and the serialized
+     * count.
+     *
+     * It was built TWICE — once for `createBrowserArm` and once for `buildTechnicalVerdict` — and I
+     * added the runtime binaries to the second only. The artifact then contradicted itself: the v4
+     * fp32 verdict reported 9 files while its certification provenance reported 7, and the two missing
+     * ones were the runtime binaries. So the fingerprint bound the model weights but NOT the bytes
+     * that executed them, and a runtime could change without moving it.
+     *
+     * Two constructions of the same fact will diverge; the fix is to have one.
+     */
+    const allArmAssets: Record<string, { sha256: string; bytes: number; source: 'cache' | 'network'; pinned: boolean }> =
+        Object.fromEntries([
+            // The runtime binaries this arm ACTUALLY requested.
+            ...Object.entries(runtimeAssetRecords),
+            ...(selfHosted
+                ? Object.entries(hashModelDirectory(resolve('frontend/public/models', modelId)))
+                      .map(([path, sha256]) => [`${modelId}/${path}`, {
+                          sha256,
+                          bytes: statSync(resolve('frontend/public/models', modelId, path)).size,
+                          source: 'cache' as const, pinned: true,
+                      }] as const)
+                : Object.keys(armAssets).length > 0
+                    ? Object.entries(armAssets)
+                    : Object.entries(cdnAssets).map(([k, v]) => [k, {
+                          ...v, source: 'network' as const, pinned: false,
+                      }] as const)),
+        ]);
+
     const arm = createBrowserArm({
         id: spec.id, page, route, deviceClaim,
         modelId,
         modelRevision: spec.revision ?? (selfHosted ? `self-hosted:${modelId}` : `huggingface:${modelId}`),
         // A SELF-HOSTED arm's weights never pass through the HuggingFace mirror, so its digests come
         // from the product's own models directory — the same files the page loads from /models/.
-        assets: selfHosted
-            ? Object.fromEntries(
-                  Object.entries(hashModelDirectory(resolve('frontend/public/models', modelId)))
-                      // REAL sizes, read from disk. `bytes: 0` made every self-hosted arm's download
-                      // footprint look like nothing, which is one of the measures a selection turns on.
-                      .map(([path, sha256]) => [`${modelId}/${path}`, {
-                          sha256,
-                          bytes: statSync(resolve('frontend/public/models', modelId, path)).size,
-                          source: 'cache' as const,
-                          pinned: true,
-                      }]),
-              )
-            // THIS arm's assets only — not everything the run has served so far. For an arm whose
-            // runtime fetches from its own CDN, those intercepted files are its assets.
-            : Object.keys(armAssets).length > 0
-                ? armAssets
-                : Object.fromEntries(Object.entries(cdnAssets).map(([k, v]) => [k, {
-                      ...v, source: 'network' as const, pinned: false,
-                  }])),
+        // The runtime binaries travel with the weights they executed — on EVERY arm. They were
+        // THE SAME object the verdict and the serialized count use.
+        assets: allArmAssets,
         assetsSource: selfHosted ? '/models/ (product self-hosted)' : `${harness.origin}/hf/ (pinned mirror)`,
         assetsVerdict: selfHosted ? 'identical' : 'unverifiable',
         runtimeLibrary: isMoonshineWasm
@@ -430,7 +511,7 @@ for (const spec of ARM_MATRIX) {
     // A PIN VIOLATION INVALIDATES THE ARM. An asset that was missing, altered or unpinned means the
     // measurement was not taken on the bytes we committed to, whatever number came out.
     const backendProven = certification.certified && honored?.deviceVerifiable === true
-        && pinViolations.length === 0;
+        && pinViolations.length === 0 && runtimeAssetFailures.length === 0;
     if (pinViolations.length > 0) {
         console.log(`    PIN VIOLATIONS (${pinViolations.length}) — arm invalidated:`);
         for (const v of pinViolations.slice(0, 5)) console.log(`      ${v.reason}  ${v.url}`);
@@ -470,20 +551,10 @@ for (const spec of ARM_MATRIX) {
         hardwareRepresentative,
         transcriptDigest,
         fingerprint: certification.fingerprint.digest,
-        assets: selfHosted
-            ? Object.fromEntries(
-                  Object.entries(hashModelDirectory(resolve('frontend/public/models', modelId)))
-                      .map(([path, sha256]) => [`${modelId}/${path}`, {
-                          sha256,
-                          bytes: statSync(resolve('frontend/public/models', modelId, path)).size,
-                          source: 'cache' as const, pinned: true,
-                      }]),
-              )
-            : Object.keys(armAssets).length > 0
-                ? armAssets
-                : Object.fromEntries(Object.entries(cdnAssets).map(([k, v]) => [k, {
-                      ...v, source: 'network' as const, pinned: false,
-                  }])),
+        // The runtime binaries travel with the weights they executed — on EVERY arm. They were
+        // previously folded in only for self-hosted v2, so v2-small, every v4 and both non-streaming
+        // Moonshine rows understated both their provenance and their download.
+        assets: allArmAssets,
         expectedClips: set.expectedIds.length,
         audioRejected: audioMismatches.length,
     });
@@ -513,7 +584,9 @@ for (const spec of ARM_MATRIX) {
         decoderAssets: Object.entries(armAssets)
             .filter(([path]) => /decoder/i.test(path))
             .map(([path, record]) => ({ path, sha256: record.sha256, bytes: record.bytes })),
-        assetCount: Object.keys(armAssets).length,
+        // From the SAME object as provenance and the verdict; `armAssets` omitted the runtime binaries
+        // and was the third disagreeing count in one artifact.
+        assetCount: Object.keys(allArmAssets).length,
         pinViolations, networkAttempts,
         // True only when nothing reached the network: every external byte came from a verified pin.
         offlineEnforced: mode === 'pinned' && pinViolations.length === 0,

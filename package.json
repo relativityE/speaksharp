@@ -86,8 +86,8 @@
     "test:agent": "node scripts/pnpm-only.mjs && ./scripts/test-audit.sh agent",
     "reset:cache": "./scripts/test-audit.sh clean",
     "reset:clean": "./scripts/test-audit.sh clean --nuclear",
-    "ci:dispatch:deploy": "echo '🚀 Dispatching deploy smoke...' && gh workflow run canary.yml && echo '✅ Dispatched. Monitor: gh run list --limit 1'",
-    "ci:dispatch:stress-endurance": "echo '🚀 Dispatching stress/endurance checks...' && gh workflow run stress-endurance.yml && echo '✅ Dispatched. Monitor: gh run list --workflow stress-endurance.yml --limit 1'",
+    "ci:dispatch:deploy": "echo '\ud83d\ude80 Dispatching deploy smoke...' && gh workflow run canary.yml && echo '\u2705 Dispatched. Monitor: gh run list --limit 1'",
+    "ci:dispatch:stress-endurance": "echo '\ud83d\ude80 Dispatching stress/endurance checks...' && gh workflow run stress-endurance.yml && echo '\u2705 Dispatched. Monitor: gh run list --workflow stress-endurance.yml --limit 1'",
     "ci:dispatch:soak": "pnpm ci:dispatch:stress-endurance",
     "ci:dispatch:soak:wait": "node scripts/trigger-soak.mjs --wait",
     "pw:install": "playwright install chromium --with-deps",
@@ -105,7 +105,9 @@
     "evidence:stt:private-worker": "tsx scripts/private-v2-worker-evidence.mts",
     "evidence:stt:browser": "tsx scripts/browser-webspeech-evidence.mts",
     "prepare": "HUSKY=0 husky install",
-    "preinstall": "npx only-allow pnpm"
+    "preinstall": "npx only-allow pnpm",
+    "benchmark:verify-cache": "tsx scripts/verify-asset-cache.mts",
+    "benchmark:repair-cache": "tsx scripts/verify-asset-cache.mts --repair"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
