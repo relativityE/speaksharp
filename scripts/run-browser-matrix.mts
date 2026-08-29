@@ -17,6 +17,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { resolve } from 'node:path';
 import { cpus, arch, platform } from 'node:os';
@@ -26,6 +27,7 @@ import goldens from '../tests/evidence/normalization/goldens.json' with { type: 
 import { startHarnessServer } from '../tests/evidence/certification/browser/server';
 import { createBrowserArm, isSoftwareAdapter } from '../tests/evidence/certification/browser/browserArm';
 import { ARM_MATRIX } from '../tests/evidence/certification/arms/registry';
+import { resolveRetention } from '../tests/evidence/certification/retention';
 import { expectationFor } from '../tests/evidence/certification/arms/build';
 import { certifyArmWithHonorProbe } from '../tests/evidence/certification/certify';
 import { createHash } from 'node:crypto';
@@ -72,7 +74,18 @@ const args = process.argv.slice(2);
 const arg = (name: string, fallback: string) =>
     args.find((a) => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=') ?? fallback;
 const onlyIds = arg('only', '') ? new Set(arg('only', '').split(',')) : null;
-const outPath = arg('out', '');
+/**
+ * RETENTION IS MANDATORY. A measuring run that retains nothing is not evidence — it is a console
+ * session that disappears when the terminal closes. The 459-word preflight was run and its result
+ * discussed, but it was invoked without `--out`, so `if (outPath)` silently skipped the write and the
+ * measurement no longer exists anywhere. Hours of benchmark time produced nothing citable.
+ *
+ * So `--out` is now optional only in the sense that a DEFAULT is derived when it is omitted; the run
+ * always retains. Discarding a run requires typing `--no-retain`, which is deliberate, loud, and
+ * refused outright for the selection set.
+ */
+const explicitOut = arg('out', '');
+const noRetain = args.includes('--no-retain');
 const setName = arg('set', 'harvard');
 const mode = arg('mode', 'pinned') as 'pinned' | 'bootstrap';
 /**
@@ -661,6 +674,37 @@ if (pinsOnly) {
     console.log(`\nwrote ${PIN_FILE} with ${Object.keys(pinFile.assets).length} pinned assets`);
 }
 
+/**
+ * Resolve where this run retains. A `--only=` subset run is a debugging slice, not a matrix run, so it
+ * keeps the old opt-in behaviour; everything else retains by default.
+ */
+const headSha = (): string => {
+    try {
+        return execFileSync('git', ['rev-parse', '--short=8', 'HEAD'], { encoding: 'utf8' }).trim();
+    } catch { /* not a git checkout — the set name alone still beats retaining nothing */ }
+    return 'unknown';
+};
+
+const retention = resolveRetention({
+    explicitOut, noRetain, subsetRun: !!onlyIds, setName, evidenceClass, sha: headSha(),
+});
+if (retention.kind === 'refuse') {
+    console.error(`\nREFUSING --no-retain on the selection set: ${retention.reason}.`);
+    process.exit(1);
+}
+if (retention.kind === 'discard') {
+    console.warn(`\nTHIS RUN RETAINS NOTHING (${retention.reason}). Nothing it prints may be cited as evidence.`);
+}
+const outPath = retention.kind === 'retain' ? retention.path : '';
+if (retention.kind === 'retain' && retention.derived) {
+    console.log(`\nno --out given; retaining to ${outPath}`);
+}
+// Never silently overwrite a retained measurement with a later one.
+if (outPath && existsSync(outPath)) {
+    console.error(`\nREFUSING to overwrite existing evidence ${outPath}. Move it aside or pass a different --out.`);
+    process.exit(1);
+}
+
 // AN INCOMPLETE ARTIFACT IS NOT WRITTEN. Checked before serialization rather than trusted afterwards,
 // because the previous artifact was described as complete on the strength of a log beside it.
 if (outPath && !onlyIds) {
@@ -678,6 +722,9 @@ if (outPath && !onlyIds) {
 }
 
 if (outPath) {
+    mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, `${JSON.stringify({ lane: 'browser', set: setName, evidenceClass, results, assets: harness.assets, assetFailures: harness.assetFailures }, null, 2)}\n`, 'utf8');
     console.log(`wrote ${outPath}`);
+} else {
+    console.warn('\nNOTHING RETAINED by this run.');
 }
