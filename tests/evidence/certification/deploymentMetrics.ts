@@ -70,6 +70,13 @@ export interface TechnicalVerdict {
     armId: string;
     /** Set when this row's assets are byte-identical to another arm's — one candidate, two dtype names. */
     dtypeAliasOf?: string;
+    /**
+     * `diagnostic` rows answer a question about the harness, not about a candidate, and may never
+     * rank. Carried on the row because the ranking is computed from rows, not from the registry — the
+     * alias was excluded here while the diagnostic duplicate was not, so one of the two extra measured
+     * arms could still have entered a ranking.
+     */
+    role?: 'selection' | 'diagnostic';
     /** Which browser runtime produced this. Rows from different runtimes MUST NOT be ranked together. */
     runtimeLabel: string;
     evidenceSet: string;
@@ -154,6 +161,8 @@ export function rankTechnical(
         // twice and read as two independent results agreeing — proven by byte-identical decoder
         // graphs, not inferred from a matching score.
         && r.dtypeAliasOf === undefined
+        // A diagnostic row is a fact about the harness, not a candidate.
+        && r.role !== 'diagnostic'
         && (!options.requireSelectionGrade || r.evidenceClass === 'selection'));
     return [...eligible].sort((a, b) => (a.wer ?? 1) - (b.wer ?? 1));
 }

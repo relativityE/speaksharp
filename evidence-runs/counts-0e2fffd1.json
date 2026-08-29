@@ -1,0 +1,1546 @@
+{
+  "lane": "browser",
+  "set": "harvard",
+  "evidenceClass": "smoke",
+  "results": [
+    {
+      "id": "v2:tiny.en",
+      "label": "v2 whisper-tiny.en (self-hosted)",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@xenova/transformers+ort-web-1.14.0",
+      "verdict": {
+        "armId": "v2:tiny.en",
+        "runtimeLabel": "@xenova/transformers+ort-web-1.14.0",
+        "evidenceSet": "harvard",
+        "evidenceClass": "smoke",
+        "wer": 0.023529411764705882,
+        "referenceWords": 85,
+        "reliability": {
+          "expectedClips": 10,
+          "decoded": 10,
+          "threw": 0,
+          "emptyOutput": 0,
+          "timedOut": 0,
+          "audioRejected": 0,
+          "missing": 0
+        },
+        "speed": {
+          "coldLoadMs": 677,
+          "warmDecodeMsP50": 754,
+          "warmDecodeMsP95": 769,
+          "realTimeFactorP50": 0.25534436777716635,
+          "realTimeFactorP95": 0.2934242571846079,
+          "stopToFinalMs": null
+        },
+        "footprint": {
+          "modelBytes": 54458545,
+          "assetCount": 13,
+          "peakMemoryBytes": null
+        },
+        "duration": {
+          "shortestClipSeconds": 2.56625,
+          "longestClipSeconds": 3.363,
+          "longFormTailPreserved": null,
+          "longFormRepeatedNgrams": null,
+          "truncatedClips": 0
+        },
+        "backendProven": true,
+        "resolvedBackend": "wasm:1 module(s)",
+        "hardwareRepresentative": true,
+        "transcriptDigest": "d1fa4b00bdac4352",
+        "fingerprint": "f6ce321fc7c01235",
+        "assetDigestCount": 13
+      },
+      "role": "selection",
+      "freshSession": true,
+      "requestedDevice": "wasm",
+      "resolvedBackend": "wasm:1 module(s)",
+      "backendProven": true,
+      "hardwareRepresentative": true,
+      "certified": true,
+      "failedGates": [],
+      "fingerprint": "f6ce321fc7c01235",
+      "expectedClips": 10,
+      "decodedClips": 10,
+      "audioMismatches": [],
+      "transcriptDigest": "d1fa4b00bdac4352",
+      "perUtterance": [
+        {
+          "id": "h1_1",
+          "normalizedReference": "the stale smell of old beer like lingers",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_2",
+          "normalizedReference": "basically a dash of pepper spoils beef stew",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_3",
+          "normalizedReference": "well the swan dive was far short of perfect",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 9,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_4",
+          "normalizedReference": "you know the box was thrown beside the parked truck",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_5",
+          "normalizedReference": "literally the twister left no trace of the town",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 9,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_6",
+          "normalizedReference": "they like told wild tales to frighten him",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_7",
+          "normalizedReference": "we find joy in the simplest things",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_8",
+          "normalizedReference": "the puppy like chewed up the new shoes",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_9",
+          "normalizedReference": "a smooth road you know makes driving pleasant",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_10",
+          "normalizedReference": "basically the quick brown fox jumps over the lazy dog",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        }
+      ],
+      "decoderAssets": [],
+      "assetCount": 13,
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "assetFailures": [],
+      "wer": 0.023529411764705882,
+      "referenceWords": 85,
+      "substitutions": 2,
+      "deletions": 0,
+      "insertions": 0,
+      "wallClockMs": 7471,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "harvard is a smoke set — not selection evidence",
+      "provenance": {
+        "model": {
+          "id": "whisper-tiny.en",
+          "revision": "self-hosted:whisper-tiny.en",
+          "filesSha256": {
+            "node_modules/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm": "ac23f2f3cbd519a65a0796f7c79eb34ead4c1f6f31eb06e14ed8a9579d697ef6",
+            "whisper-tiny.en/added_tokens.json": "598c98875c01fe7ebd08ba6779f052f1136de6d36d9e7b99e04b432f78ecb28d",
+            "whisper-tiny.en/config.json": "37a1073be00d19118c06557896c7c148598f4d8277edc0f5bc07c9f5554839f1",
+            "whisper-tiny.en/generation_config.json": "132c95ba9db45f4498f2eab3fea7c1d6a174005010f8f6b7d20cfd5e9795996b",
+            "whisper-tiny.en/merges.txt": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5",
+            "whisper-tiny.en/normalizer.json": "bf1c507dc8724ca9cf9903640dacfb69dae2f00edee4f21ceba106a7392f26dd",
+            "whisper-tiny.en/onnx/decoder_model_merged_quantized.onnx": "dbb2e063b7fbc41d9803b9698f93ecb035c50cbb3fb87b56cb131e4a5eb99059",
+            "whisper-tiny.en/onnx/encoder_model_quantized.onnx": "8cc3c6f8563d1b3fbd2c5af9f64c2bed8b020bc593c402d1ef53b9f08fbf1b90",
+            "whisper-tiny.en/preprocessor_config.json": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+            "whisper-tiny.en/special_tokens_map.json": "7da611d517fe29e77335b8d8384e71795fb7b37cbf95bdc3b5252fa7e09dd1f8",
+            "whisper-tiny.en/tokenizer.json": "c6ee8f089220a5b1188f6426456772572671c6141ae007eecb83c6a8349f5deb",
+            "whisper-tiny.en/tokenizer_config.json": "e082c1ad251541bf277967a703252cddd4bb37a71a43737e03d050c22ec08238",
+            "whisper-tiny.en/vocab.json": "f6bd25a65e4e63ca31360e9fb11c7e4f9a391a78385d640acd814092dd6eee4f"
+          }
+        },
+        "runtime": {
+          "library": "@xenova/transformers",
+          "version": "2.17.2",
+          "backend": "wasm"
+        },
+        "assets": {
+          "source": "/models/ (product self-hosted)",
+          "verdict": "identical"
+        },
+        "device": {
+          "platform": "darwin",
+          "arch": "arm64",
+          "cpuModel": "Apple M2",
+          "cores": 8
+        },
+        "route": {
+          "hash": "b9b619aadcf7",
+          "route": {
+            "family": "whisper",
+            "engine": "v2",
+            "modelId": "whisper-tiny.en",
+            "decode": {
+              "engine": "v2",
+              "modelId": "whisper-tiny.en",
+              "chunk_length_s": 30,
+              "stride_length_s": 0,
+              "return_timestamps": true
+            }
+          }
+        },
+        "corpus": {
+          "version": "librispeech_test_v1",
+          "digest": "no-frozen-audio:harvard",
+          "archives": {
+            "test-clean.tar.gz": "39fde525e59672dc6d1551919b1478f724438a95aa55f874b576be21967e6c23",
+            "test-other.tar.gz": "d09c181bba5cf717b3dee7d4d592af11a3ee3a09e08ae025c5506f6ebe961c29"
+          }
+        },
+        "resources": {
+          "wallClockMs": 7471,
+          "peakRssBytes": null
+        }
+      }
+    },
+    {
+      "id": "v2:base.en",
+      "label": "v2 whisper-base.en — SHIPPING",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@xenova/transformers+ort-web-1.14.0",
+      "verdict": {
+        "armId": "v2:base.en",
+        "runtimeLabel": "@xenova/transformers+ort-web-1.14.0",
+        "evidenceSet": "harvard",
+        "evidenceClass": "smoke",
+        "wer": 0.023529411764705882,
+        "referenceWords": 85,
+        "reliability": {
+          "expectedClips": 10,
+          "decoded": 10,
+          "threw": 0,
+          "emptyOutput": 0,
+          "timedOut": 0,
+          "audioRejected": 0,
+          "missing": 0
+        },
+        "speed": {
+          "coldLoadMs": 878,
+          "warmDecodeMsP50": 1264,
+          "warmDecodeMsP95": 1394,
+          "realTimeFactorP50": 0.4280574016847987,
+          "realTimeFactorP95": 0.48826108134437407,
+          "stopToFinalMs": null
+        },
+        "footprint": {
+          "modelBytes": 90514043,
+          "assetCount": 13,
+          "peakMemoryBytes": null
+        },
+        "duration": {
+          "shortestClipSeconds": 2.56625,
+          "longestClipSeconds": 3.363,
+          "longFormTailPreserved": null,
+          "longFormRepeatedNgrams": null,
+          "truncatedClips": 0
+        },
+        "backendProven": true,
+        "resolvedBackend": "wasm:1 module(s)",
+        "hardwareRepresentative": true,
+        "transcriptDigest": "75bb64099c724dda",
+        "fingerprint": "f1f6301745202085",
+        "assetDigestCount": 13
+      },
+      "role": "selection",
+      "freshSession": true,
+      "requestedDevice": "wasm",
+      "resolvedBackend": "wasm:1 module(s)",
+      "backendProven": true,
+      "hardwareRepresentative": true,
+      "certified": true,
+      "failedGates": [],
+      "fingerprint": "f1f6301745202085",
+      "expectedClips": 10,
+      "decodedClips": 10,
+      "audioMismatches": [],
+      "transcriptDigest": "75bb64099c724dda",
+      "perUtterance": [
+        {
+          "id": "h1_1",
+          "normalizedReference": "the stale smell of old beer like lingers",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_2",
+          "normalizedReference": "basically a dash of pepper spoils beef stew",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_3",
+          "normalizedReference": "well the swan dive was far short of perfect",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 9,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_4",
+          "normalizedReference": "you know the box was thrown beside the parked truck",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_5",
+          "normalizedReference": "literally the twister left no trace of the town",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 9,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_6",
+          "normalizedReference": "they like told wild tales to frighten him",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_7",
+          "normalizedReference": "we find joy in the simplest things",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_8",
+          "normalizedReference": "the puppy like chewed up the new shoes",
+          "substitutions": 0,
+          "deletions": 1,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_9",
+          "normalizedReference": "a smooth road you know makes driving pleasant",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_10",
+          "normalizedReference": "basically the quick brown fox jumps over the lazy dog",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        }
+      ],
+      "decoderAssets": [],
+      "assetCount": 13,
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "assetFailures": [],
+      "wer": 0.023529411764705882,
+      "referenceWords": 85,
+      "substitutions": 1,
+      "deletions": 1,
+      "insertions": 0,
+      "wallClockMs": 12714,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "harvard is a smoke set — not selection evidence",
+      "provenance": {
+        "model": {
+          "id": "whisper-base.en",
+          "revision": "self-hosted:whisper-base.en",
+          "filesSha256": {
+            "node_modules/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm": "ac23f2f3cbd519a65a0796f7c79eb34ead4c1f6f31eb06e14ed8a9579d697ef6",
+            "whisper-base.en/added_tokens.json": "598c98875c01fe7ebd08ba6779f052f1136de6d36d9e7b99e04b432f78ecb28d",
+            "whisper-base.en/config.json": "5c390f2c6ba84ddeb7e362cd8b2123832911407850174e64d7081ccc36df2d64",
+            "whisper-base.en/generation_config.json": "1e57ed56ad1bd7f08a49ece7fe7daada674573805a35f8bdbbe68380aab5b1ee",
+            "whisper-base.en/merges.txt": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5",
+            "whisper-base.en/normalizer.json": "bf1c507dc8724ca9cf9903640dacfb69dae2f00edee4f21ceba106a7392f26dd",
+            "whisper-base.en/onnx/decoder_model_merged_quantized.onnx": "a25afc5858a20aabb7652cb2d555996ebe10691a69bbdb423d5073d52f060325",
+            "whisper-base.en/onnx/encoder_model_quantized.onnx": "d0d4e59e2842617b39787cece73d7e8f76f99b1697d3386c0e682eca2269f4a1",
+            "whisper-base.en/preprocessor_config.json": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+            "whisper-base.en/special_tokens_map.json": "7da611d517fe29e77335b8d8384e71795fb7b37cbf95bdc3b5252fa7e09dd1f8",
+            "whisper-base.en/tokenizer.json": "c6ee8f089220a5b1188f6426456772572671c6141ae007eecb83c6a8349f5deb",
+            "whisper-base.en/tokenizer_config.json": "e082c1ad251541bf277967a703252cddd4bb37a71a43737e03d050c22ec08238",
+            "whisper-base.en/vocab.json": "f6bd25a65e4e63ca31360e9fb11c7e4f9a391a78385d640acd814092dd6eee4f"
+          }
+        },
+        "runtime": {
+          "library": "@xenova/transformers",
+          "version": "2.17.2",
+          "backend": "wasm"
+        },
+        "assets": {
+          "source": "/models/ (product self-hosted)",
+          "verdict": "identical"
+        },
+        "device": {
+          "platform": "darwin",
+          "arch": "arm64",
+          "cpuModel": "Apple M2",
+          "cores": 8
+        },
+        "route": {
+          "hash": "977afcf4863b",
+          "route": {
+            "family": "whisper",
+            "engine": "v2",
+            "modelId": "whisper-base.en",
+            "decode": {
+              "engine": "v2",
+              "modelId": "whisper-base.en",
+              "chunk_length_s": 30,
+              "stride_length_s": 0,
+              "return_timestamps": true
+            }
+          }
+        },
+        "corpus": {
+          "version": "librispeech_test_v1",
+          "digest": "no-frozen-audio:harvard",
+          "archives": {
+            "test-clean.tar.gz": "39fde525e59672dc6d1551919b1478f724438a95aa55f874b576be21967e6c23",
+            "test-other.tar.gz": "d09c181bba5cf717b3dee7d4d592af11a3ee3a09e08ae025c5506f6ebe961c29"
+          }
+        },
+        "resources": {
+          "wallClockMs": 12714,
+          "peakRssBytes": null
+        }
+      }
+    },
+    {
+      "id": "v2:small.en",
+      "label": "v2 whisper-small.en (HuggingFace — NOT self-hosted)",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@xenova/transformers+ort-web-1.14.0",
+      "verdict": {
+        "armId": "v2:small.en",
+        "runtimeLabel": "@xenova/transformers+ort-web-1.14.0",
+        "evidenceSet": "harvard",
+        "evidenceClass": "smoke",
+        "wer": 0,
+        "referenceWords": 85,
+        "reliability": {
+          "expectedClips": 10,
+          "decoded": 10,
+          "threw": 0,
+          "emptyOutput": 0,
+          "timedOut": 0,
+          "audioRejected": 0,
+          "missing": 0
+        },
+        "speed": {
+          "coldLoadMs": 1618,
+          "warmDecodeMsP50": 4441,
+          "warmDecodeMsP95": 5403,
+          "realTimeFactorP50": 1.5034664326458973,
+          "realTimeFactorP95": 1.8490014612761811,
+          "stopToFinalMs": null
+        },
+        "footprint": {
+          "modelBytes": 261199597,
+          "assetCount": 8,
+          "peakMemoryBytes": null
+        },
+        "duration": {
+          "shortestClipSeconds": 2.56625,
+          "longestClipSeconds": 3.363,
+          "longFormTailPreserved": null,
+          "longFormRepeatedNgrams": null,
+          "truncatedClips": 0
+        },
+        "backendProven": true,
+        "resolvedBackend": "wasm:1 module(s)",
+        "hardwareRepresentative": true,
+        "transcriptDigest": "512fe13a676b405b",
+        "fingerprint": "330f90dc9c95c782",
+        "assetDigestCount": 8
+      },
+      "role": "selection",
+      "freshSession": true,
+      "requestedDevice": "wasm",
+      "resolvedBackend": "wasm:1 module(s)",
+      "backendProven": true,
+      "hardwareRepresentative": true,
+      "certified": true,
+      "failedGates": [],
+      "fingerprint": "330f90dc9c95c782",
+      "expectedClips": 10,
+      "decodedClips": 10,
+      "audioMismatches": [],
+      "transcriptDigest": "512fe13a676b405b",
+      "perUtterance": [
+        {
+          "id": "h1_1",
+          "normalizedReference": "the stale smell of old beer like lingers",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_2",
+          "normalizedReference": "basically a dash of pepper spoils beef stew",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_3",
+          "normalizedReference": "well the swan dive was far short of perfect",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 9,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_4",
+          "normalizedReference": "you know the box was thrown beside the parked truck",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_5",
+          "normalizedReference": "literally the twister left no trace of the town",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 9,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_6",
+          "normalizedReference": "they like told wild tales to frighten him",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_7",
+          "normalizedReference": "we find joy in the simplest things",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_8",
+          "normalizedReference": "the puppy like chewed up the new shoes",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_9",
+          "normalizedReference": "a smooth road you know makes driving pleasant",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_10",
+          "normalizedReference": "basically the quick brown fox jumps over the lazy dog",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        }
+      ],
+      "decoderAssets": [
+        {
+          "path": "Xenova/whisper-small.en/resolve/main/onnx/decoder_model_merged_quantized.onnx",
+          "sha256": "7cff5df61a1809654a5e62d89cbb99e8231b229f41412ab626a1d8fff77397ab",
+          "bytes": 156780181
+        }
+      ],
+      "assetCount": 8,
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "assetFailures": [],
+      "wer": 0,
+      "referenceWords": 85,
+      "substitutions": 0,
+      "deletions": 0,
+      "insertions": 0,
+      "wallClockMs": 46769,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "harvard is a smoke set — not selection evidence",
+      "provenance": {
+        "model": {
+          "id": "Xenova/whisper-small.en",
+          "revision": "huggingface:Xenova/whisper-small.en",
+          "filesSha256": {
+            "node_modules/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm": "ac23f2f3cbd519a65a0796f7c79eb34ead4c1f6f31eb06e14ed8a9579d697ef6",
+            "Xenova/whisper-small.en/resolve/main/config.json": "afddc76e1d6b2e13e5a85a385d55d272ed61f6797d7d32895492620387336cf6",
+            "Xenova/whisper-small.en/resolve/main/generation_config.json": "dde54f4ed982cf4f57450f2d23eb5f97dd64dbc390c66a635a34a57e965b16a7",
+            "Xenova/whisper-small.en/resolve/main/onnx/decoder_model_merged_quantized.onnx": "7cff5df61a1809654a5e62d89cbb99e8231b229f41412ab626a1d8fff77397ab",
+            "Xenova/whisper-small.en/resolve/main/onnx/encoder_model_quantized.onnx": "dd37efa07dad7619592ef849a40317dcfd182a2e632275a53a023f02f685cfa7",
+            "Xenova/whisper-small.en/resolve/main/preprocessor_config.json": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+            "Xenova/whisper-small.en/resolve/main/tokenizer.json": "c6ee8f089220a5b1188f6426456772572671c6141ae007eecb83c6a8349f5deb",
+            "Xenova/whisper-small.en/resolve/main/tokenizer_config.json": "e082c1ad251541bf277967a703252cddd4bb37a71a43737e03d050c22ec08238"
+          }
+        },
+        "runtime": {
+          "library": "@xenova/transformers",
+          "version": "2.17.2",
+          "backend": "wasm"
+        },
+        "assets": {
+          "source": "http://127.0.0.1:55302/hf/ (pinned mirror)",
+          "verdict": "unverifiable"
+        },
+        "device": {
+          "platform": "darwin",
+          "arch": "arm64",
+          "cpuModel": "Apple M2",
+          "cores": 8
+        },
+        "route": {
+          "hash": "519271b8bc27",
+          "route": {
+            "family": "whisper",
+            "engine": "v2",
+            "modelId": "Xenova/whisper-small.en",
+            "decode": {
+              "engine": "v2",
+              "modelId": "Xenova/whisper-small.en",
+              "chunk_length_s": 30,
+              "stride_length_s": 0,
+              "return_timestamps": true
+            }
+          }
+        },
+        "corpus": {
+          "version": "librispeech_test_v1",
+          "digest": "no-frozen-audio:harvard",
+          "archives": {
+            "test-clean.tar.gz": "39fde525e59672dc6d1551919b1478f724438a95aa55f874b576be21967e6c23",
+            "test-other.tar.gz": "d09c181bba5cf717b3dee7d4d592af11a3ee3a09e08ae025c5506f6ebe961c29"
+          }
+        },
+        "resources": {
+          "wallClockMs": 46769,
+          "peakRssBytes": null
+        }
+      }
+    },
+    {
+      "id": "v4:base:fp32-decoder:cpu",
+      "label": "v4 base, fp32 decoder",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+      "verdict": {
+        "armId": "v4:base:fp32-decoder:cpu",
+        "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+        "evidenceSet": "harvard",
+        "evidenceClass": "smoke",
+        "wer": 0.023529411764705882,
+        "referenceWords": 85,
+        "reliability": {
+          "expectedClips": 10,
+          "decoded": 10,
+          "threw": 0,
+          "emptyOutput": 0,
+          "timedOut": 0,
+          "audioRejected": 0,
+          "missing": 0
+        },
+        "speed": {
+          "coldLoadMs": 1945,
+          "warmDecodeMsP50": 1124,
+          "warmDecodeMsP95": 1160,
+          "realTimeFactorP50": 0.37911364633611233,
+          "realTimeFactorP95": 0.44578665367754505,
+          "stopToFinalMs": null
+        },
+        "footprint": {
+          "modelBytes": 317982451,
+          "assetCount": 9,
+          "peakMemoryBytes": null
+        },
+        "duration": {
+          "shortestClipSeconds": 2.56625,
+          "longestClipSeconds": 3.363,
+          "longFormTailPreserved": null,
+          "longFormRepeatedNgrams": null,
+          "truncatedClips": 0
+        },
+        "backendProven": true,
+        "resolvedBackend": "wasm:1 module(s)",
+        "hardwareRepresentative": true,
+        "transcriptDigest": "75bb64099c724dda",
+        "fingerprint": "82f2a947b453310d",
+        "assetDigestCount": 9
+      },
+      "role": "selection",
+      "freshSession": true,
+      "requestedDevice": "wasm",
+      "resolvedBackend": "wasm:1 module(s)",
+      "backendProven": true,
+      "hardwareRepresentative": true,
+      "certified": true,
+      "failedGates": [],
+      "fingerprint": "82f2a947b453310d",
+      "expectedClips": 10,
+      "decodedClips": 10,
+      "audioMismatches": [],
+      "transcriptDigest": "75bb64099c724dda",
+      "perUtterance": [
+        {
+          "id": "h1_1",
+          "normalizedReference": "the stale smell of old beer like lingers",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_2",
+          "normalizedReference": "basically a dash of pepper spoils beef stew",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_3",
+          "normalizedReference": "well the swan dive was far short of perfect",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 9,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_4",
+          "normalizedReference": "you know the box was thrown beside the parked truck",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_5",
+          "normalizedReference": "literally the twister left no trace of the town",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 9,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_6",
+          "normalizedReference": "they like told wild tales to frighten him",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_7",
+          "normalizedReference": "we find joy in the simplest things",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_8",
+          "normalizedReference": "the puppy like chewed up the new shoes",
+          "substitutions": 0,
+          "deletions": 1,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_9",
+          "normalizedReference": "a smooth road you know makes driving pleasant",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_10",
+          "normalizedReference": "basically the quick brown fox jumps over the lazy dog",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        }
+      ],
+      "decoderAssets": [
+        {
+          "path": "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged.onnx",
+          "sha256": "e98d168e2d82e7fb4fabcceabc4ec8ef986c864ddd5fc66ff3ef1410cd2c5cff",
+          "bytes": 208519480
+        }
+      ],
+      "assetCount": 9,
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "assetFailures": [],
+      "wer": 0.023529411764705882,
+      "referenceWords": 85,
+      "substitutions": 1,
+      "deletions": 1,
+      "insertions": 0,
+      "wallClockMs": 11105,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "harvard is a smoke set — not selection evidence",
+      "provenance": {
+        "model": {
+          "id": "onnx-community/whisper-base.en",
+          "revision": "huggingface:onnx-community/whisper-base.en",
+          "filesSha256": {
+            "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+            "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+            "onnx-community/whisper-base.en/resolve/main/config.json": "c8a0de5ed8a083565a4319db29d0c210fda35b4d6076c2d711cae53ae00f3cb1",
+            "onnx-community/whisper-base.en/resolve/main/generation_config.json": "3479b1f44a07e41db799e22599222fee5816738036def94a39841cb9cdbb4120",
+            "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged.onnx": "e98d168e2d82e7fb4fabcceabc4ec8ef986c864ddd5fc66ff3ef1410cd2c5cff",
+            "onnx-community/whisper-base.en/resolve/main/onnx/encoder_model.onnx": "1cc86302d480b061452d348638064383ab41b6f3333ddd0e423532d14edaf535",
+            "onnx-community/whisper-base.en/resolve/main/preprocessor_config.json": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+            "onnx-community/whisper-base.en/resolve/main/tokenizer.json": "5eb60cec1e77aeeb6869a2bb5a8e01a84c3fe5d072d75369343021fe6f5310d0",
+            "onnx-community/whisper-base.en/resolve/main/tokenizer_config.json": "93879c3dccdd4b976f709acd85b44778873f30c275e67026f30ca1e4c975230c"
+          }
+        },
+        "runtime": {
+          "library": "@huggingface/transformers",
+          "version": "4.2.0",
+          "backend": "wasm"
+        },
+        "assets": {
+          "source": "http://127.0.0.1:55302/hf/ (pinned mirror)",
+          "verdict": "unverifiable"
+        },
+        "device": {
+          "platform": "darwin",
+          "arch": "arm64",
+          "cpuModel": "Apple M2",
+          "cores": 8
+        },
+        "route": {
+          "hash": "b36943f86ac2",
+          "route": {
+            "family": "whisper",
+            "engine": "v4",
+            "modelId": "onnx-community/whisper-base.en",
+            "decode": {
+              "engine": "v4",
+              "modelId": "onnx-community/whisper-base.en",
+              "chunk_length_s": 30,
+              "stride_length_s": 0,
+              "return_timestamps": true
+            }
+          }
+        },
+        "corpus": {
+          "version": "librispeech_test_v1",
+          "digest": "no-frozen-audio:harvard",
+          "archives": {
+            "test-clean.tar.gz": "39fde525e59672dc6d1551919b1478f724438a95aa55f874b576be21967e6c23",
+            "test-other.tar.gz": "d09c181bba5cf717b3dee7d4d592af11a3ee3a09e08ae025c5506f6ebe961c29"
+          }
+        },
+        "resources": {
+          "wallClockMs": 11105,
+          "peakRssBytes": null
+        }
+      }
+    },
+    {
+      "id": "moonshine:streaming-small",
+      "label": "Moonshine Streaming Small (official @moonshine-ai/moonshine-wasm)",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@moonshine-ai/moonshine-wasm@0.1.5",
+      "verdict": {
+        "armId": "moonshine:streaming-small",
+        "runtimeLabel": "@moonshine-ai/moonshine-wasm@0.1.5",
+        "evidenceSet": "harvard",
+        "evidenceClass": "smoke",
+        "wer": 0.12941176470588237,
+        "referenceWords": 85,
+        "reliability": {
+          "expectedClips": 10,
+          "decoded": 10,
+          "threw": 0,
+          "emptyOutput": 0,
+          "timedOut": 0,
+          "audioRejected": 0,
+          "missing": 0
+        },
+        "speed": {
+          "coldLoadMs": 835,
+          "warmDecodeMsP50": 354,
+          "warmDecodeMsP95": 420,
+          "realTimeFactorP50": 0.12061057222347545,
+          "realTimeFactorP95": 0.13794447150511446,
+          "stopToFinalMs": null
+        },
+        "footprint": {
+          "modelBytes": 165489086,
+          "assetCount": 7,
+          "peakMemoryBytes": null
+        },
+        "duration": {
+          "shortestClipSeconds": 2.56625,
+          "longestClipSeconds": 3.363,
+          "longFormTailPreserved": null,
+          "longFormRepeatedNgrams": null,
+          "truncatedClips": 0
+        },
+        "backendProven": true,
+        "resolvedBackend": "wasm:1 module(s)",
+        "hardwareRepresentative": true,
+        "transcriptDigest": "91f01ec8c66d43d7",
+        "fingerprint": "900d65108ce3bc87",
+        "assetDigestCount": 7
+      },
+      "role": "selection",
+      "freshSession": true,
+      "requestedDevice": "wasm",
+      "resolvedBackend": "wasm:1 module(s)",
+      "backendProven": true,
+      "hardwareRepresentative": true,
+      "certified": true,
+      "failedGates": [],
+      "fingerprint": "900d65108ce3bc87",
+      "expectedClips": 10,
+      "decodedClips": 10,
+      "audioMismatches": [],
+      "transcriptDigest": "91f01ec8c66d43d7",
+      "perUtterance": [
+        {
+          "id": "h1_1",
+          "normalizedReference": "the stale smell of old beer like lingers",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_2",
+          "normalizedReference": "basically a dash of pepper spoils beef stew",
+          "substitutions": 0,
+          "deletions": 1,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_3",
+          "normalizedReference": "well the swan dive was far short of perfect",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 9,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_4",
+          "normalizedReference": "you know the box was thrown beside the parked truck",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_5",
+          "normalizedReference": "literally the twister left no trace of the town",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 9,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_6",
+          "normalizedReference": "they like told wild tales to frighten him",
+          "substitutions": 1,
+          "deletions": 1,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_7",
+          "normalizedReference": "we find joy in the simplest things",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 1,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_8",
+          "normalizedReference": "the puppy like chewed up the new shoes",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_9",
+          "normalizedReference": "a smooth road you know makes driving pleasant",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_10",
+          "normalizedReference": "basically the quick brown fox jumps over the lazy dog",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        }
+      ],
+      "decoderAssets": [],
+      "assetCount": 7,
+      "pinViolations": [],
+      "networkAttempts": 7,
+      "offlineEnforced": true,
+      "assetFailures": [],
+      "wer": 0.12941176470588237,
+      "referenceWords": 85,
+      "substitutions": 8,
+      "deletions": 2,
+      "insertions": 1,
+      "wallClockMs": 3603,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "harvard is a smoke set — not selection evidence",
+      "provenance": {
+        "model": {
+          "id": "moonshine-ai/streaming-small",
+          "revision": "quantized_26_07_30",
+          "filesSha256": {
+            "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/adapter.ort": "c665f742364febad597cc9ac1e0b341ffbee0e24a1466e2f3bde95e6e4771762",
+            "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/cross_kv.ort": "e2d3417144e9514055ebfefe8dcc4c0a55a55adcb8530435844c75c53e352bf6",
+            "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/decoder_kv.ort": "1a05465b1dd955858dfcbee039c0020fb5dd982b0f5094c34e61735d518d771b",
+            "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/encoder.ort": "2d4d973e91e8aca08c51e7e7efa28a46ab265b63d809d5294d18b86bcd85b993",
+            "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/frontend.ort": "d1be8145bc9ef3e8625bb7bcb7a5b2930eeb828c91d6c1897bc215d7de6f2b93",
+            "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/streaming_config.json": "26f02b6afb22d60871a5efd85c3d38e569cc0ddb6c5eb6e93d3260152ae8a47a",
+            "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/tokenizer.bin": "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d"
+          }
+        },
+        "runtime": {
+          "library": "@moonshine-ai/moonshine-wasm",
+          "version": "0.1.5",
+          "backend": "wasm"
+        },
+        "assets": {
+          "source": "http://127.0.0.1:55302/hf/ (pinned mirror)",
+          "verdict": "unverifiable"
+        },
+        "device": {
+          "platform": "darwin",
+          "arch": "arm64",
+          "cpuModel": "Apple M2",
+          "cores": 8
+        },
+        "route": {
+          "hash": "cd9159956a4a",
+          "route": {
+            "family": "moonshine",
+            "modelId": "moonshine-ai/streaming-small",
+            "rawWaveform": true,
+            "maxPositionEmbeddings": 512,
+            "returnTimestamps": false,
+            "maxNewTokens": 26
+          }
+        },
+        "corpus": {
+          "version": "librispeech_test_v1",
+          "digest": "no-frozen-audio:harvard",
+          "archives": {
+            "test-clean.tar.gz": "39fde525e59672dc6d1551919b1478f724438a95aa55f874b576be21967e6c23",
+            "test-other.tar.gz": "d09c181bba5cf717b3dee7d4d592af11a3ee3a09e08ae025c5506f6ebe961c29"
+          }
+        },
+        "resources": {
+          "wallClockMs": 3603,
+          "peakRssBytes": null
+        }
+      }
+    },
+    {
+      "id": "moonshine:base",
+      "label": "Moonshine base (fp32 — the precision ORT Web can load)",
+      "lane": "browser",
+      "set": "harvard",
+      "evidenceClass": "smoke",
+      "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+      "verdict": {
+        "armId": "moonshine:base",
+        "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+        "evidenceSet": "harvard",
+        "evidenceClass": "smoke",
+        "wer": 0,
+        "referenceWords": 85,
+        "reliability": {
+          "expectedClips": 10,
+          "decoded": 10,
+          "threw": 0,
+          "emptyOutput": 0,
+          "timedOut": 0,
+          "audioRejected": 0,
+          "missing": 0
+        },
+        "speed": {
+          "coldLoadMs": 2079,
+          "warmDecodeMsP50": 164,
+          "warmDecodeMsP95": 207,
+          "realTimeFactorP50": 0.05357539082198689,
+          "realTimeFactorP95": 0.06429615197272284,
+          "stopToFinalMs": null
+        },
+        "footprint": {
+          "modelBytes": 275368057,
+          "assetCount": 12,
+          "peakMemoryBytes": null
+        },
+        "duration": {
+          "shortestClipSeconds": 2.56625,
+          "longestClipSeconds": 3.363,
+          "longFormTailPreserved": null,
+          "longFormRepeatedNgrams": null,
+          "truncatedClips": 0
+        },
+        "backendProven": true,
+        "resolvedBackend": "wasm:1 module(s)",
+        "hardwareRepresentative": true,
+        "transcriptDigest": "512fe13a676b405b",
+        "fingerprint": "1fb320c07eb36bd5",
+        "assetDigestCount": 12
+      },
+      "role": "selection",
+      "freshSession": true,
+      "requestedDevice": "wasm",
+      "resolvedBackend": "wasm:1 module(s)",
+      "backendProven": true,
+      "hardwareRepresentative": true,
+      "certified": true,
+      "failedGates": [],
+      "fingerprint": "1fb320c07eb36bd5",
+      "expectedClips": 10,
+      "decodedClips": 10,
+      "audioMismatches": [],
+      "transcriptDigest": "512fe13a676b405b",
+      "perUtterance": [
+        {
+          "id": "h1_1",
+          "normalizedReference": "the stale smell of old beer like lingers",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_2",
+          "normalizedReference": "basically a dash of pepper spoils beef stew",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_3",
+          "normalizedReference": "well the swan dive was far short of perfect",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 9,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_4",
+          "normalizedReference": "you know the box was thrown beside the parked truck",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_5",
+          "normalizedReference": "literally the twister left no trace of the town",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 9,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_6",
+          "normalizedReference": "they like told wild tales to frighten him",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_7",
+          "normalizedReference": "we find joy in the simplest things",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_8",
+          "normalizedReference": "the puppy like chewed up the new shoes",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_9",
+          "normalizedReference": "a smooth road you know makes driving pleasant",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "h1_10",
+          "normalizedReference": "basically the quick brown fox jumps over the lazy dog",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        }
+      ],
+      "decoderAssets": [
+        {
+          "path": "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/onnx/decoder_model_merged.onnx",
+          "sha256": "58778763ca8438963190244d6b26572bdca2cedec56a4b91e828f3f2d69ef3c5",
+          "bytes": 166211345
+        }
+      ],
+      "assetCount": 12,
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "assetFailures": [],
+      "wer": 0,
+      "referenceWords": 85,
+      "substitutions": 0,
+      "deletions": 0,
+      "insertions": 0,
+      "wallClockMs": 1521,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "harvard is a smoke set — not selection evidence",
+      "provenance": {
+        "model": {
+          "id": "onnx-community/moonshine-base-ONNX",
+          "revision": "b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad",
+          "filesSha256": {
+            "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+            "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+            "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/config.json": "fab7241d1e9fc6c2370c4c6dfb5da79bb54d67ed9ab6b507ac51d29d2abe01d1",
+            "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/generation_config.json": "f9b3f711b57be7def2e50a8942f64f36ee0a55fad5b84ff93a687b6c5bcc1d44",
+            "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/onnx/decoder_model_merged.onnx": "58778763ca8438963190244d6b26572bdca2cedec56a4b91e828f3f2d69ef3c5",
+            "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/onnx/encoder_model.onnx": "153e128e7abd64a74ee47f2c3f585c3171c4d46cbb368b032827934c4e01e779",
+            "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/preprocessor_config.json": "fa43a7017ef85cd1d0fba0d9aae77c8adb16990ae6f11115631f41ec5d8aa679",
+            "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/tokenizer.json": "7b913404bdd039af4756783218af4440bc07fb7d6d8258d677e34f95b3ec416f",
+            "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/tokenizer_config.json": "edaee394565d428ea98a663ae7209cdcfeefc5585c42d7a570ff7c986df2cd15",
+            "onnx-community/moonshine-base-ONNX/resolve/main/config.json": "fab7241d1e9fc6c2370c4c6dfb5da79bb54d67ed9ab6b507ac51d29d2abe01d1",
+            "onnx-community/moonshine-base-ONNX/resolve/main/preprocessor_config.json": "fa43a7017ef85cd1d0fba0d9aae77c8adb16990ae6f11115631f41ec5d8aa679",
+            "onnx-community/moonshine-base-ONNX/resolve/main/tokenizer_config.json": "edaee394565d428ea98a663ae7209cdcfeefc5585c42d7a570ff7c986df2cd15"
+          }
+        },
+        "runtime": {
+          "library": "@huggingface/transformers",
+          "version": "4.2.0",
+          "backend": "wasm"
+        },
+        "assets": {
+          "source": "http://127.0.0.1:55302/hf/ (pinned mirror)",
+          "verdict": "unverifiable"
+        },
+        "device": {
+          "platform": "darwin",
+          "arch": "arm64",
+          "cpuModel": "Apple M2",
+          "cores": 8
+        },
+        "route": {
+          "hash": "b7b0d323c5e9",
+          "route": {
+            "family": "moonshine",
+            "modelId": "onnx-community/moonshine-base-ONNX",
+            "rawWaveform": true,
+            "maxPositionEmbeddings": 512,
+            "returnTimestamps": false,
+            "maxNewTokens": 26
+          }
+        },
+        "corpus": {
+          "version": "librispeech_test_v1",
+          "digest": "no-frozen-audio:harvard",
+          "archives": {
+            "test-clean.tar.gz": "39fde525e59672dc6d1551919b1478f724438a95aa55f874b576be21967e6c23",
+            "test-other.tar.gz": "d09c181bba5cf717b3dee7d4d592af11a3ee3a09e08ae025c5506f6ebe961c29"
+          }
+        },
+        "resources": {
+          "wallClockMs": 1521,
+          "peakRssBytes": null
+        }
+      }
+    }
+  ],
+  "assets": {
+    "Xenova/whisper-small.en/resolve/main/tokenizer.json": {
+      "sha256": "c6ee8f089220a5b1188f6426456772572671c6141ae007eecb83c6a8349f5deb",
+      "bytes": 2128494,
+      "source": "cache",
+      "pinned": true
+    },
+    "Xenova/whisper-small.en/resolve/main/tokenizer_config.json": {
+      "sha256": "e082c1ad251541bf277967a703252cddd4bb37a71a43737e03d050c22ec08238",
+      "bytes": 835,
+      "source": "cache",
+      "pinned": true
+    },
+    "Xenova/whisper-small.en/resolve/main/config.json": {
+      "sha256": "afddc76e1d6b2e13e5a85a385d55d272ed61f6797d7d32895492620387336cf6",
+      "bytes": 2208,
+      "source": "cache",
+      "pinned": true
+    },
+    "Xenova/whisper-small.en/resolve/main/preprocessor_config.json": {
+      "sha256": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+      "bytes": 339,
+      "source": "cache",
+      "pinned": true
+    },
+    "Xenova/whisper-small.en/resolve/main/onnx/encoder_model_quantized.onnx": {
+      "sha256": "dd37efa07dad7619592ef849a40317dcfd182a2e632275a53a023f02f685cfa7",
+      "bytes": 92324819,
+      "source": "cache",
+      "pinned": true
+    },
+    "Xenova/whisper-small.en/resolve/main/onnx/decoder_model_merged_quantized.onnx": {
+      "sha256": "7cff5df61a1809654a5e62d89cbb99e8231b229f41412ab626a1d8fff77397ab",
+      "bytes": 156780181,
+      "source": "cache",
+      "pinned": true
+    },
+    "Xenova/whisper-small.en/resolve/main/generation_config.json": {
+      "sha256": "dde54f4ed982cf4f57450f2d23eb5f97dd64dbc390c66a635a34a57e965b16a7",
+      "bytes": 1900,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/config.json": {
+      "sha256": "c8a0de5ed8a083565a4319db29d0c210fda35b4d6076c2d711cae53ae00f3cb1",
+      "bytes": 2197,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/tokenizer_config.json": {
+      "sha256": "93879c3dccdd4b976f709acd85b44778873f30c275e67026f30ca1e4c975230c",
+      "bytes": 282662,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/preprocessor_config.json": {
+      "sha256": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+      "bytes": 339,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/tokenizer.json": {
+      "sha256": "5eb60cec1e77aeeb6869a2bb5a8e01a84c3fe5d072d75369343021fe6f5310d0",
+      "bytes": 2405679,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/onnx/encoder_model.onnx": {
+      "sha256": "1cc86302d480b061452d348638064383ab41b6f3333ddd0e423532d14edaf535",
+      "bytes": 82468078,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged.onnx": {
+      "sha256": "e98d168e2d82e7fb4fabcceabc4ec8ef986c864ddd5fc66ff3ef1410cd2c5cff",
+      "bytes": 208519480,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/generation_config.json": {
+      "sha256": "3479b1f44a07e41db799e22599222fee5816738036def94a39841cb9cdbb4120",
+      "bytes": 1556,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/main/config.json": {
+      "sha256": "fab7241d1e9fc6c2370c4c6dfb5da79bb54d67ed9ab6b507ac51d29d2abe01d1",
+      "bytes": 922,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/main/tokenizer_config.json": {
+      "sha256": "edaee394565d428ea98a663ae7209cdcfeefc5585c42d7a570ff7c986df2cd15",
+      "bytes": 135735,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/main/preprocessor_config.json": {
+      "sha256": "fa43a7017ef85cd1d0fba0d9aae77c8adb16990ae6f11115631f41ec5d8aa679",
+      "bytes": 128,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/config.json": {
+      "sha256": "fab7241d1e9fc6c2370c4c6dfb5da79bb54d67ed9ab6b507ac51d29d2abe01d1",
+      "bytes": 922,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/preprocessor_config.json": {
+      "sha256": "fa43a7017ef85cd1d0fba0d9aae77c8adb16990ae6f11115631f41ec5d8aa679",
+      "bytes": 128,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/tokenizer.json": {
+      "sha256": "7b913404bdd039af4756783218af4440bc07fb7d6d8258d677e34f95b3ec416f",
+      "bytes": 3761754,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/tokenizer_config.json": {
+      "sha256": "edaee394565d428ea98a663ae7209cdcfeefc5585c42d7a570ff7c986df2cd15",
+      "bytes": 135735,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/onnx/encoder_model.onnx": {
+      "sha256": "153e128e7abd64a74ee47f2c3f585c3171c4d46cbb368b032827934c4e01e779",
+      "bytes": 80818781,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/onnx/decoder_model_merged.onnx": {
+      "sha256": "58778763ca8438963190244d6b26572bdca2cedec56a4b91e828f3f2d69ef3c5",
+      "bytes": 166211345,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/moonshine-base-ONNX/resolve/b1e9b6aae3c3c7298f10c3798393fdf38e8fbbad/generation_config.json": {
+      "sha256": "f9b3f711b57be7def2e50a8942f64f36ee0a55fad5b84ff93a687b6c5bcc1d44",
+      "bytes": 147,
+      "source": "cache",
+      "pinned": true
+    }
+  },
+  "assetFailures": []
+}

@@ -17,6 +17,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { resolve } from 'node:path';
 import { cpus, arch, platform } from 'node:os';
@@ -26,6 +27,7 @@ import goldens from '../tests/evidence/normalization/goldens.json' with { type: 
 import { startHarnessServer } from '../tests/evidence/certification/browser/server';
 import { createBrowserArm, isSoftwareAdapter } from '../tests/evidence/certification/browser/browserArm';
 import { ARM_MATRIX } from '../tests/evidence/certification/arms/registry';
+import { resolveRetention } from '../tests/evidence/certification/retention';
 import { expectationFor } from '../tests/evidence/certification/arms/build';
 import { certifyArmWithHonorProbe } from '../tests/evidence/certification/certify';
 import { createHash } from 'node:crypto';
@@ -36,6 +38,7 @@ import { decodeAudio } from '../tests/evidence/certification/audio';
 import { verifyFrozenAudio, type ManifestShape } from '../tests/evidence/certification/corpusSet';
 import { buildEvidenceSet } from '../tests/evidence/certification/evidenceSets';
 import { EVIDENCE_SETS } from '../tests/evidence/certification/evidenceClass';
+import { checkArtifactCompleteness } from '../tests/evidence/certification/artifactCompleteness';
 import { resolveMoonshineRoute, resolveWhisperRoute } from '../tests/evidence/certification/candidateRoute';
 import { hashModelDirectory, installedVersion } from '../tests/evidence/certification/arms/backend';
 import { RUNTIME_ASSET_PINS } from '../tests/evidence/certification/arms/runtimeAssets';
@@ -71,7 +74,18 @@ const args = process.argv.slice(2);
 const arg = (name: string, fallback: string) =>
     args.find((a) => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=') ?? fallback;
 const onlyIds = arg('only', '') ? new Set(arg('only', '').split(',')) : null;
-const outPath = arg('out', '');
+/**
+ * RETENTION IS MANDATORY. A measuring run that retains nothing is not evidence — it is a console
+ * session that disappears when the terminal closes. The 459-word preflight was run and its result
+ * discussed, but it was invoked without `--out`, so `if (outPath)` silently skipped the write and the
+ * measurement no longer exists anywhere. Hours of benchmark time produced nothing citable.
+ *
+ * So `--out` is now optional only in the sense that a DEFAULT is derived when it is omitted; the run
+ * always retains. Discarding a run requires typing `--no-retain`, which is deliberate, loud, and
+ * refused outright for the selection set.
+ */
+const explicitOut = arg('out', '');
+const noRetain = args.includes('--no-retain');
 const setName = arg('set', 'harvard');
 const mode = arg('mode', 'pinned') as 'pinned' | 'bootstrap';
 /**
@@ -414,6 +428,22 @@ for (const spec of ARM_MATRIX) {
 
     if (pinsOnly) {
         console.log(`    loaded — ${Object.keys(harness.assets).length} assets mirrored so far`);
+        // RECORD A ROW PER ARM. This mode used to `continue` without pushing anything, so a retained
+        // artifact carried a single result while its log showed fourteen arms loading. An artifact
+        // that does not stand on its own is not evidence — the reader has to trust a log beside it.
+        results.push({
+            id: spec.id, label: spec.label, lane: 'browser', set: setName, evidenceClass,
+            runtimeLabel: runtimeLabelFor(isV2, isMoonshineWasm),
+            mode: 'load-only', loaded: true, freshSession,
+            runtimeAssets: Object.fromEntries(
+                Object.entries(runtimeAssetRecords).map(([k, v]) => [k, { sha256: v.sha256, bytes: v.bytes }]),
+            ),
+            runtimeAssetFailures, pinViolations, networkAttempts,
+            offlineEnforced: mode === 'pinned' && pinViolations.length === 0
+                && runtimeAssetFailures.length === 0,
+            wer: null, selectionEligible: false,
+            selectionIneligibleReason: 'load-only run: no decode was performed',
+        });
         await context.close();
         continue;
     }
@@ -543,6 +573,7 @@ for (const spec of ARM_MATRIX) {
         evidenceSet: setName,
         evidenceClass,
         dtypeAliasOf: spec.dtypeAliasOf,
+        role: spec.role,
         result,
         coldLoadMs,
         stopToFinalMs: null, // set by the long-form control, which this set does not include
@@ -643,7 +674,57 @@ if (pinsOnly) {
     console.log(`\nwrote ${PIN_FILE} with ${Object.keys(pinFile.assets).length} pinned assets`);
 }
 
+/**
+ * Resolve where this run retains. A `--only=` subset run is a debugging slice, not a matrix run, so it
+ * keeps the old opt-in behaviour; everything else retains by default.
+ */
+const headSha = (): string => {
+    try {
+        return execFileSync('git', ['rev-parse', '--short=8', 'HEAD'], { encoding: 'utf8' }).trim();
+    } catch { /* not a git checkout — the set name alone still beats retaining nothing */ }
+    return 'unknown';
+};
+
+const retention = resolveRetention({
+    explicitOut, noRetain, subsetRun: !!onlyIds, setName, evidenceClass, sha: headSha(),
+});
+if (retention.kind === 'refuse') {
+    console.error(`\nREFUSING --no-retain on the selection set: ${retention.reason}.`);
+    process.exit(1);
+}
+if (retention.kind === 'discard') {
+    console.warn(`\nTHIS RUN RETAINS NOTHING (${retention.reason}). Nothing it prints may be cited as evidence.`);
+}
+const outPath = retention.kind === 'retain' ? retention.path : '';
+if (retention.kind === 'retain' && retention.derived) {
+    console.log(`\nno --out given; retaining to ${outPath}`);
+}
+// Never silently overwrite a retained measurement with a later one.
+if (outPath && existsSync(outPath)) {
+    console.error(`\nREFUSING to overwrite existing evidence ${outPath}. Move it aside or pass a different --out.`);
+    process.exit(1);
+}
+
+// AN INCOMPLETE ARTIFACT IS NOT WRITTEN. Checked before serialization rather than trusted afterwards,
+// because the previous artifact was described as complete on the strength of a log beside it.
+if (outPath && !onlyIds) {
+    const completeness = checkArtifactCompleteness(
+        results as { id: string }[],
+        {
+            admitted: ADMITTED_ARMS.map((a) => a.id),
+            excluded: ARM_MATRIX.filter((a) => a.admission.status !== 'admitted').map((a) => a.id),
+        },
+    );
+    if (!completeness.ok) {
+        console.error(`\nREFUSING to write ${outPath}: ${completeness.reason} (${completeness.detail})`);
+        process.exit(1);
+    }
+}
+
 if (outPath) {
+    mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, `${JSON.stringify({ lane: 'browser', set: setName, evidenceClass, results, assets: harness.assets, assetFailures: harness.assetFailures }, null, 2)}\n`, 'utf8');
     console.log(`wrote ${outPath}`);
+} else {
+    console.warn('\nNOTHING RETAINED by this run.');
 }

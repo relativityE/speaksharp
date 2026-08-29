@@ -1,0 +1,73 @@
+
+#1304 BROWSER lane — set=harvard (smoke), 10 clips / 85 normalized words, mirror mode=pinned
+
+
+  v2:tiny.en  (v2 whisper-tiny.en (self-hosted))
+    loaded — 0 assets mirrored so far
+
+  v2:base.en  (v2 whisper-base.en — SHIPPING)
+    loaded — 0 assets mirrored so far
+
+  v2:base.en:no-conditioning  — rejected (runtime_option_unsupported)
+
+  v2:small.en  (v2 whisper-small.en (HuggingFace — NOT self-hosted))
+    loaded — 7 assets mirrored so far
+
+  v4:base:q4-decoder:wasm  (v4 base, fp32 encoder + q4 decoder, WASM)
+    loaded — 14 assets mirrored so far
+
+  v4:base:q4-decoder:cpu  (v4 base, fp32 encoder + q4 decoder, onnxruntime-node CPU (accuracy stand-in for WASM))
+    loaded — 14 assets mirrored so far
+
+  v4:base:q4-decoder:webgpu  (v4 base, q4 decoder, WebGPU)
+    loaded — 14 assets mirrored so far
+
+  v4:base:fp32-decoder:cpu  (v4 base, fp32 decoder)
+    loaded — 15 assets mirrored so far
+
+  v4:base:int8-decoder:cpu  (v4 base, int8 decoder)
+    loaded — 16 assets mirrored so far
+
+  v4:base:q8-decoder:cpu  (v4 base, q8 decoder)
+    loaded — 17 assets mirrored so far
+
+  v4:distil-small.en:q4-decoder:webgpu  (v4 distil-small.en, q4 decoder, WebGPU)
+    loaded — 24 assets mirrored so far
+
+  moonshine:streaming-small  (Moonshine Streaming Small (official @moonshine-ai/moonshine-wasm))
+    loaded — 24 assets mirrored so far
+
+  moonshine:streaming-medium  (Moonshine Streaming Medium (official @moonshine-ai/moonshine-wasm))
+    loaded — 24 assets mirrored so far
+
+  moonshine:tiny  (Moonshine tiny (fp32 — the precision ORT Web can load))
+    loaded — 34 assets mirrored so far
+
+  moonshine:base  (Moonshine base (fp32 — the precision ORT Web can load))
+    loaded — 44 assets mirrored so far
+
+
+=== BROWSER LANE SUMMARY ===
+    —     v2:tiny.en                           n/a                          not eligible
+    —     v2:base.en                           n/a                          not eligible
+    —     v2:base.en:no-conditioning           rejected                     not eligible
+    —     v2:small.en                          n/a                          not eligible
+    —     v4:base:q4-decoder:wasm              n/a                          not eligible
+    —     v4:base:q4-decoder:cpu               n/a                          not eligible
+    —     v4:base:q4-decoder:webgpu            n/a                          not eligible
+    —     v4:base:fp32-decoder:cpu             n/a                          not eligible
+    —     v4:base:int8-decoder:cpu             n/a                          not eligible
+    —     v4:base:q8-decoder:cpu               n/a                          not eligible
+    —     v4:distil-small.en:q4-decoder:webgpu n/a                          not eligible
+    —     moonshine:streaming-small            n/a                          not eligible
+    —     moonshine:streaming-medium           n/a                          not eligible
+    —     moonshine:tiny                       n/a                          not eligible
+    —     moonshine:base                       n/a                          not eligible
+
+  evidence class: smoke. NO row from this set may inform the down-select.
+
+
+pins: 44 existing + 0 new = 44
+
+wrote tests/fixtures/hf-asset-pins.json with 44 pinned assets
+wrote evidence-runs/offline-load-0e2fffd1.json
