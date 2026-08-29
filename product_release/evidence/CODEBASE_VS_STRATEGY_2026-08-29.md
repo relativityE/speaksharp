@@ -2,9 +2,9 @@
 
 > **HISTORICAL EVIDENCE.** This is a dated code/strategy reconciliation, not current release posture. Current product requirements live in `PRODUCT_REQUIREMENTS.md`; current work lives in `ROADMAP.md`.
 
-**Status:** Dated evidence; not current release status  
-**Verified against:** repository `main@0e2fffd16224063e18b40174d92393632f1c1e47` and the cited production code paths  
-**Current authorities:** [`PRODUCT_REQUIREMENTS.md`](../PRODUCT_REQUIREMENTS.md), [`PROGRESS_AND_NEXT_ACTION.md`](../PROGRESS_AND_NEXT_ACTION.md), [`ARCHITECTURE.md`](../ARCHITECTURE.md), [`STT.md`](../STT.md), and [`RELEASE_STATUS.md`](../RELEASE_STATUS.md)
+- **Status:** Dated evidence; not current release status
+- **Verified against:** repository `main@0e2fffd16224063e18b40174d92393632f1c1e47` and the cited production code paths
+- **Current authorities:** [`PRODUCT_REQUIREMENTS.md`](../PRODUCT_REQUIREMENTS.md), [`PROGRESS_AND_NEXT_ACTION.md`](../PROGRESS_AND_NEXT_ACTION.md), [`ARCHITECTURE.md`](../ARCHITECTURE.md), [`STT.md`](../STT.md), and [`RELEASE_STATUS.md`](../RELEASE_STATUS.md)
 
 This reconciles the two strategic drafts supplied for SpeakSharp. It is deliberately a three-column comparison: current codebase truth, v1's claim, and v2's goal. “Built” means a production path exists in the repository; it does not mean deployed qualification, customer value, retention, or economics have been proven.
 
