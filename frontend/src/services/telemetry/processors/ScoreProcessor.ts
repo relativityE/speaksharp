@@ -5,10 +5,13 @@ import { calculateSpeakingScore } from '@/utils/speakingScore';
  * Phase 5.5 — ScoreProcessor (shadow, tier-2 deriver).
  *
  * Owns the score section. The SpeakSharp Score is a function of every other derived metric, so it derives
- * from the accumulated base snapshot and reuses the exact pure `calculateSpeakingScore` with the SAME
- * inputs the live LiveCoachingScoreCard assembles (transcript, wordCount, wpm, clarityScore, fillerCount,
- * elapsedSeconds, pauseMetrics, engine) → byte-identical score. Runs after ClarityProcessor so it reads
- * the freshly-derived clarityScore.
+ * from the accumulated base snapshot and reuses the canonical pure `calculateSpeakingScore` with its full
+ * input set (transcript, wordCount, wpm, clarityScore, fillerCount, elapsedSeconds, pauseMetrics, engine).
+ * Runs after ClarityProcessor so it reads the freshly-derived clarityScore.
+ *
+ * SHADOW ONLY. The score has NO live UI consumer — the components that once rendered it were retired with
+ * the universal score. Do not reintroduce one without a product decision; this deriver exists for shadow
+ * telemetry (see also fillerDivergence and metricsParity).
  */
 export class ScoreProcessor implements MetricDeriver {
   readonly name = 'score';

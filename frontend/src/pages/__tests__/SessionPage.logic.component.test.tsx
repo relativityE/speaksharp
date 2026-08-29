@@ -59,9 +59,6 @@ vi.mock('@/components/session/FillerWordsCard', () => ({
     FillerWordsCard: () => <div data-testid="filler-card" />,
 }));
 
-vi.mock('@/components/session/SpeakingTipsCard', () => ({
-    SpeakingTipsCard: () => <div data-testid="tips-card" />,
-}));
 
 vi.mock('@/components/session/MobileActionBar', () => ({
     MobileActionBar: () => <div data-testid="mobile-bar" />,
