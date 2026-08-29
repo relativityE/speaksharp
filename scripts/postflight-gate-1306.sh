@@ -60,8 +60,13 @@ if [ "$MODE" = "before" ]; then
   # The premise. Retiring something already absent proves nothing.
   check 'v1-A (transcript overload) present'      1 "$(sig_count complete_session "$V1A")"
   check 'v1-B (metrics overload) present'         1 "$(sig_count complete_session "$V1B")"
+  # BOTH overloads, BOTH roles. Checking grants only for v1-A left the premise incomplete: v1-B could be
+  # present but unreachable by its callers, and the run would still proceed as though it were retiring a
+  # live, reachable function.
   check 'v1-A executable by authenticated'        t "$(priv authenticated complete_session "$V1A")"
   check 'v1-A executable by service_role'         t "$(priv service_role   complete_session "$V1A")"
+  check 'v1-B executable by authenticated'        t "$(priv authenticated complete_session "$V1B")"
+  check 'v1-B executable by service_role'         t "$(priv service_role   complete_session "$V1B")"
 else
   check 'v1-A absent'                             0 "$(sig_count complete_session "$V1A")"
   check 'v1-B absent'                             0 "$(sig_count complete_session "$V1B")"

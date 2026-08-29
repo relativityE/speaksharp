@@ -23,6 +23,12 @@ function migrationList(rows: Array<{ v: string; local: boolean; remote: boolean 
   return `${head}\n${body}`;
 }
 
+const TARGET_1314 = '20260819120000_complete_session_v2_atomic_retention_1314.sql';
+const t1314 = (postflight: string) => assertTerminalOutcome({
+  apply: 'success', verify: 'success', lint: 'success',
+  targetFile: TARGET_1314, postflights: { postflight_1314: postflight },
+});
+
 describe('#1314 exact-migration allowlist', () => {
   it('validates, and #1314 is present as a staged target', () => {
     expect(() => validateExactMigrationAllowlist()).not.toThrow();
@@ -124,20 +130,23 @@ describe('#1314 pending-set enforcement (does not require activation, keeps unse
 
 describe('#1314 terminal authority includes the postflight outcome', () => {
   it('a failed postflight fails the terminal gate', () => {
-    expect(() => assertTerminalOutcome('success', 'success', 'success', 'failure'))
+    expect(() => t1314('failure'))
       .toThrow(/postflight/);
   });
   it('a cancelled postflight fails the terminal gate', () => {
-    expect(() => assertTerminalOutcome('success', 'success', 'success', 'cancelled'))
+    expect(() => t1314('cancelled'))
       .toThrow(/postflight/);
   });
   it('a successful postflight passes', () => {
-    expect(assertTerminalOutcome('success', 'success', 'success', 'success')).toEqual({ terminal: 'success' });
+    expect(t1314('success')).toEqual({ terminal: 'success', enforcedPostflights: ['postflight_1314'] });
   });
   it("a skipped postflight (non-#1314 migration) is allowed", () => {
-    expect(assertTerminalOutcome('success', 'success', 'success', 'skipped')).toEqual({ terminal: 'success' });
+    // CORRECTED: 'skipped' for the APPLICABLE target is no longer a pass — the gate never ran, so nothing
+    // was verified. Inapplicability is expressed by the target, not by the outcome string.
+    expect(() => t1314('skipped')).toThrow(/must be success/);
   });
   it('still fails when apply/verify/lint fail regardless of postflight', () => {
-    expect(() => assertTerminalOutcome('failure', 'success', 'success', 'success')).toThrow(/apply/);
+    expect(() => assertTerminalOutcome({ apply: 'failure', verify: 'success', lint: 'success',
+      targetFile: TARGET_1314, postflights: { postflight_1314: 'success' } })).toThrow(/apply/);
   });
 });

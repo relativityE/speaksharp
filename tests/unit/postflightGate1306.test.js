@@ -74,9 +74,28 @@ describe('#1306 Stage B gate — THE PREMISE (before)', () => {
         expect(r.out.replace(/ +/g, ' ')).toContain(failLine);
     });
 
-    it('REJECTS when v1 exists but is not executable by the roles that call it', () => {
-        expect(gate('before', { F_V1A_AUTH: 'f' }).code).toBe(1);
-        expect(gate('before', { F_V1A_SVC: 'f' }).code).toBe(1);
+    // BOTH overloads, BOTH roles, each isolated. The gate previously checked grants for v1-A only, so a
+    // v1-B that was present but unreachable by its callers passed the premise: the run would proceed as
+    // though it were retiring a live, reachable function. Each casualty must fail for ITS OWN named cause,
+    // which is why every case asserts its specific FAIL line rather than just a nonzero exit.
+    it.each([
+        ['v1-A authenticated absent', { F_V1A_AUTH: 'f' }, 'FAIL v1-A executable by authenticated'],
+        ['v1-A service_role absent',  { F_V1A_SVC: 'f' },  'FAIL v1-A executable by service_role'],
+        ['v1-B authenticated absent', { F_V1B_AUTH: 'f' }, 'FAIL v1-B executable by authenticated'],
+        ['v1-B service_role absent',  { F_V1B_SVC: 'f' },  'FAIL v1-B executable by service_role'],
+    ])('REJECTS when v1 exists but is not executable: %s', (_label, mutation, failLine) => {
+        const r = gate('before', mutation);
+        expect(r.code).toBe(1);
+        expect(r.out.replace(/ +/g, ' ')).toContain(failLine);
+    });
+
+    it('POSITIVE CONTROL: all four grant checks are actually evaluated, not merely declared', () => {
+        // A check that is never reached cannot fail. Prove all four appear in a healthy run's output.
+        const out = gate('before').out.replace(/ +/g, ' ');
+        for (const line of [
+            'OK v1-A executable by authenticated', 'OK v1-A executable by service_role',
+            'OK v1-B executable by authenticated', 'OK v1-B executable by service_role',
+        ]) expect(out).toContain(line);
     });
 });
 

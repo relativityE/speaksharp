@@ -214,10 +214,16 @@ describe('exact migration gate', () => {
     });
 
     it('requires an unambiguous successful terminal outcome', () => {
-        expect(assertTerminalOutcome('success', 'success', 'success')).toEqual({ terminal: 'success' });
-        expect(() => assertTerminalOutcome('failure', 'success', 'success')).toThrow(/apply command outcome/);
-        expect(() => assertTerminalOutcome('success', 'failure', 'success')).toThrow(/history verification/);
-        expect(() => assertTerminalOutcome('success', 'success', 'failure')).toThrow(/lint verification/);
+        // Named fields: a dropped positional argument is what let a failed postflight report success.
+        const t = (o) => assertTerminalOutcome({
+            apply: 'success', verify: 'success', lint: 'success',
+            targetFile: '20260819120000_complete_session_v2_atomic_retention_1314.sql',
+            postflights: { postflight_1314: 'success' }, ...o,
+        });
+        expect(t({})).toEqual({ terminal: 'success', enforcedPostflights: ['postflight_1314'] });
+        expect(() => t({ apply: 'failure' })).toThrow(/apply command outcome/);
+        expect(() => t({ verify: 'failure' })).toThrow(/history verification/);
+        expect(() => t({ lint: 'failure' })).toThrow(/lint verification/);
     });
 
     it('fails closed on unparsable or remote-only migration state', () => {

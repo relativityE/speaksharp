@@ -456,16 +456,62 @@ export function assertNoNewLint(beforeOutput, afterOutput) {
 }
 
 /** The irreversible operation is successful only when command, history delta, and lint proof all pass. */
-export function assertTerminalOutcome(applyOutcome, verifyOutcome, lintOutcome, postflightOutcome) {
-    if (applyOutcome !== 'success') throw new Error(`migration apply command outcome is ${applyOutcome || 'missing'}`);
-    if (verifyOutcome !== 'success') throw new Error(`post-apply history verification outcome is ${verifyOutcome || 'missing'}`);
-    if (lintOutcome !== 'success') throw new Error(`post-apply lint verification outcome is ${lintOutcome || 'missing'}`);
-    // A migration-specific postflight (e.g. #1314's gate + reload proof) is part of the TERMINAL authority when
-    // present. 'skipped' means the applied migration had no keyed postflight — allowed. But if it ran, it MUST
-    // have succeeded; 'failure'/'cancelled' fails the terminal gate so the summary cannot claim success while
-    // the reviewed operation was not verified.
-    if (postflightOutcome !== undefined && postflightOutcome !== '' && !['success', 'skipped'].includes(postflightOutcome)) {
-        throw new Error(`migration-specific postflight outcome is ${postflightOutcome}`);
+/**
+ * Target-specific postflight gates, keyed by the migration filename fragment they verify.
+ *
+ * This registry is what makes the terminal assertion APPLICABILITY-AWARE. Without it the gate can only ask
+ * "did a postflight fail?", which silently passes when the postflight that MATTERS never ran at all.
+ */
+export const TARGET_POSTFLIGHT_GATES = Object.freeze([
+    Object.freeze({ id: 'postflight_1314', targetFile: '20260819120000_complete_session_v2_atomic_retention_1314' }),
+    Object.freeze({ id: 'postflight_1306', targetFile: '20260829120000_retire_complete_session_v1_1306' }),
+]);
+
+/**
+ * The TERMINAL authority for an exact allowlisted migration application.
+ *
+ * Named fields, not positional arguments, and deliberately so. The previous signature took the postflight
+ * outcome as a trailing positional parameter, and the CLI passed only three arguments — so the workflow
+ * handed it `postflight_1314` and the value was DISCARDED. The run then reported "exact-operation success"
+ * with the reviewed operation unverified. `postflight_1306` was never passed at all. A silently dropped
+ * argument is exactly the failure this shape prevents: an unknown key throws instead of being ignored.
+ */
+export function assertTerminalOutcome({ apply, verify, lint, targetFile, postflights } = {}) {
+    if (apply !== 'success') throw new Error(`migration apply command outcome is ${apply || 'missing'}`);
+    if (verify !== 'success') throw new Error(`post-apply history verification outcome is ${verify || 'missing'}`);
+    if (lint !== 'success') throw new Error(`post-apply lint verification outcome is ${lint || 'missing'}`);
+
+    // Applicability cannot be decided without the target. Defaulting to "nothing applies" would make every
+    // postflight optional, which is the very hole being closed — so this fails closed.
+    if (typeof targetFile !== 'string' || targetFile.trim() === '') {
+        throw new Error('terminal gate requires the applied target filename to determine postflight applicability');
     }
-    return { terminal: 'success' };
+
+    const outcomes = postflights ?? {};
+    for (const key of Object.keys(outcomes)) {
+        if (!TARGET_POSTFLIGHT_GATES.some((g) => g.id === key)) {
+            throw new Error(`unknown postflight gate '${key}' reported to the terminal assertion`);
+        }
+    }
+
+    const enforced = [];
+    for (const gate of TARGET_POSTFLIGHT_GATES) {
+        const outcome = outcomes[gate.id] ?? '';
+        const applicable = targetFile.includes(gate.targetFile);
+        if (applicable) {
+            // SKIPPED IS A FAILURE HERE. The applicable postflight not running means the reviewed operation
+            // was never verified, which must never read as success.
+            if (outcome !== 'success') {
+                throw new Error(`applicable postflight ${gate.id} outcome is ${outcome || 'missing'} (must be success)`);
+            }
+            enforced.push(gate.id);
+        } else if (outcome !== '' && outcome !== 'skipped') {
+            // A gate that executed for a target it does not verify means the workflow conditions drifted.
+            throw new Error(`postflight ${gate.id} ran (${outcome}) for a target it does not verify`);
+        }
+    }
+    if (enforced.length === 0) {
+        throw new Error(`no target-specific postflight is registered for ${targetFile}; refusing to report terminal success`);
+    }
+    return { terminal: 'success', enforcedPostflights: enforced };
 }

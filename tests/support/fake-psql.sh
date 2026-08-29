@@ -25,6 +25,8 @@ if has "has_function_privilege"; then
     case "$role" in
       authenticated) echo "${F_V2_AUTH:-t}";; service_role) echo "${F_V2_SVC:-t}";; anon) echo "${F_V2_ANON:-f}";;
     esac
+  elif has "='$V1B'"; then
+    case "$role" in authenticated) echo "${F_V1B_AUTH:-t}";; service_role) echo "${F_V1B_SVC:-t}";; esac
   else
     case "$role" in authenticated) echo "${F_V1A_AUTH:-t}";; service_role) echo "${F_V1A_SVC:-t}";; esac
   fi

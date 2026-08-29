@@ -353,7 +353,16 @@ jobs:
       - name: Require unambiguous exact-operation success
         id: terminal
         if: always()
-        run: node scripts/exact-migration-gate.mjs final "${{ steps.apply.outcome }}" "${{ steps.verify.outcome }}" "${{ steps.lint_verify.outcome }}" "${{ steps.postflight_1314.outcome }}"
+        # The applicable target-specific postflight is part of TERMINAL authority, passed by NAME. The
+        # previous invocation passed postflight_1314 as a trailing positional that the CLI discarded, and
+        # never passed postflight_1306 at all — so this step could report exact-operation success while the
+        # reviewed operation was unverified. An earlier step going red is not a substitute for that.
+        run: |
+          node scripts/exact-migration-gate.mjs final \
+            "${{ steps.apply.outcome }}" "${{ steps.verify.outcome }}" "${{ steps.lint_verify.outcome }}" \
+            "${{ steps.contract.outputs.target_file }}" \
+            "postflight_1314=${{ steps.postflight_1314.outcome }}" \
+            "postflight_1306=${{ steps.postflight_1306.outcome }}"
 
       - name: Publish sanitized result
         if: always()
@@ -369,5 +378,7 @@ jobs:
           echo "- Apply step outcome: \`${{ steps.apply.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Post-apply verification outcome: \`${{ steps.verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Baseline-relative lint outcome: \`${{ steps.lint_verify.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- #1314 postflight outcome: \`${{ steps.postflight_1314.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- #1306 Stage B postflight outcome: \`${{ steps.postflight_1306.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Terminal exact-operation gate: \`${{ steps.terminal.outcome }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo '- The selected migration is the only authorized mutation. `--include-all` is permitted only for the isolated #1276 target and must be disclosed by its exact authorization phrase. No repair, broad-directory application, Edge deployment, payment configuration, or secrets/config change is performed.' >> "$GITHUB_STEP_SUMMARY"
