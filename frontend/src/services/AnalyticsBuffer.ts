@@ -206,11 +206,21 @@ class AnalyticsBuffer {
    * Identify a user in PostHog and Sentry.
    * Typically bypasses buffer as identity is required for event mapping.
    */
-  public identify(userId: string, properties?: Record<string, unknown>): void {
+  /**
+   * #1259 T1 — NO PROPERTIES PARAMETER.
+   *
+   * This previously accepted `properties` and forwarded them UNSANITIZED to both posthog.identify and
+   * Sentry.setUser — a second, wider boundary than event capture, and one the event allowlist does not
+   * govern. Person properties persist against the profile rather than a single event.
+   *
+   * Every caller passes only `user.id` (AuthProvider.tsx:105 is the sole one), so the parameter carried
+   * no traffic and only carried risk. Removing it makes the leak unavailable rather than unused.
+   */
+  public identify(userId: string): void {
 
     this.identityProbe.identifyCalls += 1;
     try {
-      posthog.identify(userId, properties);
+      posthog.identify(userId);
       // Materialize a SERVER-SIDE PostHog person (Gate B / flag targeting) — see
       // captureAccountIdentified(). It is ISOLATED in its own try/catch so a capture failure can
       // NEVER block the reloadFeatureFlags()/Sentry.setUser() below: flag reload after identify is
@@ -219,7 +229,7 @@ class AnalyticsBuffer {
       // Explicitly re-evaluate feature flags AFTER identify + capture so the app never keeps the
       // prior anonymous flag state (the Gate B stale-flag gotcha — flags must reflect the account).
       posthog.reloadFeatureFlags();
-      Sentry.setUser({ id: userId, ...properties });
+      Sentry.setUser({ id: userId });
       logger.debug({ userId }, '[AnalyticsBuffer] User identified');
     } catch (err) {
       logger.warn({ err }, '[AnalyticsBuffer] Failed to identify user');

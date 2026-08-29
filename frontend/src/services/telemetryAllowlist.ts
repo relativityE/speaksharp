@@ -80,19 +80,112 @@ export const EVENT_ALLOWLIST: Readonly<Record<string, readonly string[]>> = Obje
 export const ENVELOPE_KEYS = Object.freeze(['$priority', '$ts']);
 
 /**
- * Values that may survive projection.
+ * PER-FIELD VALIDATION — an allowlisted key is not a licence to carry arbitrary text.
  *
- * An allowlisted KEY is not sufficient — a nested object or array can smuggle free text under an approved
- * name. Only primitives pass, and strings are length-capped so an approved field cannot become a payload.
+ * The first version accepted any string up to 120 characters under an approved key, so
+ * `session_saved{ mode: "um here is my private quarterly discussion" }` passed: `mode` is allowlisted
+ * and the value is short. A length cap is not a content control — it bounds the size of a leak, not its
+ * existence.
+ *
+ * Every approved field now declares the SHAPE of value it may carry. Anything else is dropped, whether
+ * or not it is short and whether or not its key is approved.
  */
-const MAX_STRING = 120;
+type FieldRule =
+    | { kind: 'enum'; values: readonly string[] }
+    | { kind: 'int'; min: number; max: number }
+    | { kind: 'number'; min: number; max: number }
+    | { kind: 'bool' }
+    /** Constrained token: no spaces, no query strings, no control characters, no prose. */
+    | { kind: 'slug'; maxLength: number }
+    /** In-app path such as `/analytics`. Rejects query strings and fragments, which carry data. */
+    | { kind: 'route'; maxLength: number };
 
+const MODES = ['private', 'browser', 'cloud', 'native', 'unknown'] as const;
+const TIERS = ['free', 'pro', 'trial', 'unknown', 'anonymous'] as const;
+const TRIAL_STATES = ['active', 'expired', 'none', 'unknown'] as const;
+const VARIANTS = ['control', 'guided', 'unknown'] as const;
+const ASSIGNMENT_SOURCES = ['default', 'posthog_flag', 'allowlist', 'deterministic_override'] as const;
+const RUNTIME_STATES = ['idle', 'ready', 'starting', 'recording', 'stopping', 'error', 'unknown'] as const;
+const FRESHNESS = ['fresh', 'stale', 'unknown'] as const;
+
+/** The shape each approved property may take. A field with no rule here can never be emitted. */
+const FIELD_RULES: Readonly<Record<string, FieldRule>> = Object.freeze({
+    mode: { kind: 'enum', values: MODES },
+    requested_mode: { kind: 'enum', values: MODES },
+    user_tier: { kind: 'enum', values: TIERS },
+    tier: { kind: 'enum', values: TIERS },
+    trial_state: { kind: 'enum', values: TRIAL_STATES },
+    plan: { kind: 'enum', values: ['pro', 'free', 'unknown'] },
+    runtime_state: { kind: 'enum', values: RUNTIME_STATES },
+    status: { kind: 'enum', values: FRESHNESS },
+    session_coaching_variant: { kind: 'enum', values: VARIANTS },
+    session_coaching_assignment_source: { kind: 'enum', values: ASSIGNMENT_SOURCES },
+    session_coaching_experiment: { kind: 'slug', maxLength: 64 },
+
+    duration_seconds: { kind: 'int', min: 0, max: 86_400 },
+    word_count: { kind: 'int', min: 0, max: 1_000_000 },
+    filler_count: { kind: 'int', min: 0, max: 1_000_000 },
+    streak_count: { kind: 'int', min: 0, max: 100_000 },
+    attempts: { kind: 'int', min: 0, max: 10_000 },
+    wpm: { kind: 'number', min: 0, max: 1_000 },
+    clarity_score: { kind: 'number', min: 0, max: 100 },
+
+    is_new_streak_day: { kind: 'bool' },
+    returning_user: { kind: 'bool' },
+
+    // Bounded identifiers. `error_name` is a constructor name, never a message.
+    error_name: { kind: 'slug', maxLength: 64 },
+    start_leaf_name: { kind: 'slug', maxLength: 64 },
+    component: { kind: 'slug', maxLength: 64 },
+    isolationKey: { kind: 'slug', maxLength: 64 },
+    source: { kind: 'slug', maxLength: 64 },
+    conversion_source: { kind: 'slug', maxLength: 64 },
+    entry_source: { kind: 'slug', maxLength: 64 },
+    utm_source: { kind: 'slug', maxLength: 64 },
+    utm_medium: { kind: 'slug', maxLength: 64 },
+    utm_campaign: { kind: 'slug', maxLength: 64 },
+    release_sha: { kind: 'slug', maxLength: 64 },
+    running_release: { kind: 'slug', maxLength: 64 },
+    deployed_release: { kind: 'slug', maxLength: 64 },
+
+    route: { kind: 'route', maxLength: 96 },
+});
+
+/** No spaces, no punctuation that carries prose, no control characters, no query material. */
+const SLUG = /^[A-Za-z0-9._:-]+$/;
+const ROUTE = /^\/[A-Za-z0-9/_-]*$/;
+
+export function isValidForField(field: string, value: unknown): boolean {
+    const rule = FIELD_RULES[field];
+    if (!rule) return false;                     // no declared shape -> never emitted
+    if (value === null || value === undefined) return true;   // absence is content-free
+
+    switch (rule.kind) {
+        case 'enum':
+            return typeof value === 'string' && rule.values.includes(value);
+        case 'int':
+            return typeof value === 'number' && Number.isInteger(value)
+                && value >= rule.min && value <= rule.max;
+        case 'number':
+            return typeof value === 'number' && Number.isFinite(value)
+                && value >= rule.min && value <= rule.max;
+        case 'bool':
+            return typeof value === 'boolean';
+        case 'slug':
+            return typeof value === 'string' && value.length > 0
+                && value.length <= rule.maxLength && SLUG.test(value);
+        case 'route':
+            return typeof value === 'string' && value.length > 0
+                && value.length <= rule.maxLength && ROUTE.test(value);
+    }
+}
+
+/** Retained for callers that only need the coarse check; per-field validation is the authority. */
 export function isContentFreeValue(value: unknown): boolean {
     if (value === null || value === undefined) return true;
     if (typeof value === 'number') return Number.isFinite(value);
     if (typeof value === 'boolean') return true;
-    if (typeof value === 'string') return value.length <= MAX_STRING;
-    return false;   // objects, arrays, functions, symbols — never
+    return false;                                 // strings must go through isValidForField
 }
 
 export interface ProjectionResult {
@@ -117,7 +210,9 @@ export function projectEventProps(
     const out: Record<string, unknown> = {};
     const dropped: string[] = [];
     for (const key of Object.keys(props)) {
-        if (!allowed || !allowed.includes(key) || !isContentFreeValue(props[key])) {
+        // BOTH gates: the key must be approved FOR THIS EVENT, and the value must match the shape that
+        // field may carry. Either alone is insufficient — an approved key with prose is the leak.
+        if (!allowed || !allowed.includes(key) || !isValidForField(key, props[key])) {
             dropped.push(key);
             continue;
         }

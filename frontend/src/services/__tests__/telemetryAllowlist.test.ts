@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { vi } from 'vitest';
 import {
-    projectEventProps, isContentFreeValue, isGovernedEvent, EVENT_ALLOWLIST,
+    projectEventProps, isContentFreeValue, isGovernedEvent, isValidForField, EVENT_ALLOWLIST,
 } from '../telemetryAllowlist';
 
 /**
@@ -89,13 +90,16 @@ describe('#1259 T1 — content is rejected', () => {
         expect(dropped).toContain('mode');
     });
 
-    it('rejects a malformed enum value by shape (non-primitive) even under a valid key', () => {
+    it('rejects non-primitives, and no longer waves strings through on shape alone', () => {
         expect(isContentFreeValue({ variant: 'guided' })).toBe(false);
         expect(isContentFreeValue(['guided'])).toBe(false);
         expect(isContentFreeValue(() => 'guided')).toBe(false);
-        expect(isContentFreeValue('guided')).toBe(true);
         expect(isContentFreeValue(42)).toBe(true);
         expect(isContentFreeValue(NaN)).toBe(false);
+        // POLICY CHANGE: a string is no longer content-free by virtue of being a string. It must match
+        // the declared shape of its field, because prose under an approved key was the actual leak.
+        expect(isContentFreeValue('guided')).toBe(false);
+        expect(isValidForField('session_coaching_variant', 'guided')).toBe(true);
     });
 
     it('an UNGOVERNED event ships no properties at all', () => {
@@ -118,23 +122,88 @@ describe('#1259 T1 — content is rejected', () => {
     });
 });
 
-describe('#1259 T1 — the projection is at the REAL capture boundary', () => {
-    const buffer = readFileSync(
-        resolve(process.cwd(), 'frontend/src/services/AnalyticsBuffer.ts'), 'utf8');
+describe('#1259 T1 — proven at the REAL posthog.capture boundary, behaviourally', () => {
+    /**
+     * The previous version sliced AnalyticsBuffer.ts source and compared string offsets. It broke when the
+     * function moved, and it proved text ordering rather than behaviour. This pushes through the real
+     * producer path and inspects what posthog.capture actually received.
+     */
+    it('MUTANT T1: an unapproved `notes` field injected at a real producer never reaches PostHog', async () => {
+        vi.resetModules();
+        const capture = vi.fn();
+        vi.doMock('posthog-js', () => ({ default: { capture, identify: vi.fn(), reloadFeatureFlags: vi.fn(), reset: vi.fn(), init: vi.fn() } }));
+        const { analyticsBuffer } = await import('../AnalyticsBuffer');
+        analyticsBuffer.ready = true;
 
-    it('projectEventProps is applied in send(), immediately before posthog.capture', () => {
-        // POSITIVE CONTROL for the boundary claim: prove the real capture call is present AND that the
-        // projection precedes it in the same function. A test that only exercised the pure function would
-        // pass even if nothing called it.
-        const send = buffer.slice(buffer.indexOf('private send('), buffer.indexOf('public identify('));
-        expect(send).toContain('projectEventProps(event.event, event.properties)');
-        expect(send).toContain('posthog.capture(event.event');
-        expect(send.indexOf('projectEventProps')).toBeLessThan(send.indexOf('posthog.capture'));
+        analyticsBuffer.push('session_saved', {
+            mode: 'private', duration_seconds: 61, word_count: 180,
+            notes: 'so um I think the quarterly number is wrong',
+        }, 'CRITICAL');
+        analyticsBuffer.flush();
+
+        expect(capture).toHaveBeenCalled();
+        const [event, payload] = capture.mock.calls[capture.mock.calls.length - 1];
+        expect(event).toBe('session_saved');
+        expect(payload).not.toHaveProperty('notes');
+        expect(JSON.stringify(payload)).not.toContain('quarterly');
+        // approved fields survive, so the event stays analyzable
+        expect(payload).toMatchObject({ mode: 'private', duration_seconds: 61, word_count: 180 });
     });
 
-    it('the superseded key-name denylist is gone, not merely bypassed', () => {
-        expect(buffer).not.toContain('SENSITIVE_ANALYTICS_KEY');
-        expect(buffer).not.toContain('sanitizeAnalyticsProperties');
+    it('POSITIVE CONTROL: the capture spy really observes the boundary', async () => {
+        // Without this, the assertion above would pass if capture were never called at all.
+        vi.resetModules();
+        const capture = vi.fn();
+        vi.doMock('posthog-js', () => ({ default: { capture, identify: vi.fn(), reloadFeatureFlags: vi.fn(), reset: vi.fn(), init: vi.fn() } }));
+        const { analyticsBuffer } = await import('../AnalyticsBuffer');
+        analyticsBuffer.ready = true;
+        analyticsBuffer.push('session_started', { mode: 'private', user_tier: 'pro' }, 'CRITICAL');
+        analyticsBuffer.flush();
+        expect(capture).toHaveBeenCalledWith('session_started', expect.objectContaining({ mode: 'private', user_tier: 'pro' }));
+    });
+
+    it('prose under an APPROVED key is dropped — length is not a content control', () => {
+        // The blocker: `mode` is allowlisted, and a 43-character sentence is under any length cap.
+        const { props, dropped } = projectEventProps('session_saved', {
+            mode: 'um here is my private quarterly discussion',
+            duration_seconds: 61,
+        });
+        expect(props).not.toHaveProperty('mode');
+        expect(dropped).toContain('mode');
+        expect(props).toEqual({ duration_seconds: 61 });
+    });
+
+    it.each([
+        ['enum violation', 'mode', 'PrivateMode Extra Words'],
+        ['route with a query string', 'route', '/analytics?transcript=um+so'],
+        ['route with a fragment', 'route', '/a#um-so-anyway'],
+        ['slug with spaces', 'source', 'analytics cta um'],
+        ['slug with control chars', 'error_name', 'Error\u0000leak'],
+        ['email in a slug field', 'utm_source', 'someone@example.com'],
+        ['non-integer count', 'word_count', 180.5],
+        ['negative duration', 'duration_seconds', -1],
+        ['out-of-range score', 'clarity_score', 1000],
+        ['NaN', 'wpm', NaN],
+        ['Infinity', 'wpm', Infinity],
+        ['boolean field given a string', 'is_new_streak_day', 'true'],
+    ])('rejects %s', (_label, field, value) => {
+        expect(isValidForField(field, value)).toBe(false);
+    });
+
+    it.each([
+        ['enum', 'mode', 'private'],
+        ['route', 'route', '/analytics'],
+        ['slug', 'error_name', 'NotAllowedError'],
+        ['int', 'word_count', 180],
+        ['number', 'clarity_score', 82.4],
+        ['bool', 'is_new_streak_day', true],
+        ['null is content-free', 'mode', null],
+    ])('accepts a valid %s', (_label, field, value) => {
+        expect(isValidForField(field, value)).toBe(true);
+    });
+
+    it('a field with no declared shape can never be emitted, even if allowlisted by name', () => {
+        expect(isValidForField('brand_new_field', 'anything')).toBe(false);
     });
 
     it('every producer event name is governed by a schema', () => {

@@ -133,39 +133,36 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     }));
   });
 
-  it('redacts transcript and audio-like analytics properties at the send boundary', () => {
+  it('an UNGOVERNED event ships no properties at all — fail closed, not redact', () => {
+    // POLICY CHANGE (#1259 T1). This test previously asserted denylist behaviour: sensitive-looking keys
+    // were REDACTED into {length, words, redacted} and everything else passed through. That failed on the
+    // key's NAME, so `message`, `reason` and `notes` sailed past.
+    //
+    // The policy is now an allowlist keyed by EVENT. `PrivacyTest` has no schema, so it ships nothing.
+    // The old expectations are deliberately not restored: making them green again would reinstate the
+    // defect.
     analyticsBuffer.ready = true;
 
     analyticsBuffer.push('PrivacyTest', {
       transcript: 'um this private transcript must not leave',
       audioDataUrl: 'data:audio/wav;base64,very-sensitive',
-      nested: {
-        finalTranscript: 'another sensitive transcript',
-        safeMode: 'private',
-      },
-      values: [
-        { transcriptExcerpt: 'nested array transcript' },
-      ],
+      nested: { finalTranscript: 'another sensitive transcript', safeMode: 'private' },
+      values: [{ transcriptExcerpt: 'nested array transcript' }],
     }, 'CRITICAL');
+    analyticsBuffer.flush();
 
-    expect(posthog.capture).toHaveBeenCalledWith('PrivacyTest', expect.objectContaining({
-      transcript: { length: 41, words: 7, redacted: true },
-      audioDataUrl: { length: 36, words: 1, redacted: true },
-      nested: {
-        finalTranscript: { length: 28, words: 3, redacted: true },
-        safeMode: 'private',
-      },
-      values: [
-        { transcriptExcerpt: { length: 23, words: 3, redacted: true } },
-      ],
-      $priority: 'CRITICAL',
-    }));
-
-    const payload = JSON.stringify(vi.mocked(posthog.capture).mock.calls[0][1]);
-    expect(payload).not.toContain('private transcript');
-    expect(payload).not.toContain('very-sensitive');
-    expect(payload).not.toContain('another sensitive');
-    expect(payload).not.toContain('nested array transcript');
+    const call = ((posthog.capture as unknown as { mock: { calls: unknown[][] } }).mock.calls.slice(-1)[0]);
+    expect(call[0]).toBe('PrivacyTest');
+    const payload = call[1] as Record<string, unknown>;
+    for (const k of ['transcript', 'audioDataUrl', 'nested', 'values']) {
+      expect(payload).not.toHaveProperty(k);
+    }
+    // Nothing sensitive survives in any form — not even a redaction summary.
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain('transcript');
+    expect(serialized).not.toContain('sensitive');
+    // Only the buffer's own envelope remains.
+    expect(Object.keys(payload).every(k => k.startsWith('$'))).toBe(true);
   });
 
   // #1259 P2 — a SECOND redaction boundary for Private events: even if a `private_*` event's props bypass
@@ -200,7 +197,8 @@ describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
 
   it('identify() passes through the user id (no email) and reloads feature flags', () => {
     analyticsBuffer.identify('user-123');
-    expect(posthog.identify).toHaveBeenCalledWith('user-123', undefined);
+    // #1259 T1: identify() no longer accepts a properties argument at all.
+    expect(posthog.identify).toHaveBeenCalledWith('user-123');
     expect(posthog.reloadFeatureFlags).toHaveBeenCalled(); // flags re-evaluated for the identified user
   });
 
@@ -232,7 +230,8 @@ describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
 
     expect(() => analyticsBuffer.identify('user-123')).not.toThrow();
 
-    expect(posthog.identify).toHaveBeenCalledWith('user-123', undefined);
+    // #1259 T1: identify() no longer accepts a properties argument at all.
+    expect(posthog.identify).toHaveBeenCalledWith('user-123');
     expect(posthog.capture).toHaveBeenCalledWith(
       'account_identified',
       { source: 'auth_provider' },
