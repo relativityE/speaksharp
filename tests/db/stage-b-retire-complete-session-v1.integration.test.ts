@@ -38,6 +38,12 @@ const EXTRA = `
     ADD COLUMN IF NOT EXISTS stripe_subscription_id text,
     ADD COLUMN IF NOT EXISTS subscription_id text,
     ADD COLUMN IF NOT EXISTS commercial_trial_granted_at timestamptz;
+  -- BOTH arities are stubbed deliberately. R2 (20260804000000) defines the v1 complete_session against the
+  -- FOUR-argument tier resolver that predates commercial_trial_granted_at; Stage A and v2 call the FIVE-argument
+  -- form. Stubbing only one leaves the other unresolved, and the failure surfaces as a confusing
+  -- "function ... does not exist" from inside the RPC rather than from the schema.
+  CREATE OR REPLACE FUNCTION public.effective_subscription_tier(text, timestamptz, text, text)
+    RETURNS text LANGUAGE sql IMMUTABLE AS $fn$ SELECT 'pro'::text $fn$;
   CREATE OR REPLACE FUNCTION public.effective_subscription_tier(text, timestamptz, text, text, timestamptz)
     RETURNS text LANGUAGE sql IMMUTABLE AS $fn$ SELECT 'pro'::text $fn$;
   SELECT set_config('request.jwt.claim.sub', '${U}', false);
