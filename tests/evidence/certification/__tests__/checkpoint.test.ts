@@ -2,7 +2,10 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { planResume, validateCompleteness, identityMismatch, isCompleteRow, type RunIdentity } from '../checkpoint';
+import {
+    planResume, validateCompleteness, identityMismatch, isCompleteRow,
+    type RunIdentity, type CheckpointRow,
+} from '../checkpoint';
 import { atomicWriteFileSync } from '../atomicWrite';
 import { SELECTION_EXECUTION_SET, NOT_EXECUTED_REASONS, REQUIRED_MATRIX_ROWS } from '../arms/registry';
 
@@ -11,7 +14,7 @@ const ID: RunIdentity = {
     corpusDigest: 'cccccccc', normalizerId: 'norm_v2', registryDigest: 'dddddddd',
     assetDigest: 'eeeeeeee', setName: 'corpus', evidenceClass: 'selection',
 };
-const cp = (rows: { id: string }[], identity: RunIdentity = ID) => ({ partial: true as const, identity, rows });
+const cp = (rows: CheckpointRow[], identity: RunIdentity = ID) => ({ partial: true as const, identity, rows });
 
 const dirs: string[] = [];
 const tmp = () => { const d = mkdtempSync(join(tmpdir(), 'cp-')); dirs.push(d); return d; };
