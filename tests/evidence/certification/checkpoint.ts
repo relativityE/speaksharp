@@ -49,7 +49,21 @@ export interface CheckpointRow { id: string; [k: string]: unknown }
 export function isCompleteRow(row: CheckpointRow): boolean {
     if (row.executed === false) return true;          // preserved with a named not-executed reason
     if (typeof row.skipped === 'string' && row.skipped) return true; // registry admission (rejected/pending)
-    return row.verdict != null;                        // a real measurement
+    if (row.verdict == null) return false;             // started and produced nothing
+
+    /**
+     * A VERDICT OBJECT IS NOT A MEASUREMENT. A run whose corpus audio was absent produced a verdict for
+     * every arm with `decoded 0/600` and `route_not_honored`, and the artifact was written as if
+     * complete. The verdict existed; the evidence did not.
+     *
+     * So a measured row counts as finished only when the backend was actually proven and every expected
+     * clip decoded. Anything less is an arm to re-measure, not a row to keep.
+     */
+    if (row.backendProven !== true) return false;
+    const expected = row.expectedClips;
+    const decoded = row.decodedClips;
+    if (typeof expected === 'number' && typeof decoded === 'number') return decoded === expected;
+    return true;
 }
 
 export interface Checkpoint {
