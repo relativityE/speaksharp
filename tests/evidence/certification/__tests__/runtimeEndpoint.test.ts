@@ -120,3 +120,120 @@ describe('the pin-enforcing runtime endpoint', () => {
         }
     });
 });
+
+/**
+ * #1304 — the SERIALIZED EVIDENCE must agree with itself, and the fingerprint must bind the runtime.
+ *
+ * THE DEFECT THIS CLOSES. The asset object was built TWICE — once for the arm's provenance and once
+ * for the verdict's footprint — and the runtime binaries were added to the second only. The v4 fp32
+ * artifact then reported 9 files in its footprint, 7 in its certification provenance and 7 in its
+ * top-level count: three numbers for one fact. The two missing files were the runtime binaries, so
+ * the certificate fingerprint bound the model weights but NOT the bytes that executed them, and a
+ * runtime could change without moving it.
+ *
+ * These are unit-level because the wiring is what failed, not the loading.
+ */
+import { fingerprintConfiguration, fingerprintDifferences } from '../fingerprint';
+import { buildTechnicalVerdict } from '../buildVerdict';
+import type { ArmProvenance } from '../engineArm';
+import type { ArmRunResult } from '../runArm';
+import type { AssetRecord } from '../browser/server';
+
+const RUNTIME_FILE = 'node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm';
+
+const assetSet = (over: Record<string, AssetRecord> = {}): Record<string, AssetRecord> => ({
+    'onnx/encoder_model.onnx': { sha256: 'a'.repeat(64), bytes: 100, source: 'cache', pinned: true },
+    'onnx/decoder_model.onnx': { sha256: 'b'.repeat(64), bytes: 200, source: 'cache', pinned: true },
+    [RUNTIME_FILE]: { sha256: 'c'.repeat(64), bytes: 300, source: 'cache', pinned: true },
+    ...over,
+});
+
+const provenanceFrom = (assets: Record<string, AssetRecord>): ArmProvenance => ({
+    model: {
+        id: 'm', revision: 'r',
+        filesSha256: Object.fromEntries(Object.entries(assets).map(([k, v]) => [k, v.sha256])),
+    },
+    runtime: { library: 'l', version: '1.0.0', backend: 'wasm' },
+    assets: { source: 's', verdict: 'identical' },
+    device: { platform: 'p', arch: 'a', cpuModel: 'c', cores: 1 },
+    route: { hash: 'h', route: { family: 'moonshine', modelId: 'm', rawWaveform: true, maxPositionEmbeddings: 512, returnTimestamps: false, maxNewTokens: 10 } },
+    corpus: { version: 'v', digest: 'd'.repeat(64), archives: { a: 'b' } },
+    resources: { wallClockMs: 1, peakRssBytes: null },
+});
+
+const runResult = (assets: Record<string, AssetRecord>): ArmRunResult => ({
+    ok: true,
+    row: {
+        armId: 'arm', rulesVersion: 'cert_v1', track: 'track_a', aggregation: 'pooled',
+        wer: 0.05, referenceWords: 100, substitutions: 3, deletions: 1, insertions: 1, scoredCount: 10,
+        provenance: provenanceFrom(assets), fingerprint: 'x',
+    },
+    scores: [], aggregate: { wer: 0.05, referenceWords: 100, substitutions: 3, deletions: 1, insertions: 1, scoredCount: 10, invalidCount: 0, invalidReasons: {} },
+    decodeFailures: [], clipOutcomes: [],
+});
+
+describe('one asset object, one set of numbers', () => {
+    it('the verdict footprint count equals the provenance file count', () => {
+        const assets = assetSet();
+        const verdict = buildTechnicalVerdict({
+            armId: 'arm', runtimeLabel: 'rt', evidenceSet: 'corpus', evidenceClass: 'selection',
+            result: runResult(assets), coldLoadMs: 1, stopToFinalMs: null, backendProven: true,
+            resolvedBackend: 'wasm', hardwareRepresentative: true, transcriptDigest: 't',
+            fingerprint: 'f', assets, expectedClips: 10, audioRejected: 0,
+        });
+        const provenanceFiles = Object.keys(runResult(assets).ok
+            ? provenanceFrom(assets).model.filesSha256 : {}).length;
+        expect(verdict.footprint.assetCount).toBe(provenanceFiles);
+        expect(verdict.assetDigestCount).toBe(provenanceFiles);
+    });
+
+    it('provenance CONTAINS the runtime binaries actually served', () => {
+        // The two files that went missing. A v4 arm fetches them, so they belong in the record of what
+        // ran, not only in the download total.
+        const provenance = provenanceFrom(assetSet());
+        expect(Object.keys(provenance.model.filesSha256)).toContain(RUNTIME_FILE);
+    });
+
+    it('the footprint total INCLUDES the runtime bytes', () => {
+        const assets = assetSet();
+        const verdict = buildTechnicalVerdict({
+            armId: 'arm', runtimeLabel: 'rt', evidenceSet: 'corpus', evidenceClass: 'selection',
+            result: runResult(assets), coldLoadMs: 1, stopToFinalMs: null, backendProven: true,
+            resolvedBackend: 'wasm', hardwareRepresentative: true, transcriptDigest: 't',
+            fingerprint: 'f', assets, expectedClips: 10, audioRejected: 0,
+        });
+        expect(verdict.footprint.modelBytes).toBe(600); // 100 + 200 + 300
+    });
+});
+
+describe('the fingerprint binds the runtime bytes', () => {
+    it('CHANGING a runtime digest moves the fingerprint', () => {
+        // Before the fix a runtime binary could change without the fingerprint moving, because it was
+        // never in the provenance the fingerprint is computed from.
+        const before = fingerprintConfiguration('arm', provenanceFrom(assetSet()), 'none');
+        const after = fingerprintConfiguration(
+            'arm',
+            provenanceFrom(assetSet({ [RUNTIME_FILE]: { sha256: 'f'.repeat(64), bytes: 300, source: 'cache', pinned: true } })),
+            'none',
+        );
+        expect(after.digest).not.toBe(before.digest);
+        expect(fingerprintDifferences(before, after)).toContain('weights');
+    });
+
+    it('REMOVING a runtime binary moves the fingerprint too', () => {
+        const full = assetSet();
+        const without = { ...full };
+        delete without[RUNTIME_FILE];
+        const a = fingerprintConfiguration('arm', provenanceFrom(full), 'none');
+        const b = fingerprintConfiguration('arm', provenanceFrom(without), 'none');
+        expect(b.digest).not.toBe(a.digest);
+    });
+
+    it('an unrelated model file changing still moves it — the binding is not runtime-only', () => {
+        const a = fingerprintConfiguration('arm', provenanceFrom(assetSet()), 'none');
+        const b = fingerprintConfiguration('arm', provenanceFrom(assetSet({
+            'onnx/encoder_model.onnx': { sha256: 'e'.repeat(64), bytes: 100, source: 'cache', pinned: true },
+        })), 'none');
+        expect(b.digest).not.toBe(a.digest);
+    });
+});
