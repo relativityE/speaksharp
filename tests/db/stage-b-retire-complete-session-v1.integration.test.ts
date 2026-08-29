@@ -72,18 +72,6 @@ async function preStageB(): Promise<PGlite> {
     return db;
 }
 
-/** The migration's fail-closed assertion, isolated so a mutant can be tested against it directly. */
-const STAGE_B_GUARD_ONLY = `
-DO $$
-DECLARE remaining INT;
-BEGIN
-    SELECT count(*) INTO remaining
-    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'public' AND p.proname = 'complete_session';
-    IF remaining > 0 THEN
-        RAISE EXCEPTION 'Stage B incomplete: % complete_session overload(s) still present after retirement', remaining;
-    END IF;
-END $$;`;
 
 /** Exact identity arguments of every overload of `name`, sorted. */
 const overloads = async (db: PGlite, name: string): Promise<string[]> => {
@@ -228,55 +216,84 @@ describe('#1306 Stage B — after the shipped migration', () => {
     });
 });
 
-describe('#1306 Stage B — mutants M1-M5 fail for their intended reasons', () => {
+describe('#1306 Stage B — M1-M5 mutate the SHIPPED migration itself', () => {
     /**
-     * Each mutant is applied to a real schema and asserted to fail with ITS OWN cause, not merely to fail.
-     * A mutant that dies for the wrong reason proves nothing about the assertion it was aimed at.
+     * Every mutant here is derived from the REAL migration source loaded above, not from a handwritten
+     * copy of its guard. A test that mutates its own reproduction of the migration qualifies the
+     * reproduction; only mutating the shipped text qualifies the shipped migration.
+     *
+     * Each is asserted to fail with ITS OWN cause. A mutant that dies for the wrong reason proves nothing
+     * about the assertion it was aimed at.
      */
-    const dropOnly = (sig: string) => `DROP FUNCTION IF EXISTS public.complete_session(${sig});`;
+    const dropLine = (sig: string) =>
+        new RegExp(`DROP FUNCTION IF EXISTS public\\.complete_session\\(${sig.replace(/[()]/g, '\\$&')}\\);`, 'i');
 
-    it('M1 — dropping only V1-A leaves V1B, and the fail-closed block refuses', async () => {
+    /** Remove one DROP from the shipped migration, leaving everything else byte-identical. */
+    const withoutDrop = (sig: string): string => {
+        const re = dropLine(sig);
+        expect(re.test(STAGE_B), `mutation precondition: the shipped migration must DROP (${sig})`).toBe(true);
+        return STAGE_B.replace(re, '-- MUTANT: this DROP removed');
+    };
+
+    it('M1 — the shipped migration without the V1-A DROP refuses (V1-A survives)', async () => {
         const db = await preStageB();
-        await expect(db.exec(dropOnly(V1A) + STAGE_B_GUARD_ONLY)).rejects.toThrow(/Stage B incomplete/i);
+        await expect(db.exec(withoutDrop(V1A))).rejects.toThrow(/Stage B incomplete/i);
         await db.close();
     });
 
-    it('M2 — dropping only V1-B leaves the transcript path, and the block refuses', async () => {
+    it('M2 — the shipped migration without the V1-B DROP refuses (V1-B survives)', async () => {
         const db = await preStageB();
-        await expect(db.exec(dropOnly(V1B) + STAGE_B_GUARD_ONLY)).rejects.toThrow(/Stage B incomplete/i);
+        await expect(db.exec(withoutDrop(V1B))).rejects.toThrow(/Stage B incomplete/i);
         await db.close();
     });
 
-    it('M3 — revoke-only leaves the function present, so the block refuses', async () => {
+    it('M3 — revoke-only: both DROPs removed, REVOKEs intact, still refuses', async () => {
         const db = await preStageB();
-        const revokeOnly = `
-          REVOKE EXECUTE ON FUNCTION public.complete_session(${V1A}) FROM PUBLIC, anon, authenticated, service_role;
-          REVOKE EXECUTE ON FUNCTION public.complete_session(${V1B}) FROM PUBLIC, anon, authenticated, service_role;`;
-        await expect(db.exec(revokeOnly + STAGE_B_GUARD_ONLY)).rejects.toThrow(/Stage B incomplete/i);
+        const revokeOnly = withoutDrop(V1A).replace(dropLine(V1B), '-- MUTANT: this DROP removed');
+        expect(revokeOnly).toMatch(/REVOKE EXECUTE ON FUNCTION public\.complete_session/i);
+        await expect(db.exec(revokeOnly)).rejects.toThrow(/Stage B incomplete/i);
         await db.close();
     });
 
-    it('M5 — a v1 that silently forwards to v2 is still present, so the block refuses', async () => {
+    it('M5 — a v1 that silently forwards to v2 still counts as present, so it refuses', async () => {
         const db = await preStageB();
-        const forwarder = `
-          DROP FUNCTION IF EXISTS public.complete_session(${V1A});
-          DROP FUNCTION IF EXISTS public.complete_session(${V1B});
-          CREATE FUNCTION public.complete_session(${V1A}) RETURNS jsonb LANGUAGE sql AS
-            $fn$ SELECT public.complete_session_v2(p_session_id => $1, p_status => $2) $fn$;`;
-        await expect(db.exec(forwarder + STAGE_B_GUARD_ONLY)).rejects.toThrow(/Stage B incomplete/i);
+        // Mutate the shipped migration so it recreates v1 as a forwarder instead of leaving it dropped.
+        const forwarder = STAGE_B.replace(
+            /-- Historical overloads dropped by earlier migrations[^\n]*\n/,
+            `CREATE FUNCTION public.complete_session(${V1A}) RETURNS jsonb LANGUAGE sql AS
+               $mut$ SELECT public.complete_session_v2(p_session_id => $1, p_status => $2) $mut$;\n`);
+        expect(forwarder).not.toBe(STAGE_B);
+        await expect(db.exec(forwarder)).rejects.toThrow(/Stage B incomplete/i);
+        await db.close();
+    });
+
+    it('M6 — the v2 successor removed: the shipped migration refuses to retire v1', async () => {
+        // Restored casualty. Dropping the legacy path while the successor is absent would leave NO
+        // completion path at all, so the migration must refuse rather than "succeed".
+        const db = await preStageB();
+        await db.exec(`DROP FUNCTION IF EXISTS public.complete_session_v2(${V2});`);
+        await expect(db.exec(STAGE_B)).rejects.toThrow(/exact complete_session_v2 signature is absent/i);
+        await db.close();
+    });
+
+    it('M7 — a WRONG-ARITY v2 stand-in does not satisfy the precondition', async () => {
+        // Checking only proname would accept this. It cannot accept a transcript, so retiring v1 against
+        // it would leave the product with no working completion path.
+        const db = await preStageB();
+        await db.exec(`DROP FUNCTION IF EXISTS public.complete_session_v2(${V2});`);
+        await db.exec(`CREATE FUNCTION public.complete_session_v2(uuid, text)
+                       RETURNS jsonb LANGUAGE sql AS $mut$ SELECT '{}'::jsonb $mut$;`);
+        await expect(db.exec(STAGE_B)).rejects.toThrow(/exact complete_session_v2 signature is absent/i);
+        await db.close();
+    });
+
+    it('the unmutated shipped migration applies cleanly — the mutants are not all dying of a common fault', async () => {
+        const db = await preStageB();
+        await expect(db.exec(STAGE_B)).resolves.toBeDefined();
         await db.close();
     });
 });
 
-
-/**
- * M4 — a handwritten substitute must never quietly replace the object under test.
- *
- * Four DB tests predate Stage B and define `complete_session` by hand for their own setup. They are not
- * wrong in themselves, but they are why a retirement proven against a substitute proves nothing: the
- * substitute can be dropped while the deployed function survives. This freezes that set, so the
- * substitute population can only shrink.
- */
 describe('#1306 M4 — the handwritten-substitute population cannot grow', () => {
     const KNOWN_SUBSTITUTES = [
         'analytics-summary-rpc.integration.test.ts',
@@ -296,10 +313,22 @@ describe('#1306 M4 — the handwritten-substitute population cannot grow', () =>
         expect(offenders, 'a NEW handwritten complete_session substitute was added').toEqual(KNOWN_SUBSTITUTES);
     });
 
-    it('Stage B proves itself against the shipped migration, never a substitute', () => {
+    it('this suite never hand-creates complete_session in SETUP — only inside the bounded mutation block', () => {
+        // Excluding the whole file would let a substitute hide in preStageB(). The exclusion must be
+        // bounded to the mutation describe, which creates a forwarder deliberately as mutant M5.
         const self = readFileSync(resolve(
             process.cwd(), 'tests', 'db', 'stage-b-retire-complete-session-v1.integration.test.ts'), 'utf8');
-        // The M5 mutant deliberately creates a forwarder; that is inside a mutation block, not setup.
+        const mutationStart = self.indexOf("describe('#1306 Stage B — M1-M5 mutate the SHIPPED migration itself'");
+        const mutationEnd = self.indexOf("describe('#1306 M4", mutationStart);
+        expect(mutationStart, 'mutation block must exist').toBeGreaterThan(-1);
+        expect(mutationEnd, 'mutation block must be bounded').toBeGreaterThan(mutationStart);
+
+        const outsideMutationBlock = self.slice(0, mutationStart) + self.slice(mutationEnd);
+        expect(CREATES.test(outsideMutationBlock),
+            'setup hand-creates complete_session — the object under test must come from the migration')
+            .toBe(false);
+
+        // ...and the schema under test really is built from the shipped migration.
         expect(self).toContain("sql('20260829120000_retire_complete_session_v1_1306.sql')");
     });
 });
@@ -316,7 +345,20 @@ describe('#1306 M4 — the handwritten-substitute population cannot grow', () =>
  */
 describe('#1306 — no production source calls the legacy complete_session RPC', () => {
     const PROD_ROOTS = ['frontend/src', 'backend/supabase/functions'];
-    const CALLS_V1 = /\.rpc\(\s*['"`]complete_session['"`]/;
+
+    /**
+     * BOTH supported invocation shapes. A guard that only knows `.rpc('complete_session')` would miss a
+     * direct PostgREST call, and the two are equally capable of reaching the legacy function.
+     *
+     * SCAN BOUNDARY, stated rather than implied: this is a source scan over the two production trees. It
+     * cannot see a call assembled at runtime from a computed string, a call from a service outside this
+     * repository, or SQL executed inside another database function. Those are covered by the migration
+     * dropping the function outright — after Stage B there is no object left for any caller to reach.
+     */
+    const CALL_SHAPES: Array<[string, RegExp]> = [
+        ['supabase .rpc()', /\.rpc\(\s*['"`]complete_session['"`]/],
+        ['direct /rpc/ path', /\/rpc\/complete_session(?![_a-zA-Z0-9])/],
+    ];
 
     function sources(dir: string, acc: string[] = []): string[] {
         let entries: string[] = [];
@@ -335,16 +377,25 @@ describe('#1306 — no production source calls the legacy complete_session RPC',
         return acc;
     }
 
-    it('zero production callers, repository-wide', () => {
+    it.each(CALL_SHAPES)('zero production callers repository-wide, via %s', (_label, pattern) => {
         const offenders: string[] = [];
         for (const root of PROD_ROOTS) {
             for (const file of sources(resolve(process.cwd(), root))) {
-                if (CALLS_V1.test(readFileSync(file, 'utf8'))) {
+                if (pattern.test(readFileSync(file, 'utf8'))) {
                     offenders.push(file.replace(`${process.cwd()}/`, ''));
                 }
             }
         }
-        expect(offenders, 'production code calls the retired complete_session RPC').toEqual([]);
+        expect(offenders, 'production code reaches the retired complete_session RPC').toEqual([]);
+    });
+
+    it('each call-shape pattern actually matches its shape — an inert regex is not a guard', () => {
+        // A pattern that can never match makes the scan above pass for the wrong reason.
+        expect(CALL_SHAPES[0][1].test(`supabase.rpc('complete_session', {})`)).toBe(true);
+        expect(CALL_SHAPES[1][1].test('/rest/v1/rpc/complete_session')).toBe(true);
+        // ...and neither may fire on the v2 successor.
+        expect(CALL_SHAPES[0][1].test(`supabase.rpc('complete_session_v2', {})`)).toBe(false);
+        expect(CALL_SHAPES[1][1].test('/rest/v1/rpc/complete_session_v2')).toBe(false);
     });
 
     it('the production client calls complete_session_v2 — so the scan is looking in the right place', () => {

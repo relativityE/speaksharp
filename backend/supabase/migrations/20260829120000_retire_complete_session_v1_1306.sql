@@ -72,14 +72,38 @@ BEGIN
     END IF;
 END $$;
 
--- The successor must still be there. Dropping v1 while v2 is absent would leave no completion path at all.
+-- THE SUCCESSOR MUST BE THE RIGHT ONE. Checking only `proname = 'complete_session_v2'` would let ANY
+-- overload satisfy this precondition — including a wrong-arity stand-in that cannot accept a transcript.
+-- Dropping v1 against that would leave no working completion path while reporting success. The exact
+-- identity signature is required.
 DO $$
+DECLARE v2_oid oid; v2_acl aclitem[];
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = 'public' AND p.proname = 'complete_session_v2'
+    SELECT p.oid, p.proacl INTO v2_oid, v2_acl
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'complete_session_v2'
+      AND pg_get_function_identity_arguments(p.oid) =
+          'uuid, text, integer, text, jsonb, integer, double precision, double precision, jsonb, jsonb, text';
+
+    IF v2_oid IS NULL THEN
+        RAISE EXCEPTION
+            'Stage B refused: the exact complete_session_v2 signature is absent — retiring v1 would leave no completion path';
+    END IF;
+
+    -- The successor must be reachable by the roles that will now depend on it exclusively.
+    IF NOT has_function_privilege('authenticated', v2_oid, 'EXECUTE') THEN
+        RAISE EXCEPTION 'Stage B refused: complete_session_v2 is not executable by authenticated';
+    END IF;
+    IF NOT has_function_privilege('service_role', v2_oid, 'EXECUTE') THEN
+        RAISE EXCEPTION 'Stage B refused: complete_session_v2 is not executable by service_role';
+    END IF;
+
+    -- PUBLIC is not an ordinary role and cannot be passed to has_function_privilege. A PUBLIC grant
+    -- appears in the ACL as an entry with an EMPTY grantee (`=X/grantor`), so it is detected textually.
+    IF v2_acl IS NOT NULL AND EXISTS (
+        SELECT 1 FROM unnest(v2_acl) AS a WHERE split_part(a::text, '=', 1) = ''
     ) THEN
-        RAISE EXCEPTION 'Stage B refused: complete_session_v2 is absent — retiring v1 would leave no completion path';
+        RAISE EXCEPTION 'Stage B refused: complete_session_v2 carries a PUBLIC grant';
     END IF;
 END $$;
 
