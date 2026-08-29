@@ -403,3 +403,45 @@ export const SELECTION_ARMS = ARM_MATRIX.filter((a) => a.role === 'selection');
 export const DIAGNOSTIC_ARMS = ARM_MATRIX.filter((a) => a.role === 'diagnostic');
 export const NODE_ARMS = ARM_MATRIX.filter((a) => a.admission.status === 'admitted' && a.admission.lane === 'node');
 export const BROWSER_ARMS = ARM_MATRIX.filter((a) => a.admission.status === 'admitted' && a.admission.lane === 'browser');
+
+/**
+ * #1304 — the SELECTION EXECUTION SET (PM ruling, 2026-08-29).
+ *
+ * Completeness of the matrix and expenditure of selection compute are different things. Every arm keeps
+ * a row; only these ten are measured on the frozen 600. Running the others would delay the down-select
+ * without producing usable evidence:
+ *
+ *  - an alias cannot rank against the thing it is byte-identical to;
+ *  - a diagnostic duplicate answers a harness question, not a candidate question;
+ *  - SwiftShader is a software rasterizer. It proves WebGPU COMPATIBILITY and nothing about hardware
+ *    speed, so its timings can never clear a performance or activation gate. Real WebGPU performance is
+ *    deferred to a real hardware adapter.
+ */
+export const SELECTION_EXECUTION_SET = [
+    'v2:tiny.en',
+    'v2:base.en',
+    'v2:small.en',
+    'v4:base:q4-decoder:wasm',
+    // `device: 'cpu'` maps onto the WASM backend in the browser lane — there is no `cpu` backend there.
+    'v4:base:fp32-decoder:cpu',
+    'v4:base:int8-decoder:cpu',
+    'moonshine:tiny',
+    'moonshine:base',
+    'moonshine:streaming-small',
+    'moonshine:streaming-medium',
+] as const;
+
+/** Preserved in the matrix with a named reason; never executed, never ranked. */
+export const NOT_EXECUTED_REASONS: Record<string, string> = {
+    'v4:base:q8-decoder:cpu': 'alias_of_int8',
+    'v4:base:q4-decoder:cpu': 'diagnostic_duplicate_of_q4_wasm',
+    'v4:base:q4-decoder:webgpu': 'not_run_hardware_unrepresentative',
+    'v4:distil-small.en:q4-decoder:webgpu': 'not_run_hardware_unrepresentative',
+    'v2:base.en:no-conditioning': 'invalid_runtime_option_unsupported',
+};
+
+/**
+ * Every arm must be accounted for exactly once: measured, or preserved with a named reason. This is the
+ * `required` list a checkpoint is validated against before it may become the final artifact.
+ */
+export const REQUIRED_MATRIX_ROWS: string[] = ARM_MATRIX.map((a) => a.id);

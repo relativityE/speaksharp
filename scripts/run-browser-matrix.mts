@@ -15,7 +15,7 @@
  *   usage: npx tsx scripts/run-browser-matrix.mts [--set=harvard|preflight|corpus]
  *                                                 [--mode=pinned|bootstrap] [--only=id,id] [--out=f.json]
  */
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
@@ -26,7 +26,9 @@ import manifest from '../tests/fixtures/corpus-manifest.json' with { type: 'json
 import goldens from '../tests/evidence/normalization/goldens.json' with { type: 'json' };
 import { startHarnessServer } from '../tests/evidence/certification/browser/server';
 import { createBrowserArm, isSoftwareAdapter } from '../tests/evidence/certification/browser/browserArm';
-import { ARM_MATRIX } from '../tests/evidence/certification/arms/registry';
+import { ARM_MATRIX, SELECTION_EXECUTION_SET, NOT_EXECUTED_REASONS, REQUIRED_MATRIX_ROWS } from '../tests/evidence/certification/arms/registry';
+import { planResume, validateCompleteness, type RunIdentity, type CheckpointRow } from '../tests/evidence/certification/checkpoint';
+import { atomicWriteFileSync } from '../tests/evidence/certification/atomicWrite';
 import { resolveRetention } from '../tests/evidence/certification/retention';
 import { expectationFor } from '../tests/evidence/certification/arms/build';
 import { certifyArmWithHonorProbe } from '../tests/evidence/certification/certify';
@@ -152,14 +154,133 @@ const urlFor = (path: string) => path
     .replace(/^bench-corpus\//, '/corpus/');
 
 const deviceInfo = { platform: platform(), arch: arch(), cpuModel: cpus()[0]?.model ?? 'unknown', cores: cpus().length };
-const results: Record<string, unknown>[] = [];
+const headSha = (): string => {
+    try {
+        return execFileSync('git', ['rev-parse', '--short=8', 'HEAD'], { encoding: 'utf8' }).trim();
+    } catch { /* not a git checkout — the set name alone still beats retaining nothing */ }
+    return 'unknown';
+};
+
+/**
+ * RETENTION IS RESOLVED BEFORE ANY MEASURING STARTS. Deciding where a run retains only AFTER the arms
+ * have run means an operator learns the run kept nothing at the end of a multi-hour job — and the
+ * checkpoint path cannot exist before the destination does.
+ */
+const retention = resolveRetention({
+    explicitOut, noRetain, subsetRun: !!onlyIds, setName, evidenceClass, sha: headSha(),
+});
+if (retention.kind === 'refuse') {
+    console.error(`\nREFUSING --no-retain on the selection set: ${retention.reason}.`);
+    process.exit(1);
+}
+if (retention.kind === 'discard') {
+    console.warn(`\nTHIS RUN RETAINS NOTHING (${retention.reason}). Nothing it prints may be cited as evidence.`);
+}
+const outPath = retention.kind === 'retain' ? retention.path : '';
+if (retention.kind === 'retain' && retention.derived) {
+    console.log(`\nno --out given; retaining to ${outPath}`);
+}
+// Never silently overwrite a retained measurement with a later one.
+if (outPath && existsSync(outPath)) {
+    console.error(`\nREFUSING to overwrite existing evidence ${outPath}. Move it aside or pass a different --out.`);
+    process.exit(1);
+}
+
+
+/** SHA-256 over the concatenated contents of files, in the order given. Missing file => explicit marker. */
+const digestOfFiles = (paths: string[]): string => {
+    const h = createHash('sha256');
+    for (const f of paths) {
+        h.update(f);
+        h.update(existsSync(f) ? readFileSync(f) : Buffer.from('<<ABSENT>>'));
+    }
+    return h.digest('hex').slice(0, 32);
+};
+
+/**
+ * IDENTITY OF THIS RUN. Every field must match for a checkpoint to be resumable — see checkpoint.ts.
+ * A resumable artifact can silently splice rows measured under a different scorer, corpus or tree into
+ * one table that reads as a single experiment, so the bar for resuming is exact equality, not "close".
+ */
+const runIdentity: RunIdentity = {
+    productBaseline: headSha(),
+    executionSha: headSha(),
+    policySha: digestOfFiles(['tests/evidence/certification/selectionPolicy.ts']),
+    // The manifest IS the frozen corpus: 600 ids each bound to its audio SHA-256.
+    corpusDigest: digestOfFiles(['tests/fixtures/corpus-manifest.json']),
+    // Binds the normalizer IMPLEMENTATION, not a version string a change could forget to bump — a
+    // silent scorer edit rewrites every WER in the table.
+    normalizerId: digestOfFiles([
+        'tests/evidence/normalization/officialNormalizer.ts',
+        'tests/evidence/normalization/englishNumberNormalizer.ts',
+        'tests/evidence/normalization/tracks.ts',
+    ]),
+    registryDigest: digestOfFiles(['tests/evidence/certification/arms/registry.ts']),
+    // The pinned model and runtime asset identities, which are static files — `harness.assets` is empty
+    // at this point because it accumulates as arms actually fetch.
+    assetDigest: digestOfFiles([
+        'tests/fixtures/hf-asset-pins.json',
+        'tests/fixtures/moonshine-asset-pins.json',
+        'tests/evidence/certification/arms/runtimeAssets.ts',
+    ]),
+    setName,
+    evidenceClass,
+};
+
+const partialPath = outPath ? outPath.replace(/\.json$/, '') + '.partial.json' : '';
+
+/** Rows already measured under an IDENTICAL identity, if any. */
+let results: Record<string, unknown>[] = [];
+let alreadyDone = new Set<string>();
+if (partialPath && existsSync(partialPath)) {
+    let parsed: unknown = null;
+    try { parsed = JSON.parse(readFileSync(partialPath, 'utf8')); } catch { parsed = null; }
+    const plan = planResume(parsed, runIdentity);
+    if (plan.kind === 'resume') {
+        results = plan.rows as Record<string, unknown>[];
+        alreadyDone = new Set(plan.completed);
+        console.log(`\n  RESUMING from ${partialPath}: ${alreadyDone.size} arm(s) already measured under an identical identity`);
+    } else {
+        console.log(`\n  NOT resuming ${partialPath} (${plan.reason}) — starting clean`);
+    }
+}
+
+/**
+ * Checkpoint after EVERY arm. The previous design wrote once at the end, so a crash hours in discarded
+ * every completed arm and left only a console log, which is not retained evidence.
+ */
+const checkpoint = (): void => {
+    if (!partialPath) return;
+    atomicWriteFileSync(partialPath, `${JSON.stringify({ partial: true, identity: runIdentity, rows: results }, null, 2)}\n`);
+};
 
 for (const spec of ARM_MATRIX) {
     if (onlyIds && !onlyIds.has(spec.id)) continue;
+    if (alreadyDone.has(spec.id)) {
+        console.log(`\n  ${spec.id}  — already in checkpoint, not re-measured`);
+        continue;
+    }
+    // PRESERVED BUT NOT EXECUTED. An alias cannot rank against what it is byte-identical to; a
+    // diagnostic duplicate answers a harness question; SwiftShader proves WebGPU compatibility and
+    // nothing about hardware speed. Each keeps a row carrying its named reason — completeness does not
+    // require spending selection compute on them.
+    const notExecuted = NOT_EXECUTED_REASONS[spec.id];
+    if (notExecuted && evidenceClass === 'selection') {
+        results.push({ id: spec.id, lane: 'browser', set: setName, evidenceClass, executed: false, reason: notExecuted });
+        console.log(`\n  ${spec.id}  — not executed (${notExecuted})`);
+        checkpoint();
+        continue;
+    }
     if (spec.admission.status !== 'admitted') {
         results.push({ id: spec.id, lane: 'browser', set: setName, evidenceClass, skipped: spec.admission.status, reason: spec.admission.reason });
         console.log(`\n  ${spec.id}  — ${spec.admission.status} (${spec.admission.reason})`);
+        checkpoint();
         continue;
+    }
+    if (evidenceClass === 'selection' && !(SELECTION_EXECUTION_SET as readonly string[]).includes(spec.id)) {
+        // Fail loudly rather than silently measuring something the ruling excluded.
+        console.error(`\n  REFUSING to measure ${spec.id} on the selection set: not in SELECTION_EXECUTION_SET and no named reason.`);
+        process.exit(1);
     }
     console.log(`\n  ${spec.id}  (${spec.label})`);
 
@@ -628,6 +749,9 @@ for (const spec of ARM_MATRIX) {
         selectionEligible, selectionIneligibleReason: ineligible,
         provenance: arm.provenance(),
     });
+
+    // Durable after EVERY arm, so a crash costs one arm rather than the whole run.
+    checkpoint();
     await context.close();
 }
 
@@ -678,32 +802,7 @@ if (pinsOnly) {
  * Resolve where this run retains. A `--only=` subset run is a debugging slice, not a matrix run, so it
  * keeps the old opt-in behaviour; everything else retains by default.
  */
-const headSha = (): string => {
-    try {
-        return execFileSync('git', ['rev-parse', '--short=8', 'HEAD'], { encoding: 'utf8' }).trim();
-    } catch { /* not a git checkout — the set name alone still beats retaining nothing */ }
-    return 'unknown';
-};
 
-const retention = resolveRetention({
-    explicitOut, noRetain, subsetRun: !!onlyIds, setName, evidenceClass, sha: headSha(),
-});
-if (retention.kind === 'refuse') {
-    console.error(`\nREFUSING --no-retain on the selection set: ${retention.reason}.`);
-    process.exit(1);
-}
-if (retention.kind === 'discard') {
-    console.warn(`\nTHIS RUN RETAINS NOTHING (${retention.reason}). Nothing it prints may be cited as evidence.`);
-}
-const outPath = retention.kind === 'retain' ? retention.path : '';
-if (retention.kind === 'retain' && retention.derived) {
-    console.log(`\nno --out given; retaining to ${outPath}`);
-}
-// Never silently overwrite a retained measurement with a later one.
-if (outPath && existsSync(outPath)) {
-    console.error(`\nREFUSING to overwrite existing evidence ${outPath}. Move it aside or pass a different --out.`);
-    process.exit(1);
-}
 
 // AN INCOMPLETE ARTIFACT IS NOT WRITTEN. Checked before serialization rather than trusted afterwards,
 // because the previous artifact was described as complete on the strength of a log beside it.
@@ -722,9 +821,23 @@ if (outPath && !onlyIds) {
 }
 
 if (outPath) {
-    mkdirSync(dirname(outPath), { recursive: true });
-    writeFileSync(outPath, `${JSON.stringify({ lane: 'browser', set: setName, evidenceClass, results, assets: harness.assets, assetFailures: harness.assetFailures }, null, 2)}\n`, 'utf8');
+    // A checkpoint becomes the FINAL artifact only when every required row is accounted for — measured,
+    // skipped, or preserved with a named not-executed reason. A hole in a selection table reads as
+    // "not applicable" rather than "unknown", which is the more dangerous of the two.
+    if (!onlyIds) {
+        const complete = validateCompleteness(results as CheckpointRow[], REQUIRED_MATRIX_ROWS);
+        if (!complete.ok) {
+            console.error(`\nREFUSING to finalise ${outPath}: ${complete.reason} (${complete.detail})`);
+            console.error(`The checkpoint at ${partialPath} is retained; resume to complete it.`);
+            process.exit(1);
+        }
+    }
+    atomicWriteFileSync(outPath, `${JSON.stringify({ lane: 'browser', set: setName, evidenceClass, identity: runIdentity, results, assets: harness.assets, assetFailures: harness.assetFailures }, null, 2)}\n`);
     console.log(`wrote ${outPath}`);
+    // The partial has served its purpose; the immutable artifact is now the record.
+    if (partialPath && existsSync(partialPath)) {
+        try { unlinkSync(partialPath); } catch { /* leaving a stale partial is harmless — identity gates it */ }
+    }
 } else {
     console.warn('\nNOTHING RETAINED by this run.');
 }
