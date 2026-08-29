@@ -38,6 +38,7 @@ import { buildEvidenceSet } from '../tests/evidence/certification/evidenceSets';
 import { EVIDENCE_SETS } from '../tests/evidence/certification/evidenceClass';
 import { resolveMoonshineRoute, resolveWhisperRoute } from '../tests/evidence/certification/candidateRoute';
 import { hashModelDirectory, installedVersion } from '../tests/evidence/certification/arms/backend';
+import { runtimeAssetsFor, verifyRuntimeAsset } from '../tests/evidence/certification/arms/runtimeAssets';
 
 /**
  * WHICH INFERENCE LIBRARY produced a row. v2 carries `@xenova/transformers`' own NESTED
@@ -228,6 +229,32 @@ for (const spec of ARM_MATRIX) {
     const modelId = isV2 ? (spec.localModelId ?? spec.modelId) : spec.modelId;
     const deviceClaim: 'wasm' | 'webgpu' = spec.device === 'webgpu' ? 'webgpu' : 'wasm';
 
+    // VERIFY THE RUNTIME BINARY BEFORE LOADING ANYTHING. A model measured by an unverified runtime is
+    // not a pinned measurement, and this is the asset class that was missing entirely.
+    const runtimeAssetRecords: Record<string, { sha256: string; bytes: number; source: 'cache'; pinned: true }> = {};
+    const runtimeAssetFailures: { path: string; reason: string; detail: string }[] = [];
+    for (const assetPath of runtimeAssetsFor(spec.runtime)) {
+        const verified = verifyRuntimeAsset(assetPath);
+        if (!verified.ok) {
+            runtimeAssetFailures.push({ path: assetPath, reason: verified.reason, detail: verified.detail });
+            continue;
+        }
+        runtimeAssetRecords[assetPath] = {
+            sha256: verified.asset.sha256, bytes: verified.asset.bytes, source: 'cache', pinned: true,
+        };
+    }
+    if (runtimeAssetFailures.length > 0) {
+        console.log(`    RUNTIME ASSET REFUSED (${runtimeAssetFailures.length}):`);
+        for (const f of runtimeAssetFailures) console.log(`      ${f.reason}  ${f.path}  ${f.detail}`);
+        results.push({
+            id: spec.id, lane: 'browser', set: setName, evidenceClass, freshSession,
+            runtimeAssetFailures, wer: null, selectionEligible: false,
+            selectionIneligibleReason: `runtime asset: ${runtimeAssetFailures.map((f) => f.reason).join(', ')}`,
+        });
+        await context.close();
+        continue;
+    }
+
     // COLD LOAD, measured in a FRESH context: what a new user waits for once.
     const coldLoadStarted = Date.now();
     const loaded = await page.evaluate(async (input) => {
@@ -267,9 +294,39 @@ for (const spec of ARM_MATRIX) {
                 pipeline: (t: string, m: string, o: Record<string, unknown>) => Promise<unknown>;
                 env: Record<string, unknown>;
             };
+            /**
+             * SELF-HOST THE ORT WEB RUNTIME TOO.
+             *
+             * `onnxruntime-web` defaults its `wasmPaths` to
+             * `https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/`, so every v4 and Moonshine
+             * arm fetched three runtime binaries from a CDN. Same defect as v2, second package —
+             * found by the clean-workspace check, not by reasoning, after I had asserted these
+             * families bundled their runtime.
+             */
+            const ortEnv = (env as { backends?: { onnx?: { wasm?: { wasmPaths?: string } } } });
+            if (ortEnv.backends?.onnx?.wasm) {
+                ortEnv.backends.onnx.wasm.wasmPaths = `${input.origin}/lib/onnxruntime-web/dist/`;
+            }
+
             (env as { remoteHost: string }).remoteHost = `${input.origin}/hf/`;
             (env as { remotePathTemplate: string }).remotePathTemplate = '{model}/resolve/{revision}/';
             if (input.isV2) {
+                /**
+                 * SELF-HOST THE RUNTIME'S OWN WASM.
+                 *
+                 * `@xenova/transformers` defaults `wasmPaths` to
+                 * `https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/`, so the ONNX
+                 * Runtime binary is fetched from a CDN at load time. Neither pin manifest listed it —
+                 * they pin MODEL assets — so under offline enforcement every v2 arm was refused as
+                 * `unpinned` and produced no WER.
+                 *
+                 * The enforcement was right; the omission was mine. I added external blocking in the
+                 * final commit before merge and re-ran only the Streaming arms under it, so no v2 arm
+                 * was ever exercised against the rule that broke it. Pointing `wasmPaths` at the
+                 * installed copy on our own origin makes the runtime binary as pinned as the weights.
+                 */
+                (env as { backends: { onnx: { wasm: { wasmPaths: string } } } })
+                    .backends.onnx.wasm.wasmPaths = `${input.origin}/lib/@xenova/transformers/dist/`;
                 (env as { allowLocalModels: boolean }).allowLocalModels = input.selfHosted;
                 (env as { allowRemoteModels: boolean }).allowRemoteModels = !input.selfHosted;
                 (env as { localModelPath: string }).localModelPath = '/models/';
@@ -330,7 +387,7 @@ for (const spec of ARM_MATRIX) {
         // it did not commit to.
         if (pinViolations.length > 0) {
             console.log(`    LOAD REFUSED — ${pinViolations.length} pin violation(s):`);
-            for (const v of pinViolations.slice(0, 5)) console.log(`      ${v.reason}  ${v.url}`);
+            for (const v of pinViolations.slice(0, 6)) console.log(`      ${v.reason}  ${v.url}`);
         } else {
             console.log(`    LOAD FAILED: ${loaded.error}`);
         }
@@ -362,8 +419,10 @@ for (const spec of ARM_MATRIX) {
         // A SELF-HOSTED arm's weights never pass through the HuggingFace mirror, so its digests come
         // from the product's own models directory — the same files the page loads from /models/.
         assets: selfHosted
-            ? Object.fromEntries(
-                  Object.entries(hashModelDirectory(resolve('frontend/public/models', modelId)))
+            ? Object.fromEntries([
+                  // The runtime binary travels with the weights it executed.
+                  ...Object.entries(runtimeAssetRecords),
+                  ...Object.entries(hashModelDirectory(resolve('frontend/public/models', modelId)))
                       // REAL sizes, read from disk. `bytes: 0` made every self-hosted arm's download
                       // footprint look like nothing, which is one of the measures a selection turns on.
                       .map(([path, sha256]) => [`${modelId}/${path}`, {
@@ -372,7 +431,7 @@ for (const spec of ARM_MATRIX) {
                           source: 'cache' as const,
                           pinned: true,
                       }]),
-              )
+              ])
             // THIS arm's assets only — not everything the run has served so far. For an arm whose
             // runtime fetches from its own CDN, those intercepted files are its assets.
             : Object.keys(armAssets).length > 0
@@ -471,14 +530,16 @@ for (const spec of ARM_MATRIX) {
         transcriptDigest,
         fingerprint: certification.fingerprint.digest,
         assets: selfHosted
-            ? Object.fromEntries(
-                  Object.entries(hashModelDirectory(resolve('frontend/public/models', modelId)))
+            ? Object.fromEntries([
+                  // The runtime binary travels with the weights it executed.
+                  ...Object.entries(runtimeAssetRecords),
+                  ...Object.entries(hashModelDirectory(resolve('frontend/public/models', modelId)))
                       .map(([path, sha256]) => [`${modelId}/${path}`, {
                           sha256,
                           bytes: statSync(resolve('frontend/public/models', modelId, path)).size,
                           source: 'cache' as const, pinned: true,
                       }]),
-              )
+              ])
             : Object.keys(armAssets).length > 0
                 ? armAssets
                 : Object.fromEntries(Object.entries(cdnAssets).map(([k, v]) => [k, {
