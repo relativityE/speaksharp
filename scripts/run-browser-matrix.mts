@@ -36,6 +36,7 @@ import { decodeAudio } from '../tests/evidence/certification/audio';
 import { verifyFrozenAudio, type ManifestShape } from '../tests/evidence/certification/corpusSet';
 import { buildEvidenceSet } from '../tests/evidence/certification/evidenceSets';
 import { EVIDENCE_SETS } from '../tests/evidence/certification/evidenceClass';
+import { checkArtifactCompleteness } from '../tests/evidence/certification/artifactCompleteness';
 import { resolveMoonshineRoute, resolveWhisperRoute } from '../tests/evidence/certification/candidateRoute';
 import { hashModelDirectory, installedVersion } from '../tests/evidence/certification/arms/backend';
 import { RUNTIME_ASSET_PINS } from '../tests/evidence/certification/arms/runtimeAssets';
@@ -657,6 +658,22 @@ if (pinsOnly) {
     };
     writeFileSync(PIN_FILE, `${JSON.stringify(pinFile, null, 2)}\n`, 'utf8');
     console.log(`\nwrote ${PIN_FILE} with ${Object.keys(pinFile.assets).length} pinned assets`);
+}
+
+// AN INCOMPLETE ARTIFACT IS NOT WRITTEN. Checked before serialization rather than trusted afterwards,
+// because the previous artifact was described as complete on the strength of a log beside it.
+if (outPath && !onlyIds) {
+    const completeness = checkArtifactCompleteness(
+        results as { id: string }[],
+        {
+            admitted: ADMITTED_ARMS.map((a) => a.id),
+            excluded: ARM_MATRIX.filter((a) => a.admission.status !== 'admitted').map((a) => a.id),
+        },
+    );
+    if (!completeness.ok) {
+        console.error(`\nREFUSING to write ${outPath}: ${completeness.reason} (${completeness.detail})`);
+        process.exit(1);
+    }
 }
 
 if (outPath) {
