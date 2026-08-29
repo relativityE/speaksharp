@@ -317,7 +317,7 @@ describe('#1306 Stage B — M1-M5 mutate the SHIPPED migration itself', () => {
         // completion path at all, so the migration must refuse rather than "succeed".
         const db = await preStageB();
         await db.exec('DROP FUNCTION IF EXISTS public.complete_session_v2(uuid, text, int, text, jsonb, int, double precision, double precision, jsonb, jsonb, text);');
-        await expect(db.exec(STAGE_B)).rejects.toThrow(/complete_session_v2/i);
+        await expect(db.exec(STAGE_B)).rejects.toThrow(/exact complete_session_v2 identity is absent/i);
         await db.close();
     });
 
@@ -328,7 +328,36 @@ describe('#1306 Stage B — M1-M5 mutate the SHIPPED migration itself', () => {
         await db.exec('DROP FUNCTION IF EXISTS public.complete_session_v2(uuid, text, int, text, jsonb, int, double precision, double precision, jsonb, jsonb, text);');
         await db.exec(`CREATE FUNCTION public.complete_session_v2(uuid, text)
                        RETURNS jsonb LANGUAGE sql AS $mut$ SELECT '{}'::jsonb $mut$;`);
-        await expect(db.exec(STAGE_B)).rejects.toThrow(/complete_session_v2/i);
+        await expect(db.exec(STAGE_B)).rejects.toThrow(/exact complete_session_v2 identity is absent/i);
+        await db.close();
+    });
+
+    it('M8 — an 11-arg v2 with correct first/last but a WRONG MIDDLE type fails on identity', async () => {
+        // "11 arguments, first uuid, last text" was the previous heuristic. This substitute satisfies it
+        // exactly — arg5 is text where the real successor takes jsonb — and must still be rejected.
+        const db = await preStageB();
+        await db.exec(`DROP FUNCTION IF EXISTS public.complete_session_v2(
+            uuid, text, int, text, jsonb, int, double precision, double precision, jsonb, jsonb, text);`);
+        await db.exec(`CREATE FUNCTION public.complete_session_v2(
+            uuid, text, int, text, text, int, double precision, double precision, jsonb, jsonb, text)
+            RETURNS jsonb LANGUAGE sql AS $mut$ SELECT '{}'::jsonb $mut$;`);
+        await expect(db.exec(STAGE_B)).rejects.toThrow(/exact complete_session_v2 identity is absent/i);
+        await db.close();
+    });
+
+    it('M9 — a SECOND v2 overload reintroduces ambiguity and is refused', async () => {
+        const db = await preStageB();
+        await db.exec(`CREATE FUNCTION public.complete_session_v2(uuid)
+                       RETURNS jsonb LANGUAGE sql AS $mut$ SELECT '{}'::jsonb $mut$;`);
+        await expect(db.exec(STAGE_B)).rejects.toThrow(/exactly one complete_session_v2 overload/i);
+        await db.close();
+    });
+
+    it('M10 — v2 reachable by anon is refused', async () => {
+        const db = await preStageB();
+        await db.exec(`GRANT EXECUTE ON FUNCTION public.complete_session_v2(
+            uuid, text, int, text, jsonb, int, double precision, double precision, jsonb, jsonb, text) TO anon;`);
+        await expect(db.exec(STAGE_B)).rejects.toThrow(/executable by anon/i);
         await db.close();
     });
 
@@ -368,10 +397,22 @@ describe('#1306 M4 — the handwritten-substitute population cannot grow', () =>
         expect(mutationStart, 'mutation block must exist').toBeGreaterThan(-1);
         expect(mutationEnd, 'mutation block must be bounded').toBeGreaterThan(mutationStart);
 
-        const outsideMutationBlock = self.slice(0, mutationStart) + self.slice(mutationEnd);
+        // Prose must not be mistaken for code. This file's own header COMMENT contains the phrase
+        // "CREATE FUNCTION public.complete_session(...)" while explaining why substitutes are a problem,
+        // and the previous version of this check flagged it — a guard that cannot tell a description of
+        // the defect from the defect. Comments are stripped before scanning; the bounded mutation block
+        // is excluded because M5 creates a forwarder deliberately. Nothing else is excluded, so a
+        // substitute cannot hide in setup.
+        const stripComments = (src: string) =>
+            src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+        const outsideMutationBlock = stripComments(self.slice(0, mutationStart) + self.slice(mutationEnd));
         expect(CREATES.test(outsideMutationBlock),
             'setup hand-creates complete_session — the object under test must come from the migration')
             .toBe(false);
+
+        // ...and the stripper must not be the reason it passes: the mutation block still contains one.
+        expect(CREATES.test(stripComments(self.slice(mutationStart, mutationEnd))),
+            'the M5 forwarder should still be detectable inside the mutation block').toBe(true);
 
         // ...and the schema under test really is built from the shipped migration.
         expect(self).toContain("sql('20260829120000_retire_complete_session_v1_1306.sql')");

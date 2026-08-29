@@ -72,32 +72,36 @@ BEGIN
     END IF;
 END $$;
 
--- THE SUCCESSOR MUST BE THE RIGHT ONE. Checking only `proname = 'complete_session_v2'` would let ANY
--- overload satisfy this precondition — including a wrong-arity stand-in that cannot accept a transcript.
--- Dropping v1 against that would leave no working completion path while reporting success. The exact
--- identity signature is required.
+-- THE SUCCESSOR MUST BE THE EXACT ONE, BY CANONICAL IDENTITY.
+--
+-- Two weaker checks were tried and both were wrong. `proname = 'complete_session_v2'` accepts any
+-- overload. "11 arguments, first uuid, last text" accepts a same-arity substitute with a wrong MIDDLE
+-- argument — and its `proargtypes::oid[]` indexing was itself faulty, because oidvector is ZERO-based,
+-- so element [1] was the second argument and [11] was out of bounds. That made the guard reject the real
+-- schema: a fail-closed check that fails on correct input is an outage, not a safety property.
+--
+-- `to_regprocedure` resolves the full argument vector in one canonical step and returns NULL when no such
+-- function exists. There is no index arithmetic to get wrong and no rendered string to drift.
 DO $$
-DECLARE v2_oid oid; v2_acl aclitem[]; v2_args oid[];
+DECLARE v2_oid oid; v2_acl aclitem[]; v2_count INT;
 BEGIN
-    -- Identified STRUCTURALLY, not by a rendered signature string. A hardcoded
-    -- `pg_get_function_identity_arguments` literal is brittle — one spelling difference and the
-    -- precondition fails closed on every database, which is a self-inflicted outage, not a safety check.
-    -- Arity plus the first and last argument types are what actually distinguish the real successor from
-    -- a stand-in: 11 arguments, keyed by session uuid, ending in the transcript text.
-    SELECT p.oid, p.proacl, p.proargtypes::oid[] INTO v2_oid, v2_acl, v2_args
-    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'public' AND p.proname = 'complete_session_v2' AND p.pronargs = 11;
-
+    v2_oid := to_regprocedure(
+        'public.complete_session_v2(uuid,text,integer,text,jsonb,integer,double precision,double precision,jsonb,jsonb,text)'
+    );
     IF v2_oid IS NULL THEN
         RAISE EXCEPTION
-            'Stage B refused: no 11-argument complete_session_v2 — retiring v1 would leave no completion path';
-    END IF;
-    IF v2_args[1] <> 'uuid'::regtype::oid OR v2_args[11] <> 'text'::regtype::oid THEN
-        RAISE EXCEPTION
-            'Stage B refused: complete_session_v2 is not the transcript-accepting successor (arg1 must be uuid, arg11 text)';
+            'Stage B refused: the exact complete_session_v2 identity is absent — retiring v1 would leave no completion path';
     END IF;
 
-    -- The successor must be reachable by the roles that will now depend on it exclusively.
+    -- Exactly ONE overload. A second would reintroduce the overload ambiguity v2 exists to remove.
+    SELECT count(*) INTO v2_count
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'complete_session_v2';
+    IF v2_count <> 1 THEN
+        RAISE EXCEPTION 'Stage B refused: expected exactly one complete_session_v2 overload, found %', v2_count;
+    END IF;
+
+    -- The successor must be reachable by the roles that will now depend on it exclusively...
     IF NOT has_function_privilege('authenticated', v2_oid, 'EXECUTE') THEN
         RAISE EXCEPTION 'Stage B refused: complete_session_v2 is not executable by authenticated';
     END IF;
@@ -105,8 +109,14 @@ BEGIN
         RAISE EXCEPTION 'Stage B refused: complete_session_v2 is not executable by service_role';
     END IF;
 
+    -- ...and unreachable by the roles that must never hold it.
+    IF has_function_privilege('anon', v2_oid, 'EXECUTE') THEN
+        RAISE EXCEPTION 'Stage B refused: complete_session_v2 is executable by anon';
+    END IF;
+
     -- PUBLIC is not an ordinary role and cannot be passed to has_function_privilege. A PUBLIC grant
-    -- appears in the ACL as an entry with an EMPTY grantee (`=X/grantor`), so it is detected textually.
+    -- appears in the ACL as an entry with an EMPTY grantee (`=X/grantor`), so it is detected by shape.
+    SELECT p.proacl INTO v2_acl FROM pg_proc p WHERE p.oid = v2_oid;
     IF v2_acl IS NOT NULL AND EXISTS (
         SELECT 1 FROM unnest(v2_acl) AS a WHERE split_part(a::text, '=', 1) = ''
     ) THEN
