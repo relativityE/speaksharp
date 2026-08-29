@@ -172,4 +172,4 @@ boundary:
 | Derived metrics | Yes | Yes | Only within a coaching request |
 
 "Private STT audio never leaves the browser" is correct. It does **not** imply the transcript stays local.
-See `PRODUCT_REQUIREMENTS.md` §7.1 and [`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) §10.1.
+See `PRODUCT_REQUIREMENTS.md` §7.1 and the dated [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) §10.1.

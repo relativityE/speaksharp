@@ -226,7 +226,7 @@ Historical documents and code may explain provenance, but they do not override t
 ## 13. Strategic assessment (#1367)
 
 Reconciled against the code on `main`; the full claim-by-claim audit is in
-[`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) §10. **This assessment does
+The dated [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) §10 records the audit. **This assessment does
 not reorder the approved MVP sequence — strategic importance and release order are separate decisions.**
 
 | Dimension | Assessment |

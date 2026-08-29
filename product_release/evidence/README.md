@@ -24,6 +24,6 @@ This directory stores dated release-proof artifacts. It is retained evidence, no
 ## Durable sub-indexes
 
 - [`stt/README.md`](./stt/README.md): permanent STT model-evaluation and benchmark history.
-- [`retained/`](./retained/): dated launch, entitlement, closeout, and security proof retained after canonical consolidation.
+- [`retained/`](./retained/): dated documentation-reconciliation, launch, entitlement, closeout, and security proof retained after canonical consolidation.
 
 The release risk is stale or contradictory interpretation, so new findings update the owning canonical document and append evidence; they do not rewrite historical results.

@@ -80,7 +80,7 @@ only at server-authoritative expiry.
 
 ## #1367 reconciliation (2026-08-29)
 
-Four states that must never be reported as one ([`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) §10.9):
+Four states that must never be reported as one (dated audit: [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) §10.9):
 
 | State | Status |
 |---|---|

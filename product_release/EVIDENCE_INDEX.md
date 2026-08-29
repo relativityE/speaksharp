@@ -136,6 +136,7 @@ These dated proofs are retained under `evidence/retained/`. The current interpre
 
 | Retained-evidence destination | Captured content | Interpretation owned by |
 |---|---|---|
+| `evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md` | Complete pre-consolidation classification of the then-97-file non-archive Markdown surface plus the claim-by-claim code audit. Paths are historical after canonical closeout. | `README.md` (current 14-document authority) + owning canonical document for each product claim |
 | `evidence/retained/PUBLIC_LAUNCH_LEDGER.md` | Dated broad-launch gate proofs PL-001…PL-011: public signup, first Free session, test-mode Stripe checkout→entitlement journey, webhook/billing-lifecycle local proofs, trial lifecycle and historical provider-path evidence. | `ROADMAP.md` (open gates) + `RELEASE_STATUS.md` (current) |
 | `evidence/retained/ENTITLEMENT_PRO_LIMIT_EVIDENCE.md` | Dated entitlement audit: former Pro cap reconciliation, AI-quota verification and fail-closed guard checks. | `ENTITLEMENTS_AND_BILLING.md` (requirement) + `ROADMAP.md` (open ops) |
 | `product_release/SCA_EXCEPTIONS.md` — pinned-audit execution result (2026-07-15) | Dated SCA pinned-audit result + the single ignored advisory rationale. | `OPERATIONS_AND_SECURITY.md` |

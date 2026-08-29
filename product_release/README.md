@@ -188,7 +188,7 @@ Each canonical document carries this header:
 
 ## Documentation reconciliation (#1367)
 
-[`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) classifies **every** tracked non-archive Markdown file in the repository — authority, class, staleness
+The dated [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) records the complete pre-consolidation Markdown audit — authority, class, staleness
 exposure, correction status and canonical routing — and carries the claim-by-claim product-evaluation audit
 against current code. Completeness is enforced by `tests/config/documentationLedger.test.ts`: a new Markdown file
 that is not classified there fails the suite.

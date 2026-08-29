@@ -1,12 +1,14 @@
-**Status:** Authoritative (SSOT for documentation classification and routing) — **not** a canonical document
+> **HISTORICAL EVIDENCE — pre-consolidation inventory.** This ledger records the 97-file non-archive Markdown surface audited on 2026-08-29 before the canonical closeout. The closeout subsequently reduced the active `product_release/` root to the approved 14 documents and moved retained evidence to `product_release/evidence/`. Paths below are point-in-time evidence, not current routing. Current documentation authority is `product_release/README.md`.
+
+**Status:** Retained reconciliation evidence — **not** a canonical document or current routing authority
 **Owner:** Product Owner (relativityE); per-zone accountable role in each section header
 **Last Reviewed:** 2026-08-29
 **Last Verified:** 2026-08-29 (file set enumerated from `git ls-files '*.md'` at this commit; code claims verified by read-only grep against the working tree)
 **Applies To:** Every tracked Markdown file in the repository outside `archive/` trees.
 **Class:** Procedure (reconciliation record).
-**Authority:** Classification, staleness exposure, correction status, and canonical routing for each non-archive Markdown file.
+**Authority:** The dated 2026-08-29 audit findings and pre-consolidation file inventory only.
 **Not Authoritative For:** current product policy, release posture, or GO/HOLD gates — those remain with the canonical set and `RELEASE_STATUS.md`.
-**Supersedes:** — (complements `DOC_MIGRATION_LEDGER.md`, which is historical and covers only the `product_release/` consolidation)
+**Supersedes:** — (retained alongside the historical `DOC_MIGRATION_LEDGER.md`)
 **Evidence Sources:** `git ls-files`, each file's own declared metadata block, and the code paths cited in §10.
 
 # Documentation Reconciliation Ledger (#1367)
@@ -17,7 +19,7 @@ a file with no declared owner and no banner reads as current no matter how old i
 
 > **This ledger does not create a fifteenth canonical document.** It is a procedure record, like
 > `DOC_MIGRATION_LEDGER.md`. Canonical authority stays with the set enumerated in
-> [`README.md`](./README.md) §2 and the precedence hierarchy in [`PRECEDENCE.md`](./PRECEDENCE.md).
+> [`README.md`](../../README.md) §2 and the then-current precedence hierarchy retained at [`PRECEDENCE.md`](../../archive/superseded-docs-2026-08-29/PRECEDENCE.md).
 >
 > **Historical documents are not rewritten to look current.** Where a file's content is a frozen snapshot, the
 > correction is a banner plus a pointer to current authority — never an edit that silently updates its findings.
@@ -34,10 +36,8 @@ a file with no declared owner and no banner reads as current no matter how old i
 | Rows in this ledger (§3–§9) | **97** | see `tests/config/documentationLedger.test.ts` |
 | **Unclassified** | **0** | asserted structurally, not by inspection |
 
-The ledger row count and the repository scan are asserted equal by
-[`tests/config/documentationLedger.test.ts`](../tests/config/documentationLedger.test.ts). A new Markdown file that
-is not added here fails that test. This is the only mechanism that keeps the count honest — a hand-maintained list
-silently drifts on the first unlisted file.
+At capture, the 97 ledger rows and repository scan were asserted equal by
+[`tests/config/documentationLedger.test.ts`](../../../tests/config/documentationLedger.test.ts). At closeout that test was changed to preserve the dated audit findings without claiming that this pre-consolidation path list is current. The active root's exact 14-document surface is now enforced by `tests/config/documentationContract.test.ts`.
 
 **In-scope distribution:** `product_release/` 70 · `docs/` 6 · `tests/` 5 · repository root 4 · `.agent/` 4 ·
 `.github/` 2 · `backend/` 2 · `ops-health/`, `research/`, `scripts/`, `video-production/` 1 each.

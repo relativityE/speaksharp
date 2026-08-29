@@ -186,12 +186,9 @@ describe('documentation contract — product_release/', () => {
 
   it('every pre-foundation root Markdown source is mapped in the ledger', () => {
     const rootMd = fs.readdirSync(DOCS).filter(f => f.endsWith('.md'));
-    // DOCUMENTATION_RECONCILIATION_LEDGER.md is foundation-class like the others here: it is the #1367
-    // reconciliation record, not a pre-foundation source awaiting migration into a canonical target. Its own
-    // completeness is asserted by tests/config/documentationLedger.test.ts.
-    const foundation = new Set([
-      'README.md', 'DOC_MIGRATION_LEDGER.md', 'RELEASE_STATUS.md', 'DOCUMENTATION_RECONCILIATION_LEDGER.md',
-    ]);
+    // Closeout is complete: every root Markdown file is canonical. The dated #1367 audit and migration ledger
+    // are retained below `evidence/` and `archive/`; neither may masquerade as a fifteenth root authority.
+    const foundation = new Set(CANONICAL_14);
     const unmapped = rootMd.filter(f => !foundation.has(f) && !LEDGER.includes(f));
     expect(unmapped).toEqual([]);
   });

@@ -186,7 +186,7 @@ Only this file receives changing release/deployment status, latest run IDs, bloc
 
 Docs-only; no change to release posture, gates, or the approved MVP sequence.
 
-Every tracked non-archive Markdown file is now classified in [`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md), with completeness enforced structurally by
+The pre-consolidation non-archive Markdown surface was classified in the dated [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md); the current active root is enforced as exactly the approved 14 documents by
 `tests/config/documentationLedger.test.ts`.
 
 Product-status corrections that affect what we may claim:

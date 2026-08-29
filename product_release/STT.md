@@ -219,4 +219,4 @@ Mocks, an open provider socket, a token response, local unit tests, or green PR 
   structure spans `tests/fixtures/moonshine-asset-pins.json` and the ORT runtime binaries in
   `tests/evidence/certification/arms/runtimeAssets.ts`. Cite the fixtures, not a number that will rot.
 
-Full audit: [`DOCUMENTATION_RECONCILIATION_LEDGER.md`](./DOCUMENTATION_RECONCILIATION_LEDGER.md) §10.1, §10.7, §10.8.
+Full dated audit: [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md) §10.1, §10.7, §10.8.
