@@ -74,7 +74,7 @@ Parallel work must not contend with benchmark measurement. Documentation/ticket 
 
 ## Declined / not active
 
-- Browser or Cloud as customer transcription entitlements.
+- Any customer transcription engine other than Private. Private is the only customer engine; no second engine is offered, selectable, or used as a fallback.
 - A universal 0–10/0–100 speaking grade.
 - Accumulated minute quotas for active-trial or paid users.
 - Treating test infrastructure, a model choice or filler counting as an economic moat.
