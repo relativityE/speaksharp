@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, chmodSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, chmodSync, mkdirSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -185,5 +185,60 @@ describe('#1304 two arms in one run cannot share an artifact path', () => {
         expect(pathFor('moonshine:tiny')).not.toBe(pathFor('moonshine:base'));
         expect(existsSync(pathFor('moonshine:tiny'))).toBe(true);
         expect(existsSync(pathFor('moonshine:base'))).toBe(true);
+    });
+});
+
+describe('#1304 REAL persistence faults, injected — not simulated', () => {
+    /**
+     * The earlier "induced crash" test threw an exception NEXT TO the recorder rather than making the
+     * recorder itself fail. That proves the test harness can throw, not that the artifact survives a real
+     * fault. These make the filesystem actually refuse.
+     */
+    it('an unwritable directory surfaces the failure instead of silently losing the cell', () => {
+        const d = tmp();
+        const locked = join(d, 'locked');
+        mkdirSync(locked, { recursive: true });
+        const p = join(locked, 'probe.partial.json');
+        const r = new ProbeRecorder(p, join(locked, 'probe.json'), header(['a']));
+        r.addCell(cell('a'));                       // succeeds while writable
+        chmodSync(locked, 0o500);                   // now read+execute only
+        try {
+            // The write must THROW rather than return as though the cell were durable.
+            expect(() => r.addCell(cell('b'))).toThrow();
+        } finally {
+            chmodSync(locked, 0o700);               // always restore, or afterEach cannot clean up
+        }
+        // The previously written cell is still readable: a later failure does not destroy earlier evidence.
+        expect(readProbeArtifact(p)!.cells.map(c => c.utteranceId)).toEqual(['a']);
+    });
+
+    it('a corrupted partial is reported as unreadable rather than parsed into false evidence', () => {
+        const d = tmp();
+        const p = join(d, 'probe.partial.json');
+        const r = new ProbeRecorder(p, join(d, 'probe.json'), header(['a']));
+        r.addCell(cell('a'));
+        writeFileSync(p, '{"complete":false,"cells":[{"utteranceId":"a"');   // truncated mid-object
+        // Returning null beats returning a plausible partial object a reader would trust.
+        expect(readProbeArtifact(p)).toBeNull();
+    });
+
+    it('a pre-existing file at the final path is replaced atomically, never appended', () => {
+        const d = tmp();
+        const f = join(d, 'probe.json');
+        writeFileSync(f, '{"stale":true}');
+        const r = new ProbeRecorder(join(d, 'p.json'), f, header(['a']));
+        r.addCell(cell('a'));
+        expect(r.finalize()).toEqual({ ok: true });
+        const doc = JSON.parse(readFileSync(f, 'utf8'));
+        expect(doc.stale).toBeUndefined();
+        expect(doc.complete).toBe(true);
+    });
+
+    it('no temp file survives a successful finalize', () => {
+        const d = tmp();
+        const r = new ProbeRecorder(join(d, 'p.json'), join(d, 'f.json'), header(['a']));
+        r.addCell(cell('a'));
+        r.finalize();
+        expect(readdirSync(d).filter(n => n.includes('.tmp'))).toEqual([]);
     });
 });
