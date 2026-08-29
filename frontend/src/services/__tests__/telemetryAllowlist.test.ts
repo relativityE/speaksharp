@@ -1,10 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { vi } from 'vitest';
 import {
     projectEventProps, isContentFreeValue, isGovernedEvent, isValidForField, EVENT_ALLOWLIST,
 } from '../telemetryAllowlist';
+import { getSessionCoachingAssignment, SESSION_COACHING_EXPERIMENT_FLAG } from '../sessionCoachingExperiment';
+import { getScoreLabel } from '@/utils/speakingScore';
+
+/**
+ * Fixtures are taken from the REAL producer. Hand-written fixtures are why the invented vocabulary survived:
+ * the tests asserted 'guided'/'control' were valid variants, which they were — under an allowlist that did
+ * not contain the only variant the app ever assigns.
+ */
+const REAL_ASSIGNMENT = getSessionCoachingAssignment();
 
 /**
  * #1259 T1 — the outcome-loop telemetry boundary.
@@ -20,8 +29,9 @@ describe('#1259 T1 — approved fields survive (events stay analyzable)', () => 
             mode: 'private', duration_seconds: 61, word_count: 180, wpm: 118,
             filler_count: 4, clarity_score: 82, is_new_streak_day: true, streak_count: 3,
             session_coaching_experiment: 'session_coaching_v1',
-            session_coaching_variant: 'guided',
-            session_coaching_assignment_source: 'posthog_flag',
+            // Real producer values, not invented ones — see the vocabulary regression below.
+            session_coaching_variant: REAL_ASSIGNMENT.variant,
+            session_coaching_assignment_source: REAL_ASSIGNMENT.source,
         };
         const { props, dropped } = projectEventProps('session_saved', input);
         expect(props).toEqual(input);
@@ -43,7 +53,7 @@ describe('#1259 T1 — approved fields survive (events stay analyzable)', () => 
         const { props, dropped } = projectEventProps('checkout_started', {
             source: 'analytics_cta', plan: 'pro', route: '/analytics', tier: 'free',
             trial_state: 'active', session_coaching_experiment: 'x',
-            session_coaching_variant: 'control', session_coaching_assignment_source: 'default',
+            session_coaching_variant: REAL_ASSIGNMENT.variant, session_coaching_assignment_source: REAL_ASSIGNMENT.source,
         });
         expect(dropped).toEqual([]);
         expect(props.plan).toBe('pro');
@@ -98,8 +108,8 @@ describe('#1259 T1 — content is rejected', () => {
         expect(isContentFreeValue(NaN)).toBe(false);
         // POLICY CHANGE: a string is no longer content-free by virtue of being a string. It must match
         // the declared shape of its field, because prose under an approved key was the actual leak.
-        expect(isContentFreeValue('guided')).toBe(false);
-        expect(isValidForField('session_coaching_variant', 'guided')).toBe(true);
+        expect(isContentFreeValue(REAL_ASSIGNMENT.variant)).toBe(false);
+        expect(isValidForField('session_coaching_variant', REAL_ASSIGNMENT.variant)).toBe(true);
     });
 
     it('an UNGOVERNED event ships no properties at all', () => {
@@ -206,16 +216,72 @@ describe('#1259 T1 — proven at the REAL posthog.capture boundary, behaviourall
         expect(isValidForField('brand_new_field', 'anything')).toBe(false);
     });
 
-    it('every producer event name is governed by a schema', () => {
-        // If a producer emits an event with no allowlist entry it ships empty — analyzable failure, not a
-        // leak — but that is a defect worth catching here rather than in the funnel.
-        const producers = [
-            'session_started', 'session_saved', 'recording_start_failed', 'recording_blocked_stale_client',
-            'conversion_cta_viewed', 'conversion_cta_clicked', 'checkout_started',
-            'checkout_returned_success', 'checkout_returned_cancelled',
-            'practice_entry_viewed', 'practice_mode_selected', 'practice_overview_expanded',
-            'COMPONENT_CRASH', 'GLOBAL_UNHANDLED_REJECTION', 'account_identified',
-        ];
-        expect(producers.filter(e => !isGovernedEvent(e))).toEqual([]);
+    it('every producer event name is governed by a schema — enumerated from SOURCE, not from a list', () => {
+        // This was a hand-maintained array, which is worthless for the thing it claims to prove: it can only
+        // contain events someone remembered to add. Enumerating the real `analyticsBuffer.push` call sites
+        // immediately found TWO ungoverned live producers (`session_live_coaching_*`) that the hand-written
+        // list had never mentioned, and that therefore shipped with zero properties.
+        const SRC = resolve(__dirname, '../..');
+        const files = readdirSync(SRC, { recursive: true, encoding: 'utf8' })
+            .filter(f => /\.(ts|tsx)$/.test(f))
+            .filter(f => !/__tests__|\.test\.|[/\\]mocks[/\\]/.test(f));
+
+        const emitted = new Set<string>();
+        for (const rel of files) {
+            const text = readFileSync(resolve(SRC, rel), 'utf8');
+            for (const m of text.matchAll(/analyticsBuffer\.push\(\s*'([^']+)'/g)) emitted.add(m[1]);
+        }
+
+        // Guard the guard: if the scan finds nothing, the regex has drifted and this test would pass vacuously.
+        expect(emitted.size).toBeGreaterThan(8);
+        expect(emitted).toContain('session_saved');
+
+        expect([...emitted].filter(e => !isGovernedEvent(e)).sort()).toEqual([]);
+    });
+
+    it('the live-coaching card keeps every analysis dimension through the REAL projection', () => {
+        // Regression for an invented vocabulary. `session_coaching_variant` was declared as
+        // ['control','guided','unknown'], but the only variant the code assigns is 'treatment' — so the
+        // variant was dropped from every governed event and the experiment measured nothing. Asserting on
+        // the producer's ACTUAL payload is what catches that; asserting on a fixture I wrote does not.
+        const assignment = getSessionCoachingAssignment();
+        const { props, dropped } = projectEventProps('session_live_coaching_card_viewed', {
+            experiment: SESSION_COACHING_EXPERIMENT_FLAG,
+            variant: assignment.variant,
+            assignment_source: assignment.source,
+            model_version: 'speaking-score-v0.1',
+            confidence: 'directional',
+            score_band: 'Confident Speaker',
+            numeric_score_visible: true,
+            action_count: 3,
+            weakest_categories: ['deliveryControl', 'languageClarity'],
+            transcription_engine: 'private',
+            transcription_confidence: 'medium',
+            target_label: 'Next target 7.5',
+        });
+
+        expect(props.variant).toBe('treatment');
+        expect(props.assignment_source).toBe('default');
+        expect(props.score_band).toBe('Confident Speaker');
+        expect(props.weakest_categories).toEqual(['deliveryControl', 'languageClarity']);
+        expect(props.transcription_confidence).toBe('medium');
+        // Generated copy is dropped, not governed.
+        expect(dropped).toContain('target_label');
+        expect(props).not.toHaveProperty('target_label');
+    });
+
+    it('every score band the scorer can produce is expressible — no band is silently dropped', () => {
+        // Bands are copy strings with spaces; a new band added to getScoreLabel would be dropped silently.
+        const bands = new Set<string>();
+        for (let score = 0; score <= 10; score += 0.1) bands.add(getScoreLabel(Math.round(score * 10) / 10));
+        for (const band of bands) expect(isValidForField('score_band', band)).toBe(true);
+        expect(bands.size).toBeGreaterThanOrEqual(5);
+    });
+
+    it('an array of FREE strings is still rejected — enum[] is not a hole for content', () => {
+        expect(isValidForField('weakest_categories', ['deliveryControl'])).toBe(true);
+        expect(isValidForField('weakest_categories', ['um so anyway here is my private transcript'])).toBe(false);
+        expect(isValidForField('weakest_categories', ['deliveryControl', 'not_a_category'])).toBe(false);
+        expect(isValidForField('weakest_categories', new Array(9).fill('deliveryControl'))).toBe(false);
     });
 });

@@ -1,10 +1,14 @@
 import { analyticsBuffer } from './AnalyticsBuffer';
 import type { SpeakingScoreResult } from '@/utils/speakingScore';
+import { SESSION_COACHING_VARIANTS, SESSION_COACHING_ASSIGNMENT_SOURCES } from './telemetryAllowlist';
 
 export const SESSION_COACHING_EXPERIMENT_FLAG = 'session_live_coaching_score' as const;
 
-export type SessionCoachingVariant = 'treatment';
-export type SessionCoachingAssignmentSource = 'default';
+// Bound to the telemetry vocabulary rather than declared independently: a variant that telemetry cannot
+// express is a variant the experiment cannot measure, so adding one here without adding it there is a
+// COMPILE error instead of a silently dropped analytics dimension.
+export type SessionCoachingVariant = typeof SESSION_COACHING_VARIANTS[number];
+export type SessionCoachingAssignmentSource = typeof SESSION_COACHING_ASSIGNMENT_SOURCES[number];
 
 export interface SessionCoachingAssignment {
   variant: SessionCoachingVariant;

@@ -68,6 +68,20 @@ export const EVENT_ALLOWLIST: Readonly<Record<string, readonly string[]>> = Obje
 
     // ── reliability ─────────────────────────────────────────────────────────
     // `message` ABSENT: error.message is arbitrary runtime text.
+    // ── live-coaching experiment (was UNGOVERNED: both events shipped zero properties) ───────────────
+    // `target_label` is deliberately ABSENT. It is generated copy (`Next target 7.5` / `Hold consistency`),
+    // not a dimension, so it is dropped rather than governed. A numeric target field would be the right
+    // shape if the analysis ever needs it; that is a producer change, not an allowlist widening.
+    session_live_coaching_card_viewed: [
+        'experiment', 'variant', 'assignment_source', 'model_version', 'confidence', 'score_band',
+        'numeric_score_visible', 'action_count', 'weakest_categories', 'transcription_engine',
+        'transcription_confidence',
+    ],
+    session_live_coaching_numeric_score_shown: [
+        'experiment', 'variant', 'assignment_source', 'model_version', 'confidence', 'score_band',
+        'action_count', 'weakest_categories',
+    ],
+
     COMPONENT_CRASH: ['component', 'isolationKey'],
     // `reason` ABSENT: a rejection reason is arbitrary runtime text. The event's OCCURRENCE is the signal.
     GLOBAL_UNHANDLED_REJECTION: [],
@@ -98,13 +112,40 @@ type FieldRule =
     /** Constrained token: no spaces, no query strings, no control characters, no prose. */
     | { kind: 'slug'; maxLength: number }
     /** In-app path such as `/analytics`. Rejects query strings and fragments, which carry data. */
-    | { kind: 'route'; maxLength: number };
+    | { kind: 'route'; maxLength: number }
+    /**
+     * A bounded LIST of enum members. The only non-primitive shape allowed, and only because every element
+     * must itself be drawn from a closed set — an array of free strings stays rejected.
+     */
+    | { kind: 'enum[]'; values: readonly string[]; maxLength: number };
 
 const MODES = ['private', 'browser', 'cloud', 'native', 'unknown'] as const;
 const TIERS = ['free', 'pro', 'trial', 'unknown', 'anonymous'] as const;
 const TRIAL_STATES = ['active', 'expired', 'none', 'unknown'] as const;
-const VARIANTS = ['control', 'guided', 'unknown'] as const;
-const ASSIGNMENT_SOURCES = ['default', 'posthog_flag', 'allowlist', 'deterministic_override'] as const;
+/**
+ * Bounded vocabularies for the live-coaching experiment.
+ *
+ * These are EXPORTED and the producer derives its types from them (`sessionCoachingExperiment.ts`), so a new
+ * variant cannot be shipped without appearing here. The previous values were invented rather than derived —
+ * `['control','guided','unknown']` did not contain the only variant the code actually assigns
+ * (`'treatment'`), so the variant would have been dropped from every governed event and the experiment would
+ * have reported no variant dimension at all. Silent loss of an analysis dimension, not a leak — which is
+ * exactly why the vocabulary must be bound to the producer instead of maintained by hand.
+ */
+export const SESSION_COACHING_VARIANTS = ['treatment'] as const;
+export const SESSION_COACHING_ASSIGNMENT_SOURCES = ['default'] as const;
+
+/** Score bands from `getScoreLabel`. Bounded copy labels — they contain spaces, so `slug` cannot carry them. */
+const SCORE_BANDS = [
+    'Polished Presenter', 'Confident Speaker', 'Clear Communicator', 'Building Control', 'Getting Started',
+] as const;
+/** Score confidence and transcription confidence are separate scales; they are NOT interchangeable. */
+const SCORE_CONFIDENCE = ['warming-up', 'directional', 'usable'] as const;
+const TRANSCRIPTION_CONFIDENCE = ['low', 'medium', 'high'] as const;
+/** Keys of `SpeakingScoreBreakdown` — a closed set of category identifiers, never user text. */
+const SCORE_CATEGORIES = [
+    'messageStructure', 'deliveryControl', 'languageClarity', 'audienceImpact',
+] as const;
 const RUNTIME_STATES = ['idle', 'ready', 'starting', 'recording', 'stopping', 'error', 'unknown'] as const;
 const FRESHNESS = ['fresh', 'stale', 'unknown'] as const;
 
@@ -118,9 +159,24 @@ const FIELD_RULES: Readonly<Record<string, FieldRule>> = Object.freeze({
     plan: { kind: 'enum', values: ['pro', 'free', 'unknown'] },
     runtime_state: { kind: 'enum', values: RUNTIME_STATES },
     status: { kind: 'enum', values: FRESHNESS },
-    session_coaching_variant: { kind: 'enum', values: VARIANTS },
-    session_coaching_assignment_source: { kind: 'enum', values: ASSIGNMENT_SOURCES },
+    session_coaching_variant: { kind: 'enum', values: SESSION_COACHING_VARIANTS },
+    session_coaching_assignment_source: { kind: 'enum', values: SESSION_COACHING_ASSIGNMENT_SOURCES },
     session_coaching_experiment: { kind: 'slug', maxLength: 64 },
+
+    // ── live-coaching experiment card ───────────────────────────────────────
+    // The producer uses short key names (`variant`, not `session_coaching_variant`); both spellings are
+    // governed because both are emitted, by different producers.
+    experiment: { kind: 'slug', maxLength: 64 },
+    variant: { kind: 'enum', values: SESSION_COACHING_VARIANTS },
+    assignment_source: { kind: 'enum', values: SESSION_COACHING_ASSIGNMENT_SOURCES },
+    model_version: { kind: 'slug', maxLength: 64 },
+    confidence: { kind: 'enum', values: SCORE_CONFIDENCE },
+    transcription_confidence: { kind: 'enum', values: TRANSCRIPTION_CONFIDENCE },
+    score_band: { kind: 'enum', values: SCORE_BANDS },
+    numeric_score_visible: { kind: 'bool' },
+    action_count: { kind: 'int', min: 0, max: 1_000 },
+    weakest_categories: { kind: 'enum[]', values: SCORE_CATEGORIES, maxLength: 8 },
+    transcription_engine: { kind: 'slug', maxLength: 64 },
 
     duration_seconds: { kind: 'int', min: 0, max: 86_400 },
     word_count: { kind: 'int', min: 0, max: 1_000_000 },
@@ -177,6 +233,9 @@ export function isValidForField(field: string, value: unknown): boolean {
         case 'route':
             return typeof value === 'string' && value.length > 0
                 && value.length <= rule.maxLength && ROUTE.test(value);
+        case 'enum[]':
+            return Array.isArray(value) && value.length <= rule.maxLength
+                && value.every(v => typeof v === 'string' && rule.values.includes(v));
     }
 }
 
