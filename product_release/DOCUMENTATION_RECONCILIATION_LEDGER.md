@@ -340,6 +340,11 @@ importers of `utils/speakingScore.ts`, which is **6**:
   result than "approximately 70%".
 - **Shadow telemetry consumers: 3**, unconditional — `ScoreProcessor` is constructed directly in the processor
   array at `shadowMetricsEngine.ts:63` with no flag guard found on that path. The score is still **computed**.
+- **Verified dead, not merely unimported.** Neither component is re-exported through a barrel (there is no
+  `components/session/index.ts`) and neither is dynamically imported. The single remaining mention of
+  `LiveCoachingScoreCard` outside its own file and its tests is a **comment** in `ScoreProcessor.ts:9`, which
+  still describes it as "the live LiveCoachingScoreCard" — a stale comment that would tell the next reader the
+  card renders. `SpeakingTipsCard` has no reference at all.
 - **The 0–100 Clarity Score is a separate metric** (`clarity_score`, persisted, consumed by
   `AnalyticsDashboard.tsx` and `TrendChart.tsx`) and must not be conflated with the retired universal score.
 - **Correction required:** replace any percentage with: *"retired from all rendered UI (0 live consumers);
