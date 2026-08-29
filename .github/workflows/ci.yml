@@ -255,6 +255,11 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
+        with:
+          # The #1258 currency guard measures the DISTANCE from the recorded baseline commit to HEAD.
+          # A depth-1 checkout does not contain the baseline object, so the guard fails on the checkout
+          # shape rather than on staleness — a false red that hides the real signal.
+          fetch-depth: 0
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment

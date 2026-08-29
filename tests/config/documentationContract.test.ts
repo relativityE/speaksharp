@@ -91,7 +91,10 @@ function allowReason(label: string, heading: string): string | null {
   // (`[x.y.z] - date`) and their change-type H3 sub-entries (Added/Fixed/Changed/...). This is the
   // ONLY whole-source allowance; every other source (incl. CODEBASE_MAP) is enumerated per heading.
   if (label === 'CHANGELOG') return 'CHANGELOG version/change entries — provenance-only, grouped as one NO_DURABLE_CONTENT row (permitted exception).';
-  void heading;
+  // #1367 reconciliation notes correct a STATUS claim in an already-mapped source (e.g. "Personal Progress is
+  // no longer backlog — it ships"). They are not new durable content migrating to a canonical target, so they
+  // have no ledger subsection to be covered by; their authority is DOCUMENTATION_RECONCILIATION_LEDGER §10.
+  if (/^#1367 status reconciliation/.test(heading)) return '#1367 status reconciliation note — corrects a status claim in place; authority is DOCUMENTATION_RECONCILIATION_LEDGER.md §10.';
   return null;
 }
 
@@ -184,7 +187,12 @@ describe('documentation contract — product_release/', () => {
 
   it('every pre-foundation root Markdown source is mapped in the ledger', () => {
     const rootMd = fs.readdirSync(DOCS).filter(f => f.endsWith('.md'));
-    const foundation = new Set(['README.md', 'DOC_MIGRATION_LEDGER.md', 'RELEASE_STATUS.md']);
+    // DOCUMENTATION_RECONCILIATION_LEDGER.md is foundation-class like the others here: it is the #1367
+    // reconciliation record, not a pre-foundation source awaiting migration into a canonical target. Its own
+    // completeness is asserted by tests/config/documentationLedger.test.ts.
+    const foundation = new Set([
+      'README.md', 'DOC_MIGRATION_LEDGER.md', 'RELEASE_STATUS.md', 'DOCUMENTATION_RECONCILIATION_LEDGER.md',
+    ]);
     const unmapped = rootMd.filter(f => !foundation.has(f) && !LEDGER.includes(f));
     expect(unmapped).toEqual([]);
   });

@@ -133,8 +133,15 @@ describe('#1367 product-status claims — the ones that were wrong', () => {
   });
 
   it('states the universal-score status with a denominator, not a bare percentage', () => {
+    // The ledger must be free to QUOTE "approximately 70% retired" in order to refute it; what it may not do
+    // is leave a percentage standing as the status. So: the denominator must be present, the refutation must
+    // be explicit, and the canonical docs must not carry the percentage at all.
     expect(LEDGER).toContain('0 live consumers');
-    expect(LEDGER, 'a percentage without a denominator is not a status').not.toContain('70% retired');
+    expect(LEDGER).toContain('refuted for want of a denominator');
+    for (const rel of ['product_release/PRODUCT_REQUIREMENTS.md', 'product_release/BACKLOG.md']) {
+      const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+      expect(text, `${rel} states a retirement percentage without a denominator`).not.toMatch(/\d+% retired/);
+    }
   });
 
   it('carries the unvalidated-economics limitation into the product requirements', () => {
