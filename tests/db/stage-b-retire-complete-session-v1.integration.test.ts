@@ -37,7 +37,15 @@ const EXTRA = `
     ADD COLUMN IF NOT EXISTS trial_expires_at timestamptz,
     ADD COLUMN IF NOT EXISTS stripe_subscription_id text,
     ADD COLUMN IF NOT EXISTS subscription_id text,
-    ADD COLUMN IF NOT EXISTS commercial_trial_granted_at timestamptz;
+    ADD COLUMN IF NOT EXISTS commercial_trial_granted_at timestamptz,
+    -- R2's v1 complete_session reads the private-sample entitlement surface (20260610143000). These are
+    -- SCAFFOLDING columns, not the object under test: complete_session and complete_session_v2 themselves
+    -- still come from the shipped migrations, which is the point of this suite.
+    ADD COLUMN IF NOT EXISTS private_sample_limit_seconds int NOT NULL DEFAULT 300,
+    ADD COLUMN IF NOT EXISTS private_sample_seconds_used int NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS private_sample_started_at timestamptz,
+    ADD COLUMN IF NOT EXISTS private_sample_completed_at timestamptz,
+    ADD COLUMN IF NOT EXISTS private_sample_session_id uuid;
   -- BOTH arities are stubbed deliberately. R2 (20260804000000) defines the v1 complete_session against the
   -- FOUR-argument tier resolver that predates commercial_trial_granted_at; Stage A and v2 call the FIVE-argument
   -- form. Stubbing only one leaves the other unresolved, and the failure surfaces as a confusing
@@ -87,6 +95,21 @@ describe('#1306 Stage B — the legacy completion path is retired, not merely un
         const db = await preStageB();
         const found = await overloads(db, 'complete_session');
         expect(found.length, 'v1 overloads should exist before Stage B').toBeGreaterThan(0);
+        await db.close();
+    });
+
+    it('v1 is EXECUTE-granted, not merely present (reachability, independent of the entitlement stack)', async () => {
+        // Catalog-level, so it holds regardless of how much of the entitlement surface the fixture models.
+        // Reachability is the claim Stage B rests on: the function exists AND carries an executable grant.
+        const db = await preStageB();
+        const r = await db.query<{ args: string; acl: string | null }>(
+            `SELECT pg_get_function_identity_arguments(p.oid) AS args, array_to_string(p.proacl, ',') AS acl
+             FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+             WHERE n.nspname='public' AND p.proname='complete_session'`);
+        expect(r.rows.length, 'v1 overloads must exist before Stage B').toBeGreaterThan(0);
+        // A NULL ACL means default privileges — EXECUTE is granted to PUBLIC, which is broader still.
+        const reachable = r.rows.some(x => x.acl === null || /authenticated|service_role|=X/.test(x.acl ?? ''));
+        expect(reachable, 'at least one v1 overload must be EXECUTE-reachable').toBe(true);
         await db.close();
     });
 
