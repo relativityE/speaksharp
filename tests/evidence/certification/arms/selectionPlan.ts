@@ -14,7 +14,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { ARM_MATRIX, NOT_EXECUTED_REASONS } from './registry';
-import { UNSCOREABLE_DISPOSITIONS } from '../checkpoint';
+import { UNSCOREABLE_DISPOSITIONS, PLAN_DISPOSITION_REASONS, isCompleteRow } from '../checkpoint';
 
 export interface SelectionPlan {
     id: string;
@@ -56,8 +56,8 @@ export const TARGETED_FINALISTS_V1: SelectionPlan = Object.freeze({
     }),
 });
 
-/** Reasons a plan may use beyond the registry's own not-executed vocabulary. */
-export const PLAN_DISPOSITIONS = Object.freeze(['not_a_targeted_finalist'] as const);
+/** Re-exported from the leaf that owns it; declaring it here too would let the two drift. */
+export const PLAN_DISPOSITIONS = PLAN_DISPOSITION_REASONS;
 
 export const SELECTION_PLANS: Readonly<Record<string, SelectionPlan>> = Object.freeze({
     [TARGETED_FINALISTS_V1.id]: TARGETED_FINALISTS_V1,
@@ -151,4 +151,28 @@ export function validateAgainstPlan(
         }
     }
     return { ok: true };
+}
+
+/**
+ * THE FINALIZATION DECISION, as the runner makes it.
+ *
+ * Exported so the runner and its tests exercise the SAME code rather than two descriptions of it. The
+ * previous arrangement tested `validateAgainstPlan` in isolation while the runner ALSO called the legacy
+ * `validateCompleteness`, whose registered reasons do not include `not_a_targeted_finalist` — so a
+ * complete targeted run could decode for hours and be refused only at promotion. Two authorities
+ * disagreeing about "complete" is worse than either alone, so under a plan this is the only authority.
+ */
+export function finalizeUnderPlan(
+    rows: readonly { id: string; [k: string]: unknown }[],
+    plan: SelectionPlan,
+): PlanCompleteness {
+    const coverage = validatePlanCoverage(plan);
+    if (!coverage.ok) {
+        return { ok: false, reason: 'missing_disposition', detail: `plan itself is ${coverage.reason}: ${coverage.detail}` };
+    }
+    // A measured finalist must be BOTH selection-eligible and a complete row by the reliability contract.
+    return validateAgainstPlan(rows, plan, (row) => {
+        if ((row as { selectionEligible?: boolean }).selectionEligible !== true) return false;
+        return isCompleteRow(row as { id: string; [k: string]: unknown }, NOT_EXECUTED_REASONS[row.id]);
+    });
 }

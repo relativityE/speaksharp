@@ -32,6 +32,15 @@ export interface RunIdentity {
     /** The evidence set and class this artifact belongs to. */
     setName: string;
     evidenceClass: string;
+    /**
+     * The targeted selection plan this run executes, and the digest of the plan FILE.
+     *
+     * Both were supplied to the identity object but were absent from this contract and from
+     * IDENTITY_KEYS, so resume ignored them entirely: a checkpoint measured under one plan could be
+     * resumed under another and finalized as a single experiment. `null` when no plan is active.
+     */
+    selectionPlanId: string | null;
+    selectionPlanDigest: string | null;
 }
 
 import { NOT_EXECUTED_REASONS } from './arms/registry';
@@ -73,9 +82,19 @@ export const UNSCOREABLE_DISPOSITIONS = Object.freeze([
 /** Admission statuses a registry-skipped row may carry. */
 export const ADMISSION_STATUSES = Object.freeze(['pending_harness', 'rejected'] as const);
 
+/**
+ * Reasons a targeted SELECTION PLAN may use, beyond the registry's own vocabulary.
+ *
+ * Declared here, in the leaf, rather than in selectionPlan.ts — that module already imports this one, and
+ * the reverse import would be a cycle. Without these, `classifyRow` rejected every plan disposition, so
+ * planResume DROPPED those rows and the runner re-appended them: the duplicate-arm failure had a second
+ * cause underneath the append ordering.
+ */
+export const PLAN_DISPOSITION_REASONS = Object.freeze(['not_a_targeted_finalist'] as const);
+
 /** Registered not-executed reasons, as VALUES — an unregistered string can never admit a row. */
 export const REGISTERED_NOT_EXECUTED_REASONS: ReadonlySet<string> =
-    new Set(Object.values(NOT_EXECUTED_REASONS));
+    new Set([...Object.values(NOT_EXECUTED_REASONS), ...PLAN_DISPOSITION_REASONS]);
 
 export type RowCompleteness =
     | { complete: true; kind: 'measured' | 'not_executed' | 'admission' | 'unscoreable' }
@@ -103,7 +122,11 @@ export function classifyRow(row: CheckpointRow, expectedReason?: string): RowCom
             return { complete: false, reason: `not-executed reason '${reason}' is not registered` };
         }
         // It must be the reason registered FOR THIS ARM, not merely a valid string from the registry.
-        if (expectedReason !== undefined && reason !== expectedReason) {
+        // A PLAN disposition is exempt from the per-arm registry check: the registry has no opinion about
+        // an arm a targeted plan simply did not measure, and the plan's own validator enforces the exact
+        // reason for that arm.
+        const isPlanReason = (PLAN_DISPOSITION_REASONS as readonly string[]).includes(reason);
+        if (!isPlanReason && expectedReason !== undefined && reason !== expectedReason) {
             return { complete: false, reason: `not-executed reason '${reason}' != registered '${expectedReason}'` };
         }
         return { complete: true, kind: 'not_executed' };
@@ -176,6 +199,9 @@ export type ResumeDecision =
 const IDENTITY_KEYS: (keyof RunIdentity)[] = [
     'productBaseline', 'executionSha', 'policySha', 'corpusDigest',
     'normalizerId', 'registryDigest', 'assetDigest', 'setName', 'evidenceClass',
+    // A different plan is a different experiment, and editing the plan file changes what "complete"
+    // means — so both the identity and the DIGEST gate resume.
+    'selectionPlanId', 'selectionPlanDigest',
 ];
 
 /** First mismatching identity field, or null when every field is identical. */

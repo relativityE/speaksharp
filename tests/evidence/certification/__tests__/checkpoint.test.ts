@@ -13,6 +13,7 @@ const ID: RunIdentity = {
     productBaseline: '808ebf9e', executionSha: 'aaaaaaaa', policySha: 'bbbbbbbb',
     corpusDigest: 'cccccccc', normalizerId: 'norm_v2', registryDigest: 'dddddddd',
     assetDigest: 'eeeeeeee', setName: 'corpus', evidenceClass: 'selection',
+    selectionPlanId: null, selectionPlanDigest: null,
 };
 const cp = (rows: CheckpointRow[], identity: RunIdentity = ID) => ({ partial: true as const, identity, rows });
 
@@ -43,6 +44,8 @@ describe('#1304 checkpoint resume — accepts only an identical experiment', () 
     it.each([
         ['executionSha', 'ffffffff'], ['policySha', 'ffffffff'], ['corpusDigest', 'ffffffff'],
         ['normalizerId', 'norm_v1'], ['registryDigest', 'ffffffff'], ['assetDigest', 'ffffffff'],
+        // A different plan, or an EDITED plan, is a different experiment.
+        ['selectionPlanId', 'some-other-plan'], ['selectionPlanDigest', 'ffffffff'],
         ['productBaseline', 'ffffffff'], ['setName', 'harvard'], ['evidenceClass', 'smoke'],
     ] as const)('starts clean when %s differs', (field, value) => {
         // MISMATCHED RESUME IDENTITY. Splicing rows measured under a different scorer, corpus, policy or

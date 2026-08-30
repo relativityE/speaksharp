@@ -83,8 +83,12 @@ describe('#1304 — a targeted selection run is a COMMITTED PLAN, not an ad hoc 
     });
 
     it('finalization validates against the plan, not merely the old required-rows list', () => {
-        expect(RUNNER).toContain('validateAgainstPlan(');
+        // The runner now calls the SHARED `finalizeUnderPlan`, which is what the finalization tests
+        // exercise — previously it called validateAgainstPlan directly and ALSO ran the legacy
+        // validator, which disagreed about `not_a_targeted_finalist`.
+        expect(RUNNER).toContain('finalizeUnderPlan(');
         expect(RUNNER).toContain('plan ${selectionPlan.id} ${planned.reason}');
+        expect(RUNNER).toContain('if (!onlyIds && !selectionPlan) {');
     });
 });
 

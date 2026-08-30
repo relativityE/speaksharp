@@ -69,3 +69,27 @@ describe('int8 identity reflects measurement, not a stale claim', () => {
         expect(row.decodedClips).toBe(row.expectedClips);
     });
 });
+
+describe('the ARTIFACT — not the registry — carries the tested identity', () => {
+    // The registry was corrected while the artifact serialized candidate, executionBackend and
+    // historicalArmId as null, so a reader of the EVIDENCE still had to infer the candidate and backend
+    // from the historical arm ID — the exact inference the correction exists to stop.
+    const RUNNER = readFileSync(resolve(__dirname, '../../../../scripts/run-browser-matrix.mts'), 'utf8');
+
+    it('the measured row serializes candidate, backend, historical id, dtype and alias', () => {
+        const row = RUNNER.slice(RUNNER.indexOf('candidate: spec.candidate'), RUNNER.indexOf('verdict,'));
+        for (const field of [
+            'candidate: spec.candidate', 'executionBackend: spec.executionBackend',
+            'historicalArmId: spec.historicalArmId', 'dtype: spec.dtype', 'dtypeAliasOf: spec.dtypeAliasOf',
+        ]) expect(row, `${field} is not serialized onto the evidence row`).toContain(field);
+    });
+
+    it('the historical id falls back to the arm id rather than serializing null', () => {
+        expect(RUNNER).toContain('historicalArmId: spec.historicalArmId ?? spec.id');
+    });
+
+    it('q8 remains explicitly non-ranking as the int8 alias', () => {
+        expect(q8.dtypeAliasOf).toBe('v4:base:int8-decoder:cpu');
+        expect(NOT_EXECUTED_REASONS['v4:base:q8-decoder:cpu']).toBe('alias_of_int8');
+    });
+});

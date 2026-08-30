@@ -27,7 +27,7 @@ import goldens from '../tests/evidence/normalization/goldens.json' with { type: 
 import { startHarnessServer } from '../tests/evidence/certification/browser/server';
 import { createBrowserArm, isSoftwareAdapter, generationFor } from '../tests/evidence/certification/browser/browserArm';
 import { ARM_MATRIX, ADMITTED_ARMS, SELECTION_EXECUTION_SET, NOT_EXECUTED_REASONS, REQUIRED_MATRIX_ROWS } from '../tests/evidence/certification/arms/registry';
-import { SELECTION_PLANS, selectionPlanDigest, validatePlanCoverage, validateAgainstPlan } from '../tests/evidence/certification/arms/selectionPlan';
+import { SELECTION_PLANS, selectionPlanDigest, validatePlanCoverage, finalizeUnderPlan } from '../tests/evidence/certification/arms/selectionPlan';
 import { planResume, validateCompleteness, type RunIdentity, type CheckpointRow } from '../tests/evidence/certification/checkpoint';
 import { atomicWriteFileSync } from '../tests/evidence/certification/atomicWrite';
 import { ProbeRecorder, type ProbeInvocation } from '../tests/evidence/certification/probeArtifact';
@@ -437,7 +437,15 @@ const checkpoint = (): void => {
 for (const spec of ARM_MATRIX) {
     if (onlyIds && !onlyIds.has(spec.id)) continue;
     // Under a plan, an arm is either measured or preserved with the plan's typed reason — never skipped.
+    //
+    // RETAINED ROWS ARE CHECKED FIRST. Appending before consulting `alreadyDone` re-added every
+    // disposition row on resume, so a resumed run failed its own duplicate-arm validation — the
+    // checkpoint would be correct and the finalization would refuse it.
     if (selectionPlan && !selectionPlan.measured.includes(spec.id)) {
+        if (alreadyDone.has(spec.id)) {
+            console.log(`\n  ${spec.id}  — disposition already in checkpoint, not re-appended`);
+            continue;
+        }
         const reason = selectionPlan.dispositions[spec.id];
         results.push({ id: spec.id, lane: 'browser', set: setName, evidenceClass, executed: false, reason });
         console.log(`\n  ${spec.id}  — not measured under ${selectionPlan.id} (${reason})`);
@@ -1205,6 +1213,16 @@ for (const spec of ARM_MATRIX) {
 
     results.push({
         id: spec.id, label: spec.label, lane: 'browser', set: setName, evidenceClass,
+        // WHAT WAS ACTUALLY TESTED, serialized onto the evidence row.
+        //
+        // The registry carries these, but the artifact serialized them as null — so a reader of the
+        // EVIDENCE still had to infer the candidate and backend from the historical arm ID, which is
+        // exactly the inference the id-vs-reality correction exists to stop.
+        candidate: spec.candidate ?? null,
+        executionBackend: spec.executionBackend ?? null,
+        historicalArmId: spec.historicalArmId ?? spec.id,
+        dtype: spec.dtype ?? null,
+        dtypeAliasOf: spec.dtypeAliasOf ?? null,
         runtimeLabel: runtimeLabelFor(isV2, isMoonshineWasm),
         verdict,
         role: spec.role, freshSession,
@@ -1355,7 +1373,8 @@ if (pinsOnly) {
 
 // AN INCOMPLETE ARTIFACT IS NOT WRITTEN. Checked before serialization rather than trusted afterwards,
 // because the previous artifact was described as complete on the strength of a log beside it.
-if (outPath && !onlyIds) {
+// Artifact completeness is likewise the plan's job when a plan is active.
+if (outPath && !onlyIds && !selectionPlan) {
     const completeness = checkArtifactCompleteness(
         results as { id: string }[],
         {
@@ -1375,17 +1394,19 @@ if (outPath) {
     // "not applicable" rather than "unknown", which is the more dangerous of the two.
     if (selectionPlan) {
         // EVERY registered arm, measured or dispositioned. A four-row artifact cannot satisfy this.
-        const planned = validateAgainstPlan(
-            results as { id: string }[], selectionPlan,
-            (row) => (row as { selectionEligible?: boolean }).selectionEligible === true,
-        );
+        // The SAME function the finalization tests exercise — not a second description of the rule.
+        const planned = finalizeUnderPlan(results as { id: string }[], selectionPlan);
         if (!planned.ok) {
             console.error(`\nREFUSING to finalise ${outPath}: plan ${selectionPlan.id} ${planned.reason} (${planned.detail})`);
             console.error(`The checkpoint at ${partialPath} is retained; resume to complete it.`);
             process.exit(1);
         }
     }
-    if (!onlyIds) {
+    // The plan validator is the SOLE matrix authority when a plan is active. Running the legacy
+    // validator afterwards meant a complete targeted run could decode for hours and then be REFUSED at
+    // promotion, because `not_a_targeted_finalist` is a plan reason the legacy registry does not know.
+    // Two authorities disagreeing about what "complete" means is worse than either alone.
+    if (!onlyIds && !selectionPlan) {
         const complete = validateCompleteness(results as CheckpointRow[], REQUIRED_MATRIX_ROWS);
         if (!complete.ok) {
             console.error(`\nREFUSING to finalise ${outPath}: ${complete.reason} (${complete.detail})`);
