@@ -42,7 +42,7 @@ describe('Focus Points shared shell (#1222 S8)', () => {
     it('during: the coverage rail occupies slot D (not the coaching card)', () => {
         render(<FocusPointsDuringState {...duringBase} points={points} />);
         expect(screen.getByTestId('session-slot-d')).toContainElement(screen.getByTestId('coverage-rail'));
-        expect(screen.getByTestId('coverage-rail-summary')).toHaveTextContent('1/3 covered');
+        expect(screen.getByTestId('coverage-rail-summary')).toHaveTextContent('1/3 detected');
         expect(screen.queryByTestId('coaching-card')).toBeNull();
         // Same shell: transcript + recorder still in their slots.
         expect(screen.getByTestId('session-slot-a')).toContainElement(screen.getByTestId('recorder-bar'));

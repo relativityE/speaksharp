@@ -65,7 +65,8 @@ Parallel work must not contend with benchmark measurement. Documentation/ticket 
 
 ## Later
 
-- Broader Executive Rehearsal beyond the shipped Focus Points coverage slice.
+- The broader executive-rehearsal use case beyond the shipped Focus Points coverage slice. Focus Points is
+  the product capability; "Executive Rehearsal" is a canonical example of using it, never a second product.
 - Server-side recovery obligation to close the accepted client-only #1354 edge case.
 - Real-hardware WebGPU performance; SwiftShader proves compatibility only.
 - Track-B annotated disfluent-human-audio expansion beyond finalist validation.

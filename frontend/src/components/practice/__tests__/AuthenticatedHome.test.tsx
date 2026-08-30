@@ -115,7 +115,9 @@ describe('AuthenticatedHome — evidence, never fabrication', () => {
     it('Objective shows no personalised numbers at all — em-dashes under real labels', () => {
         renderHome();
         const tiles = screen.getByTestId('practice-card-objective-tiles');
-        expect(tiles).toHaveTextContent(/covered/i);
+        // #1254: the tile label is 'Detected' — the matcher reports what it FOUND, not what the
+        // speaker covered.
+        expect(tiles).toHaveTextContent(/detected/i);
         expect(tiles).toHaveTextContent(/not detected/i);
         expect(tiles).toHaveTextContent(/retry specific points/i);
         // No digits whatsoever: nothing that could read as "8/10" or "2 missed".

@@ -339,7 +339,7 @@ export function AuthenticatedHome({
 
     // Objective has not launched: there are no results to report, and nothing here may look personalised.
     const objectiveTiles: OutcomeTile[] = [
-        { label: 'Covered', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Check, tone: 'violet' },
+        { label: 'Detected', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Check, tone: 'violet' },
         { label: 'Not detected', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Target, tone: 'violet' },
         { label: 'Retry specific points', value: NOT_ENOUGH_DATA_COMPACT, valueKind: 'missing', Icon: Repeat, tone: 'violet' },
     ];

@@ -22,14 +22,16 @@ describe('FocusPointsRail — topic line + rename (#1046 G6/G7)', () => {
         expect(screen.getByText('c')).toBeInTheDocument();
     });
 
-    it('names the task, not ownership: "Points to cover" (before/during), "What you covered" (after)', () => {
+    // #1254: the after-state title is now "What we detected". The old wording asserted what the SPEAKER
+    // covered; the engine is a conservative keyword matcher and can only report what it detected.
+    it('names the task, not ownership: "Points to cover" (before/during), "What we detected" (after)', () => {
         const { rerender } = render(<FocusPointsRail rows={rows} topic="T" sessionState="before" />);
         expect(screen.getByText('Points to cover')).toBeInTheDocument();
         expect(screen.queryByText('Your points')).not.toBeInTheDocument();
         rerender(<FocusPointsRail rows={rows} topic="T" sessionState="during" nextIndex={0} />);
         expect(screen.getByText('Points to cover')).toBeInTheDocument();
         rerender(<FocusPointsRail rows={rows} topic="T" sessionState="after" />);
-        expect(screen.getByText('What you covered')).toBeInTheDocument();
+        expect(screen.getByText('What we detected')).toBeInTheDocument();
     });
 
     it('after: a missed point states the real cause (last-covered timestamp) then the forward move — no fabricated waste', () => {

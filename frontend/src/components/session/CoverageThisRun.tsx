@@ -1,3 +1,13 @@
+/**
+ * #1254 — DETECTION LANGUAGE, NOT COVERAGE LANGUAGE.
+ *
+ * The engine behind these words is a conservative LOCAL KEYWORD MATCHER. "Covered" asserts the point was
+ * addressed; "missed" asserts the speaker failed to address it. Neither is what was measured — the engine
+ * can only report whether it DETECTED the point's language. A speaker who made the point in their own
+ * words and got an amber "missed" pip was told they failed at something they did.
+ *
+ * So the surface says detected / not detected, which is exactly what the measurement supports.
+ */
 import React from 'react';
 
 /**
@@ -42,7 +52,7 @@ export const CoverageThisRun: React.FC<CoverageThisRunProps> = ({ covered, total
                     <span className="text-[26px] font-extrabold" style={{ color: '#8b95a5' }}>/{total}</span>
                 </p>
                 <p className="text-[14px] font-bold leading-tight text-[#414b5c]">
-                    points covered<br />{secondLine}
+                    points detected<br />{secondLine}
                 </p>
             </div>
 
@@ -50,7 +60,8 @@ export const CoverageThisRun: React.FC<CoverageThisRunProps> = ({ covered, total
             <div className="mt-4 flex gap-[7px]" data-testid="coverage-this-run-pips">
                 {Array.from({ length: total }).map((_, i) => {
                     const isCovered = i < covered;
-                    // In the after state, any point that never got covered reads as a "missed" amber pip.
+                    // In the after state, a point whose language was never DETECTED reads as an amber pip.
+                    // It does not claim the speaker missed the point — only that the matcher did not find it.
                     const isMissed = sessionState === 'after' && !isCovered;
                     const bg = isCovered ? '#1f9d6b' : isMissed ? '#d98a1f' : '#dfe5ee';
                     return <span key={i} className="h-2 flex-1 rounded-full" style={{ backgroundColor: bg }} aria-hidden="true" />;

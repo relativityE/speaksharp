@@ -1,3 +1,13 @@
+/**
+ * #1254 — DETECTION LANGUAGE, NOT COVERAGE LANGUAGE.
+ *
+ * The engine behind these words is a conservative LOCAL KEYWORD MATCHER. "Covered" asserts the point was
+ * addressed; "missed" asserts the speaker failed to address it. Neither is what was measured — the engine
+ * can only report whether it DETECTED the point's language. A speaker who made the point in their own
+ * words and got an amber "missed" pip was told they failed at something they did.
+ *
+ * So the surface says detected / not detected, which is exactly what the measurement supports.
+ */
 import React from 'react';
 import type { FocusCoverageRow } from '@/utils/focusCoverage';
 
@@ -7,7 +17,7 @@ import type { FocusCoverageRow } from '@/utils/focusCoverage';
  * The Focus Points analogue of Open Mic's coaching card: same rail slot, but it holds the declared
  * points and their coverage rather than delivery tips. Four marker states:
  *   - pending  — grey ring + numeral
- *   - covered  — green ✓, struck-through label, "Covered at m:ss" (+ the covering phrase in `after`)
+         *   - covered  — green ✓, struck-through label, "Detected at m:ss" (+ the covering phrase in `after`)
  *   - next-up  — (during only) purple ring on a tinted row, "Still to cover"
  *   - missed   — (after only) amber ✕ on a tinted row; the rail's most important line names where the
  *                time went, because that is the only feedback that changes the next attempt.
@@ -58,7 +68,7 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
 }) => {
     const isAfter = sessionState === 'after';
     // §3: the card names the TASK, not ownership. before/during = "Points to cover"; after = "What you covered".
-    const title = isAfter ? 'What you covered' : 'Points to cover';
+    const title = isAfter ? 'What we detected' : 'Points to cover';
     const topicLabel = (topic ?? '').trim();
 
     // §3 missed-point cause: derived from REAL coverage timestamps (the elapsed between coverage events),
@@ -113,7 +123,9 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                         : isMissed
                             ? 'rounded-lg border border-[#f0dcb8] bg-[#fdf3e2] px-3 py-2'
                             : '';
-                    const statusWord = row.covered ? 'Covered' : isMissed ? 'Not detected' : isNext ? 'Still to cover' : 'Pending';
+                    // 'Detected', not 'Covered': the matcher reports what it FOUND. 'Still to cover' stays — that is an
+    // instruction about what to do next, not an assertion about what the speaker did.
+    const statusWord = row.covered ? 'Detected' : isMissed ? 'Not detected' : isNext ? 'Still to cover' : 'Pending';
                     return (
                         <li key={i} data-testid={`focus-point-${i}`} data-status={row.covered ? 'covered' : isMissed ? 'missing' : 'pending'} className={`flex items-start gap-[11px] ${rowTint}`}>
                             <Marker kind={kind} index={i} />
@@ -124,7 +136,7 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                                 {row.covered && row.coveredAtSec != null && (
                                     <p className="mt-0.5 text-[12px] font-semibold text-[#146b4a]" data-testid={`focus-point-${i}-covered-at`}>
                                         {isAfter && row.quote ? <span className="italic text-[#4b5563]">&ldquo;…{row.quote.trim()}&rdquo;</span> : null}
-                                        {isAfter && row.quote ? ' · ' : ''}Covered at {fmtClock(row.coveredAtSec)}
+                                        {isAfter && row.quote ? ' · ' : ''}Detected at {fmtClock(row.coveredAtSec)}
                                     </p>
                                 )}
                                 {isNext && <p className="mt-0.5 text-[12px] font-bold text-[#6d28d9]">Still to cover</p>}

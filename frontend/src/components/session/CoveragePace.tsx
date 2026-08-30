@@ -1,3 +1,13 @@
+/**
+ * #1254 — DETECTION LANGUAGE, NOT COVERAGE LANGUAGE.
+ *
+ * The engine behind these words is a conservative LOCAL KEYWORD MATCHER. "Covered" asserts the point was
+ * addressed; "missed" asserts the speaker failed to address it. Neither is what was measured — the engine
+ * can only report whether it DETECTED the point's language. A speaker who made the point in their own
+ * words and got an amber "missed" pip was told they failed at something they did.
+ *
+ * So the surface says detected / not detected, which is exactly what the measurement supports.
+ */
 import React from 'react';
 import { computePaceStats, fmtDuration } from '@/utils/focusPace';
 
@@ -51,7 +61,7 @@ export const CoveragePace: React.FC<CoveragePaceProps> = ({ covered, total, elap
                     <span className="font-extrabold leading-none tracking-[-0.035em]" style={{ color: countColor }}>
                         <span data-testid="coverage-pace-covered" className="text-[40px]">{covered}</span><span data-testid="coverage-pace-total" className="text-[26px] text-[#86a597]">/{total}</span>
                     </span>
-                    <span className="text-[14px] font-bold leading-tight text-[#414b5c]">points<br />covered</span>
+                    <span className="text-[14px] font-bold leading-tight text-[#414b5c]">points<br />detected</span>
                 </div>
 
                 {/* Right — before: the configured GUIDE per point (never "current pace"). during/after: the

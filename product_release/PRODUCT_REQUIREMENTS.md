@@ -253,7 +253,9 @@ per request (§7.1).
   state. Its baseline excludes sessions under 30 seconds and sessions without a composite quality value, so a new
   user sees an insufficient-evidence state rather than an invented trend. **That it exists does not make it a
   moat** — switching costs and retention effects are unproven.
-- **Focus Point coverage ships.** The complete Executive Rehearsal experience does **not**. These are two
+- **Focus Points coverage ships.** The broader executive-rehearsal use case — the assembled end-to-end
+  experience — does **not**. "Executive Rehearsal" names a canonical USE CASE of Focus Points, not a
+  separate product. These are two
   statuses, not one.
 - **Pro-interest capture does not ship.** No reachable frontend action and no complete submission journey exist.
 - **The advice → attempt → outcome loop is an instrumentation and attribution gap, not a database join.** The

@@ -23,13 +23,13 @@ describe('#1046 CoverageRail', () => {
         expect(screen.getByTestId('coverage-point-1')).toHaveAttribute('data-status', 'partial');
         expect(screen.getByTestId('coverage-point-2')).toHaveAttribute('data-status', 'missing');
         // Meaning is not colour-only: a status word is present for each state.
-        expect(screen.getByTestId('coverage-point-0')).toHaveTextContent(/covered/i);
-        expect(screen.getByTestId('coverage-point-2')).toHaveTextContent(/not covered/i);
+        expect(screen.getByTestId('coverage-point-0')).toHaveTextContent(/detected/i);
+        expect(screen.getByTestId('coverage-point-2')).toHaveTextContent(/not detected/i);
     });
 
-    it('summarises covered / total', () => {
+    it('summarises detected / total', () => {
         render(<CoverageRail points={POINTS} />);
-        expect(screen.getByTestId('coverage-rail-summary')).toHaveTextContent('1/3 covered');
+        expect(screen.getByTestId('coverage-rail-summary')).toHaveTextContent('1/3 detected');
     });
 
     it('renders nothing-summary safely with zero points', () => {
@@ -37,5 +37,25 @@ describe('#1046 CoverageRail', () => {
         expect(screen.getByTestId('coverage-rail')).toBeInTheDocument();
         expect(screen.queryByTestId('coverage-rail-summary')).toBeNull();
         expect(within(screen.getByTestId('coverage-rail-list')).queryAllByRole('listitem')).toHaveLength(0);
+    });
+});
+
+describe('#1254 — the surface never claims more than the matcher measured', () => {
+    // The engine is a conservative LOCAL KEYWORD MATCHER. "Covered"/"missed" assert what the SPEAKER did;
+    // the measurement only supports what was DETECTED. A speaker who made a point in their own words and
+    // got a "missed" pip was told they failed at something they actually did.
+    it('shows no coverage-claim wording anywhere in the rendered rail', () => {
+        const { container } = render(<CoverageRail points={POINTS} />);
+        const text = container.textContent ?? '';
+        expect(text).not.toMatch(/covered/i);
+        expect(text).not.toMatch(/\bmissed\b/i);
+        expect(text).toMatch(/detected/i);
+    });
+
+    it('keeps the internal status KEY unchanged — this is a copy change, not a data migration', () => {
+        // Renaming the stored status would silently invalidate persisted rows and the coverage engine's
+        // own vocabulary. Only what the user reads changes.
+        render(<CoverageRail points={POINTS} />);
+        expect(screen.getByTestId('coverage-point-0')).toHaveAttribute('data-status', 'covered');
     });
 });
