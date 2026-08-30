@@ -27,10 +27,11 @@ import goldens from '../tests/evidence/normalization/goldens.json' with { type: 
 import { startHarnessServer } from '../tests/evidence/certification/browser/server';
 import { createBrowserArm, isSoftwareAdapter, generationFor } from '../tests/evidence/certification/browser/browserArm';
 import { ARM_MATRIX, ADMITTED_ARMS, SELECTION_EXECUTION_SET, NOT_EXECUTED_REASONS, REQUIRED_MATRIX_ROWS } from '../tests/evidence/certification/arms/registry';
+import { SELECTION_PLANS, selectionPlanDigest, validatePlanCoverage, validateAgainstPlan } from '../tests/evidence/certification/arms/selectionPlan';
 import { planResume, validateCompleteness, type RunIdentity, type CheckpointRow } from '../tests/evidence/certification/checkpoint';
 import { atomicWriteFileSync } from '../tests/evidence/certification/atomicWrite';
 import { ProbeRecorder, type ProbeInvocation } from '../tests/evidence/certification/probeArtifact';
-import { buildAssetInventory, reconcileAssets } from '../tests/evidence/certification/assetInventory';
+import { buildAssetInventory, reconcileAssets, verifyAgainstCommittedPins } from '../tests/evidence/certification/assetInventory';
 import { resolveRetention } from '../tests/evidence/certification/retention';
 import { expectationFor } from '../tests/evidence/certification/arms/build';
 import { certifyArmWithHonorProbe } from '../tests/evidence/certification/certify';
@@ -78,6 +79,7 @@ const args = process.argv.slice(2);
 const arg = (name: string, fallback: string) =>
     args.find((a) => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=') ?? fallback;
 const onlyIds = arg('only', '') ? new Set(arg('only', '').split(',')) : null;
+const planId = arg('selection-plan', '');
 /**
  * RETENTION IS MANDATORY. A measuring run that retains nothing is not evidence — it is a console
  * session that disappears when the terminal closes. The 459-word preflight was run and its result
@@ -121,6 +123,13 @@ const moonshinePins: Record<string, { sha256: string; bytes: number }> = existsS
           assets: Record<string, { sha256: string; bytes: number }>;
       }).assets
     : {};
+const LIB_PIN_FILE = 'tests/fixtures/lib-executable-pins.json';
+const libExecutablePinRegistry: Record<string, { sha256: string; bytes: number; version: string }> =
+    existsSync(LIB_PIN_FILE)
+        ? (JSON.parse(readFileSync(LIB_PIN_FILE, 'utf8')) as {
+              assets: Record<string, { sha256: string; bytes: number; version: string }>;
+          }).assets
+        : {};
 const pins: Record<string, string> = existsSync(PIN_FILE)
     ? (JSON.parse(readFileSync(PIN_FILE, 'utf8')) as { assets: Record<string, string> }).assets
     : {};
@@ -135,6 +144,35 @@ const corpusProvenance = {
 };
 
 const evidenceClass = EVIDENCE_SETS[setName]?.evidenceClass ?? 'unknown';
+
+/**
+ * A TARGETED SELECTION RUN IS A COMMITTED PLAN, NEVER AN AD HOC `--only`.
+ *
+ * `--only` is a debugging subset: retention calls it one, and BOTH artifact and checkpoint completeness
+ * are skipped when it is present. But an explicit `--out` still retains the run and `selectionEligible`
+ * never required a complete plan — so a four-arm `--only` over the corpus set could write four
+ * SELECTION-ELIGIBLE rows while silently omitting the rest of the matrix. The artifact would read as
+ * selection evidence and be a fragment. Refusing it here is the only place that cannot be bypassed.
+ */
+const selectionPlan = planId ? SELECTION_PLANS[planId] : null;
+if (planId && !selectionPlan) {
+    console.error(`\nREFUSING to run: unknown selection plan '${planId}'. Known: ${Object.keys(SELECTION_PLANS).join(', ')}`);
+    process.exit(1);
+}
+if (selectionPlan) {
+    const coverage = validatePlanCoverage(selectionPlan);
+    if (!coverage.ok) {
+        console.error(`\nREFUSING to run: selection plan '${selectionPlan.id}' is ${coverage.reason} (${coverage.detail})`);
+        process.exit(1);
+    }
+}
+if (evidenceClass === 'selection' && onlyIds && !selectionPlan) {
+    console.error('\nREFUSING to run: --only on a SELECTION set cannot produce selection evidence.');
+    console.error('  A subset run skips completeness, so its rows would claim selection eligibility while the');
+    console.error('  rest of the matrix was silently omitted. Use --selection-plan=<id> for a targeted run,');
+    console.error('  which accounts for every registered arm as measured or dispositioned.');
+    process.exit(1);
+}
 console.log(`\n#1304 BROWSER lane — set=${setName} (${evidenceClass}), `
     + `${set.clips.length} clips / ${set.referenceWords} normalized words, mirror mode=${mode}\n`);
 
@@ -315,7 +353,11 @@ const runIdentity: RunIdentity = {
     ]),
     setName,
     evidenceClass,
-};
+    // A checkpoint measured under a DIFFERENT plan is a different experiment; the digest binds the plan
+    // FILE, so editing it cannot silently splice rows across the edit.
+    selectionPlanId: selectionPlan?.id ?? null,
+    selectionPlanDigest: selectionPlan ? selectionPlanDigest() : null,
+} as RunIdentity & { selectionPlanId: string | null; selectionPlanDigest: string | null };
 
 const hostAtStart = hostGate();
 const partialPath = outPath ? outPath.replace(/\.json$/, '') + '.partial.json' : '';
@@ -394,6 +436,14 @@ const checkpoint = (): void => {
 
 for (const spec of ARM_MATRIX) {
     if (onlyIds && !onlyIds.has(spec.id)) continue;
+    // Under a plan, an arm is either measured or preserved with the plan's typed reason — never skipped.
+    if (selectionPlan && !selectionPlan.measured.includes(spec.id)) {
+        const reason = selectionPlan.dispositions[spec.id];
+        results.push({ id: spec.id, lane: 'browser', set: setName, evidenceClass, executed: false, reason });
+        console.log(`\n  ${spec.id}  — not measured under ${selectionPlan.id} (${reason})`);
+        checkpoint();
+        continue;
+    }
     if (alreadyDone.has(spec.id)) {
         console.log(`\n  ${spec.id}  — already in checkpoint, not re-measured`);
         continue;
@@ -1044,9 +1094,33 @@ for (const spec of ARM_MATRIX) {
      * whose provenance does not reconcile is not selection evidence, however good the number is.
      */
     const armInventory = buildAssetInventory(allArmAssets, null);
+    /**
+     * TWO AUTHORITIES, each doing the job it can actually do.
+     *
+     *  1. SERVED LEDGER vs COMMITTED PINS — the independent check. `allArmAssets` is what the harness
+     *     server actually served (complete, with bytes and digests); the pin files are a separate,
+     *     reviewed authority. A served file whose bytes disagree with its committed digest is caught
+     *     here and nowhere else.
+     *  2. The Playwright response trace stays DIAGNOSTIC. It cannot see worker- or module-initiated
+     *     requests, which is why the previous artifact reported `ok:true` while observing 10 of 30
+     *     files with a null byte total. It may corroborate; it may not confer `ok`.
+     */
+    const committedPinAuthority: Record<string, { sha256: string; bytes?: number; version?: string }> = {
+        ...libExecutablePinRegistry,
+        ...Object.fromEntries(Object.entries(moonshinePins).map(([k, v]) => [k, { sha256: v.sha256, bytes: v.bytes }])),
+        ...Object.fromEntries(Object.entries(pins).map(([k, v]) => [k, { sha256: v }])),
+    };
+    const pinVerification = verifyAgainstCommittedPins(armInventory, committedPinAuthority, {
+        // Everything that EXECUTES, plus every model weight the arm loaded.
+        require: (f) => /\.(mjs|js|wasm|onnx|ort|bin)$/.test(f.name),
+    });
     const assetReconciliation = reconcileAssets(armInventory, Object.fromEntries(observedRequests), {
         requirePinned: mode === 'pinned',
     });
+    if (!pinVerification.ok) {
+        console.log(`    COMMITTED-PIN VERIFICATION FAILED (${pinVerification.failures.length}) — arm not selection-grade:`);
+        for (const f of pinVerification.failures.slice(0, 6)) console.log(`      ${f.kind}: ${f.detail}`);
+    }
     if (!assetReconciliation.ok) {
         console.log(`    ASSET RECONCILIATION FAILED (${assetReconciliation.failures.length}) — arm not selection-grade:`);
         for (const f of assetReconciliation.failures.slice(0, 6)) console.log(`      ${f.kind}: ${f.detail}`);
@@ -1096,6 +1170,7 @@ for (const spec of ARM_MATRIX) {
     const selectionEligible = backendProven && result.ok && evidenceClass === 'selection'
         && spec.role === 'selection' && harness.assetFailures.length === 0
         && assetReconciliation.ok
+        && pinVerification.ok
         && dirtyCounters.length === 0;
     const ineligible = !selectionEligible
         ? evidenceClass !== 'selection'
@@ -1106,7 +1181,9 @@ for (const spec of ARM_MATRIX) {
                         : harness.assetFailures.length > 0 ? 'asset pins failed'
                             : !assetReconciliation.ok
                                 ? `asset reconciliation: ${assetReconciliation.failures.map((f) => f.kind).join(', ')}`
-                                : `reliability: ${dirtyCounters.map(([k, v]) => `${k}=${v}`).join(', ')}`
+                                : !pinVerification.ok
+                                    ? `committed pins: ${pinVerification.failures.map((f) => f.kind).join(', ')}`
+                                    : `reliability: ${dirtyCounters.map(([k, v]) => `${k}=${v}`).join(', ')}`
         : null;
 
     console.log(`    backend: ${honored?.deviceResolved ?? 'UNRESOLVED'} (${backendProven ? 'PROVEN' : 'NOT proven'})`
@@ -1199,6 +1276,8 @@ for (const spec of ARM_MATRIX) {
         // Reconciled against an INDEPENDENTLY OBSERVED ledger, not against a total derived from the same
         // object. The previous form compared allArmAssets to a modelBytes computed from allArmAssets.
         assetReconciliation,
+        // The INDEPENDENT authority. `assetReconciliation` alone is harness-vs-harness.
+        pinVerification,
         observedRequestCount: observedRequests.size,
         // Kept for continuity with earlier artifacts; the inventory above is the authority.
         decoderAssets: Object.entries(allArmAssets)
@@ -1294,6 +1373,18 @@ if (outPath) {
     // A checkpoint becomes the FINAL artifact only when every required row is accounted for — measured,
     // skipped, or preserved with a named not-executed reason. A hole in a selection table reads as
     // "not applicable" rather than "unknown", which is the more dangerous of the two.
+    if (selectionPlan) {
+        // EVERY registered arm, measured or dispositioned. A four-row artifact cannot satisfy this.
+        const planned = validateAgainstPlan(
+            results as { id: string }[], selectionPlan,
+            (row) => (row as { selectionEligible?: boolean }).selectionEligible === true,
+        );
+        if (!planned.ok) {
+            console.error(`\nREFUSING to finalise ${outPath}: plan ${selectionPlan.id} ${planned.reason} (${planned.detail})`);
+            console.error(`The checkpoint at ${partialPath} is retained; resume to complete it.`);
+            process.exit(1);
+        }
+    }
     if (!onlyIds) {
         const complete = validateCompleteness(results as CheckpointRow[], REQUIRED_MATRIX_ROWS);
         if (!complete.ok) {

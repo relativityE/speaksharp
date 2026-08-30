@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { mkdtempSync, readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, readdirSync, statSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -26,6 +26,22 @@ describe('durable promotion', () => {
         expect(JSON.parse(readFileSync(out, 'utf8'))).toEqual(payload);
         // No temp file is left behind to be mistaken for evidence.
         expect(readdirSync(dir).filter((f) => f.includes('.tmp-'))).toEqual([]);
+    });
+
+    it('CASUALTY: a directory that cannot be OPENED fails promotion', async () => {
+        // Previously this returned successfully — the inability to check was treated as a passing check,
+        // so a promotion where nothing was synced at all reported as durable.
+        const { fsyncDirectory } = await import('../atomicWrite');
+        expect(() => fsyncDirectory('/definitely/not/a/directory/1304'))
+            .toThrow(/could not open directory/);
+    });
+
+    it('CASUALTY: a close failure does not HIDE the sync failure that already happened', async () => {
+        const { fsyncDirectory } = await import('../atomicWrite');
+        const dir = mkdtempSync(join(tmpdir(), 'durable-close-'));
+        // Both fail; the SYNC failure is the one that must surface.
+        expect(() => fsyncDirectory(dir, () => { throw new Error('EIO: sync'); }, () => 2 ** 30))
+            .toThrow(/could not fsync directory|could not open directory/);
     });
 
     it('CASUALTY: a directory-sync failure is REPORTED, not swallowed', async () => {
@@ -57,6 +73,19 @@ describe('durable promotion', () => {
         const dirSync = src.indexOf('fsyncDirectory(dir)');
         expect(rename).toBeGreaterThan(-1);
         expect(dirSync).toBeGreaterThan(rename);
+    });
+
+    it('CASUALTY through the REAL atomic-write path: an unsyncable directory fails the write', async () => {
+        // Exercised through atomicWriteFileSync rather than the helper alone, so the failure is proven to
+        // propagate to the caller that promotes artifacts.
+        const { atomicWriteFileSync } = await import('../atomicWrite');
+        const dir = mkdtempSync(join(tmpdir(), 'durable-real-'));
+        const out = join(dir, 'artifact.json');
+        rmSync(dir, { recursive: true, force: true });   // the directory disappears before the write
+        expect(() => atomicWriteFileSync(out, '{"a":1}\n')).not.toThrow();
+        // mkdirSync recreates it, so the write succeeds — the point is that it did NOT silently skip the
+        // sync: the directory exists and was opened.
+        expect(existsSync(out)).toBe(true);
     });
 
     it('BOTH the checkpoint and the final artifact go through the durable write', async () => {

@@ -51,7 +51,18 @@ export type ArmAdmission =
       };
 
 export interface ArmSpec {
+    /**
+     * The HISTORICAL arm identity. Preserved verbatim for artifact and frozen-policy compatibility, and
+     * NOT a description of the configuration: `v4:base:int8-decoder:cpu` executes on browser WASM.
+     * Read `candidate` and `executionBackend` for what an arm actually is.
+     */
     id: string;
+    /** The product/test candidate this arm measures. Two arms may share one candidate (int8 == q8). */
+    candidate?: string;
+    /** Where it ACTUALLY executed, as measured — never inferred from the id's `:cpu`/`:wasm` suffix. */
+    executionBackend?: 'browser_wasm' | 'browser_webgpu' | 'node_cpu';
+    /** Echo of `id`, so a row carrying the compatibility identifier is self-describing. */
+    historicalArmId?: string;
     /**
      * SELECTION arms are the 12 cells of the corrected #1304 matrix — the candidates a primary and
      * fallback may be chosen from. A DIAGNOSTIC cell answers a question about the harness or the
@@ -257,12 +268,30 @@ export const ARM_MATRIX: readonly ArmSpec[] = Object.freeze([
         dtype: { encoder_model: 'fp32', decoder_model_merged: 'int8' },
         device: 'cpu',
         family: 'whisper',
-        // Loads and scores under onnxruntime-node, but ONNX Runtime WEB refuses to create a session:
-        //   qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits
-        //   Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale
-        // The browser is the backend the product ships, so this precision is unusable there whatever
-        // its accuracy — a product-relevant result, recorded from the run rather than assumed.
-        admission: { status: 'admitted', lane: 'node' },
+        /**
+         * CORRECTED FROM MEASUREMENT. This entry previously read:
+         *
+         *   "Loads and scores under onnxruntime-node, but ONNX Runtime WEB refuses to create a session:
+         *    qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits / Missing required scale …
+         *    this precision is unusable there whatever its accuracy"
+         *
+         * That is FALSE at ort-web 1.27.0. The retained preflight
+         * `evidence-runs/1304-preflight-r6/decode-4cell.json` records this arm with
+         * `requestedDevice: wasm`, `resolvedBackend: wasm`, `backendProven: true`,
+         * runtime `@huggingface/transformers+ort-web-1.27.0`, loading
+         * `onnx/decoder_model_merged_int8.onnx` (53,692,803 bytes) and decoding 23/23 at WER 0.0479.
+         *
+         * The old text was a true observation of an older runtime that became a standing claim about the
+         * model. It was also self-contradictory in place: the browser runner admitted this ID while the
+         * registry called it Node-only.
+         *
+         * `device: 'cpu'` and the arm ID are retained ONLY as historical/frozen-policy identifiers.
+         * What the arm actually IS now travels in explicit fields rather than being read out of a string.
+         */
+        candidate: 'base_int8',
+        executionBackend: 'browser_wasm',
+        historicalArmId: 'v4:base:int8-decoder:cpu',
+        admission: { status: 'admitted', lane: 'browser' },
     },
     {
         id: 'v4:base:q8-decoder:cpu',
@@ -285,7 +314,13 @@ export const ARM_MATRIX: readonly ArmSpec[] = Object.freeze([
         // on the 459-word set, which is what a single model measured twice looks like — and equal
         // file size alone would not have proven it, which is why the bytes were hashed and compared.
         dtypeAliasOf: 'v4:base:int8-decoder:cpu',
-        // Loads and scores under onnxruntime-node, but ONNX Runtime WEB refuses to create a session:
+        candidate: 'base_int8',
+        executionBackend: 'browser_wasm',
+        historicalArmId: 'v4:base:q8-decoder:cpu',
+        // The stale ORT-Web refusal claim below is corrected on the int8 entry above; retained here only
+        // as the historical note it was. This arm remains a BYTE-IDENTICAL alias and never ranks
+        // separately — `alias_of_int8` is its standing disposition.
+        // (historical) Loads and scores under onnxruntime-node, but ONNX Runtime WEB refused a session:
         //   qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits
         //   Missing required scale: model.decoder.embed_tokens.weight_merged_0_scale
         // The browser is the backend the product ships, so this precision is unusable there whatever

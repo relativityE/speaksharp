@@ -43,18 +43,38 @@ export function atomicWriteFileSync(path: string, contents: string): void {
  * durable when nothing established that. On platforms where a directory cannot be opened for fsync the
  * call is a documented no-op — but an OPENED directory that fails to sync is a real failure and throws.
  */
-export function fsyncDirectory(dir: string, sync: (fd: number) => void = fsyncSync): void {
+export function fsyncDirectory(
+    dir: string,
+    sync: (fd: number) => void = fsyncSync,
+    open: (p: string) => number = (p) => openSync(p, 'r'),
+): void {
+    /**
+     * FAILS CLOSED ON EVERY STEP.
+     *
+     * This previously returned SUCCESSFULLY when the directory could not be opened, on the reasoning that
+     * some platforms disallow it. That made `atomicWriteFileSync` report a durable promotion in exactly
+     * the case where nothing was synced at all — the inability to check was treated as a passing check,
+     * which is the one interpretation that must never be allowed. If durability cannot be established, it
+     * has not been established.
+     */
     let fd: number;
     try {
-        fd = openSync(dir, 'r');
-    } catch {
-        return;   // the platform does not permit opening a directory; nothing further can be proven here
+        fd = open(dir);
+    } catch (err) {
+        throw new Error(`durable promotion failed: could not open directory ${dir} to sync it: ${(err as Error).message}`);
     }
+    let primary: unknown = null;
     try {
         sync(fd);
     } catch (err) {
-        throw new Error(`durable promotion failed: could not fsync directory ${dir}: ${(err as Error).message}`);
-    } finally {
-        closeSync(fd);
+        primary = new Error(`durable promotion failed: could not fsync directory ${dir}: ${(err as Error).message}`);
     }
+    try {
+        closeSync(fd);
+    } catch (closeErr) {
+        // A close failure must never HIDE the sync failure that already occurred.
+        if (primary) throw primary;
+        throw new Error(`durable promotion failed: could not close directory ${dir}: ${(closeErr as Error).message}`);
+    }
+    if (primary) throw primary;
 }

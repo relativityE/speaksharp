@@ -63,10 +63,19 @@ export interface ObservedRequest { bytes: number | null; status: number; count: 
 export type ReconciliationFailure =
     | 'empty_inventory' | 'declared_not_observed' | 'observed_not_declared'
     | 'byte_mismatch' | 'duplicate_request' | 'unpinned_asset' | 'missing_required_role'
-    | 'reported_total_mismatch';
+    | 'reported_total_mismatch'
+    /** A served file whose response carried no length — its bytes were never independently observed. */
+    | 'missing_byte_count'
+    /** Declared and pinned, but absent from a ledger that claims to be complete. */
+    | 'declared_not_served';
 
 export interface AssetReconciliation {
     ok: boolean;
+    /** Fraction of declared files the observed channel actually saw. */
+    ledgerCoverage?: number;
+    /** Which authority `ok` rests on — never left for the reader to infer. */
+    ledgerAuthority?: 'served_ledger' | 'declared_pins_only';
+    missingByteCounts?: string[];
     failures: Array<{ kind: ReconciliationFailure; detail: string }>;
     /** Observed more than once — normal per-worker fetching, retained for visibility, never a failure. */
     repeatedRequests: string[];
@@ -125,7 +134,7 @@ const makeMatcher = (declaredKeys: string[], observedKeys: string[]) => {
 export function reconcileAssets(
     inventory: AssetInventory,
     observed: Record<string, ObservedRequest>,
-    opts: { requirePinned: boolean },
+    opts: { requirePinned: boolean; requireCompleteLedger?: boolean },
 ): AssetReconciliation {
     const failures: Array<{ kind: ReconciliationFailure; detail: string }> = [];
     const duplicates: string[] = [];
@@ -185,9 +194,36 @@ export function reconcileAssets(
         });
     }
 
-    const observedBytes = observedEntries.every(([, r]) => r.bytes !== null)
+    /**
+     * THE LEDGER MUST SAY WHAT IT ACTUALLY PROVES.
+     *
+     * The r6 artifact reported `ok:true` while independently observing 10 of 30 declared files with a
+     * NULL byte total. That is pinned server-side inventory — real, but not the "complete independent
+     * byte/request reconciliation" the field name claimed. The Playwright response trace cannot see
+     * worker- and module-initiated requests, so it is a DIAGNOSTIC channel, and a diagnostic channel must
+     * not be the thing that makes a reconciliation `ok`.
+     *
+     * Coverage and byte-completeness are therefore reported as their own facts, and an incomplete or
+     * byteless ledger is a FAILURE rather than a silent pass.
+     */
+    const missingByteCounts = observedEntries.filter(([, r]) => r.bytes === null).map(([k]) => k);
+    const observedBytes = missingByteCounts.length === 0
         ? observedEntries.reduce((a, [, r]) => a + (r.bytes ?? 0), 0)
         : null;
+
+    if (opts.requireCompleteLedger) {
+        for (const k of missingByteCounts) {
+            failures.push({ kind: 'missing_byte_count', detail: k });
+        }
+        // Every DECLARED file must appear in the served ledger. Cached files are exempt from the NETWORK
+        // ledger above, but not from a ledger that claims to be complete.
+        const unobserved = inventory.files
+            .filter((f) => !observedEntries.some(([k]) => sameFile(f.name, k)))
+            .map((f) => f.name);
+        for (const name of unobserved) {
+            failures.push({ kind: 'declared_not_served', detail: name });
+        }
+    }
 
     return {
         ok: failures.length === 0,
@@ -197,5 +233,63 @@ export function reconcileAssets(
         observedFiles: observedEntries.length,
         declaredBytes: inventory.totalBytes,
         observedBytes,
+        missingByteCounts,
+        /** What the observed channel actually covered. `1` only when it saw every declared file. */
+        ledgerCoverage: inventory.fileCount === 0 ? 0
+            : inventory.files.filter((f) => observedEntries.some(([k]) => sameFile(f.name, k))).length / inventory.fileCount,
+        /** Names the authority behind `ok`, so a reader is never left inferring it. */
+        ledgerAuthority: opts.requireCompleteLedger ? 'served_ledger' : 'declared_pins_only',
     };
+}
+
+/** A committed expectation for one asset: the authority a served file is checked against. */
+export interface CommittedPin { sha256: string; bytes?: number; version?: string }
+
+export type PinVerification =
+    | { ok: true; checked: number; authority: 'committed_pins' }
+    | { ok: false; failures: Array<{ kind: 'unpinned' | 'hash_mismatch' | 'byte_mismatch'; detail: string }>; checked: number; authority: 'committed_pins' };
+
+/**
+ * Reconcile the SERVED ledger against the COMMITTED pin registry.
+ *
+ * This is where the independence actually lives. The served ledger and the declared inventory are both
+ * written by the harness, so comparing them proves only self-consistency — the criticism that landed
+ * against `ok:true` with 10 of 30 files observed. The committed pins are a DIFFERENT authority: a file
+ * checked in, reviewed, and unchanged by the run. A served file whose bytes disagree with its committed
+ * digest is caught here and nowhere else.
+ *
+ * The Playwright response trace stays DIAGNOSTIC: it cannot observe worker- or module-initiated requests,
+ * so it can corroborate but must never be the thing that makes a reconciliation `ok`.
+ */
+export function verifyAgainstCommittedPins(
+    inventory: AssetInventory,
+    pins: Readonly<Record<string, CommittedPin>>,
+    opts: { require: (f: AssetInventory['files'][number]) => boolean },
+): PinVerification {
+    const failures: Array<{ kind: 'unpinned' | 'hash_mismatch' | 'byte_mismatch'; detail: string }> = [];
+    let checked = 0;
+    const keys = Object.keys(pins);
+    const findPin = (name: string): CommittedPin | undefined => {
+        if (pins[name]) return pins[name];
+        const b = base(name);
+        const hit = keys.filter((k) => base(k) === b);
+        return hit.length === 1 ? pins[hit[0]] : undefined;   // never collapse an ambiguous basename
+    };
+
+    for (const f of inventory.files) {
+        if (!opts.require(f)) continue;
+        checked += 1;
+        const pin = findPin(f.name);
+        if (!pin) { failures.push({ kind: 'unpinned', detail: f.name }); continue; }
+        if (pin.sha256 !== f.sha256) {
+            failures.push({ kind: 'hash_mismatch', detail: `${f.name}: served ${f.sha256} != committed ${pin.sha256}` });
+            continue;
+        }
+        if (typeof pin.bytes === 'number' && pin.bytes !== f.bytes) {
+            failures.push({ kind: 'byte_mismatch', detail: `${f.name}: served ${f.bytes} != committed ${pin.bytes}` });
+        }
+    }
+    return failures.length
+        ? { ok: false, failures, checked, authority: 'committed_pins' }
+        : { ok: true, checked, authority: 'committed_pins' };
 }
