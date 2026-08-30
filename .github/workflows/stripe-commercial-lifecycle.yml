@@ -11,6 +11,16 @@ on:
         description: 'Type TEST-MODE-ONLY to confirm no live credential is intended'
         required: true
         type: string
+  # A workflow_dispatch workflow can only be dispatched once it exists on the DEFAULT branch, so before
+  # this file is merged the only way to execute it remotely is from the PR that introduces it. Scoped to
+  # the billing lane's own paths so it runs when that lane changes and never as ambient CI noise.
+  #
+  # Safe on a fork PR by construction: GitHub withholds secrets there, and the run then fails closed on
+  # the missing TEST key rather than doing anything with a live one.
+  pull_request:
+    paths:
+      - 'scripts/billing-qualification/**'
+      - '.github/workflows/stripe-commercial-lifecycle.yml'
 
 permissions:
   contents: read
@@ -27,6 +37,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Refuse an unacknowledged dispatch
+        # Only a MANUAL dispatch needs the acknowledgement; a pull_request run has no inputs, and the
+        # test-mode boundary is enforced by the key guard below and by the runner regardless of trigger.
+        if: github.event_name == 'workflow_dispatch'
         run: |
           set -euo pipefail
           if [ "${{ inputs.acknowledge_test_mode }}" != 'TEST-MODE-ONLY' ]; then
