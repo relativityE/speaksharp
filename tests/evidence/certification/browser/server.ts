@@ -280,6 +280,31 @@ export async function startHarnessServer(
             const file = join(dir, relative);
             if (!file.startsWith(dir) || !existsSync(file) || !statSync(file).isFile()) continue;
 
+            /**
+             * EXECUTABLE MODULES SERVED HERE ARE PART OF THE ARM'S PROVENANCE.
+             *
+             * Only `/runtime/` requests were recorded, so a `.mjs` or `.wasm` served from `/lib/` executed
+             * without appearing in the arm's declared inventory at all. The first preflight caught exactly
+             * that: `ort.webgpu.bundle.min.mjs`, `moonshine.mjs` and `moonshine.wasm` were observed on the
+             * wire and declared nowhere, so the arm fingerprint did not bind every byte that ran — the same
+             * defect class as a verdict reporting 9 files while its provenance reported 7.
+             *
+             * Recording them here does NOT claim they are pinned: `/runtime/` remains the pin-enforcing
+             * mount, and these are reported `pinned: false` truthfully. What changes is that they are
+             * DECLARED, with their digest, so the inventory can be reconciled against what was fetched.
+             */
+            if (/\.(mjs|js|wasm)$/.test(relative)) {
+                const moduleBytes = readFileSync(file);
+                const key = `lib/${relative}`;
+                runtimeServed[key] = {
+                    sha256: createHash('sha256').update(moduleBytes).digest('hex'),
+                    bytes: moduleBytes.length,
+                    source: 'cache',
+                    pinned: false,
+                };
+                runtimeCapture?.add(key);
+            }
+
             res.writeHead(200, {
                 'content-type': TYPES[extname(file)] ?? 'application/octet-stream',
                 // Cross-origin isolation: what makes SharedArrayBuffer — and therefore ORT Web's
