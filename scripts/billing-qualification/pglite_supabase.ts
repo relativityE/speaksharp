@@ -11,9 +11,20 @@ const read = (p: string): string => Deno.readTextFileSync(new URL(p, REPO));
 // executed webhook-lifecycle integration proof applies).
 const MIGRATION_SQL: readonly string[] = [
   "tests/db/webhook-lifecycle-bootstrap.sql",
+  // Supabase PLATFORM table (auth.users). No migration of ours creates it, so PGlite must be given it
+  // before the real trial migrations — which trigger off it — can apply.
+  "tests/db/trial-lifecycle-bootstrap.sql",
+  // Creates trial_entitlements, the resolver, and the on_auth_user_created_trial_profile TRIGGER.
+  "backend/supabase/migrations/20260521100000_auto_trial_entitlements.sql",
   "backend/supabase/migrations/20260812002000_webhook_lifecycle_completeness_1282.sql",
   "backend/supabase/migrations/20260812039500_webhook_duplicate_snapshot_convergence_1282.sql",
+  // #1302: the DB-BACKED TRIAL. Without these the ephemeral DB had no trial at all, so the first three
+  // steps of the commercial lifecycle — a 30-day trial granted with ZERO Stripe objects — could not be
+  // proven against real SQL. `ensure_trial_profile_for_new_user()` is the production stamping path.
+  "backend/supabase/migrations/20260812040000_thirty_day_trial_lifecycle_1282.sql",
+  "backend/supabase/migrations/20260812041000_trial_expiry_fail_closed_1282.sql",
   "backend/supabase/migrations/20260812041500_flawless_launch_runtime_convergence_1290.sql",
+  "backend/supabase/migrations/20260812041600_trial_commercial_grant_on_conflict_1294.sql",
 ].map(read);
 
 export interface SnapshotResult {
@@ -58,9 +69,66 @@ export async function migratedDb(userId: string): Promise<{ db: PGlite; supabase
 
 /** Server-authoritative effective tier for the seeded user (the entitlement the customer would receive). */
 export async function effectiveTier(db: PGlite, userId: string): Promise<string> {
+  // THE 5-ARG CANONICAL RESOLVER.
+  //
+  // The 4-arg overload FAILS CLOSED ON TRIALS BY DESIGN — its own comment says the legacy signature
+  // "cannot carry the immutable commercial grant marker", so it returns 'free' for a perfectly live
+  // 30-day trial. Reading entitlement through it made a correct trial look like no entitlement at all.
+  // The canonical overload takes `commercial_trial_granted_at` and is what the product resolves with.
   const r = await db.query<{ t: string }>(
-    `SELECT public.effective_subscription_tier(subscription_status, trial_expires_at, stripe_subscription_id, subscription_id) AS t
-       FROM public.user_profiles WHERE id = '${userId}'`,
+    `SELECT public.effective_subscription_tier(
+              subscription_status, trial_expires_at, stripe_subscription_id, subscription_id,
+              commercial_trial_granted_at) AS t
+       FROM public.user_profiles WHERE id = $1`, [userId],
   );
   return r.rows[0].t;
+}
+
+/**
+ * #1302 — a FRESH account through the real profile path.
+ *
+ * Deliberately calls `ensure_trial_profile_for_new_user()` rather than inserting a row with hand-written
+ * trial columns: the point is to prove what the PRODUCTION path grants, not what a fixture can assert
+ * about itself.
+ */
+export async function freshTrialProfile(db: PGlite, userId: string): Promise<{
+  trialStartedAt: string | null; trialEndsAt: string | null;
+  stripeCustomerId: string | null; stripeSubscriptionId: string | null; subscriptionStatus: string;
+}> {
+  // THE PRODUCTION PATH IS AN AUTH INSERT, NOT A FUNCTION CALL.
+  // `ensure_trial_profile_for_new_user()` is a TRIGGER function on auth.users reading NEW.id/NEW.email;
+  // invoking it directly would neither compile nor exercise what a real signup does. Inserting the user
+  // and letting the trigger stamp the profile is the actual product path.
+  await db.query(`DELETE FROM public.user_profiles WHERE id = $1`, [userId]);
+  await db.query(`DELETE FROM auth.users WHERE id = $1`, [userId]);
+  await db.query(`INSERT INTO auth.users (id, email) VALUES ($1, $2)`, [userId, `qual-${userId}@example.invalid`]);
+  const r = await db.query<{
+    trial_started_at: string | null; trial_expires_at: string | null;
+    stripe_customer_id: string | null; stripe_subscription_id: string | null; subscription_status: string;
+  }>(
+    `SELECT trial_started_at, trial_expires_at, stripe_customer_id, stripe_subscription_id, subscription_status
+       FROM public.user_profiles WHERE id = $1`, [userId],
+  );
+  const row = r.rows[0];
+  if (!row) throw new Error("#1302: the production profile path created no profile row");
+  return {
+    trialStartedAt: row.trial_started_at, trialEndsAt: row.trial_expires_at,
+    stripeCustomerId: row.stripe_customer_id, stripeSubscriptionId: row.stripe_subscription_id,
+    subscriptionStatus: row.subscription_status,
+  };
+}
+
+/**
+ * Expire the trial window IN THE DATABASE.
+ *
+ * A Stripe Test Clock advances Stripe's clock, not Postgres's `now()`. Trial expiry is evaluated by SQL
+ * against the stored window, so the honest way to reach the expired state is to move the window into the
+ * past and let the SAME resolver decide. Nothing about the entitlement logic is bypassed.
+ */
+export async function expireTrialWindow(db: PGlite, userId: string): Promise<void> {
+  await db.query(
+    `UPDATE public.user_profiles
+        SET trial_started_at = now() - interval '31 days', trial_expires_at = now() - interval '1 day'
+      WHERE id = $1`, [userId],
+  );
 }
