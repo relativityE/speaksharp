@@ -1,0 +1,42 @@
+
+#1304 BROWSER lane — set=preflight (preflight), 23 clips / 459 normalized words, mirror mode=pinned
+
+
+  v4:base:q4-decoder:wasm  (v4 base, fp32 encoder + q4 decoder, WASM)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0414  words=459 S=14 D=1 I=4
+    selection eligible: no — preflight is a preflight set — not selection evidence
+    cold load 2074ms · warm p50 1278ms p95 1931ms · RTF p50 0.202 p95 0.397
+    download 234.3 MB over 30 files · reliability decoded=23/23 threw=0 empty=0 missing=0 truncated=0
+
+  v4:base:int8-decoder:cpu  (v4 base, int8 decoder)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0479  words=459 S=17 D=1 I=4
+    selection eligible: no — preflight is a preflight set — not selection evidence
+    cold load 1297ms · warm p50 1210ms p95 1768ms · RTF p50 0.200 p95 0.342
+    download 164.4 MB over 30 files · reliability decoded=23/23 threw=0 empty=0 missing=0 truncated=0
+
+  moonshine:streaming-small  (Moonshine Streaming Small (official @moonshine-ai/moonshine-wasm))
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0632  words=459 S=17 D=0 I=12
+    selection eligible: no — preflight is a preflight set — not selection evidence
+    cold load 910ms · warm p50 626ms p95 1586ms · RTF p50 0.107 p95 0.126
+    download 178.9 MB over 26 files · reliability decoded=23/23 threw=0 empty=0 missing=0 truncated=0
+
+  moonshine:streaming-medium  (Moonshine Streaming Medium (official @moonshine-ai/moonshine-wasm))
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0523  words=459 S=14 D=0 I=10
+    selection eligible: no — preflight is a preflight set — not selection evidence
+    cold load 1802ms · warm p50 1139ms p95 3015ms · RTF p50 0.189 p95 0.229
+    download 318.1 MB over 26 files · reliability decoded=23/23 threw=0 empty=0 missing=0 truncated=0
+
+
+=== BROWSER LANE SUMMARY ===
+  0.0414  v4:base:q4-decoder:wasm              wasm:1 module(s)             not eligible
+  0.0479  v4:base:int8-decoder:cpu             wasm:1 module(s)             not eligible
+  0.0632  moonshine:streaming-small            wasm:1 module(s)             not eligible
+  0.0523  moonshine:streaming-medium           wasm:1 module(s)             not eligible
+
+  evidence class: preflight. NO row from this set may inform the down-select.
+
+wrote evidence-runs/1304-preflight-r6/decode-4cell.json

@@ -1,0 +1,237 @@
+{
+  "lane": "browser",
+  "set": "preflight",
+  "evidenceClass": "preflight",
+  "identity": {
+    "productBaseline": "8f770766",
+    "executionSha": "a5882093",
+    "policySha": "6a25ba51e881d2e6633a9f5b47be270b",
+    "corpusDigest": "1f6af011d135b6804f9499da1a2798d0",
+    "normalizerId": "09217ac31b887ed696f95c1c5d3da579",
+    "registryDigest": "7e1c16813a113da4db311295b4f15d0b",
+    "assetDigest": "63fc7c31e018174155f7f21ee830bbb7",
+    "setName": "preflight",
+    "evidenceClass": "preflight"
+  },
+  "hostAtStart": {
+    "capturedAt": "2026-08-30T11:11:35.350Z",
+    "cpuCores": 8,
+    "platform": "darwin",
+    "arch": "arm64",
+    "loadAverage": [
+      2.53759765625,
+      3.212890625,
+      3.2568359375
+    ],
+    "pageouts": 3939066,
+    "swapouts": 156114016,
+    "swapUsedMb": 5889,
+    "note": "Point-in-time at run start. Counter DELTAS across a run are what indicate pressure; a high historical swap allocation is not itself a gate."
+  },
+  "hostAtEnd": {
+    "capturedAt": "2026-08-30T11:11:36.701Z",
+    "cpuCores": 8,
+    "platform": "darwin",
+    "arch": "arm64",
+    "loadAverage": [
+      2.53759765625,
+      3.212890625,
+      3.2568359375
+    ],
+    "pageouts": 3939066,
+    "swapouts": 156114016,
+    "swapUsedMb": 5889,
+    "note": "Point-in-time at run start. Counter DELTAS across a run are what indicate pressure; a high historical swap allocation is not itself a gate."
+  },
+  "results": [
+    {
+      "id": "v2:base.en",
+      "label": "v2 whisper-base.en — SHIPPING",
+      "lane": "browser",
+      "set": "preflight",
+      "evidenceClass": "preflight",
+      "runtimeLabel": "@xenova/transformers+ort-web-1.14.0",
+      "mode": "load-only",
+      "loaded": true,
+      "freshSession": true,
+      "runtimeAssets": {
+        "lib/@xenova/transformers/dist/transformers.js": {
+          "sha256": "3d4c537f5c2cc169834058bde11d5d25fea910f00d92a32ec979b833461bb3b4",
+          "bytes": 1729619
+        },
+        "node_modules/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm": {
+          "sha256": "ac23f2f3cbd519a65a0796f7c79eb34ead4c1f6f31eb06e14ed8a9579d697ef6",
+          "bytes": 9960821
+        }
+      },
+      "runtimeAssetFailures": [],
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "assetInventory": {
+        "files": [
+          {
+            "name": "whisper-base.en/onnx/decoder_model_merged_quantized.onnx",
+            "role": "decoder",
+            "sha256": "a25afc5858a20aabb7652cb2d555996ebe10691a69bbdb423d5073d52f060325",
+            "bytes": 53707027,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "whisper-base.en/onnx/encoder_model_quantized.onnx",
+            "role": "encoder",
+            "sha256": "d0d4e59e2842617b39787cece73d7e8f76f99b1697d3386c0e682eca2269f4a1",
+            "bytes": 23200856,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "node_modules/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm",
+            "role": "runtime",
+            "sha256": "ac23f2f3cbd519a65a0796f7c79eb34ead4c1f6f31eb06e14ed8a9579d697ef6",
+            "bytes": 9960821,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "whisper-base.en/tokenizer.json",
+            "role": "tokenizer",
+            "sha256": "c6ee8f089220a5b1188f6426456772572671c6141ae007eecb83c6a8349f5deb",
+            "bytes": 2128494,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@xenova/transformers/dist/transformers.js",
+            "role": "other",
+            "sha256": "3d4c537f5c2cc169834058bde11d5d25fea910f00d92a32ec979b833461bb3b4",
+            "bytes": 1729619,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "whisper-base.en/vocab.json",
+            "role": "tokenizer",
+            "sha256": "f6bd25a65e4e63ca31360e9fb11c7e4f9a391a78385d640acd814092dd6eee4f",
+            "bytes": 999186,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "whisper-base.en/merges.txt",
+            "role": "tokenizer",
+            "sha256": "1ce1664773c50f3e0cc8842619a93edc4624525b728b188a9e0be33b7726adc5",
+            "bytes": 456318,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "whisper-base.en/normalizer.json",
+            "role": "config",
+            "sha256": "bf1c507dc8724ca9cf9903640dacfb69dae2f00edee4f21ceba106a7392f26dd",
+            "bytes": 52666,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "whisper-base.en/config.json",
+            "role": "config",
+            "sha256": "5c390f2c6ba84ddeb7e362cd8b2123832911407850174e64d7081ccc36df2d64",
+            "bytes": 2202,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "whisper-base.en/added_tokens.json",
+            "role": "config",
+            "sha256": "598c98875c01fe7ebd08ba6779f052f1136de6d36d9e7b99e04b432f78ecb28d",
+            "bytes": 2082,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "whisper-base.en/special_tokens_map.json",
+            "role": "config",
+            "sha256": "7da611d517fe29e77335b8d8384e71795fb7b37cbf95bdc3b5252fa7e09dd1f8",
+            "bytes": 1717,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "whisper-base.en/generation_config.json",
+            "role": "config",
+            "sha256": "1e57ed56ad1bd7f08a49ece7fe7daada674573805a35f8bdbbe68380aab5b1ee",
+            "bytes": 1500,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "whisper-base.en/tokenizer_config.json",
+            "role": "tokenizer",
+            "sha256": "e082c1ad251541bf277967a703252cddd4bb37a71a43737e03d050c22ec08238",
+            "bytes": 835,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "whisper-base.en/preprocessor_config.json",
+            "role": "config",
+            "sha256": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+            "bytes": 339,
+            "source": "cache",
+            "pinned": true
+          }
+        ],
+        "byRole": {
+          "decoder": {
+            "count": 1,
+            "bytes": 53707027
+          },
+          "encoder": {
+            "count": 1,
+            "bytes": 23200856
+          },
+          "runtime": {
+            "count": 1,
+            "bytes": 9960821
+          },
+          "tokenizer": {
+            "count": 4,
+            "bytes": 3584833
+          },
+          "other": {
+            "count": 1,
+            "bytes": 1729619
+          },
+          "config": {
+            "count": 6,
+            "bytes": 60506
+          }
+        },
+        "totalBytes": 92243662,
+        "fileCount": 14,
+        "reportedModelBytes": null,
+        "reconcilesToModelBytes": null,
+        "reconciliationDeltaBytes": null
+      },
+      "assetReconciliation": {
+        "ok": true,
+        "failures": [],
+        "repeatedRequests": [],
+        "declaredFiles": 14,
+        "observedFiles": 8,
+        "declaredBytes": 92243662,
+        "observedBytes": null
+      },
+      "observedRequestCount": 8,
+      "assetCount": 14,
+      "wer": null,
+      "selectionEligible": false,
+      "disposition": "load_only",
+      "selectionIneligibleReason": "load-only run: no decode was performed"
+    }
+  ],
+  "assets": {},
+  "assetFailures": []
+}
