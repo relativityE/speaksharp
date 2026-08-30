@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for unfinished and deferred product/release work)
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-08-29
-**Last Verified:** 2026-08-29 — consolidated from the live `ACTIVE_COORDINATION.md`, unfinished `BACKLOG.md` items, merged PR state through #1368, and the codebase-vs-strategy audit.
+**Last Verified:** 2026-08-30 — consolidated from the live `ACTIVE_COORDINATION.md`, unfinished `BACKLOG.md` items, merged PR state through #1368, and the codebase-vs-strategy audit.
 **Applies To:** MVP sequencing and explicitly deferred SpeakSharp work.
 **Class:** Open gap / risk.
 **Authority:** The source for Now / Next / Later / Declined work and implementation order.
@@ -14,9 +14,9 @@
 This file contains unfinished work only. Completion belongs in git history and dated evidence; current deployment facts belong in `RELEASE_STATUS.md`.
 
 <!-- CURRENCY-BLOCK
-baseline: 0e2fffd16224063e18b40174d92393632f1c1e47
-deployed-release: 0e2fffd16224063e18b40174d92393632f1c1e47
-verified-on: 2026-08-29
+baseline: 024b574fcbf7ab3dfac03327075621ad81ad521a
+deployed-release: 024b574fcbf7ab3dfac03327075621ad81ad521a
+verified-on: 2026-08-30
 release-blocker: model-selection
 retention-campaign: off-critical-path
 task-1304-1: merged
