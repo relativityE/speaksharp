@@ -68,6 +68,8 @@ export type ReconciliationFailure =
 export interface AssetReconciliation {
     ok: boolean;
     failures: Array<{ kind: ReconciliationFailure; detail: string }>;
+    /** Observed more than once — normal per-worker fetching, retained for visibility, never a failure. */
+    repeatedRequests: string[];
     declaredFiles: number;
     observedFiles: number;
     declaredBytes: number;
@@ -77,11 +79,37 @@ export interface AssetReconciliation {
 /** Roles an arm must actually have requested for its inventory to be selection-grade. */
 export const REQUIRED_ASSET_ROLES: readonly AssetRole[] = ['encoder', 'decoder', 'tokenizer'];
 
-/** Match a declared inventory key to an observed request key: paths differ by mirror prefix. */
-const sameFile = (declared: string, observed: string): boolean => {
-    const d = declared.replace(/^.*\/resolve\/[^/]+\//, '').replace(/^\/+/, '');
-    const o = observed.replace(/^.*\/resolve\/[^/]+\//, '').replace(/^\/+/, '');
-    return d === o || d.endsWith(o) || o.endsWith(d);
+const strip = (k: string): string => k.replace(/^.*\/resolve\/[^/]+\//, '').replace(/^\/+/, '');
+const base = (k: string): string => k.split('/').pop() ?? k;
+
+/**
+ * Match a declared inventory key to an observed request key.
+ *
+ * The two channels name the same file differently ON PURPOSE: the declared inventory records a runtime
+ * binary by its FILESYSTEM SOURCE (`node_modules/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm`)
+ * while the ledger records the URL PATH it was served from (`runtime/xenova/ort-wasm-simd-threaded.wasm`).
+ * A suffix comparison alone reported that as `observed_not_declared` on the very first preflight — a
+ * matcher artifact, not a missing asset.
+ *
+ * So basename equality is accepted as a fallback, but ONLY when that basename is unambiguous on both
+ * sides. Collapsing files by basename unconditionally would silently pair two different `config.json`s
+ * from different repos, turning a real omission into a false match — the opposite and worse error.
+ */
+const makeMatcher = (declaredKeys: string[], observedKeys: string[]) => {
+    const count = (keys: string[]): Map<string, number> => {
+        const m = new Map<string, number>();
+        for (const k of keys) m.set(base(k), (m.get(base(k)) ?? 0) + 1);
+        return m;
+    };
+    const dCount = count(declaredKeys);
+    const oCount = count(observedKeys);
+    return (declared: string, observed: string): boolean => {
+        const d = strip(declared);
+        const o = strip(observed);
+        if (d === o || d.endsWith(o) || o.endsWith(d)) return true;
+        const b = base(d);
+        return b === base(o) && dCount.get(b) === 1 && oCount.get(b) === 1;
+    };
 };
 
 /**
@@ -100,7 +128,9 @@ export function reconcileAssets(
     opts: { requirePinned: boolean },
 ): AssetReconciliation {
     const failures: Array<{ kind: ReconciliationFailure; detail: string }> = [];
+    const duplicates: string[] = [];
     const observedEntries = Object.entries(observed).filter(([, r]) => r.status >= 200 && r.status < 300);
+    const sameFile = makeMatcher(inventory.files.map((f) => f.name), observedEntries.map(([k]) => k));
 
     if (inventory.fileCount === 0) {
         failures.push({ kind: 'empty_inventory', detail: 'the arm declared no assets at all' });
@@ -116,7 +146,10 @@ export function reconcileAssets(
         }
         if (hit) {
             const [, rec] = hit;
-            if (rec.count > 1) failures.push({ kind: 'duplicate_request', detail: `${f.name} ×${rec.count}` });
+            // A repeated request is NOT a failure. The first preflight showed onnxruntime fetching the
+            // same `.mjs` four times — once per worker — which is ordinary browser behaviour. Failing on
+            // it would disqualify a correct arm. Recorded as an observation so it stays visible.
+            if (rec.count > 1) duplicates.push(`${f.name} ×${rec.count}`);
             if (rec.bytes !== null && rec.bytes !== f.bytes) {
                 failures.push({ kind: 'byte_mismatch', detail: `${f.name}: declared ${f.bytes} observed ${rec.bytes}` });
             }
@@ -152,6 +185,7 @@ export function reconcileAssets(
     return {
         ok: failures.length === 0,
         failures,
+        repeatedRequests: duplicates,
         declaredFiles: inventory.fileCount,
         observedFiles: observedEntries.length,
         declaredBytes: inventory.totalBytes,

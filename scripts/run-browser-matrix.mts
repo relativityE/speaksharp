@@ -607,7 +607,14 @@ for (const spec of ARM_MATRIX) {
 
     // Hash whatever the arm fetched from outside our origin, in Node, cached on disk so a re-run does
     // not re-download. This is what lets a CDN-fetching runtime carry real provenance.
-    const cdnAssets: Record<string, { sha256: string; bytes: number; source: 'network'; pinned: false }> = {};
+    // `pinned` is DERIVED from the pin registry, not hardcoded false.
+    //
+    // It was hardcoded, and the first preflight exposed the cost: every Moonshine `.ort` file was reported
+    // `pinned: false` even though `pinViolations` was empty, `offlineEnforced` was true and all 7 external
+    // requests had been served from committed pins. Under the new asset gate that mislabelling would have
+    // made every Moonshine arm INELIGIBLE — a whole model family disqualified by a flag that described the
+    // code path rather than the fact.
+    const cdnAssets: Record<string, { sha256: string; bytes: number; source: 'network'; pinned: boolean }> = {};
     for (const url of externalUrls) {
         const key = url.replace(/^https?:\/\//, '').replace(/[?#].*$/, '');
         const cached = join('.hf-cache', 'external', key);
@@ -623,8 +630,10 @@ for (const spec of ARM_MATRIX) {
                 writeFileSync(cached, body);
             }
             cdnAssets[key] = {
+                // Pinned iff this exact key is in the committed pin registry.
+                pinned: Object.prototype.hasOwnProperty.call(moonshinePins, key),
                 sha256: createHash('sha256').update(body).digest('hex'),
-                bytes: body.length, source: 'network', pinned: false,
+                bytes: body.length, source: 'network',
             };
         } catch { /* recorded as absent rather than as zero */ }
     }
@@ -678,8 +687,13 @@ for (const spec of ARM_MATRIX) {
                       }] as const)
                 : Object.keys(armAssets).length > 0
                     ? Object.entries(armAssets)
+                    // `...v` LAST would still be overridden by a hardcoded flag, which is what happened:
+                    // this spread re-stamped every CDN asset `pinned: false` after cdnAssets had already
+                    // derived the real value from the pin registry. The first preflight then reported all
+                    // seven pinned Moonshine `.ort` files as unpinned, which the new asset gate would have
+                    // turned into a disqualification of the entire Moonshine family.
                     : Object.entries(cdnAssets).map(([k, v]) => [k, {
-                          ...v, source: 'network' as const, pinned: false,
+                          ...v, source: 'network' as const,
                       }] as const)),
         ]);
 

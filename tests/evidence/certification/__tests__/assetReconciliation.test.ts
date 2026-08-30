@@ -64,10 +64,13 @@ describe('reconciliation compares TWO channels', () => {
         expect(r.failures.map((f) => f.kind)).toContain('byte_mismatch');
     });
 
-    it('REJECTS a duplicated request — the same file fetched twice is unattributed traffic', () => {
+    it('RECORDS a repeated request without failing the arm', () => {
+        // CORRECTED after the first preflight: onnxruntime fetched the same `.mjs` four times, once per
+        // worker. That is ordinary browser behaviour, and failing on it would disqualify a correct arm.
+        // It stays visible as an observation rather than being silently dropped.
         const r = run(declared(), observed({ 'tokenizer.json': { count: 2 } }));
-        expect(r.ok).toBe(false);
-        expect(r.failures.map((f) => f.kind)).toContain('duplicate_request');
+        expect(r.ok).toBe(true);
+        expect(r.repeatedRequests).toContain('tokenizer.json ×2');
     });
 
     it('REJECTS an UNPINNED network asset when pinning is required', () => {
@@ -96,5 +99,52 @@ describe('reconciliation compares TWO channels', () => {
         const r = run(declared(), observed({ 'tokenizer.json': { status: 404 } }));
         expect(r.ok).toBe(false);
         expect(r.failures.map((f) => f.kind)).toContain('declared_not_observed');
+    });
+});
+
+describe('the matcher pairs the same file across differently-named channels', () => {
+    // Found by the FIRST preflight run, not by review: the declared inventory names a runtime binary by
+    // its filesystem source while the ledger names it by the URL it was served from.
+    const runtimeDeclared = {
+        'node_modules/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm':
+            { sha256: 'd'.repeat(64), bytes: 9960821, source: 'network' as const, pinned: true },
+        'whisper-base.en/onnx/encoder_model_quantized.onnx': { sha256: 'e'.repeat(64), bytes: 10, source: 'network' as const, pinned: true },
+        'whisper-base.en/onnx/decoder_model_merged_quantized.onnx': { sha256: 'f'.repeat(64), bytes: 10, source: 'network' as const, pinned: true },
+        'whisper-base.en/tokenizer.json': { sha256: '0'.repeat(64), bytes: 10, source: 'network' as const, pinned: true },
+    };
+    const runtimeObserved = {
+        'runtime/xenova/ort-wasm-simd-threaded.wasm': { bytes: 9960821, status: 200, count: 1 },
+        'whisper-base.en/onnx/encoder_model_quantized.onnx': { bytes: 10, status: 200, count: 1 },
+        'whisper-base.en/onnx/decoder_model_merged_quantized.onnx': { bytes: 10, status: 200, count: 1 },
+        'whisper-base.en/tokenizer.json': { bytes: 10, status: 200, count: 1 },
+    };
+
+    it('a unique basename served from a different path is the SAME file, not a missing one', () => {
+        const r = reconcileAssets(buildAssetInventory(runtimeDeclared, null), runtimeObserved, { requirePinned: true });
+        expect(r.failures.map((f) => f.kind)).not.toContain('observed_not_declared');
+        expect(r.failures.map((f) => f.kind)).not.toContain('declared_not_observed');
+        expect(r.ok).toBe(true);
+    });
+
+    it('but an AMBIGUOUS basename is never collapsed — that would hide a real omission', () => {
+        // Two different config.json files. Pairing them by basename would turn a genuine mismatch into a
+        // false match, which is the worse of the two errors.
+        const d = {
+            'repo-a/config.json': { sha256: 'a'.repeat(64), bytes: 10, source: 'network' as const, pinned: true },
+            'repo-b/config.json': { sha256: 'b'.repeat(64), bytes: 20, source: 'network' as const, pinned: true },
+            'x/onnx/encoder_model.onnx': { sha256: 'c'.repeat(64), bytes: 10, source: 'network' as const, pinned: true },
+            'x/onnx/decoder_model.onnx': { sha256: 'd'.repeat(64), bytes: 10, source: 'network' as const, pinned: true },
+            'x/tokenizer.json': { sha256: 'e'.repeat(64), bytes: 10, source: 'network' as const, pinned: true },
+        };
+        const o = {
+            'served/config.json': { bytes: 10, status: 200, count: 1 },
+            'other/config.json': { bytes: 20, status: 200, count: 1 },
+            'x/onnx/encoder_model.onnx': { bytes: 10, status: 200, count: 1 },
+            'x/onnx/decoder_model.onnx': { bytes: 10, status: 200, count: 1 },
+            'x/tokenizer.json': { bytes: 10, status: 200, count: 1 },
+        };
+        const r = reconcileAssets(buildAssetInventory(d, null), o, { requirePinned: true });
+        expect(r.ok).toBe(false);
+        expect(r.failures.map((f) => f.kind)).toContain('observed_not_declared');
     });
 });
