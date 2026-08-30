@@ -69,9 +69,17 @@ export async function migratedDb(userId: string): Promise<{ db: PGlite; supabase
 
 /** Server-authoritative effective tier for the seeded user (the entitlement the customer would receive). */
 export async function effectiveTier(db: PGlite, userId: string): Promise<string> {
+  // THE 5-ARG CANONICAL RESOLVER.
+  //
+  // The 4-arg overload FAILS CLOSED ON TRIALS BY DESIGN — its own comment says the legacy signature
+  // "cannot carry the immutable commercial grant marker", so it returns 'free' for a perfectly live
+  // 30-day trial. Reading entitlement through it made a correct trial look like no entitlement at all.
+  // The canonical overload takes `commercial_trial_granted_at` and is what the product resolves with.
   const r = await db.query<{ t: string }>(
-    `SELECT public.effective_subscription_tier(subscription_status, trial_expires_at, stripe_subscription_id, subscription_id) AS t
-       FROM public.user_profiles WHERE id = '${userId}'`,
+    `SELECT public.effective_subscription_tier(
+              subscription_status, trial_expires_at, stripe_subscription_id, subscription_id,
+              commercial_trial_granted_at) AS t
+       FROM public.user_profiles WHERE id = $1`, [userId],
   );
   return r.rows[0].t;
 }

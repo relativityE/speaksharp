@@ -266,7 +266,13 @@ export async function runCommercialQualification(deps: CommercialDeps): Promise<
       confirmedDeleted.push(...created);
     } catch (e) { failures.push(`test clock ${clockId}: ${(e as Error).message}`); }
   }
-  try { assertTestObjectsCleaned({ created, confirmedDeleted }); } catch (e) { failures.push((e as Error).message); }
+  // Only assert cleanup when the run actually created something. `assertTestObjectsCleaned` refuses an
+  // empty `created` set on purpose — for a COMPLETED run, "cleaned nothing" means the lifecycle never ran.
+  // For a run that aborted BEFORE creating any Stripe object there is genuinely nothing to clean, and
+  // reporting a cleanup failure there buries the real cause under a second, spurious one.
+  if (created.length > 0) {
+    try { assertTestObjectsCleaned({ created, confirmedDeleted }); } catch (e) { failures.push((e as Error).message); }
+  }
   record.cleanup = { created: created.length, confirmedDeleted: confirmedDeleted.length, failures };
   try { await db.close(); } catch { /* the ephemeral DB owns no external fixture */ }
 
