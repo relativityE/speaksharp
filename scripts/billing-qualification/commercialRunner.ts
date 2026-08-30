@@ -236,6 +236,7 @@ export async function runCommercialQualification(deps: CommercialDeps): Promise<
     await deps.stripe.customers.update(customerId, { invoice_settings: { default_payment_method: failPm } });
     await deps.stripe.testHelpers.testClocks.advance(cid, { frozen_time: deps.frozenTime + 64 * DAY });
     await pollClockReady(deps.stripe, cid, clockTimeout);
+    await pollSubscriptionStatus(deps.stripe, subId, "past_due", clockTimeout);
     const failed = await send("evt_1302_fail", "customer.subscription.updated", deps.frozenTime + 64 * DAY, { id: subId }, "payment failure");
     if (failed.tier !== "free") throw new Error(`#1302: a failed renewal did not revoke access (tier ${failed.tier})`);
 
