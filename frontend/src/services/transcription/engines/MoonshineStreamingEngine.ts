@@ -278,6 +278,31 @@ function takeTail(frames: readonly Float32Array[], samples: number): Float32Arra
  * The published ESM calls `__name(...)` without defining it — a PACKAGING gap in the dependency that the
  * consumer's bundler normally fills. Without the identity shim the module dies before any model loads.
  */
+/**
+ * OUR token is not the runtime's. `ModelArch` declares `SmallStreaming` / `MediumStreaming`; indexing it
+ * with `MOONSHINE_STREAMING_MEDIUM` yields `undefined`, and an undefined arch either throws or selects
+ * the enum's zero member (`Tiny`) — a different, much smaller model reporting itself as the one we
+ * selected. That is the exact "identity taken from a default" failure this engine exists to prevent, and
+ * no test with an injected transcriber can see it, because only the DEFAULT loader touches the enum.
+ */
+export const RUNTIME_ARCH_MEMBER: Readonly<Record<MoonshineArch, string>> = Object.freeze({
+    MOONSHINE_STREAMING_SMALL: 'SmallStreaming',
+    MOONSHINE_STREAMING_MEDIUM: 'MediumStreaming',
+});
+
+/** Resolve OUR token against the runtime's enum, failing closed rather than passing `undefined`. */
+export function resolveModelArch(modelArch: Record<string, unknown>, arch: MoonshineArch): number {
+    const member = RUNTIME_ARCH_MEMBER[arch];
+    const value = modelArch[member];
+    if (typeof value !== 'number') {
+        throw new Error(
+            `moonshine runtime does not declare ModelArch.${member} for ${arch}; `
+            + `available: ${Object.keys(modelArch).filter((k) => !/^\d+$/.test(k)).join(', ')}`,
+        );
+    }
+    return value;
+}
+
 async function defaultLoadTranscriber(
     arch: MoonshineArch,
     onDownloadProgress?: (fraction: number) => void,
@@ -286,13 +311,13 @@ async function defaultLoadTranscriber(
     g.__name ??= (target) => target;
     const lib = await import('@moonshine-ai/moonshine-wasm') as unknown as {
         Transcriber: { load: (o: Record<string, unknown>) => Promise<MoonshineTranscriber> };
-        ModelArch: Record<string, number>;
+        ModelArch: Record<string, unknown>;
     };
     // Wired through to the runtime rather than declared and ignored. A progress callback that is never
     // called is worse than none: the UI would show a frozen bar and read as a hang.
     return lib.Transcriber.load({
         language: 'en',
-        modelArch: lib.ModelArch[arch],
+        modelArch: resolveModelArch(lib.ModelArch, arch),
         ...(onDownloadProgress ? { onProgress: (f: number) => onDownloadProgress(f) } : {}),
     });
 }
