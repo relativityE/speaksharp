@@ -49,6 +49,9 @@ export interface MoonshineEngineMetadata {
     engine: 'moonshine_streaming';
     modelArch: MoonshineArch;
     runtime: '@moonshine-ai/moonshine-wasm';
+    /** The INSTALLED runtime version and the asset identity actually loaded. Null until observed. */
+    runtimeVersion: string | null;
+    assetIdentity: string | null;
     backend: 'wasm';
     liveWindowSeconds: number;
     /** Set only once a decode has actually happened. Null means "not established", never a guess. */
@@ -75,7 +78,14 @@ export class MoonshineStreamingEngine implements STTStrategy {
         this.failure ??= { phase, message };
     }
     private firstDecodeAt: number | null = null;
-    private decoding = false;
+    private runtimeVersion: string | null = null;
+    private assetIdentity: string | null = null;
+    /** Once the final pass has run, no late interim decode may replace its result. */
+    private finalized = false;
+    /** The in-flight decode, if any. Inference is SERIALIZED: the runtime is one worker. */
+    private inFlight: Promise<void> | null = null;
+    /** A frame arrived mid-decode, so one more interim decode is owed once the current one settles. */
+    private pendingWindow = false;
 
     constructor(private readonly options: MoonshineEngineOptions) {}
 
@@ -95,10 +105,16 @@ export class MoonshineStreamingEngine implements STTStrategy {
 
     async init(timeoutMs = 60_000): Promise<Result<void, Error>> {
         try {
-            const load = this.options.loadTranscriber ?? defaultLoadTranscriber;
+            const load = this.options.loadTranscriber
+                ?? ((arch: MoonshineArch) => defaultLoadTranscriber(arch, this.options.onDownloadProgress));
             const timeout = new Promise<never>((_, reject) =>
                 setTimeout(() => reject(new Error(`moonshine init exceeded ${timeoutMs}ms`)), timeoutMs));
             this.transcriber = await Promise.race([load(this.options.modelArch), timeout]);
+            const identified = this.transcriber as MoonshineTranscriber & {
+                version?: string; modelId?: string; assetDigest?: string;
+            };
+            this.runtimeVersion = identified.version ?? null;
+            this.assetIdentity = identified.assetDigest ?? identified.modelId ?? null;
             this.lastHeartbeat = Date.now();
             return { isOk: true, data: undefined };
         } catch (e) {
@@ -108,18 +124,39 @@ export class MoonshineStreamingEngine implements STTStrategy {
         }
     }
 
+    /**
+     * The runtime expects 16 kHz mono. Handing it 48 kHz frames does not error — it silently decodes
+     * audio three times too fast, producing plausible nonsense. A wrong sample rate must be REFUSED, not
+     * interpreted, because a wrong transcript is worse than a missing one.
+     */
+    private assertSampleRate(rate: number): void {
+        if (rate !== TARGET_SAMPLE_RATE) {
+            throw new Error(
+                `moonshine requires ${TARGET_SAMPLE_RATE} Hz mono; the microphone supplied ${rate} Hz. `
+                + 'Resample upstream — decoding at the wrong rate produces confident nonsense.',
+            );
+        }
+    }
+
     async start(mic?: MicStream): Promise<void> {
         if (!this.transcriber) {
             const err = new Error('moonshine start before a successful init');
             this.recordFailure('start', err.message);
             throw err;
         }
-        this.buffer = []; this.committed = ''; this.interim = '';
+        this.buffer = []; this.committed = ''; this.interim = ''; this.finalized = false;
         if (!mic) return;
+        try {
+            this.assertSampleRate(mic.sampleRate || TARGET_SAMPLE_RATE);
+        } catch (e) {
+            const err = e instanceof Error ? e : new Error(String(e));
+            this.recordFailure('start', err.message);
+            throw err;
+        }
         this.mic = mic;
         this.detachFrames = mic.onFrame((frame) => {
             this.buffer.push(frame);
-            void this.decodeLiveWindow(mic.sampleRate || TARGET_SAMPLE_RATE);
+            this.scheduleLiveWindow(mic.sampleRate || TARGET_SAMPLE_RATE);
         });
     }
 
@@ -128,29 +165,47 @@ export class MoonshineStreamingEngine implements STTStrategy {
      * full-utterance benchmark, cannot validate it. Boundary loss and duplication are properties of the
      * window, and only a windowed test can measure them.
      */
+    private scheduleLiveWindow(sampleRate: number): void {
+        // Frames arriving DURING a decode are not dropped — they are coalesced into exactly one more
+        // decode when the current one settles. Dropping them silently stales the interim transcript;
+        // queueing one per frame would pile decodes onto a single-worker runtime without bound.
+        if (this.inFlight) { this.pendingWindow = true; return; }
+        this.inFlight = this.decodeLiveWindow(sampleRate).finally(() => {
+            this.inFlight = null;
+            if (this.pendingWindow) { this.pendingWindow = false; this.scheduleLiveWindow(sampleRate); }
+        });
+    }
+
     private async decodeLiveWindow(sampleRate: number): Promise<void> {
-        if (this.decoding || !this.transcriber) return;
-        this.decoding = true;
+        if (!this.transcriber) return;
         try {
             const window = takeTail(this.buffer, LIVE_WINDOW_SECONDS * sampleRate);
             if (window.length === 0) return;
+            // No post-finalization guard is needed here: stop() detaches the frame handler, clears
+            // pendingWindow, and AWAITS inFlight before it finalizes, and resume() refuses to reattach
+            // afterwards — so no live decode can still be running once `finalized` is set.
             this.interim = textOf(await this.transcriber.transcribe(window));
             this.firstDecodeAt ??= Date.now();
             this.lastHeartbeat = Date.now();
         } catch (e) {
             this.recordFailure('decode', e instanceof Error ? e.message : String(e));
-        } finally {
-            this.decoding = false;
         }
     }
 
     /** STOP decodes the FULL accumulated buffer — the final transcript is not a concatenation of windows. */
     async stop(): Promise<void> {
         this.detachFrames?.(); this.detachFrames = null;
+        // AWAIT the in-flight decode before the final pass. Two concurrent transcribe() calls on a
+        // single-worker runtime race, and a live decode settling after the final one would overwrite the
+        // final transcript with a 3-second window — the user would see the last three seconds of their
+        // session presented as the whole thing.
+        this.pendingWindow = false;
+        try { await this.inFlight; } catch { /* the live failure is already recorded */ }
         if (!this.transcriber) return;
         try {
             const all = concat(this.buffer);
             if (all.length > 0) this.committed = textOf(await this.transcriber.transcribe(all));
+            this.finalized = true;
             this.lastHeartbeat = Date.now();
         } catch (e) {
             this.recordFailure('stop', e instanceof Error ? e.message : String(e));
@@ -160,11 +215,14 @@ export class MoonshineStreamingEngine implements STTStrategy {
 
     async pause(): Promise<void> { this.detachFrames?.(); this.detachFrames = null; }
     async resume(): Promise<void> {
+        // Resuming a FINALIZED session would append fresh audio to a buffer whose transcript has already
+        // been delivered, and restart live decodes against it. The session is over; refuse.
+        if (this.finalized) throw new Error('Cannot resume a finalized session; start a new session instead.');
         if (this.mic && !this.detachFrames) {
             const mic = this.mic;
             this.detachFrames = mic.onFrame((frame) => {
                 this.buffer.push(frame);
-                void this.decodeLiveWindow(mic.sampleRate || TARGET_SAMPLE_RATE);
+                this.scheduleLiveWindow(mic.sampleRate || TARGET_SAMPLE_RATE);
             });
         }
     }
@@ -185,6 +243,10 @@ export class MoonshineStreamingEngine implements STTStrategy {
             engine: 'moonshine_streaming',
             modelArch: this.options.modelArch,
             runtime: '@moonshine-ai/moonshine-wasm',
+            // OBSERVED, not asserted. Null means "not established" — never a constant standing in for a
+            // fact, which is exactly how PrivateSTT reports one v4 candidate as another.
+            runtimeVersion: this.runtimeVersion,
+            assetIdentity: this.assetIdentity,
             backend: 'wasm',
             liveWindowSeconds: LIVE_WINDOW_SECONDS,
             firstDecodeAt: this.firstDecodeAt,
@@ -216,12 +278,21 @@ function takeTail(frames: readonly Float32Array[], samples: number): Float32Arra
  * The published ESM calls `__name(...)` without defining it — a PACKAGING gap in the dependency that the
  * consumer's bundler normally fills. Without the identity shim the module dies before any model loads.
  */
-async function defaultLoadTranscriber(arch: MoonshineArch): Promise<MoonshineTranscriber> {
+async function defaultLoadTranscriber(
+    arch: MoonshineArch,
+    onDownloadProgress?: (fraction: number) => void,
+): Promise<MoonshineTranscriber> {
     const g = globalThis as unknown as { __name?: (t: unknown, v?: unknown) => unknown };
     g.__name ??= (target) => target;
     const lib = await import('@moonshine-ai/moonshine-wasm') as unknown as {
         Transcriber: { load: (o: Record<string, unknown>) => Promise<MoonshineTranscriber> };
         ModelArch: Record<string, number>;
     };
-    return lib.Transcriber.load({ language: 'en', modelArch: lib.ModelArch[arch] });
+    // Wired through to the runtime rather than declared and ignored. A progress callback that is never
+    // called is worse than none: the UI would show a frozen bar and read as a hang.
+    return lib.Transcriber.load({
+        language: 'en',
+        modelArch: lib.ModelArch[arch],
+        ...(onDownloadProgress ? { onProgress: (f: number) => onDownloadProgress(f) } : {}),
+    });
 }
