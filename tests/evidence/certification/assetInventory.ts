@@ -268,12 +268,37 @@ export function verifyAgainstCommittedPins(
 ): PinVerification {
     const failures: Array<{ kind: 'unpinned' | 'hash_mismatch' | 'byte_mismatch'; detail: string }> = [];
     let checked = 0;
-    const keys = Object.keys(pins);
+    /**
+     * MODEL-AWARE RESOLUTION. Basename alone is not an identity.
+     *
+     * The previous fallback matched on basename when it was unique in the registry — and on the targeted
+     * 600 it resolved the product's self-hosted `whisper-base.en/onnx/encoder_model_quantized.onnx`
+     * against `Xenova/whisper-SMALL.en/.../encoder_model_quantized.onnx`, the only same-named pin. It then
+     * reported a hash mismatch between two files that were never the same file. Unique is not same-model.
+     *
+     * Resolution now compares the last three path segments — model/package directory, subdirectory and
+     * filename — after normalising two mount spellings of the same tree:
+     *   `node_modules/@xenova/...`  ==  `lib/@xenova/...`      (served vs pinned prefix)
+     *   `<repo>/resolve/<rev>/...`  ==  `<repo>/...`           (HuggingFace revision segment)
+     * so `whisper-base.en` can never resolve against `whisper-small.en`, and `@xenova/transformers/dist`
+     * can never resolve against `onnxruntime-web/dist`. Hash verification is unchanged and still exact.
+     */
+    const normalizeKey = (k: string): string => k
+        .replace(/^node_modules\//, 'lib/')
+        .replace(/\/resolve\/[^/]+\//, '/');
+    const tail = (k: string, n = 3): string => normalizeKey(k).split('/').filter(Boolean).slice(-n).join('/');
+    const byTail = new Map<string, string[]>();
+    for (const k of Object.keys(pins)) {
+        const t = tail(k);
+        byTail.set(t, [...(byTail.get(t) ?? []), k]);
+    }
     const findPin = (name: string): CommittedPin | undefined => {
         if (pins[name]) return pins[name];
-        const b = base(name);
-        const hit = keys.filter((k) => base(k) === b);
-        return hit.length === 1 ? pins[hit[0]] : undefined;   // never collapse an ambiguous basename
+        const exact = Object.keys(pins).find((k) => normalizeKey(k) === normalizeKey(name));
+        if (exact) return pins[exact];
+        const hit = byTail.get(tail(name)) ?? [];
+        // Still refuse an ambiguous match — two pins sharing model/dir/file would be a registry defect.
+        return hit.length === 1 ? pins[hit[0]] : undefined;
     };
 
     for (const f of inventory.files) {

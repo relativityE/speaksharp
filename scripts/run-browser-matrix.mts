@@ -123,6 +123,14 @@ const moonshinePins: Record<string, { sha256: string; bytes: number }> = existsS
           assets: Record<string, { sha256: string; bytes: number }>;
       }).assets
     : {};
+const SELFHOSTED_PIN_FILE = 'tests/fixtures/selfhosted-model-pins.json';
+/** The product's OWN model bytes. No other registry covers `frontend/public/models/**`. */
+const selfHostedPinRegistry: Record<string, { sha256: string; bytes: number }> =
+    existsSync(SELFHOSTED_PIN_FILE)
+        ? (JSON.parse(readFileSync(SELFHOSTED_PIN_FILE, 'utf8')) as {
+              assets: Record<string, { sha256: string; bytes: number }>;
+          }).assets
+        : {};
 const LIB_PIN_FILE = 'tests/fixtures/lib-executable-pins.json';
 const libExecutablePinRegistry: Record<string, { sha256: string; bytes: number; version: string }> =
     existsSync(LIB_PIN_FILE)
@@ -349,6 +357,7 @@ const runIdentity: RunIdentity = {
         'tests/fixtures/hf-asset-pins.json',
         'tests/fixtures/moonshine-asset-pins.json',
         'tests/fixtures/lib-executable-pins.json',
+        'tests/fixtures/selfhosted-model-pins.json',
         'tests/evidence/certification/arms/runtimeAssets.ts',
     ]),
     setName,
@@ -1114,6 +1123,7 @@ for (const spec of ARM_MATRIX) {
      *     files with a null byte total. It may corroborate; it may not confer `ok`.
      */
     const committedPinAuthority: Record<string, { sha256: string; bytes?: number; version?: string }> = {
+        ...selfHostedPinRegistry,
         ...libExecutablePinRegistry,
         ...Object.fromEntries(Object.entries(moonshinePins).map(([k, v]) => [k, { sha256: v.sha256, bytes: v.bytes }])),
         ...Object.fromEntries(Object.entries(pins).map(([k, v]) => [k, { sha256: v }])),

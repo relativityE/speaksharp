@@ -85,22 +85,79 @@ function footprintOf(inputs: VerdictInputs): FootprintMetrics {
     };
 }
 
+/**
+ * A clip that lost a large fraction of its reference. DIAGNOSTIC — this is a transcription QUALITY signal,
+ * not evidence of truncation.
+ */
+export const HIGH_DELETION_MIN_REFERENCE_WORDS = 8;
+export const HIGH_DELETION_RATIO = 0.4;
+
+/**
+ * Truncation is about a transcript being CUT SHORT, which is a long-form phenomenon. A short utterance
+ * cannot be "truncated" in any sense a reader would recognise — it can only be misrecognised.
+ */
+export const TRUNCATION_MIN_AUDIO_SECONDS = 20;
+
+export type ScoredRow = { id: string; referenceWords: number; deletions: number };
+const scoredRow = (score: unknown): ScoredRow | null => {
+    const s = score as { ok?: boolean; row?: ScoredRow };
+    return s?.ok === true && s.row ? s.row : null;
+};
+const isHighDeletion = (row: ScoredRow): boolean =>
+    row.referenceWords >= HIGH_DELETION_MIN_REFERENCE_WORDS
+    && row.deletions / row.referenceWords >= HIGH_DELETION_RATIO;
+
+/**
+ * The SHIPPED classifier, exported so tests exercise this function rather than a copy of its rule.
+ * A test that reimplements the logic it is checking cannot fail when the logic changes — the first
+ * version of the truncation casualties did exactly that and survived reverting the fix.
+ */
+export function classifyDurationSignals(
+    rows: readonly ScoredRow[],
+    audioSecondsById: ReadonlyMap<string, number>,
+): { highDeletion: ScoredRow[]; truncated: number } {
+    const highDeletion = rows.filter(isHighDeletion);
+    const truncated = highDeletion.filter(
+        (row) => (audioSecondsById.get(row.id) ?? 0) >= TRUNCATION_MIN_AUDIO_SECONDS,
+    ).length;
+    return { highDeletion, truncated };
+}
+
 function durationOf(inputs: VerdictInputs): DurationBehaviour {
     const outcomes = inputs.result.clipOutcomes;
     const seconds = outcomes.map((o) => o.audioSeconds).filter((s) => s > 0);
-    // A transcript far shorter than its reference is TRUNCATION, which a WER averages away across a
-    // set: three badly-cut clips and a hundred good ones look like a slightly worse model.
-    const truncated = inputs.result.scores.filter((score) => {
-        if (!score.ok) return false;
-        const { referenceWords, deletions } = score.row;
-        return referenceWords >= 8 && deletions / referenceWords >= 0.4;
-    }).length;
+    const secondsById = new Map(outcomes.map((o) => [o.utteranceId, o.audioSeconds]));
+
+    /**
+     * TWO DIFFERENT FACTS, PREVIOUSLY CONFLATED — and the conflation disqualified a whole arm.
+     *
+     * `deletions/referenceWords >= 0.4` was labelled TRUNCATION and made eligibility-gating. On the
+     * targeted 600 it fired once, for `v4:base:q4-decoder:wasm`, on clip `533-131556-0001`: a 3.5-SECOND
+     * utterance, 10 reference words, 4 deletions — a ratio of exactly 0.400, landing on the inclusive
+     * boundary. The same clip scored 0.300 on int8, 0.100 on v2 and 0.000 on Moonshine, and the earlier
+     * frozen run flagged the identical clip with identical S/D/I. It is reproducible, and it is ordinary
+     * misrecognition on a short clip — not a transcript cut short.
+     *
+     * So the ratio is retained as `highDeletionClips`, a DIAGNOSTIC quality metric that gates nothing,
+     * and `truncatedClips` now requires the thing truncation actually means: a LONG-FORM clip that lost a
+     * large fraction of its reference. Tail-integrity evidence, when a long-form fixture supplies it,
+     * remains reported separately in `longFormTailPreserved`.
+     *
+     * This is not a threshold tweak to let one clip through: a short clip can no longer be truncated at
+     * ANY deletion ratio, and a long-form clip that loses its tail still fails.
+     */
+    const { highDeletion, truncated } = classifyDurationSignals(
+        inputs.result.scores.map(scoredRow).filter((r): r is ScoredRow => r !== null),
+        secondsById,
+    );
+
     return {
         shortestClipSeconds: seconds.length > 0 ? Math.min(...seconds) : null,
         longestClipSeconds: seconds.length > 0 ? Math.max(...seconds) : null,
         longFormTailPreserved: inputs.longForm?.tailPreserved ?? null,
         longFormRepeatedNgrams: inputs.longForm?.repeatedNgrams ?? null,
         truncatedClips: truncated,
+        highDeletionClips: highDeletion.length,
     };
 }
 

@@ -1,0 +1,81 @@
+
+#1304 BROWSER lane — set=corpus (selection), 600 clips / 10894 normalized words, mirror mode=pinned
+
+
+  v2:tiny.en  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+  v2:base.en  (v2 whisper-base.en — SHIPPING)
+    COMMITTED-PIN VERIFICATION FAILED (3) — arm not selection-grade:
+      unpinned: whisper-base.en/onnx/decoder_model_merged_quantized.onnx
+      hash_mismatch: whisper-base.en/onnx/encoder_model_quantized.onnx: served d0d4e59e2842617b39787cece73d7e8f76f99b1697d3386c0e682eca2269f4a1 != committed dd37efa07dad7619592ef849a40317dcfd182a2e632275a53a023f02f685cfa7
+      unpinned: node_modules/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0690  words=10894 S=568 D=71 I=113
+    selection eligible: no — committed pins: unpinned, hash_mismatch, unpinned
+    cold load 1042ms · warm p50 1625ms p95 2592ms · RTF p50 0.307 p95 0.589
+    download 92.2 MB over 14 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  v2:base.en:no-conditioning  — not measured under targeted-finalists-v1 (invalid_runtime_option_unsupported)
+
+  v2:small.en  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+  v4:base:q4-decoder:wasm  (v4 base, fp32 encoder + q4 decoder, WASM)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0699  words=10894 S=580 D=75 I=106
+    selection eligible: no — reliability: truncated=1
+    cold load 1897ms · warm p50 1429ms p95 2188ms · RTF p50 0.272 p95 0.551
+    download 234.3 MB over 30 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=1
+
+  v4:base:q4-decoder:cpu  — not measured under targeted-finalists-v1 (diagnostic_duplicate_of_q4_wasm)
+
+  v4:base:q4-decoder:webgpu  — not measured under targeted-finalists-v1 (not_run_hardware_unrepresentative)
+
+  v4:base:fp32-decoder:cpu  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+  v4:base:int8-decoder:cpu  (v4 base, int8 decoder)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0681  words=10894 S=560 D=73 I=109
+    selection eligible: YES
+    cold load 1350ms · warm p50 1320ms p95 1858ms · RTF p50 0.251 p95 0.522
+    download 164.4 MB over 30 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  v4:base:q8-decoder:cpu  — not measured under targeted-finalists-v1 (alias_of_int8)
+
+  v4:distil-small.en:q4-decoder:webgpu  — not measured under targeted-finalists-v1 (not_run_hardware_unrepresentative)
+
+  moonshine:streaming-small  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+  moonshine:streaming-medium  (Moonshine Streaming Medium (official @moonshine-ai/moonshine-wasm))
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0619  words=10894 S=416 D=46 I=212
+    selection eligible: YES
+    cold load 1682ms · warm p50 1030ms p95 3062ms · RTF p50 0.196 p95 0.222
+    download 318.1 MB over 26 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  moonshine:tiny  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+  moonshine:base  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+
+=== BROWSER LANE SUMMARY ===
+    —     v2:tiny.en                           n/a                          not eligible
+  0.0690  v2:base.en                           wasm:1 module(s)             not eligible
+    —     v2:base.en:no-conditioning           n/a                          not eligible
+    —     v2:small.en                          n/a                          not eligible
+  0.0699  v4:base:q4-decoder:wasm              wasm:1 module(s)             not eligible
+    —     v4:base:q4-decoder:cpu               n/a                          not eligible
+    —     v4:base:q4-decoder:webgpu            n/a                          not eligible
+    —     v4:base:fp32-decoder:cpu             n/a                          not eligible
+  0.0681  v4:base:int8-decoder:cpu             wasm:1 module(s)             ELIGIBLE
+    —     v4:base:q8-decoder:cpu               n/a                          not eligible
+    —     v4:distil-small.en:q4-decoder:webgpu n/a                          not eligible
+    —     moonshine:streaming-small            n/a                          not eligible
+  0.0619  moonshine:streaming-medium           wasm:1 module(s)             ELIGIBLE
+    —     moonshine:tiny                       n/a                          not eligible
+    —     moonshine:base                       n/a                          not eligible
+
+  evidence class: selection. 
+
+
+REFUSING to finalise evidence-runs/1304-targeted-600/targeted-finalists.json: plan targeted-finalists-v1 not_selection_grade (v2:base.en)
+The checkpoint at evidence-runs/1304-targeted-600/targeted-finalists.partial.json is retained; resume to complete it.

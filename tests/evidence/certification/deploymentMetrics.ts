@@ -63,7 +63,10 @@ export interface DurationBehaviour {
     /** Repeated 5-grams — the shape a looping decode takes. */
     longFormRepeatedNgrams: number | null;
     /** Output far shorter than the reference: truncation rather than error. */
+    /** LONG-FORM clips that lost a large fraction of their reference — a transcript cut short. GATING. */
     truncatedClips: number;
+    /** Clips with a high deletion ratio at ANY length. DIAGNOSTIC quality signal; gates nothing. */
+    highDeletionClips?: number;
 }
 
 export interface TechnicalVerdict {

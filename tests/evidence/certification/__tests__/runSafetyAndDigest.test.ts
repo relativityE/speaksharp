@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { buildAssetInventory, reconcileAssets } from '../assetInventory';
+import { buildAssetInventory, reconcileAssets, verifyAgainstCommittedPins } from '../assetInventory';
 import { resolve } from 'node:path';
 
 const SRC = readFileSync(resolve(__dirname, '../../../../scripts/run-browser-matrix.mts'), 'utf8');
@@ -120,5 +120,61 @@ describe('#1304 A — onnxruntime-common, the gap only int8 exposed', () => {
             [k, { sha256: v.sha256, bytes: v.bytes, source: 'cache' as const, pinned: true }],
         ]);
         expect(reconcileAssets(buildAssetInventory(declared, null), {}, { requirePinned: true }).ok).toBe(true);
+    });
+});
+
+describe('#1304 — pin resolution is MODEL-AWARE, never basename-alone', () => {
+    // The targeted 600 resolved the product's self-hosted `whisper-base.en` encoder against
+    // `whisper-SMALL.en` — the only same-named pin — and reported a hash mismatch between two files that
+    // were never the same file. Unique is not same-model.
+    const f = (name: string, sha: string, bytes = 10) =>
+        ({ [name]: { sha256: sha, bytes, source: 'cache' as const, pinned: true } });
+    const required = (x: { name: string }) => /\.(mjs|js|wasm|onnx|ort|bin)$/.test(x.name);
+
+    it('CASUALTY: a different MODEL with the same filename must NOT resolve', () => {
+        const inv = buildAssetInventory(f('whisper-base.en/onnx/encoder_model_quantized.onnx', 'a'.repeat(64)), null);
+        const pins = { 'Xenova/whisper-small.en/resolve/main/onnx/encoder_model_quantized.onnx': { sha256: 'b'.repeat(64) } };
+        const v = verifyAgainstCommittedPins(inv, pins, { require: required });
+        expect(v.ok).toBe(false);
+        // UNPINNED, not hash_mismatch: refusing to resolve is different from resolving and disagreeing.
+        expect((v as { failures: Array<{ kind: string }> }).failures[0].kind).toBe('unpinned');
+    });
+
+    it('POSITIVE CONTROL: the SAME model resolves across the HF revision segment', () => {
+        const inv = buildAssetInventory(f('whisper-base.en/onnx/encoder_model_quantized.onnx', 'a'.repeat(64)), null);
+        const pins = { 'Xenova/whisper-base.en/resolve/main/onnx/encoder_model_quantized.onnx': { sha256: 'a'.repeat(64) } };
+        expect(verifyAgainstCommittedPins(inv, pins, { require: required }).ok).toBe(true);
+    });
+
+    it('POSITIVE CONTROL: node_modules/ and lib/ are the same tree', () => {
+        const inv = buildAssetInventory(f('node_modules/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm', 'c'.repeat(64)), null);
+        const pins = { 'lib/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm': { sha256: 'c'.repeat(64) } };
+        expect(verifyAgainstCommittedPins(inv, pins, { require: required }).ok).toBe(true);
+    });
+
+    it('CASUALTY: two packages sharing a runtime filename must NOT cross-resolve', () => {
+        const inv = buildAssetInventory(f('node_modules/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm', 'c'.repeat(64)), null);
+        const pins = { 'lib/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm': { sha256: 'd'.repeat(64) } };
+        expect(verifyAgainstCommittedPins(inv, pins, { require: required }).ok).toBe(false);
+    });
+
+    it('hash verification stays EXACT once resolved', () => {
+        const inv = buildAssetInventory(f('whisper-base.en/onnx/encoder_model_quantized.onnx', 'a'.repeat(64)), null);
+        const pins = { 'Xenova/whisper-base.en/resolve/main/onnx/encoder_model_quantized.onnx': { sha256: 'f'.repeat(64) } };
+        const v = verifyAgainstCommittedPins(inv, pins, { require: required });
+        expect((v as { failures: Array<{ kind: string }> }).failures[0].kind).toBe('hash_mismatch');
+    });
+
+    it('the genuinely missing self-hosted pins now exist and match the shipped bytes', () => {
+        const selfHosted = JSON.parse(readFileSync(
+            resolve(__dirname, '../../../fixtures/selfhosted-model-pins.json'), 'utf8')) as
+            { assets: Record<string, { sha256: string; bytes: number }> };
+        for (const want of [
+            'whisper-base.en/onnx/encoder_model_quantized.onnx',
+            'whisper-base.en/onnx/decoder_model_merged_quantized.onnx',
+        ]) {
+            expect(selfHosted.assets[want], `${want} still unpinned`).toBeDefined();
+            expect(selfHosted.assets[want].sha256).toMatch(/^[0-9a-f]{64}$/);
+        }
     });
 });
