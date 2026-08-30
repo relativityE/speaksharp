@@ -47,7 +47,10 @@ async function deliver(
     headers: { "Stripe-Signature": sig, "Content-Type": "application/json" },
   });
   const res = await deps.handler(req, deps.stripe as unknown as StripeLike, supabase, deps.webhookSecret, (k) => {
-    if (k === "STRIPE_PRICE_ID") return deps.priceId;
+    // STRIPE_PRO_PRICE_ID — the name the handler actually reads. Supplying STRIPE_PRICE_ID left the
+    // approved price unresolved and the handler answered HTTP 500, which read as a binding failure
+    // rather than as the configuration mistake it was.
+    if (k === "STRIPE_PRO_PRICE_ID") return deps.priceId;
     if (k === "STRIPE_PRICE_CURRENCY") return "usd";
     return undefined;
   });
