@@ -191,7 +191,7 @@ The pre-consolidation non-archive Markdown surface was classified in the dated [
 
 Product-status corrections that affect what we may claim:
 
-- **Personal Progress and Focus Point coverage ship** and are user-reachable; the complete Executive Rehearsal
+- **Personal Progress and Focus Points coverage ship** and are user-reachable; the broader executive-rehearsal use case (a canonical use case of Focus Points, not a separate product)
   experience does not, and Pro-interest capture does not.
 - **The universal score is fully retired from the rendered UI** (0 live consumers); still computed in 3
   shadow-telemetry paths.

@@ -1,3 +1,13 @@
+/**
+ * #1254 — DETECTION LANGUAGE, NOT COVERAGE LANGUAGE.
+ *
+ * The engine behind these words is a conservative LOCAL KEYWORD MATCHER. "Covered" asserts the point was
+ * addressed; "missed" asserts the speaker failed to address it. Neither is what was measured — the engine
+ * can only report whether it DETECTED the point's language. A speaker who made the point in their own
+ * words and got an amber "missed" pip was told they failed at something they did.
+ *
+ * So the surface says detected / not detected, which is exactly what the measurement supports.
+ */
 import * as React from 'react';
 import type { CoverageStatus } from '@/services/rehearsal/outcomeScorecard';
 
@@ -24,9 +34,9 @@ export interface CoverageRailPoint {
 const STATUS_STYLE: Record<CoverageStatus, { dot: string; text: string; word: string }> = {
     // covered → progress green; partial → mic-amber; missing → regression red. Text tints subtly so the
     // row itself reads its state, but the dot + word carry the meaning (never colour alone).
-    covered: { dot: 'bg-[#146b4a]', text: 'text-foreground', word: 'Covered' },
-    partial: { dot: 'bg-[#d98a1f]', text: 'text-foreground', word: 'Partly covered' },
-    missing: { dot: 'bg-[#a8321f]/70', text: 'text-foreground/70', word: 'Not covered' },
+    covered: { dot: 'bg-[#146b4a]', text: 'text-foreground', word: 'Detected' },
+    partial: { dot: 'bg-[#d98a1f]', text: 'text-foreground', word: 'Partly detected' },
+    missing: { dot: 'bg-[#a8321f]/70', text: 'text-foreground/70', word: 'Not detected' },
 };
 
 export function CoverageRail({
@@ -48,7 +58,7 @@ export function CoverageRail({
                 <h3 className="text-[13px] font-extrabold uppercase tracking-wide text-[#6d28d9]">Focus Points</h3>
                 {points.length > 0 && (
                     <span data-testid="coverage-rail-summary" className="text-[13px] font-bold text-foreground/70">
-                        {covered}/{points.length} covered
+                        {covered}/{points.length} detected
                     </span>
                 )}
             </div>

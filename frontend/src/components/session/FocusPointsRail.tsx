@@ -1,3 +1,13 @@
+/**
+ * #1254 — DETECTION LANGUAGE, NOT COVERAGE LANGUAGE.
+ *
+ * The engine behind these words is a conservative LOCAL KEYWORD MATCHER. "Covered" asserts the point was
+ * addressed; "missed" asserts the speaker failed to address it. Neither is what was measured — the engine
+ * can only report whether it DETECTED the point's language. A speaker who made the point in their own
+ * words and got an amber "missed" pip was told they failed at something they did.
+ *
+ * So the surface says detected / not detected, which is exactly what the measurement supports.
+ */
 import React from 'react';
 import type { FocusCoverageRow } from '@/utils/focusCoverage';
 
@@ -58,7 +68,7 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
 }) => {
     const isAfter = sessionState === 'after';
     // §3: the card names the TASK, not ownership. before/during = "Points to cover"; after = "What you covered".
-    const title = isAfter ? 'What you covered' : 'Points to cover';
+    const title = isAfter ? 'What we detected' : 'Points to cover';
     const topicLabel = (topic ?? '').trim();
 
     // §3 missed-point cause: derived from REAL coverage timestamps (the elapsed between coverage events),
