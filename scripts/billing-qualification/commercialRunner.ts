@@ -57,6 +57,21 @@ async function deliver(
   return res.status;
 }
 
+/** Wait for a subscription to actually REACH a status; the clock advancing is not the same as settling. */
+async function pollSubscriptionStatus(
+  stripe: StripeLike, subId: string, want: string, timeoutMs: number,
+): Promise<Obj> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const sub = asObj(await stripe.subscriptions.retrieve(subId));
+    if (sub.status === want) return sub;
+    if (Date.now() > deadline) {
+      throw new Error(`#1302: subscription never reached '${want}' (last status '${String(sub.status)}')`);
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+}
+
 async function pollClockReady(stripe: StripeLike, clockId: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -240,12 +255,17 @@ export async function runCommercialQualification(deps: CommercialDeps): Promise<
     const failed = await send("evt_1302_fail", "customer.subscription.updated", deps.frozenTime + 64 * DAY, { id: subId }, "payment failure");
     if (failed.tier !== "free") throw new Error(`#1302: a failed renewal did not revoke access (tier ${failed.tier})`);
 
-    const failing = asObj(await deps.stripe.subscriptions.retrieve(subId));
-    const openInvoice = typeof failing.latest_invoice === "string"
+    // Recover the invoice THAT PHASE produced, not whatever `latest_invoice` happened to be.
+    const failing = await pollSubscriptionStatus(deps.stripe, subId, "past_due", clockTimeout);
+    const openInvoiceId = typeof failing.latest_invoice === "string"
       ? failing.latest_invoice : String(asObj(failing.latest_invoice).id ?? "");
+    if (!openInvoiceId) throw new Error("#1302: past_due produced no invoice to recover");
     // Reuse the ALREADY ATTACHED good payment method rather than re-materialising the token.
     await deps.stripe.customers.update(customerId, { invoice_settings: { default_payment_method: goodPm } });
-    if (openInvoice) await deps.stripe.invoices.pay(openInvoice, { payment_method: goodPm });
+    const openInvoice = asObj(await deps.stripe.invoices.retrieve(openInvoiceId));
+    // Pay only what is genuinely unpaid — paying a settled invoice is an error, not a recovery.
+    if (openInvoice.status !== "paid") await deps.stripe.invoices.pay(openInvoiceId, { payment_method: goodPm });
+    await pollSubscriptionStatus(deps.stripe, subId, "active", clockTimeout);
     const recovered = await send("evt_1302_recover", "customer.subscription.updated", deps.frozenTime + 65 * DAY, { id: subId }, "recovery");
     if (recovered.tier !== "pro") throw new Error(`#1302: recovery did not restore Pro (tier ${recovered.tier})`);
 
