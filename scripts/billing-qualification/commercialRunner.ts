@@ -133,8 +133,16 @@ export async function runCommercialQualification(deps: CommercialDeps): Promise<
       test_clock: cid, description: "#1302 commercial lifecycle qualification (test-mode)",
     })).id);
     created.push(customerId);
-    await deps.stripe.paymentMethods.attach("pm_card_visa", { customer: customerId });
-    await deps.stripe.customers.update(customerId, { invoice_settings: { default_payment_method: "pm_card_visa" } });
+    /**
+     * ATTACH RETURNS THE REAL PAYMENT METHOD; THE TOKEN IS NOT ONE.
+     *
+     * `pm_card_visa` is a reusable TEST TOKEN — each attach materialises a NEW payment method with its own
+     * id. Passing the token onwards as `default_payment_method`, or to `invoices.pay`, names a payment
+     * method this customer does not own, which Stripe rejects with exactly that message. Capture the id
+     * the attach returned and use it everywhere after.
+     */
+    const goodPm = String(asObj(await deps.stripe.paymentMethods.attach("pm_card_visa", { customer: customerId })).id);
+    await deps.stripe.customers.update(customerId, { invoice_settings: { default_payment_method: goodPm } });
     // NO trial_period_days — the DB trial was the only free period.
     const sub = asObj(await deps.stripe.subscriptions.create({
       customer: customerId, items: [{ price: deps.priceId }], expand: ["latest_invoice.payment_intent"],
@@ -221,8 +229,8 @@ export async function runCommercialQualification(deps: CommercialDeps): Promise<
     if (!prematureRefused) throw new Error("#1302: a premature Stripe object during the DB trial was NOT refused");
 
     // ── 9 (cont). Failure, recovery, scheduled cancel, terminal revocation ────
-    await deps.stripe.paymentMethods.attach("pm_card_chargeCustomerFail", { customer: customerId });
-    await deps.stripe.customers.update(customerId, { invoice_settings: { default_payment_method: "pm_card_chargeCustomerFail" } });
+    const failPm = String(asObj(await deps.stripe.paymentMethods.attach("pm_card_chargeCustomerFail", { customer: customerId })).id);
+    await deps.stripe.customers.update(customerId, { invoice_settings: { default_payment_method: failPm } });
     await deps.stripe.testHelpers.testClocks.advance(cid, { frozen_time: deps.frozenTime + 64 * DAY });
     await pollClockReady(deps.stripe, cid, clockTimeout);
     const failed = await send("evt_1302_fail", "customer.subscription.updated", deps.frozenTime + 64 * DAY, { id: subId }, "payment failure");
@@ -231,9 +239,9 @@ export async function runCommercialQualification(deps: CommercialDeps): Promise<
     const failing = asObj(await deps.stripe.subscriptions.retrieve(subId));
     const openInvoice = typeof failing.latest_invoice === "string"
       ? failing.latest_invoice : String(asObj(failing.latest_invoice).id ?? "");
-    await deps.stripe.paymentMethods.attach("pm_card_visa", { customer: customerId });
-    await deps.stripe.customers.update(customerId, { invoice_settings: { default_payment_method: "pm_card_visa" } });
-    if (openInvoice) await deps.stripe.invoices.pay(openInvoice, { payment_method: "pm_card_visa" });
+    // Reuse the ALREADY ATTACHED good payment method rather than re-materialising the token.
+    await deps.stripe.customers.update(customerId, { invoice_settings: { default_payment_method: goodPm } });
+    if (openInvoice) await deps.stripe.invoices.pay(openInvoice, { payment_method: goodPm });
     const recovered = await send("evt_1302_recover", "customer.subscription.updated", deps.frozenTime + 65 * DAY, { id: subId }, "recovery");
     if (recovered.tier !== "pro") throw new Error(`#1302: recovery did not restore Pro (tier ${recovered.tier})`);
 
