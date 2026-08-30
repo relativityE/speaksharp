@@ -24,87 +24,43 @@
  * content, and does not activate telemetry anywhere.
  */
 
-/** Experiment context, content-free by construction: a flag name and two enum-ish assignment labels. */
-const EXPERIMENT_PROPS = [
-    'session_coaching_experiment',
-    'session_coaching_variant',
-    'session_coaching_assignment_source',
+/**
+ * ── VOCABULARIES ───────────────────────────────────────────────────────────────────────────────────────
+ *
+ * Every vocabulary below is DERIVED from the product type that produces it, not invented here. An earlier
+ * revision declared its own values and silently dropped real ones: `session_coaching_variant` was declared
+ * ['control','guided','unknown'] when the only variant assigned is 'treatment'.
+ */
+
+/** Transcription engine modes. NOT the Focus Points practice modes — see PRACTICE_MODES. */
+const STT_MODES = ['private', 'browser', 'cloud', 'native', 'unknown'] as const;
+/** `PracticeMode` in practiceTelemetry.ts. The SAME property name `mode` with a DIFFERENT closed set. */
+const PRACTICE_MODES = ['quick', 'objective'] as const;
+/** `PracticeEntrySource` — closed at the producer, and closed again here. */
+const ENTRY_SOURCES = ['landing_card', 'freeform_overview'] as const;
+/** `RuntimeState` in SpeechRuntimeController.ts — UPPERCASE. A lowercase set dropped every real value. */
+const RUNTIME_STATES = [
+    'IDLE', 'INITIATING', 'ENGINE_INITIALIZING', 'DOWNLOAD_REQUIRED', 'READY',
+    'RECORDING', 'STOPPING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED',
+] as const;
+/** `ClientFreshness` in staleClientGuard.ts. 'unverified' and 'local' are real and were being dropped. */
+const FRESHNESS = ['fresh', 'stale', 'unverified', 'local'] as const;
+
+const TIERS = ['free', 'pro', 'trial', 'unknown', 'anonymous'] as const;
+const TRIAL_STATES = ['active', 'expired', 'none', 'unknown'] as const;
+
+export const SESSION_COACHING_VARIANTS = ['treatment'] as const;
+export const SESSION_COACHING_ASSIGNMENT_SOURCES = ['default'] as const;
+const SCORE_BANDS = [
+    'Polished Presenter', 'Confident Speaker', 'Clear Communicator', 'Building Control', 'Getting Started',
+] as const;
+const SCORE_CONFIDENCE = ['warming-up', 'directional', 'usable'] as const;
+const TRANSCRIPTION_CONFIDENCE = ['low', 'medium', 'high'] as const;
+const SCORE_CATEGORIES = [
+    'messageStructure', 'deliveryControl', 'languageClarity', 'audienceImpact',
 ] as const;
 
-/** Conversion funnel context. `route` is an in-app path, never a URL with query material. */
-const CONVERSION_PROPS = ['source', 'plan', 'route', 'tier', 'trial_state', ...EXPERIMENT_PROPS] as const;
-
-/**
- * Approved fields per event. Anything absent here is DROPPED at the capture boundary.
- *
- * Every field is a number, boolean, or a value drawn from a bounded set. No field is free text.
- */
-export const EVENT_ALLOWLIST: Readonly<Record<string, readonly string[]>> = Object.freeze({
-    // ── session outcome loop ────────────────────────────────────────────────
-    session_started: ['mode', 'requested_mode', 'user_tier', ...EXPERIMENT_PROPS],
-    session_saved: [
-        'mode', 'duration_seconds', 'word_count', 'wpm', 'filler_count', 'clarity_score',
-        'is_new_streak_day', 'streak_count', ...EXPERIMENT_PROPS,
-    ],
-    // `error_message` is deliberately ABSENT. `error_name` is a constructor name (bounded); the message is not.
-    recording_start_failed: [
-        'mode', 'requested_mode', 'runtime_state', 'user_tier', 'error_name', 'start_leaf_name',
-        ...EXPERIMENT_PROPS,
-    ],
-    recording_blocked_stale_client: ['status', 'running_release', 'deployed_release', 'attempts'],
-
-    // ── conversion funnel ───────────────────────────────────────────────────
-    conversion_cta_viewed: CONVERSION_PROPS,
-    conversion_cta_clicked: CONVERSION_PROPS,
-    checkout_started: CONVERSION_PROPS,
-    checkout_returned_success: ['conversion_source', 'utm_source', 'utm_medium', 'utm_campaign'],
-    checkout_returned_cancelled: ['conversion_source', 'utm_source', 'utm_medium', 'utm_campaign'],
-    landing_preview_clicked: CONVERSION_PROPS,
-
-    // ── practice funnel ─────────────────────────────────────────────────────
-    practice_entry_viewed: ['returning_user', 'release_sha'],
-    practice_mode_selected: ['mode', 'entry_source', 'release_sha'],
-    practice_overview_expanded: ['mode', 'release_sha'],
-
-    // ── reliability ─────────────────────────────────────────────────────────
-    // `message` ABSENT: error.message is arbitrary runtime text.
-    // ── live-coaching experiment (was UNGOVERNED: both events shipped zero properties) ───────────────
-    // `target_label` is deliberately ABSENT. It is generated copy (`Next target 7.5` / `Hold consistency`),
-    // not a dimension, so it is dropped rather than governed. A numeric target field would be the right
-    // shape if the analysis ever needs it; that is a producer change, not an allowlist widening.
-    session_live_coaching_card_viewed: [
-        'experiment', 'variant', 'assignment_source', 'model_version', 'confidence', 'score_band',
-        'numeric_score_visible', 'action_count', 'weakest_categories', 'transcription_engine',
-        'transcription_confidence',
-    ],
-    session_live_coaching_numeric_score_shown: [
-        'experiment', 'variant', 'assignment_source', 'model_version', 'confidence', 'score_band',
-        'action_count', 'weakest_categories',
-    ],
-
-    COMPONENT_CRASH: ['component', 'isolationKey'],
-    // `reason` ABSENT: a rejection reason is arbitrary runtime text. The event's OCCURRENCE is the signal.
-    GLOBAL_UNHANDLED_REJECTION: [],
-
-    // ── identity ────────────────────────────────────────────────────────────
-    account_identified: ['source'],
-});
-
-/** Envelope keys the buffer itself adds; never caller-supplied. */
-export const ENVELOPE_KEYS = Object.freeze(['$priority', '$ts']);
-
-/**
- * PER-FIELD VALIDATION — an allowlisted key is not a licence to carry arbitrary text.
- *
- * The first version accepted any string up to 120 characters under an approved key, so
- * `session_saved{ mode: "um here is my private quarterly discussion" }` passed: `mode` is allowlisted
- * and the value is short. A length cap is not a content control — it bounds the size of a leak, not its
- * existence.
- *
- * Every approved field now declares the SHAPE of value it may carry. Anything else is dropped, whether
- * or not it is short and whether or not its key is approved.
- */
-type FieldRule =
+export type FieldRule =
     | { kind: 'enum'; values: readonly string[] }
     | { kind: 'int'; min: number; max: number }
     | { kind: 'number'; min: number; max: number }
@@ -119,103 +75,140 @@ type FieldRule =
      */
     | { kind: 'enum[]'; values: readonly string[]; maxLength: number };
 
-const MODES = ['private', 'browser', 'cloud', 'native', 'unknown'] as const;
-const TIERS = ['free', 'pro', 'trial', 'unknown', 'anonymous'] as const;
-const TRIAL_STATES = ['active', 'expired', 'none', 'unknown'] as const;
+const enumOf = (values: readonly string[]): FieldRule => ({ kind: 'enum', values });
+const slug = (maxLength = 64): FieldRule => ({ kind: 'slug', maxLength });
+
+/** Shared fragments. Composed per event — never a global name→rule map. */
+const EXPERIMENT_FIELDS = {
+    session_coaching_experiment: slug(),
+    session_coaching_variant: enumOf(SESSION_COACHING_VARIANTS),
+    session_coaching_assignment_source: enumOf(SESSION_COACHING_ASSIGNMENT_SOURCES),
+} as const;
+
+const CONVERSION_FIELDS = {
+    source: slug(),
+    plan: enumOf(['pro', 'free', 'unknown']),
+    route: { kind: 'route', maxLength: 96 } as FieldRule,
+    tier: enumOf(TIERS),
+    trial_state: enumOf(TRIAL_STATES),
+    ...EXPERIMENT_FIELDS,
+} as const;
+
+const CHECKOUT_RETURN_FIELDS = {
+    conversion_source: slug(),
+    utm_source: slug(), utm_medium: slug(), utm_campaign: slug(),
+} as const;
+
+const COACHING_CORE = {
+    experiment: slug(),
+    variant: enumOf(SESSION_COACHING_VARIANTS),
+    assignment_source: enumOf(SESSION_COACHING_ASSIGNMENT_SOURCES),
+    model_version: slug(),
+    confidence: enumOf(SCORE_CONFIDENCE),
+    score_band: enumOf(SCORE_BANDS),
+    action_count: { kind: 'int', min: 0, max: 1_000 } as FieldRule,
+    weakest_categories: { kind: 'enum[]', values: SCORE_CATEGORIES, maxLength: 8 } as FieldRule,
+} as const;
+
 /**
- * Bounded vocabularies for the live-coaching experiment.
+ * ── PER-EVENT SCHEMAS ──────────────────────────────────────────────────────────────────────────────────
  *
- * These are EXPORTED and the producer derives its types from them (`sessionCoachingExperiment.ts`), so a new
- * variant cannot be shipped without appearing here. The previous values were invented rather than derived —
- * `['control','guided','unknown']` did not contain the only variant the code actually assigns
- * (`'treatment'`), so the variant would have been dropped from every governed event and the experiment would
- * have reported no variant dimension at all. Silent loss of an analysis dimension, not a leak — which is
- * exactly why the vocabulary must be bound to the producer instead of maintained by hand.
+ * Each event owns its own field→rule map. This is the fix for a global name→rule table: `mode` means
+ * `PracticeMode` on the Practice events and `STT mode` on the session events, and a single global rule for
+ * `mode` silently DROPPED the Focus Points values from every Practice event.
+ *
+ * An event absent from this object is UNGOVERNED and ships no properties at all.
  */
-export const SESSION_COACHING_VARIANTS = ['treatment'] as const;
-export const SESSION_COACHING_ASSIGNMENT_SOURCES = ['default'] as const;
+export const EVENT_SCHEMAS = Object.freeze({
+    // ── session outcome loop ────────────────────────────────────────────────
+    session_started: {
+        mode: enumOf(STT_MODES), requested_mode: enumOf(STT_MODES), user_tier: enumOf(TIERS),
+        ...EXPERIMENT_FIELDS,
+    },
+    session_saved: {
+        mode: enumOf(STT_MODES), user_tier: enumOf(TIERS),
+        duration_seconds: { kind: 'int', min: 0, max: 86_400 } as FieldRule,
+        word_count: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        filler_count: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        wpm: { kind: 'number', min: 0, max: 1_000 } as FieldRule,
+        clarity_score: { kind: 'number', min: 0, max: 100 } as FieldRule,
+        streak_count: { kind: 'int', min: 0, max: 100_000 } as FieldRule,
+        is_new_streak_day: { kind: 'bool' } as FieldRule,
+        ...EXPERIMENT_FIELDS,
+    },
+    recording_start_failed: {
+        mode: enumOf(STT_MODES),
+        // UPPERCASE, from RuntimeState. The lowercase set dropped every real value this event carries.
+        runtime_state: enumOf(RUNTIME_STATES),
+        error_name: slug(), start_leaf_name: slug(),
+    },
+    recording_blocked_stale_client: {
+        status: enumOf(FRESHNESS),
+        running_release: slug(), deployed_release: slug(),
+        attempts: { kind: 'int', min: 0, max: 10_000 } as FieldRule,
+    },
 
-/** Score bands from `getScoreLabel`. Bounded copy labels — they contain spaces, so `slug` cannot carry them. */
-const SCORE_BANDS = [
-    'Polished Presenter', 'Confident Speaker', 'Clear Communicator', 'Building Control', 'Getting Started',
-] as const;
-/** Score confidence and transcription confidence are separate scales; they are NOT interchangeable. */
-const SCORE_CONFIDENCE = ['warming-up', 'directional', 'usable'] as const;
-const TRANSCRIPTION_CONFIDENCE = ['low', 'medium', 'high'] as const;
-/** Keys of `SpeakingScoreBreakdown` — a closed set of category identifiers, never user text. */
-const SCORE_CATEGORIES = [
-    'messageStructure', 'deliveryControl', 'languageClarity', 'audienceImpact',
-] as const;
-const RUNTIME_STATES = ['idle', 'ready', 'starting', 'recording', 'stopping', 'error', 'unknown'] as const;
-const FRESHNESS = ['fresh', 'stale', 'unknown'] as const;
+    // ── conversion funnel ───────────────────────────────────────────────────
+    conversion_cta_viewed: CONVERSION_FIELDS,
+    conversion_cta_clicked: CONVERSION_FIELDS,
+    checkout_started: CONVERSION_FIELDS,
+    checkout_returned_success: CHECKOUT_RETURN_FIELDS,
+    checkout_returned_cancelled: CHECKOUT_RETURN_FIELDS,
+    landing_preview_clicked: CONVERSION_FIELDS,
 
-/** The shape each approved property may take. A field with no rule here can never be emitted. */
-const FIELD_RULES: Readonly<Record<string, FieldRule>> = Object.freeze({
-    mode: { kind: 'enum', values: MODES },
-    requested_mode: { kind: 'enum', values: MODES },
-    user_tier: { kind: 'enum', values: TIERS },
-    tier: { kind: 'enum', values: TIERS },
-    trial_state: { kind: 'enum', values: TRIAL_STATES },
-    plan: { kind: 'enum', values: ['pro', 'free', 'unknown'] },
-    runtime_state: { kind: 'enum', values: RUNTIME_STATES },
-    status: { kind: 'enum', values: FRESHNESS },
-    session_coaching_variant: { kind: 'enum', values: SESSION_COACHING_VARIANTS },
-    session_coaching_assignment_source: { kind: 'enum', values: SESSION_COACHING_ASSIGNMENT_SOURCES },
-    session_coaching_experiment: { kind: 'slug', maxLength: 64 },
+    // ── Focus Points / practice entry ───────────────────────────────────────
+    // `mode` here is PracticeMode ('quick' | 'objective'), NOT an STT mode.
+    practice_entry_viewed: { returning_user: { kind: 'bool' } as FieldRule, release_sha: slug() },
+    practice_mode_selected: {
+        mode: enumOf(PRACTICE_MODES), entry_source: enumOf(ENTRY_SOURCES), release_sha: slug(),
+    },
+    practice_overview_expanded: { mode: enumOf(PRACTICE_MODES), release_sha: slug() },
+    // Was entirely UNGOVERNED: a real producer whose properties were all dropped.
+    freeform_practice_started: {
+        mode: enumOf(PRACTICE_MODES), entry_source: enumOf(ENTRY_SOURCES), release_sha: slug(),
+    },
 
-    // ── live-coaching experiment card ───────────────────────────────────────
-    // The producer uses short key names (`variant`, not `session_coaching_variant`); both spellings are
-    // governed because both are emitted, by different producers.
-    experiment: { kind: 'slug', maxLength: 64 },
-    variant: { kind: 'enum', values: SESSION_COACHING_VARIANTS },
-    assignment_source: { kind: 'enum', values: SESSION_COACHING_ASSIGNMENT_SOURCES },
-    model_version: { kind: 'slug', maxLength: 64 },
-    confidence: { kind: 'enum', values: SCORE_CONFIDENCE },
-    transcription_confidence: { kind: 'enum', values: TRANSCRIPTION_CONFIDENCE },
-    score_band: { kind: 'enum', values: SCORE_BANDS },
-    numeric_score_visible: { kind: 'bool' },
-    action_count: { kind: 'int', min: 0, max: 1_000 },
-    weakest_categories: { kind: 'enum[]', values: SCORE_CATEGORIES, maxLength: 8 },
-    transcription_engine: { kind: 'slug', maxLength: 64 },
+    // ── live-coaching experiment ────────────────────────────────────────────
+    // `target_label` is deliberately ABSENT: generated copy ("Next target 7.5"), not a dimension.
+    session_live_coaching_card_viewed: {
+        ...COACHING_CORE,
+        numeric_score_visible: { kind: 'bool' } as FieldRule,
+        transcription_engine: slug(),
+        transcription_confidence: enumOf(TRANSCRIPTION_CONFIDENCE),
+    },
+    session_live_coaching_numeric_score_shown: { ...COACHING_CORE },
 
-    duration_seconds: { kind: 'int', min: 0, max: 86_400 },
-    word_count: { kind: 'int', min: 0, max: 1_000_000 },
-    filler_count: { kind: 'int', min: 0, max: 1_000_000 },
-    streak_count: { kind: 'int', min: 0, max: 100_000 },
-    attempts: { kind: 'int', min: 0, max: 10_000 },
-    wpm: { kind: 'number', min: 0, max: 1_000 },
-    clarity_score: { kind: 'number', min: 0, max: 100 },
+    // ── error surfaces: bounded identifiers only, never messages ────────────
+    COMPONENT_CRASH: { component: slug(), isolationKey: slug() },
+    GLOBAL_UNHANDLED_REJECTION: {},
 
-    is_new_streak_day: { kind: 'bool' },
-    returning_user: { kind: 'bool' },
+    account_identified: { source: slug() },
+} as const satisfies Record<string, Record<string, FieldRule>>);
 
-    // Bounded identifiers. `error_name` is a constructor name, never a message.
-    error_name: { kind: 'slug', maxLength: 64 },
-    start_leaf_name: { kind: 'slug', maxLength: 64 },
-    component: { kind: 'slug', maxLength: 64 },
-    isolationKey: { kind: 'slug', maxLength: 64 },
-    source: { kind: 'slug', maxLength: 64 },
-    conversion_source: { kind: 'slug', maxLength: 64 },
-    entry_source: { kind: 'slug', maxLength: 64 },
-    utm_source: { kind: 'slug', maxLength: 64 },
-    utm_medium: { kind: 'slug', maxLength: 64 },
-    utm_campaign: { kind: 'slug', maxLength: 64 },
-    release_sha: { kind: 'slug', maxLength: 64 },
-    running_release: { kind: 'slug', maxLength: 64 },
-    deployed_release: { kind: 'slug', maxLength: 64 },
+/**
+ * The set of event names telemetry will carry properties for.
+ *
+ * Producers type their event parameter as `GovernedEvent`, so a dynamically-computed name that is not in
+ * `EVENT_SCHEMAS` fails COMPILATION. A regex over `analyticsBuffer.push('literal')` could never do this:
+ * the Practice producers call `emit(event, …)` through a wrapper, so every one of them was invisible to
+ * that scan — which is exactly how `freeform_practice_started` shipped ungoverned.
+ */
+export type GovernedEvent = keyof typeof EVENT_SCHEMAS;
 
-    route: { kind: 'route', maxLength: 96 },
-});
+/** Runtime view of the same registry, for tests and for the drop counter. */
+export const GOVERNED_EVENTS: readonly string[] = Object.freeze(Object.keys(EVENT_SCHEMAS));
+
+/** Back-compat view: event → approved field NAMES. Shape validation is the authority. */
+export const EVENT_ALLOWLIST: Readonly<Record<string, readonly string[]>> = Object.freeze(
+    Object.fromEntries(Object.entries(EVENT_SCHEMAS).map(([e, f]) => [e, Object.freeze(Object.keys(f))])),
+);
 
 /** No spaces, no punctuation that carries prose, no control characters, no query material. */
 const SLUG = /^[A-Za-z0-9._:-]+$/;
 const ROUTE = /^\/[A-Za-z0-9/_-]*$/;
 
-export function isValidForField(field: string, value: unknown): boolean {
-    const rule = FIELD_RULES[field];
-    if (!rule) return false;                     // no declared shape -> never emitted
+function matchesRule(rule: FieldRule, value: unknown): boolean {
     if (value === null || value === undefined) return true;   // absence is content-free
-
     switch (rule.kind) {
         case 'enum':
             return typeof value === 'string' && rule.values.includes(value);
@@ -235,8 +228,17 @@ export function isValidForField(field: string, value: unknown): boolean {
                 && value.length <= rule.maxLength && ROUTE.test(value);
         case 'enum[]':
             return Array.isArray(value) && value.length <= rule.maxLength
-                && value.every(v => typeof v === 'string' && rule.values.includes(v));
+                && value.every((v) => typeof v === 'string' && rule.values.includes(v));
     }
+}
+
+/** Is `value` acceptable for `field` ON THIS EVENT? Field shape is always event-scoped. */
+export function isValidForEventField(event: string, field: string, value: unknown): boolean {
+    const schema = (EVENT_SCHEMAS as Record<string, Record<string, FieldRule>>)[event];
+    if (!schema) return false;
+    const rule = schema[field];
+    if (!rule) return false;                     // no declared shape on this event -> never emitted
+    return matchesRule(rule, value);
 }
 
 /** Retained for callers that only need the coarse check; per-field validation is the authority. */
@@ -244,7 +246,7 @@ export function isContentFreeValue(value: unknown): boolean {
     if (value === null || value === undefined) return true;
     if (typeof value === 'number') return Number.isFinite(value);
     if (typeof value === 'boolean') return true;
-    return false;                                 // strings must go through isValidForField
+    return false;                                 // strings must go through isValidForEventField
 }
 
 export interface ProjectionResult {
@@ -271,7 +273,7 @@ export function projectEventProps(
     for (const key of Object.keys(props)) {
         // BOTH gates: the key must be approved FOR THIS EVENT, and the value must match the shape that
         // field may carry. Either alone is insufficient — an approved key with prose is the leak.
-        if (!allowed || !allowed.includes(key) || !isValidForField(key, props[key])) {
+        if (!allowed || !allowed.includes(key) || !isValidForEventField(event, key, props[key])) {
             dropped.push(key);
             continue;
         }

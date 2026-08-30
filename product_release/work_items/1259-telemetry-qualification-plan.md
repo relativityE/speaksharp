@@ -1,6 +1,6 @@
-**Status:** Plan — not implemented
+**Status:** PARTIALLY IMPLEMENTED — Gap A closed (T1 only); Gap B and #1259 closure OUTSTANDING
 **Owner:** Engineering (relativityE)
-**Last Reviewed:** 2026-08-29
+**Last Reviewed:** 2026-08-29 (currentized after the T1 implementation landed; PM RETURN on 97e953f4)
 **Last Verified:** 2026-08-29 (all paths read from `origin/main@0e2fffd1`)
 **Applies To:** Qualifying the advice → attempt → later comparable outcome path for #1259.
 **Class:** Procedure (work item — temporary).
@@ -13,6 +13,24 @@
 
 **This is an existing path to qualify, not a greenfield feature.** Treating it as new work would rebuild
 mechanisms that already ship and would miss the two real gaps below.
+
+> **CURRENT STATE — read before using this document.** This was written as a plan and is no longer only a
+> plan. **Gap A is CLOSED** by the per-event content-free allowlist at the real `posthog.capture` boundary
+> (PR #1374). That is **T1 only**.
+>
+> **Shipping T1 does not close #1259.** Still outstanding, and not started:
+>
+> | Outstanding for #1259 closure | State |
+> |---|---|
+> | Canary / synthetic attribution — telemetry must distinguish synthetic canary traffic from real users | NOT STARTED |
+> | `release_sha` on **every** SLO event (only some producers attach it today) | NOT STARTED |
+> | Clean deployed baseline | NOT STARTED |
+> | Numeric SLO thresholds | NOT STARTED |
+> | Deployed readback evidence | NOT STARTED |
+> | **Gap B** — attempt evidence and comparability (below) | NOT STARTED |
+>
+> "Instrumentation implemented" and "proven to improve retention or coaching" remain **separate statuses**.
+> Nothing here claims coaching benefit.
 
 ## 1. What already ships
 

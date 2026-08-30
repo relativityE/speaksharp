@@ -78,14 +78,35 @@ function getConversionProperties(context: ConversionContext): Record<string, unk
   return {
     source: context.source,
     plan: context.plan,
-    route: context.route ?? getCurrentRoute(),
+    route: normalizeRoute(context.route) ?? getCurrentRoute(),
     tier: context.tier ?? null,
     trial_state: context.trialState ?? 'unknown',
     ...getSessionCoachingExperimentProperties(),
   };
 }
 
-function getCurrentRoute(): string {
-  if (typeof window === 'undefined') return 'unknown';
-  return `${window.location.pathname}${window.location.search}`;
+/**
+ * The in-app path ONLY — never the query string.
+ *
+ * This used to return `pathname + search`. The route validator rejects query material (it carries data), so
+ * every conversion event fired on a URL with a query — which is precisely the utm-tagged acquisition
+ * traffic the funnel exists to measure — silently LOST its route dimension. Dropping the query at the
+ * producer keeps the dimension and keeps it content-free, rather than trading one for the other.
+ */
+function getCurrentRoute(): string | null {
+  if (typeof window === 'undefined') return null;
+  return normalizeRoute(window.location.pathname);
+}
+
+/**
+ * Reduce any route-ish value to a query-free in-app path, or null.
+ *
+ * Applied to CALLER-SUPPLIED routes too: a context route carrying a query would be dropped by the
+ * validator exactly like `window.location.search` was. Null is content-free absence, which the validator
+ * accepts — a placeholder like 'unknown' is not a path and would itself be dropped.
+ */
+export function normalizeRoute(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const path = value.split('?')[0].split('#')[0];
+  return /^\/[A-Za-z0-9/_-]*$/.test(path) ? path : null;
 }

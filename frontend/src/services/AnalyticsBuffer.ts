@@ -3,7 +3,7 @@ import posthog from 'posthog-js';
 import * as Sentry from "@sentry/react";
 import logger from '../lib/logger';
 import { sanitizePrivateTelemetryProps } from './transcription/privateTelemetry';
-import { projectEventProps, isGovernedEvent } from './telemetryAllowlist';
+import { projectEventProps, isGovernedEvent, type GovernedEvent } from './telemetryAllowlist';
 
 
 /**
@@ -12,6 +12,9 @@ import { projectEventProps, isGovernedEvent } from './telemetryAllowlist';
  */
 
 export type AnalyticsPriority = 'CRITICAL' | 'HIGH' | 'LOW';
+
+/** Governed events, or the self-sanitizing `private_*` namespace. Nothing else may be emitted. */
+export type AnalyticsEventName = GovernedEvent | `private_${string}`;
 
 interface AnalyticsEvent {
   event: string;
@@ -67,7 +70,19 @@ class AnalyticsBuffer {
    * Push an event into the buffer logic.
    * If not ready, it queues. If ready, it sends according to priority.
    */
-  public push(event: string, properties?: Record<string, unknown>, priority: AnalyticsPriority = 'LOW'): void {
+  /**
+   * Emit a governed event.
+   *
+   * `event` is TYPED, not `string`. A dynamically-computed name that is not in `EVENT_SCHEMAS` — including
+   * one produced by a wrapper such as practiceTelemetry's `emit(event, …)` or by a ternary — fails
+   * COMPILATION rather than shipping with every property silently dropped. That is how
+   * `freeform_practice_started` reached production ungoverned: a regex over literal
+   * `analyticsBuffer.push('name')` call sites could not see it.
+   *
+   * `private_*` events are exempt from the schema registry because they carry their OWN allowlist
+   * re-projection (`sanitizePrivateTelemetryProps`), applied in `send()`.
+   */
+  public push(event: AnalyticsEventName, properties?: Record<string, unknown>, priority: AnalyticsPriority = 'LOW'): void {
 
     const analyticsEvent: AnalyticsEvent = {
       event,

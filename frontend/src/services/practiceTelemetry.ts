@@ -9,6 +9,7 @@
  */
 
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import type { GovernedEvent } from '@/services/telemetryAllowlist';
 
 export type PracticeMode = 'quick' | 'objective';
 
@@ -28,7 +29,11 @@ const releaseId = (): string | null => {
   try { return (typeof window !== 'undefined' && window.__APP_RUNTIME_CONFIG__?.release) || null; } catch { return null; }
 };
 
-const emit = (event: string, props: Record<string, string | boolean | null>): void => {
+// `GovernedEvent`, not `string`. This wrapper is why a regex over literal `analyticsBuffer.push('name')`
+// call sites could not see any Practice event — every one of them is emitted through here with a variable.
+// Typing the parameter makes an ungoverned name a COMPILE error instead of an event whose properties are
+// all silently dropped, which is what happened to `freeform_practice_started`.
+const emit = (event: GovernedEvent, props: Record<string, string | boolean | null>): void => {
   try {
     analyticsBuffer.push(event, { ...props, release_sha: releaseId() }, 'LOW');
   } catch {

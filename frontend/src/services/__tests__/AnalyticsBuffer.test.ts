@@ -3,6 +3,14 @@ import { analyticsBuffer } from '../AnalyticsBuffer';
 import posthog from 'posthog-js';
 import * as Sentry from '@sentry/react';
 
+/**
+ * These are TRANSPORT tests — queueing, priority, batching, timestamps. They are deliberately indifferent
+ * to the schema registry, so they use synthetic names cast through this helper. Governance is proven in
+ * telemetryAllowlist.test.ts against the REAL producers; casting here weakens nothing in production, where
+ * `push` only accepts `GovernedEvent | private_${string}`.
+ */
+const transportEvent = (name: string) => name as Parameters<typeof analyticsBuffer.push>[0];
+
 // Mock PostHog
 vi.mock('posthog-js', () => ({
   default: {
@@ -32,8 +40,8 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
   });
 
   it('should queue events while not ready and flush asynchronously upon signal', async () => {
-    analyticsBuffer.push('Event 1', { id: 1 }, 'LOW');
-    analyticsBuffer.push('Event 2', { id: 2 }, 'LOW');
+    analyticsBuffer.push(transportEvent('Event 1'), { id: 1 }, 'LOW');
+    analyticsBuffer.push(transportEvent('Event 2'), { id: 2 }, 'LOW');
 
     expect(posthog.capture).not.toHaveBeenCalled();
     expect(analyticsBuffer.queue.length).toBe(2);
@@ -54,7 +62,7 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     analyticsBuffer.ready = true;
     
     // Critical bypasses queue
-    analyticsBuffer.push('CRITICAL_EVENT', { crash: true }, 'CRITICAL');
+    analyticsBuffer.push(transportEvent('CRITICAL_EVENT'), { crash: true }, 'CRITICAL');
     expect(posthog.capture).toHaveBeenCalledWith('CRITICAL_EVENT', expect.objectContaining({
       $priority: 'CRITICAL'
     }));
@@ -69,7 +77,7 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
       timestamp: Date.now(),
     });
 
-    analyticsBuffer.push('CRITICAL_EVENT', { crash: true }, 'CRITICAL');
+    analyticsBuffer.push(transportEvent('CRITICAL_EVENT'), { crash: true }, 'CRITICAL');
 
     expect(vi.mocked(posthog.capture).mock.calls.map(([event]) => event)).toEqual([
       'QUEUED_EVENT',
@@ -82,7 +90,7 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     
     // Flood with 1005 events
     for (let i = 0; i < MAX + 5; i++) {
-        analyticsBuffer.push(`Event ${i}`, { i }, 'LOW');
+        analyticsBuffer.push(transportEvent(`Event ${i}`), { i }, 'LOW');
     }
 
     expect(analyticsBuffer.queue.length).toBe(MAX);
@@ -124,7 +132,7 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
   it('should attach absolute timestamps and priority metadata', async () => {
     vi.setSystemTime(new Date('2026-05-22T12:00:00.000Z'));
     analyticsBuffer.ready = true;
-    analyticsBuffer.push('TimestampTest', { data: 1 }, 'HIGH');
+    analyticsBuffer.push(transportEvent('TimestampTest'), { data: 1 }, 'HIGH');
     
     await vi.advanceTimersByTimeAsync(0);
     expect(posthog.capture).toHaveBeenCalledWith('TimestampTest', expect.objectContaining({
@@ -143,7 +151,7 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     // defect.
     analyticsBuffer.ready = true;
 
-    analyticsBuffer.push('PrivacyTest', {
+    analyticsBuffer.push(transportEvent('PrivacyTest'), {
       transcript: 'um this private transcript must not leave',
       audioDataUrl: 'data:audio/wav;base64,very-sensitive',
       nested: { finalTranscript: 'another sensitive transcript', safeMode: 'private' },
