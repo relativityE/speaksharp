@@ -3388,6 +3388,18 @@ export class SpeechRuntimeController {
                                 userWords: this.userWords,
                             });
                             const fillerWords = sessionMetrics.fillerData;
+                            /**
+                             * THE HEADLINE TOTAL. `sessionMetrics.fillerCount` is the TRUE-FILLER TIER —
+                             * the number the user is actually shown, and the same tier
+                             * `selectReviewFillerSnapshot` renders.
+                             *
+                             * `fillerWords.total.count` is a DIFFERENT number: the comprehensive sum of the
+                             * per-key breakdown, which by design keeps every tracked word (discourse markers
+                             * included) so history can be re-tiered. Reading it where the headline is meant
+                             * reports a count the user never saw — 4 against a displayed 3 on
+                             * `um so uh … um`. Both totals are legitimate; only one is the headline.
+                             */
+                            const headlineFillerCount = sessionMetrics.fillerCount;
                             const wordCount = sessionMetrics.wordCount;
                             const wpm = sessionMetrics.wpm;
                             const accuracy = result.stats.accuracy;
@@ -3434,7 +3446,7 @@ export class SpeechRuntimeController {
                                 sessionId,
                                 finalTranscriptLength: finalTranscript.length,
                                 wordCount,
-                                fillerCount: fillerWords.total.count,
+                                fillerCount: headlineFillerCount,
                                 wpm,
                                 clarityScore,
                                 accuracy,
@@ -3610,7 +3622,7 @@ export class SpeechRuntimeController {
                                 logger.warn({ reconErr, sessionId }, '[controller] finalized reconciliation compute failed (non-fatal)');
                             }
                             const finalizedMode = modeForFinalization ?? stopEntryMode ?? 'unknown';
-                            const finalizedPersistedTotal = fillerWords.total.count;
+                            const finalizedPersistedTotal = headlineFillerCount;
                             const finalizeToken = ++this.finalizeSequence;
                             const isFinalizeTokenValid = () => this.finalizeSequence === finalizeToken;
 
@@ -3695,7 +3707,7 @@ export class SpeechRuntimeController {
                                 const { pushE2EEvent } = await import('../lib/e2eProbe');
                                 pushE2EEvent('ANALYSIS_COMPLETE', {
                                     sessionId,
-                                    fillerCount: fillerWords.total.count,
+                                    fillerCount: headlineFillerCount,
                                     wpm,
                                     accuracy
                                 });
