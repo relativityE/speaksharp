@@ -61,7 +61,10 @@ interface Row {
     deletions?: number;
     insertions?: number;
     referenceWords?: number;
+    /** LEGACY field name for the error-profile digest, in artifacts written before the rename. */
     transcriptDigest?: string;
+    /** Current name for the error-profile digest. */
+    scoreProfileDigest?: string;
     perUtterance?: Utterance[];
     verdict?: { speed: unknown; footprint: unknown };
 }
@@ -89,9 +92,15 @@ for (const field of ['wer', 'substitutions', 'deletions', 'insertions', 'referen
     }
 }
 
-// 2 — the error-profile digest.
-if (original.transcriptDigest !== rerun.transcriptDigest) {
-    differences.push(`transcriptDigest: ${original.transcriptDigest} -> ${rerun.transcriptDigest}`);
+// 2 — the ERROR-PROFILE digest, under whichever name the artifact used.
+//
+// `transcriptDigest` used to BE the error-profile digest and now means what its name says: a digest of
+// the recognised transcripts. Comparing a new artifact's transcript digest against an old artifact's
+// error-profile digest would compare two unrelated values and always differ, reporting a contamination
+// that never happened. Prefer the current name, fall back to the legacy one.
+const errorProfileOf = (r: Row): string | undefined => r.scoreProfileDigest ?? r.transcriptDigest;
+if (errorProfileOf(original) !== errorProfileOf(rerun)) {
+    differences.push(`scoreProfileDigest: ${errorProfileOf(original)} -> ${errorProfileOf(rerun)}`);
 }
 
 // 3 — EVERY utterance, individually. The aggregate can match while individual clips differ in

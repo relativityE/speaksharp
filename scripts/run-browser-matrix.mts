@@ -38,7 +38,8 @@ import { certifyArmWithHonorProbe } from '../tests/evidence/certification/certif
 import { createHash } from 'node:crypto';
 import { runArm, type CorpusUtterance } from '../tests/evidence/certification/runArm';
 import { buildTechnicalVerdict } from '../tests/evidence/certification/buildVerdict';
-import { normalizeOfficialTrackA } from '../tests/evidence/normalization/officialNormalizer';
+import { normalizeOfficialTrackA, normalizeOfficialTrackB } from '../tests/evidence/normalization/officialNormalizer';
+import { buildInsertionProfile } from '../tests/evidence/certification/insertionProfile';
 import { decodeAudio } from '../tests/evidence/certification/audio';
 import { verifyFrozenAudio, type ManifestShape } from '../tests/evidence/certification/corpusSet';
 import { buildEvidenceSet } from '../tests/evidence/certification/evidenceSets';
@@ -1074,9 +1075,20 @@ for (const spec of ARM_MATRIX) {
     // apart; a digest of the transcripts and the per-clip S/D/I can.
     const perUtterance = result.scores.map((score) => {
         const clip = set.clips.find((c) => c.id === score.utteranceId);
+        const raw = result.hypotheses.get(score.utteranceId) ?? null;
         return {
             id: score.utteranceId,
             normalizedReference: normalizeOfficialTrackA(clip?.reference ?? '').join(' '),
+            /**
+             * THE RECOGNISED TEXT. Retained for the PUBLIC frozen corpus (LibriSpeech), where the
+             * reference is already public — never for customer audio. Without it the artifact could
+             * report how many errors occurred and nothing about what was said, so no question about
+             * WHAT a model produced could be answered from evidence.
+             */
+            normalizedHypothesis: raw === null ? null : normalizeOfficialTrackA(raw).join(' '),
+            /** Track B keeps the fillers Track A strips; the insertion profile is computed from this. */
+            trackBReference: normalizeOfficialTrackB(clip?.reference ?? '').join(' '),
+            trackBHypothesis: raw === null ? null : normalizeOfficialTrackB(raw).join(' '),
             substitutions: score.ok ? score.row.substitutions : null,
             deletions: score.ok ? score.row.deletions : null,
             insertions: score.ok ? score.row.insertions : null,
@@ -1084,9 +1096,38 @@ for (const spec of ARM_MATRIX) {
             invalidReason: score.ok ? null : score.invalidReason,
         };
     });
-    const transcriptDigest = createHash('sha256')
+
+    /**
+     * TWO DIGESTS, BECAUSE THEY ARE TWO DIFFERENT FACTS.
+     *
+     * What shipped as `transcriptDigest` hashed `[id, S, D, I]` — an ERROR PROFILE. Two models producing
+     * completely different text with identical per-clip S/D/I collide under it, so it could never have
+     * detected the thing its name promised. It is renamed to what it is, and a real transcript digest is
+     * computed over the normalized hypotheses now that they are retained.
+     */
+    const scoreProfileDigest = createHash('sha256')
         .update(JSON.stringify(perUtterance.map((u) => [u.id, u.substitutions, u.deletions, u.insertions])))
         .digest('hex').slice(0, 16);
+    const transcriptDigest = createHash('sha256')
+        .update(JSON.stringify(perUtterance.map((u) => [u.id, u.normalizedHypothesis])))
+        .digest('hex').slice(0, 16);
+
+    /**
+     * INSERTED-TOKEN PROFILE — diagnostic, deliberately separate from Track-A WER.
+     *
+     * Track A REMOVES um/uh/hmm/mm/mhm/mmm from both sides, so a Track-A insertion count cannot tell you
+     * whether a model manufactures fillers. This is computed over Track-B text, and is NOT filler
+     * qualification: #1324's consented human corpus remains the authority.
+     */
+    const insertionProfile = buildInsertionProfile(
+        perUtterance
+            .filter((u) => u.trackBHypothesis !== null)
+            .map((u) => ({
+                id: u.id,
+                reference: u.trackBReference.split(' ').filter(Boolean),
+                hypothesis: (u.trackBHypothesis ?? '').split(' ').filter(Boolean),
+            })),
+    );
 
     const honored = certification.gates.routeHonored;
     const hardwareRepresentative = honored?.deviceClaim !== 'webgpu'
@@ -1261,7 +1302,7 @@ for (const spec of ARM_MATRIX) {
             truncated: verdict.duration?.truncatedClips ?? 0,
         },
         audioMismatches,
-        transcriptDigest, perUtterance,
+        transcriptDigest, scoreProfileDigest, insertionProfile, perUtterance,
         // #1304 — DECODE FAILURES ARE RETAINED, deduplicated by message.
         //
         // A quiet-rerun attempt reported `threw=148` and kept nothing about WHY. runArm captured

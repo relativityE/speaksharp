@@ -73,6 +73,14 @@ export type ArmRunResult =
           aggregate: AggregateWer;
           decodeFailures: readonly DecodeFailure[];
           clipOutcomes: readonly ClipOutcome[];
+          /**
+           * The RAW hypothesis per utterance, as the engine returned it.
+           *
+           * Previously discarded the moment it was scored, which left the artifact unable to answer any
+           * question about WHAT was recognised — only how many errors there were. Two models producing
+           * completely different text with the same S/D/I totals were indistinguishable in evidence.
+           */
+          hypotheses: ReadonlyMap<string, string | null>;
       }
     | {
           ok: false;
@@ -88,6 +96,7 @@ export type ArmRunResult =
           aggregate: AggregateWer | null;
           decodeFailures: readonly DecodeFailure[];
           clipOutcomes: readonly ClipOutcome[];
+          hypotheses: ReadonlyMap<string, string | null>;
           certification: CertificationResult;
       };
 
@@ -116,6 +125,7 @@ export async function runArm(
     const scores: CorpusScore[] = [];
     const decodeFailures: DecodeFailure[] = [];
     const clipOutcomes: ClipOutcome[] = [];
+    const hypotheses = new Map<string, string | null>();
 
     // A CERTIFICATE IS NOT TRANSFERABLE. Nothing previously tied the certification to the arm being
     // run, so one model could be measured under another model's certificate — including a certificate
@@ -129,6 +139,7 @@ export async function runArm(
             aggregate: null,
             decodeFailures,
             clipOutcomes,
+            hypotheses,
             certification,
         };
     }
@@ -148,6 +159,7 @@ export async function runArm(
             aggregate: null,
             decodeFailures,
             clipOutcomes,
+            hypotheses,
             certification,
         };
     }
@@ -161,6 +173,7 @@ export async function runArm(
             aggregate: null,
             decodeFailures,
             clipOutcomes,
+            hypotheses,
             certification,
         };
     }
@@ -183,6 +196,7 @@ export async function runArm(
         const decodeMs = Date.now() - started;
         const score = scoreUtterance(utterance.id, utterance.reference, hypothesis);
         scores.push(score);
+        hypotheses.set(utterance.id, hypothesis);
         clipOutcomes.push({
             utteranceId: utterance.id,
             audioSeconds: utterance.audioSeconds,
@@ -211,6 +225,7 @@ export async function runArm(
             aggregate,
             decodeFailures,
             clipOutcomes,
+            hypotheses,
             certification,
         };
     }
@@ -224,6 +239,7 @@ export async function runArm(
             aggregate,
             decodeFailures,
             clipOutcomes,
+            hypotheses,
             certification,
         };
     }
@@ -234,6 +250,7 @@ export async function runArm(
         aggregate,
         decodeFailures,
         clipOutcomes,
+        hypotheses,
         row: {
             armId: arm.id,
             rulesVersion: certification.rulesVersion,

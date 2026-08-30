@@ -169,7 +169,7 @@ const runResult = (assets: Record<string, AssetRecord>): ArmRunResult => ({
         provenance: provenanceFrom(assets), fingerprint: 'x',
     },
     scores: [], aggregate: { wer: 0.05, referenceWords: 100, substitutions: 3, deletions: 1, insertions: 1, scoredCount: 10, invalidCount: 0, invalidReasons: {} },
-    decodeFailures: [], clipOutcomes: [],
+    decodeFailures: [], clipOutcomes: [], hypotheses: new Map(),
 });
 
 describe('one asset object, one set of numbers', () => {
