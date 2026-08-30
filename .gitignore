@@ -100,3 +100,6 @@ stt-evidence-artifacts/
 # tests/fixtures/corpus-manifest.json (checksums + frozen subset ids).
 bench-corpus/
 .hf-cache/
+
+# Built by scripts/probe-moonshine-engine-runtime.mts; never committed.
+tests/evidence/certification/browser/engine.bundle.js
