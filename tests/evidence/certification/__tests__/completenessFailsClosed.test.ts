@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyRow, isCompleteRow, UNSCOREABLE_DISPOSITIONS } from '../checkpoint';
+import { classifyRow, isCompleteRow, validateCompleteness, UNSCOREABLE_DISPOSITIONS } from '../checkpoint';
 import { NOT_EXECUTED_REASONS } from '../arms/registry';
 
 /**
@@ -104,5 +104,30 @@ describe('ADMISSION and DISPOSITION rows are typed, not free text', () => {
     it('a FAILED run must disposition itself rather than masquerade as measured', () => {
         // No verdict, no disposition — the arm started and produced nothing. It must not be preserved.
         expect(isCompleteRow({ id: 'x', backendProven: true, expectedClips: 600, decodedClips: 0 })).toBe(false);
+    });
+});
+
+describe('FINAL promotion applies the same reason discipline as resume', () => {
+    // validateCompleteness called isCompleteRow(row) WITHOUT the arm's registered reason, so a row could
+    // be promoted into the final artifact carrying a reason belonging to a different arm. Resume already
+    // checked this; final promotion — the irreversible step — did not.
+    const REQUIRED = ['v4:base:q8-decoder:cpu', 'v4:base:q4-decoder:webgpu'];
+    const row = (id: string, reason: string) => ({ id, executed: false, reason });
+
+    it('POSITIVE CONTROL: each arm carrying ITS OWN reason is promotable', () => {
+        const rows = REQUIRED.map((id) => row(id, NOT_EXECUTED_REASONS[id]));
+        expect(validateCompleteness(rows, REQUIRED)).toMatchObject({ ok: true });
+    });
+
+    it('CASUALTY: swapping two VALID registered reasons fails final promotion', () => {
+        // Both strings are real registry values, so a check that only asked "is this reason registered?"
+        // passed. Neither belongs to the arm carrying it.
+        const [a, b] = REQUIRED;
+        const swapped = [row(a, NOT_EXECUTED_REASONS[b]), row(b, NOT_EXECUTED_REASONS[a])];
+        expect(NOT_EXECUTED_REASONS[a]).not.toBe(NOT_EXECUTED_REASONS[b]);
+        const v = validateCompleteness(swapped, REQUIRED);
+        expect(v).toMatchObject({ ok: false, reason: 'unfinished_arms' });
+        expect((v as { detail: string }).detail).toContain(a);
+        expect((v as { detail: string }).detail).toContain(b);
     });
 });

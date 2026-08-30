@@ -1,0 +1,467 @@
+{
+  "note": "Executable modules served from /lib/. Each binds package + locked version + SHA-256. An unpinned or mismatched executable makes the arm INELIGIBLE — cache-sourced is not an exemption.",
+  "assets": {
+    "lib/@huggingface/transformers/dist/ort-wasm-simd-threaded.jsep.mjs": {
+      "sha256": "522b3769929f5684c83a12cf1e06eedf073b65d161728b4f3757c75d62b14384",
+      "bytes": 46490,
+      "package": "@huggingface/transformers/dist",
+      "version": "@huggingface/transformers@4.2.0"
+    },
+    "lib/@huggingface/transformers/dist/transformers.js": {
+      "sha256": "83ac4bdf2e9fa3c9fc02b9a39e4abee74efc45396e5f34e5da4d7ed20b8364cb",
+      "bytes": 1285352,
+      "package": "@huggingface/transformers/dist",
+      "version": "@huggingface/transformers@4.2.0"
+    },
+    "lib/@huggingface/transformers/dist/transformers.min.js": {
+      "sha256": "e74bd32ed4453369ebb0edcaa27f6bc6204004a949a0233cdb87b62dda8d6978",
+      "bytes": 558373,
+      "package": "@huggingface/transformers/dist",
+      "version": "@huggingface/transformers@4.2.0"
+    },
+    "lib/@huggingface/transformers/dist/transformers.node.min.mjs": {
+      "sha256": "1dc55b57189c1e800d6a83e001d1a7fd999145b117805a686e16f327eb0eb177",
+      "bytes": 545029,
+      "package": "@huggingface/transformers/dist",
+      "version": "@huggingface/transformers@4.2.0"
+    },
+    "lib/@huggingface/transformers/dist/transformers.node.mjs": {
+      "sha256": "4932ec78a6b136d97d09a12093afb476530d9aa099dbaf1f9822ad56bfe2bc3d",
+      "bytes": 1256499,
+      "package": "@huggingface/transformers/dist",
+      "version": "@huggingface/transformers@4.2.0"
+    },
+    "lib/@huggingface/transformers/dist/transformers.web.js": {
+      "sha256": "25e0cbdf5df922996299fcd2cf835101ba979b134389a0dcc54f92022ca7e0ff",
+      "bytes": 1099109,
+      "package": "@huggingface/transformers/dist",
+      "version": "@huggingface/transformers@4.2.0"
+    },
+    "lib/@huggingface/transformers/dist/transformers.web.min.js": {
+      "sha256": "0a96dcf4c48981b7d05f53827e6975ec239132606ad0d526bbc2db0fcdbc4ded",
+      "bytes": 431652,
+      "package": "@huggingface/transformers/dist",
+      "version": "@huggingface/transformers@4.2.0"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/agent-flow.js": {
+      "sha256": "8435b476ef927c5422a20632b1b75b8ed83a896e6bb13af9b85ed5e4d3fadd24",
+      "bytes": 25486,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/asset-downloader.js": {
+      "sha256": "1887c3895d4d05aefacd9c7d0ca638c3b209c30de537fe65cd56595ff732d42e",
+      "bytes": 7398,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/embedding-model.js": {
+      "sha256": "17c60df8bc6efc52765221f71e67e9cf1892f5671d3e1fc3afbf5f9fff122f15",
+      "bytes": 5457,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/enums.js": {
+      "sha256": "149edff4d610640fc268a18ae0d207b443a5e5d841045e555b39788f9db802ed",
+      "bytes": 2058,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/errors.js": {
+      "sha256": "1f3abb56d6d28213adbb3f45e2c59eafecb48302d1e1a95164cdcb10c03576e0",
+      "bytes": 4712,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/events.js": {
+      "sha256": "2dd5076fcc75d27d531df3de86e3fe4829e98cb39a9e9214b252ac7b10923faa",
+      "bytes": 2105,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/grapheme-to-phonemizer.js": {
+      "sha256": "076f14e7d9d660eea1c44cd5d22eff36875cbe7db51705d3a4970ab4c1d8b1fe",
+      "bytes": 2095,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/index.js": {
+      "sha256": "02ac8a34d1d9cf84cf8d9ed49fa3ed832610495c5aef5fd751b250681e8e62ea",
+      "bytes": 1733,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/intent-recognizer.js": {
+      "sha256": "a0893eecbab1396e52c0364790fe515cf0e268c2c16b0a69f6529ab9066df74e",
+      "bytes": 3733,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/mic-transcriber.js": {
+      "sha256": "cef76a39506424dc413e42be47f9a608fde376e2d086d68fc112518418e47d1f",
+      "bytes": 13397,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/microphone-transcriber.js": {
+      "sha256": "487cf6c24370b44ae89382f4eb6ef6836c883bab0abb414e351088452b638e14",
+      "bytes": 5859,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/module.js": {
+      "sha256": "76ac4333a21258c9d80cf27a0d7804865e8fe56314fd31baf20cf286d77d3534",
+      "bytes": 4053,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs": {
+      "sha256": "a4b40a7cf7a810e3cdbe8c12f3dd47598900566117b824da690585deb79c59e2",
+      "bytes": 156457,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.wasm": {
+      "sha256": "d0e783f661f8be68f7af48d859d3bbc7a6381a980b35b4128fc36344218a6682",
+      "bytes": 13155937,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/stream.js": {
+      "sha256": "443a90c0fa92f4a75d85015f9c109ab48f4201b7546bccae0749111a885fd21b",
+      "bytes": 6681,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/stt-worker-host.js": {
+      "sha256": "4d44cc4c9a7a6f349e1b47955147b990cb1faf31e60bd8bf044a2222a056cef5",
+      "bytes": 7826,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/stt-worker-protocol.js": {
+      "sha256": "a321cf5a6cb323df23de1fcd2934239c95b6229943eba04f5486099db4a5b4be",
+      "bytes": 352,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/stt-worker.js": {
+      "sha256": "5a702ebd1bba145487a284daa7aa72ab5de3978e6a528b654f0f8065b4af1233",
+      "bytes": 7573,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/text-to-speech.js": {
+      "sha256": "7235b7cafae9cc31988a8a6d06a6ed753b147bd363035c5aac8e8361c3d3cbad",
+      "bytes": 32049,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/transcriber.js": {
+      "sha256": "7d18f6123a3a69a10a687c86662b3aa93748a27c95b26dc2f562ea34fe3f30d0",
+      "bytes": 10646,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/tts-worker-host.js": {
+      "sha256": "9be81a3edc1b17a480fd35a1b043507fd293299f487f51285e194f57b08d5d0b",
+      "bytes": 4440,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/tts-worker-protocol.js": {
+      "sha256": "e6a83c0945e5c9c0d16725d60e4d0b15d72cee553798c5f055652bd9f94c5122",
+      "bytes": 343,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/tts-worker.js": {
+      "sha256": "f657d9468e59dc51ba7c2188082d7075b4cb2f7e2c522629693c7c413306c182",
+      "bytes": 2669,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/types.js": {
+      "sha256": "7fb0bd0c6e9168b3f8b637e9267d799a570c2fb333a7fbdd69c0b067da7e2b85",
+      "bytes": 2373,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@moonshine-ai/moonshine-wasm/dist/voice-clone.js": {
+      "sha256": "0dda9172452407fa7de9ff5bdfbe5b23b08b4566fb266f1d883505f48c49010f",
+      "bytes": 8568,
+      "package": "@moonshine-ai/moonshine-wasm",
+      "version": "@moonshine-ai/moonshine-wasm@0.1.5"
+    },
+    "lib/@xenova/transformers/dist/ort-wasm-simd-threaded.wasm": {
+      "sha256": "ac23f2f3cbd519a65a0796f7c79eb34ead4c1f6f31eb06e14ed8a9579d697ef6",
+      "bytes": 9960821,
+      "package": "@xenova/transformers/dist",
+      "version": "@xenova/transformers@2.17.2"
+    },
+    "lib/@xenova/transformers/dist/ort-wasm-simd.wasm": {
+      "sha256": "9bd07bababc65f53d061f457233eeae501be7ceb8a2adb9eef52d87fe776d865",
+      "bytes": 10014674,
+      "package": "@xenova/transformers/dist",
+      "version": "@xenova/transformers@2.17.2"
+    },
+    "lib/@xenova/transformers/dist/ort-wasm-threaded.wasm": {
+      "sha256": "2ee2f715093aaacc0344bfb1610313eb49a3474e8afde5e4635f30ddfc7615c8",
+      "bytes": 9149637,
+      "package": "@xenova/transformers/dist",
+      "version": "@xenova/transformers@2.17.2"
+    },
+    "lib/@xenova/transformers/dist/ort-wasm.wasm": {
+      "sha256": "bbdcb6b3c7d294577d806077630460be4e13ca35a345acb5e81188e9649fa74a",
+      "bytes": 9223228,
+      "package": "@xenova/transformers/dist",
+      "version": "@xenova/transformers@2.17.2"
+    },
+    "lib/@xenova/transformers/dist/transformers.js": {
+      "sha256": "3d4c537f5c2cc169834058bde11d5d25fea910f00d92a32ec979b833461bb3b4",
+      "bytes": 1729619,
+      "package": "@xenova/transformers/dist",
+      "version": "@xenova/transformers@2.17.2"
+    },
+    "lib/@xenova/transformers/dist/transformers.min.js": {
+      "sha256": "bcf7cf304e51f470ed59409622b9d6ffbad80dfcf5baf6a40c919e4b9c4ff812",
+      "bytes": 897938,
+      "package": "@xenova/transformers/dist",
+      "version": "@xenova/transformers@2.17.2"
+    },
+    "lib/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs": {
+      "sha256": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+      "bytes": 47507,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm": {
+      "sha256": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+      "bytes": 24254953,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.mjs": {
+      "sha256": "3ee381d20a80f51a788a1c4a5872f6f1d047538dd4342f4af00062de5f9ea4c6",
+      "bytes": 46614,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm": {
+      "sha256": "78feeeb3d08f6bcee94d938ed322f69073bb8076b5f9d34697a574ffba8deb48",
+      "bytes": 26827543,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort-wasm-simd-threaded.jspi.mjs": {
+      "sha256": "47f5232865f07cc6a11e825cac8dfd9b75bdf5f4a0889bde077e753ae93d3913",
+      "bytes": 44523,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort-wasm-simd-threaded.jspi.wasm": {
+      "sha256": "7c28cdb40958a998f5aa0981d5cb8e57ac1e7e9b4d2f18a7d74e00dd9629d7a3",
+      "bytes": 15046878,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs": {
+      "sha256": "0a1e718d99c41b22c21f2520ff4f9e883a6b5533856e398d21816ee8eb8185d3",
+      "bytes": 24180,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm": {
+      "sha256": "d1ab1b94b16a65b29d710d0b587b29e7bed336827577623913479b8afe8113e6",
+      "bytes": 13479978,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.all.bundle.min.mjs": {
+      "sha256": "e1f340eef7b46a331aa7c2c9aa313cfd47b83f2a1892f4016ecfade0d3005036",
+      "bytes": 857030,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.all.js": {
+      "sha256": "e86cfac05150e14463c636ac0db3bbd7453de19167ec5a0e9dab5400b2cd56f8",
+      "bytes": 5944837,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.all.min.js": {
+      "sha256": "df84c52a502d111dc25a50179f7e36d553776f3387d714aeff775d1d296296a3",
+      "bytes": 811518,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.all.min.mjs": {
+      "sha256": "a2030ec9a95584a3773d889dd2514ce42e5dcd0e6dfb8cf0c9b2e5647f1d7607",
+      "bytes": 811447,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.all.mjs": {
+      "sha256": "df7d4105fefee796fb4725f40e0f9432f156b4c91736af4918fc9d9276341319",
+      "bytes": 5863117,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.bundle.min.mjs": {
+      "sha256": "dcb75a16fae45a342ab526c6d529c02148941ebdc35419cdb41d7427453ca7db",
+      "bytes": 405670,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.js": {
+      "sha256": "776927f869d17d5ff9d6faa37d574978c895269471b39d048c58aaf3f4cfc88f",
+      "bytes": 2614203,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.jspi.bundle.min.mjs": {
+      "sha256": "56c2833ccb16b05d13c8a83536877234247563de48829978b01f422b4679a95a",
+      "bytes": 110284,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.jspi.js": {
+      "sha256": "3ed3c81769ea8ef5c6fe7ab6a664edee8997569a478d711eca77148973057dcc",
+      "bytes": 689480,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.jspi.min.js": {
+      "sha256": "862597f907287867300117ac4b740dd827d44e8988106c3344f38b26af63b8ac",
+      "bytes": 67345,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.jspi.min.mjs": {
+      "sha256": "98ec6626b872143ee084d1685a467bdc5c0a29e41c23b6ab0c5dbbf9a17476a7",
+      "bytes": 67275,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.jspi.mjs": {
+      "sha256": "e29401a42bf3a5550b942ac77b8f5681a7110c3daea9fcfafea2c4e56baad535",
+      "bytes": 679688,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.min.js": {
+      "sha256": "de1beb9d172dbda72e56fa2f430c8e4477e97908609859ab47f89fc3e034a8d5",
+      "bytes": 360434,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.min.mjs": {
+      "sha256": "a4c72a154c44d09c71996c7c5a3c4bd6fe3dfe27095dc766cdb6726775161931",
+      "bytes": 360359,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.mjs": {
+      "sha256": "8bd22db6b6f053c7b96fe16c46715719e3a722e0e09f5917344d691ac9187e81",
+      "bytes": 2582099,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.node.min.js": {
+      "sha256": "e83abc8b43ce2e160d3fe1a84ac7cdb674e7c3713e84545da1ba27baaf56db4a",
+      "bytes": 27103,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.node.min.mjs": {
+      "sha256": "e89f5e9feb40384ab2bd1f95ade074e3de8ce3b64485bd03fb79d2cde2a620f1",
+      "bytes": 27004,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.wasm.bundle.min.mjs": {
+      "sha256": "1db5e1c5cd2b860eed85e6eeff23e2aaa7cffcc407f67093bcc888f631b94ba9",
+      "bytes": 72799,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.wasm.js": {
+      "sha256": "94031f7e4b742233549dda6b51a6a50513b661498d64a65e06c8081ca57b1c06",
+      "bytes": 580920,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.wasm.min.js": {
+      "sha256": "ea3a767b15df7dbe3d695ec9c182ca0f15b2ce7750156c6b70276e11c28997f0",
+      "bytes": 50139,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.wasm.min.mjs": {
+      "sha256": "9608e98a3fba9716f0cbd0bca0c94808b71dae2e9265ca3fe742ddc393a53ebc",
+      "bytes": 50069,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.wasm.mjs": {
+      "sha256": "6655dc465ae97530bbee96277d8352552674a330e44983228c1d2d6518ceb308",
+      "bytes": 572886,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.webgl.js": {
+      "sha256": "8214b518b60e74e69b7890bd7c37d11de5df3cb0b844026fa8fa2c42a63debb4",
+      "bytes": 3576377,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.webgl.min.js": {
+      "sha256": "1f439f4583d776720e8f6bf1534ed6a745ee2d4d2bd24c2a096f0b0850165349",
+      "bytes": 471776,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.webgl.min.mjs": {
+      "sha256": "fdfcb4b1ca408792d288be2f1a7d66feeef451da7c78abaa36570353ba9c7cae",
+      "bytes": 471637,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.webgl.mjs": {
+      "sha256": "5ff19318966c445182ef8f8b10e7c06906661c2399edb32ea37f2efc17224385",
+      "bytes": 3523407,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs": {
+      "sha256": "3a18c7f261e05d44a15b2eef18a28e5f53c044d5d140bcea6066baf1f09c8b53",
+      "bytes": 113035,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.webgpu.js": {
+      "sha256": "a1b2f36994efc0b6be7df7d8ac3b0624eefdde355e7bf13f11f4f0931e260105",
+      "bytes": 689486,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.webgpu.min.js": {
+      "sha256": "a3f348c2fec54c8c4ac503967c33c1943a79e96dba40fb867ab0f501be94bf84",
+      "bytes": 67237,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.webgpu.min.mjs": {
+      "sha256": "46988a5a025f49449850f39f95eb0d21e40e67b3beb13a0b54efd3ab5d83f60e",
+      "bytes": 67169,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    },
+    "lib/onnxruntime-web/dist/ort.webgpu.mjs": {
+      "sha256": "177cf67f3e6c25e951a76a981a857e6af53b1571016685cc2480e1e6e47b1d46",
+      "bytes": 679694,
+      "package": "onnxruntime-web/dist",
+      "version": "onnxruntime-web@1.27.0"
+    }
+  }
+}

@@ -133,6 +133,15 @@ export async function startHarnessServer(
     /** Paths requested since the current arm's capture began. */
     let armCapture: Set<string> | null = null;
     const runtimePins = options.runtimePins ?? {};
+    /** Executable modules served from `/lib/`, bound to package + locked version + SHA-256. */
+    const libExecutablePins: Record<string, { sha256: string; bytes: number; package: string; version: string }> =
+        (() => {
+            try {
+                return (JSON.parse(readFileSync(join(repoRoot, 'tests/fixtures/lib-executable-pins.json'), 'utf8')) as {
+                    assets: Record<string, { sha256: string; bytes: number; package: string; version: string }>;
+                }).assets;
+            } catch { return {}; }
+        })();
     const runtimeServed: Record<string, AssetRecord> = {};
     const runtimeFailures: HarnessServer['runtimeFailures'] = [];
     let runtimeCapture: Set<string> | null = null;
@@ -296,12 +305,21 @@ export async function startHarnessServer(
             if (/\.(mjs|js|wasm)$/.test(relative)) {
                 const moduleBytes = readFileSync(file);
                 const key = `lib/${relative}`;
-                runtimeServed[key] = {
-                    sha256: createHash('sha256').update(moduleBytes).digest('hex'),
-                    bytes: moduleBytes.length,
-                    source: 'cache',
-                    pinned: false,
-                };
+                const sha256 = createHash('sha256').update(moduleBytes).digest('hex');
+                const pin = libExecutablePins[key];
+                // PINNED means the exact bytes AND the locked package version match. Declaring the module
+                // was necessary but not sufficient: a declared-but-unpinned executable can still change
+                // under the same recorded identity, which is the whole failure mode `/runtime/` exists to
+                // prevent. `source: 'cache'` is NOT an exemption for something that executes.
+                const pinned = pin !== undefined && pin.sha256 === sha256;
+                if (!pinned) {
+                    runtimeFailures.push({
+                        path: key,
+                        reason: pin === undefined ? 'runtime_asset_unpinned' : 'runtime_asset_digest_mismatch',
+                        detail: pin === undefined ? key : `${key}: ${sha256} != ${pin.sha256}`,
+                    });
+                }
+                runtimeServed[key] = { sha256, bytes: moduleBytes.length, source: 'cache', pinned };
                 runtimeCapture?.add(key);
             }
 

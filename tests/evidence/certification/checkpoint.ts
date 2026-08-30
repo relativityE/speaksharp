@@ -224,7 +224,10 @@ export type CompletenessVerdict =
 export function validateCompleteness(rows: CheckpointRow[], required: string[]): CompletenessVerdict {
     // An UNFINISHED row is not an account of its arm. Counting it would let a failed arm satisfy
     // completeness and become a silent hole in the final table.
-    const unfinished = rows.filter(r => !isCompleteRow(r)).map(r => r.id).sort();
+    // The ARM'S OWN registered reason, exactly as planResume passes it. Calling isCompleteRow(row) alone
+    // accepted any registered reason on any arm, so a row could be promoted to the FINAL artifact carrying
+    // another arm's reason — the one place where being wrong is permanent.
+    const unfinished = rows.filter(r => !isCompleteRow(r, NOT_EXECUTED_REASONS[r.id])).map(r => r.id).sort();
     if (unfinished.length) {
         return { ok: false, reason: 'unfinished_arms', detail: unfinished.join(', ') };
     }

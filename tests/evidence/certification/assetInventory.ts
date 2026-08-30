@@ -154,7 +154,14 @@ export function reconcileAssets(
                 failures.push({ kind: 'byte_mismatch', detail: `${f.name}: declared ${f.bytes} observed ${rec.bytes}` });
             }
         }
-        if (opts.requirePinned && !f.pinned && f.source === 'network') {
+        // AN EXECUTABLE MUST BE PINNED REGARDLESS OF SOURCE.
+        //
+        // The exemption for cache-sourced assets is correct for model WEIGHTS served from a local mirror —
+        // failing a correct offline run for being offline helps nobody. It is NOT correct for a module that
+        // EXECUTES: `source: 'cache'` says where the bytes came from, not that anything bound which bytes
+        // they were. An unpinned executable makes the arm ineligible either way.
+        const executes = /\.(mjs|js|wasm)$/.test(f.name) || f.role === 'runtime';
+        if (opts.requirePinned && !f.pinned && (executes || f.source === 'network')) {
             failures.push({ kind: 'unpinned_asset', detail: f.name });
         }
     }

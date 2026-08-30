@@ -148,3 +148,36 @@ describe('the matcher pairs the same file across differently-named channels', ()
         expect(r.failures.map((f) => f.kind)).toContain('observed_not_declared');
     });
 });
+
+describe('#1304 B — an EXECUTABLE is never exempt from pinning', () => {
+    // `source: 'cache'` says where bytes came from, not that anything bound WHICH bytes they were. The
+    // exemption is right for model weights served from a local mirror (a correct offline run must not
+    // fail for being offline) and wrong for a module that executes.
+    const base = {
+        'x/onnx/encoder_model.onnx': { sha256: 'a'.repeat(64), bytes: 10, source: 'cache' as const, pinned: true },
+        'x/onnx/decoder_model.onnx': { sha256: 'b'.repeat(64), bytes: 10, source: 'cache' as const, pinned: true },
+        'x/tokenizer.json': { sha256: 'c'.repeat(64), bytes: 10, source: 'cache' as const, pinned: true },
+    };
+    const run = (extra: Record<string, { sha256: string; bytes: number; source: 'cache' | 'network'; pinned: boolean }>) =>
+        reconcileAssets(buildAssetInventory({ ...base, ...extra }, null), {}, { requirePinned: true });
+
+    it.each([
+        ['lib/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs'],
+        ['lib/@moonshine-ai/moonshine-wasm/moonshine.wasm'],
+        ['lib/some/bundle.js'],
+    ])('an UNPINNED cache-sourced %s makes the arm ineligible', (name) => {
+        const r = run({ [name]: { sha256: 'd'.repeat(64), bytes: 99, source: 'cache', pinned: false } });
+        expect(r.ok).toBe(false);
+        expect(r.failures.map((f) => f.kind)).toContain('unpinned_asset');
+    });
+
+    it('POSITIVE CONTROL: the same executable PINNED is fine', () => {
+        const r = run({ 'lib/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs': { sha256: 'd'.repeat(64), bytes: 99, source: 'cache', pinned: true } });
+        expect(r.failures.map((f) => f.kind)).not.toContain('unpinned_asset');
+    });
+
+    it('a cache-sourced NON-executable is still exempt — offline runs must not fail for being offline', () => {
+        const r = run({ 'x/extra_weights.onnx': { sha256: 'e'.repeat(64), bytes: 99, source: 'cache', pinned: false } });
+        expect(r.failures.map((f) => f.kind)).not.toContain('unpinned_asset');
+    });
+});

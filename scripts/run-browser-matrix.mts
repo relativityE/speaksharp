@@ -15,7 +15,7 @@
  *   usage: npx tsx scripts/run-browser-matrix.mts [--set=harvard|preflight|corpus]
  *                                                 [--mode=pinned|bootstrap] [--only=id,id] [--out=f.json]
  */
-import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
@@ -304,9 +304,13 @@ const runIdentity: RunIdentity = {
     registryDigest: digestOfFiles(['tests/evidence/certification/arms/registry.ts']),
     // The pinned model and runtime asset identities, which are static files — `harness.assets` is empty
     // at this point because it accumulates as arms actually fetch.
+    // Includes the /lib EXECUTABLE identities. Without them r3 and r4 carried the SAME assetDigest while
+    // their executable inventories differed, so a partial run could resume across a change to the bytes
+    // that actually execute — exactly what this digest exists to prevent.
     assetDigest: digestOfFiles([
         'tests/fixtures/hf-asset-pins.json',
         'tests/fixtures/moonshine-asset-pins.json',
+        'tests/fixtures/lib-executable-pins.json',
         'tests/evidence/certification/arms/runtimeAssets.ts',
     ]),
     setName,
@@ -316,12 +320,59 @@ const runIdentity: RunIdentity = {
 const hostAtStart = hostGate();
 const partialPath = outPath ? outPath.replace(/\.json$/, '') + '.partial.json' : '';
 
+/**
+ * EXCLUSIVE RESERVATION of the output and partial paths.
+ *
+ * A multi-hour run whose artifact a second process can also write is a run whose evidence nobody can
+ * attribute. `wx` is atomic at the filesystem level, so two starters cannot both believe they own the
+ * path. The lock records WHO holds it, so a stale lock is diagnosable rather than a mystery, and it is
+ * released on every exit path — including signals, where the previous design would have left it behind.
+ */
+const lockPath = outPath ? `${outPath}.lock` : '';
+if (lockPath) {
+    try {
+        writeFileSync(lockPath, `${JSON.stringify({
+            pid: process.pid, startedAt: new Date().toISOString(),
+            host: `${platform()}/${arch()}`, out: outPath,
+        }, null, 2)}\n`, { flag: 'wx' });
+    } catch {
+        let holder = '(unreadable)';
+        try { holder = readFileSync(lockPath, 'utf8').trim(); } catch { /* keep the placeholder */ }
+        console.error(`\nREFUSING to start: ${lockPath} is held by another run.`);
+        console.error(holder);
+        console.error('If that process is gone, delete the lock deliberately — do not assume it is stale.');
+        process.exit(1);
+    }
+    const release = () => { try { rmSync(lockPath, { force: true }); } catch { /* nothing left to do */ } };
+    process.on('exit', release);
+    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+        process.on(sig, () => { release(); process.exit(130); });
+    }
+}
+
+/**
+ * The host a checkpoint was measured on, bound into resume.
+ *
+ * Timings are host-dependent, so resuming a partial run on a different machine, core count or browser
+ * build splices two populations into one table that reads as a single experiment. Identity already
+ * covers the CODE; this covers the MACHINE.
+ */
+const hostFingerprint = createHash('sha256').update(JSON.stringify({
+    platform: platform(), arch: arch(), cpuCores: cpus().length,
+    playwright: installedVersion('playwright') ?? installedVersion('@playwright/test') ?? 'unknown',
+})).digest('hex').slice(0, 16);
+
 /** Rows already measured under an IDENTICAL identity, if any. */
 let results: Record<string, unknown>[] = [];
 let alreadyDone = new Set<string>();
 if (partialPath && existsSync(partialPath)) {
     let parsed: unknown = null;
     try { parsed = JSON.parse(readFileSync(partialPath, 'utf8')); } catch { parsed = null; }
+    const recordedHost = (parsed as { hostFingerprint?: unknown } | null)?.hostFingerprint;
+    if (recordedHost !== undefined && recordedHost !== hostFingerprint) {
+        console.log(`\n  NOT resuming ${partialPath} (host fingerprint ${String(recordedHost)} != ${hostFingerprint}) — starting clean`);
+        parsed = null;
+    }
     const plan = planResume(parsed, runIdentity);
     if (plan.kind === 'resume') {
         results = plan.rows as Record<string, unknown>[];
@@ -338,7 +389,7 @@ if (partialPath && existsSync(partialPath)) {
  */
 const checkpoint = (): void => {
     if (!partialPath) return;
-    atomicWriteFileSync(partialPath, `${JSON.stringify({ partial: true, identity: runIdentity, rows: results }, null, 2)}\n`);
+    atomicWriteFileSync(partialPath, `${JSON.stringify({ partial: true, identity: runIdentity, hostFingerprint, rows: results }, null, 2)}\n`);
 };
 
 for (const spec of ARM_MATRIX) {
