@@ -18,6 +18,10 @@ import { join, relative, resolve } from 'node:path';
 /** Packages whose executable modules the harness serves. */
 const PACKAGES = [
     'onnxruntime-web/dist',
+    // onnxruntime-common is pulled in as INDIVIDUAL ESM modules by the CPU/int8 route — 19 of them
+    // executed in the first int8 preflight while none was pinned, because only onnxruntime-web was
+    // covered here. The q4 arm never loads them, so the gap was invisible until int8 ran.
+    'onnxruntime-common/dist',
     '@xenova/transformers/dist',
     '@huggingface/transformers/dist',
     '@moonshine-ai/moonshine-wasm',

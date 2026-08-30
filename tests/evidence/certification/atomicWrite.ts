@@ -12,9 +12,17 @@ import { dirname } from 'node:path';
  * fsync before rename: without it the rename can be durable while the CONTENT is not, and a crash
  * leaves a correctly-named empty file — which is worse than an obviously truncated one, because it
  * looks valid.
+ *
+ * fsync the DIRECTORY after rename: the rename itself is a directory-entry change, and until that
+ * directory is flushed the file's NAME is not durable even though its bytes are. A crash there loses
+ * the newest checkpoint entry while every earlier one survives, so the artifact silently regresses by
+ * one arm and nothing about it looks wrong. This is the step that was previously recorded as an
+ * unresolved P2; it is now part of the write, and a failure to flush is REPORTED rather than swallowed,
+ * because a promotion nobody can prove durable must not be reported as durable.
  */
 export function atomicWriteFileSync(path: string, contents: string): void {
-    mkdirSync(dirname(path), { recursive: true });
+    const dir = dirname(path);
+    mkdirSync(dir, { recursive: true });
     const tmp = `${path}.tmp-${process.pid}`;
     try {
         writeFileSync(tmp, contents, 'utf8');
@@ -24,5 +32,29 @@ export function atomicWriteFileSync(path: string, contents: string): void {
     } catch (err) {
         try { unlinkSync(tmp); } catch { /* the temp file may not exist; the original error is what matters */ }
         throw err;
+    }
+    fsyncDirectory(dir);
+}
+
+/**
+ * Flush a directory entry so a rename into it is durable.
+ *
+ * Deliberately NOT best-effort. Swallowing the failure would leave the caller believing a promotion is
+ * durable when nothing established that. On platforms where a directory cannot be opened for fsync the
+ * call is a documented no-op — but an OPENED directory that fails to sync is a real failure and throws.
+ */
+export function fsyncDirectory(dir: string, sync: (fd: number) => void = fsyncSync): void {
+    let fd: number;
+    try {
+        fd = openSync(dir, 'r');
+    } catch {
+        return;   // the platform does not permit opening a directory; nothing further can be proven here
+    }
+    try {
+        sync(fd);
+    } catch (err) {
+        throw new Error(`durable promotion failed: could not fsync directory ${dir}: ${(err as Error).message}`);
+    } finally {
+        closeSync(fd);
     }
 }

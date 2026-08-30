@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { classifyRow, isCompleteRow, validateCompleteness, UNSCOREABLE_DISPOSITIONS } from '../checkpoint';
+import {
+    classifyRow, isCompleteRow, validateCompleteness, UNSCOREABLE_DISPOSITIONS,
+    RELIABILITY_COUNTERS, MEASURED_RELIABILITY_CONTRACT,
+} from '../checkpoint';
 import { NOT_EXECUTED_REASONS } from '../arms/registry';
 
 /**
@@ -129,5 +132,47 @@ describe('FINAL promotion applies the same reason discipline as resume', () => {
         expect(v).toMatchObject({ ok: false, reason: 'unfinished_arms' });
         expect((v as { detail: string }).detail).toContain(a);
         expect((v as { detail: string }).detail).toContain(b);
+    });
+});
+
+describe('EVERY reliability counter is eligibility-gating, not three of them', () => {
+    // The frozen-600 `v4:base:q4-decoder:wasm` row carried `truncated=1` and remained selection eligible.
+    // A truncated decode measures something other than the clip, so the arm is one to re-measure — not a
+    // completed measurement with a footnote.
+    const rel = (over: Record<string, number> = {}) => ({
+        decoded: 600, expectedClips: 600, threw: 0, emptyOutput: 0, missing: 0,
+        timedOut: 0, audioRejected: 0, truncated: 0, ...over,
+    });
+    const row = (over: Record<string, number> = {}) => ({
+        id: 'v4:base:q4-decoder:wasm', verdict: { ok: true }, backendProven: true,
+        expectedClips: 600, decodedClips: 600, reliability: rel(over),
+    });
+
+    it('POSITIVE CONTROL: all counters zero is a completed measurement', () => {
+        expect(classifyRow(row())).toEqual({ complete: true, kind: 'measured' });
+    });
+
+    it.each(RELIABILITY_COUNTERS)('CASUALTY: %s > 0 is NOT a completed measurement', (counter) => {
+        const r = classifyRow(row({ [counter]: 1 }));
+        expect(r.complete).toBe(false);
+        expect((r as { reason: string }).reason).toContain(`${counter}=1`);
+    });
+
+    it('the truncated casualty is named explicitly — it is the one that shipped', () => {
+        const r = classifyRow(row({ truncated: 1 }));
+        expect(r.complete).toBe(false);
+        expect((r as { reason: string }).reason).toMatch(/truncated=1/);
+    });
+
+    it('a truncated arm may still be preserved with a TYPED unscoreable disposition', () => {
+        // The row is not lost — it is dispositioned rather than counted.
+        expect(classifyRow({ id: 'x', disposition: 'unscoreable_arm' }))
+            .toEqual({ complete: true, kind: 'unscoreable' });
+    });
+
+    it('the contract names every counter it enforces', () => {
+        for (const c of RELIABILITY_COUNTERS) {
+            expect(MEASURED_RELIABILITY_CONTRACT.requires).toContain(`${c} === 0`);
+        }
     });
 });

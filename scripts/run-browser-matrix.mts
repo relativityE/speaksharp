@@ -1052,26 +1052,6 @@ for (const spec of ARM_MATRIX) {
         for (const f of assetReconciliation.failures.slice(0, 6)) console.log(`      ${f.kind}: ${f.detail}`);
     }
 
-    const selectionEligible = backendProven && result.ok && evidenceClass === 'selection'
-        && spec.role === 'selection' && harness.assetFailures.length === 0
-        && assetReconciliation.ok;
-    const ineligible = !selectionEligible
-        ? evidenceClass !== 'selection'
-            ? `${setName} is a ${evidenceClass} set — not selection evidence`
-            : spec.role !== 'selection' ? 'diagnostic cell'
-                : !backendProven ? 'backend claim not proven'
-                    : !result.ok ? `no row: ${result.reason}`
-                        : harness.assetFailures.length > 0 ? 'asset pins failed'
-                            : `asset reconciliation: ${assetReconciliation.failures.map((f) => f.kind).join(', ')}`
-        : null;
-
-    console.log(`    backend: ${honored?.deviceResolved ?? 'UNRESOLVED'} (${backendProven ? 'PROVEN' : 'NOT proven'})`
-        + (hardwareRepresentative ? '' : '  [SOFTWARE RASTERIZER — timing is NOT a GPU result]'));
-    console.log(result.ok
-        ? `    POOLED WER = ${result.row.wer.toFixed(4)}  words=${result.row.referenceWords} `
-          + `S=${result.row.substitutions} D=${result.row.deletions} I=${result.row.insertions}`
-        : `    NO ROW: ${result.reason} (${result.detail})`);
-    console.log(`    selection eligible: ${selectionEligible ? 'YES' : `no — ${ineligible}`}`);
 
     // The POPULATED measurement table — collected, not declared.
     const verdict = buildTechnicalVerdict({
@@ -1096,6 +1076,46 @@ for (const spec of ARM_MATRIX) {
         expectedClips: set.expectedIds.length,
         audioRejected: audioMismatches.length,
     });
+
+    /**
+     * EVERY RELIABILITY COUNTER IS ELIGIBILITY-GATING.
+     *
+     * The frozen-600 `v4:base:q4-decoder:wasm` row recorded `truncated=1` and was still selection
+     * eligible. A truncated decode is a measurement of something other than the clip, so an arm carrying
+     * one is not a completed measurement of the corpus — it is an arm to re-measure. The same holds for
+     * a throw, an empty output, a lost clip, a timeout and a rejected audio file.
+     */
+    const counters = {
+        threw: verdict.reliability.threw, emptyOutput: verdict.reliability.emptyOutput,
+        missing: verdict.reliability.missing, timedOut: verdict.reliability.timedOut ?? 0,
+        audioRejected: verdict.reliability.audioRejected ?? 0,
+        truncated: verdict.duration?.truncatedClips ?? 0,
+    };
+    const dirtyCounters = Object.entries(counters).filter(([, v]) => (v ?? 0) !== 0);
+
+    const selectionEligible = backendProven && result.ok && evidenceClass === 'selection'
+        && spec.role === 'selection' && harness.assetFailures.length === 0
+        && assetReconciliation.ok
+        && dirtyCounters.length === 0;
+    const ineligible = !selectionEligible
+        ? evidenceClass !== 'selection'
+            ? `${setName} is a ${evidenceClass} set — not selection evidence`
+            : spec.role !== 'selection' ? 'diagnostic cell'
+                : !backendProven ? 'backend claim not proven'
+                    : !result.ok ? `no row: ${result.reason}`
+                        : harness.assetFailures.length > 0 ? 'asset pins failed'
+                            : !assetReconciliation.ok
+                                ? `asset reconciliation: ${assetReconciliation.failures.map((f) => f.kind).join(', ')}`
+                                : `reliability: ${dirtyCounters.map(([k, v]) => `${k}=${v}`).join(', ')}`
+        : null;
+
+    console.log(`    backend: ${honored?.deviceResolved ?? 'UNRESOLVED'} (${backendProven ? 'PROVEN' : 'NOT proven'})`
+        + (hardwareRepresentative ? '' : '  [SOFTWARE RASTERIZER — timing is NOT a GPU result]'));
+    console.log(result.ok
+        ? `    POOLED WER = ${result.row.wer.toFixed(4)}  words=${result.row.referenceWords} `
+          + `S=${result.row.substitutions} D=${result.row.deletions} I=${result.row.insertions}`
+        : `    NO ROW: ${result.reason} (${result.detail})`);
+    console.log(`    selection eligible: ${selectionEligible ? 'YES' : `no — ${ineligible}`}`);
 
     console.log(`    cold load ${verdict.speed.coldLoadMs}ms · warm p50 ${verdict.speed.warmDecodeMsP50}ms `
         + `p95 ${verdict.speed.warmDecodeMsP95}ms · RTF p50 ${verdict.speed.realTimeFactorP50?.toFixed(3)} `
@@ -1122,12 +1142,18 @@ for (const spec of ARM_MATRIX) {
         expectedClips: verdict.reliability.expectedClips,
         decodedClips: verdict.reliability.decoded,
         clipsOffered: utterances.length,
+        // EVERY counter is serialized, because every counter is eligibility-gating. The old q4 row carried
+        // `truncated=1` and stayed selection eligible: the truncation was printed to the log and never
+        // written to the row, so nothing downstream could act on it.
         reliability: {
             decoded: verdict.reliability.decoded,
             expectedClips: verdict.reliability.expectedClips,
             threw: verdict.reliability.threw,
             emptyOutput: verdict.reliability.emptyOutput,
             missing: verdict.reliability.missing,
+            timedOut: verdict.reliability.timedOut ?? 0,
+            audioRejected: verdict.reliability.audioRejected ?? 0,
+            truncated: verdict.duration?.truncatedClips ?? 0,
         },
         audioMismatches,
         transcriptDigest, perUtterance,

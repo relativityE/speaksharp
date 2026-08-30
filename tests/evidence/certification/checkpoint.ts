@@ -55,8 +55,13 @@ export interface CheckpointRow { id: string; [k: string]: unknown }
  * conditional. A run that threw, produced empty output, or lost clips did not measure the arm — it made a
  * partial observation, which must be dispositioned rather than counted.
  */
+/** Every counter that must be ZERO for a row to be a completed, selection-grade measurement. */
+export const RELIABILITY_COUNTERS = Object.freeze([
+    'threw', 'emptyOutput', 'missing', 'timedOut', 'audioRejected', 'truncated',
+] as const);
+
 export const MEASURED_RELIABILITY_CONTRACT = Object.freeze({
-    requires: ['decoded === expectedClips', 'threw === 0', 'emptyOutput === 0', 'missing === 0'],
+    requires: ['decoded === expectedClips', ...RELIABILITY_COUNTERS.map((c) => `${c} === 0`)],
 });
 
 /** Every disposition a row may carry INSTEAD of a measurement. Arbitrary strings are refused. */
@@ -139,10 +144,15 @@ export function classifyRow(row: CheckpointRow, expectedReason?: string): RowCom
     if (row.decodedClips !== row.expectedClips) {
         return { complete: false, reason: `decoded ${row.decodedClips}/${row.expectedClips}` };
     }
-    if (rel.threw !== 0 || rel.emptyOutput !== 0 || rel.missing !== 0) {
+    // EVERY counter, not three of them. The frozen-600 q4 row carried `truncated=1` and still read as a
+    // completed eligible measurement: a truncated decode measures something other than the clip.
+    const dirty = RELIABILITY_COUNTERS
+        .map((k) => [k, rel[k] ?? 0] as const)
+        .filter(([, v]) => v !== 0);
+    if (dirty.length > 0) {
         return {
             complete: false,
-            reason: `reliability contract unmet (threw=${rel.threw} empty=${rel.emptyOutput} missing=${rel.missing})`,
+            reason: `reliability contract unmet (${dirty.map(([k, v]) => `${k}=${String(v)}`).join(' ')})`,
         };
     }
     return { complete: true, kind: 'measured' };
