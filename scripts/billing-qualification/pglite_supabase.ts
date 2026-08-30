@@ -11,6 +11,11 @@ const read = (p: string): string => Deno.readTextFileSync(new URL(p, REPO));
 // executed webhook-lifecycle integration proof applies).
 const MIGRATION_SQL: readonly string[] = [
   "tests/db/webhook-lifecycle-bootstrap.sql",
+  // Supabase PLATFORM table (auth.users). No migration of ours creates it, so PGlite must be given it
+  // before the real trial migrations — which trigger off it — can apply.
+  "tests/db/trial-lifecycle-bootstrap.sql",
+  // Creates trial_entitlements, the resolver, and the on_auth_user_created_trial_profile TRIGGER.
+  "backend/supabase/migrations/20260521100000_auto_trial_entitlements.sql",
   "backend/supabase/migrations/20260812002000_webhook_lifecycle_completeness_1282.sql",
   "backend/supabase/migrations/20260812039500_webhook_duplicate_snapshot_convergence_1282.sql",
   // #1302: the DB-BACKED TRIAL. Without these the ephemeral DB had no trial at all, so the first three
@@ -82,8 +87,13 @@ export async function freshTrialProfile(db: PGlite, userId: string): Promise<{
   trialStartedAt: string | null; trialEndsAt: string | null;
   stripeCustomerId: string | null; stripeSubscriptionId: string | null; subscriptionStatus: string;
 }> {
-  await db.exec(`DELETE FROM public.user_profiles WHERE id = '${userId}'`);
-  await db.query(`SELECT public.ensure_trial_profile_for_new_user($1)`, [userId]);
+  // THE PRODUCTION PATH IS AN AUTH INSERT, NOT A FUNCTION CALL.
+  // `ensure_trial_profile_for_new_user()` is a TRIGGER function on auth.users reading NEW.id/NEW.email;
+  // invoking it directly would neither compile nor exercise what a real signup does. Inserting the user
+  // and letting the trigger stamp the profile is the actual product path.
+  await db.query(`DELETE FROM public.user_profiles WHERE id = $1`, [userId]);
+  await db.query(`DELETE FROM auth.users WHERE id = $1`, [userId]);
+  await db.query(`INSERT INTO auth.users (id, email) VALUES ($1, $2)`, [userId, `qual-${userId}@example.invalid`]);
   const r = await db.query<{
     trial_started_at: string | null; trial_expires_at: string | null;
     stripe_customer_id: string | null; stripe_subscription_id: string | null; subscription_status: string;
