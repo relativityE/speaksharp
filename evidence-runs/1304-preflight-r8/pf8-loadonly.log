@@ -1,0 +1,18 @@
+
+#1304 BROWSER lane — set=preflight (preflight), 23 clips / 459 normalized words, mirror mode=pinned
+
+
+  v2:base.en  (v2 whisper-base.en — SHIPPING)
+    loaded — 14 files, 92.2 MB attributable to THIS arm
+
+
+=== BROWSER LANE SUMMARY ===
+    —     v2:base.en                           n/a                          not eligible
+
+  evidence class: preflight. NO row from this set may inform the down-select.
+
+
+pins: 44 existing + 0 new = 44
+
+wrote tests/fixtures/hf-asset-pins.json with 44 pinned assets
+wrote evidence-runs/1304-preflight-r8/loadonly-v2base.json
