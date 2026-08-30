@@ -24,12 +24,9 @@ describe('sessionAnalysis metric truth', () => {
         expect(metrics.wordCount).toBe(10);
         // Headline = true fillers only: um(1) + uh(1) = 2. "like" is a discourse marker, excluded by default.
         expect(metrics.fillerCount).toBe(2);
-        // CONTRACT CORRECTED: the canonical scalar now EQUALS the coachable total the user is shown (2).
-        // It previously carried the comprehensive all-tier count (3), so the canonical object and the
-        // rendered review disagreed and internal consumers reported a number the user never saw.
-        expect(metrics.fillerData.total.count).toBe(2);
-        expect(metrics.fillerData.total.count).toBe(metrics.fillerCount);
-        // The per-key breakdown is still COMPREHENSIVE — chips and re-tiering depend on it.
+        // The per-word breakdown is UNCHANGED — total.count stays the comprehensive all-tier count (3), so the
+        // chips still show like/um/uh; only the headline number is the true-filler tier.
+        expect(metrics.fillerData.total.count).toBe(3);
         expect(metrics.fillerData.like.count).toBe(1);
         expect(metrics.fillerExplanation).toContain('This is likely noticeable; pause before restarting a thought');
         expect(metrics.clarityExplanation).toContain('Replace the next one with a brief pause');

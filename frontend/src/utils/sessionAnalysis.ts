@@ -406,29 +406,13 @@ export const calculateCoreSessionMetrics = ({
     const isClarityScorable = wordCount >= MIN_RELIABLE_SCORING_WORDS;
     const clarityScore = isClarityScorable ? calculateClarityScore({ wordCount, fillerCount, errorCount, wpm }) : 0;
 
-    /**
-     * THE CANONICAL TOTAL EQUALS THE COACHABLE TOTAL THE USER SEES.
-     *
-     * `derivedFillerData.total` was the comprehensive sum of every tracked key, so on `um so uh … um` the
-     * canonical object said 4 while the user was shown 3. Two totals in one object, silently different,
-     * and internal consumers read the wrong one.
-     *
-     * The per-key map is UNCHANGED and still comprehensive — that is what lets history be re-tiered and
-     * what an opted-in user's chips are drawn from. Only the scalar is aligned, and it honours the SAME
-     * `includeDiscourseMarkers` flag the review honours, so opting in moves both together.
-     */
-    const canonicalFillerData: FillerCounts = {
-        ...derivedFillerData,
-        total: { count: fillerCount, color: derivedFillerData.total?.color ?? '' },
-    };
-
     return {
         wordCount,
         wpm,
         wpmLabel: getWpmLabel(wpm),
         wpmExplanation: getWpmExplanation(wpm, wordCount),
         fillerCount,
-        fillerData: canonicalFillerData,
+        fillerData: derivedFillerData,
         fillerExplanation: getFillerExplanation(fillerCount, wordCount),
         clarityScore,
         clarityLabel: isClarityScorable ? getClarityLabel(clarityScore) : 'Not enough reliable speech to score',
