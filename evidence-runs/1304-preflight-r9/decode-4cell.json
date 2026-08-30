@@ -1,0 +1,3902 @@
+{
+  "lane": "browser",
+  "set": "preflight",
+  "evidenceClass": "preflight",
+  "identity": {
+    "productBaseline": "024b574f",
+    "executionSha": "32e26881",
+    "policySha": "6a25ba51e881d2e6633a9f5b47be270b",
+    "corpusDigest": "1f6af011d135b6804f9499da1a2798d0",
+    "normalizerId": "09217ac31b887ed696f95c1c5d3da579",
+    "registryDigest": "6293cf992c29fe3464b1bba300c5008c",
+    "assetDigest": "4ea0ac251255dbed2e7fe29b1b57f619",
+    "setName": "preflight",
+    "evidenceClass": "preflight",
+    "selectionPlanId": null,
+    "selectionPlanDigest": null
+  },
+  "hostAtStart": {
+    "capturedAt": "2026-08-30T22:03:08.236Z",
+    "cpuCores": 8,
+    "platform": "darwin",
+    "arch": "arm64",
+    "loadAverage": [
+      2.19580078125,
+      2.08154296875,
+      1.95947265625
+    ],
+    "pageouts": 3993773,
+    "swapouts": 157517053,
+    "swapUsedMb": 3250.19,
+    "note": "Point-in-time at run start. Counter DELTAS across a run are what indicate pressure; a high historical swap allocation is not itself a gate."
+  },
+  "hostAtEnd": {
+    "capturedAt": "2026-08-30T22:05:22.063Z",
+    "cpuCores": 8,
+    "platform": "darwin",
+    "arch": "arm64",
+    "loadAverage": [
+      6.7744140625,
+      3.97900390625,
+      2.73046875
+    ],
+    "pageouts": 3994119,
+    "swapouts": 157576009,
+    "swapUsedMb": 4099.38,
+    "note": "Point-in-time at run start. Counter DELTAS across a run are what indicate pressure; a high historical swap allocation is not itself a gate."
+  },
+  "results": [
+    {
+      "id": "v4:base:q4-decoder:wasm",
+      "label": "v4 base, fp32 encoder + q4 decoder, WASM",
+      "lane": "browser",
+      "set": "preflight",
+      "evidenceClass": "preflight",
+      "candidate": null,
+      "executionBackend": null,
+      "historicalArmId": "v4:base:q4-decoder:wasm",
+      "dtype": {
+        "encoder_model": "fp32",
+        "decoder_model_merged": "q4"
+      },
+      "dtypeAliasOf": null,
+      "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+      "verdict": {
+        "armId": "v4:base:q4-decoder:wasm",
+        "role": "selection",
+        "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+        "evidenceSet": "preflight",
+        "evidenceClass": "preflight",
+        "wer": 0.04139433551198257,
+        "referenceWords": 459,
+        "reliability": {
+          "expectedClips": 23,
+          "decoded": 23,
+          "threw": 0,
+          "emptyOutput": 0,
+          "timedOut": 0,
+          "audioRejected": 0,
+          "missing": 0
+        },
+        "speed": {
+          "coldLoadMs": 2008,
+          "warmDecodeMsP50": 1278,
+          "warmDecodeMsP95": 1865,
+          "realTimeFactorP50": 0.2064406779661017,
+          "realTimeFactorP95": 0.37649006622516556,
+          "stopToFinalMs": null
+        },
+        "footprint": {
+          "modelBytes": 234334808,
+          "assetCount": 30,
+          "peakMemoryBytes": null
+        },
+        "duration": {
+          "shortestClipSeconds": 2.69,
+          "longestClipSeconds": 17.96,
+          "longFormTailPreserved": null,
+          "longFormRepeatedNgrams": null,
+          "truncatedClips": 0,
+          "highDeletionClips": 0
+        },
+        "backendProven": true,
+        "resolvedBackend": "wasm:1 module(s)",
+        "hardwareRepresentative": true,
+        "transcriptDigest": "2f8188b7bb960e46",
+        "fingerprint": "63b019001ac75c9b",
+        "assetDigestCount": 30
+      },
+      "role": "selection",
+      "freshSession": true,
+      "requestedDevice": "wasm",
+      "resolvedBackend": "wasm:1 module(s)",
+      "backendProven": true,
+      "hardwareRepresentative": true,
+      "certified": true,
+      "failedGates": [],
+      "fingerprint": "63b019001ac75c9b",
+      "expectedClips": 23,
+      "decodedClips": 23,
+      "clipsOffered": 23,
+      "reliability": {
+        "decoded": 23,
+        "expectedClips": 23,
+        "threw": 0,
+        "emptyOutput": 0,
+        "missing": 0,
+        "timedOut": 0,
+        "audioRejected": 0,
+        "truncated": 0
+      },
+      "audioMismatches": [],
+      "transcriptDigest": "2f8188b7bb960e46",
+      "scoreProfileDigest": "523560de606b21b5",
+      "insertionProfile": {
+        "totalInsertions": 4,
+        "tokenFrequency": [
+          {
+            "token": "horse",
+            "count": 1
+          },
+          {
+            "token": "kiro",
+            "count": 1
+          },
+          {
+            "token": "so",
+            "count": 1
+          },
+          {
+            "token": "wood",
+            "count": 1
+          }
+        ],
+        "fillerLikeInsertions": [],
+        "fillerLikeTotal": 0,
+        "fillerLikeUtterances": []
+      },
+      "perUtterance": [
+        {
+          "id": "1089-134686-0002",
+          "normalizedReference": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "normalizedHypothesis": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "trackBReference": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "trackBHypothesis": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 18,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0011",
+          "normalizedReference": "all his former friends shrunk from the disclosures that had to be made of his dishonest gambling wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "normalizedHypothesis": "all his former friends shrunk from the disclosures that had to be made of his dishonest gambling wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "trackBReference": "all his former friends shrunk from the disclosures that had to be made of his dishonest gambling wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "trackBHypothesis": "all his former friends shrunk from the disclosures that had to be made of his dishonest gambling wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 34,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0011",
+          "normalizedReference": "on saturday mornings when the sodality met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his wing of boys through the responses",
+          "normalizedHypothesis": "on saturday mornings when the so dallity met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his wing of boys through the responses",
+          "trackBReference": "on saturday mornings when the sodality met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his wing of boys through the responses",
+          "trackBHypothesis": "on saturday mornings when the so dallity met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his wing of boys through the responses",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 1,
+          "referenceWords": 39,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0025",
+          "normalizedReference": "and i do said her father laughing",
+          "normalizedHypothesis": "and i do said her father laughing",
+          "trackBReference": "and i do said her father laughing",
+          "trackBHypothesis": "and i do said her father laughing",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0021",
+          "normalizedReference": "if a layman in giving baptism pour the water before saying the words is the child baptized",
+          "normalizedHypothesis": "if a layman in giving baptism pour the water before saying the words is the child baptized",
+          "trackBReference": "if a layman in giving baptism pour the water before saying the words is the child baptized",
+          "trackBHypothesis": "if a layman in giving baptism pour the water before saying the words is the child baptized",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 17,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0067",
+          "normalizedReference": "do not think hardly on him he is a good man he is",
+          "normalizedHypothesis": "do not think hardly on him he is a good man he is",
+          "trackBReference": "do not think hardly on him he is a good man he is",
+          "trackBHypothesis": "do not think hardly on him he is a good man he is",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 13,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0024",
+          "normalizedReference": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god and as man",
+          "normalizedHypothesis": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god and as man",
+          "trackBReference": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god and as man",
+          "trackBHypothesis": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god and as man",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 30,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0071",
+          "normalizedReference": "she put her hand to it and became ghastly pale",
+          "normalizedHypothesis": "she put her hand to it and became ghastly pale",
+          "trackBReference": "she put her hand to it and became ghastly pale",
+          "trackBHypothesis": "she put her hand to it and became ghastly pale",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0036",
+          "normalizedReference": "a great saint saint francis xavier",
+          "normalizedHypothesis": "a great saint francis xavier",
+          "trackBReference": "a great saint saint francis xavier",
+          "trackBHypothesis": "a great saint francis xavier",
+          "substitutions": 0,
+          "deletions": 1,
+          "insertions": 0,
+          "referenceWords": 6,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0072",
+          "normalizedReference": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "normalizedHypothesis": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "trackBReference": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "trackBHypothesis": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 16,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0001",
+          "normalizedReference": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "normalizedHypothesis": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "trackBReference": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "trackBHypothesis": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 17,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0073",
+          "normalizedReference": "presently the spasm that foreshadowed death had passed away and bessy roused herself and said",
+          "normalizedHypothesis": "presently the spasm that foreshadowed death had passed away and bessie roused herself and said",
+          "trackBReference": "presently the spasm that foreshadowed death had passed away and bessy roused herself and said",
+          "trackBHypothesis": "presently the spasm that foreshadowed death had passed away and bessie roused herself and said",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 15,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0005",
+          "normalizedReference": "whose feet are as the feet of harts and underneath the everlasting arms",
+          "normalizedHypothesis": "whose feet are as the feet of hearts and underneath the everlasting arms",
+          "trackBReference": "whose feet are as the feet of harts and underneath the everlasting arms",
+          "trackBHypothesis": "whose feet are as the feet of hearts and underneath the everlasting arms",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 13,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0074",
+          "normalizedReference": "i will go to bed it is best place but catching at margaret is gown yo will come again i know yo will but just say it",
+          "normalizedHypothesis": "i will go to bed it is best place but catching that margaret is gown you will come again i know you will but just say it",
+          "trackBReference": "i will go to bed it is best place but catching at margaret is gown yo will come again i know yo will but just say it",
+          "trackBHypothesis": "i will go to bed it is best place but catching that margaret is gown you will come again i know you will but just say it",
+          "substitutions": 3,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 27,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0017",
+          "normalizedReference": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and valleyed and woodbegirt and citadelled and of entrenched and marshaled races",
+          "normalizedHypothesis": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and valid and wood beagurt and citadeld and of entrenched and marshaled races",
+          "trackBReference": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and valleyed and woodbegirt and citadelled and of entrenched and marshaled races",
+          "trackBHypothesis": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and valid and wood beagurt and citadeld and of entrenched and marshaled races",
+          "substitutions": 3,
+          "deletions": 0,
+          "insertions": 1,
+          "referenceWords": 29,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0076",
+          "normalizedReference": "margaret went away very sad and thoughtful",
+          "normalizedHypothesis": "margaret went away very sad and thoughtful",
+          "trackBReference": "margaret went away very sad and thoughtful",
+          "trackBHypothesis": "margaret went away very sad and thoughtful",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0021",
+          "normalizedReference": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewn stones of the sloping breakwater over which they scrambled in their horseplay gleamed with cold wet luster",
+          "normalizedHypothesis": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewn stones of the sloping breakwater over which they scrambled in their horse play gleamed with cold wet luster",
+          "trackBReference": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewn stones of the sloping breakwater over which they scrambled in their horseplay gleamed with cold wet luster",
+          "trackBHypothesis": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewn stones of the sloping breakwater over which they scrambled in their horse play gleamed with cold wet luster",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 1,
+          "referenceWords": 34,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0078",
+          "normalizedReference": "have you met with a servant dear",
+          "normalizedHypothesis": "have you met with a servant dear",
+          "trackBReference": "have you met with a servant dear",
+          "trackBHypothesis": "have you met with a servant dear",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "1188-133604-0002",
+          "normalizedReference": "by being studious of color they are studious of division and while the chiaroscurist devotes himself to the representation of degrees of force in one thing unseparated light the colorists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "normalizedHypothesis": "by being studious of color they are studious of division and while the kiro skuros devotes himself to the representation of degrees of force in one thing unseparated light the colorists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "trackBReference": "by being studious of color they are studious of division and while the chiaroscurist devotes himself to the representation of degrees of force in one thing unseparated light the colorists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "trackBHypothesis": "by being studious of color they are studious of division and while the kiro skuros devotes himself to the representation of degrees of force in one thing unseparated light the colorists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 1,
+          "referenceWords": 45,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0081",
+          "normalizedReference": "everybody else has had their turn at this great difficulty now let me try",
+          "normalizedHypothesis": "everybody else has had their turn at this great difficulty now let me try",
+          "trackBReference": "everybody else has had their turn at this great difficulty now let me try",
+          "trackBHypothesis": "everybody else has had their turn at this great difficulty now let me try",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 14,
+          "invalidReason": null
+        },
+        {
+          "id": "1188-133604-0013",
+          "normalizedReference": "it must remember be one or the other",
+          "normalizedHypothesis": "it must remember be one or the other",
+          "trackBReference": "it must remember be one or the other",
+          "trackBHypothesis": "it must remember be one or the other",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0091",
+          "normalizedReference": "my dear said mister hale alarmed pray do not go off on that idea",
+          "normalizedHypothesis": "my dear said mister hell alarmed probably do not go off on that idea",
+          "trackBReference": "my dear said mister hale alarmed pray do not go off on that idea",
+          "trackBHypothesis": "my dear said mister hell alarmed probably do not go off on that idea",
+          "substitutions": 2,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 14,
+          "invalidReason": null
+        },
+        {
+          "id": "1188-133604-0037",
+          "normalizedReference": "every line in which the master traces it even where seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or duerer",
+          "normalizedHypothesis": "every line in which the master traces it even where seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or dure",
+          "trackBReference": "every line in which the master traces it even where seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or duerer",
+          "trackBHypothesis": "every line in which the master traces it even where seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or dure",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 39,
+          "invalidReason": null
+        }
+      ],
+      "decodeFailures": [],
+      "clipTimings": [
+        {
+          "utteranceId": "1089-134686-0002",
+          "audioSeconds": 6.625,
+          "decodeMs": 1364,
+          "realTimeFactor": 0.20588679245283018,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0011",
+          "audioSeconds": 14.05,
+          "decodeMs": 1633,
+          "realTimeFactor": 0.11622775800711743,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0011",
+          "audioSeconds": 12.445,
+          "decodeMs": 1745,
+          "realTimeFactor": 0.14021695460024106,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0025",
+          "audioSeconds": 3.4,
+          "decodeMs": 1064,
+          "realTimeFactor": 0.3129411764705882,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0021",
+          "audioSeconds": 6.55,
+          "decodeMs": 1239,
+          "realTimeFactor": 0.18916030534351144,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0067",
+          "audioSeconds": 3.845,
+          "decodeMs": 1146,
+          "realTimeFactor": 0.29804941482444736,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0024",
+          "audioSeconds": 11.655,
+          "decodeMs": 1467,
+          "realTimeFactor": 0.12586872586872586,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0071",
+          "audioSeconds": 3.865,
+          "decodeMs": 1170,
+          "realTimeFactor": 0.3027166882276843,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0036",
+          "audioSeconds": 3.25,
+          "decodeMs": 997,
+          "realTimeFactor": 0.3067692307692308,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0072",
+          "audioSeconds": 5.85,
+          "decodeMs": 1320,
+          "realTimeFactor": 0.22564102564102564,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0001",
+          "audioSeconds": 5.415,
+          "decodeMs": 1195,
+          "realTimeFactor": 0.22068328716528163,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0073",
+          "audioSeconds": 7.46,
+          "decodeMs": 1278,
+          "realTimeFactor": 0.171313672922252,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0005",
+          "audioSeconds": 5.36,
+          "decodeMs": 1167,
+          "realTimeFactor": 0.21772388059701492,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0074",
+          "audioSeconds": 11.13,
+          "decodeMs": 1465,
+          "realTimeFactor": 0.1316262353998203,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0017",
+          "audioSeconds": 11.695,
+          "decodeMs": 1545,
+          "realTimeFactor": 0.13210773834972211,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0076",
+          "audioSeconds": 3.84,
+          "decodeMs": 1070,
+          "realTimeFactor": 0.2786458333333333,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0021",
+          "audioSeconds": 13.37,
+          "decodeMs": 1865,
+          "realTimeFactor": 0.13949139865370233,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0078",
+          "audioSeconds": 2.69,
+          "decodeMs": 1078,
+          "realTimeFactor": 0.4007434944237918,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1188-133604-0002",
+          "audioSeconds": 17.96,
+          "decodeMs": 2217,
+          "realTimeFactor": 0.12344097995545657,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0081",
+          "audioSeconds": 5.9,
+          "decodeMs": 1218,
+          "realTimeFactor": 0.2064406779661017,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1188-133604-0013",
+          "audioSeconds": 3.02,
+          "decodeMs": 1137,
+          "realTimeFactor": 0.37649006622516556,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0091",
+          "audioSeconds": 5.455,
+          "decodeMs": 1363,
+          "realTimeFactor": 0.24986251145737856,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1188-133604-0037",
+          "audioSeconds": 14.51,
+          "decodeMs": 1789,
+          "realTimeFactor": 0.12329427980702963,
+          "outcome": "scored"
+        }
+      ],
+      "assetInventory": {
+        "files": [
+          {
+            "name": "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged_q4.onnx",
+            "role": "decoder",
+            "sha256": "7770ac574b71a704191ec52becac42b4a4126af26f54ed653f31c8f16af31f99",
+            "bytes": 123600371,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "onnx-community/whisper-base.en/resolve/main/onnx/encoder_model.onnx",
+            "role": "encoder",
+            "sha256": "1cc86302d480b061452d348638064383ab41b6f3333ddd0e423532d14edaf535",
+            "bytes": 82468078,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm",
+            "role": "runtime",
+            "sha256": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+            "bytes": 24254953,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "onnx-community/whisper-base.en/resolve/main/tokenizer.json",
+            "role": "tokenizer",
+            "sha256": "5eb60cec1e77aeeb6869a2bb5a8e01a84c3fe5d072d75369343021fe6f5310d0",
+            "bytes": 2405679,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@huggingface/transformers/dist/transformers.web.js",
+            "role": "other",
+            "sha256": "25e0cbdf5df922996299fcd2cf835101ba979b134389a0dcc54f92022ca7e0ff",
+            "bytes": 1099109,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "onnx-community/whisper-base.en/resolve/main/tokenizer_config.json",
+            "role": "tokenizer",
+            "sha256": "93879c3dccdd4b976f709acd85b44778873f30c275e67026f30ca1e4c975230c",
+            "bytes": 282662,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs",
+            "role": "runtime",
+            "sha256": "3a18c7f261e05d44a15b2eef18a28e5f53c044d5d140bcea6066baf1f09c8b53",
+            "bytes": 113035,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs",
+            "role": "runtime",
+            "sha256": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+            "bytes": 47507,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor-impl.js",
+            "role": "runtime",
+            "sha256": "6a749be63055f9d21069566b1515412484a3a03448ca20427c8f8d29328a2843",
+            "bytes": 16091,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor-factory-impl.js",
+            "role": "runtime",
+            "sha256": "cf5606fe23461e01bff59c2d72ac47d74e652548718f1e5fab07a22b441379b4",
+            "bytes": 11002,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/inference-session-impl.js",
+            "role": "runtime",
+            "sha256": "0446814a392c147b5c38ba242d9911ee54002b5d01a8e19fb4895fb8f8a0cdd3",
+            "bytes": 8703,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor-conversion-impl.js",
+            "role": "runtime",
+            "sha256": "df6fa3cd1813c2d3e588cc07973cfe5ea2ab8647c957168200caa58e51440161",
+            "bytes": 7852,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/backend-impl.js",
+            "role": "runtime",
+            "sha256": "97dd81b055a06f61120f09468fe59f046a9262b7b87bf5d05bceb085bf4f5558",
+            "bytes": 5339,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor-impl-type-mapping.js",
+            "role": "runtime",
+            "sha256": "20bd5ddb858954cf071bace6c7a6628c8e311433798ec172f4c778bebd81d407",
+            "bytes": 2706,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "onnx-community/whisper-base.en/resolve/main/config.json",
+            "role": "config",
+            "sha256": "c8a0de5ed8a083565a4319db29d0c210fda35b4d6076c2d711cae53ae00f3cb1",
+            "bytes": 2197,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor-utils-impl.js",
+            "role": "runtime",
+            "sha256": "87d3e07c153616138c2f57846545eea9c47957c714d50c0264696bdc293e6732",
+            "bytes": 1920,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/trace.js",
+            "role": "runtime",
+            "sha256": "9b87e6309a1c502b03558aa94b0a65c8ea1e8eb59cb46090f54f6eacd191b841",
+            "bytes": 1891,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "onnx-community/whisper-base.en/resolve/main/generation_config.json",
+            "role": "config",
+            "sha256": "3479b1f44a07e41db799e22599222fee5816738036def94a39841cb9cdbb4120",
+            "bytes": 1556,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/index.js",
+            "role": "runtime",
+            "sha256": "ad23f6d6ce2c99c449031f24a5181f259516c64a9a67428c98a8539b857729bd",
+            "bytes": 1036,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/env-impl.js",
+            "role": "runtime",
+            "sha256": "0da4c562a49fe147e19320a64cbb456184eb0e6242b1fe69c65c8368c55f3d97",
+            "bytes": 848,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/inference-session.js",
+            "role": "runtime",
+            "sha256": "3ad4271a88edb3d242dc1e0e7bbf66510f9a56eff874c433b3b37f900ac007b1",
+            "bytes": 348,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "onnx-community/whisper-base.en/resolve/main/preprocessor_config.json",
+            "role": "config",
+            "sha256": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+            "bytes": 339,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor.js",
+            "role": "runtime",
+            "sha256": "721d24a538de5333057bfc423bc00c3453a1c483f4495c857d0a6f9b8f2d330e",
+            "bytes": 286,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/version.js",
+            "role": "runtime",
+            "sha256": "d672b2eff8bc628553c506f4d9997a802fcf579d8135f32319f91551608ff697",
+            "bytes": 263,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/env.js",
+            "role": "runtime",
+            "sha256": "b2bbd3d3b00a95765713c57cd0f5ef73718ae5b8322e07cb47a43e2accb21f15",
+            "bytes": 262,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/backend.js",
+            "role": "runtime",
+            "sha256": "017ce2ec9dc2021ebc1ef2c4f04e1bc74276c65921b0297e7ed8cc16e640495b",
+            "bytes": 184,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor-conversion.js",
+            "role": "runtime",
+            "sha256": "8c43ec1d061ab71032a1b28f45d85ef95f8d7bd2d4cd71d059e96d83e3a8f422",
+            "bytes": 152,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor-factory.js",
+            "role": "runtime",
+            "sha256": "68b9f4f4573f25012ce8a4f73c9a2cee3a28db91de8bbb0a20ddb08bcba33c4b",
+            "bytes": 149,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/onnx-model.js",
+            "role": "other",
+            "sha256": "9e9dc8678be0ea04575a542894508db355a4f9f2155ac7f4c17a697c5f843382",
+            "bytes": 145,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/onnx-value.js",
+            "role": "runtime",
+            "sha256": "33dc232498753fc9026dfa44c99440cb1a6d29f3e53e1ad2fb8b696705158f06",
+            "bytes": 145,
+            "source": "cache",
+            "pinned": true
+          }
+        ],
+        "byRole": {
+          "decoder": {
+            "count": 1,
+            "bytes": 123600371
+          },
+          "encoder": {
+            "count": 1,
+            "bytes": 82468078
+          },
+          "runtime": {
+            "count": 21,
+            "bytes": 24474672
+          },
+          "tokenizer": {
+            "count": 2,
+            "bytes": 2688341
+          },
+          "other": {
+            "count": 2,
+            "bytes": 1099254
+          },
+          "config": {
+            "count": 3,
+            "bytes": 4092
+          }
+        },
+        "totalBytes": 234334808,
+        "fileCount": 30,
+        "reportedModelBytes": null,
+        "reconcilesToModelBytes": null,
+        "reconciliationDeltaBytes": null
+      },
+      "assetReconciliation": {
+        "ok": true,
+        "failures": [],
+        "repeatedRequests": [
+          "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs ×4"
+        ],
+        "declaredFiles": 30,
+        "observedFiles": 10,
+        "declaredBytes": 234334808,
+        "observedBytes": null,
+        "missingByteCounts": [
+          "lib/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs",
+          "onnx-community/whisper-base.en/resolve/main/config.json",
+          "onnx-community/whisper-base.en/resolve/main/tokenizer_config.json",
+          "onnx-community/whisper-base.en/resolve/main/preprocessor_config.json",
+          "onnx-community/whisper-base.en/resolve/main/tokenizer.json",
+          "onnx-community/whisper-base.en/resolve/main/onnx/encoder_model.onnx",
+          "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged_q4.onnx",
+          "onnx-community/whisper-base.en/resolve/main/generation_config.json",
+          "runtime/ortweb/ort-wasm-simd-threaded.asyncify.mjs",
+          "runtime/ortweb/ort-wasm-simd-threaded.asyncify.wasm"
+        ],
+        "ledgerCoverage": 0.3333333333333333,
+        "ledgerAuthority": "declared_pins_only"
+      },
+      "pinVerification": {
+        "ok": true,
+        "checked": 25,
+        "authority": "committed_pins"
+      },
+      "observedRequestCount": 10,
+      "decoderAssets": [
+        {
+          "path": "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged_q4.onnx",
+          "sha256": "7770ac574b71a704191ec52becac42b4a4126af26f54ed653f31c8f16af31f99",
+          "bytes": 123600371
+        }
+      ],
+      "assetCount": 30,
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "assetFailures": [],
+      "wer": 0.04139433551198257,
+      "referenceWords": 459,
+      "substitutions": 14,
+      "deletions": 1,
+      "insertions": 4,
+      "wallClockMs": 31215,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "preflight is a preflight set — not selection evidence",
+      "provenance": {
+        "model": {
+          "id": "onnx-community/whisper-base.en",
+          "revision": "huggingface:onnx-community/whisper-base.en",
+          "filesSha256": {
+            "lib/@huggingface/transformers/dist/transformers.web.js": "25e0cbdf5df922996299fcd2cf835101ba979b134389a0dcc54f92022ca7e0ff",
+            "lib/onnxruntime-common/dist/esm/backend-impl.js": "97dd81b055a06f61120f09468fe59f046a9262b7b87bf5d05bceb085bf4f5558",
+            "lib/onnxruntime-common/dist/esm/backend.js": "017ce2ec9dc2021ebc1ef2c4f04e1bc74276c65921b0297e7ed8cc16e640495b",
+            "lib/onnxruntime-common/dist/esm/env-impl.js": "0da4c562a49fe147e19320a64cbb456184eb0e6242b1fe69c65c8368c55f3d97",
+            "lib/onnxruntime-common/dist/esm/env.js": "b2bbd3d3b00a95765713c57cd0f5ef73718ae5b8322e07cb47a43e2accb21f15",
+            "lib/onnxruntime-common/dist/esm/index.js": "ad23f6d6ce2c99c449031f24a5181f259516c64a9a67428c98a8539b857729bd",
+            "lib/onnxruntime-common/dist/esm/inference-session-impl.js": "0446814a392c147b5c38ba242d9911ee54002b5d01a8e19fb4895fb8f8a0cdd3",
+            "lib/onnxruntime-common/dist/esm/inference-session.js": "3ad4271a88edb3d242dc1e0e7bbf66510f9a56eff874c433b3b37f900ac007b1",
+            "lib/onnxruntime-common/dist/esm/onnx-model.js": "9e9dc8678be0ea04575a542894508db355a4f9f2155ac7f4c17a697c5f843382",
+            "lib/onnxruntime-common/dist/esm/onnx-value.js": "33dc232498753fc9026dfa44c99440cb1a6d29f3e53e1ad2fb8b696705158f06",
+            "lib/onnxruntime-common/dist/esm/tensor-conversion-impl.js": "df6fa3cd1813c2d3e588cc07973cfe5ea2ab8647c957168200caa58e51440161",
+            "lib/onnxruntime-common/dist/esm/tensor-conversion.js": "8c43ec1d061ab71032a1b28f45d85ef95f8d7bd2d4cd71d059e96d83e3a8f422",
+            "lib/onnxruntime-common/dist/esm/tensor-factory-impl.js": "cf5606fe23461e01bff59c2d72ac47d74e652548718f1e5fab07a22b441379b4",
+            "lib/onnxruntime-common/dist/esm/tensor-factory.js": "68b9f4f4573f25012ce8a4f73c9a2cee3a28db91de8bbb0a20ddb08bcba33c4b",
+            "lib/onnxruntime-common/dist/esm/tensor-impl-type-mapping.js": "20bd5ddb858954cf071bace6c7a6628c8e311433798ec172f4c778bebd81d407",
+            "lib/onnxruntime-common/dist/esm/tensor-impl.js": "6a749be63055f9d21069566b1515412484a3a03448ca20427c8f8d29328a2843",
+            "lib/onnxruntime-common/dist/esm/tensor-utils-impl.js": "87d3e07c153616138c2f57846545eea9c47957c714d50c0264696bdc293e6732",
+            "lib/onnxruntime-common/dist/esm/tensor.js": "721d24a538de5333057bfc423bc00c3453a1c483f4495c857d0a6f9b8f2d330e",
+            "lib/onnxruntime-common/dist/esm/trace.js": "9b87e6309a1c502b03558aa94b0a65c8ea1e8eb59cb46090f54f6eacd191b841",
+            "lib/onnxruntime-common/dist/esm/version.js": "d672b2eff8bc628553c506f4d9997a802fcf579d8135f32319f91551608ff697",
+            "lib/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs": "3a18c7f261e05d44a15b2eef18a28e5f53c044d5d140bcea6066baf1f09c8b53",
+            "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+            "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+            "onnx-community/whisper-base.en/resolve/main/config.json": "c8a0de5ed8a083565a4319db29d0c210fda35b4d6076c2d711cae53ae00f3cb1",
+            "onnx-community/whisper-base.en/resolve/main/generation_config.json": "3479b1f44a07e41db799e22599222fee5816738036def94a39841cb9cdbb4120",
+            "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged_q4.onnx": "7770ac574b71a704191ec52becac42b4a4126af26f54ed653f31c8f16af31f99",
+            "onnx-community/whisper-base.en/resolve/main/onnx/encoder_model.onnx": "1cc86302d480b061452d348638064383ab41b6f3333ddd0e423532d14edaf535",
+            "onnx-community/whisper-base.en/resolve/main/preprocessor_config.json": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+            "onnx-community/whisper-base.en/resolve/main/tokenizer.json": "5eb60cec1e77aeeb6869a2bb5a8e01a84c3fe5d072d75369343021fe6f5310d0",
+            "onnx-community/whisper-base.en/resolve/main/tokenizer_config.json": "93879c3dccdd4b976f709acd85b44778873f30c275e67026f30ca1e4c975230c"
+          }
+        },
+        "runtime": {
+          "library": "@huggingface/transformers",
+          "version": "4.2.0",
+          "backend": "wasm"
+        },
+        "assets": {
+          "source": "http://127.0.0.1:51793/hf/ (pinned mirror)",
+          "verdict": "unverifiable"
+        },
+        "device": {
+          "platform": "darwin",
+          "arch": "arm64",
+          "cpuModel": "Apple M2",
+          "cores": 8
+        },
+        "route": {
+          "hash": "fd1054a2edab",
+          "route": {
+            "family": "whisper",
+            "engine": "v4",
+            "modelId": "onnx-community/whisper-base.en",
+            "variantId": "base_q4",
+            "decode": {
+              "engine": "v4",
+              "modelId": "onnx-community/whisper-base.en",
+              "dtype": {
+                "encoder_model": "fp32",
+                "decoder_model_merged": "q4"
+              },
+              "chunk_length_s": 30,
+              "stride_length_s": 0,
+              "return_timestamps": true
+            }
+          }
+        },
+        "corpus": {
+          "version": "librispeech_test_v1",
+          "digest": "755487e8de185857e956bbf8d63c8af051ecae55086076a1cd47a2ae96497eba",
+          "archives": {
+            "test-clean.tar.gz": "39fde525e59672dc6d1551919b1478f724438a95aa55f874b576be21967e6c23",
+            "test-other.tar.gz": "d09c181bba5cf717b3dee7d4d592af11a3ee3a09e08ae025c5506f6ebe961c29"
+          }
+        },
+        "resources": {
+          "wallClockMs": 31215,
+          "peakRssBytes": null
+        }
+      }
+    },
+    {
+      "id": "v4:base:int8-decoder:cpu",
+      "label": "v4 base, int8 decoder",
+      "lane": "browser",
+      "set": "preflight",
+      "evidenceClass": "preflight",
+      "candidate": "base_int8",
+      "executionBackend": "browser_wasm",
+      "historicalArmId": "v4:base:int8-decoder:cpu",
+      "dtype": {
+        "encoder_model": "fp32",
+        "decoder_model_merged": "int8"
+      },
+      "dtypeAliasOf": null,
+      "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+      "verdict": {
+        "armId": "v4:base:int8-decoder:cpu",
+        "role": "selection",
+        "runtimeLabel": "@huggingface/transformers+ort-web-1.27.0",
+        "evidenceSet": "preflight",
+        "evidenceClass": "preflight",
+        "wer": 0.04793028322440087,
+        "referenceWords": 459,
+        "reliability": {
+          "expectedClips": 23,
+          "decoded": 23,
+          "threw": 0,
+          "emptyOutput": 0,
+          "timedOut": 0,
+          "audioRejected": 0,
+          "missing": 0
+        },
+        "speed": {
+          "coldLoadMs": 1276,
+          "warmDecodeMsP50": 1285,
+          "warmDecodeMsP95": 1828,
+          "realTimeFactorP50": 0.1983206106870229,
+          "realTimeFactorP95": 0.3970198675496689,
+          "stopToFinalMs": null
+        },
+        "footprint": {
+          "modelBytes": 164427240,
+          "assetCount": 30,
+          "peakMemoryBytes": null
+        },
+        "duration": {
+          "shortestClipSeconds": 2.69,
+          "longestClipSeconds": 17.96,
+          "longFormTailPreserved": null,
+          "longFormRepeatedNgrams": null,
+          "truncatedClips": 0,
+          "highDeletionClips": 0
+        },
+        "backendProven": true,
+        "resolvedBackend": "wasm:1 module(s)",
+        "hardwareRepresentative": true,
+        "transcriptDigest": "46921c4dd61f1ac8",
+        "fingerprint": "3c2c1358e929f6dd",
+        "assetDigestCount": 30
+      },
+      "role": "selection",
+      "freshSession": true,
+      "requestedDevice": "wasm",
+      "resolvedBackend": "wasm:1 module(s)",
+      "backendProven": true,
+      "hardwareRepresentative": true,
+      "certified": true,
+      "failedGates": [],
+      "fingerprint": "3c2c1358e929f6dd",
+      "expectedClips": 23,
+      "decodedClips": 23,
+      "clipsOffered": 23,
+      "reliability": {
+        "decoded": 23,
+        "expectedClips": 23,
+        "threw": 0,
+        "emptyOutput": 0,
+        "missing": 0,
+        "timedOut": 0,
+        "audioRejected": 0,
+        "truncated": 0
+      },
+      "audioMismatches": [],
+      "transcriptDigest": "46921c4dd61f1ac8",
+      "scoreProfileDigest": "384e7f4331981abe",
+      "insertionProfile": {
+        "totalInsertions": 4,
+        "tokenFrequency": [
+          {
+            "token": "curious",
+            "count": 1
+          },
+          {
+            "token": "horse",
+            "count": 1
+          },
+          {
+            "token": "the",
+            "count": 1
+          },
+          {
+            "token": "wood",
+            "count": 1
+          }
+        ],
+        "fillerLikeInsertions": [],
+        "fillerLikeTotal": 0,
+        "fillerLikeUtterances": []
+      },
+      "perUtterance": [
+        {
+          "id": "1089-134686-0002",
+          "normalizedReference": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "normalizedHypothesis": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "trackBReference": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "trackBHypothesis": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 18,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0011",
+          "normalizedReference": "all his former friends shrunk from the disclosures that had to be made of his dishonest gambling wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "normalizedHypothesis": "all his former friends shrunk from the disclosures that had to be made of his dishonest gambling wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "trackBReference": "all his former friends shrunk from the disclosures that had to be made of his dishonest gambling wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "trackBHypothesis": "all his former friends shrunk from the disclosures that had to be made of his dishonest gambling wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 34,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0011",
+          "normalizedReference": "on saturday mornings when the sodality met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his wing of boys through the responses",
+          "normalizedHypothesis": "on saturday mornings when the sodality met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his wing of boys through the responses",
+          "trackBReference": "on saturday mornings when the sodality met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his wing of boys through the responses",
+          "trackBHypothesis": "on saturday mornings when the sodality met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his wing of boys through the responses",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 39,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0025",
+          "normalizedReference": "and i do said her father laughing",
+          "normalizedHypothesis": "and i do said her father laughing",
+          "trackBReference": "and i do said her father laughing",
+          "trackBHypothesis": "and i do said her father laughing",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0021",
+          "normalizedReference": "if a layman in giving baptism pour the water before saying the words is the child baptized",
+          "normalizedHypothesis": "if a layman in giving baptism poor the water before saying the words is the child baptized",
+          "trackBReference": "if a layman in giving baptism pour the water before saying the words is the child baptized",
+          "trackBHypothesis": "if a layman in giving baptism poor the water before saying the words is the child baptized",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 17,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0067",
+          "normalizedReference": "do not think hardly on him he is a good man he is",
+          "normalizedHypothesis": "do not think hardly on him he is a good man he is",
+          "trackBReference": "do not think hardly on him he is a good man he is",
+          "trackBHypothesis": "do not think hardly on him he is a good man he is",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 13,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0024",
+          "normalizedReference": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god and as man",
+          "normalizedHypothesis": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god and as man",
+          "trackBReference": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god and as man",
+          "trackBHypothesis": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god and as man",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 30,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0071",
+          "normalizedReference": "she put her hand to it and became ghastly pale",
+          "normalizedHypothesis": "she put her hand to it and became ghastly pale",
+          "trackBReference": "she put her hand to it and became ghastly pale",
+          "trackBHypothesis": "she put her hand to it and became ghastly pale",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0036",
+          "normalizedReference": "a great saint saint francis xavier",
+          "normalizedHypothesis": "a great saint francis xavier",
+          "trackBReference": "a great saint saint francis xavier",
+          "trackBHypothesis": "a great saint francis xavier",
+          "substitutions": 0,
+          "deletions": 1,
+          "insertions": 0,
+          "referenceWords": 6,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0072",
+          "normalizedReference": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "normalizedHypothesis": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "trackBReference": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "trackBHypothesis": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 16,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0001",
+          "normalizedReference": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "normalizedHypothesis": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "trackBReference": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "trackBHypothesis": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 17,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0073",
+          "normalizedReference": "presently the spasm that foreshadowed death had passed away and bessy roused herself and said",
+          "normalizedHypothesis": "presently the spasm that foreshadowed death had passed away and bessie roused the self and said",
+          "trackBReference": "presently the spasm that foreshadowed death had passed away and bessy roused herself and said",
+          "trackBHypothesis": "presently the spasm that foreshadowed death had passed away and bessie roused the self and said",
+          "substitutions": 2,
+          "deletions": 0,
+          "insertions": 1,
+          "referenceWords": 15,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0005",
+          "normalizedReference": "whose feet are as the feet of harts and underneath the everlasting arms",
+          "normalizedHypothesis": "whose feet are as the feet of hearts and underneath the everlasting arms",
+          "trackBReference": "whose feet are as the feet of harts and underneath the everlasting arms",
+          "trackBHypothesis": "whose feet are as the feet of hearts and underneath the everlasting arms",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 13,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0074",
+          "normalizedReference": "i will go to bed it is best place but catching at margaret is gown yo will come again i know yo will but just say it",
+          "normalizedHypothesis": "i will go to bed it is best place but catching that margaret is gown you will come again i know you will but just say it",
+          "trackBReference": "i will go to bed it is best place but catching at margaret is gown yo will come again i know yo will but just say it",
+          "trackBHypothesis": "i will go to bed it is best place but catching that margaret is gown you will come again i know you will but just say it",
+          "substitutions": 3,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 27,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0017",
+          "normalizedReference": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and valleyed and woodbegirt and citadelled and of entrenched and marshaled races",
+          "normalizedHypothesis": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and valid and wood beagert and citadeld and of entrenched and marshaled races",
+          "trackBReference": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and valleyed and woodbegirt and citadelled and of entrenched and marshaled races",
+          "trackBHypothesis": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and valid and wood beagert and citadeld and of entrenched and marshaled races",
+          "substitutions": 3,
+          "deletions": 0,
+          "insertions": 1,
+          "referenceWords": 29,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0076",
+          "normalizedReference": "margaret went away very sad and thoughtful",
+          "normalizedHypothesis": "margaret went away very sad and thoughtful",
+          "trackBReference": "margaret went away very sad and thoughtful",
+          "trackBHypothesis": "margaret went away very sad and thoughtful",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0021",
+          "normalizedReference": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewn stones of the sloping breakwater over which they scrambled in their horseplay gleamed with cold wet luster",
+          "normalizedHypothesis": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewned stones of the sloping breakwater over which they scrambled in their horse play gleamed with cold wet luster",
+          "trackBReference": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewn stones of the sloping breakwater over which they scrambled in their horseplay gleamed with cold wet luster",
+          "trackBHypothesis": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewned stones of the sloping breakwater over which they scrambled in their horse play gleamed with cold wet luster",
+          "substitutions": 2,
+          "deletions": 0,
+          "insertions": 1,
+          "referenceWords": 34,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0078",
+          "normalizedReference": "have you met with a servant dear",
+          "normalizedHypothesis": "have you met with a servant dear",
+          "trackBReference": "have you met with a servant dear",
+          "trackBHypothesis": "have you met with a servant dear",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "1188-133604-0002",
+          "normalizedReference": "by being studious of color they are studious of division and while the chiaroscurist devotes himself to the representation of degrees of force in one thing unseparated light the colorists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "normalizedHypothesis": "by being studious of color they are studious of division and while the curious purist devotes himself to the representation of degrees of force in one thing unseparated light the colourists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "trackBReference": "by being studious of color they are studious of division and while the chiaroscurist devotes himself to the representation of degrees of force in one thing unseparated light the colorists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "trackBHypothesis": "by being studious of color they are studious of division and while the curious purist devotes himself to the representation of degrees of force in one thing unseparated light the colourists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "substitutions": 2,
+          "deletions": 0,
+          "insertions": 1,
+          "referenceWords": 45,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0081",
+          "normalizedReference": "everybody else has had their turn at this great difficulty now let me try",
+          "normalizedHypothesis": "everybody else has had their turn at this great difficulty now let me try",
+          "trackBReference": "everybody else has had their turn at this great difficulty now let me try",
+          "trackBHypothesis": "everybody else has had their turn at this great difficulty now let me try",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 14,
+          "invalidReason": null
+        },
+        {
+          "id": "1188-133604-0013",
+          "normalizedReference": "it must remember be one or the other",
+          "normalizedHypothesis": "it must remember be one or the other",
+          "trackBReference": "it must remember be one or the other",
+          "trackBHypothesis": "it must remember be one or the other",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0091",
+          "normalizedReference": "my dear said mister hale alarmed pray do not go off on that idea",
+          "normalizedHypothesis": "my dear said mister hell alarmed probably do not go off on that idea",
+          "trackBReference": "my dear said mister hale alarmed pray do not go off on that idea",
+          "trackBHypothesis": "my dear said mister hell alarmed probably do not go off on that idea",
+          "substitutions": 2,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 14,
+          "invalidReason": null
+        },
+        {
+          "id": "1188-133604-0037",
+          "normalizedReference": "every line in which the master traces it even where seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or duerer",
+          "normalizedHypothesis": "every line in which the master traces it even where seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or durer",
+          "trackBReference": "every line in which the master traces it even where seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or duerer",
+          "trackBHypothesis": "every line in which the master traces it even where seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or durer",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 39,
+          "invalidReason": null
+        }
+      ],
+      "decodeFailures": [],
+      "clipTimings": [
+        {
+          "utteranceId": "1089-134686-0002",
+          "audioSeconds": 6.625,
+          "decodeMs": 1223,
+          "realTimeFactor": 0.18460377358490565,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0011",
+          "audioSeconds": 14.05,
+          "decodeMs": 1468,
+          "realTimeFactor": 0.10448398576512455,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0011",
+          "audioSeconds": 12.445,
+          "decodeMs": 1768,
+          "realTimeFactor": 0.14206508638007231,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0025",
+          "audioSeconds": 3.4,
+          "decodeMs": 1249,
+          "realTimeFactor": 0.3673529411764706,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0021",
+          "audioSeconds": 6.55,
+          "decodeMs": 1299,
+          "realTimeFactor": 0.1983206106870229,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0067",
+          "audioSeconds": 3.845,
+          "decodeMs": 1241,
+          "realTimeFactor": 0.3227568270481144,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0024",
+          "audioSeconds": 11.655,
+          "decodeMs": 1563,
+          "realTimeFactor": 0.1341055341055341,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0071",
+          "audioSeconds": 3.865,
+          "decodeMs": 1206,
+          "realTimeFactor": 0.31203104786545927,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0036",
+          "audioSeconds": 3.25,
+          "decodeMs": 1097,
+          "realTimeFactor": 0.33753846153846156,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0072",
+          "audioSeconds": 5.85,
+          "decodeMs": 1159,
+          "realTimeFactor": 0.19811965811965812,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0001",
+          "audioSeconds": 5.415,
+          "decodeMs": 1232,
+          "realTimeFactor": 0.22751615881809786,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0073",
+          "audioSeconds": 7.46,
+          "decodeMs": 1285,
+          "realTimeFactor": 0.1722520107238606,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0005",
+          "audioSeconds": 5.36,
+          "decodeMs": 1168,
+          "realTimeFactor": 0.21791044776119403,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0074",
+          "audioSeconds": 11.13,
+          "decodeMs": 1429,
+          "realTimeFactor": 0.1283917340521114,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0017",
+          "audioSeconds": 11.695,
+          "decodeMs": 1454,
+          "realTimeFactor": 0.12432663531423685,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0076",
+          "audioSeconds": 3.84,
+          "decodeMs": 1101,
+          "realTimeFactor": 0.28671875,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0021",
+          "audioSeconds": 13.37,
+          "decodeMs": 1658,
+          "realTimeFactor": 0.12400897531787584,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0078",
+          "audioSeconds": 2.69,
+          "decodeMs": 1124,
+          "realTimeFactor": 0.4178438661710037,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1188-133604-0002",
+          "audioSeconds": 17.96,
+          "decodeMs": 1895,
+          "realTimeFactor": 0.10551224944320713,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0081",
+          "audioSeconds": 5.9,
+          "decodeMs": 1314,
+          "realTimeFactor": 0.22271186440677967,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1188-133604-0013",
+          "audioSeconds": 3.02,
+          "decodeMs": 1199,
+          "realTimeFactor": 0.3970198675496689,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0091",
+          "audioSeconds": 5.455,
+          "decodeMs": 1302,
+          "realTimeFactor": 0.2386801099908341,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1188-133604-0037",
+          "audioSeconds": 14.51,
+          "decodeMs": 1828,
+          "realTimeFactor": 0.12598208132322536,
+          "outcome": "scored"
+        }
+      ],
+      "assetInventory": {
+        "files": [
+          {
+            "name": "onnx-community/whisper-base.en/resolve/main/onnx/encoder_model.onnx",
+            "role": "encoder",
+            "sha256": "1cc86302d480b061452d348638064383ab41b6f3333ddd0e423532d14edaf535",
+            "bytes": 82468078,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged_int8.onnx",
+            "role": "decoder",
+            "sha256": "dd4761a3f7add26afda3512abff4706920404c2517e85a9f2ff090b0c0987909",
+            "bytes": 53692803,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm",
+            "role": "runtime",
+            "sha256": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+            "bytes": 24254953,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "onnx-community/whisper-base.en/resolve/main/tokenizer.json",
+            "role": "tokenizer",
+            "sha256": "5eb60cec1e77aeeb6869a2bb5a8e01a84c3fe5d072d75369343021fe6f5310d0",
+            "bytes": 2405679,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@huggingface/transformers/dist/transformers.web.js",
+            "role": "other",
+            "sha256": "25e0cbdf5df922996299fcd2cf835101ba979b134389a0dcc54f92022ca7e0ff",
+            "bytes": 1099109,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "onnx-community/whisper-base.en/resolve/main/tokenizer_config.json",
+            "role": "tokenizer",
+            "sha256": "93879c3dccdd4b976f709acd85b44778873f30c275e67026f30ca1e4c975230c",
+            "bytes": 282662,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs",
+            "role": "runtime",
+            "sha256": "3a18c7f261e05d44a15b2eef18a28e5f53c044d5d140bcea6066baf1f09c8b53",
+            "bytes": 113035,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs",
+            "role": "runtime",
+            "sha256": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+            "bytes": 47507,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor-impl.js",
+            "role": "runtime",
+            "sha256": "6a749be63055f9d21069566b1515412484a3a03448ca20427c8f8d29328a2843",
+            "bytes": 16091,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor-factory-impl.js",
+            "role": "runtime",
+            "sha256": "cf5606fe23461e01bff59c2d72ac47d74e652548718f1e5fab07a22b441379b4",
+            "bytes": 11002,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/inference-session-impl.js",
+            "role": "runtime",
+            "sha256": "0446814a392c147b5c38ba242d9911ee54002b5d01a8e19fb4895fb8f8a0cdd3",
+            "bytes": 8703,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor-conversion-impl.js",
+            "role": "runtime",
+            "sha256": "df6fa3cd1813c2d3e588cc07973cfe5ea2ab8647c957168200caa58e51440161",
+            "bytes": 7852,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/backend-impl.js",
+            "role": "runtime",
+            "sha256": "97dd81b055a06f61120f09468fe59f046a9262b7b87bf5d05bceb085bf4f5558",
+            "bytes": 5339,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor-impl-type-mapping.js",
+            "role": "runtime",
+            "sha256": "20bd5ddb858954cf071bace6c7a6628c8e311433798ec172f4c778bebd81d407",
+            "bytes": 2706,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "onnx-community/whisper-base.en/resolve/main/config.json",
+            "role": "config",
+            "sha256": "c8a0de5ed8a083565a4319db29d0c210fda35b4d6076c2d711cae53ae00f3cb1",
+            "bytes": 2197,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor-utils-impl.js",
+            "role": "runtime",
+            "sha256": "87d3e07c153616138c2f57846545eea9c47957c714d50c0264696bdc293e6732",
+            "bytes": 1920,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/trace.js",
+            "role": "runtime",
+            "sha256": "9b87e6309a1c502b03558aa94b0a65c8ea1e8eb59cb46090f54f6eacd191b841",
+            "bytes": 1891,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "onnx-community/whisper-base.en/resolve/main/generation_config.json",
+            "role": "config",
+            "sha256": "3479b1f44a07e41db799e22599222fee5816738036def94a39841cb9cdbb4120",
+            "bytes": 1556,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/index.js",
+            "role": "runtime",
+            "sha256": "ad23f6d6ce2c99c449031f24a5181f259516c64a9a67428c98a8539b857729bd",
+            "bytes": 1036,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/env-impl.js",
+            "role": "runtime",
+            "sha256": "0da4c562a49fe147e19320a64cbb456184eb0e6242b1fe69c65c8368c55f3d97",
+            "bytes": 848,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/inference-session.js",
+            "role": "runtime",
+            "sha256": "3ad4271a88edb3d242dc1e0e7bbf66510f9a56eff874c433b3b37f900ac007b1",
+            "bytes": 348,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "onnx-community/whisper-base.en/resolve/main/preprocessor_config.json",
+            "role": "config",
+            "sha256": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+            "bytes": 339,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor.js",
+            "role": "runtime",
+            "sha256": "721d24a538de5333057bfc423bc00c3453a1c483f4495c857d0a6f9b8f2d330e",
+            "bytes": 286,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/version.js",
+            "role": "runtime",
+            "sha256": "d672b2eff8bc628553c506f4d9997a802fcf579d8135f32319f91551608ff697",
+            "bytes": 263,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/env.js",
+            "role": "runtime",
+            "sha256": "b2bbd3d3b00a95765713c57cd0f5ef73718ae5b8322e07cb47a43e2accb21f15",
+            "bytes": 262,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/backend.js",
+            "role": "runtime",
+            "sha256": "017ce2ec9dc2021ebc1ef2c4f04e1bc74276c65921b0297e7ed8cc16e640495b",
+            "bytes": 184,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor-conversion.js",
+            "role": "runtime",
+            "sha256": "8c43ec1d061ab71032a1b28f45d85ef95f8d7bd2d4cd71d059e96d83e3a8f422",
+            "bytes": 152,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/tensor-factory.js",
+            "role": "runtime",
+            "sha256": "68b9f4f4573f25012ce8a4f73c9a2cee3a28db91de8bbb0a20ddb08bcba33c4b",
+            "bytes": 149,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/onnx-model.js",
+            "role": "other",
+            "sha256": "9e9dc8678be0ea04575a542894508db355a4f9f2155ac7f4c17a697c5f843382",
+            "bytes": 145,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/onnxruntime-common/dist/esm/onnx-value.js",
+            "role": "runtime",
+            "sha256": "33dc232498753fc9026dfa44c99440cb1a6d29f3e53e1ad2fb8b696705158f06",
+            "bytes": 145,
+            "source": "cache",
+            "pinned": true
+          }
+        ],
+        "byRole": {
+          "encoder": {
+            "count": 1,
+            "bytes": 82468078
+          },
+          "decoder": {
+            "count": 1,
+            "bytes": 53692803
+          },
+          "runtime": {
+            "count": 21,
+            "bytes": 24474672
+          },
+          "tokenizer": {
+            "count": 2,
+            "bytes": 2688341
+          },
+          "other": {
+            "count": 2,
+            "bytes": 1099254
+          },
+          "config": {
+            "count": 3,
+            "bytes": 4092
+          }
+        },
+        "totalBytes": 164427240,
+        "fileCount": 30,
+        "reportedModelBytes": null,
+        "reconcilesToModelBytes": null,
+        "reconciliationDeltaBytes": null
+      },
+      "assetReconciliation": {
+        "ok": true,
+        "failures": [],
+        "repeatedRequests": [
+          "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs ×4"
+        ],
+        "declaredFiles": 30,
+        "observedFiles": 10,
+        "declaredBytes": 164427240,
+        "observedBytes": null,
+        "missingByteCounts": [
+          "lib/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs",
+          "onnx-community/whisper-base.en/resolve/main/config.json",
+          "onnx-community/whisper-base.en/resolve/main/tokenizer_config.json",
+          "onnx-community/whisper-base.en/resolve/main/preprocessor_config.json",
+          "onnx-community/whisper-base.en/resolve/main/tokenizer.json",
+          "onnx-community/whisper-base.en/resolve/main/onnx/encoder_model.onnx",
+          "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged_int8.onnx",
+          "onnx-community/whisper-base.en/resolve/main/generation_config.json",
+          "runtime/ortweb/ort-wasm-simd-threaded.asyncify.mjs",
+          "runtime/ortweb/ort-wasm-simd-threaded.asyncify.wasm"
+        ],
+        "ledgerCoverage": 0.3333333333333333,
+        "ledgerAuthority": "declared_pins_only"
+      },
+      "pinVerification": {
+        "ok": true,
+        "checked": 25,
+        "authority": "committed_pins"
+      },
+      "observedRequestCount": 10,
+      "decoderAssets": [
+        {
+          "path": "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged_int8.onnx",
+          "sha256": "dd4761a3f7add26afda3512abff4706920404c2517e85a9f2ff090b0c0987909",
+          "bytes": 53692803
+        }
+      ],
+      "assetCount": 30,
+      "pinViolations": [],
+      "networkAttempts": 0,
+      "offlineEnforced": true,
+      "assetFailures": [],
+      "wer": 0.04793028322440087,
+      "referenceWords": 459,
+      "substitutions": 17,
+      "deletions": 1,
+      "insertions": 4,
+      "wallClockMs": 30874,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "preflight is a preflight set — not selection evidence",
+      "provenance": {
+        "model": {
+          "id": "onnx-community/whisper-base.en",
+          "revision": "huggingface:onnx-community/whisper-base.en",
+          "filesSha256": {
+            "lib/@huggingface/transformers/dist/transformers.web.js": "25e0cbdf5df922996299fcd2cf835101ba979b134389a0dcc54f92022ca7e0ff",
+            "lib/onnxruntime-common/dist/esm/backend-impl.js": "97dd81b055a06f61120f09468fe59f046a9262b7b87bf5d05bceb085bf4f5558",
+            "lib/onnxruntime-common/dist/esm/backend.js": "017ce2ec9dc2021ebc1ef2c4f04e1bc74276c65921b0297e7ed8cc16e640495b",
+            "lib/onnxruntime-common/dist/esm/env-impl.js": "0da4c562a49fe147e19320a64cbb456184eb0e6242b1fe69c65c8368c55f3d97",
+            "lib/onnxruntime-common/dist/esm/env.js": "b2bbd3d3b00a95765713c57cd0f5ef73718ae5b8322e07cb47a43e2accb21f15",
+            "lib/onnxruntime-common/dist/esm/index.js": "ad23f6d6ce2c99c449031f24a5181f259516c64a9a67428c98a8539b857729bd",
+            "lib/onnxruntime-common/dist/esm/inference-session-impl.js": "0446814a392c147b5c38ba242d9911ee54002b5d01a8e19fb4895fb8f8a0cdd3",
+            "lib/onnxruntime-common/dist/esm/inference-session.js": "3ad4271a88edb3d242dc1e0e7bbf66510f9a56eff874c433b3b37f900ac007b1",
+            "lib/onnxruntime-common/dist/esm/onnx-model.js": "9e9dc8678be0ea04575a542894508db355a4f9f2155ac7f4c17a697c5f843382",
+            "lib/onnxruntime-common/dist/esm/onnx-value.js": "33dc232498753fc9026dfa44c99440cb1a6d29f3e53e1ad2fb8b696705158f06",
+            "lib/onnxruntime-common/dist/esm/tensor-conversion-impl.js": "df6fa3cd1813c2d3e588cc07973cfe5ea2ab8647c957168200caa58e51440161",
+            "lib/onnxruntime-common/dist/esm/tensor-conversion.js": "8c43ec1d061ab71032a1b28f45d85ef95f8d7bd2d4cd71d059e96d83e3a8f422",
+            "lib/onnxruntime-common/dist/esm/tensor-factory-impl.js": "cf5606fe23461e01bff59c2d72ac47d74e652548718f1e5fab07a22b441379b4",
+            "lib/onnxruntime-common/dist/esm/tensor-factory.js": "68b9f4f4573f25012ce8a4f73c9a2cee3a28db91de8bbb0a20ddb08bcba33c4b",
+            "lib/onnxruntime-common/dist/esm/tensor-impl-type-mapping.js": "20bd5ddb858954cf071bace6c7a6628c8e311433798ec172f4c778bebd81d407",
+            "lib/onnxruntime-common/dist/esm/tensor-impl.js": "6a749be63055f9d21069566b1515412484a3a03448ca20427c8f8d29328a2843",
+            "lib/onnxruntime-common/dist/esm/tensor-utils-impl.js": "87d3e07c153616138c2f57846545eea9c47957c714d50c0264696bdc293e6732",
+            "lib/onnxruntime-common/dist/esm/tensor.js": "721d24a538de5333057bfc423bc00c3453a1c483f4495c857d0a6f9b8f2d330e",
+            "lib/onnxruntime-common/dist/esm/trace.js": "9b87e6309a1c502b03558aa94b0a65c8ea1e8eb59cb46090f54f6eacd191b841",
+            "lib/onnxruntime-common/dist/esm/version.js": "d672b2eff8bc628553c506f4d9997a802fcf579d8135f32319f91551608ff697",
+            "lib/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs": "3a18c7f261e05d44a15b2eef18a28e5f53c044d5d140bcea6066baf1f09c8b53",
+            "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655",
+            "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a",
+            "onnx-community/whisper-base.en/resolve/main/config.json": "c8a0de5ed8a083565a4319db29d0c210fda35b4d6076c2d711cae53ae00f3cb1",
+            "onnx-community/whisper-base.en/resolve/main/generation_config.json": "3479b1f44a07e41db799e22599222fee5816738036def94a39841cb9cdbb4120",
+            "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged_int8.onnx": "dd4761a3f7add26afda3512abff4706920404c2517e85a9f2ff090b0c0987909",
+            "onnx-community/whisper-base.en/resolve/main/onnx/encoder_model.onnx": "1cc86302d480b061452d348638064383ab41b6f3333ddd0e423532d14edaf535",
+            "onnx-community/whisper-base.en/resolve/main/preprocessor_config.json": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+            "onnx-community/whisper-base.en/resolve/main/tokenizer.json": "5eb60cec1e77aeeb6869a2bb5a8e01a84c3fe5d072d75369343021fe6f5310d0",
+            "onnx-community/whisper-base.en/resolve/main/tokenizer_config.json": "93879c3dccdd4b976f709acd85b44778873f30c275e67026f30ca1e4c975230c"
+          }
+        },
+        "runtime": {
+          "library": "@huggingface/transformers",
+          "version": "4.2.0",
+          "backend": "wasm"
+        },
+        "assets": {
+          "source": "http://127.0.0.1:51793/hf/ (pinned mirror)",
+          "verdict": "unverifiable"
+        },
+        "device": {
+          "platform": "darwin",
+          "arch": "arm64",
+          "cpuModel": "Apple M2",
+          "cores": 8
+        },
+        "route": {
+          "hash": "b36943f86ac2",
+          "route": {
+            "family": "whisper",
+            "engine": "v4",
+            "modelId": "onnx-community/whisper-base.en",
+            "decode": {
+              "engine": "v4",
+              "modelId": "onnx-community/whisper-base.en",
+              "chunk_length_s": 30,
+              "stride_length_s": 0,
+              "return_timestamps": true
+            }
+          }
+        },
+        "corpus": {
+          "version": "librispeech_test_v1",
+          "digest": "755487e8de185857e956bbf8d63c8af051ecae55086076a1cd47a2ae96497eba",
+          "archives": {
+            "test-clean.tar.gz": "39fde525e59672dc6d1551919b1478f724438a95aa55f874b576be21967e6c23",
+            "test-other.tar.gz": "d09c181bba5cf717b3dee7d4d592af11a3ee3a09e08ae025c5506f6ebe961c29"
+          }
+        },
+        "resources": {
+          "wallClockMs": 30874,
+          "peakRssBytes": null
+        }
+      }
+    },
+    {
+      "id": "moonshine:streaming-small",
+      "label": "Moonshine Streaming Small (official @moonshine-ai/moonshine-wasm)",
+      "lane": "browser",
+      "set": "preflight",
+      "evidenceClass": "preflight",
+      "candidate": null,
+      "executionBackend": null,
+      "historicalArmId": "moonshine:streaming-small",
+      "dtype": "quantized",
+      "dtypeAliasOf": null,
+      "runtimeLabel": "@moonshine-ai/moonshine-wasm@0.1.5",
+      "verdict": {
+        "armId": "moonshine:streaming-small",
+        "role": "selection",
+        "runtimeLabel": "@moonshine-ai/moonshine-wasm@0.1.5",
+        "evidenceSet": "preflight",
+        "evidenceClass": "preflight",
+        "wer": 0.06318082788671024,
+        "referenceWords": 459,
+        "reliability": {
+          "expectedClips": 23,
+          "decoded": 23,
+          "threw": 0,
+          "emptyOutput": 0,
+          "timedOut": 0,
+          "audioRejected": 0,
+          "missing": 0
+        },
+        "speed": {
+          "coldLoadMs": 1198,
+          "warmDecodeMsP50": 660,
+          "warmDecodeMsP95": 1632,
+          "realTimeFactorP50": 0.10970149253731343,
+          "realTimeFactorP95": 0.11956609079951788,
+          "stopToFinalMs": null
+        },
+        "footprint": {
+          "modelBytes": 178942557,
+          "assetCount": 26,
+          "peakMemoryBytes": null
+        },
+        "duration": {
+          "shortestClipSeconds": 2.69,
+          "longestClipSeconds": 17.96,
+          "longFormTailPreserved": null,
+          "longFormRepeatedNgrams": null,
+          "truncatedClips": 0,
+          "highDeletionClips": 0
+        },
+        "backendProven": true,
+        "resolvedBackend": "wasm:1 module(s)",
+        "hardwareRepresentative": true,
+        "transcriptDigest": "d5e68c16389da995",
+        "fingerprint": "c0ac399cbec101b3",
+        "assetDigestCount": 26
+      },
+      "role": "selection",
+      "freshSession": true,
+      "requestedDevice": "wasm",
+      "resolvedBackend": "wasm:1 module(s)",
+      "backendProven": true,
+      "hardwareRepresentative": true,
+      "certified": true,
+      "failedGates": [],
+      "fingerprint": "c0ac399cbec101b3",
+      "expectedClips": 23,
+      "decodedClips": 23,
+      "clipsOffered": 23,
+      "reliability": {
+        "decoded": 23,
+        "expectedClips": 23,
+        "threw": 0,
+        "emptyOutput": 0,
+        "missing": 0,
+        "timedOut": 0,
+        "audioRejected": 0,
+        "truncated": 0
+      },
+      "audioMismatches": [],
+      "transcriptDigest": "d5e68c16389da995",
+      "scoreProfileDigest": "306f8b254bb6d8c5",
+      "insertionProfile": {
+        "totalInsertions": 12,
+        "tokenFrequency": [
+          {
+            "token": "you",
+            "count": 2
+          },
+          {
+            "token": "as",
+            "count": 1
+          },
+          {
+            "token": "citadel",
+            "count": 1
+          },
+          {
+            "token": "curious",
+            "count": 1
+          },
+          {
+            "token": "entrench",
+            "count": 1
+          },
+          {
+            "token": "god",
+            "count": 1
+          },
+          {
+            "token": "his",
+            "count": 1
+          },
+          {
+            "token": "horse",
+            "count": 1
+          },
+          {
+            "token": "the",
+            "count": 1
+          },
+          {
+            "token": "way",
+            "count": 1
+          },
+          {
+            "token": "wood",
+            "count": 1
+          }
+        ],
+        "fillerLikeInsertions": [],
+        "fillerLikeTotal": 0,
+        "fillerLikeUtterances": []
+      },
+      "perUtterance": [
+        {
+          "id": "1089-134686-0002",
+          "normalizedReference": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "normalizedHypothesis": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "trackBReference": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "trackBHypothesis": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 18,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0011",
+          "normalizedReference": "all his former friends shrunk from the disclosures that had to be made of his dishonest gambling wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "normalizedHypothesis": "all his former friends strong from the disclosures that had to be made of his dishonest gambling wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "trackBReference": "all his former friends shrunk from the disclosures that had to be made of his dishonest gambling wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "trackBHypothesis": "all his former friends strong from the disclosures that had to be made of his dishonest gambling wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 34,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0011",
+          "normalizedReference": "on saturday mornings when the sodality met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his wing of boys through the responses",
+          "normalizedHypothesis": "on saturday mornings when the sodality met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his way his wing of boys through the responses",
+          "trackBReference": "on saturday mornings when the sodality met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his wing of boys through the responses",
+          "trackBHypothesis": "on saturday mornings when the sodality met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his way his wing of boys through the responses",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 2,
+          "referenceWords": 39,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0025",
+          "normalizedReference": "and i do said her father laughing",
+          "normalizedHypothesis": "and i do said her father laughing",
+          "trackBReference": "and i do said her father laughing",
+          "trackBHypothesis": "and i do said her father laughing",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0021",
+          "normalizedReference": "if a layman in giving baptism pour the water before saying the words is the child baptized",
+          "normalizedHypothesis": "if a layman in giving baptism pour the water before saying the words is the child baptized",
+          "trackBReference": "if a layman in giving baptism pour the water before saying the words is the child baptized",
+          "trackBHypothesis": "if a layman in giving baptism pour the water before saying the words is the child baptized",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 17,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0067",
+          "normalizedReference": "do not think hardly on him he is a good man he is",
+          "normalizedHypothesis": "do not think hardly on him he is a good man he is",
+          "trackBReference": "do not think hardly on him he is a good man he is",
+          "trackBHypothesis": "do not think hardly on him he is a good man he is",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 13,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0024",
+          "normalizedReference": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god and as man",
+          "normalizedHypothesis": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god as god and as man",
+          "trackBReference": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god and as man",
+          "trackBHypothesis": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god as god and as man",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 2,
+          "referenceWords": 30,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0071",
+          "normalizedReference": "she put her hand to it and became ghastly pale",
+          "normalizedHypothesis": "she put her hand to it and became ghastly pale",
+          "trackBReference": "she put her hand to it and became ghastly pale",
+          "trackBHypothesis": "she put her hand to it and became ghastly pale",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0036",
+          "normalizedReference": "a great saint saint francis xavier",
+          "normalizedHypothesis": "a great saint saint francis xavier",
+          "trackBReference": "a great saint saint francis xavier",
+          "trackBHypothesis": "a great saint saint francis xavier",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 6,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0072",
+          "normalizedReference": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "normalizedHypothesis": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "trackBReference": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "trackBHypothesis": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 16,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0001",
+          "normalizedReference": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "normalizedHypothesis": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "trackBReference": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "trackBHypothesis": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 17,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0073",
+          "normalizedReference": "presently the spasm that foreshadowed death had passed away and bessy roused herself and said",
+          "normalizedHypothesis": "presently the spasm that foreshadowed death had passed away and bessie roused herself and said",
+          "trackBReference": "presently the spasm that foreshadowed death had passed away and bessy roused herself and said",
+          "trackBHypothesis": "presently the spasm that foreshadowed death had passed away and bessie roused herself and said",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 15,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0005",
+          "normalizedReference": "whose feet are as the feet of harts and underneath the everlasting arms",
+          "normalizedHypothesis": "whose feet are as the feet of hearts and underneath the everlasting arms",
+          "trackBReference": "whose feet are as the feet of harts and underneath the everlasting arms",
+          "trackBHypothesis": "whose feet are as the feet of hearts and underneath the everlasting arms",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 13,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0074",
+          "normalizedReference": "i will go to bed it is best place but catching at margaret is gown yo will come again i know yo will but just say it",
+          "normalizedHypothesis": "you i will go to bed it is best place but catching that margaret is gown you will come again i know you will but just say it",
+          "trackBReference": "i will go to bed it is best place but catching at margaret is gown yo will come again i know yo will but just say it",
+          "trackBHypothesis": "you i will go to bed it is best place but catching that margaret is gown you will come again i know you will but just say it",
+          "substitutions": 3,
+          "deletions": 0,
+          "insertions": 1,
+          "referenceWords": 27,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0017",
+          "normalizedReference": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and valleyed and woodbegirt and citadelled and of entrenched and marshaled races",
+          "normalizedHypothesis": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and valued and wood begirt and citadel would and of entrench would and marshaled races",
+          "trackBReference": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and valleyed and woodbegirt and citadelled and of entrenched and marshaled races",
+          "trackBHypothesis": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and valued and wood begirt and citadel would and of entrench would and marshaled races",
+          "substitutions": 4,
+          "deletions": 0,
+          "insertions": 3,
+          "referenceWords": 29,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0076",
+          "normalizedReference": "margaret went away very sad and thoughtful",
+          "normalizedHypothesis": "margaret went away very sad and thoughtful",
+          "trackBReference": "margaret went away very sad and thoughtful",
+          "trackBHypothesis": "margaret went away very sad and thoughtful",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0021",
+          "normalizedReference": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewn stones of the sloping breakwater over which they scrambled in their horseplay gleamed with cold wet luster",
+          "normalizedHypothesis": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewn stones of the sloping breakwater over which they scrambled in their horse play gleamed with cold wet luster",
+          "trackBReference": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewn stones of the sloping breakwater over which they scrambled in their horseplay gleamed with cold wet luster",
+          "trackBHypothesis": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewn stones of the sloping breakwater over which they scrambled in their horse play gleamed with cold wet luster",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 1,
+          "referenceWords": 34,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0078",
+          "normalizedReference": "have you met with a servant dear",
+          "normalizedHypothesis": "have you met with a servant dear",
+          "trackBReference": "have you met with a servant dear",
+          "trackBHypothesis": "have you met with a servant dear",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "1188-133604-0002",
+          "normalizedReference": "by being studious of color they are studious of division and while the chiaroscurist devotes himself to the representation of degrees of force in one thing unseparated light the colorists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "normalizedHypothesis": "by being studious of color they are studious of division and while the curious the curious devotes himself to the representation of degrees of force in one thing unseparated light the colorists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "trackBReference": "by being studious of color they are studious of division and while the chiaroscurist devotes himself to the representation of degrees of force in one thing unseparated light the colorists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "trackBHypothesis": "by being studious of color they are studious of division and while the curious the curious devotes himself to the representation of degrees of force in one thing unseparated light the colorists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 2,
+          "referenceWords": 45,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0081",
+          "normalizedReference": "everybody else has had their turn at this great difficulty now let me try",
+          "normalizedHypothesis": "everybody else has had their turn up is great difficulty now let me try",
+          "trackBReference": "everybody else has had their turn at this great difficulty now let me try",
+          "trackBHypothesis": "everybody else has had their turn up is great difficulty now let me try",
+          "substitutions": 2,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 14,
+          "invalidReason": null
+        },
+        {
+          "id": "1188-133604-0013",
+          "normalizedReference": "it must remember be one or the other",
+          "normalizedHypothesis": "you it must remember be one or the other",
+          "trackBReference": "it must remember be one or the other",
+          "trackBHypothesis": "you it must remember be one or the other",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 1,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0091",
+          "normalizedReference": "my dear said mister hale alarmed pray do not go off on that idea",
+          "normalizedHypothesis": "my dear said mister hell alarmed probably do not go off on that idea",
+          "trackBReference": "my dear said mister hale alarmed pray do not go off on that idea",
+          "trackBHypothesis": "my dear said mister hell alarmed probably do not go off on that idea",
+          "substitutions": 2,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 14,
+          "invalidReason": null
+        },
+        {
+          "id": "1188-133604-0037",
+          "normalizedReference": "every line in which the master traces it even where seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or duerer",
+          "normalizedHypothesis": "every line in which the master traces it even where seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or durer",
+          "trackBReference": "every line in which the master traces it even where seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or duerer",
+          "trackBHypothesis": "every line in which the master traces it even where seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or durer",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 39,
+          "invalidReason": null
+        }
+      ],
+      "decodeFailures": [],
+      "clipTimings": [
+        {
+          "utteranceId": "1089-134686-0002",
+          "audioSeconds": 6.625,
+          "decodeMs": 738,
+          "realTimeFactor": 0.11139622641509433,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0011",
+          "audioSeconds": 14.05,
+          "decodeMs": 1632,
+          "realTimeFactor": 0.11615658362989324,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0011",
+          "audioSeconds": 12.445,
+          "decodeMs": 1488,
+          "realTimeFactor": 0.11956609079951788,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0025",
+          "audioSeconds": 3.4,
+          "decodeMs": 362,
+          "realTimeFactor": 0.10647058823529412,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0021",
+          "audioSeconds": 6.55,
+          "decodeMs": 688,
+          "realTimeFactor": 0.1050381679389313,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0067",
+          "audioSeconds": 3.845,
+          "decodeMs": 433,
+          "realTimeFactor": 0.11261378413524058,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0024",
+          "audioSeconds": 11.655,
+          "decodeMs": 1378,
+          "realTimeFactor": 0.11823251823251824,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0071",
+          "audioSeconds": 3.865,
+          "decodeMs": 448,
+          "realTimeFactor": 0.11591203104786546,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0036",
+          "audioSeconds": 3.25,
+          "decodeMs": 319,
+          "realTimeFactor": 0.09815384615384615,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0072",
+          "audioSeconds": 5.85,
+          "decodeMs": 660,
+          "realTimeFactor": 0.11282051282051282,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0001",
+          "audioSeconds": 5.415,
+          "decodeMs": 592,
+          "realTimeFactor": 0.10932594644506002,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0073",
+          "audioSeconds": 7.46,
+          "decodeMs": 756,
+          "realTimeFactor": 0.10134048257372655,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0005",
+          "audioSeconds": 5.36,
+          "decodeMs": 588,
+          "realTimeFactor": 0.10970149253731343,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0074",
+          "audioSeconds": 11.13,
+          "decodeMs": 1496,
+          "realTimeFactor": 0.1344115004492363,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0017",
+          "audioSeconds": 11.695,
+          "decodeMs": 1303,
+          "realTimeFactor": 0.11141513467293715,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0076",
+          "audioSeconds": 3.84,
+          "decodeMs": 339,
+          "realTimeFactor": 0.08828125,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0021",
+          "audioSeconds": 13.37,
+          "decodeMs": 1493,
+          "realTimeFactor": 0.11166791323859386,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0078",
+          "audioSeconds": 2.69,
+          "decodeMs": 259,
+          "realTimeFactor": 0.09628252788104089,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1188-133604-0002",
+          "audioSeconds": 17.96,
+          "decodeMs": 2095,
+          "realTimeFactor": 0.11664810690423162,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0081",
+          "audioSeconds": 5.9,
+          "decodeMs": 570,
+          "realTimeFactor": 0.09661016949152543,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1188-133604-0013",
+          "audioSeconds": 3.02,
+          "decodeMs": 325,
+          "realTimeFactor": 0.1076158940397351,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0091",
+          "audioSeconds": 5.455,
+          "decodeMs": 597,
+          "realTimeFactor": 0.10944087992667277,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1188-133604-0037",
+          "audioSeconds": 14.51,
+          "decodeMs": 1556,
+          "realTimeFactor": 0.10723638869745003,
+          "outcome": "scored"
+        }
+      ],
+      "assetInventory": {
+        "files": [
+          {
+            "name": "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/decoder_kv.ort",
+            "role": "decoder",
+            "sha256": "1a05465b1dd955858dfcbee039c0020fb5dd982b0f5094c34e61735d518d771b",
+            "bytes": 81878600,
+            "source": "network",
+            "pinned": true
+          },
+          {
+            "name": "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/encoder.ort",
+            "role": "encoder",
+            "sha256": "2d4d973e91e8aca08c51e7e7efa28a46ab265b63d809d5294d18b86bcd85b993",
+            "bytes": 44148576,
+            "source": "network",
+            "pinned": true
+          },
+          {
+            "name": "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/frontend.ort",
+            "role": "other",
+            "sha256": "d1be8145bc9ef3e8625bb7bcb7a5b2930eeb828c91d6c1897bc215d7de6f2b93",
+            "bytes": 30984520,
+            "source": "network",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.wasm",
+            "role": "runtime",
+            "sha256": "d0e783f661f8be68f7af48d859d3bbc7a6381a980b35b4128fc36344218a6682",
+            "bytes": 13155937,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/cross_kv.ort",
+            "role": "other",
+            "sha256": "e2d3417144e9514055ebfefe8dcc4c0a55a55adcb8530435844c75c53e352bf6",
+            "bytes": 5356536,
+            "source": "network",
+            "pinned": true
+          },
+          {
+            "name": "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/adapter.ort",
+            "role": "other",
+            "sha256": "c665f742364febad597cc9ac1e0b341ffbee0e24a1466e2f3bde95e6e4771762",
+            "bytes": 2870368,
+            "source": "network",
+            "pinned": true
+          },
+          {
+            "name": "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/tokenizer.bin",
+            "role": "tokenizer",
+            "sha256": "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d",
+            "bytes": 249974,
+            "source": "network",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs",
+            "role": "runtime",
+            "sha256": "a4b40a7cf7a810e3cdbe8c12f3dd47598900566117b824da690585deb79c59e2",
+            "bytes": 156457,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/text-to-speech.js",
+            "role": "other",
+            "sha256": "7235b7cafae9cc31988a8a6d06a6ed753b147bd363035c5aac8e8361c3d3cbad",
+            "bytes": 32049,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/agent-flow.js",
+            "role": "other",
+            "sha256": "8435b476ef927c5422a20632b1b75b8ed83a896e6bb13af9b85ed5e4d3fadd24",
+            "bytes": 25486,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/mic-transcriber.js",
+            "role": "other",
+            "sha256": "cef76a39506424dc413e42be47f9a608fde376e2d086d68fc112518418e47d1f",
+            "bytes": 13397,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/transcriber.js",
+            "role": "other",
+            "sha256": "7d18f6123a3a69a10a687c86662b3aa93748a27c95b26dc2f562ea34fe3f30d0",
+            "bytes": 10646,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/voice-clone.js",
+            "role": "other",
+            "sha256": "0dda9172452407fa7de9ff5bdfbe5b23b08b4566fb266f1d883505f48c49010f",
+            "bytes": 8568,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/stt-worker-host.js",
+            "role": "other",
+            "sha256": "4d44cc4c9a7a6f349e1b47955147b990cb1faf31e60bd8bf044a2222a056cef5",
+            "bytes": 7826,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/asset-downloader.js",
+            "role": "other",
+            "sha256": "1887c3895d4d05aefacd9c7d0ca638c3b209c30de537fe65cd56595ff732d42e",
+            "bytes": 7398,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/stream.js",
+            "role": "other",
+            "sha256": "443a90c0fa92f4a75d85015f9c109ab48f4201b7546bccae0749111a885fd21b",
+            "bytes": 6681,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/embedding-model.js",
+            "role": "other",
+            "sha256": "17c60df8bc6efc52765221f71e67e9cf1892f5671d3e1fc3afbf5f9fff122f15",
+            "bytes": 5457,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/errors.js",
+            "role": "other",
+            "sha256": "1f3abb56d6d28213adbb3f45e2c59eafecb48302d1e1a95164cdcb10c03576e0",
+            "bytes": 4712,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/tts-worker-host.js",
+            "role": "other",
+            "sha256": "9be81a3edc1b17a480fd35a1b043507fd293299f487f51285e194f57b08d5d0b",
+            "bytes": 4440,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/module.js",
+            "role": "other",
+            "sha256": "76ac4333a21258c9d80cf27a0d7804865e8fe56314fd31baf20cf286d77d3534",
+            "bytes": 4053,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/types.js",
+            "role": "other",
+            "sha256": "7fb0bd0c6e9168b3f8b637e9267d799a570c2fb333a7fbdd69c0b067da7e2b85",
+            "bytes": 2373,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/events.js",
+            "role": "other",
+            "sha256": "2dd5076fcc75d27d531df3de86e3fe4829e98cb39a9e9214b252ac7b10923faa",
+            "bytes": 2105,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/grapheme-to-phonemizer.js",
+            "role": "other",
+            "sha256": "076f14e7d9d660eea1c44cd5d22eff36875cbe7db51705d3a4970ab4c1d8b1fe",
+            "bytes": 2095,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/enums.js",
+            "role": "other",
+            "sha256": "149edff4d610640fc268a18ae0d207b443a5e5d841045e555b39788f9db802ed",
+            "bytes": 2058,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/index.js",
+            "role": "other",
+            "sha256": "02ac8a34d1d9cf84cf8d9ed49fa3ed832610495c5aef5fd751b250681e8e62ea",
+            "bytes": 1733,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/streaming_config.json",
+            "role": "config",
+            "sha256": "26f02b6afb22d60871a5efd85c3d38e569cc0ddb6c5eb6e93d3260152ae8a47a",
+            "bytes": 512,
+            "source": "network",
+            "pinned": true
+          }
+        ],
+        "byRole": {
+          "decoder": {
+            "count": 1,
+            "bytes": 81878600
+          },
+          "encoder": {
+            "count": 1,
+            "bytes": 44148576
+          },
+          "other": {
+            "count": 20,
+            "bytes": 39352501
+          },
+          "runtime": {
+            "count": 2,
+            "bytes": 13312394
+          },
+          "tokenizer": {
+            "count": 1,
+            "bytes": 249974
+          },
+          "config": {
+            "count": 1,
+            "bytes": 512
+          }
+        },
+        "totalBytes": 178942557,
+        "fileCount": 26,
+        "reportedModelBytes": null,
+        "reconcilesToModelBytes": null,
+        "reconciliationDeltaBytes": null
+      },
+      "assetReconciliation": {
+        "ok": true,
+        "failures": [],
+        "repeatedRequests": [
+          "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs ×9"
+        ],
+        "declaredFiles": 26,
+        "observedFiles": 9,
+        "declaredBytes": 178942557,
+        "observedBytes": null,
+        "missingByteCounts": [
+          "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs",
+          "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.wasm",
+          "external/download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/adapter.ort",
+          "external/download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/cross_kv.ort",
+          "external/download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/decoder_kv.ort",
+          "external/download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/encoder.ort",
+          "external/download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/frontend.ort",
+          "external/download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/streaming_config.json",
+          "external/download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/tokenizer.bin"
+        ],
+        "ledgerCoverage": 0.34615384615384615,
+        "ledgerAuthority": "declared_pins_only"
+      },
+      "pinVerification": {
+        "ok": true,
+        "checked": 25,
+        "authority": "committed_pins"
+      },
+      "observedRequestCount": 16,
+      "decoderAssets": [
+        {
+          "path": "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/decoder_kv.ort",
+          "sha256": "1a05465b1dd955858dfcbee039c0020fb5dd982b0f5094c34e61735d518d771b",
+          "bytes": 81878600
+        }
+      ],
+      "assetCount": 26,
+      "pinViolations": [],
+      "networkAttempts": 7,
+      "offlineEnforced": true,
+      "assetFailures": [],
+      "wer": 0.06318082788671024,
+      "referenceWords": 459,
+      "substitutions": 17,
+      "deletions": 0,
+      "insertions": 12,
+      "wallClockMs": 19925,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "preflight is a preflight set — not selection evidence",
+      "provenance": {
+        "model": {
+          "id": "moonshine-ai/streaming-small",
+          "revision": "quantized_26_07_30",
+          "filesSha256": {
+            "lib/@moonshine-ai/moonshine-wasm/dist/agent-flow.js": "8435b476ef927c5422a20632b1b75b8ed83a896e6bb13af9b85ed5e4d3fadd24",
+            "lib/@moonshine-ai/moonshine-wasm/dist/asset-downloader.js": "1887c3895d4d05aefacd9c7d0ca638c3b209c30de537fe65cd56595ff732d42e",
+            "lib/@moonshine-ai/moonshine-wasm/dist/embedding-model.js": "17c60df8bc6efc52765221f71e67e9cf1892f5671d3e1fc3afbf5f9fff122f15",
+            "lib/@moonshine-ai/moonshine-wasm/dist/enums.js": "149edff4d610640fc268a18ae0d207b443a5e5d841045e555b39788f9db802ed",
+            "lib/@moonshine-ai/moonshine-wasm/dist/errors.js": "1f3abb56d6d28213adbb3f45e2c59eafecb48302d1e1a95164cdcb10c03576e0",
+            "lib/@moonshine-ai/moonshine-wasm/dist/events.js": "2dd5076fcc75d27d531df3de86e3fe4829e98cb39a9e9214b252ac7b10923faa",
+            "lib/@moonshine-ai/moonshine-wasm/dist/grapheme-to-phonemizer.js": "076f14e7d9d660eea1c44cd5d22eff36875cbe7db51705d3a4970ab4c1d8b1fe",
+            "lib/@moonshine-ai/moonshine-wasm/dist/index.js": "02ac8a34d1d9cf84cf8d9ed49fa3ed832610495c5aef5fd751b250681e8e62ea",
+            "lib/@moonshine-ai/moonshine-wasm/dist/mic-transcriber.js": "cef76a39506424dc413e42be47f9a608fde376e2d086d68fc112518418e47d1f",
+            "lib/@moonshine-ai/moonshine-wasm/dist/module.js": "76ac4333a21258c9d80cf27a0d7804865e8fe56314fd31baf20cf286d77d3534",
+            "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs": "a4b40a7cf7a810e3cdbe8c12f3dd47598900566117b824da690585deb79c59e2",
+            "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.wasm": "d0e783f661f8be68f7af48d859d3bbc7a6381a980b35b4128fc36344218a6682",
+            "lib/@moonshine-ai/moonshine-wasm/dist/stream.js": "443a90c0fa92f4a75d85015f9c109ab48f4201b7546bccae0749111a885fd21b",
+            "lib/@moonshine-ai/moonshine-wasm/dist/stt-worker-host.js": "4d44cc4c9a7a6f349e1b47955147b990cb1faf31e60bd8bf044a2222a056cef5",
+            "lib/@moonshine-ai/moonshine-wasm/dist/text-to-speech.js": "7235b7cafae9cc31988a8a6d06a6ed753b147bd363035c5aac8e8361c3d3cbad",
+            "lib/@moonshine-ai/moonshine-wasm/dist/transcriber.js": "7d18f6123a3a69a10a687c86662b3aa93748a27c95b26dc2f562ea34fe3f30d0",
+            "lib/@moonshine-ai/moonshine-wasm/dist/tts-worker-host.js": "9be81a3edc1b17a480fd35a1b043507fd293299f487f51285e194f57b08d5d0b",
+            "lib/@moonshine-ai/moonshine-wasm/dist/types.js": "7fb0bd0c6e9168b3f8b637e9267d799a570c2fb333a7fbdd69c0b067da7e2b85",
+            "lib/@moonshine-ai/moonshine-wasm/dist/voice-clone.js": "0dda9172452407fa7de9ff5bdfbe5b23b08b4566fb266f1d883505f48c49010f",
+            "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/adapter.ort": "c665f742364febad597cc9ac1e0b341ffbee0e24a1466e2f3bde95e6e4771762",
+            "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/cross_kv.ort": "e2d3417144e9514055ebfefe8dcc4c0a55a55adcb8530435844c75c53e352bf6",
+            "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/decoder_kv.ort": "1a05465b1dd955858dfcbee039c0020fb5dd982b0f5094c34e61735d518d771b",
+            "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/encoder.ort": "2d4d973e91e8aca08c51e7e7efa28a46ab265b63d809d5294d18b86bcd85b993",
+            "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/frontend.ort": "d1be8145bc9ef3e8625bb7bcb7a5b2930eeb828c91d6c1897bc215d7de6f2b93",
+            "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/streaming_config.json": "26f02b6afb22d60871a5efd85c3d38e569cc0ddb6c5eb6e93d3260152ae8a47a",
+            "download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/tokenizer.bin": "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d"
+          }
+        },
+        "runtime": {
+          "library": "@moonshine-ai/moonshine-wasm",
+          "version": "0.1.5",
+          "backend": "wasm"
+        },
+        "assets": {
+          "source": "http://127.0.0.1:51793/hf/ (pinned mirror)",
+          "verdict": "unverifiable"
+        },
+        "device": {
+          "platform": "darwin",
+          "arch": "arm64",
+          "cpuModel": "Apple M2",
+          "cores": 8
+        },
+        "route": {
+          "hash": "cd9159956a4a",
+          "route": {
+            "family": "moonshine",
+            "modelId": "moonshine-ai/streaming-small",
+            "rawWaveform": true,
+            "maxPositionEmbeddings": 512,
+            "returnTimestamps": false,
+            "maxNewTokens": 26
+          }
+        },
+        "corpus": {
+          "version": "librispeech_test_v1",
+          "digest": "755487e8de185857e956bbf8d63c8af051ecae55086076a1cd47a2ae96497eba",
+          "archives": {
+            "test-clean.tar.gz": "39fde525e59672dc6d1551919b1478f724438a95aa55f874b576be21967e6c23",
+            "test-other.tar.gz": "d09c181bba5cf717b3dee7d4d592af11a3ee3a09e08ae025c5506f6ebe961c29"
+          }
+        },
+        "resources": {
+          "wallClockMs": 19925,
+          "peakRssBytes": null
+        }
+      }
+    },
+    {
+      "id": "moonshine:streaming-medium",
+      "label": "Moonshine Streaming Medium (official @moonshine-ai/moonshine-wasm)",
+      "lane": "browser",
+      "set": "preflight",
+      "evidenceClass": "preflight",
+      "candidate": null,
+      "executionBackend": null,
+      "historicalArmId": "moonshine:streaming-medium",
+      "dtype": "quantized",
+      "dtypeAliasOf": null,
+      "runtimeLabel": "@moonshine-ai/moonshine-wasm@0.1.5",
+      "verdict": {
+        "armId": "moonshine:streaming-medium",
+        "role": "selection",
+        "runtimeLabel": "@moonshine-ai/moonshine-wasm@0.1.5",
+        "evidenceSet": "preflight",
+        "evidenceClass": "preflight",
+        "wer": 0.05228758169934641,
+        "referenceWords": 459,
+        "reliability": {
+          "expectedClips": 23,
+          "decoded": 23,
+          "threw": 0,
+          "emptyOutput": 0,
+          "timedOut": 0,
+          "audioRejected": 0,
+          "missing": 0
+        },
+        "speed": {
+          "coldLoadMs": 1727,
+          "warmDecodeMsP50": 1126,
+          "warmDecodeMsP95": 2695,
+          "realTimeFactorP50": 0.1843028624192059,
+          "realTimeFactorP95": 0.20219981668194317,
+          "stopToFinalMs": null
+        },
+        "footprint": {
+          "modelBytes": 318144390,
+          "assetCount": 26,
+          "peakMemoryBytes": null
+        },
+        "duration": {
+          "shortestClipSeconds": 2.69,
+          "longestClipSeconds": 17.96,
+          "longFormTailPreserved": null,
+          "longFormRepeatedNgrams": null,
+          "truncatedClips": 0,
+          "highDeletionClips": 0
+        },
+        "backendProven": true,
+        "resolvedBackend": "wasm:1 module(s)",
+        "hardwareRepresentative": true,
+        "transcriptDigest": "c433e98a8ae05caf",
+        "fingerprint": "1525c05f1fa66382",
+        "assetDigestCount": 26
+      },
+      "role": "selection",
+      "freshSession": true,
+      "requestedDevice": "wasm",
+      "resolvedBackend": "wasm:1 module(s)",
+      "backendProven": true,
+      "hardwareRepresentative": true,
+      "certified": true,
+      "failedGates": [],
+      "fingerprint": "1525c05f1fa66382",
+      "expectedClips": 23,
+      "decodedClips": 23,
+      "clipsOffered": 23,
+      "reliability": {
+        "decoded": 23,
+        "expectedClips": 23,
+        "threw": 0,
+        "emptyOutput": 0,
+        "missing": 0,
+        "timedOut": 0,
+        "audioRejected": 0,
+        "truncated": 0
+      },
+      "audioMismatches": [],
+      "transcriptDigest": "c433e98a8ae05caf",
+      "scoreProfileDigest": "3913516b1df5962e",
+      "insertionProfile": {
+        "totalInsertions": 10,
+        "tokenFrequency": [
+          {
+            "token": "12",
+            "count": 1
+          },
+          {
+            "token": "as",
+            "count": 1
+          },
+          {
+            "token": "citadel",
+            "count": 1
+          },
+          {
+            "token": "god",
+            "count": 1
+          },
+          {
+            "token": "his",
+            "count": 1
+          },
+          {
+            "token": "horse",
+            "count": 1
+          },
+          {
+            "token": "we",
+            "count": 1
+          },
+          {
+            "token": "wing",
+            "count": 1
+          },
+          {
+            "token": "wood",
+            "count": 1
+          },
+          {
+            "token": "yes",
+            "count": 1
+          }
+        ],
+        "fillerLikeInsertions": [],
+        "fillerLikeTotal": 0,
+        "fillerLikeUtterances": []
+      },
+      "perUtterance": [
+        {
+          "id": "1089-134686-0002",
+          "normalizedReference": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "normalizedHypothesis": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "trackBReference": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "trackBHypothesis": "after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 18,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0011",
+          "normalizedReference": "all his former friends shrunk from the disclosures that had to be made of his dishonest gambling wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "normalizedHypothesis": "all these former friends shrunk from the disclosures that had to be made of his dishonest gambling 12 wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "trackBReference": "all his former friends shrunk from the disclosures that had to be made of his dishonest gambling wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "trackBHypothesis": "all these former friends shrunk from the disclosures that had to be made of his dishonest gambling 12 wild hopeless struggles made with other people is money to regain his own moderate portion of wealth",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 1,
+          "referenceWords": 34,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0011",
+          "normalizedReference": "on saturday mornings when the sodality met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his wing of boys through the responses",
+          "normalizedHypothesis": "on saturday mornings when the sodality met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his wing his wing of boys through the responses",
+          "trackBReference": "on saturday mornings when the sodality met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his wing of boys through the responses",
+          "trackBHypothesis": "on saturday mornings when the sodality met in the chapel to recite the little office his place was a cushioned kneeling desk at the right of the altar from which he led his wing his wing of boys through the responses",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 2,
+          "referenceWords": 39,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0025",
+          "normalizedReference": "and i do said her father laughing",
+          "normalizedHypothesis": "and i do said her father laughing",
+          "trackBReference": "and i do said her father laughing",
+          "trackBHypothesis": "and i do said her father laughing",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0021",
+          "normalizedReference": "if a layman in giving baptism pour the water before saying the words is the child baptized",
+          "normalizedHypothesis": "if a layman in giving baptism pour the water before saying the words is the child baptized",
+          "trackBReference": "if a layman in giving baptism pour the water before saying the words is the child baptized",
+          "trackBHypothesis": "if a layman in giving baptism pour the water before saying the words is the child baptized",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 17,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0067",
+          "normalizedReference": "do not think hardly on him he is a good man he is",
+          "normalizedHypothesis": "do not think hardly on him he is a good man he is",
+          "trackBReference": "do not think hardly on him he is a good man he is",
+          "trackBHypothesis": "do not think hardly on him he is a good man he is",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 13,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0024",
+          "normalizedReference": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god and as man",
+          "normalizedHypothesis": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god as god and as man yes",
+          "trackBReference": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god and as man",
+          "trackBHypothesis": "if the wine change into vinegar and the host crumble into corruption after they have been consecrated is jesus christ still present under their species as god as god and as man yes",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 3,
+          "referenceWords": 30,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0071",
+          "normalizedReference": "she put her hand to it and became ghastly pale",
+          "normalizedHypothesis": "she put her hand to it and became ghastly pale",
+          "trackBReference": "she put her hand to it and became ghastly pale",
+          "trackBHypothesis": "she put her hand to it and became ghastly pale",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 10,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134686-0036",
+          "normalizedReference": "a great saint saint francis xavier",
+          "normalizedHypothesis": "a great saint saint francis xavier",
+          "trackBReference": "a great saint saint francis xavier",
+          "trackBHypothesis": "a great saint saint francis xavier",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 6,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0072",
+          "normalizedReference": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "normalizedHypothesis": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "trackBReference": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "trackBHypothesis": "margaret held her in her arms and put the weary head to rest upon her bosom",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 16,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0001",
+          "normalizedReference": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "normalizedHypothesis": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "trackBReference": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "trackBHypothesis": "for a full hour he had paced up and down waiting but he could wait no longer",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 17,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0073",
+          "normalizedReference": "presently the spasm that foreshadowed death had passed away and bessy roused herself and said",
+          "normalizedHypothesis": "presently the spasm that foreshadowed death had passed away and bessie roused herself and said",
+          "trackBReference": "presently the spasm that foreshadowed death had passed away and bessy roused herself and said",
+          "trackBHypothesis": "presently the spasm that foreshadowed death had passed away and bessie roused herself and said",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 15,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0005",
+          "normalizedReference": "whose feet are as the feet of harts and underneath the everlasting arms",
+          "normalizedHypothesis": "whose feet are as the feet of hearts and underneath the everlasting arms",
+          "trackBReference": "whose feet are as the feet of harts and underneath the everlasting arms",
+          "trackBHypothesis": "whose feet are as the feet of hearts and underneath the everlasting arms",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 13,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0074",
+          "normalizedReference": "i will go to bed it is best place but catching at margaret is gown yo will come again i know yo will but just say it",
+          "normalizedHypothesis": "i will go to bed it is best place but catching at margaret is gown you will come again i know you will but just say it",
+          "trackBReference": "i will go to bed it is best place but catching at margaret is gown yo will come again i know yo will but just say it",
+          "trackBHypothesis": "i will go to bed it is best place but catching at margaret is gown you will come again i know you will but just say it",
+          "substitutions": 2,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 27,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0017",
+          "normalizedReference": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and valleyed and woodbegirt and citadelled and of entrenched and marshaled races",
+          "normalizedHypothesis": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and vallied and wood begirt and citadel would and of intrenched and marshaled races",
+          "trackBReference": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and valleyed and woodbegirt and citadelled and of entrenched and marshaled races",
+          "trackBHypothesis": "the europe they had come from lay out there beyond the irish sea europe of strange tongues and vallied and wood begirt and citadel would and of intrenched and marshaled races",
+          "substitutions": 4,
+          "deletions": 0,
+          "insertions": 2,
+          "referenceWords": 29,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0076",
+          "normalizedReference": "margaret went away very sad and thoughtful",
+          "normalizedHypothesis": "margaret went away very sad and thoughtful",
+          "trackBReference": "margaret went away very sad and thoughtful",
+          "trackBHypothesis": "margaret went away very sad and thoughtful",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "1089-134691-0021",
+          "normalizedReference": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewn stones of the sloping breakwater over which they scrambled in their horseplay gleamed with cold wet luster",
+          "normalizedHypothesis": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewn stones of the sloping breakwater over which they scrambled in their horse play gleamed with cold wet luster",
+          "trackBReference": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewn stones of the sloping breakwater over which they scrambled in their horseplay gleamed with cold wet luster",
+          "trackBHypothesis": "their diving stone poised on its rude supports and rocking under their plunges and the rough hewn stones of the sloping breakwater over which they scrambled in their horse play gleamed with cold wet luster",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 1,
+          "referenceWords": 34,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0078",
+          "normalizedReference": "have you met with a servant dear",
+          "normalizedHypothesis": "have you met with a servant dear",
+          "trackBReference": "have you met with a servant dear",
+          "trackBHypothesis": "have you met with a servant dear",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 7,
+          "invalidReason": null
+        },
+        {
+          "id": "1188-133604-0002",
+          "normalizedReference": "by being studious of color they are studious of division and while the chiaroscurist devotes himself to the representation of degrees of force in one thing unseparated light the colorists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "normalizedHypothesis": "by being studious of color they are studious of division and while the chiaroscurus devotes himself to the representation of degrees of force in one thing unseparated light the colorists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "trackBReference": "by being studious of color they are studious of division and while the chiaroscurist devotes himself to the representation of degrees of force in one thing unseparated light the colorists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "trackBHypothesis": "by being studious of color they are studious of division and while the chiaroscurus devotes himself to the representation of degrees of force in one thing unseparated light the colorists have for their function the attainment of beauty by arrangement of the divisions of light",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 45,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0081",
+          "normalizedReference": "everybody else has had their turn at this great difficulty now let me try",
+          "normalizedHypothesis": "everybody else has had their turn at this great difficulty now let me try",
+          "trackBReference": "everybody else has had their turn at this great difficulty now let me try",
+          "trackBHypothesis": "everybody else has had their turn at this great difficulty now let me try",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 14,
+          "invalidReason": null
+        },
+        {
+          "id": "1188-133604-0013",
+          "normalizedReference": "it must remember be one or the other",
+          "normalizedHypothesis": "it must remember be one or the other",
+          "trackBReference": "it must remember be one or the other",
+          "trackBHypothesis": "it must remember be one or the other",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 8,
+          "invalidReason": null
+        },
+        {
+          "id": "1688-142285-0091",
+          "normalizedReference": "my dear said mister hale alarmed pray do not go off on that idea",
+          "normalizedHypothesis": "my dear said mister hale alarmed probably do not go off on that idea",
+          "trackBReference": "my dear said mister hale alarmed pray do not go off on that idea",
+          "trackBHypothesis": "my dear said mister hale alarmed probably do not go off on that idea",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "referenceWords": 14,
+          "invalidReason": null
+        },
+        {
+          "id": "1188-133604-0037",
+          "normalizedReference": "every line in which the master traces it even where seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or duerer",
+          "normalizedHypothesis": "every line in which the master traces it even we are seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or dur",
+          "trackBReference": "every line in which the master traces it even where seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or duerer",
+          "trackBHypothesis": "every line in which the master traces it even we are seemingly negligent is lovely and set down with a meditative calmness which makes these 2 etchings capable of being placed beside the most tranquil work of holbein or dur",
+          "substitutions": 2,
+          "deletions": 0,
+          "insertions": 1,
+          "referenceWords": 39,
+          "invalidReason": null
+        }
+      ],
+      "decodeFailures": [],
+      "clipTimings": [
+        {
+          "utteranceId": "1089-134686-0002",
+          "audioSeconds": 6.625,
+          "decodeMs": 1446,
+          "realTimeFactor": 0.21826415094339624,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0011",
+          "audioSeconds": 14.05,
+          "decodeMs": 2613,
+          "realTimeFactor": 0.18597864768683273,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0011",
+          "audioSeconds": 12.445,
+          "decodeMs": 2477,
+          "realTimeFactor": 0.19903575733226195,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0025",
+          "audioSeconds": 3.4,
+          "decodeMs": 575,
+          "realTimeFactor": 0.16911764705882354,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0021",
+          "audioSeconds": 6.55,
+          "decodeMs": 1158,
+          "realTimeFactor": 0.17679389312977098,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0067",
+          "audioSeconds": 3.845,
+          "decodeMs": 734,
+          "realTimeFactor": 0.19089726918075423,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0024",
+          "audioSeconds": 11.655,
+          "decodeMs": 2277,
+          "realTimeFactor": 0.19536679536679535,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0071",
+          "audioSeconds": 3.865,
+          "decodeMs": 738,
+          "realTimeFactor": 0.1909443725743855,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134686-0036",
+          "audioSeconds": 3.25,
+          "decodeMs": 540,
+          "realTimeFactor": 0.16615384615384615,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0072",
+          "audioSeconds": 5.85,
+          "decodeMs": 1126,
+          "realTimeFactor": 0.19247863247863248,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0001",
+          "audioSeconds": 5.415,
+          "decodeMs": 998,
+          "realTimeFactor": 0.1843028624192059,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0073",
+          "audioSeconds": 7.46,
+          "decodeMs": 1158,
+          "realTimeFactor": 0.15522788203753352,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0005",
+          "audioSeconds": 5.36,
+          "decodeMs": 950,
+          "realTimeFactor": 0.17723880597014927,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0074",
+          "audioSeconds": 11.13,
+          "decodeMs": 1934,
+          "realTimeFactor": 0.17376460017969453,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0017",
+          "audioSeconds": 11.695,
+          "decodeMs": 2076,
+          "realTimeFactor": 0.17751175716117998,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0076",
+          "audioSeconds": 3.84,
+          "decodeMs": 581,
+          "realTimeFactor": 0.15130208333333334,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1089-134691-0021",
+          "audioSeconds": 13.37,
+          "decodeMs": 2514,
+          "realTimeFactor": 0.18803290949887808,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0078",
+          "audioSeconds": 2.69,
+          "decodeMs": 446,
+          "realTimeFactor": 0.1657992565055762,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1188-133604-0002",
+          "audioSeconds": 17.96,
+          "decodeMs": 3315,
+          "realTimeFactor": 0.18457683741648107,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0081",
+          "audioSeconds": 5.9,
+          "decodeMs": 967,
+          "realTimeFactor": 0.16389830508474576,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1188-133604-0013",
+          "audioSeconds": 3.02,
+          "decodeMs": 527,
+          "realTimeFactor": 0.17450331125827814,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1688-142285-0091",
+          "audioSeconds": 5.455,
+          "decodeMs": 1103,
+          "realTimeFactor": 0.20219981668194317,
+          "outcome": "scored"
+        },
+        {
+          "utteranceId": "1188-133604-0037",
+          "audioSeconds": 14.51,
+          "decodeMs": 2695,
+          "realTimeFactor": 0.1857339765678842,
+          "outcome": "scored"
+        }
+      ],
+      "assetInventory": {
+        "files": [
+          {
+            "name": "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/decoder_kv.ort",
+            "role": "decoder",
+            "sha256": "193bb366492b74fc4ad338c6778e8d8eb916aaa11b5aa264f9057f4db7759486",
+            "bytes": 146972408,
+            "source": "network",
+            "pinned": true
+          },
+          {
+            "name": "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/encoder.ort",
+            "role": "encoder",
+            "sha256": "12915e76ebac7dd287c5ea63965d06103a53ba1ce242a4a34f318f3958c60c37",
+            "bytes": 94705376,
+            "source": "network",
+            "pinned": true
+          },
+          {
+            "name": "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/frontend.ort",
+            "role": "other",
+            "sha256": "100a4cbc1e96f4f5586330ff60d5f6240813dbb399a0b9c6a187a9491ab716cc",
+            "bytes": 47467576,
+            "source": "network",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.wasm",
+            "role": "runtime",
+            "sha256": "d0e783f661f8be68f7af48d859d3bbc7a6381a980b35b4128fc36344218a6682",
+            "bytes": 13155937,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/cross_kv.ort",
+            "role": "other",
+            "sha256": "642f6e21cd305be79342207c6f9e6b681d469d55bc48c72b27b84846fb71fd1e",
+            "bytes": 11643776,
+            "source": "network",
+            "pinned": true
+          },
+          {
+            "name": "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/adapter.ort",
+            "role": "other",
+            "sha256": "3f2a287def57cc094367a0eec3c4f5fc36a32ec420e86764b696920991b20281",
+            "bytes": 3651296,
+            "source": "network",
+            "pinned": true
+          },
+          {
+            "name": "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/tokenizer.bin",
+            "role": "tokenizer",
+            "sha256": "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d",
+            "bytes": 249974,
+            "source": "network",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs",
+            "role": "runtime",
+            "sha256": "a4b40a7cf7a810e3cdbe8c12f3dd47598900566117b824da690585deb79c59e2",
+            "bytes": 156457,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/text-to-speech.js",
+            "role": "other",
+            "sha256": "7235b7cafae9cc31988a8a6d06a6ed753b147bd363035c5aac8e8361c3d3cbad",
+            "bytes": 32049,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/agent-flow.js",
+            "role": "other",
+            "sha256": "8435b476ef927c5422a20632b1b75b8ed83a896e6bb13af9b85ed5e4d3fadd24",
+            "bytes": 25486,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/mic-transcriber.js",
+            "role": "other",
+            "sha256": "cef76a39506424dc413e42be47f9a608fde376e2d086d68fc112518418e47d1f",
+            "bytes": 13397,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/transcriber.js",
+            "role": "other",
+            "sha256": "7d18f6123a3a69a10a687c86662b3aa93748a27c95b26dc2f562ea34fe3f30d0",
+            "bytes": 10646,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/voice-clone.js",
+            "role": "other",
+            "sha256": "0dda9172452407fa7de9ff5bdfbe5b23b08b4566fb266f1d883505f48c49010f",
+            "bytes": 8568,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/stt-worker-host.js",
+            "role": "other",
+            "sha256": "4d44cc4c9a7a6f349e1b47955147b990cb1faf31e60bd8bf044a2222a056cef5",
+            "bytes": 7826,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/asset-downloader.js",
+            "role": "other",
+            "sha256": "1887c3895d4d05aefacd9c7d0ca638c3b209c30de537fe65cd56595ff732d42e",
+            "bytes": 7398,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/stream.js",
+            "role": "other",
+            "sha256": "443a90c0fa92f4a75d85015f9c109ab48f4201b7546bccae0749111a885fd21b",
+            "bytes": 6681,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/embedding-model.js",
+            "role": "other",
+            "sha256": "17c60df8bc6efc52765221f71e67e9cf1892f5671d3e1fc3afbf5f9fff122f15",
+            "bytes": 5457,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/errors.js",
+            "role": "other",
+            "sha256": "1f3abb56d6d28213adbb3f45e2c59eafecb48302d1e1a95164cdcb10c03576e0",
+            "bytes": 4712,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/tts-worker-host.js",
+            "role": "other",
+            "sha256": "9be81a3edc1b17a480fd35a1b043507fd293299f487f51285e194f57b08d5d0b",
+            "bytes": 4440,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/module.js",
+            "role": "other",
+            "sha256": "76ac4333a21258c9d80cf27a0d7804865e8fe56314fd31baf20cf286d77d3534",
+            "bytes": 4053,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/types.js",
+            "role": "other",
+            "sha256": "7fb0bd0c6e9168b3f8b637e9267d799a570c2fb333a7fbdd69c0b067da7e2b85",
+            "bytes": 2373,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/events.js",
+            "role": "other",
+            "sha256": "2dd5076fcc75d27d531df3de86e3fe4829e98cb39a9e9214b252ac7b10923faa",
+            "bytes": 2105,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/grapheme-to-phonemizer.js",
+            "role": "other",
+            "sha256": "076f14e7d9d660eea1c44cd5d22eff36875cbe7db51705d3a4970ab4c1d8b1fe",
+            "bytes": 2095,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/enums.js",
+            "role": "other",
+            "sha256": "149edff4d610640fc268a18ae0d207b443a5e5d841045e555b39788f9db802ed",
+            "bytes": 2058,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "lib/@moonshine-ai/moonshine-wasm/dist/index.js",
+            "role": "other",
+            "sha256": "02ac8a34d1d9cf84cf8d9ed49fa3ed832610495c5aef5fd751b250681e8e62ea",
+            "bytes": 1733,
+            "source": "cache",
+            "pinned": true
+          },
+          {
+            "name": "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/streaming_config.json",
+            "role": "config",
+            "sha256": "28e83b7a28e91472692a035e0dae3116422ae43aeb2bef5ed822c44ce89b88af",
+            "bytes": 513,
+            "source": "network",
+            "pinned": true
+          }
+        ],
+        "byRole": {
+          "decoder": {
+            "count": 1,
+            "bytes": 146972408
+          },
+          "encoder": {
+            "count": 1,
+            "bytes": 94705376
+          },
+          "other": {
+            "count": 20,
+            "bytes": 62903725
+          },
+          "runtime": {
+            "count": 2,
+            "bytes": 13312394
+          },
+          "tokenizer": {
+            "count": 1,
+            "bytes": 249974
+          },
+          "config": {
+            "count": 1,
+            "bytes": 513
+          }
+        },
+        "totalBytes": 318144390,
+        "fileCount": 26,
+        "reportedModelBytes": null,
+        "reconcilesToModelBytes": null,
+        "reconciliationDeltaBytes": null
+      },
+      "assetReconciliation": {
+        "ok": true,
+        "failures": [],
+        "repeatedRequests": [
+          "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs ×9"
+        ],
+        "declaredFiles": 26,
+        "observedFiles": 9,
+        "declaredBytes": 318144390,
+        "observedBytes": null,
+        "missingByteCounts": [
+          "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs",
+          "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.wasm",
+          "external/download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/adapter.ort",
+          "external/download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/cross_kv.ort",
+          "external/download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/decoder_kv.ort",
+          "external/download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/encoder.ort",
+          "external/download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/frontend.ort",
+          "external/download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/streaming_config.json",
+          "external/download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/tokenizer.bin"
+        ],
+        "ledgerCoverage": 0.34615384615384615,
+        "ledgerAuthority": "declared_pins_only"
+      },
+      "pinVerification": {
+        "ok": true,
+        "checked": 25,
+        "authority": "committed_pins"
+      },
+      "observedRequestCount": 16,
+      "decoderAssets": [
+        {
+          "path": "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/decoder_kv.ort",
+          "sha256": "193bb366492b74fc4ad338c6778e8d8eb916aaa11b5aa264f9057f4db7759486",
+          "bytes": 146972408
+        }
+      ],
+      "assetCount": 26,
+      "pinViolations": [],
+      "networkAttempts": 7,
+      "offlineEnforced": true,
+      "assetFailures": [],
+      "wer": 0.05228758169934641,
+      "referenceWords": 459,
+      "substitutions": 14,
+      "deletions": 0,
+      "insertions": 10,
+      "wallClockMs": 32753,
+      "selectionEligible": false,
+      "selectionIneligibleReason": "preflight is a preflight set — not selection evidence",
+      "provenance": {
+        "model": {
+          "id": "moonshine-ai/streaming-medium",
+          "revision": "quantized_26_07_30",
+          "filesSha256": {
+            "lib/@moonshine-ai/moonshine-wasm/dist/agent-flow.js": "8435b476ef927c5422a20632b1b75b8ed83a896e6bb13af9b85ed5e4d3fadd24",
+            "lib/@moonshine-ai/moonshine-wasm/dist/asset-downloader.js": "1887c3895d4d05aefacd9c7d0ca638c3b209c30de537fe65cd56595ff732d42e",
+            "lib/@moonshine-ai/moonshine-wasm/dist/embedding-model.js": "17c60df8bc6efc52765221f71e67e9cf1892f5671d3e1fc3afbf5f9fff122f15",
+            "lib/@moonshine-ai/moonshine-wasm/dist/enums.js": "149edff4d610640fc268a18ae0d207b443a5e5d841045e555b39788f9db802ed",
+            "lib/@moonshine-ai/moonshine-wasm/dist/errors.js": "1f3abb56d6d28213adbb3f45e2c59eafecb48302d1e1a95164cdcb10c03576e0",
+            "lib/@moonshine-ai/moonshine-wasm/dist/events.js": "2dd5076fcc75d27d531df3de86e3fe4829e98cb39a9e9214b252ac7b10923faa",
+            "lib/@moonshine-ai/moonshine-wasm/dist/grapheme-to-phonemizer.js": "076f14e7d9d660eea1c44cd5d22eff36875cbe7db51705d3a4970ab4c1d8b1fe",
+            "lib/@moonshine-ai/moonshine-wasm/dist/index.js": "02ac8a34d1d9cf84cf8d9ed49fa3ed832610495c5aef5fd751b250681e8e62ea",
+            "lib/@moonshine-ai/moonshine-wasm/dist/mic-transcriber.js": "cef76a39506424dc413e42be47f9a608fde376e2d086d68fc112518418e47d1f",
+            "lib/@moonshine-ai/moonshine-wasm/dist/module.js": "76ac4333a21258c9d80cf27a0d7804865e8fe56314fd31baf20cf286d77d3534",
+            "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs": "a4b40a7cf7a810e3cdbe8c12f3dd47598900566117b824da690585deb79c59e2",
+            "lib/@moonshine-ai/moonshine-wasm/dist/moonshine.wasm": "d0e783f661f8be68f7af48d859d3bbc7a6381a980b35b4128fc36344218a6682",
+            "lib/@moonshine-ai/moonshine-wasm/dist/stream.js": "443a90c0fa92f4a75d85015f9c109ab48f4201b7546bccae0749111a885fd21b",
+            "lib/@moonshine-ai/moonshine-wasm/dist/stt-worker-host.js": "4d44cc4c9a7a6f349e1b47955147b990cb1faf31e60bd8bf044a2222a056cef5",
+            "lib/@moonshine-ai/moonshine-wasm/dist/text-to-speech.js": "7235b7cafae9cc31988a8a6d06a6ed753b147bd363035c5aac8e8361c3d3cbad",
+            "lib/@moonshine-ai/moonshine-wasm/dist/transcriber.js": "7d18f6123a3a69a10a687c86662b3aa93748a27c95b26dc2f562ea34fe3f30d0",
+            "lib/@moonshine-ai/moonshine-wasm/dist/tts-worker-host.js": "9be81a3edc1b17a480fd35a1b043507fd293299f487f51285e194f57b08d5d0b",
+            "lib/@moonshine-ai/moonshine-wasm/dist/types.js": "7fb0bd0c6e9168b3f8b637e9267d799a570c2fb333a7fbdd69c0b067da7e2b85",
+            "lib/@moonshine-ai/moonshine-wasm/dist/voice-clone.js": "0dda9172452407fa7de9ff5bdfbe5b23b08b4566fb266f1d883505f48c49010f",
+            "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/adapter.ort": "3f2a287def57cc094367a0eec3c4f5fc36a32ec420e86764b696920991b20281",
+            "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/cross_kv.ort": "642f6e21cd305be79342207c6f9e6b681d469d55bc48c72b27b84846fb71fd1e",
+            "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/decoder_kv.ort": "193bb366492b74fc4ad338c6778e8d8eb916aaa11b5aa264f9057f4db7759486",
+            "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/encoder.ort": "12915e76ebac7dd287c5ea63965d06103a53ba1ce242a4a34f318f3958c60c37",
+            "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/frontend.ort": "100a4cbc1e96f4f5586330ff60d5f6240813dbb399a0b9c6a187a9491ab716cc",
+            "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/streaming_config.json": "28e83b7a28e91472692a035e0dae3116422ae43aeb2bef5ed822c44ce89b88af",
+            "download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/tokenizer.bin": "6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d"
+          }
+        },
+        "runtime": {
+          "library": "@moonshine-ai/moonshine-wasm",
+          "version": "0.1.5",
+          "backend": "wasm"
+        },
+        "assets": {
+          "source": "http://127.0.0.1:51793/hf/ (pinned mirror)",
+          "verdict": "unverifiable"
+        },
+        "device": {
+          "platform": "darwin",
+          "arch": "arm64",
+          "cpuModel": "Apple M2",
+          "cores": 8
+        },
+        "route": {
+          "hash": "d4c92cd5f1af",
+          "route": {
+            "family": "moonshine",
+            "modelId": "moonshine-ai/streaming-medium",
+            "rawWaveform": true,
+            "maxPositionEmbeddings": 512,
+            "returnTimestamps": false,
+            "maxNewTokens": 26
+          }
+        },
+        "corpus": {
+          "version": "librispeech_test_v1",
+          "digest": "755487e8de185857e956bbf8d63c8af051ecae55086076a1cd47a2ae96497eba",
+          "archives": {
+            "test-clean.tar.gz": "39fde525e59672dc6d1551919b1478f724438a95aa55f874b576be21967e6c23",
+            "test-other.tar.gz": "d09c181bba5cf717b3dee7d4d592af11a3ee3a09e08ae025c5506f6ebe961c29"
+          }
+        },
+        "resources": {
+          "wallClockMs": 32753,
+          "peakRssBytes": null
+        }
+      }
+    }
+  ],
+  "assets": {
+    "onnx-community/whisper-base.en/resolve/main/config.json": {
+      "sha256": "c8a0de5ed8a083565a4319db29d0c210fda35b4d6076c2d711cae53ae00f3cb1",
+      "bytes": 2197,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/tokenizer_config.json": {
+      "sha256": "93879c3dccdd4b976f709acd85b44778873f30c275e67026f30ca1e4c975230c",
+      "bytes": 282662,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/preprocessor_config.json": {
+      "sha256": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+      "bytes": 339,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/tokenizer.json": {
+      "sha256": "5eb60cec1e77aeeb6869a2bb5a8e01a84c3fe5d072d75369343021fe6f5310d0",
+      "bytes": 2405679,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/onnx/encoder_model.onnx": {
+      "sha256": "1cc86302d480b061452d348638064383ab41b6f3333ddd0e423532d14edaf535",
+      "bytes": 82468078,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged_q4.onnx": {
+      "sha256": "7770ac574b71a704191ec52becac42b4a4126af26f54ed653f31c8f16af31f99",
+      "bytes": 123600371,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/generation_config.json": {
+      "sha256": "3479b1f44a07e41db799e22599222fee5816738036def94a39841cb9cdbb4120",
+      "bytes": 1556,
+      "source": "cache",
+      "pinned": true
+    },
+    "onnx-community/whisper-base.en/resolve/main/onnx/decoder_model_merged_int8.onnx": {
+      "sha256": "dd4761a3f7add26afda3512abff4706920404c2517e85a9f2ff090b0c0987909",
+      "bytes": 53692803,
+      "source": "cache",
+      "pinned": true
+    }
+  },
+  "assetFailures": []
+}
