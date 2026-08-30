@@ -20,9 +20,22 @@ const dirs: string[] = [];
 const tmp = () => { const d = mkdtempSync(join(tmpdir(), 'cp-')); dirs.push(d); return d; };
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
 
+/**
+ * A row that satisfies the TIGHTENED completeness contract.
+ *
+ * Fixtures previously used `{ id, verdict, backendProven }` with no counts, which the old gate accepted
+ * through a trailing `return true`. That is precisely the hole being closed, so the fixtures must now
+ * carry the counts and the reliability record they came from — otherwise these suites would be asserting
+ * against a shape the runner can no longer produce.
+ */
+const completeRow = (id: string) => ({
+    id, verdict: { wer: 0.1 }, backendProven: true, expectedClips: 600, decodedClips: 600,
+    reliability: { decoded: 600, expectedClips: 600, threw: 0, emptyOutput: 0, missing: 0 },
+});
+
 describe('#1304 checkpoint resume — accepts only an identical experiment', () => {
     it('resumes when every identity field matches', () => {
-        const d = planResume(cp([{ id: 'v2:tiny.en', verdict: { wer: 0.0991 }, backendProven: true }]), ID);
+        const d = planResume(cp([completeRow('v2:tiny.en')]), ID);
         expect(d.kind).toBe('resume');
         expect(d.kind === 'resume' && d.completed).toEqual(['v2:tiny.en']);
     });
@@ -72,9 +85,17 @@ describe('#1304 unfinished arms are never mistaken for measured ones', () => {
     // eleven rows carrying no verdict. Resuming would have treated all eleven as measured and skipped
     // them permanently, producing a table of silent holes that looks complete.
     const started = { id: 'v2:tiny.en' };                                   // began, produced nothing
-    const measured = { id: 'v2:base.en', verdict: { wer: 0.069 }, backendProven: true, expectedClips: 600, decodedClips: 600 };
+    // CONTRACT TIGHTENED: a measured row must now carry the reliability record its counts came from.
+    // Without it the gate could only trust `decodedClips`, which was the number of clips OFFERED to the
+    // runner — so a 148-throw run serialized 600 decoded and read as complete.
+    const RELIABLE = { decoded: 600, expectedClips: 600, threw: 0, emptyOutput: 0, missing: 0 };
+    const measured = {
+        id: 'v2:base.en', verdict: { wer: 0.069 }, backendProven: true,
+        expectedClips: 600, decodedClips: 600, reliability: RELIABLE,
+    };
     const notExecuted = { id: 'v4:base:q8-decoder:cpu', executed: false, reason: 'alias_of_int8' };
-    const skipped = { id: 'v2:base.en:no-conditioning', skipped: 'rejected' };
+    // Admission rows now need a REASON as well as a registered status.
+    const skipped = { id: 'v2:base.en:no-conditioning', skipped: 'rejected', reason: 'runtime_option_unsupported' };
 
     it('a verdict with an UNPROVEN backend or a short decode is not a measurement', () => {
         // The corpus-audio-absent run: every arm produced a verdict with decoded 0/600 and
@@ -82,10 +103,16 @@ describe('#1304 unfinished arms are never mistaken for measured ones', () => {
         expect(isCompleteRow({ id: 'x', verdict: { wer: null }, backendProven: false })).toBe(false);
         expect(isCompleteRow({
             id: 'x', verdict: { wer: 0.1 }, backendProven: true, expectedClips: 600, decodedClips: 0,
+            reliability: { ...RELIABLE, decoded: 0, threw: 600 },
         })).toBe(false);
         expect(isCompleteRow({
             id: 'x', verdict: { wer: 0.1 }, backendProven: true, expectedClips: 600, decodedClips: 600,
+            reliability: RELIABLE,
         })).toBe(true);
+        // ...and the counts alone are no longer enough: without the record they came from, refuse.
+        expect(isCompleteRow({
+            id: 'x', verdict: { wer: 0.1 }, backendProven: true, expectedClips: 600, decodedClips: 600,
+        })).toBe(false);
     });
 
     it('classifies a started-but-unfinished row as incomplete', () => {
@@ -106,7 +133,7 @@ describe('#1304 unfinished arms are never mistaken for measured ones', () => {
 
     it('refuses to finalise an artifact containing an unfinished arm', () => {
         const rows = REQUIRED_MATRIX_ROWS.map(id => (
-            id === 'v2:tiny.en' ? { id } : { id, verdict: { wer: 0.1 }, backendProven: true }
+            id === 'v2:tiny.en' ? { id } : completeRow(id)
         ));
         expect(validateCompleteness(rows, REQUIRED_MATRIX_ROWS))
             .toMatchObject({ ok: false, reason: 'unfinished_arms', detail: 'v2:tiny.en' });
@@ -114,7 +141,7 @@ describe('#1304 unfinished arms are never mistaken for measured ones', () => {
 });
 
 describe('#1304 completeness — every arm accounted for, measured or named', () => {
-    const allRows = REQUIRED_MATRIX_ROWS.map(id => ({ id, verdict: { wer: 0.1 }, backendProven: true }));
+    const allRows = REQUIRED_MATRIX_ROWS.map(completeRow);
 
     it('accepts the full matrix', () => {
         expect(validateCompleteness(allRows, REQUIRED_MATRIX_ROWS)).toEqual({ ok: true });
@@ -132,7 +159,7 @@ describe('#1304 completeness — every arm accounted for, measured or named', ()
     });
 
     it('rejects an arm that is not in the registry at all', () => {
-        const v = validateCompleteness([...allRows, { id: 'v9:invented', verdict: { wer: 0.1 }, backendProven: true }], REQUIRED_MATRIX_ROWS);
+        const v = validateCompleteness([...allRows, completeRow('v9:invented')], REQUIRED_MATRIX_ROWS);
         expect(v).toMatchObject({ ok: false, reason: 'unexpected_arms', detail: 'v9:invented' });
     });
 });

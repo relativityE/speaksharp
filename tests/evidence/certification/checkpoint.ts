@@ -34,6 +34,8 @@ export interface RunIdentity {
     evidenceClass: string;
 }
 
+import { NOT_EXECUTED_REASONS } from './arms/registry';
+
 export interface CheckpointRow { id: string; [k: string]: unknown }
 
 /**
@@ -46,24 +48,108 @@ export interface CheckpointRow { id: string; [k: string]: unknown }
  * A row is finished when it is deliberately not executed, deliberately skipped, or carries an actual
  * verdict. Anything else is an arm that started and did not finish, and must be measured again.
  */
-export function isCompleteRow(row: CheckpointRow): boolean {
-    if (row.executed === false) return true;          // preserved with a named not-executed reason
-    if (typeof row.skipped === 'string' && row.skipped) return true; // registry admission (rejected/pending)
-    if (row.verdict == null) return false;             // started and produced nothing
+/**
+ * The reliability contract a MEASURED row must satisfy.
+ *
+ * Named and exported so it is inspectable and testable rather than implied by a comparison buried in a
+ * conditional. A run that threw, produced empty output, or lost clips did not measure the arm — it made a
+ * partial observation, which must be dispositioned rather than counted.
+ */
+export const MEASURED_RELIABILITY_CONTRACT = Object.freeze({
+    requires: ['decoded === expectedClips', 'threw === 0', 'emptyOutput === 0', 'missing === 0'],
+});
 
-    /**
-     * A VERDICT OBJECT IS NOT A MEASUREMENT. A run whose corpus audio was absent produced a verdict for
-     * every arm with `decoded 0/600` and `route_not_honored`, and the artifact was written as if
-     * complete. The verdict existed; the evidence did not.
-     *
-     * So a measured row counts as finished only when the backend was actually proven and every expected
-     * clip decoded. Anything less is an arm to re-measure, not a row to keep.
-     */
-    if (row.backendProven !== true) return false;
-    const expected = row.expectedClips;
-    const decoded = row.decodedClips;
-    if (typeof expected === 'number' && typeof decoded === 'number') return decoded === expected;
-    return true;
+/** Every disposition a row may carry INSTEAD of a measurement. Arbitrary strings are refused. */
+export const UNSCOREABLE_DISPOSITIONS = Object.freeze([
+    'unscoreable_arm', 'incomplete_corpus', 'decode_failures', 'route_not_honored',
+    'backend_not_proven', 'asset_reconciliation_failed', 'load_only',
+] as const);
+
+/** Admission statuses a registry-skipped row may carry. */
+export const ADMISSION_STATUSES = Object.freeze(['pending_harness', 'rejected'] as const);
+
+/** Registered not-executed reasons, as VALUES — an unregistered string can never admit a row. */
+export const REGISTERED_NOT_EXECUTED_REASONS: ReadonlySet<string> =
+    new Set(Object.values(NOT_EXECUTED_REASONS));
+
+export type RowCompleteness =
+    | { complete: true; kind: 'measured' | 'not_executed' | 'admission' | 'unscoreable' }
+    | { complete: false; reason: string };
+
+const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * FAILS CLOSED. The previous version accepted `executed:false` with ANY reason or none, ANY non-empty
+ * `skipped` string, and — the worst of the three — a backend-proven verdict whose `expectedClips` and
+ * `decodedClips` were ABSENT, via a trailing `return true`. A row could therefore be preserved as
+ * complete while recording nothing about what it did.
+ *
+ * Every acceptance path now needs an EXACT registered reason, or real counts cross-checked against the
+ * reliability record. A failed run must carry an explicit unscoreable disposition rather than
+ * masquerading as a completed measurement.
+ */
+export function classifyRow(row: CheckpointRow, expectedReason?: string): RowCompleteness {
+    if (row.executed === false) {
+        const reason = row.reason;
+        if (typeof reason !== 'string' || reason === '') {
+            return { complete: false, reason: 'not-executed row carries no reason' };
+        }
+        if (!REGISTERED_NOT_EXECUTED_REASONS.has(reason)) {
+            return { complete: false, reason: `not-executed reason '${reason}' is not registered` };
+        }
+        // It must be the reason registered FOR THIS ARM, not merely a valid string from the registry.
+        if (expectedReason !== undefined && reason !== expectedReason) {
+            return { complete: false, reason: `not-executed reason '${reason}' != registered '${expectedReason}'` };
+        }
+        return { complete: true, kind: 'not_executed' };
+    }
+
+    if (row.skipped !== undefined) {
+        if (typeof row.skipped !== 'string' || !(ADMISSION_STATUSES as readonly string[]).includes(row.skipped)) {
+            return { complete: false, reason: `admission status '${String(row.skipped)}' is not registered` };
+        }
+        if (typeof row.reason !== 'string' || row.reason === '') {
+            return { complete: false, reason: 'admission row carries no reason' };
+        }
+        return { complete: true, kind: 'admission' };
+    }
+
+    if (row.disposition !== undefined) {
+        if (!(UNSCOREABLE_DISPOSITIONS as readonly string[]).includes(row.disposition as string)) {
+            return { complete: false, reason: `disposition '${String(row.disposition)}' is not registered` };
+        }
+        return { complete: true, kind: 'unscoreable' };
+    }
+
+    if (row.verdict == null) return { complete: false, reason: 'started and produced no verdict' };
+    if (row.backendProven !== true) return { complete: false, reason: 'backend claim not proven' };
+    if (!num(row.expectedClips)) return { complete: false, reason: 'expectedClips missing' };
+    if (!num(row.decodedClips)) return { complete: false, reason: 'decodedClips missing' };
+
+    // The counts must AGREE with the reliability record, which is the only place that knows what
+    // actually succeeded. `decodedClips` was previously the number of clips OFFERED to the runner.
+    const rel = row.reliability as Record<string, unknown> | undefined;
+    if (!rel) return { complete: false, reason: 'reliability record missing' };
+    for (const k of ['decoded', 'expectedClips', 'threw', 'emptyOutput', 'missing']) {
+        if (!num(rel[k])) return { complete: false, reason: `reliability.${k} missing` };
+    }
+    if (rel.decoded !== row.decodedClips || rel.expectedClips !== row.expectedClips) {
+        return { complete: false, reason: 'row counts disagree with the reliability record' };
+    }
+    if (row.decodedClips !== row.expectedClips) {
+        return { complete: false, reason: `decoded ${row.decodedClips}/${row.expectedClips}` };
+    }
+    if (rel.threw !== 0 || rel.emptyOutput !== 0 || rel.missing !== 0) {
+        return {
+            complete: false,
+            reason: `reliability contract unmet (threw=${rel.threw} empty=${rel.emptyOutput} missing=${rel.missing})`,
+        };
+    }
+    return { complete: true, kind: 'measured' };
+}
+
+export function isCompleteRow(row: CheckpointRow, expectedReason?: string): boolean {
+    return classifyRow(row, expectedReason).complete;
 }
 
 export interface Checkpoint {
@@ -122,7 +208,7 @@ export function planResume(existing: unknown, current: RunIdentity): ResumeDecis
     }
     // UNFINISHED rows are dropped, not resumed. Keeping them would let an arm that started and failed
     // masquerade as measured for the rest of the run's life.
-    const finished = cp.rows.filter(isCompleteRow);
+    const finished = cp.rows.filter((r) => isCompleteRow(r, NOT_EXECUTED_REASONS[r.id]));
     return { kind: 'resume', rows: finished, completed: finished.map(r => r.id) };
 }
 

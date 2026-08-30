@@ -30,7 +30,7 @@ import { ARM_MATRIX, ADMITTED_ARMS, SELECTION_EXECUTION_SET, NOT_EXECUTED_REASON
 import { planResume, validateCompleteness, type RunIdentity, type CheckpointRow } from '../tests/evidence/certification/checkpoint';
 import { atomicWriteFileSync } from '../tests/evidence/certification/atomicWrite';
 import { ProbeRecorder, type ProbeInvocation } from '../tests/evidence/certification/probeArtifact';
-import { buildAssetInventory } from '../tests/evidence/certification/assetInventory';
+import { buildAssetInventory, reconcileAssets } from '../tests/evidence/certification/assetInventory';
 import { resolveRetention } from '../tests/evidence/certification/retention';
 import { expectationFor } from '../tests/evidence/certification/arms/build';
 import { certifyArmWithHonorProbe } from '../tests/evidence/certification/certify';
@@ -266,8 +266,30 @@ const digestOfFiles = (paths: string[]): string => {
  * A resumable artifact can silently splice rows measured under a different scorer, corpus or tree into
  * one table that reads as a single experiment, so the bar for resuming is exact equality, not "close".
  */
+/**
+ * THE PRODUCT BASELINE IS NOT THE HARNESS TREE.
+ *
+ * Both fields were `headSha()`, so they always agreed and the artifact asserted an identity it had never
+ * established: the baseline is the product revision the measurement CHARACTERISES, while executionSha is
+ * the tree the harness ran from. They coincide only when the harness happens to be run from the product
+ * commit under test, which is an accident of workflow, not a fact about the evidence — and once they are
+ * conflated, an artifact can claim to characterise a baseline it never measured.
+ *
+ * It must therefore be stated, not inferred. `--product-baseline <sha>` or PRODUCT_BASELINE.
+ */
+const productBaseline = ((): string => {
+    const flag = args.find((a) => a.startsWith('--product-baseline='))?.split('=')[1]
+        ?? process.env.PRODUCT_BASELINE;
+    if (flag && flag.trim()) return flag.trim();
+    console.error('\nREFUSING to run: the product baseline was not stated.');
+    console.error('  It is the product revision this measurement characterises, and it is NOT the harness');
+    console.error('  tree. Pass --product-baseline=<sha> or set PRODUCT_BASELINE. Inferring it from HEAD');
+    console.error('  makes the artifact claim a baseline it never measured.');
+    process.exit(1);
+})();
+
 const runIdentity: RunIdentity = {
-    productBaseline: headSha(),
+    productBaseline,
     executionSha: headSha(),
     policySha: digestOfFiles(['tests/evidence/certification/selectionPolicy.ts']),
     // The manifest IS the frozen corpus: 600 ids each bound to its audio SHA-256.
@@ -365,9 +387,31 @@ for (const spec of ARM_MATRIX) {
      * afterwards, outside the page, gets the same evidence without touching the run.
      */
     const externalUrls = new Set<string>();
+    /**
+     * INDEPENDENTLY OBSERVED REQUEST LEDGER.
+     *
+     * The declared inventory comes from `beginArmCapture()`/`beginRuntimeCapture()` — the harness telling
+     * us what it believes it served. Reconciling that against `modelBytes`, which is computed from the
+     * SAME object, is tautological: it can never detect a file the arm requested but the harness never
+     * recorded, which is exactly the omission worth catching.
+     *
+     * This ledger is built from the page's OWN responses, a channel the inventory does not write to, so
+     * disagreement between the two is detectable. Sizes come from `content-length` where the server sent
+     * it; a response with no length is recorded as unknown rather than assumed zero.
+     */
+    const observedRequests = new Map<string, { bytes: number | null; status: number; count: number }>();
     page.on('response', (response) => {
         const url = response.url();
         if (!url.startsWith(harness.origin) && /^https?:/.test(url)) externalUrls.add(url);
+        const key = url.replace(/^https?:\/\/[^/]+\//, '').replace(/[?#].*$/, '').replace(/^hf\//, '');
+        if (!/\.(onnx|bin|wasm|mjs|json|ort|txt)$/i.test(key)) return;
+        const len = response.headers()['content-length'];
+        const prev = observedRequests.get(key);
+        observedRequests.set(key, {
+            bytes: len ? Number(len) : (prev?.bytes ?? null),
+            status: response.status(),
+            count: (prev?.count ?? 0) + 1,
+        });
     });
 
     /**
@@ -612,8 +656,37 @@ for (const spec of ARM_MATRIX) {
         continue;
     }
 
+    /**
+     * BUILT BEFORE THE LOAD-ONLY RETURN.
+     *
+     * This construction used to sit AFTER the `pinsOnly` early return, so the load-only footprint control
+     * — the arm whose entire purpose is to characterise what a user downloads — exited without ever
+     * building the inventory it exists to produce. Hoisting it means a load-only row retains the same
+     * per-file model/runtime inventory, hashes, roles, bytes, source and reconciliation result as a
+     * decoding row.
+     */
+    const allArmAssets: Record<string, { sha256: string; bytes: number; source: 'cache' | 'network'; pinned: boolean }> =
+        Object.fromEntries([
+            // The runtime binaries this arm ACTUALLY requested.
+            ...Object.entries(runtimeAssetRecords),
+            ...(selfHosted
+                ? Object.entries(hashModelDirectory(resolve('frontend/public/models', modelId)))
+                      .map(([path, sha256]) => [`${modelId}/${path}`, {
+                          sha256,
+                          bytes: statSync(resolve('frontend/public/models', modelId, path)).size,
+                          source: 'cache' as const, pinned: true,
+                      }] as const)
+                : Object.keys(armAssets).length > 0
+                    ? Object.entries(armAssets)
+                    : Object.entries(cdnAssets).map(([k, v]) => [k, {
+                          ...v, source: 'network' as const, pinned: false,
+                      }] as const)),
+        ]);
+
     if (pinsOnly) {
-        console.log(`    loaded — ${Object.keys(harness.assets).length} assets mirrored so far`);
+        const loadOnlyInventory = buildAssetInventory(allArmAssets, null);
+        console.log(`    loaded — ${loadOnlyInventory.fileCount} files, `
+            + `${(loadOnlyInventory.totalBytes / 1e6).toFixed(1)} MB attributable to THIS arm`);
         // RECORD A ROW PER ARM. This mode used to `continue` without pushing anything, so a retained
         // artifact carried a single result while its log showed fourteen arms loading. An artifact
         // that does not stand on its own is not evidence — the reader has to trust a log beside it.
@@ -627,7 +700,17 @@ for (const spec of ARM_MATRIX) {
             runtimeAssetFailures, pinViolations, networkAttempts,
             offlineEnforced: mode === 'pinned' && pinViolations.length === 0
                 && runtimeAssetFailures.length === 0,
+            // The footprint evidence this arm exists to produce — previously unreachable from here.
+            assetInventory: loadOnlyInventory,
+            assetReconciliation: reconcileAssets(loadOnlyInventory, Object.fromEntries(observedRequests), {
+                requirePinned: mode === 'pinned',
+            }),
+            observedRequestCount: observedRequests.size,
+            assetCount: Object.keys(allArmAssets).length,
             wer: null, selectionEligible: false,
+            // A typed disposition, not a prose sentence: `load_only` is a registered non-measurement, so
+            // the completeness gate can accept it deliberately instead of guessing from free text.
+            disposition: 'load_only',
             selectionIneligibleReason: 'load-only run: no decode was performed',
         });
         await context.close();
@@ -658,23 +741,6 @@ for (const spec of ARM_MATRIX) {
      *
      * Two constructions of the same fact will diverge; the fix is to have one.
      */
-    const allArmAssets: Record<string, { sha256: string; bytes: number; source: 'cache' | 'network'; pinned: boolean }> =
-        Object.fromEntries([
-            // The runtime binaries this arm ACTUALLY requested.
-            ...Object.entries(runtimeAssetRecords),
-            ...(selfHosted
-                ? Object.entries(hashModelDirectory(resolve('frontend/public/models', modelId)))
-                      .map(([path, sha256]) => [`${modelId}/${path}`, {
-                          sha256,
-                          bytes: statSync(resolve('frontend/public/models', modelId, path)).size,
-                          source: 'cache' as const, pinned: true,
-                      }] as const)
-                : Object.keys(armAssets).length > 0
-                    ? Object.entries(armAssets)
-                    : Object.entries(cdnAssets).map(([k, v]) => [k, {
-                          ...v, source: 'network' as const, pinned: false,
-                      }] as const)),
-        ]);
 
     const arm = createBrowserArm({
         id: spec.id, page, route, deviceClaim,
@@ -904,14 +970,34 @@ for (const spec of ARM_MATRIX) {
     }
     // ELIGIBILITY NEEDS BOTH: a proven backend AND a selection-grade set. A proven backend is a fact
     // about the runtime; it was being read as a fact about the evidence.
+    /**
+     * THE ASSET GATE IS PART OF ELIGIBILITY, and it is evaluated BEFORE eligibility is decided.
+     *
+     * Eligibility used to be computed here and the inventory built ~100 lines later, so the inventory
+     * could not possibly constrain it: an arm with an empty, duplicated, unattributed, unpinned or
+     * byte-mismatched inventory was still selection-eligible on the strength of its WER. A measurement
+     * whose provenance does not reconcile is not selection evidence, however good the number is.
+     */
+    const armInventory = buildAssetInventory(allArmAssets, null);
+    const assetReconciliation = reconcileAssets(armInventory, Object.fromEntries(observedRequests), {
+        requirePinned: mode === 'pinned',
+    });
+    if (!assetReconciliation.ok) {
+        console.log(`    ASSET RECONCILIATION FAILED (${assetReconciliation.failures.length}) — arm not selection-grade:`);
+        for (const f of assetReconciliation.failures.slice(0, 6)) console.log(`      ${f.kind}: ${f.detail}`);
+    }
+
     const selectionEligible = backendProven && result.ok && evidenceClass === 'selection'
-        && spec.role === 'selection' && harness.assetFailures.length === 0;
+        && spec.role === 'selection' && harness.assetFailures.length === 0
+        && assetReconciliation.ok;
     const ineligible = !selectionEligible
         ? evidenceClass !== 'selection'
             ? `${setName} is a ${evidenceClass} set — not selection evidence`
             : spec.role !== 'selection' ? 'diagnostic cell'
                 : !backendProven ? 'backend claim not proven'
-                    : !result.ok ? `no row: ${result.reason}` : 'asset pins failed'
+                    : !result.ok ? `no row: ${result.reason}`
+                        : harness.assetFailures.length > 0 ? 'asset pins failed'
+                            : `asset reconciliation: ${assetReconciliation.failures.map((f) => f.kind).join(', ')}`
         : null;
 
     console.log(`    backend: ${honored?.deviceResolved ?? 'UNRESOLVED'} (${backendProven ? 'PROVEN' : 'NOT proven'})`
@@ -965,7 +1051,20 @@ for (const spec of ARM_MATRIX) {
         backendProven, hardwareRepresentative,
         certified: certification.certified, failedGates: certification.failedGates,
         fingerprint: certification.fingerprint.digest,
-        expectedClips: set.expectedIds.length, decodedClips: utterances.length, audioMismatches,
+        // FROM THE RELIABILITY RECORD, not `utterances.length`. That was the number of clips OFFERED to
+        // the runner, so a run that threw on 148 of them still serialized `decodedClips: 600` and read as
+        // a complete measurement. `verdict.reliability` is the only place that knows what SUCCEEDED.
+        expectedClips: verdict.reliability.expectedClips,
+        decodedClips: verdict.reliability.decoded,
+        clipsOffered: utterances.length,
+        reliability: {
+            decoded: verdict.reliability.decoded,
+            expectedClips: verdict.reliability.expectedClips,
+            threw: verdict.reliability.threw,
+            emptyOutput: verdict.reliability.emptyOutput,
+            missing: verdict.reliability.missing,
+        },
+        audioMismatches,
         transcriptDigest, perUtterance,
         // #1304 — DECODE FAILURES ARE RETAINED, deduplicated by message.
         //
@@ -1005,7 +1104,11 @@ for (const spec of ARM_MATRIX) {
          * `armAssets`, which is empty for self-hosted arms. So `modelBytes` could not be decomposed, and
          * v4-q4-wasm's 233.1 MB against a registered 142 MB was unexplainable from the artifact.
          */
-        assetInventory: buildAssetInventory(allArmAssets, (verdict.footprint?.modelBytes ?? null) as number | null),
+        assetInventory: armInventory,
+        // Reconciled against an INDEPENDENTLY OBSERVED ledger, not against a total derived from the same
+        // object. The previous form compared allArmAssets to a modelBytes computed from allArmAssets.
+        assetReconciliation,
+        observedRequestCount: observedRequests.size,
         // Kept for continuity with earlier artifacts; the inventory above is the authority.
         decoderAssets: Object.entries(allArmAssets)
             .filter(([path]) => /decoder/i.test(path))
@@ -1019,6 +1122,10 @@ for (const spec of ARM_MATRIX) {
             ? { wer: result.row.wer, referenceWords: result.row.referenceWords, substitutions: result.row.substitutions, deletions: result.row.deletions, insertions: result.row.insertions, wallClockMs: result.row.provenance.resources.wallClockMs }
             : { wer: null, rejectedReason: result.reason, rejectedDetail: result.detail }),
         selectionEligible, selectionIneligibleReason: ineligible,
+        // TYPED non-measurement. A no-row arm previously carried only a prose reason, so the completeness
+        // gate could not tell a deliberate unscoreable result from a run that simply failed.
+        ...(result.ok ? {} : { disposition: 'unscoreable_arm' as const }),
+        ...(result.ok || assetReconciliation.ok ? {} : { disposition: 'asset_reconciliation_failed' as const }),
         provenance: arm.provenance(),
     });
 
