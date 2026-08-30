@@ -119,3 +119,20 @@ export function assertAllCommercialPhasesProven(evidence: Partial<Record<Commerc
     const missing = COMMERCIAL_PHASES.filter((p) => evidence[p] !== true);
     if (missing.length) refuse(`unproven commercial phase(s): ${missing.join(', ')}`);
 }
+
+/**
+ * #1302 — is this retrieval failure PROOF that the object is gone?
+ *
+ * Only a definite "it is not there" counts. The first version of the cleanup treated EVERY retrieval
+ * exception as proof of deletion, so an expired key, a 429 or a DNS blip would have been reported as
+ * clean cleanup while a Test Clock — and its customer and subscription — leaked into a shared test
+ * account. Absence must be observed, not inferred from an inability to look.
+ */
+export function isProofOfAbsence(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+    const e = err as { statusCode?: number; code?: string; type?: string; message?: string };
+    if (e.statusCode === 404) return true;
+    if (e.code === 'resource_missing') return true;
+    if (e.type === 'StripeInvalidRequestError' && /no such|resource_missing/i.test(e.message ?? '')) return true;
+    return false;
+}

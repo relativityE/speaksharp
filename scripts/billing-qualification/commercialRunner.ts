@@ -10,7 +10,7 @@ import { createHmac } from "node:crypto";
 import { migratedDb, effectiveTier, freshTrialProfile, expireTrialWindow } from "./pglite_supabase.ts";
 import {
   assertDbTrialWithoutStripe, assertTrialExpired, assertCheckoutHasNoStripeTrial,
-  assertFirstPaidInvoice, assertTestObjectsCleaned, assertAllCommercialPhasesProven,
+  assertFirstPaidInvoice, assertTestObjectsCleaned, assertAllCommercialPhasesProven, isProofOfAbsence,
   type CommercialPhase,
 } from "./commercialLifecycle.ts";
 import { assertStripeTestMode, type StripeLike, type HandlerFn, type SupabaseLike } from "./runner.ts";
@@ -183,10 +183,22 @@ export async function runCommercialQualification(deps: CommercialDeps): Promise<
     log(`checkout: immediately active, first invoice ${String(invoice.amount_paid)} ${String(invoice.currency)}`);
 
     // ── 8-9. The REAL signed webhook handler against the ephemeral migrated DB ──
+    /**
+     * AN UNCHANGED TIER IS NOT PROOF THE HANDLER SUCCEEDED.
+     *
+     * Every one of these events already leaves the stored tier equal to what we expect — a renewal keeps
+     * 'pro', a duplicate keeps 'pro', a stale event keeps 'pro'. So a handler answering HTTP 500 would
+     * have passed every tier assertion in this run while having processed nothing. The HTTP status is the
+     * only signal that distinguishes "handled correctly" from "not handled at all", and it is now
+     * REQUIRED on every expected-success delivery rather than merely recorded.
+     */
     const send = async (id: string, type: string, created_at: number, object: Obj, note: string) => {
       const status = await deliver(deps, supabase, { id, type, created: created_at, data: { object } });
       const tier = await effectiveTier(db, userId);
       events.push({ id, type, created: created_at, httpStatus: status, effectiveTier: tier, note });
+      if (status < 200 || status >= 300) {
+        throw new Error(`#1302: the webhook handler returned HTTP ${status} for '${note}' (${type}); an unchanged tier does not make that a success`);
+      }
       return { status, tier };
     };
 
@@ -289,11 +301,25 @@ export async function runCommercialQualification(deps: CommercialDeps): Promise<
   if (clockId) {
     try {
       await deps.stripe.testHelpers.testClocks.del(clockId);
+      /**
+       * ONLY AN EXPLICIT 404 / resource_missing PROVES ABSENCE.
+       *
+       * `catch { gone = true }` treated EVERY retrieval failure as proof of deletion — an expired key, a
+       * 429, a DNS blip. Those say nothing about whether the object still exists, and the run would have
+       * reported clean cleanup while leaking a Test Clock and its customer and subscription into a shared
+       * test account. Anything that is not a definite "it is not there" fails cleanup.
+       */
       let gone = false;
       try {
         const after = asObj(await deps.stripe.testHelpers.testClocks.retrieve(clockId));
         gone = after.deleted === true;
-      } catch { gone = true; }   // a 404 IS the proof
+      } catch (e) {
+        const err = e as { message?: string };
+        if (!isProofOfAbsence(e)) {
+          throw new Error(`deletion could not be PROVEN — retrieval failed with something other than 404/resource_missing: ${err.message ?? String(e)}`);
+        }
+        gone = true;
+      }
       if (!gone) throw new Error("the test clock still exists after deletion");
       confirmedDeleted.push(...created);
     } catch (e) { failures.push(`test clock ${clockId}: ${(e as Error).message}`); }

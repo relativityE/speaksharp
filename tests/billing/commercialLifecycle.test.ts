@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import {
     assertDbTrialWithoutStripe, assertTrialExpired, assertCheckoutHasNoStripeTrial,
     assertFirstPaidInvoice, assertTestObjectsCleaned, assertAllCommercialPhasesProven, COMMERCIAL_PHASES,
+  isProofOfAbsence,
 } from '../../scripts/billing-qualification/commercialLifecycle';
 
 /** Every assertion must ABORT on its own named cause — a generic throw proves nothing about which. */
@@ -146,5 +147,69 @@ describe('#1302 — additive: the existing weekly lane is untouched', () => {
         const required = src.slice(src.indexOf('REQUIRED_PHASES'), src.indexOf(']', src.indexOf('REQUIRED_PHASES')));
         expect(required).toContain('checkout');
         for (const p of COMMERCIAL_PHASES) expect(required).not.toContain(p);
+    });
+});
+
+describe('#1302 — cleanup may only accept a DEFINITE absence as proof of deletion', () => {
+    // `catch { gone = true }` treated EVERY retrieval failure as proof of deletion. An expired key, a 429
+    // or a DNS blip says nothing about whether the object still exists — the run would have reported
+    // clean cleanup while leaking a Test Clock, its customer and its subscription into a shared account.
+    it.each([
+        ['a 404 status', { statusCode: 404 }],
+        ['code resource_missing', { code: 'resource_missing' }],
+        ['a Stripe "No such test clock" invalid-request error', {
+            type: 'StripeInvalidRequestError', message: 'No such test clock: tc_123',
+        }],
+    ])('ACCEPTS %s as proof the object is gone', (_l, err) => {
+        expect(isProofOfAbsence(err)).toBe(true);
+    });
+
+    it.each([
+        ['an authentication failure', { statusCode: 401, type: 'StripeAuthenticationError', message: 'Invalid API Key' }],
+        ['a rate limit', { statusCode: 429, type: 'StripeRateLimitError', message: 'Too many requests' }],
+        ['a generic network failure', { type: 'StripeConnectionError', message: 'ECONNRESET' }],
+        ['a server error', { statusCode: 500, message: 'internal error' }],
+        ['a bare Error', new Error('something went wrong')],
+        ['a non-object', 'boom'],
+        ['nothing at all', undefined],
+    ])('REJECTS %s — an inability to look is not proof of absence', (_l, err) => {
+        expect(isProofOfAbsence(err)).toBe(false);
+    });
+
+    it('the runner uses the predicate rather than a bare catch', () => {
+        const src = readFileSync(resolve(__dirname, '../../scripts/billing-qualification/commercialRunner.ts'), 'utf8');
+        expect(src).toContain('isProofOfAbsence(e)');
+        expect(src).toContain('deletion could not be PROVEN');
+        // The original bug, in one line. It must not come back.
+        expect(src).not.toContain('catch { gone = true; }');
+    });
+});
+
+describe('#1302 — an expected-success webhook must REQUIRE HTTP success', () => {
+    // Every one of these events leaves the stored tier equal to what we expect, so a handler answering
+    // HTTP 500 would have passed every tier assertion while processing nothing.
+    const src = readFileSync(resolve(__dirname, '../../scripts/billing-qualification/commercialRunner.ts'), 'utf8');
+
+    it('send() throws on any non-2xx, not merely records it', () => {
+        const block = src.slice(src.indexOf('const send = async ('), src.indexOf('return { status, tier };'));
+        expect(block).toContain('status < 200 || status >= 300');
+        expect(block).toContain('an unchanged tier does not make that a success');
+    });
+
+    it('every expected-success phase goes through send(), so each inherits the status requirement', () => {
+        for (const note of [
+            'first paid binding', 'DUPLICATE of the binding event', 'renewal',
+            'OUT-OF-ORDER (older than the last applied)', 'payment failure', 'recovery',
+            'cancel_at_period_end', 'terminal revocation',
+        ]) {
+            const call = src.includes(`"${note}"`);
+            expect(call, `${note} is not delivered through send()`).toBe(true);
+        }
+    });
+
+    it('the FORGED-signature casualty deliberately does NOT go through send()', () => {
+        // It must be rejected, so requiring HTTP success there would be backwards.
+        expect(src).toContain('{ forgeSignature: true }');
+        expect(src).toContain('a FORGED webhook signature was accepted');
     });
 });
