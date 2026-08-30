@@ -1,0 +1,84 @@
+# #1302 — Stripe TEST-MODE commercial lifecycle qualification.
+#
+# Dispatch-only and test-mode only. It creates NO live object, enables NO payments, deploys nothing, and
+# touches no production database: the webhook handler runs against an ephemeral migrated PGlite instance.
+name: Stripe Commercial Lifecycle (TEST MODE)
+
+on:
+  workflow_dispatch:
+    inputs:
+      acknowledge_test_mode:
+        description: 'Type TEST-MODE-ONLY to confirm no live credential is intended'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # One at a time: two concurrent runs would share the Stripe test account and make cleanup ambiguous.
+  group: stripe-commercial-lifecycle
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    name: commercial lifecycle (test mode)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Refuse an unacknowledged dispatch
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.acknowledge_test_mode }}" != 'TEST-MODE-ONLY' ]; then
+            echo '::error::Dispatch must acknowledge TEST-MODE-ONLY.'
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Qualify the commercial lifecycle
+        env:
+          # TEST-scoped credentials ONLY. The live names are deliberately not referenced anywhere here.
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
+          STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_TEST_PRO_PRICE_ID }}
+        run: |
+          set -euo pipefail
+          # Defence in depth: refuse a live key before Deno starts, in addition to the runner's own
+          # livemode=false proof.
+          case "${STRIPE_SECRET_KEY:-}" in
+            sk_live_*) echo '::error::TEST MODE ONLY — a live Stripe key was supplied.'; exit 1 ;;
+            sk_test_*) : ;;
+            *) echo '::error::A Stripe TEST secret key (sk_test_...) is required.'; exit 1 ;;
+          esac
+          deno run --config scripts/billing-qualification/deno.json --node-modules-dir=auto \
+            --allow-read --allow-write --allow-env --allow-net --allow-ffi --allow-sys \
+            scripts/billing-qualification/commercialQualify.ts
+
+      - name: Checksum and publish the sanitized artifact
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -f stripe-commercial-lifecycle.json ]; then
+            sha256sum stripe-commercial-lifecycle.json | tee stripe-commercial-lifecycle.sha256
+            {
+              echo '## #1302 commercial lifecycle (TEST MODE)'
+              echo "- Base/head: \`${{ github.sha }}\`"
+              echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+              echo "- Artifact SHA-256: \`$(cut -d' ' -f1 stripe-commercial-lifecycle.sha256)\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '- No artifact produced — the run failed before writing evidence.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stripe-commercial-lifecycle-${{ github.run_id }}
+          path: |
+            stripe-commercial-lifecycle.json
+            stripe-commercial-lifecycle.sha256
+          if-no-files-found: warn
