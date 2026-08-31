@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
     CANDIDATES, CANDIDATE_IDS, PRIVATE_STT_MODEL_IN_USE, UnknownCandidateError, UnusableCandidateError,
-    activeCandidate, candidateForRuntime, identityOf, isCompleteIdentity, resolveCandidate,
+    activeCandidate, assertBrowserUsable, candidateForRuntime, identityOf, isCompleteIdentity,
+    resolveCandidate,
     type CandidateId,
 } from '../candidateRegistry';
 
@@ -54,6 +55,46 @@ describe('configured asset identity is recomputed, never trusted', () => {
         expect(h.digest('hex')).toBe(c.assets.pinDigest);
     });
 
+    it('CASUALTY: every whisper candidate digest recomputes from the committed HF pin table', () => {
+        // Each v4 candidate is bound to the EXACT files it loads — the same encoder with a different
+        // decoder precision — so q4 and int8 must not share a digest.
+        const files = (repo: string, decoder: string): string[] => [
+            'config.json', 'generation_config.json', 'preprocessor_config.json',
+            'tokenizer.json', 'tokenizer_config.json', 'onnx/encoder_model.onnx', `onnx/${decoder}`,
+        ].map((f) => `${repo}/resolve/main/${f}`);
+
+        const expected: [string, string[]][] = [
+            ['v4:base:q4', files('onnx-community/whisper-base.en', 'decoder_model_merged_q4.onnx')],
+            ['v4:base:int8', files('onnx-community/whisper-base.en', 'decoder_model_merged_int8.onnx')],
+            ['v4:distil:q4', files('onnx-community/distil-small.en', 'decoder_model_merged_q4.onnx')],
+        ];
+
+        for (const [id, keys] of expected) {
+            const c = CANDIDATES[id as CandidateId];
+            const pins = JSON.parse(repoFile(c.assets.pinSource!)) as { assets: Record<string, string> };
+            const h = createHash('sha256');
+            for (const k of [...keys].sort()) {
+                expect(pins.assets[k], `${id} missing pin for ${k}`).toBeTruthy();
+                h.update(`${k}:${pins.assets[k]}\n`);
+            }
+            expect(c.assets.componentCount, `${id} component count`).toBe(keys.length);
+            expect(h.digest('hex'), `${id} pin digest`).toBe(c.assets.pinDigest);
+        }
+        // q4 and int8 differ only by decoder precision; identical digests would mean one model twice.
+        expect(CANDIDATES['v4:base:q4'].assets.pinDigest)
+            .not.toBe(CANDIDATES['v4:base:int8'].assets.pinDigest);
+    });
+
+    it('a candidate with NO digest says why, and the shipping default is the one that lacks pins', () => {
+        // Recorded, not hidden: requiring a pin digest for identity completeness would fail v2 at boot.
+        expect(CANDIDATES['v2:base.en'].assets.pinDigest).toBeNull();
+        expect(CANDIDATES['v2:base.en'].assets.pinNote).toMatch(/no committed pins/);
+        for (const id of CANDIDATE_IDS) {
+            const a = CANDIDATES[id].assets;
+            expect(Boolean(a.pinDigest) || Boolean(a.pinNote), `${id} has neither a digest nor a reason`).toBe(true);
+        }
+    });
+
     it('the pinned revision appears in the pinned component paths', () => {
         // Guards the pairing: a digest can match while the revision string names a different set.
         const c = CANDIDATES['moonshine:streaming-medium'];
@@ -72,11 +113,27 @@ describe('selection fails closed', () => {
         expect(() => resolveCandidate('nope')).toThrow(/registered: .*v2:base\.en/);
     });
 
-    it('CASUALTY: a REGISTERED but browser-unusable candidate is refused, with the recorded reason', () => {
-        // int8 is the case that matters: real, measured, and impossible to run in the backend we ship.
-        // Without this it would be discovered at a user's first session, after the model download.
-        expect(() => resolveCandidate('v4:base:int8')).toThrow(UnusableCandidateError);
-        expect(() => resolveCandidate('v4:base:int8')).toThrow(/ONNX Runtime Web cannot create a session/);
+    it('CASUALTY: a browser-unusable candidate is refused, with its recorded reason', () => {
+        // Tested through the exported MECHANISM against a synthetic candidate, not by marking a real
+        // one unusable. An earlier version asserted this against v4:base:int8, which pinned a WRONG
+        // classification into the test suite: r9 ran int8 at executionBackend "browser_wasm" with
+        // backendProven true and 23/23 decoded. Proving the guard must not require libelling a
+        // candidate that works.
+        const unusable = {
+            ...CANDIDATES['v4:base:q4'],
+            browser: { ok: false, reason: 'synthetic: cannot create a session' },
+        };
+        expect(() => assertBrowserUsable(unusable)).toThrow(UnusableCandidateError);
+        expect(() => assertBrowserUsable(unusable)).toThrow(/cannot create a session/);
+    });
+
+    it('POSITIVE CONTROL: v4:base:int8 RESOLVES — it is browser-WASM capable', () => {
+        // Guards the correction itself. r9: executionBackend "browser_wasm", backendProven true,
+        // 23/23 decoded, every reliability counter zero; the earlier targeted run decoded 600/600.
+        // Its accuracy being statistically indistinguishable from v2 is a SELECTION question, not a
+        // technical-capability one, and must not be re-encoded as a boot-time rejection.
+        expect(resolveCandidate('v4:base:int8').id).toBe('v4:base:int8');
+        expect(CANDIDATES['v4:base:int8'].browser.ok).toBe(true);
     });
 
     it('every candidate marked unusable states WHY', () => {
@@ -85,8 +142,10 @@ describe('selection fails closed', () => {
         const unusableWithoutReason = CANDIDATE_IDS
             .filter((id) => !CANDIDATES[id].browser.ok && !CANDIDATES[id].browser.reason);
         expect(unusableWithoutReason).toEqual([]);
-        // and at least one IS unusable today, so the assertion above is not vacuous.
-        expect(CANDIDATE_IDS.filter((id) => !CANDIDATES[id].browser.ok)).toEqual(['v4:base:int8']);
+        // TODAY every registered candidate is browser-capable, so the rule above is vacuous here by
+        // design — which is why the refusal mechanism is proven separately against a synthetic
+        // candidate rather than by keeping a real one marked unusable.
+        expect(CANDIDATE_IDS.filter((id) => !CANDIDATES[id].browser.ok)).toEqual([]);
     });
 
     it('POSITIVE CONTROL: usable candidates resolve', () => {
@@ -154,6 +213,15 @@ describe('configured identity is complete, and completeness is enforced', () => 
         expect(Object.keys(identity).every((k) => !/observed|init|decode|backend/i.test(k))).toBe(true);
         expect(identity.configuredRuntime.package).toBe('@moonshine-ai/moonshine-wasm');
         expect(identity.configuredModel.revision).toBe('quantized_26_07_30');
+    });
+
+    it('CASUALTY: the registry is DEEP-frozen — nested values cannot be mutated', () => {
+        // Object.freeze is shallow, so `CANDIDATES[id].runtime.version = 'x'` silently succeeded and a
+        // configured identity could be rewritten at runtime by any caller.
+        expect(Object.isFrozen(CANDIDATES['v4:base:q4'].runtime)).toBe(true);
+        expect(Object.isFrozen(CANDIDATES['v4:base:q4'].model)).toBe(true);
+        expect(Object.isFrozen(CANDIDATES['v4:base:q4'].assets)).toBe(true);
+        expect(Object.isFrozen(CANDIDATES['v4:base:q4'].model.dtype)).toBe(true);
     });
 
     it('identity is a COPY — a caller cannot mutate the registry through it', () => {

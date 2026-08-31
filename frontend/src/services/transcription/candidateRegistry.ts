@@ -59,6 +59,8 @@ export interface ConfiguredAssets {
     /** Where those pins live, so a reviewer can recompute the digest rather than trust it. */
     pinSource: string | null;
     componentCount: number | null;
+    /** Why there is no digest, when there is none. Never left unexplained. */
+    pinNote?: string | null;
 }
 
 /**
@@ -82,7 +84,16 @@ export interface Candidate {
 
 const WHISPER_BASE = 'onnx-community/whisper-base.en';
 
-export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = Object.freeze({
+/** Object.freeze is SHALLOW: without this, `CANDIDATES[id].runtime.version = 'x'` silently succeeds. */
+function deepFreeze<T>(value: T): T {
+    if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+        Object.freeze(value);
+        for (const v of Object.values(value as Record<string, unknown>)) deepFreeze(v);
+    }
+    return value;
+}
+
+export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
     'v2:base.en': {
         id: 'v2:base.en',
         engine: 'transformers-js',
@@ -94,7 +105,18 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = Object.freez
             device: null,
             sampleRateHz: 16_000,
         },
-        assets: { pinDigest: null, pinSource: null, componentCount: null },
+        assets: {
+            // THE SHIPPING DEFAULT HAS NO PINNED ASSETS. The committed table covers the
+            // `onnx-community/*` family and `Xenova/whisper-small.en`; there is no
+            // `Xenova/whisper-base.en` entry, and v2 loads the Xenova family because those repos are
+            // built for transformers.js v2. Recorded explicitly rather than left silently null — and it
+            // is why a pin digest is NOT part of identity completeness: requiring one would fail the
+            // current shipping default at boot. Pinning v2's assets is separate work.
+            pinDigest: null,
+            pinSource: null,
+            componentCount: null,
+            pinNote: 'no committed pins for Xenova/whisper-base.en; v2 asset identity is unpinned',
+        },
         browser: { ok: true },
     },
     'v4:base:q4': {
@@ -108,7 +130,12 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = Object.freez
             device: null,
             sampleRateHz: 16_000,
         },
-        assets: { pinDigest: null, pinSource: null, componentCount: null },
+        assets: {
+            pinDigest: '19e79a9e383779a6763c9e766ccd4e3067d5481d6468164c4b86147ddb356644',
+            pinSource: 'tests/fixtures/hf-asset-pins.json',
+            componentCount: 7,
+            pinNote: null,
+        },
         browser: { ok: true },
     },
     'v4:base:int8': {
@@ -122,18 +149,18 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = Object.freez
             device: null,
             sampleRateHz: 16_000,
         },
-        assets: { pinDigest: null, pinSource: null, componentCount: null },
-        // RECORDED FROM A RUN, not assumed. ONNX Runtime WEB refuses to create a session for this
-        // decoder — `qdq_actions.cc:137 TransposeDQWeightsForMatMulNBits, Missing required scale:
-        // model.decoder.embed_tokens.weight_merged_0_scale` — so it scores only under
-        // onnxruntime-node. It is registered because it is a real measured candidate; it is marked
-        // unusable because the browser is the backend the product ships.
-        browser: {
-            ok: false,
-            reason: 'ONNX Runtime Web cannot create a session for the int8 decoder '
-                + '(TransposeDQWeightsForMatMulNBits: missing scale for '
-                + 'model.decoder.embed_tokens.weight_merged_0_scale); node-lane only',
+        assets: {
+            pinDigest: '14e12c137a55be0d2e49de2d7f1330518e88de652eded865b762143f2d96251c',
+            pinSource: 'tests/fixtures/hf-asset-pins.json',
+            componentCount: 7,
+            pinNote: null,
         },
+        // CORRECTED. An earlier version of this entry marked int8 browser-unusable, citing the arm
+        // registry's note that ONNX Runtime Web refused to create a session for this decoder. That note
+        // is STALE, and a source comment is not evidence: the r9 preflight ran this candidate at
+        // `executionBackend: "browser_wasm"` with `backendProven: true` and 23/23 decoded, every
+        // reliability counter zero, and the earlier targeted run decoded 600/600. A run beats a comment.
+        browser: { ok: true },
     },
     /**
      * NOT one of the four finalists — registered because the SHIPPING resolver can still select it
@@ -153,7 +180,12 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = Object.freez
             device: 'webgpu',
             sampleRateHz: 16_000,
         },
-        assets: { pinDigest: null, pinSource: null, componentCount: null },
+        assets: {
+            pinDigest: 'b5e113f824bd8db270210d4c90ac779d2914c705bc692a9376b7cb89dbde042e',
+            pinSource: 'tests/fixtures/hf-asset-pins.json',
+            componentCount: 7,
+            pinNote: null,
+        },
         browser: { ok: true },
     },
     'moonshine:streaming-medium': {
@@ -171,6 +203,7 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = Object.freez
             pinDigest: '898305d7768356a7f56002a4b2c4e55dd0534a6fd1ae11b0aadc0d11d2a27891',
             pinSource: 'tests/fixtures/moonshine-asset-pins.json',
             componentCount: 7,
+            pinNote: null,
         },
         browser: { ok: true },
     },
@@ -225,6 +258,19 @@ export function candidateForRuntime(
  * Two refusals, not one. An unknown id is obvious; a KNOWN id that cannot execute in the browser is the
  * one that would otherwise be discovered at a user's first session, after the download.
  */
+/**
+ * Exported so the refusal MECHANISM stays under test even when — as today — no registered candidate is
+ * browser-unusable. Testing it only through a real "unusable" entry is what pressured the registry into
+ * keeping int8 falsely marked; the guard must be provable without libelling a working candidate.
+ */
+export function assertBrowserUsable(candidate: Candidate): void {
+    if (!candidate.browser.ok) {
+        throw new UnusableCandidateError(
+            `Private STT candidate "${candidate.id}" cannot execute in the browser: ${candidate.browser.reason}`,
+        );
+    }
+}
+
 export function resolveCandidate(id: string): Candidate {
     const candidate = (CANDIDATES as Record<string, Candidate | undefined>)[id];
     if (!candidate) {
@@ -232,11 +278,7 @@ export function resolveCandidate(id: string): Candidate {
             `unknown Private STT candidate "${id}"; registered: ${CANDIDATE_IDS.join(', ')}`,
         );
     }
-    if (!candidate.browser.ok) {
-        throw new UnusableCandidateError(
-            `Private STT candidate "${id}" cannot execute in the browser: ${candidate.browser.reason}`,
-        );
-    }
+    assertBrowserUsable(candidate);
     return candidate;
 }
 
