@@ -622,7 +622,8 @@ for (const spec of ARM_MATRIX) {
                 // certified scorer and every gate — work unchanged. A different runtime is an
                 // adapter, not a separate measurement path.
                 const lib = await import(input.libUrl);
-                const { Transcriber, ModelArch } = lib as {
+                const { Transcriber, ModelArch, resetMoonshineModule } = lib as {
+                    resetMoonshineModule?: () => void;
                     Transcriber: { load: (o: Record<string, unknown>) => Promise<{
                         transcribe: (a: Float32Array) => Promise<unknown>;
                     }> };
@@ -645,10 +646,19 @@ for (const spec of ARM_MATRIX) {
                  * The instance is destroyed after every clip: loading repeatedly without destroying
                  * exhausted the WASM heap with std::bad_alloc.
                  */
-                const loadFresh = () => Transcriber.load({
-                    language: 'en',
-                    modelArch: ModelArch[input.moonshineArch],
-                });
+                let decodesSoFar = 0;
+                const loadFresh = () => {
+                    // `destroy()` does NOT return the WASM heap: six fresh loads in one page exhausted
+                    // it with std::bad_alloc, which the preflight caught as threw=18 on 23 clips.
+                    // `resetMoonshineModule()` clears the cached module and reclaims it — 12/12 loads
+                    // survive with it against 6/12 without. It is skipped on the first load, where
+                    // there is nothing to reclaim and the compile would be paid twice.
+                    if (decodesSoFar++ > 0) resetMoonshineModule?.();
+                    return Transcriber.load({
+                        language: 'en',
+                        modelArch: ModelArch[input.moonshineArch],
+                    });
+                };
                 w.__asr = async (audio: Float32Array) => {
                     const transcriber = await loadFresh();
                     try {

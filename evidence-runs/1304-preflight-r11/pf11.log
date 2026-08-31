@@ -1,0 +1,84 @@
+
+#1304 BROWSER lane — set=preflight (preflight), 23 clips / 459 normalized words, mirror mode=pinned
+
+
+  v2:tiny.en  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+  v2:base.en  (v2 whisper-base.en — SHIPPING)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0436  words=459 S=16 D=1 I=3
+    selection eligible: no — preflight is a preflight set — not selection evidence
+    cold load 978ms · warm p50 1508ms p95 2395ms · RTF p50 0.239 p95 0.439
+    download 92.2 MB over 14 files · reliability decoded=23/23 threw=0 empty=0 missing=0 truncated=0
+
+  v2:base.en:no-conditioning  — not measured under targeted-finalists-v1 (invalid_runtime_option_unsupported)
+
+  v2:small.en  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+  v4:base:q4-decoder:wasm  (v4 base, fp32 encoder + q4 decoder, WASM)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0414  words=459 S=14 D=1 I=4
+    selection eligible: no — preflight is a preflight set — not selection evidence
+    cold load 2036ms · warm p50 1361ms p95 2030ms · RTF p50 0.217 p95 0.381
+    download 234.3 MB over 30 files · reliability decoded=23/23 threw=0 empty=0 missing=0 truncated=0
+
+  v4:base:q4-decoder:cpu  — not measured under targeted-finalists-v1 (diagnostic_duplicate_of_q4_wasm)
+
+  v4:base:q4-decoder:webgpu  — not measured under targeted-finalists-v1 (not_run_hardware_unrepresentative)
+
+  v4:base:fp32-decoder:cpu  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+  v4:base:int8-decoder:cpu  (v4 base, int8 decoder)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0479  words=459 S=17 D=1 I=4
+    selection eligible: no — preflight is a preflight set — not selection evidence
+    cold load 1538ms · warm p50 1290ms p95 1776ms · RTF p50 0.224 p95 0.374
+    download 164.4 MB over 30 files · reliability decoded=23/23 threw=0 empty=0 missing=0 truncated=0
+
+  v4:base:q8-decoder:cpu  — not measured under targeted-finalists-v1 (alias_of_int8)
+
+  v4:distil-small.en:q4-decoder:webgpu  — not measured under targeted-finalists-v1 (not_run_hardware_unrepresentative)
+
+  moonshine:streaming-small  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+  moonshine:streaming-medium  (Moonshine Streaming Medium (official @moonshine-ai/moonshine-wasm))
+    ASSET RECONCILIATION FAILED (12) — arm not selection-grade:
+      observed_not_declared: lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs
+      observed_not_declared: lib/@moonshine-ai/moonshine-wasm/dist/moonshine.wasm
+      observed_not_declared: external/download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/adapter.ort
+      observed_not_declared: external/download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/cross_kv.ort
+      observed_not_declared: external/download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/decoder_kv.ort
+      observed_not_declared: external/download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/encoder.ort
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0523  words=459 S=14 D=0 I=10
+    selection eligible: no — preflight is a preflight set — not selection evidence
+    cold load 21ms · warm p50 4489ms p95 18625ms · RTF p50 0.659 p95 5.925
+    download 0.1 MB over 17 files · reliability decoded=23/23 threw=0 empty=0 missing=0 truncated=0
+
+  moonshine:tiny  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+  moonshine:base  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+
+=== BROWSER LANE SUMMARY ===
+    —     v2:tiny.en                           n/a                          not eligible
+  0.0436  v2:base.en                           wasm:1 module(s)             not eligible
+    —     v2:base.en:no-conditioning           n/a                          not eligible
+    —     v2:small.en                          n/a                          not eligible
+  0.0414  v4:base:q4-decoder:wasm              wasm:1 module(s)             not eligible
+    —     v4:base:q4-decoder:cpu               n/a                          not eligible
+    —     v4:base:q4-decoder:webgpu            n/a                          not eligible
+    —     v4:base:fp32-decoder:cpu             n/a                          not eligible
+  0.0479  v4:base:int8-decoder:cpu             wasm:1 module(s)             not eligible
+    —     v4:base:q8-decoder:cpu               n/a                          not eligible
+    —     v4:distil-small.en:q4-decoder:webgpu n/a                          not eligible
+    —     moonshine:streaming-small            n/a                          not eligible
+  0.0523  moonshine:streaming-medium           wasm:1 module(s)             not eligible
+    —     moonshine:tiny                       n/a                          not eligible
+    —     moonshine:base                       n/a                          not eligible
+
+  evidence class: preflight. NO row from this set may inform the down-select.
+
+
+REFUSING to finalise evidence-runs/1304-preflight-r11/decode-4cell.json: plan targeted-finalists-v1 not_selection_grade (v2:base.en)
+The checkpoint at evidence-runs/1304-preflight-r11/decode-4cell.partial.json is retained; resume to complete it.
