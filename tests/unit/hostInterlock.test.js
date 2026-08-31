@@ -3,127 +3,197 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-    InterlockError, LOCK_DIR, acquire, assertClear, classifyLock, interlockDisabled,
+    InterlockError, LOCK_DIR, acquire, assertClear, interlockDisabled, overrideActive, readLocks,
 } from '../../scripts/lib/hostInterlock.mjs';
 
 let root;
 const NOT_CI = { CI: undefined };
-const lockFile = (kind) => join(root, LOCK_DIR, `${kind}.lock`);
-const writeLock = (kind, body) => {
+/** Another job's pid. Never this process, so "own lock" logic cannot mask a real conflict. */
+const OTHER = 424242;
+/** These tests decide liveness explicitly; the real prober would call it dead. */
+const LIVE = { isAlive: () => true };
+const opts = (extra = {}) => ({ root, env: NOT_CI, ...LIVE, ...extra });
+
+const lockPath = (name) => join(root, LOCK_DIR, `${name}.lock`);
+const writeLock = (name, body) => {
     mkdirSync(join(root, LOCK_DIR), { recursive: true });
-    writeFileSync(lockFile(kind), typeof body === 'string' ? body : JSON.stringify(body));
+    writeFileSync(lockPath(name), typeof body === 'string' ? body : JSON.stringify(body));
 };
+const held = (kind, pid = OTHER) => writeLock(`${kind}.${pid}`, { kind, pid, host: hostname(), startedAt: 'now' });
 
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'interlock-')); });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe('BOTH directions refuse — the whole point of an interlock', () => {
-    it('CASUALTY: a benchmark refuses to start while a local test/build holds the lock', () => {
-        // This is the contamination that actually happened: a local suite was already running when the
-        // 600 started, and cost v2's entire latency arm.
-        writeLock('local', { kind: 'local', pid: process.pid, host: hostname(), startedAt: 'now' });
-        expect(() => assertClear('benchmark', { root, env: NOT_CI })).toThrow(InterlockError);
-        expect(() => assertClear('benchmark', { root, env: NOT_CI })).toThrow(/a local job is running/);
+    it('CASUALTY: a benchmark refuses to start while a local test/build holds a lock', () => {
+        // The first contamination: a local suite was already running when the 600 started, and cost
+        // v2's entire latency arm.
+        held('local');
+        expect(() => assertClear('benchmark', opts())).toThrow(InterlockError);
+        expect(() => assertClear('benchmark', opts())).toThrow(/a local job is running/);
     });
 
-    it('CASUALTY: a local test/build refuses to start while a benchmark holds the lock', () => {
-        // The second contamination: a suite started DURING the benchmark. One-way locking would have
-        // permitted this, which is why the interlock is bidirectional rather than a benchmark mutex.
-        writeLock('benchmark', { kind: 'benchmark', pid: process.pid, host: hostname(), startedAt: 'now' });
-        expect(() => assertClear('local', { root, env: NOT_CI })).toThrow(/a benchmark job is running/);
+    it('CASUALTY: a local test/build refuses to start while a benchmark holds a lock', () => {
+        // The second contamination: a suite started DURING the benchmark. A benchmark-only mutex would
+        // have permitted this, which is why the interlock is bidirectional.
+        held('benchmark');
+        expect(() => assertClear('local', opts())).toThrow(/a benchmark job is running/);
     });
 
-    it('POSITIVE CONTROL: each side starts freely when the other is not held', () => {
-        expect(assertClear('benchmark', { root, env: NOT_CI }).state).toBe('absent');
-        expect(assertClear('local', { root, env: NOT_CI }).state).toBe('absent');
+    it('CASUALTY: a benchmark refuses ANOTHER benchmark', () => {
+        // Two concurrent benchmarks contaminate each other exactly as a suite does.
+        held('benchmark');
+        expect(() => assertClear('benchmark', opts())).toThrow(InterlockError);
     });
 
-    it('POSITIVE CONTROL: holding a lock does not block the SAME kind', () => {
-        // Two benchmark shards on one host is a different decision; the interlock governs cross-kind
-        // contamination and must not silently become a global mutex.
-        writeLock('benchmark', { kind: 'benchmark', pid: process.pid, host: hostname(), startedAt: 'now' });
-        expect(() => assertClear('benchmark', { root, env: NOT_CI })).not.toThrow();
+    it('local jobs may coexist with each other', () => {
+        // Two suites on one host is a developer's own business; this must not become a global mutex.
+        held('local');
+        expect(() => assertClear('local', opts())).not.toThrow();
+    });
+
+    it('POSITIVE CONTROL: each side starts freely when nothing is held', () => {
+        expect(assertClear('benchmark', opts()).state).toBe('clear');
+        expect(assertClear('local', opts()).state).toBe('clear');
+    });
+});
+
+describe('owner-specific locks — one job can never disarm another', () => {
+    it('CASUALTY: releasing one local job does NOT remove another local job\'s lock', () => {
+        // A single shared local.lock let one suite delete another's on exit, silently disarming the
+        // interlock for a benchmark starting in between.
+        held('local');
+        const mine = acquire('local', opts());
+        mine.release();
+        expect(existsSync(mine.path)).toBe(false);
+        expect(existsSync(lockPath(`local.${OTHER}`))).toBe(true);
+        // and the surviving lock still blocks a benchmark
+        expect(() => assertClear('benchmark', opts())).toThrow(InterlockError);
+    });
+
+    it('a held lock blocks for its WHOLE lifetime, not just at check time', () => {
+        // `check` once and then run unlocked leaves a window: check clear -> suite runs -> benchmark
+        // starts, sees nothing -> both overlap.
+        const h = acquire('local', opts());
+        expect(() => assertClear('benchmark', opts())).toThrow(InterlockError);
+        h.release();
+        expect(() => assertClear('benchmark', opts())).not.toThrow();
+    });
+
+    it('a benchmark is not blocked by its OWN lock on re-entry', () => {
+        const h = acquire('benchmark', opts());
+        expect(() => assertClear('benchmark', opts())).not.toThrow();
+        h.release();
+    });
+
+    it('CASUALTY: holding `local` does not let the same process start a benchmark', () => {
+        // Skipping any same-pid lock (rather than same-pid AND same-kind) would allow exactly this.
+        const h = acquire('local', opts());
+        expect(() => assertClear('benchmark', opts())).toThrow(InterlockError);
+        h.release();
     });
 });
 
 describe('stale locks require verified PID and host ownership', () => {
     it('reclaims a lock whose PID is gone ON THIS HOST', () => {
-        writeLock('local', { kind: 'local', pid: 2, host: hostname(), startedAt: 'old' });
+        held('local');
         const r = assertClear('benchmark', { root, env: NOT_CI, isAlive: () => false });
-        expect(r.reclaimed).toBe(true);
-        expect(existsSync(lockFile('local'))).toBe(false);
+        expect(r.state).toBe('clear');
+        expect(existsSync(lockPath(`local.${OTHER}`))).toBe(false);
     });
 
     it('CASUALTY: a FOREIGN-HOST lock is never reclaimed automatically', () => {
-        // `process.kill(pid, 0)` on this machine says nothing about a process on another machine.
-        // Treating "not running here" as "stale" would delete a live lock and re-enable contamination.
-        writeLock('benchmark', { kind: 'benchmark', pid: 999999, host: 'some-other-host', startedAt: 'now' });
+        // `process.kill(pid, 0)` here says nothing about a process on another machine; treating "not
+        // running locally" as stale would delete a live lock and re-enable contamination.
+        writeLock('benchmark.999', { kind: 'benchmark', pid: 999, host: 'some-other-host', startedAt: 'now' });
         expect(() => assertClear('local', { root, env: NOT_CI, isAlive: () => false }))
             .toThrow(/held by host "some-other-host"/);
-        expect(existsSync(lockFile('benchmark'))).toBe(true);
+        expect(existsSync(lockPath('benchmark.999'))).toBe(true);
     });
 
     it('CASUALTY: an unreadable lock refuses rather than being treated as absent', () => {
-        writeLock('benchmark', 'not json at all');
-        expect(() => assertClear('local', { root, env: NOT_CI })).toThrow(/cannot be proven stale/);
+        writeLock('benchmark.777', 'not json at all');
+        expect(() => assertClear('local', opts())).toThrow(/cannot be proven stale/);
     });
 
-    it('classifyLock distinguishes the four states', () => {
-        const here = hostname();
-        expect(classifyLock(null)).toBe('absent');
-        expect(classifyLock({ malformed: true })).toBe('malformed');
-        expect(classifyLock({ pid: 1, host: 'elsewhere' }, { host: here })).toBe('foreign_host');
-        expect(classifyLock({ pid: 1, host: here }, { host: here, isAlive: () => true })).toBe('live');
-        expect(classifyLock({ pid: 1, host: here }, { host: here, isAlive: () => false })).toBe('stale_same_host');
+    it('readLocks classifies every lock on disk', () => {
+        writeLock('benchmark.111', { kind: 'benchmark', pid: 111, host: hostname(), startedAt: 'now' });
+        writeLock('benchmark.222', { kind: 'benchmark', pid: 222, host: 'elsewhere', startedAt: 'now' });
+        writeLock('benchmark.333', 'not json');
+        const states = readLocks(root, 'benchmark', { isAlive: (p) => p === 111 }).map((l) => l.state).sort();
+        expect(states).toEqual(['foreign_host', 'live', 'malformed']);
     });
 });
 
-describe('remote CI is exempt, and the exemption is explicit', () => {
+describe('remote CI is exempt; an override is RECORDED, not invisible', () => {
     it('CI runners never enforce the interlock', () => {
-        // Separate hosts, so enforcing would only ever produce false refusals.
-        writeLock('benchmark', { kind: 'benchmark', pid: process.pid, host: hostname(), startedAt: 'now' });
-        expect(() => assertClear('local', { root, env: { CI: 'true' } })).not.toThrow();
+        held('benchmark');
+        expect(() => assertClear('local', { root, env: { CI: 'true' }, ...LIVE })).not.toThrow();
         expect(interlockDisabled({ CI: 'true' })).toBe(true);
     });
 
-    it('the local escape hatch is explicit and accepts contaminated timing', () => {
-        writeLock('benchmark', { kind: 'benchmark', pid: process.pid, host: hostname(), startedAt: 'now' });
-        expect(() => assertClear('local', { root, env: { SPEAKSHARP_INTERLOCK: 'off' } })).not.toThrow();
+    it('CASUALTY: the interlock is ON by default — absence of CI must not disable it', () => {
+        held('benchmark');
+        expect(interlockDisabled({})).toBe(false);
+        expect(() => assertClear('local', { root, env: {}, ...LIVE })).toThrow(InterlockError);
     });
 
-    it('CASUALTY: the interlock is ON by default — absence of CI must not disable it', () => {
-        writeLock('benchmark', { kind: 'benchmark', pid: process.pid, host: hostname(), startedAt: 'now' });
-        expect(interlockDisabled({})).toBe(false);
-        expect(() => assertClear('local', { root, env: {} })).toThrow(InterlockError);
+    it('CASUALTY: an override is reported so timing can be marked INELIGIBLE', () => {
+        // Bypassing must not silently produce normal-looking timing.
+        expect(overrideActive({ SPEAKSHARP_INTERLOCK: 'off' })).toBe(true);
+        expect(overrideActive({ CI: 'true' })).toBe(false);      // CI is an exemption, not an override
+        expect(overrideActive({})).toBe(false);
+        held('local');
+        const r = acquire('benchmark', { root, env: { SPEAKSHARP_INTERLOCK: 'off' }, ...LIVE });
+        expect(r.override).toBe(true);
     });
 });
 
 describe('acquire writes an ownable lock and releases it', () => {
-    it('records pid, host and start time, then removes the file on release', () => {
-        const held = acquire('benchmark', { root, env: NOT_CI, now: () => '2026-08-31T00:00:00Z' });
-        const body = JSON.parse(readFileSync(lockFile('benchmark'), 'utf8'));
+    it('records kind, pid, host and start time, then removes the file on release', () => {
+        const h = acquire('benchmark', { ...opts(), now: () => '2026-08-31T00:00:00Z' });
+        const body = JSON.parse(readFileSync(h.path, 'utf8'));
         expect(body).toMatchObject({ kind: 'benchmark', pid: process.pid, host: hostname() });
         expect(body.startedAt).toBe('2026-08-31T00:00:00Z');
-        // While held, the opposite side refuses.
-        expect(() => assertClear('local', { root, env: NOT_CI })).toThrow(InterlockError);
-        held.release();
-        expect(existsSync(lockFile('benchmark'))).toBe(false);
-        expect(() => assertClear('local', { root, env: NOT_CI })).not.toThrow();
+        h.release();
+        expect(existsSync(h.path)).toBe(false);
     });
 
     it('release is idempotent', () => {
-        const held = acquire('local', { root, env: NOT_CI });
-        held.release();
-        expect(() => held.release()).not.toThrow();
+        const h = acquire('local', opts());
+        h.release();
+        expect(() => h.release()).not.toThrow();
     });
 
-    it('CASUALTY: acquire REFUSES when the opposite lock is live', () => {
-        writeLock('local', { kind: 'local', pid: process.pid, host: hostname(), startedAt: 'now' });
-        expect(() => acquire('benchmark', { root, env: NOT_CI })).toThrow(InterlockError);
-        expect(existsSync(lockFile('benchmark'))).toBe(false);   // and takes no lock
+    it('CASUALTY: acquire REFUSES and takes NO lock when blocked', () => {
+        held('local');
+        expect(() => acquire('benchmark', opts())).toThrow(InterlockError);
+        expect(existsSync(lockPath(`benchmark.${process.pid}`))).toBe(false);
     });
 
     it('an unknown kind is rejected', () => {
-        expect(() => assertClear('nonsense', { root, env: NOT_CI })).toThrow(/unknown interlock kind/);
+        expect(() => assertClear('nonsense', opts())).toThrow(/unknown interlock kind/);
+    });
+});
+
+describe('two concurrent jobs each own their lock', () => {
+    it('CASUALTY: a second local job does not OVERWRITE the first job\'s lock, and releasing one leaves the other', () => {
+        // The single-shared-file design: job A acquires `local.lock`, job B acquires and OVERWRITES the
+        // same path, then A exits and deletes it — leaving B running with no lock at all, so a benchmark
+        // starting next sees a clear host. That is the exact disarm this must prevent.
+        const a = acquire('local', { ...opts(), owner: 111 });
+        const b = acquire('local', { ...opts(), owner: 222 });
+        expect(a.path).not.toBe(b.path);
+        expect(existsSync(a.path)).toBe(true);
+        expect(existsSync(b.path)).toBe(true);
+
+        a.release();
+        expect(existsSync(a.path)).toBe(false);
+        expect(existsSync(b.path)).toBe(true);
+        // B is still running, so a benchmark must STILL be refused.
+        expect(() => assertClear('benchmark', opts())).toThrow(InterlockError);
+
+        b.release();
+        expect(() => assertClear('benchmark', opts())).not.toThrow();
     });
 });

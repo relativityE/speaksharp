@@ -22,7 +22,7 @@ import { dirname, join } from 'node:path';
 import { resolve } from 'node:path';
 import { cpus, arch, platform } from 'node:os';
 import { chromium } from '@playwright/test';
-import { acquire } from './lib/hostInterlock.mjs';
+import { acquire, overrideActive } from './lib/hostInterlock.mjs';
 import manifest from '../tests/fixtures/corpus-manifest.json' with { type: 'json' };
 import goldens from '../tests/evidence/normalization/goldens.json' with { type: 'json' };
 import { startHarnessServer } from '../tests/evidence/certification/browser/server';
@@ -147,6 +147,16 @@ for (const clip of set.clips) {
  * cancelled run does not strand it, and CI is exempt because runners are separate hosts.
  */
 const hostLock = acquire('benchmark');
+/**
+ * An override does NOT quietly yield normal-looking timing. If the interlock was bypassed by hand, the
+ * run is recorded as timing-ineligible in its own artifact, so a reviewer cannot mistake contaminated
+ * latency for a clean measurement — which is exactly what happened when the control was a reminder.
+ */
+const interlockOverridden = overrideActive();
+if (interlockOverridden) {
+    console.warn('\n  WARNING: host interlock overridden (SPEAKSHARP_INTERLOCK=off).');
+    console.warn('  This run\'s timing is INELIGIBLE and is recorded as such in the artifact.\n');
+}
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
     process.on(sig, () => { hostLock.release(); process.exit(130); });
 }
@@ -738,7 +748,11 @@ if (outPath && !onlyIds) {
 
 if (outPath) {
     mkdirSync(dirname(outPath), { recursive: true });
-    writeFileSync(outPath, `${JSON.stringify({ lane: 'browser', set: setName, evidenceClass, results, assets: harness.assets, assetFailures: harness.assetFailures }, null, 2)}\n`, 'utf8');
+    writeFileSync(outPath, `${JSON.stringify({ lane: 'browser', set: setName, evidenceClass,
+        // An override is RECORDED here, not merely warned about, so contaminated latency cannot be
+        // mistaken for a clean measurement by anyone reading the artifact later.
+        interlock: { overridden: interlockOverridden, timingEligible: !interlockOverridden },
+        results, assets: harness.assets, assetFailures: harness.assetFailures }, null, 2)}\n`, 'utf8');
     console.log(`wrote ${outPath}`);
 } else {
     console.warn('\nNOTHING RETAINED by this run.');
