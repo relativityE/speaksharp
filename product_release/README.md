@@ -194,5 +194,5 @@ against current code. Completeness is enforced by `tests/config/documentationLed
 that is not classified there fails the suite.
 
 It is a **procedure record, not a canonical document** — the canonical set below is unchanged.
-**GAP-1 is CLOSED:** canonical #3 `ROADMAP.md` was produced by #1367 (`b18ec82c`) and is present and
-authoritative. **All 14 of 14** canonical documents exist.
+**GAP-1 is CLOSED:** canonical #3 `ROADMAP.md` was produced by #1367 and is present and authoritative.
+**All 14 of 14** canonical documents exist.
