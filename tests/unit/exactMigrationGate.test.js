@@ -220,7 +220,7 @@ describe('exact migration gate', () => {
             targetFile: '20260819120000_complete_session_v2_atomic_retention_1314.sql',
             postflights: { postflight_1314: 'success' }, ...o,
         });
-        expect(t({})).toEqual({ terminal: 'success', enforcedPostflights: ['postflight_1314'] });
+        expect(t({})).toEqual({ terminal: 'success', enforcedPostflights: ['postflight_1314'], postflightCoverage: 'target_specific' });
         expect(() => t({ apply: 'failure' })).toThrow(/apply command outcome/);
         expect(() => t({ verify: 'failure' })).toThrow(/history verification/);
         expect(() => t({ lint: 'failure' })).toThrow(/lint verification/);

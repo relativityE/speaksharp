@@ -35,7 +35,10 @@ describe('terminal authority — the applicable postflight is REQUIRED', () => {
     it('POSITIVE CONTROL: Stage B with a successful postflight reports which gate was enforced', () => {
         expect(assertTerminalOutcome({
             ...ok, targetFile: V1306, postflights: { postflight_1306: 'success', postflight_1314: 'skipped' },
-        })).toEqual({ terminal: 'success', enforcedPostflights: ['postflight_1306'] });
+        })).toEqual({
+            terminal: 'success', enforcedPostflights: ['postflight_1306'],
+            postflightCoverage: 'target_specific',
+        });
     });
 
     it('the #1314 target still enforces its own gate, unchanged', () => {
@@ -44,7 +47,10 @@ describe('terminal authority — the applicable postflight is REQUIRED', () => {
         })).toThrow(/postflight_1314/);
         expect(assertTerminalOutcome({
             ...ok, targetFile: V1314, postflights: { postflight_1314: 'success', postflight_1306: 'skipped' },
-        })).toEqual({ terminal: 'success', enforcedPostflights: ['postflight_1314'] });
+        })).toEqual({
+            terminal: 'success', enforcedPostflights: ['postflight_1314'],
+            postflightCoverage: 'target_specific',
+        });
     });
 });
 
@@ -55,10 +61,18 @@ describe('terminal authority — fails closed rather than assuming', () => {
         expect(() => assertTerminalOutcome({ ...ok, targetFile: '   ', postflights: {} })).toThrow(/target filename/);
     });
 
-    it('refuses a target with no registered postflight instead of passing it through', () => {
-        expect(() => assertTerminalOutcome({
+    it('a target with no registered postflight PASSES, and says its coverage was generic only', () => {
+        // CORRECTED, not deleted. This test previously asserted the opposite — that an unregistered
+        // target must be REFUSED — which encoded a defect as the contract: the workflow applies ANY
+        // exact allowlisted migration, so requiring a bespoke postflight for every target meant only
+        // the two hard-coded files could ever pass. The genuine safety property (an APPLICABLE
+        // postflight must have run and succeeded) is asserted separately and still holds.
+        const r = assertTerminalOutcome({
             ...ok, targetFile: '20260812042000_commercial_activation.sql', postflights: {},
-        })).toThrow(/no target-specific postflight is registered/);
+        });
+        expect(r.terminal).toBe('success');
+        expect(r.enforcedPostflights).toEqual([]);
+        expect(r.postflightCoverage).toBe('generic_only');
     });
 
     it('rejects an UNKNOWN gate id rather than silently ignoring it', () => {
@@ -124,5 +138,66 @@ describe('the CLI no longer drops arguments', () => {
 
     it('rejects a malformed postflight argument instead of ignoring it', () => {
         expect(run(['final', 'success', 'success', 'success', V1306, 'postflight_1306']).code).toBe(2);
+    });
+});
+
+describe('#1376 RETURN — a generic allowlisted migration is not rejected for lacking a bespoke postflight', () => {
+    const base = { apply: 'success', verify: 'success', lint: 'success' };
+
+    it('CASUALTY: a target with NO registered postflight reports terminal success', () => {
+        // The regression: `enforced.length === 0` threw, so this generic workflow could only ever
+        // succeed for the two hard-coded files it happened to have postflights for. Every future
+        // allowlisted migration would have failed its terminal gate with nothing actually wrong.
+        const r = assertTerminalOutcome({
+            ...base,
+            targetFile: 'supabase/migrations/20260901120000_add_index_generic.sql',
+            postflights: {},
+        });
+        expect(r.terminal).toBe('success');
+        expect(r.enforcedPostflights).toEqual([]);
+        // Coverage is reported, not silently equated with target-specific verification.
+        expect(r.postflightCoverage).toBe('generic_only');
+    });
+
+    it('POSITIVE CONTROL: an APPLICABLE postflight is still mandatory', () => {
+        // The safety property must survive the fix: a registered postflight that did not run cannot
+        // read as success.
+        expect(() => assertTerminalOutcome({
+            ...base,
+            targetFile: 'supabase/migrations/20260829120000_retire_complete_session_v1_1306.sql',
+            postflights: {},
+        })).toThrow(/applicable postflight postflight_1306 outcome is missing/);
+
+        expect(() => assertTerminalOutcome({
+            ...base,
+            targetFile: 'supabase/migrations/20260829120000_retire_complete_session_v1_1306.sql',
+            postflights: { postflight_1306: 'skipped' },
+        })).toThrow(/must be success/);
+
+        const ok = assertTerminalOutcome({
+            ...base,
+            targetFile: 'supabase/migrations/20260829120000_retire_complete_session_v1_1306.sql',
+            postflights: { postflight_1306: 'success' },
+        });
+        expect(ok.enforcedPostflights).toEqual(['postflight_1306']);
+        expect(ok.postflightCoverage).toBe('target_specific');
+    });
+
+    it('a postflight that ran for a target it does not verify is STILL a drift error', () => {
+        expect(() => assertTerminalOutcome({
+            ...base,
+            targetFile: 'supabase/migrations/20260901120000_add_index_generic.sql',
+            postflights: { postflight_1306: 'success' },
+        })).toThrow(/for a target it does not verify/);
+    });
+
+    it('the generic path still requires apply, verify and lint', () => {
+        for (const bad of [
+            { ...base, apply: 'failure' }, { ...base, verify: 'failure' }, { ...base, lint: 'skipped' },
+        ]) {
+            expect(() => assertTerminalOutcome({
+                ...bad, targetFile: 'supabase/migrations/20260901120000_add_index_generic.sql', postflights: {},
+            })).toThrow();
+        }
     });
 });

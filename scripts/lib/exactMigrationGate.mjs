@@ -510,8 +510,21 @@ export function assertTerminalOutcome({ apply, verify, lint, targetFile, postfli
             throw new Error(`postflight ${gate.id} ran (${outcome}) for a target it does not verify`);
         }
     }
-    if (enforced.length === 0) {
-        throw new Error(`no target-specific postflight is registered for ${targetFile}; refusing to report terminal success`);
-    }
-    return { terminal: 'success', enforcedPostflights: enforced };
+    // NO REGISTERED POSTFLIGHT IS NOT A FAILURE.
+    //
+    // This workflow applies ANY exact allowlisted migration, and most need no verification beyond
+    // apply + history delta + lint. Requiring a bespoke postflight for every target made the gate
+    // reject every allowlisted migration that was not #1314 or #1306 — a generic mechanism that only
+    // ever worked for two hard-coded files.
+    //
+    // The property actually worth protecting is unchanged and enforced above: if a postflight IS
+    // registered for this target it must have run and succeeded, and a gate that ran for a target it
+    // does not verify is a drift error. Coverage is REPORTED rather than assumed, so a reviewer can
+    // see at a glance whether the applied migration had target-specific verification or only the
+    // generic proofs.
+    return {
+        terminal: 'success',
+        enforcedPostflights: enforced,
+        postflightCoverage: enforced.length > 0 ? 'target_specific' : 'generic_only',
+    };
 }
