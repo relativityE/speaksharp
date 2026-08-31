@@ -38,8 +38,30 @@ export interface MoonshineEngineOptions {
     onDownloadProgress?: (fraction: number) => void;
 }
 
+/** A live session. The runtime accumulates state across `addAudio` calls BY DESIGN. */
+export interface MoonshineStream {
+    start(): void;
+    /** Cheap: buffers audio. Does NOT decode. */
+    addAudio(audio: Float32Array, sampleRate: number, flags?: number): void;
+    /**
+     * Runs a pass and returns the current snapshot. A pass that comes too soon returns the previous
+     * snapshot instead of entering the engine, unless ForceUpdate insists.
+     */
+    transcribe(flags?: number): { lines?: { text?: string }[]; text?: string };
+    stop(): void;
+    close(): void;
+}
+
+/** `TranscribeFlags.ForceUpdate` — insists on a pass that the interval would otherwise hold back. */
+export const FORCE_UPDATE = 1;
+
 export interface MoonshineTranscriber {
     transcribe(audio: Float32Array): Promise<{ lines?: { text?: string }[]; text?: string }>;
+    /**
+     * THE STREAMING ENTRY POINT. Required: this engine drives a continuous session, and the
+     * whole-buffer `transcribe()` is documented as the NON-streaming call.
+     */
+    createStream?(options?: Record<string, unknown>): MoonshineStream;
     /** Optional in the published runtime; called when present so workers are not leaked. */
     destroy?(): Promise<void> | void;
 }
@@ -111,6 +133,9 @@ export class MoonshineStreamingEngine implements STTStrategy {
      * engine will not patch `Worker` in product code, and a guessed `false` would read as evidence that
      * inference blocks the main thread. The responsiveness probe observes this properly and injects it.
      */
+    /** The live session. Created at start(), closed at terminate()/stop(). */
+    private stream: MoonshineStream | null = null;
+
     private workerObserved: boolean | null = null;
 
     /** Test/probe seam: record an externally observed Worker creation as an OBSERVED fact. */
@@ -211,9 +236,25 @@ export class MoonshineStreamingEngine implements STTStrategy {
             this.recordFailure('start', err.message);
             throw err;
         }
+        // FAIL CLOSED without the streaming API. Falling back to the whole-buffer `transcribe()` per
+        // window is precisely the misuse that made every clip's output depend on the one before it in
+        // the benchmark; silently doing it here would put that defect in front of a user.
+        if (typeof this.transcriber?.createStream !== 'function') {
+            const err = new Error(
+                'moonshine runtime exposes no createStream(); refusing to drive a continuous session '
+                + 'through the non-streaming whole-buffer API',
+            );
+            this.recordFailure('start', err.message);
+            throw err;
+        }
+        this.stream = this.transcriber.createStream();
+        this.stream.start();
+
         this.mic = mic;
         this.detachFrames = mic.onFrame((frame) => {
+            // Hand audio over as it arrives; the stream buffers and decides when a pass is worth making.
             this.buffer.push(frame);
+            this.stream?.addAudio(frame, mic.sampleRate || TARGET_SAMPLE_RATE);
             this.scheduleLiveWindow(mic.sampleRate || TARGET_SAMPLE_RATE);
         });
     }
@@ -234,15 +275,16 @@ export class MoonshineStreamingEngine implements STTStrategy {
         });
     }
 
-    private async decodeLiveWindow(sampleRate: number): Promise<void> {
-        if (!this.transcriber) return;
+    private async decodeLiveWindow(_sampleRate: number): Promise<void> {
+        if (!this.stream) return;
         try {
-            const window = takeTail(this.buffer, LIVE_WINDOW_SECONDS * sampleRate);
-            if (window.length === 0) return;
-            // No post-finalization guard is needed here: stop() detaches the frame handler, clears
-            // pendingWindow, and AWAITS inFlight before it finalizes, and resume() refuses to reattach
-            // afterwards — so no live decode can still be running once `finalized` is set.
-            this.interim = textOf(await this.transcriber.transcribe(window));
+            // ASK THE STREAM, do not re-decode a slice. Audio was already handed over by `addAudio` as
+            // it arrived; a pass reads what the session has accumulated.
+            //
+            // No ForceUpdate here: the runtime holds a pass back until there is enough new audio to say
+            // something new, and forcing on every frame would pay the per-pass overhead many times a
+            // second and fall further behind the speaker on each one.
+            this.interim = textOf(this.stream.transcribe());
             this.firstDecodeAt ??= Date.now();
             this.lastHeartbeat = Date.now();
         } catch (e) {
@@ -259,15 +301,19 @@ export class MoonshineStreamingEngine implements STTStrategy {
         // session presented as the whole thing.
         this.pendingWindow = false;
         try { await this.inFlight; } catch { /* the live failure is already recorded */ }
-        if (!this.transcriber) return;
+        if (!this.stream) return;
         try {
-            const all = concat(this.buffer);
-            if (all.length > 0) this.committed = textOf(await this.transcriber.transcribe(all));
+            // THE FINAL PASS IS THE SAME SESSION, forced. The previous implementation re-decoded the
+            // whole buffer as a fresh whole-buffer call, which both discarded the session's own state
+            // and used the non-streaming API on a streaming arch.
+            this.committed = textOf(this.stream.transcribe(FORCE_UPDATE));
             this.finalized = true;
             this.lastHeartbeat = Date.now();
         } catch (e) {
             this.recordFailure('stop', e instanceof Error ? e.message : String(e));
             throw e instanceof Error ? e : new Error(String(e));
+        } finally {
+            try { this.stream.stop(); } finally { this.stream.close(); this.stream = null; }
         }
     }
 
@@ -280,6 +326,7 @@ export class MoonshineStreamingEngine implements STTStrategy {
             const mic = this.mic;
             this.detachFrames = mic.onFrame((frame) => {
                 this.buffer.push(frame);
+                this.stream?.addAudio(frame, mic.sampleRate || TARGET_SAMPLE_RATE);
                 this.scheduleLiveWindow(mic.sampleRate || TARGET_SAMPLE_RATE);
             });
         }
@@ -288,6 +335,7 @@ export class MoonshineStreamingEngine implements STTStrategy {
     /** Nuclear cleanup. A leaked worker outlives the session and quietly holds hundreds of MB. */
     async terminate(): Promise<void> {
         this.detachFrames?.(); this.detachFrames = null;
+        try { this.stream?.close(); } catch { /* already closed */ } finally { this.stream = null; }
         this.mic = null; this.buffer = [];
         try { await this.transcriber?.destroy?.(); } finally { this.transcriber = null; }
     }

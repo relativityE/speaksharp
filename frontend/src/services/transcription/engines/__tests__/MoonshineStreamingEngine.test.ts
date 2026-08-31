@@ -16,14 +16,39 @@ const SR = 16_000;
 const frame = (n: number, v = 0.1) => Float32Array.from({ length: n }, () => v);
 
 /** Records exactly what audio each decode saw, so window behaviour is measured rather than assumed. */
+/**
+ * A transcriber whose STREAM accumulates audio the way the runtime's does.
+ *
+ * The doubles used to expose only the whole-buffer `transcribe()`, which is exactly the API the engine
+ * must NOT use for a continuous session — so every test passed against the misuse that caused the
+ * cross-clip state leak. The stream here accumulates, and `seen` records what each pass was asked to
+ * summarise, so a test can tell a windowed read from a whole-session one.
+ */
 const recordingTranscriber = (text: (audio: Float32Array) => string) => {
     const seen: number[] = [];
+    const passes: number[] = [];
+    let accumulated = 0;
     const t: MoonshineTranscriber = {
         transcribe: async (audio) => { seen.push(audio.length); return { lines: [{ text: text(audio) }] }; },
+        createStream: () => ({
+            start: vi.fn(),
+            addAudio: (audio: Float32Array) => { accumulated += audio.length; },
+            transcribe: (_flags?: number) => {
+                passes.push(accumulated);
+                return { lines: [{ text: text(new Float32Array(accumulated)) }] };
+            },
+            stop: vi.fn(),
+            close: vi.fn(),
+        }),
         destroy: vi.fn(),
     };
-    return { transcriber: t, seen };
+    return { transcriber: t, seen, passes };
 };
+
+/** A transcriber with NO streaming API — start() must refuse rather than fall back. */
+const nonStreamingTranscriber = (): MoonshineTranscriber => ({
+    transcribe: async () => ({ lines: [{ text: 'whole buffer' }] }),
+});
 
 const fakeMic = () => {
     let cb: ((f: Float32Array) => void) | null = null;
@@ -417,5 +442,45 @@ describe('init FAILS CLOSED on an identity that cannot attribute a session', () 
         const e = withCandidate('moonshine:streaming-medium');
         expect((await e.init()).isOk).toBe(true);
         expect(e.getMetadata().configuredModel.pinDigest).toHaveLength(64);
+    });
+});
+
+describe('the continuous session uses the STREAMING api, never the whole-buffer call', () => {
+    it('CASUALTY: start() REFUSES a runtime with no createStream()', async () => {
+        // Falling back to per-window whole-buffer transcribe() is the misuse that made every clip in
+        // the benchmark depend on the one before it. Doing that silently in the product would put the
+        // same defect in front of a user.
+        const e = engineWith(nonStreamingTranscriber());
+        await e.init();
+        await expect(e.start(fakeMic().mic)).rejects.toThrow(/exposes no createStream/);
+        expect(e.getMetadata().failure).toMatchObject({ phase: 'start' });
+    });
+
+    it('CASUALTY: audio is handed to the STREAM, not re-decoded as a tail window', async () => {
+        const { transcriber, seen, passes } = recordingTranscriber(() => 'x');
+        const e = engineWith(transcriber);
+        await e.init();
+        const { mic, push } = fakeMic();
+        await e.start(mic);
+        push(frame(SR)); push(frame(SR));
+        await vi.waitFor(() => expect(passes.length).toBeGreaterThan(0));
+        // The whole-buffer entry point must never be touched during a live session.
+        expect(seen).toEqual([]);
+        // and each pass summarises everything handed over so far, not a 3-second slice.
+        expect(passes[passes.length - 1]).toBe(2 * SR);
+    });
+
+    it('CASUALTY: the final transcript comes from the SAME session, forced', async () => {
+        // Re-decoding the whole buffer as a fresh call discards the session's own accumulated state.
+        const { transcriber, seen, passes } = recordingTranscriber((a) => `n:${a.length}`);
+        const e = engineWith(transcriber);
+        await e.init();
+        const { mic, push } = fakeMic();
+        await e.start(mic);
+        for (let i = 0; i < 4; i++) push(frame(SR));
+        await e.stop();
+        expect(await e.getTranscript()).toBe(`n:${4 * SR}`);
+        expect(seen, 'the whole-buffer API was used for the final pass').toEqual([]);
+        expect(passes[passes.length - 1]).toBe(4 * SR);
     });
 });
