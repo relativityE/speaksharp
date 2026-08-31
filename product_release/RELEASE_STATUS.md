@@ -199,5 +199,6 @@ Product-status corrections that affect what we may claim:
   Google Gemini on an explicit user coaching request. Only **audio** is device-local.
 - **No moat is proven**, and there is **no user research** — no willingness-to-pay, conversion, retention or CAC
   evidence. Billing is implemented but not activated; revenue is zero.
-- **GAP-1:** canonical #3 `ROADMAP.md` does not exist. Its deferral named #1272, which **closed without producing
-  it**; the live successor is **#1257**. **13 of 14** canonical documents exist.
+- **GAP-1 — CLOSED.** Canonical #3 `ROADMAP.md` was produced by #1367 (`b18ec82c`) and is present and
+  authoritative. **All 14 of 14** canonical documents exist. (#1272 did close without producing it; the
+  document arrived later via #1367. #1257 remains open for the broader ledger rebuild, not for this gap.)

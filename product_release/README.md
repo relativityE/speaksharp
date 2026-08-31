@@ -193,6 +193,6 @@ exposure, correction status and canonical routing — and carries the claim-by-c
 against current code. Completeness is enforced by `tests/config/documentationLedger.test.ts`: a new Markdown file
 that is not classified there fails the suite.
 
-It is a **procedure record, not a canonical document** — the canonical set below is unchanged. Note GAP-1:
-canonical #3 `ROADMAP.md` does not exist, and #1272 (its deferral) closed without producing it — live successor
-**#1257**. **13 of 14** canonical documents are present.
+It is a **procedure record, not a canonical document** — the canonical set below is unchanged.
+**GAP-1 is CLOSED:** canonical #3 `ROADMAP.md` was produced by #1367 (`b18ec82c`) and is present and
+authoritative. **All 14 of 14** canonical documents exist.
