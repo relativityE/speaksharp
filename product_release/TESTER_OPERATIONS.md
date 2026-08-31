@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for internal tester administration and evidence handling)
 **Owner:** Product Operations / Quality
-**Last Reviewed:** 2026-08-13
-**Last Verified:** 2026-08-13 — reconciled to the Private-only active-trial and paid-continuation launch contract; execution remains authorization-gated.
+**Last Reviewed:** 2026-08-31
+**Last Verified:** 2026-08-31 — added the separable P1-P4 privacy falsification set and the minimum comparable-run metadata to §4; the launch-contract reconciliation is unchanged from 2026-08-13. Execution remains authorization-gated.
 **Applies To:** Internal release operators, invited testers, synthetic qualification accounts, and evidence handling.
 **Class:** Procedure.
 **Authority:** Tester preparation, scope verification, real-device execution, cleanup, and evidence recording.
@@ -92,6 +92,34 @@ Required behavior includes:
 - no transcript/audio/raw model content in logs, analytics, screenshots, or issue payloads.
 
 On failure, capture only content-safe diagnostics and file one narrowly reproducible issue. Never paste secrets or customer speech into GitHub.
+
+### Privacy claims — falsify each SEPARATELY
+
+`PRODUCT_REQUIREMENTS.md` §7.1 makes four **separable** claims. Passing one says nothing about the others,
+and two of them point in opposite directions — a run that checks "nothing leaves the device" and stops has
+not tested the product, because transcript text is *supposed* to leave on save.
+
+| # | Claim | How to falsify it |
+|---|---|---|
+| P1 | Recorded audio never leaves the device | Capture the network log for the whole session; **any** audio-bearing upload fails this |
+| P2 | Transcript text **does** leave on save and **is** stored | Confirm the save request carries it — this is the opposite of P1 and is commonly misread as a violation |
+| P3 | Storage is bounded to the **two newest** saved sessions | Save a **third** session, then confirm the oldest transcript is gone. Two saves cannot test a two-item bound |
+| P4 | Transcript reaches the AI coaching provider **only** on an explicit coaching request | Complete a session and open review **without** requesting coaching; any provider call fails this |
+
+Record which of P1–P4 were observed **and which were not attempted**. An unattempted claim is not a passing
+claim, and a run that does not say which it skipped cannot be compared to any other run.
+
+### Minimum metadata for a comparable device run
+
+Without every field, the result cannot be compared to another run and is not evidence of a release posture:
+
+- device model, OS version, browser and version;
+- the deployed release identity **read from the running tab**, never assumed from the deploy log — a cached
+  pre-cutover bundle has previously made a full run verify nothing;
+- account and entitlement state at start, and trial dates where applicable;
+- wall-clock start and end;
+- the retained network capture;
+- the explicit observed/not-attempted split for P1–P4.
 
 ---
 
