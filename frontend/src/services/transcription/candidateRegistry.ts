@@ -24,6 +24,7 @@ export type CandidateId =
     | 'v2:base.en'
     | 'v4:base:int8'
     | 'v4:base:q4'
+    | 'v4:distil:q4'
     | 'moonshine:streaming-medium';
 
 export type EngineKind = 'transformers-js' | 'transformers-js-v4' | 'moonshine-streaming';
@@ -134,6 +135,27 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = Object.freez
                 + 'model.decoder.embed_tokens.weight_merged_0_scale); node-lane only',
         },
     },
+    /**
+     * NOT one of the four finalists — registered because the SHIPPING resolver can still select it
+     * (WebGPU + the distil flag). A candidate the product can run but the registry cannot describe would
+     * recreate the exact defect this registry closes: a session with no attributable model. It is
+     * registered so it is always identifiable, never so it is preferred.
+     */
+    'v4:distil:q4': {
+        id: 'v4:distil:q4',
+        engine: 'transformers-js-v4',
+        runtime: { package: '@huggingface/transformers', version: '4.2.0' },
+        model: {
+            id: 'onnx-community/distil-small.en',
+            revision: null,
+            dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' },
+            // WebGPU-ONLY: WASM RTF ~2.2 is unusable, so it is never a universal default.
+            device: 'webgpu',
+            sampleRateHz: 16_000,
+        },
+        assets: { pinDigest: null, pinSource: null, componentCount: null },
+        browser: { ok: true },
+    },
     'moonshine:streaming-medium': {
         id: 'moonshine:streaming-medium',
         engine: 'moonshine-streaming',
@@ -169,6 +191,33 @@ export const PRIVATE_STT_MODEL_IN_USE: CandidateId = 'v2:base.en';
 
 export class UnknownCandidateError extends Error {}
 export class UnusableCandidateError extends Error {}
+
+/**
+ * Map RESOLVED runtime state onto a candidate id.
+ *
+ * `PrivateSTT.getMetadata()` previously answered "which model ran?" with
+ * `PRIV_STT_V4_DEFAULT_VARIANT` — a constant — so a session running `base_int8` was recorded as
+ * `base_q4`. The resolved variant was available the whole time on the runtime decision; it simply was
+ * not consulted. This maps what ACTUALLY resolved, and refuses combinations it does not recognise
+ * rather than falling back to a default, because a wrong identity is worse than a missing one.
+ */
+export function candidateForRuntime(
+    engineType: string | null | undefined,
+    v4Variant: string | null | undefined,
+): CandidateId {
+    if (engineType === 'transformers-js') return 'v2:base.en';
+    if (engineType === 'transformers-js-v4') {
+        if (v4Variant === 'base_q4') return 'v4:base:q4';
+        if (v4Variant === 'distil_q4') return 'v4:distil:q4';
+        throw new UnknownCandidateError(
+            `v4 engine resolved an unrecognised variant ${JSON.stringify(v4Variant)}; `
+            + 'refusing to attribute the session to a default',
+        );
+    }
+    throw new UnknownCandidateError(
+        `no candidate maps to engine type ${JSON.stringify(engineType)}`,
+    );
+}
 
 /**
  * Resolve a candidate id to its full identity, FAILING CLOSED.

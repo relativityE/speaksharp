@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
     CANDIDATES, CANDIDATE_IDS, PRIVATE_STT_MODEL_IN_USE, UnknownCandidateError, UnusableCandidateError,
-    activeCandidate, identityOf, isCompleteIdentity, resolveCandidate, type CandidateId,
+    activeCandidate, candidateForRuntime, identityOf, isCompleteIdentity, resolveCandidate,
+    type CandidateId,
 } from '../candidateRegistry';
 
 /** Walk up from this file to the repo root (the directory owning pnpm-lock.yaml), then read. */
@@ -79,10 +80,13 @@ describe('selection fails closed', () => {
     });
 
     it('every candidate marked unusable states WHY', () => {
-        for (const id of CANDIDATE_IDS) {
-            const { browser } = CANDIDATES[id];
-            if (!browser.ok) expect(browser.reason, `${id} unusable without a reason`).toBeTruthy();
-        }
+        // Collected then asserted once, rather than an `expect` inside the branch: a conditional expect
+        // silently asserts nothing when no candidate happens to be unusable.
+        const unusableWithoutReason = CANDIDATE_IDS
+            .filter((id) => !CANDIDATES[id].browser.ok && !CANDIDATES[id].browser.reason);
+        expect(unusableWithoutReason).toEqual([]);
+        // and at least one IS unusable today, so the assertion above is not vacuous.
+        expect(CANDIDATE_IDS.filter((id) => !CANDIDATES[id].browser.ok)).toEqual(['v4:base:int8']);
     });
 
     it('POSITIVE CONTROL: usable candidates resolve', () => {
@@ -105,10 +109,21 @@ describe('the active candidate is a checked-in build-time decision', () => {
         expect(() => activeCandidate()).not.toThrow();
     });
 
-    it('all four required candidates are registered', () => {
-        expect([...CANDIDATE_IDS].sort()).toEqual(
-            ['moonshine:streaming-medium', 'v2:base.en', 'v4:base:int8', 'v4:base:q4'],
-        );
+    it('all four REQUIRED candidates are registered', () => {
+        for (const id of ['v2:base.en', 'v4:base:int8', 'v4:base:q4', 'moonshine:streaming-medium']) {
+            expect(CANDIDATE_IDS, `${id} missing`).toContain(id);
+        }
+    });
+
+    it('v4:distil:q4 is also registered — because the shipping resolver can still select it', () => {
+        // Not a finalist. Registered because a candidate the product can RUN but the registry cannot
+        // DESCRIBE reproduces the very defect this registry closes: a session with no attributable
+        // model. Registering it makes it identifiable, not preferred.
+        expect(CANDIDATE_IDS).toContain('v4:distil:q4');
+        expect(PRIVATE_STT_MODEL_IN_USE).not.toBe('v4:distil:q4');
+        expect([...CANDIDATE_IDS].sort()).toEqual([
+            'moonshine:streaming-medium', 'v2:base.en', 'v4:base:int8', 'v4:base:q4', 'v4:distil:q4',
+        ]);
     });
 });
 
@@ -167,5 +182,35 @@ describe('every candidate carries the fields a session needs', () => {
         expect(q4.model.dtype?.decoder_model_merged).toBe('q4');
         expect(int8.model.dtype?.decoder_model_merged).toBe('int8');
         expect(q4.model.dtype?.decoder_model_merged).not.toBe(int8.model.dtype?.decoder_model_merged);
+    });
+});
+
+describe('RESOLVED runtime state maps to a candidate — the original defect', () => {
+    it('CASUALTY: a v4 session running base_q4 is NOT attributed from a default constant', () => {
+        // The defect: getMetadata() read PRIV_STT_V4_DEFAULT_VARIANT, so whatever ran was recorded as
+        // base_q4. Mapping must come from the RESOLVED variant, which was available all along.
+        expect(candidateForRuntime('transformers-js-v4', 'base_q4')).toBe('v4:base:q4');
+        expect(candidateForRuntime('transformers-js-v4', 'distil_q4')).toBe('v4:distil:q4');
+        expect(candidateForRuntime('transformers-js', null)).toBe('v2:base.en');
+    });
+
+    it('CASUALTY: distil_q4 must NOT be attributed as base_q4', () => {
+        // Exactly the mis-attribution that made a human A/B unusable, stated as its own casualty.
+        expect(candidateForRuntime('transformers-js-v4', 'distil_q4')).not.toBe('v4:base:q4');
+    });
+
+    it('CASUALTY: an unrecognised variant is REFUSED, never defaulted', () => {
+        expect(() => candidateForRuntime('transformers-js-v4', null)).toThrow(UnknownCandidateError);
+        expect(() => candidateForRuntime('transformers-js-v4', 'base_int8')).toThrow(/refusing to attribute/);
+        expect(() => candidateForRuntime('mock', null)).toThrow(UnknownCandidateError);
+        expect(() => candidateForRuntime(null, null)).toThrow(UnknownCandidateError);
+    });
+
+    it('every id it can return is a REGISTERED candidate', () => {
+        for (const [engine, variant] of [
+            ['transformers-js', null], ['transformers-js-v4', 'base_q4'], ['transformers-js-v4', 'distil_q4'],
+        ] as const) {
+            expect(CANDIDATE_IDS).toContain(candidateForRuntime(engine, variant));
+        }
     });
 });
