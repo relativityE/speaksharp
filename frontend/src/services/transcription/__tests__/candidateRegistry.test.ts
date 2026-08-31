@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import {
     CANDIDATES, CANDIDATE_IDS, UnknownCandidateError, UnusableCandidateError,
     activeCandidate, assertBrowserUsable, candidateForRuntime, identityOf, isCompleteIdentity,
-    resolveCandidate, InactiveCandidateError, PRIVATE_STT_CONFIG_PATH,
+    resolveCandidate, isRunningUnapprovedCandidate, InactiveCandidateError, PRIVATE_STT_CONFIG_PATH,
     type CandidateId,
 } from '../candidateRegistry';
 
@@ -195,6 +195,38 @@ describe('the active candidate is a checked-in build-time decision', () => {
         expect(activeCandidate().id).toBe(cfg.candidate);
     });
 
+    it('CASUALTY: ALL THREE human-test candidates are selectable from config', () => {
+        // The Product Owner tests v2, int8 and moonshine side by side on the real path. A config that
+        // cannot express the third makes the comparison impossible, so this asserts the whole slate.
+        expect(activeCandidate({ candidate: 'v2:base.en' }).id).toBe('v2:base.en');
+        expect(activeCandidate({ candidate: 'v4:base:int8' }).id).toBe('v4:base:int8');
+        expect(activeCandidate({
+            candidate: 'moonshine:streaming-medium', acknowledgeNotProductionReady: true,
+        }).id).toBe('moonshine:streaming-medium');
+    });
+
+    it('CASUALTY: an unapproved candidate needs an EXPLICIT acknowledgement, never a silent pass', () => {
+        // Two different questions: may this be the production default, and may this build run it for
+        // comparison. Collapsing them forces a choice between shipping an unproven model and being
+        // unable to test one — and testing is how a model becomes proven.
+        expect(() => activeCandidate({ candidate: 'moonshine:streaming-medium' }))
+            .toThrow(InactiveCandidateError);
+        expect(() => activeCandidate({ candidate: 'moonshine:streaming-medium' }))
+            .toThrow(/not approved as a production default/);
+        // and the acknowledgement must be exactly true — no truthy string slipping through.
+        expect(() => activeCandidate({
+            candidate: 'moonshine:streaming-medium',
+            acknowledgeNotProductionReady: 'yes' as unknown as boolean,
+        })).toThrow(InactiveCandidateError);
+    });
+
+    it('a build running an unapproved candidate is FLAGGED, so evidence records it', () => {
+        expect(isRunningUnapprovedCandidate({
+            candidate: 'moonshine:streaming-medium', acknowledgeNotProductionReady: true,
+        })).toBe(true);
+        expect(isRunningUnapprovedCandidate({ candidate: 'v2:base.en' })).toBe(false);
+    });
+
     it('CASUALTY: an activation-INELIGIBLE candidate fails boot, never silently substituted', () => {
         // Moonshine is registered and not ready: its live path was written against the non-streaming
         // API. Quietly falling back to v2 would attribute a v2 transcript to a moonshine session.
@@ -203,7 +235,7 @@ describe('the active candidate is a checked-in build-time decision', () => {
         expect(() => activeCandidate({ candidate: 'moonshine:streaming-medium' }))
             .toThrow(InactiveCandidateError);
         expect(() => activeCandidate({ candidate: 'moonshine:streaming-medium' }))
-            .toThrow(/not activation-ready/);
+            .toThrow(/not approved as a production default/);
     });
 
     it('CASUALTY: a missing or unknown configured candidate fails closed', () => {
@@ -383,7 +415,7 @@ describe('SWAPPING a candidate is a one-line config change', () => {
             expect(c.assets.pinDigest, `${id} has no asset digest`).toBeTruthy();
         }
         expect(activeCandidate({ candidate: 'v4:base:int8' }).id).toBe('v4:base:int8');
-        expect(() => activeCandidate({ candidate: 'moonshine:streaming-medium' })).toThrow(/not activation-ready/);
+        expect(() => activeCandidate({ candidate: 'moonshine:streaming-medium' })).toThrow(/not approved as a production default/);
     });
 });
 

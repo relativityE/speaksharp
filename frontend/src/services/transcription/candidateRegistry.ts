@@ -348,7 +348,33 @@ export function resolveCandidate(id: string): Candidate {
  * The config is imported rather than fetched so an invalid value fails the build's type/JSON parse,
  * not a runtime request.
  */
-export function activeCandidate(config: { candidate?: string } = privateSttConfig): Candidate {
+export interface PrivateSttConfig {
+    candidate?: string;
+    /**
+     * Deliberately select a candidate that is NOT approved as a production default.
+     *
+     * This exists so the Product Owner can human-test candidates side by side on the real path before
+     * any of them is chosen. It is required, explicit, and lives in the same reviewable file as the
+     * candidate — so an unapproved model can never reach a build by accident, only by someone writing
+     * this line and it appearing in a diff.
+     */
+    acknowledgeNotProductionReady?: boolean;
+}
+
+/**
+ * The candidate this build runs, read from the config file.
+ *
+ * Throws at BOOT rather than at a user's first session — after a model download and a recording is the
+ * worst possible moment to discover the configuration is wrong.
+ *
+ * TWO DIFFERENT QUESTIONS, deliberately separated:
+ *   activationReady      may this be the PRODUCTION DEFAULT users receive?
+ *   acknowledged select  may this build run it for internal comparison?
+ *
+ * Collapsing them would force a choice between shipping an unproven model and being unable to test
+ * one, and testing is how a model becomes proven.
+ */
+export function activeCandidate(config: PrivateSttConfig = privateSttConfig): Candidate {
     const id = config?.candidate;
     if (typeof id !== 'string' || id === '') {
         throw new UnknownCandidateError(
@@ -356,15 +382,26 @@ export function activeCandidate(config: { candidate?: string } = privateSttConfi
         );
     }
     const candidate = resolveCandidate(id);
-    if (!candidate.activationReady) {
-        // NEVER silently substitute. A configured candidate that cannot ship must stop the boot with
-        // its reason, not quietly become a different model whose transcript is then attributed wrongly.
+    if (!candidate.activationReady && config.acknowledgeNotProductionReady !== true) {
+        // NEVER silently substitute. A configured candidate that is not production-approved must stop
+        // the boot with its reason, not quietly become a different model whose transcript would then
+        // be attributed to the one that was asked for.
         throw new InactiveCandidateError(
-            `Private STT candidate "${id}" is registered but not activation-ready: `
-            + `${candidate.notReadyReason ?? 'no reason recorded'}`,
+            `Private STT candidate "${id}" is registered but not approved as a production default: `
+            + `${candidate.notReadyReason ?? 'no reason recorded'}. `
+            + 'Set acknowledgeNotProductionReady:true in the config to run it for internal comparison.',
         );
     }
     return candidate;
+}
+
+/** True when this build is running a candidate that is not approved as a production default. */
+export function isRunningUnapprovedCandidate(config: PrivateSttConfig = privateSttConfig): boolean {
+    try {
+        return !resolveCandidate(config?.candidate ?? '').activationReady;
+    } catch {
+        return false;
+    }
 }
 
 /**
