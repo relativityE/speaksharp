@@ -126,10 +126,19 @@ describe('stale locks require verified PID and host ownership', () => {
 });
 
 describe('remote CI is exempt; an override is RECORDED, not invisible', () => {
-    it('CI runners never enforce the interlock', () => {
+    it('a PROVEN remote runner never enforces the interlock', () => {
+        // CORRECTED: this asserted `CI: 'true'` exempts. It no longer does, and must not — this repo's
+        // own `test:unit` sets `cross-env CI=true`, so keying the exemption on CI silently disabled the
+        // interlock during exactly the local suites it exists to catch.
         held('benchmark');
-        expect(() => assertClear('local', { root, env: { CI: 'true' }, ...LIVE })).not.toThrow();
-        expect(interlockDisabled({ CI: 'true' })).toBe(true);
+        expect(() => assertClear('local', { root, env: { GITHUB_ACTIONS: 'true' }, ...LIVE })).not.toThrow();
+        expect(interlockDisabled({ GITHUB_ACTIONS: 'true' })).toBe(true);
+    });
+
+    it('CASUALTY: a local CI=true does NOT exempt', () => {
+        held('benchmark');
+        expect(interlockDisabled({ CI: 'true' })).toBe(false);
+        expect(() => assertClear('local', { root, env: { CI: 'true' }, ...LIVE })).toThrow(InterlockError);
     });
 
     it('CASUALTY: the interlock is ON by default — absence of CI must not disable it', () => {

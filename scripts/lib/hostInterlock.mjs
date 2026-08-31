@@ -17,7 +17,7 @@
  *  - AN OVERRIDE IS RECORDED, NOT INVISIBLE. Bypassing does not silently produce normal-looking timing:
  *    `overrideActive()` is written into the artifact and marks its timing ineligible.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 
@@ -31,13 +31,29 @@ export class InterlockError extends Error {}
 const dirFor = (root) => join(root, LOCK_DIR);
 const lockPath = (root, kind, pid) => join(dirFor(root), `${kind}.${pid}.lock`);
 
+/**
+ * Remote CI is exempt — runners are separate hosts, so enforcing only produces false refusals.
+ *
+ * The check is a PROVEN REMOTE RUNNER (`GITHUB_ACTIONS`), not a generic `CI=true`. `CI` is set by
+ * plenty of local tooling — this repo's own `test:unit` script sets `cross-env CI=true` — so keying on
+ * it silently disabled the interlock during exactly the local suites it exists to catch.
+ */
+export function remoteRunner(env = process.env) {
+    return env.GITHUB_ACTIONS === 'true';
+}
+
 export function interlockDisabled(env = process.env) {
-    return env.CI === 'true' || env.SPEAKSHARP_INTERLOCK === 'off';
+    return remoteRunner(env) || env.SPEAKSHARP_INTERLOCK === 'off';
+}
+
+/** An ancestor already holds a lock for this workload; nested commands must not re-acquire. */
+export function heldByAncestor(env = process.env) {
+    return typeof env.SPEAKSHARP_INTERLOCK_HELD === 'string' && env.SPEAKSHARP_INTERLOCK_HELD !== '';
 }
 
 /** True when the interlock was bypassed by hand — recorded in evidence, never merely tolerated. */
 export function overrideActive(env = process.env) {
-    return env.SPEAKSHARP_INTERLOCK === 'off' && env.CI !== 'true';
+    return env.SPEAKSHARP_INTERLOCK === 'off' && !remoteRunner(env);
 }
 
 const isAliveDefault = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -68,6 +84,7 @@ export function readLocks(root, kind, { host = hostname(), isAlive = isAliveDefa
 export function assertClear(kind, { root = process.cwd(), env = process.env, ...opts } = {}) {
     if (!KINDS.includes(kind)) throw new InterlockError(`unknown interlock kind "${kind}"`);
     if (interlockDisabled(env)) return { enforced: false, reason: 'disabled', override: overrideActive(env) };
+    if (heldByAncestor(env)) return { enforced: false, reason: 'held_by_ancestor', override: false };
 
     for (const other of BLOCKED_BY[kind]) {
         for (const lock of readLocks(root, other, opts)) {
@@ -99,22 +116,64 @@ export function assertClear(kind, { root = process.cwd(), env = process.env, ...
 }
 
 /** Take an OWNER-SPECIFIC lock for this process. Releasing it can never remove another job's lock. */
+/**
+ * A cross-process mutex around scan-and-acquire. `mkdir` is atomic on every platform we run on, so
+ * exactly one process can hold it. Without this, two benchmarks can both scan an empty directory
+ * before either writes its owner file and both proceed — the check is not the same as the claim.
+ */
+function withAcquireMutex(root, fn, { attempts = 200, waitMs = 25 } = {}) {
+    const gate = join(dirFor(root), '.acquire');
+    mkdirSync(dirFor(root), { recursive: true });
+    for (let i = 0; i < attempts; i++) {
+        try {
+            mkdirSync(gate);                       // atomic: throws EEXIST if another process holds it
+            try { return fn(); } finally { try { rmdirSync(gate); } catch { /* already gone */ } }
+        } catch (e) {
+            if (e?.code !== 'EEXIST') throw e;
+            const until = Date.now() + waitMs;
+            while (Date.now() < until) { /* brief spin; this section is milliseconds long */ }
+        }
+    }
+    throw new InterlockError(
+        `could not obtain the interlock acquire mutex at ${gate}. If no job is starting, remove that `
+        + 'directory — it is a mutex, not a lock, and is never held for more than a few milliseconds.',
+    );
+}
+
 export function acquire(kind, {
     root = process.cwd(), env = process.env, now = () => new Date().toISOString(),
     /** Owner id for this lock. Defaults to the pid; overridable so two distinct jobs are testable. */
     owner = process.pid,
     ...opts
 } = {}) {
-    const result = assertClear(kind, { root, env, ...opts });
-    if (!result.enforced) return { release: () => {}, path: null, ...result };
+    // The scan and the write are ONE critical section, so two starters cannot both see a clear host.
+    return withAcquireMutex(root, () => {
+        const result = assertClear(kind, { root, env, ...opts });
+        // Same SHAPE as the enforced return: a caller must not have to know whether the lock was
+        // actually taken. Omitting `adopt` here threw a TypeError in every nested command.
+        if (!result.enforced) return { release: () => {}, adopt: () => {}, path: null, ...result };
 
-    const path = lockPath(root, kind, owner);
-    mkdirSync(dirFor(root), { recursive: true });
-    writeFileSync(path, `${JSON.stringify({ kind, pid: owner, host: hostname(), startedAt: now() }, null, 2)}\n`);
-    let released = false;
-    return {
-        ...result,
-        path,
-        release: () => { if (!released) { released = true; rmSync(path, { force: true }); } },
-    };
+        const path = lockPath(root, kind, owner);
+        writeFileSync(path, `${JSON.stringify({ kind, pid: owner, host: hostname(), startedAt: now() }, null, 2)}\n`);
+        let released = false;
+        return {
+            ...result,
+            path,
+            /**
+             * Re-point the lock at the WORKLOAD's pid once it exists.
+             *
+             * Liveness must track the process doing the work, not the wrapper. A SIGKILL on the wrapper
+             * cannot be caught, so the wrapper dies while its child keeps running — and a lock judged by
+             * the wrapper's pid would then be classified stale and reclaimed, letting a benchmark start
+             * alongside a live test suite. Judged by the child's pid, the lock correctly stays live.
+             */
+            adopt: (workloadPid) => {
+                if (released) return;
+                writeFileSync(path, `${JSON.stringify({
+                    kind, pid: workloadPid, wrapperPid: owner, host: hostname(), startedAt: now(),
+                }, null, 2)}\n`);
+            },
+            release: () => { if (!released) { released = true; rmSync(path, { force: true }); } },
+        };
+    });
 }
