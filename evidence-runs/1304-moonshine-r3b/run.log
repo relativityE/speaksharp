@@ -1,0 +1,27 @@
+
+#1304 BROWSER lane — set=corpus (selection), 600 clips / 10894 normalized words, mirror mode=pinned
+
+
+  moonshine:streaming-medium  (Moonshine Streaming Medium (official @moonshine-ai/moonshine-wasm))
+    ASSET RECONCILIATION FAILED (12) — arm not selection-grade:
+      observed_not_declared: lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs
+      observed_not_declared: lib/@moonshine-ai/moonshine-wasm/dist/moonshine.wasm
+      observed_not_declared: external/download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/adapter.ort
+      observed_not_declared: external/download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/cross_kv.ort
+      observed_not_declared: external/download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/decoder_kv.ort
+      observed_not_declared: external/download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/encoder.ort
+    backend: wasm:1 module(s) (PROVEN)
+    NO ROW: unscoreable_arm (incomplete_corpus)
+    selection eligible: no — no row: unscoreable_arm
+    cold load 35ms · warm p50 4537ms p95 20191ms · RTF p50 0.667 p95 3.300
+    download 0.1 MB over 17 files · reliability decoded=600/600 threw=565 empty=0 missing=0 truncated=0
+
+
+=== BROWSER LANE SUMMARY ===
+    —     moonshine:streaming-medium           wasm:1 module(s)             not eligible
+
+  evidence class: selection. 
+
+
+REFUSING to finalise evidence-runs/1304-moonshine-r3b/moonshine.json: plan targeted-finalists-v1 missing_measured (v2:base.en, v4:base:int8-decoder:cpu, v4:base:q4-decoder:wasm)
+The checkpoint at evidence-runs/1304-moonshine-r3b/moonshine.partial.json is retained; resume to complete it.

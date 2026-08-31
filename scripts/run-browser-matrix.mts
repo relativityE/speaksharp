@@ -21,7 +21,7 @@ import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { resolve } from 'node:path';
 import { cpus, arch, platform, loadavg } from 'node:os';
-import { chromium } from '@playwright/test';
+import { chromium, type Page } from '@playwright/test';
 import manifest from '../tests/fixtures/corpus-manifest.json' with { type: 'json' };
 import goldens from '../tests/evidence/normalization/goldens.json' with { type: 'json' };
 import { startHarnessServer } from '../tests/evidence/certification/browser/server';
@@ -613,7 +613,7 @@ for (const spec of ARM_MATRIX) {
 
     // COLD LOAD, measured in a FRESH context: what a new user waits for once.
     const coldLoadStarted = Date.now();
-    const loaded = await page.evaluate(async (input) => {
+    const armSetup = async (input: ArmSetupInput) => {
         const w = window as unknown as { __asr?: unknown };
         try {
             if (input.isMoonshineWasm) {
@@ -730,7 +730,8 @@ for (const spec of ARM_MATRIX) {
         } catch (error) {
             return { ok: false as const, error: (error as Error)?.message?.slice(0, 260) ?? String(error) };
         }
-    }, {
+    };
+    const armSetupInput = {
         origin: harness.origin,
         libUrl: isMoonshineWasm
             ? '/lib/@moonshine-ai/moonshine-wasm/dist/index.js'
@@ -743,7 +744,22 @@ for (const spec of ARM_MATRIX) {
         dtype: typeof spec.dtype === 'object' ? spec.dtype : spec.dtype ?? undefined,
         device: deviceClaim,
         revision: spec.revision ?? null,
-    });
+    };
+    type ArmSetupInput = typeof armSetupInput;
+
+    /**
+     * Initialise a page for this arm: navigate, wait for the harness, install `window.__asr`.
+     *
+     * Factored out because a page has a FINITE heap budget for runtimes that never return it, and the
+     * cure is a new page rather than a cleverer teardown.
+     */
+    const initPage = async (p: Page) => {
+        await p.goto(`${harness.origin}/harness.html`);
+        await p.waitForFunction(() => (window as unknown as { __ready?: boolean }).__ready === true);
+        return p.evaluate(armSetup, armSetupInput);
+    };
+
+    const loaded = await page.evaluate(armSetup, armSetupInput);
 
     const coldLoadMs = Date.now() - coldLoadStarted;
     const armAssets = endArmCapture();
@@ -909,8 +925,23 @@ for (const spec of ARM_MATRIX) {
      * Two constructions of the same fact will diverge; the fix is to have one.
      */
 
+    /**
+     * MOONSHINE RECYCLES ITS PAGE. It loads a fresh Transcriber per clip — the only method measured to
+     * isolate cross-clip state — and destroy() does not return the WASM heap. In one page that survived
+     * 35 clips before the target CRASHED (0-34 decoded, 35-599 threw). 25 keeps a margin under the
+     * observed cliff. Other runtimes load once and do not accumulate, so recycling would only cost
+     * reload time.
+     */
     const arm = createBrowserArm({
         id: spec.id, page, route, deviceClaim,
+        ...(isMoonshine ? {
+            recycleEvery: 25,
+            renewPage: async () => {
+                const fresh = await context.newPage();
+                await initPage(fresh);
+                return fresh;
+            },
+        } : {}),
         modelId,
         modelRevision: spec.revision ?? (selfHosted ? `self-hosted:${modelId}` : `huggingface:${modelId}`),
         // A SELF-HOSTED arm's weights never pass through the HuggingFace mirror, so its digests come

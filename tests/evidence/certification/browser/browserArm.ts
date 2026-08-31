@@ -74,6 +74,19 @@ export interface BrowserArmOptions {
     runtimeVersion: string;
     device: ArmProvenance['device'];
     corpus: ArmProvenance['corpus'];
+    /**
+     * RECYCLE THE PAGE EVERY N DECODES, for runtimes that accumulate heap they never return.
+     *
+     * Moonshine loads a fresh Transcriber per clip (the only method measured to isolate cross-clip
+     * state) and `destroy()` does not return the WASM heap. In one page that survives ~35 clips and
+     * then the target CRASHES: clips 0-34 decoded, 35-599 all threw. The page — not the model — is the
+     * thing with a finite budget, so it is replaced before it reaches one.
+     *
+     * Omitted for runtimes that do not accumulate, where recycling would only cost reload time.
+     */
+    recycleEvery?: number;
+    /** Supplies a fresh page with the arm's init already applied. Required when recycleEvery is set. */
+    renewPage?: () => Promise<Page>;
 }
 
 /**
@@ -114,9 +127,24 @@ const withDeadline = async <T>(work: Promise<T>, ms: number, what: string): Prom
 
 export function createBrowserArm(options: BrowserArmOptions): DecodeArm {
     let wallClockMs = 0;
+    let page = options.page;
+    let decodesOnThisPage = 0;
+
+    /** Replace the page before its heap budget runs out, never after the target has crashed. */
+    const recycleIfDue = async () => {
+        const every = options.recycleEvery ?? 0;
+        if (!every || !options.renewPage) return;
+        if (decodesOnThisPage < every) return;
+        const fresh = await options.renewPage();
+        try { await page.close(); } catch { /* already gone */ }
+        page = fresh;
+        decodesOnThisPage = 0;
+    };
 
     const transcribe = async (locator: string, audioSeconds: number) => {
-        const result = await withDeadline(options.page.evaluate(
+        await recycleIfDue();
+        decodesOnThisPage += 1;
+        const result = await withDeadline(page.evaluate(
             async (input) => {
                 const w = window as unknown as {
                     __asr: (audio: Float32Array, opts: Record<string, unknown>) => Promise<unknown>;
