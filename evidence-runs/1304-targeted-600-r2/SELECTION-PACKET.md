@@ -41,45 +41,37 @@
 than all three. Note that int8's browser execution is confirmed here: `executionBackend`
 `browser_wasm`, 600/600, counters zero.
 
-## The leading "yeah" — a HARNESS defect, and my earlier framing was wrong
+## The leading "yeah" — persistent transcriber state, and my earlier framing was wrong
 
-Moonshine-medium's rows carry 213 Track-B insertions, of which **"yeah" x100**, against 106-113 for
-every other arm. The full analysis is in `YEAH-CLASSIFICATION.md`. In summary:
+Full analysis and the withdrawn claims: `YEAH-CLASSIFICATION.md`.
 
-- **It is our harness, not the model.** Same clips, same audio, same model: one reused transcriber
-  produces the leading "yeah" (3/8), a fresh transcriber per clip produces **none** (0/8).
-  `run-browser-matrix.mts` loads ONE `Transcriber` per arm and reuses it for all 600 clips with no
-  reset, and a STREAMING decoder leaks state across clip boundaries.
-- **Consequence: moonshine's 0.06187 is a PENALTY, not a fault.** ~101 of its 212 Track-A insertions
-  are harness-induced. Removing them implies ~0.05260 from this same run, which WIDENS its margin
-  over v2 rather than narrowing it.
+**Supported:** persistent state in the Moonshine transcriber changes the output of subsequent decode
+calls, and this benchmark violated independent-clip semantics by reusing ONE transcriber across all
+600 clips with no reset. Shared instance produces a leading "yeah" (3/8); a fresh instance per clip
+produces none (0/8).
 
-### Two claims I made earlier that were WRONG, corrected here
+**NOT supported, and withdrawn:** that it "is not the model" (the probe separates reused from fresh
+instances, not runtime from weights); that a corrected WER is 0.05260; that the accuracy ordering is
+strengthened; that only the leading token changed. The probe's own output shows a NON-"yeah"
+recognition difference in `1221-135767-0022` ("struggle for." vs "struggle for subjection."), so
+subtracting tokens from the numerator does not produce a WER.
 
-1. **"It inflates SpeakSharp's headline filler metric."** FALSE. `frontend/src/config.ts` defines
-   `TRUE_FILLER_WORDS = [um, uh, ah]` and `DISCOURSE_MARKER_WORDS = [like, you know, so, actually, oh,
-   I mean, basically, literally, kind of, sort of]`. **"yeah" is in neither**, and the headline is
-   true-fillers plus the user's own custom words. An inserted "yeah" damages transcript truth and user
-   trust, and would matter only to a user who added "yeah" as a custom word. It does **not** move the
-   default headline number. "yeah" is NOT being added to the product vocabulary to make a diagnostic
-   catch it — that would change product behaviour to suit an instrument.
-2. **"Spontaneous speech is likely worse."** WITHDRAWN as unsupported. Nothing here measures
-   spontaneous speech; it may be worse, better, or simply different.
+**Count correction:** 101 hypotheses begin with "yeah"; **100** are Track-B insertions. Clip
+`5484-24318-0015` aligns its leading "yeah" as substitutions (S/D/I = 2/0/0).
 
-### What is NOT yet established
-
-The mechanism is **indicated, not proven**. The probe covers 8 clips in two conditions (A and B of the
-required matrix). Still open: shared transcriber with reordered/affected-first clips, an explicit
-reset path if the runtime exposes one, benchmark arm vs the Moonshine PRODUCT engine, full-buffer vs
-3-second-window decoding, and identical audio repeated in one process. **No Moonshine disposition —
-select or reject — is supported by this packet.**
+**Directly relevant to the product, not only the harness:** `MoonshineStreamingEngine` has the same
+shape — one transcriber, repeated overlapping three-second windows, then a full-buffer decode on that
+same instance at `stop()`. Whether the product path shows the same or another state artifact is OPEN.
 
 ## Evidence class — NOT wholly selection-grade
 
-| Field | v2:base.en | v4:base:q4 | v4:base:int8 | moonshine-medium |
-|---|---|---|---|---|
-| WER / reliability / hypotheses / insertions | usable | usable | usable | usable |
-| **Latency (`wallClockMs`, `clipTimings`)** | **CONTAMINATED** | **CONTAMINATED (~4 min)** | clean | clean |
+| r2 field | v2 / q4 / int8 | moonshine-medium |
+|---|---|---|
+| Accuracy (WER) | **usable** | **INVALID for independent-clip selection** |
+| Bootstrap comparisons | usable among v2/q4/int8 | **invalid for selection** (diagnostic only) |
+| Reliability counters | usable | diagnostic, lifecycle-dependent |
+| Hypotheses / insertion profile | usable | retained **diagnostic** evidence |
+| Latency | v2 **CONTAMINATED**, q4 **CONTAMINATED (~4 min)**, int8 clean | host-uncontaminated but **methodology-invalid** until the isolation/reset cost is known |
 
 Cause and exact overlap windows: `HOST-CONTAMINATION.md`. Host load rose from 4.43 at start to 6.15
 at end.
@@ -104,7 +96,9 @@ node scripts/analysis/paired-bootstrap.mjs \
   evidence-runs/1304-targeted-600-r2/targeted-finalists.json 10000 0x1304600
 ```
 
-Output retained as `bootstrap.txt`; per-arm insertion profiles extracted to `insertion-profiles.json`.
+`bootstrap.txt` reproduces byte-identically from that command — the script now prints its own
+reproduce footer, which an earlier revision appended by hand while claiming byte-identity. Per-arm
+insertion profiles are extracted to `insertion-profiles.json`.
 The "yeah" classification probe is `scripts/probe-moonshine-yeah.mts`, its artifact
 `evidence-runs/1304-yeah-classification.json`.
 
@@ -113,6 +107,22 @@ The "yeah" classification probe is `scripts/probe-moonshine-yeah.mts`, its artif
 No model is selected, activated, or defaulted. `PRIVATE_STT_MODEL_IN_USE` remains `v2:base.en`.
 
 Current posture, stated so it is not read as a ruling: v2 is the operational default and NOT a newly
-selected winner; moonshine-medium is the accuracy-leading prospect on HOLD pending causal
-classification; v4:base:int8 is a browser-capable human-test prospect that has NOT meaningfully beaten
-v2; q4 is a reference control.
+selected winner; moonshine-medium's r2 accuracy row is INVALID for selection and it remains a prospect
+on HOLD; v4:base:int8 is a browser-capable human-test prospect that has NOT meaningfully beaten v2;
+q4 is a reference control.
+
+**r2 is not the selection artifact.** It is the run that discovered invalid Moonshine methodology. A
+corrected four-arm r3 — after the benchmark isolation fix and a retained shared-state preflight — will
+be the canonical selection evidence. r2 must not be mathematically adjusted into that role.
+
+## Identity of this packet vs the run
+
+| | |
+|---|---|
+| Benchmark execution SHA | `7f6e5d37` |
+| Product baseline | `024b574f` |
+| Evidence-packet commit | the commit introducing this directory — `git log -1 -- evidence-runs/1304-targeted-600-r2/` |
+
+The two are deliberately distinct: the run was executed at `7f6e5d37`, and the analysis in this packet
+was written and CORRECTED afterwards. Citing one SHA for both would imply the analysis was produced by
+the run.

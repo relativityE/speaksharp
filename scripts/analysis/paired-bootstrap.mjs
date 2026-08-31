@@ -57,3 +57,7 @@ for (const [A, B] of pairs) {
   console.log(`${A}  vs  ${B}`);
   console.log(`   diff ${obs >= 0 ? '+' : ''}${obs.toFixed(5)}  95% CI [${lo.toFixed(5)}, ${hi.toFixed(5)}]  p~${p.toFixed(3)}  ${verdict}`);
 }
+
+// Printed so the retained output file reproduces in full, not merely its statistical section.
+console.log('\n--- reproduce ---');
+console.log(`node scripts/analysis/paired-bootstrap.mjs \\\n  ${process.argv[2]} ${N} 0x${Number(process.argv[4] ?? 0x1304600).toString(16)}`);

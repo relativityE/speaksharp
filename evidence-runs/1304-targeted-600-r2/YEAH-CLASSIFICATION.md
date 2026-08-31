@@ -1,73 +1,92 @@
-# The leading "yeah" is a HARNESS defect, not model behaviour
+# Persistent transcriber state changes subsequent decodes — a bounded finding
 
 **Probe:** `scripts/probe-moonshine-yeah.mts`
-**Artifact:** `evidence-runs/1304-yeah-classification.json` · sha256 `d3b49eaab0b7e6406fcf371196c752af74fbdbd9c276bab1d2f12627f7f46d8f`
-**Verdict:** `HARNESS_SHARED_STATE`
+**Artifact:** `evidence-runs/1304-yeah-classification.json` · sha256 `d3b49eaa…`
 
-## Result
+> **This document was CORRECTED after review.** An earlier version was titled "a HARNESS defect, not
+> model behaviour", carried the verdict label `HARNESS_SHARED_STATE` as a conclusion, and derived a
+> "corrected" Moonshine WER of 0.05260. Those claims went beyond what the probe supports and are
+> withdrawn below, with the reasons. The raw probe JSON, benchmark JSON and run log are unmodified.
 
-Same clips, same audio, same model (`MediumStreaming`), same pinned runtime — decoded two ways:
+## What the probe SUPPORTS
 
-| Condition | Leading "yeah" |
+**Persistent state in the Moonshine transcriber changes the output of subsequent decode calls, and the
+benchmark violated independent-clip semantics by reusing one transcriber across all 600 clips.**
+
+Same clips, same audio, same model (`MediumStreaming`), same pinned runtime:
+
+| Condition | Hypotheses beginning with "yeah" |
 |---|---:|
 | ONE transcriber reused across clips (the benchmark's condition) | **3 / 8** |
-| A fresh transcriber per clip, in its own page | **0 / 8** |
+| A fresh transcriber per clip, each in its own page | **0 / 8** |
 
 Raw runtime text, captured BEFORE any normalization, so our scoring pipeline is excluded as a cause:
 
 ```
 shared: "Yeah Tied to a woman."
 fresh : "Tied to a woman."
-
-shared: "Yeah. John Taylor, who had supported her through college, was interested in ..."
-fresh : "John Taylor, who had supported her through college, was interested in ..."
 ```
 
-## Cause
+`scripts/run-browser-matrix.mts` loads ONE `Transcriber` per arm and calls `transcribe()` 600 times on
+it with **no reset and no destroy between clips**. For a streaming decoder that is a state leak across
+clip boundaries.
 
-`scripts/run-browser-matrix.mts` loads ONE `Transcriber` per arm and reuses it for all 600 clips:
-`w.__asr` closes over a single instance and calls `transcribe()` 600 times with **no reset and no
-destroy between clips**. For a STREAMING model that is a state leak across clip boundaries — the
-decoder begins the next clip carrying context from the previous one and emits a spurious leading
-token.
+Supporting signature in r2: 101 of 600 hypotheses begin with "yeah", **every occurrence at token
+position 0**, never more than one per clip, no reference containing the word, no run-order clustering
+(indices 15–593, roughly geometric gaps), no meaningful clip-length effect (17.8 vs 18.2 reference
+words).
 
-The signature in the 600 matches exactly and matches nothing else: 101 of 600 clips (16.8%), **every
-occurrence at token position 0**, never more than one per clip, no reference containing the word, no
-run-order clustering (indices 15–593, roughly geometric gaps), and no meaningful clip-length
-difference (17.8 vs 18.2 reference words).
+## What the probe does NOT support — claims withdrawn
 
-The reproduction rate differs between the two settings (3/8 here vs 8/8 in the full run) because the
-leak depends on the preceding clip sequence, and this probe decoded a different, shorter sequence.
-The MECHANISM is what the probe establishes: removing cross-clip state removes the token entirely.
+**1. "It is not the model."** WITHDRAWN. The probe separates *reused instance* from *fresh instance*;
+it does not separate *runtime* from *weights*. The correct statement is that persistent transcriber
+state changes later decodes. Whether the same runtime behaviour affects the PRODUCT path is open —
+and it matters, because `MoonshineStreamingEngine` has the same shape: one transcriber, repeated
+overlapping three-second windows, then a full-buffer decode on that same instance at `stop()`.
 
-## Consequences — this changes the reading of the 600
+**2. "Corrected WER ≈ 0.05260."** WITHDRAWN as invalid. It assumed only the leading "yeah" changed.
+The probe's own retained output disproves that — clip `1221-135767-0022` differs between shared and
+fresh **beyond** the leading token:
 
-1. **Moonshine's measured WER is a PENALTY, not a fault.** Of its 212 Track-A insertions, ~101 were
-   harness-induced. Its 0.06187 understates the model: with those removed the same run implies
-   **~0.05260**, which would widen rather than narrow its margin over v2 (0.06903).
-2. **The other three arms are not affected by this mechanism.** They run transformers.js pipelines,
-   are not streaming decoders, and their insertions are ordinary function words at ≤7 occurrences with
-   zero filler-like tokens.
-3. **A third evidence caveat on r2**, alongside contaminated v2/q4 latency: the moonshine arm's
-   insertion count — and therefore its WER — is inflated by a harness defect. The accuracy ORDERING is
-   unchanged and if anything strengthened, but the moonshine figure is not a clean measurement.
-4. **The harness needs a per-clip reset for streaming runtimes** before any moonshine arm is treated
-   as a clean accuracy measurement.
+```
+shared: … amid the close struggle for. For subsistence …
+fresh : … amid the close struggle for subjection. For subsistence …
+```
 
-## Corrections to my earlier report
+State changes recognition generally, so subtracting tokens from the numerator does not yield a WER.
+`0.05260` is retained ONLY as a counterfactual diagnostic, not as a measurement.
 
-Both of my earlier claims about this were wrong, and both were caught in review:
+**3. "~101 of 212 insertions are harness-induced."** WITHDRAWN — the count is wrong. **101** hypotheses
+begin with "yeah"; the Track-B profile classifies **100** of them as insertions. Clip
+`5484-24318-0015` aligns its leading "yeah" through **substitutions** instead: S/D/I = 2/0/0, because
+`"yeah tomorrow"` against reference `"to morrow"` resolves as two substitutions rather than an
+insertion plus a substitution.
 
-- I said it would inflate SpeakSharp's headline filler metric. **False.** `TRUE_FILLER_WORDS` is
-  `[um, uh, ah]` and `DISCOURSE_MARKER_WORDS` is `[like, you know, so, actually, oh, I mean,
-  basically, literally, kind of, sort of]` (`frontend/src/config.ts`). "yeah" is in neither.
-- I said the model hallucinates. **False.** Our harness produced it.
+**4. "The accuracy ordering is strengthened."** WITHDRAWN. Nothing here establishes a better Moonshine
+score. Only a corrected rerun can.
 
-`yeah` is NOT being added to the product filler vocabulary.
+**5. "Moonshine's WER/latency remain selection-usable."** WITHDRAWN — see the disposition table in
+`SELECTION-PACKET.md`.
 
-## The 212 vs 213 discrepancy — reconciled, and not an alignment tie-break
+## Two earlier product claims, also withdrawn
 
-`delta = profile − scorer` equals `fillerLikeTotal` for **all four arms**: 0/0, 0/0, 0/0, and 1/1 for
-moonshine. The scorer measures Track A, whose normalization strips `um/uh/hmm/…`, so a hallucinated
-`uh` never counts as an insertion; the profile measures Track B, which preserves it. 212 and 213 are
-each correct for their own track.
+- **"It inflates SpeakSharp's headline filler metric."** FALSE. `frontend/src/config.ts` defines
+  `TRUE_FILLER_WORDS = [um, uh, ah]` and `DISCOURSE_MARKER_WORDS = [like, you know, so, actually, oh,
+  I mean, basically, literally, kind of, sort of]`. **"yeah" is in neither.** It damages transcript
+  truth and user trust, and would move a count only for a user who added "yeah" as a custom word.
+  "yeah" is NOT being added to the product vocabulary to make a diagnostic catch it.
+- **"Spontaneous speech is likely worse."** WITHDRAWN as unsupported extrapolation.
+
+## Still open — conditions C–G not yet run
+
+Reordered / affected-clips-first under a shared instance; an explicit runtime reset path if one
+exists; benchmark arm vs the **product** engine; full-buffer vs three-second-window decoding; repeated
+identical audio in one process; matched controls. Until those run, **no Moonshine disposition —
+select or reject — is supported.**
+
+## The 212 vs 213 difference — reconciled, and not an alignment tie-break
+
+`delta = profile − scorer` equals `fillerLikeTotal` for **all four** arms: 0/0, 0/0, 0/0, and 1/1 for
+Moonshine. The scorer measures Track A, whose normalization strips `um/uh/hmm/…`, so a hallucinated
+`uh` never counts; the profile measures Track B, which preserves it. 212 and 213 are each correct for
+their own track.
