@@ -138,7 +138,13 @@ describe('#1314 terminal authority includes the postflight outcome', () => {
       .toThrow(/postflight/);
   });
   it('a successful postflight passes', () => {
-    expect(t1314('success')).toEqual({ terminal: 'success', enforcedPostflights: ['postflight_1314'] });
+    expect(t1314('success')).toEqual({
+      terminal: 'success',
+      enforcedPostflights: ['postflight_1314'],
+      // Added when the terminal gate stopped rejecting targets that have no bespoke postflight:
+      // coverage is now REPORTED rather than inferred from the absence of a failure.
+      postflightCoverage: 'target_specific',
+    });
   });
   it("a skipped postflight (non-#1314 migration) is allowed", () => {
     // CORRECTED: 'skipped' for the APPLICABLE target is no longer a pass — the gate never ran, so nothing
