@@ -127,11 +127,37 @@ describe('canary terminal-state — executed bash (summary / failure / migration
     expect(r.out).toContain('migration readiness could not be established');
   });
 
-  it('migration pending → HOLD, exit 0; billing reported as not-part-of-run on a daily cadence', () => {
-    const r = runTerminal({ READINESS_RESULT: 'success', MIGRATION_READY: 'false', PRODUCT_LANES_RESULT: 'skipped', BILLING_QUALIFICATION_RAN: 'false' });
-    expect(r.code).toBe(0);
-    expect(r.summary).toContain('HOLD — migration pending; canary not executed');
+  // CORRECTED CONTRACT, not a relaxed one. This case previously asserted `exit 0`, which is precisely why
+  // the defect survived: a HOLD skips `canary-check` entirely, so the run concluded SUCCESS having executed
+  // ZERO product qualification — indistinguishable, to anyone reading the badge, from a passing product
+  // run. The test encoded the defect as correct behaviour. A HOLD is now NON-SUCCESS.
+  it('migration pending → HOLD is NON-SUCCESS; zero product lanes ran', () => {
+    const r = runTerminal({ READINESS_RESULT: 'success', MIGRATION_READY: 'false', PRODUCT_LANES_RESULT: 'skipped', BILLING_QUALIFICATION_RAN: 'false', PENDING_MIGRATIONS: '20260829120000' });
+    expect(r.code).not.toBe(0);
+    expect(r.summary).toContain('NO product qualification ran');
     expect(r.summary).toContain('Weekly billing qualification: not part of this run');
+  });
+
+  it('a HOLD names the pending migration(s), so the cause is not guesswork', () => {
+    const r = runTerminal({ READINESS_RESULT: 'success', MIGRATION_READY: 'false', PRODUCT_LANES_RESULT: 'skipped', BILLING_QUALIFICATION_RAN: 'false', PENDING_MIGRATIONS: '20260829120000' });
+    expect(r.summary).toContain('20260829120000');
+  });
+
+  it('a HOLD stays DISTINGUISHABLE from a product-lane failure', () => {
+    // Both are non-success. Conflating them would send someone debugging a product regression that never
+    // ran, so the distinction has to survive in the emitted text.
+    const held = runTerminal({ READINESS_RESULT: 'success', MIGRATION_READY: 'false', PRODUCT_LANES_RESULT: 'skipped', BILLING_QUALIFICATION_RAN: 'false', PENDING_MIGRATIONS: 'x' });
+    const failed = runTerminal({ ...READY, PRODUCT_LANES_RESULT: 'failure', BILLING_QUALIFICATION_RAN: 'false' });
+    expect(held.out + held.summary).toContain('HELD');
+    expect(failed.out).toContain('required daily active-trial product lane failed');
+    expect(failed.out + failed.summary).not.toContain('CANARY HELD');
+  });
+
+  it('the readiness job publishes `pending`, and canary-check is still gated on readiness', () => {
+    // The HOLD can only name its cause if readiness exports it; the HOLD only MEANS anything if the
+    // product lanes are genuinely skipped when not ready.
+    expect(wf.jobs['migration-readiness'].outputs).toHaveProperty('pending');
+    expect(wf.jobs['canary-check'].if).toContain("needs.migration-readiness.outputs.ready == 'true'");
   });
 
   it('lane failure (daily) → hard error naming the daily active-trial lane, exit 1', () => {

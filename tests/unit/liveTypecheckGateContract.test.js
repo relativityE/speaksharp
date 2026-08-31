@@ -25,7 +25,17 @@ describe('live-proof typecheck gate — wiring contract', () => {
   it('quality runs it, which is what puts it in the REQUIRED CI lane', () => {
     // `pnpm quality` runs in unit-coverage-merge, a merge-qualification required job — so a failing
     // live typecheck cannot coexist with a merge-qualified run.
-    expect(pkg.scripts.quality).toContain('typecheck:live');
+    // FOLLOW THE INDIRECTION. `quality` is now a host-interlock wrapper that delegates to
+    // `quality:unguarded`, so a literal substring check on `quality` alone would fail while the gate
+    // still runs — and, worse, would pass again if someone "fixed" it by dropping the delegation.
+    // Resolve the chain and assert the gate is reached, which is the property this test exists for.
+    const resolve = (name, depth = 0) => {
+        const body = pkg.scripts[name];
+        if (!body || depth > 5) return body ?? '';
+        // Expand any `pnpm <script>` references this script delegates to.
+        return body.replace(/pnpm ([\w:-]+)/g, (m, ref) => (pkg.scripts[ref] ? `${m} ${resolve(ref, depth + 1)}` : m));
+    };
+    expect(resolve('quality'), 'the quality gate no longer reaches typecheck:live').toContain('typecheck:live');
   });
 
   it('the project covers EVERY root live spec, not a chosen subset', () => {

@@ -45,9 +45,25 @@ case 'after':
 case 'lint-delta':
     result = assertNoNewLint(await readFile(args[0], 'utf8'), await readFile(args[1], 'utf8'));
     break;
-case 'final':
-    result = assertTerminalOutcome(args[0], args[1], args[2]);
+case 'final': {
+    // final <apply> <verify> <lint> <targetFile> [<gateId>=<outcome> ...]
+    // Postflights are passed as NAMED pairs, not trailing positionals. The previous form took three
+    // positionals and silently dropped the fourth argument the workflow was already passing, so a failed
+    // postflight could not affect the terminal result. Unknown ids now throw rather than being ignored.
+    const postflights = {};
+    for (const pair of args.slice(4)) {
+        const eq = pair.indexOf('=');
+        if (eq <= 0) {
+            console.error(`final: postflight arguments must be <gateId>=<outcome>, got '${pair}'`);
+            process.exit(2);
+        }
+        postflights[pair.slice(0, eq)] = pair.slice(eq + 1);
+    }
+    result = assertTerminalOutcome({
+        apply: args[0], verify: args[1], lint: args[2], targetFile: args[3], postflights,
+    });
     break;
+}
 default:
     console.error(`unsupported exact-migration gate mode: ${mode}`);
     process.exit(2);

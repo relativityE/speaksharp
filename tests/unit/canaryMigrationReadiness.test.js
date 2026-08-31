@@ -4,6 +4,7 @@ import {
   REQUIRED_APPLIED_MIGRATIONS,
   HELD_ACTIVATION_MIGRATION,
 } from '../../scripts/lib/canaryMigrationReadiness.mjs';
+import { EXACT_MIGRATION_ALLOWLIST } from '../../scripts/lib/exactMigrationGate.mjs';
 
 const row = (local, remote) => ` ${local ?? ''} | ${remote ?? ''} | 2026-08-12 04:15:00 `;
 
@@ -23,14 +24,20 @@ const allAppliedStates = () => Object.fromEntries(REQUIRED_APPLIED_MIGRATIONS.ma
 
 describe('canary migration readiness (full ordered staged set, not just 41500)', () => {
   it('requires the ordered staged prerequisites through 41600 and holds 42000', () => {
-    // #1314 (20260819120000) is a STAGED migration that must apply BEFORE commercial activation, so it joins
-    // the canary's required-applied set (the canary lanes run AFTER #1314 in the MVP critical path). It appears
-    // last in the staged order because it was inserted just before the held activation entry.
+    // The required set is DERIVED: every allowlist entry classified `staged`, behind the already-applied
+    // webhook prerequisite. It was previously asserted as a hardcoded literal, which made the coupling
+    // invisible — adding a staged allowlist entry silently enlarges what the canary demands of production,
+    // and a HOLD skips the product lanes while the run still reports success. Assert the DERIVATION, so a
+    // new entry shows up here as an intentional change rather than a literal to be quietly edited.
     expect(REQUIRED_APPLIED_MIGRATIONS).toEqual([
-      '20260812002000', '20260811143000', '20260812030000',
-      '20260812039500', '20260812040000', '20260812041000', '20260812041500',
-      '20260812041600', '20260819120000',
+      '20260812002000',
+      ...EXACT_MIGRATION_ALLOWLIST.filter((m) => m.classification === 'staged').map((m) => m.version),
     ]);
+    // The staged set still leads with the pre-activation ordering, and #1306 Stage B now joins it.
+    expect(REQUIRED_APPLIED_MIGRATIONS).toContain('20260819120000');
+    expect(REQUIRED_APPLIED_MIGRATIONS).toContain('20260829120000');
+    // Activation is NOT in the required set — it is held, and holding it is the point.
+    expect(REQUIRED_APPLIED_MIGRATIONS).not.toContain('20260812042000');
     expect(HELD_ACTIVATION_MIGRATION).toBe('20260812042000');
   });
 

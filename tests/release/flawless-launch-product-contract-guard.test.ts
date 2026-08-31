@@ -51,7 +51,9 @@ describe('flawless-launch product-contract guard (#1290)', () => {
     expect(workflow).not.toContain(`secrets.${RETIRED_CANARY_PW}`);
     expect(workflow).toContain('node scripts/canary-identity-config.mjs');
     expect(workflow).toContain('needs.migration-readiness.outputs.ready');
-    expect(workflow).toContain('HOLD — migration pending; canary not executed');
+    // Corrected with the HOLD contract: a held canary is NON-SUCCESS, and the summary now states that no
+    // product qualification ran rather than merely that the canary "was not executed".
+    expect(workflow).toContain('NO product qualification ran');
     expect(workflow).not.toMatch(/@speaksharp\.app\b/i);
     // The routine-vs-paid CADENCE, summary, failure, migration-HOLD, and concurrency behaviours are covered
     // by the EXECUTABLE contract in tests/canary/canaryStrategyContract.test.js (not token-presence here).
