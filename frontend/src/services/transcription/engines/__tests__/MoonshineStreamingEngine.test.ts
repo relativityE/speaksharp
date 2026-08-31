@@ -1,15 +1,16 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
-    MoonshineStreamingEngine, LIVE_WINDOW_SECONDS, type MoonshineTranscriber,
+    FORCE_UPDATE, MoonshineStreamingEngine, LIVE_WINDOW_SECONDS, type MoonshineTranscriber,
 } from '../MoonshineStreamingEngine';
 import type { MicStream } from '../../utils/types';
 
 /**
  * #1263 — Moonshine as a PRODUCT engine.
  *
- * The frozen 600 validates FULL-UTTERANCE accuracy. The product's live path decodes a recent 3-second
- * window and only the final pass sees the whole buffer, so the benchmark cannot speak to interim
- * behaviour at all. These tests exercise the lifecycle and the window contract with an injected
+ * The frozen 600 validates FULL-UTTERANCE accuracy. The product drives a CONTINUOUS SESSION: audio is
+ * handed to the runtime as it arrives and each pass summarises everything accumulated, with the final
+ * pass forced. The benchmark cannot speak to that at all. These tests exercise the lifecycle with an
+ * injected
  * transcriber — no 318 MB download, and every decode observable.
  */
 const SR = 16_000;
@@ -24,6 +25,22 @@ const frame = (n: number, v = 0.1) => Float32Array.from({ length: n }, () => v);
  * cross-clip state leak. The stream here accumulates, and `seen` records what each pass was asked to
  * summarise, so a test can tell a windowed read from a whole-session one.
  */
+/**
+ * Build a session stream over a text function. Every double needs one: the engine drives a continuous
+ * session and REFUSES the non-streaming whole-buffer API, so a double without a stream is a double of
+ * a runtime this engine will not talk to.
+ */
+const streamOver = (text: (accumulated: number) => string, onPass?: (acc: number) => void) => {
+    let accumulated = 0;
+    return {
+        start: vi.fn(),
+        addAudio: (audio: Float32Array) => { accumulated += audio.length; },
+        transcribe: () => { onPass?.(accumulated); return { lines: [{ text: text(accumulated) }] }; },
+        stop: vi.fn(),
+        close: vi.fn(),
+    };
+};
+
 const recordingTranscriber = (text: (audio: Float32Array) => string) => {
     const seen: number[] = [];
     const passes: number[] = [];
@@ -35,6 +52,8 @@ const recordingTranscriber = (text: (audio: Float32Array) => string) => {
             addAudio: (audio: Float32Array) => { accumulated += audio.length; },
             transcribe: (_flags?: number) => {
                 passes.push(accumulated);
+                // The text fn is given a buffer of the ACCUMULATED length, so a caller can express
+                // "the whole session" versus "a slice" in the same terms as before.
                 return { lines: [{ text: text(new Float32Array(accumulated)) }] };
             },
             stop: vi.fn(),
@@ -48,6 +67,7 @@ const recordingTranscriber = (text: (audio: Float32Array) => string) => {
 /** A transcriber with NO streaming API — start() must refuse rather than fall back. */
 const nonStreamingTranscriber = (): MoonshineTranscriber => ({
     transcribe: async () => ({ lines: [{ text: 'whole buffer' }] }),
+    // DELIBERATELY no createStream: this double exists to prove start() refuses such a runtime.
 });
 
 const fakeMic = () => {
@@ -96,7 +116,16 @@ describe('lifecycle parity with the Private STT contract', () => {
     });
 
     it('CASUALTY: a decode failure is recorded and never becomes another model’s result', async () => {
-        const t: MoonshineTranscriber = { transcribe: async () => { throw new Error('decode exploded'); } };
+        const t: MoonshineTranscriber = {
+            transcribe: async () => { throw new Error('whole-buffer API must not be used'); },
+            // The failure belongs on the PASS: that is where decoding happens in a session.
+            createStream: () => ({
+                start: vi.fn(),
+                addAudio: vi.fn(),
+                transcribe: () => { throw new Error('decode exploded'); },
+                stop: vi.fn(), close: vi.fn(),
+            }),
+        };
         const e = engineWith(t);
         await e.init();
         const { mic, push } = fakeMic();
@@ -123,34 +152,58 @@ describe('lifecycle parity with the Private STT contract', () => {
     });
 });
 
-describe('the 3-second live window is NOT the final full-buffer pass', () => {
-    it('live decodes a BOUNDED recent window; stop decodes EVERYTHING', async () => {
-        // This is the distinction the frozen 600 cannot test: it only ever measures the final pass.
-        const { transcriber, seen } = recordingTranscriber((a) => `len:${a.length}`);
-        const e = engineWith(transcriber);
+describe('the live pass is NOT the final pass — CORRECTED for the streaming session', () => {
+    /**
+     * These two tests previously asserted that the live path decoded a BOUNDED TAIL WINDOW and that
+     * stop() re-decoded the WHOLE BUFFER as a separate call. Both described the old implementation,
+     * and that implementation was the defect: taking a slice per window used the non-streaming
+     * whole-buffer API on a streaming architecture, which is what made each decode depend on the one
+     * before it.
+     *
+     * The contract is now the session's: audio is handed over as it arrives and every pass summarises
+     * everything accumulated. The distinction the tests were protecting — live is not final — still
+     * holds, but it is now "an unforced pass mid-session" versus "a FORCED pass at stop", not
+     * "a 3-second slice" versus "the whole buffer".
+     */
+    it('a live pass summarises the session so far; the final pass is FORCED', async () => {
+        const passes: number[] = [];
+        const t: MoonshineTranscriber = {
+            transcribe: async () => { throw new Error('whole-buffer API must not be used'); },
+            createStream: () => {
+                let acc = 0;
+                return {
+                    start: vi.fn(),
+                    addAudio: (a: Float32Array) => { acc += a.length; },
+                    transcribe: (flags?: number) => {
+                        passes.push(acc);
+                        return { lines: [{ text: flags === FORCE_UPDATE ? `final:${acc}` : `live:${acc}` }] };
+                    },
+                    stop: vi.fn(), close: vi.fn(),
+                };
+            },
+        };
+        const e = engineWith(t);
         await e.init();
         const { mic, push } = fakeMic();
         await e.start(mic);
-        for (let i = 0; i < 10; i++) push(frame(SR));       // 10 seconds of audio
-        await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0));
-
-        const liveMax = Math.max(...seen);
-        expect(liveMax).toBeLessThanOrEqual(LIVE_WINDOW_SECONDS * SR);   // bounded window
+        for (let i = 0; i < 10; i++) push(frame(SR));
+        await vi.waitFor(() => expect(passes.length).toBeGreaterThan(0));
+        expect(e.getInterimTranscript()).toMatch(/^live:/);
 
         await e.stop();
-        expect(Math.max(...seen)).toBe(10 * SR);                          // full buffer at stop
-        expect(await e.getTranscript()).toBe(`len:${10 * SR}`);
+        expect(await e.getTranscript()).toBe(`final:${10 * SR}`);
+        expect(passes[passes.length - 1]).toBe(10 * SR);
     });
 
-    it('the final transcript is the full-buffer decode, not a concatenation of windows', async () => {
-        // Concatenating windows duplicates at every boundary; the product must not do that.
+    it('the final transcript is one pass over the session, never a concatenation of windows', async () => {
+        // Concatenating windows duplicates at every boundary; the product must not do that, and the
+        // session API is what makes it structurally impossible rather than merely avoided.
         const { transcriber } = recordingTranscriber((a) => (a.length > 4 * SR ? 'the whole thing' : 'window'));
         const e = engineWith(transcriber);
         await e.init();
         const { mic, push } = fakeMic();
         await e.start(mic);
         for (let i = 0; i < 8; i++) push(frame(SR));
-        await vi.waitFor(() => expect(e.getInterimTranscript()).toBe('window'));
         await e.stop();
         expect(await e.getTranscript()).toBe('the whole thing');
     });
@@ -221,16 +274,24 @@ describe('AUDIO NEVER LEAVES THE DEVICE', () => {
 
 describe('inference is SERIALIZED — one worker, one decode at a time', () => {
     /** A transcriber that blocks until released, so overlap is observable rather than assumed. */
+    /** A session whose PASS blocks until released, so overlap is observable rather than assumed. */
     const gated = () => {
-        let concurrent = 0, maxConcurrent = 0;
+        let concurrent = 0, maxConcurrent = 0, accumulated = 0;
         const releases: Array<() => void> = [];
         const t: MoonshineTranscriber = {
-            transcribe: async (audio) => {
-                concurrent++; maxConcurrent = Math.max(maxConcurrent, concurrent);
-                await new Promise<void>((r) => releases.push(r));
-                concurrent--;
-                return { lines: [{ text: `n:${audio.length}` }] };
-            },
+            transcribe: async () => { throw new Error('whole-buffer API must not be used'); },
+            createStream: () => ({
+                start: vi.fn(),
+                addAudio: (a: Float32Array) => { accumulated += a.length; },
+                // Synchronous by contract, so concurrency is observed through the engine's own
+                // serialization rather than through a promise the runtime never returns.
+                transcribe: () => {
+                    concurrent++; maxConcurrent = Math.max(maxConcurrent, concurrent);
+                    concurrent--;
+                    return { lines: [{ text: `n:${accumulated}` }] };
+                },
+                stop: vi.fn(), close: vi.fn(),
+            }),
         };
         return { t, releaseAll: () => { while (releases.length) releases.shift()!(); }, max: () => maxConcurrent };
     };
@@ -332,7 +393,10 @@ describe('identity is CONFIGURED provenance, kept separate from observed executi
         // A runtime that reports a MATCHING version must not become the source of truth; configuration
         // is the authority, and the runtime value is only cross-checked.
         const t = Object.assign(
-            { transcribe: async () => ({ lines: [{ text: 'x' }] }) } as MoonshineTranscriber,
+            {
+                transcribe: async () => ({ lines: [{ text: 'x' }] }),
+                createStream: () => streamOver(() => 'x'),
+            } as MoonshineTranscriber,
             { version: '0.1.5', modelId: 'something/else-entirely' },
         );
         const e = engineWith(t);
@@ -344,7 +408,10 @@ describe('identity is CONFIGURED provenance, kept separate from observed executi
         // A mismatch means the loaded bytes are not the ones the registry describes. Recording it
         // quietly would attribute a transcript to a model that did not produce it.
         const t = Object.assign(
-            { transcribe: async () => ({ lines: [{ text: 'x' }] }) } as MoonshineTranscriber,
+            {
+                transcribe: async () => ({ lines: [{ text: 'x' }] }),
+                createStream: () => streamOver(() => 'x'),
+            } as MoonshineTranscriber,
             { version: '9.9.9' },
         );
         const e = engineWith(t);
