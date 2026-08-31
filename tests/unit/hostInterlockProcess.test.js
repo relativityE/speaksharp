@@ -88,9 +88,17 @@ describe('a guarded command holds its lock for the WORKLOAD\'S whole lifetime', 
     }, 40000);
 
     it('CASUALTY: a forwarded SIGTERM does not drop the lock while the workload ignores it', async () => {
-        const child = startHeld('local', "process.on('SIGTERM',()=>{}); setInterval(()=>{},1e9)");
+        // READINESS HANDSHAKE. The wrapper writes its lock BEFORE spawning the workload, so waiting on
+        // the lock alone can send SIGTERM to a child that has not yet registered its handler — it then
+        // dies on the default action and the test blames the interlock for a race of its own making.
+        // Slower CI startup made that reproducible. The workload announces itself instead.
+        const ready = join(root, 'workload-ready.txt');
+        const child = startHeld('local',
+            `require('node:fs').writeFileSync(${JSON.stringify(ready)},'1'); `
+            + "process.on('SIGTERM',()=>{}); setInterval(()=>{},1e9)");
         try {
             expect(await waitFor(() => locksFor('local').length === 1)).toBe(true);
+            expect(await waitFor(() => existsSync(ready)), 'workload never started').toBe(true);
             child.kill('SIGTERM');
             await new Promise((r) => setTimeout(r, 900));
             expect(locksFor('local').length, 'lock vanished while the workload was alive').toBe(1);
@@ -102,9 +110,12 @@ describe('a guarded command holds its lock for the WORKLOAD\'S whole lifetime', 
         // SIGKILL cannot be caught, so the wrapper dies without releasing. If liveness were judged by
         // the wrapper's pid the lock would be reclaimed as stale and a benchmark could start beside a
         // still-running suite.
-        const child = startHeld('local');
+        const ready = join(root, 'kill-ready.txt');
+        const child = startHeld('local',
+            `require('node:fs').writeFileSync(${JSON.stringify(ready)},'1'); setInterval(()=>{},1e9)`);
         try {
             expect(await waitFor(() => locksFor('local').length === 1)).toBe(true);
+            expect(await waitFor(() => existsSync(ready)), 'workload never started').toBe(true);
             child.kill('SIGKILL');
             await new Promise((r) => setTimeout(r, 900));
             expect(locksFor('local').length, 'the lock was reclaimed while the workload lived').toBe(1);
