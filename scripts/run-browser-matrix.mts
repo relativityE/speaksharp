@@ -22,6 +22,7 @@ import { dirname, join } from 'node:path';
 import { resolve } from 'node:path';
 import { cpus, arch, platform } from 'node:os';
 import { chromium } from '@playwright/test';
+import { acquire } from './lib/hostInterlock.mjs';
 import manifest from '../tests/fixtures/corpus-manifest.json' with { type: 'json' };
 import goldens from '../tests/evidence/normalization/goldens.json' with { type: 'json' };
 import { startHarnessServer } from '../tests/evidence/certification/browser/server';
@@ -136,6 +137,20 @@ for (const clip of set.clips) {
     try { clipSeconds.set(clip.id, decodeAudio(clip.path).seconds); }
     catch (error) { audioMismatches.push(`${clip.id}: unreadable (${(error as Error).message.slice(0, 60)})`); }
 }
+
+/**
+ * HOST INTERLOCK — refuse to start while a local test or build is running on this machine.
+ *
+ * Timing from this run is only meaningful on a quiet host. Twice now a local suite has overlapped a
+ * benchmark and destroyed the latency of arms that had already cost an hour to produce; both times the
+ * control was a written reminder. The lock is released on normal exit and on SIGINT/SIGTERM/SIGHUP so a
+ * cancelled run does not strand it, and CI is exempt because runners are separate hosts.
+ */
+const hostLock = acquire('benchmark');
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+    process.on(sig, () => { hostLock.release(); process.exit(130); });
+}
+process.on('exit', () => hostLock.release());
 
 const harness = await startHarnessServer(resolve('.'), {
     mode, pins, offlineOnly: mode === 'pinned',

@@ -100,3 +100,6 @@ stt-evidence-artifacts/
 # tests/fixtures/corpus-manifest.json (checksums + frozen subset ids).
 bench-corpus/
 .hf-cache/
+
+# Host interlock (benchmark vs local test/build); machine-local, never committed.
+.host-locks/

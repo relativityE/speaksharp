@@ -24,13 +24,13 @@
     "preview": "node scripts/pnpm-only.mjs && cd frontend && pnpm vite preview",
     "preview:test": "node scripts/pnpm-only.mjs && cd frontend && pnpm vite preview --mode test",
     "serve:e2e": "node scripts/serve-e2e.mjs",
-    "quality": "pnpm product:contract-check && pnpm lint && pnpm typecheck && pnpm typecheck:live && pnpm typecheck:evidence && pnpm eslint-disable",
+    "quality": "node scripts/host-interlock.mjs check local && pnpm product:contract-check && pnpm lint && pnpm typecheck && pnpm typecheck:live && pnpm typecheck:evidence && pnpm eslint-disable",
     "lint": "eslint 'frontend/src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' 'backend/supabase/functions/**/*.ts' --no-cache --report-unused-disable-directives --max-warnings 0",
     "typecheck": "cd frontend && pnpm tsc --noEmit",
     "typecheck:live": "node scripts/verify-live-typecheck-scope.mjs && pnpm tsc --noEmit -p tsconfig.live.json",
     "typecheck:evidence": "tsc --noEmit -p tsconfig.evidence.json",
     "eslint-disable": "./scripts/check-eslint-disable.sh",
-    "test": "pnpm test:infra",
+    "test": "node scripts/host-interlock.mjs check local && pnpm test:infra",
     "test:infra": "pnpm quality && pnpm test:unit && pnpm build:test && pnpm test:e2e --project=infra-probe",
     "test:full": "pnpm quality && pnpm test:unit && pnpm build:test && pnpm test:e2e",
     "test:unit": "cross-env CI=true vitest run --config frontend/vitest.config.mjs",
@@ -107,7 +107,9 @@
     "prepare": "HUSKY=0 husky install",
     "preinstall": "npx only-allow pnpm",
     "benchmark:verify-cache": "tsx scripts/verify-asset-cache.mts",
-    "benchmark:repair-cache": "tsx scripts/verify-asset-cache.mts --repair"
+    "benchmark:repair-cache": "tsx scripts/verify-asset-cache.mts --repair",
+    "interlock:check": "node scripts/host-interlock.mjs check local",
+    "interlock:hold-benchmark": "node scripts/host-interlock.mjs hold benchmark --"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
