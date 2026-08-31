@@ -471,3 +471,34 @@ describe('DROP-IN property — every candidate resolves wholly from its registry
         expect(before.runtime.package).not.toBe(after.runtime.package);
     });
 });
+
+describe('the internal escape hatch is not a production backdoor', () => {
+    it('CASUALTY: a PRODUCTION build refuses the acknowledgement outright', () => {
+        // If the config shipped with the acknowledgement set, every user would receive an unvalidated
+        // model — the guard would have become a silent bypass, which is worse than no guard.
+        expect(() => activeCandidate(
+            { candidate: 'moonshine:streaming-medium', acknowledgeNotProductionReady: true },
+            { PROD: true },
+        )).toThrow(/PRODUCTION build refuses acknowledgeNotProductionReady/);
+    });
+
+    it('CASUALTY: production refuses it even for a candidate that IS approved', () => {
+        // The acknowledgement must never appear in a shipped config at all, approved candidate or not,
+        // or it survives as a latent bypass waiting for the candidate list to change.
+        expect(() => activeCandidate(
+            { candidate: 'v2:base.en', acknowledgeNotProductionReady: true },
+            { PROD: true },
+        )).toThrow(/PRODUCTION build refuses/);
+    });
+
+    it('POSITIVE CONTROL: production runs an approved candidate normally', () => {
+        expect(activeCandidate({ candidate: 'v2:base.en' }, { PROD: true }).id).toBe('v2:base.en');
+    });
+
+    it('POSITIVE CONTROL: a non-production build may use the acknowledgement', () => {
+        expect(activeCandidate(
+            { candidate: 'moonshine:streaming-medium', acknowledgeNotProductionReady: true },
+            { PROD: false },
+        ).id).toBe('moonshine:streaming-medium');
+    });
+});

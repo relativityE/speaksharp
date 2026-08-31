@@ -374,7 +374,10 @@ export interface PrivateSttConfig {
  * Collapsing them would force a choice between shipping an unproven model and being unable to test
  * one, and testing is how a model becomes proven.
  */
-export function activeCandidate(config: PrivateSttConfig = privateSttConfig): Candidate {
+export function activeCandidate(
+    config: PrivateSttConfig = privateSttConfig,
+    env: { PROD?: boolean } = import.meta.env as unknown as { PROD?: boolean },
+): Candidate {
     const id = config?.candidate;
     if (typeof id !== 'string' || id === '') {
         throw new UnknownCandidateError(
@@ -382,6 +385,25 @@ export function activeCandidate(config: PrivateSttConfig = privateSttConfig): Ca
         );
     }
     const candidate = resolveCandidate(id);
+
+    /**
+     * THE ESCAPE HATCH IS NOT A PRODUCTION BACKDOOR.
+     *
+     * `acknowledgeNotProductionReady` lets an INTERNAL build run an unapproved candidate so it can be
+     * compared on the real path. If that same config file shipped to users with the acknowledgement
+     * set, every user would receive an unvalidated model — the acknowledgement would have converted a
+     * fail-closed guard into a silent bypass, which is worse than not having the guard.
+     *
+     * A production build therefore REFUSES the acknowledgement outright, whatever the config says.
+     */
+    if (env?.PROD === true && config.acknowledgeNotProductionReady === true) {
+        throw new InactiveCandidateError(
+            `a PRODUCTION build refuses acknowledgeNotProductionReady (candidate "${id}"). `
+            + 'That acknowledgement exists for internal comparison builds only; shipping it would give '
+            + 'users a model that was never approved.',
+        );
+    }
+
     if (!candidate.activationReady && config.acknowledgeNotProductionReady !== true) {
         // NEVER silently substitute. A configured candidate that is not production-approved must stop
         // the boot with its reason, not quietly become a different model whose transcript would then
