@@ -1,0 +1,75 @@
+
+#1304 BROWSER lane — set=corpus (selection), 600 clips / 10894 normalized words, mirror mode=pinned
+
+
+  v2:tiny.en  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+  v2:base.en  (v2 whisper-base.en — SHIPPING)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0690  words=10894 S=568 D=71 I=113
+    selection eligible: YES
+    cold load 1586ms · warm p50 2301ms p95 3641ms · RTF p50 0.431 p95 0.923
+    download 92.2 MB over 14 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  v2:base.en:no-conditioning  — not measured under targeted-finalists-v1 (invalid_runtime_option_unsupported)
+
+  v2:small.en  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+  v4:base:q4-decoder:wasm  (v4 base, fp32 encoder + q4 decoder, WASM)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0699  words=10894 S=580 D=75 I=106
+    selection eligible: YES
+    cold load 2405ms · warm p50 1811ms p95 3374ms · RTF p50 0.344 p95 0.758
+    download 234.3 MB over 30 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  v4:base:q4-decoder:cpu  — not measured under targeted-finalists-v1 (diagnostic_duplicate_of_q4_wasm)
+
+  v4:base:q4-decoder:webgpu  — not measured under targeted-finalists-v1 (not_run_hardware_unrepresentative)
+
+  v4:base:fp32-decoder:cpu  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+  v4:base:int8-decoder:cpu  (v4 base, int8 decoder)
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0681  words=10894 S=560 D=73 I=109
+    selection eligible: YES
+    cold load 1509ms · warm p50 1413ms p95 2016ms · RTF p50 0.272 p95 0.554
+    download 164.4 MB over 30 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  v4:base:q8-decoder:cpu  — not measured under targeted-finalists-v1 (alias_of_int8)
+
+  v4:distil-small.en:q4-decoder:webgpu  — not measured under targeted-finalists-v1 (not_run_hardware_unrepresentative)
+
+  moonshine:streaming-small  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+  moonshine:streaming-medium  (Moonshine Streaming Medium (official @moonshine-ai/moonshine-wasm))
+    backend: wasm:1 module(s) (PROVEN)
+    POOLED WER = 0.0619  words=10894 S=416 D=46 I=212
+    selection eligible: YES
+    cold load 1812ms · warm p50 1133ms p95 3484ms · RTF p50 0.211 p95 0.265
+    download 318.1 MB over 26 files · reliability decoded=600/600 threw=0 empty=0 missing=0 truncated=0
+
+  moonshine:tiny  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+  moonshine:base  — not measured under targeted-finalists-v1 (not_a_targeted_finalist)
+
+
+=== BROWSER LANE SUMMARY ===
+    —     v2:tiny.en                           n/a                          not eligible
+  0.0690  v2:base.en                           wasm:1 module(s)             ELIGIBLE
+    —     v2:base.en:no-conditioning           n/a                          not eligible
+    —     v2:small.en                          n/a                          not eligible
+  0.0699  v4:base:q4-decoder:wasm              wasm:1 module(s)             ELIGIBLE
+    —     v4:base:q4-decoder:cpu               n/a                          not eligible
+    —     v4:base:q4-decoder:webgpu            n/a                          not eligible
+    —     v4:base:fp32-decoder:cpu             n/a                          not eligible
+  0.0681  v4:base:int8-decoder:cpu             wasm:1 module(s)             ELIGIBLE
+    —     v4:base:q8-decoder:cpu               n/a                          not eligible
+    —     v4:distil-small.en:q4-decoder:webgpu n/a                          not eligible
+    —     moonshine:streaming-small            n/a                          not eligible
+  0.0619  moonshine:streaming-medium           wasm:1 module(s)             ELIGIBLE
+    —     moonshine:tiny                       n/a                          not eligible
+    —     moonshine:base                       n/a                          not eligible
+
+  evidence class: selection. 
+
+wrote evidence-runs/1304-targeted-600-r2/targeted-finalists.json

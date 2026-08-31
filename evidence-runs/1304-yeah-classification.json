@@ -1,0 +1,68 @@
+{
+  "probe": "#1304 leading-yeah causal classification",
+  "verdict": "HARNESS_SHARED_STATE",
+  "clipCount": 8,
+  "sharedYeah": 3,
+  "freshYeah": 0,
+  "runtime": "@moonshine-ai/moonshine-wasm",
+  "arch": "MediumStreaming",
+  "method": "same clips decoded with one shared transcriber (benchmark condition) vs a fresh transcriber per clip",
+  "rows": [
+    {
+      "id": "121-121726-0011",
+      "sharedLeadingYeah": false,
+      "freshLeadingYeah": false,
+      "sharedRaw": "Husband! The next thing to a wife",
+      "freshRaw": "Husband! The next thing to a wife"
+    },
+    {
+      "id": "121-121726-0013",
+      "sharedLeadingYeah": true,
+      "freshLeadingYeah": false,
+      "sharedRaw": "Yeah Tied to a woman.",
+      "freshRaw": "Tied to a woman."
+    },
+    {
+      "id": "121-127105-0015",
+      "sharedLeadingYeah": false,
+      "freshLeadingYeah": false,
+      "sharedRaw": "He quitted the fire and dropped back into his chair.",
+      "freshRaw": "He quitted the fire and dropped back into his chair."
+    },
+    {
+      "id": "1221-135767-0022",
+      "sharedLeadingYeah": false,
+      "freshLeadingYeah": false,
+      "sharedRaw": "But the proprietor appeared already to have relinquished as hopeless the effort to perpetuate on this side of the Atlantic in a hard soil, and amid the close struggle for. For subsistence, The native English taste for ornamental gardening.",
+      "freshRaw": "But the proprietor appeared already to have relinquished as hopeless the effort to perpetuate on this side of the Atlantic in a hard soil, and amid the close struggle for subjection. For subsistence, The native English taste for ornamental gardening."
+    },
+    {
+      "id": "1284-1180-0015",
+      "sharedLeadingYeah": true,
+      "freshLeadingYeah": false,
+      "sharedRaw": "Yeah \"'We're traveling,' replied Ojo. \"'And we stopped at your house just to rest and refresh ourselves.'",
+      "freshRaw": "\"'We're traveling,' replied Ojo. \"'And we stopped at your house just to rest and refresh ourselves.'"
+    },
+    {
+      "id": "1580-141084-0039",
+      "sharedLeadingYeah": false,
+      "freshLeadingYeah": false,
+      "sharedRaw": "I entered, and I took you into my confidence as to the suggestions of the side table.",
+      "freshRaw": "I entered, and I took you into my confidence as to the suggestions of the side table."
+    },
+    {
+      "id": "1580-141084-0047",
+      "sharedLeadingYeah": false,
+      "freshLeadingYeah": false,
+      "sharedRaw": "I have a letter here, Mister Soames, which I wrote to you early this morning in the middle of a restless night.",
+      "freshRaw": "I have a letter here, Mister Soames, which I wrote to you early this morning in the middle of a restless night."
+    },
+    {
+      "id": "1995-1826-0002",
+      "sharedLeadingYeah": true,
+      "freshLeadingYeah": false,
+      "sharedRaw": "Yeah. John Taylor, who had supported her through college, was interested in cotton.",
+      "freshRaw": "John Taylor, who had supported her through college, was interested in cotton."
+    }
+  ]
+}

@@ -1,0 +1,1233 @@
+{
+  "v2:base.en": {
+    "totalInsertions": 113,
+    "tokenFrequency": [
+      {
+        "token": "and",
+        "count": 6
+      },
+      {
+        "token": "is",
+        "count": 6
+      },
+      {
+        "token": "of",
+        "count": 5
+      },
+      {
+        "token": "the",
+        "count": 5
+      },
+      {
+        "token": "for",
+        "count": 4
+      },
+      {
+        "token": "i",
+        "count": 4
+      },
+      {
+        "token": "in",
+        "count": 4
+      },
+      {
+        "token": "have",
+        "count": 3
+      },
+      {
+        "token": "it",
+        "count": 3
+      },
+      {
+        "token": "not",
+        "count": 3
+      },
+      {
+        "token": "to",
+        "count": 3
+      },
+      {
+        "token": "where",
+        "count": 3
+      },
+      {
+        "token": "a",
+        "count": 2
+      },
+      {
+        "token": "on",
+        "count": 2
+      },
+      {
+        "token": "water",
+        "count": 2
+      },
+      {
+        "token": "an",
+        "count": 1
+      },
+      {
+        "token": "as",
+        "count": 1
+      },
+      {
+        "token": "believes",
+        "count": 1
+      },
+      {
+        "token": "boss",
+        "count": 1
+      },
+      {
+        "token": "britain",
+        "count": 1
+      },
+      {
+        "token": "brown",
+        "count": 1
+      },
+      {
+        "token": "buba",
+        "count": 1
+      },
+      {
+        "token": "call",
+        "count": 1
+      },
+      {
+        "token": "can",
+        "count": 1
+      },
+      {
+        "token": "care",
+        "count": 1
+      },
+      {
+        "token": "confer",
+        "count": 1
+      },
+      {
+        "token": "dine",
+        "count": 1
+      },
+      {
+        "token": "do",
+        "count": 1
+      },
+      {
+        "token": "fall",
+        "count": 1
+      },
+      {
+        "token": "fush",
+        "count": 1
+      },
+      {
+        "token": "game",
+        "count": 1
+      },
+      {
+        "token": "games",
+        "count": 1
+      },
+      {
+        "token": "had",
+        "count": 1
+      },
+      {
+        "token": "hans",
+        "count": 1
+      },
+      {
+        "token": "horse",
+        "count": 1
+      },
+      {
+        "token": "just",
+        "count": 1
+      },
+      {
+        "token": "le",
+        "count": 1
+      },
+      {
+        "token": "led",
+        "count": 1
+      },
+      {
+        "token": "lie",
+        "count": 1
+      },
+      {
+        "token": "live",
+        "count": 1
+      },
+      {
+        "token": "main",
+        "count": 1
+      },
+      {
+        "token": "mates",
+        "count": 1
+      },
+      {
+        "token": "miss",
+        "count": 1
+      },
+      {
+        "token": "montfiche",
+        "count": 1
+      },
+      {
+        "token": "myrtle",
+        "count": 1
+      },
+      {
+        "token": "new",
+        "count": 1
+      },
+      {
+        "token": "now",
+        "count": 1
+      },
+      {
+        "token": "nun",
+        "count": 1
+      },
+      {
+        "token": "off",
+        "count": 1
+      },
+      {
+        "token": "our",
+        "count": 1
+      },
+      {
+        "token": "per",
+        "count": 1
+      },
+      {
+        "token": "pill",
+        "count": 1
+      },
+      {
+        "token": "princess",
+        "count": 1
+      },
+      {
+        "token": "receiver",
+        "count": 1
+      },
+      {
+        "token": "restore",
+        "count": 1
+      },
+      {
+        "token": "rooms",
+        "count": 1
+      },
+      {
+        "token": "salar",
+        "count": 1
+      },
+      {
+        "token": "showed",
+        "count": 1
+      },
+      {
+        "token": "sign",
+        "count": 1
+      },
+      {
+        "token": "sisced",
+        "count": 1
+      },
+      {
+        "token": "step",
+        "count": 1
+      },
+      {
+        "token": "still",
+        "count": 1
+      },
+      {
+        "token": "sunny",
+        "count": 1
+      },
+      {
+        "token": "that",
+        "count": 1
+      },
+      {
+        "token": "there",
+        "count": 1
+      },
+      {
+        "token": "they",
+        "count": 1
+      },
+      {
+        "token": "this",
+        "count": 1
+      },
+      {
+        "token": "tum",
+        "count": 1
+      },
+      {
+        "token": "vats",
+        "count": 1
+      },
+      {
+        "token": "was",
+        "count": 1
+      },
+      {
+        "token": "will",
+        "count": 1
+      },
+      {
+        "token": "with",
+        "count": 1
+      },
+      {
+        "token": "wood",
+        "count": 1
+      }
+    ],
+    "fillerLikeInsertions": [],
+    "fillerLikeTotal": 0,
+    "fillerLikeUtterances": []
+  },
+  "v4:base:q4-decoder:wasm": {
+    "totalInsertions": 106,
+    "tokenFrequency": [
+      {
+        "token": "for",
+        "count": 6
+      },
+      {
+        "token": "the",
+        "count": 6
+      },
+      {
+        "token": "and",
+        "count": 5
+      },
+      {
+        "token": "is",
+        "count": 5
+      },
+      {
+        "token": "in",
+        "count": 4
+      },
+      {
+        "token": "i",
+        "count": 3
+      },
+      {
+        "token": "not",
+        "count": 3
+      },
+      {
+        "token": "of",
+        "count": 3
+      },
+      {
+        "token": "where",
+        "count": 3
+      },
+      {
+        "token": "game",
+        "count": 2
+      },
+      {
+        "token": "it",
+        "count": 2
+      },
+      {
+        "token": "just",
+        "count": 2
+      },
+      {
+        "token": "on",
+        "count": 2
+      },
+      {
+        "token": "there",
+        "count": 2
+      },
+      {
+        "token": "they",
+        "count": 2
+      },
+      {
+        "token": "to",
+        "count": 2
+      },
+      {
+        "token": "a",
+        "count": 1
+      },
+      {
+        "token": "an",
+        "count": 1
+      },
+      {
+        "token": "as",
+        "count": 1
+      },
+      {
+        "token": "boss",
+        "count": 1
+      },
+      {
+        "token": "bring",
+        "count": 1
+      },
+      {
+        "token": "britain",
+        "count": 1
+      },
+      {
+        "token": "call",
+        "count": 1
+      },
+      {
+        "token": "can",
+        "count": 1
+      },
+      {
+        "token": "care",
+        "count": 1
+      },
+      {
+        "token": "count",
+        "count": 1
+      },
+      {
+        "token": "curb",
+        "count": 1
+      },
+      {
+        "token": "dig",
+        "count": 1
+      },
+      {
+        "token": "dine",
+        "count": 1
+      },
+      {
+        "token": "emmene",
+        "count": 1
+      },
+      {
+        "token": "forth",
+        "count": 1
+      },
+      {
+        "token": "from",
+        "count": 1
+      },
+      {
+        "token": "had",
+        "count": 1
+      },
+      {
+        "token": "have",
+        "count": 1
+      },
+      {
+        "token": "horse",
+        "count": 1
+      },
+      {
+        "token": "kiro",
+        "count": 1
+      },
+      {
+        "token": "lie",
+        "count": 1
+      },
+      {
+        "token": "live",
+        "count": 1
+      },
+      {
+        "token": "main",
+        "count": 1
+      },
+      {
+        "token": "men",
+        "count": 1
+      },
+      {
+        "token": "miss",
+        "count": 1
+      },
+      {
+        "token": "montfiche",
+        "count": 1
+      },
+      {
+        "token": "new",
+        "count": 1
+      },
+      {
+        "token": "night",
+        "count": 1
+      },
+      {
+        "token": "no",
+        "count": 1
+      },
+      {
+        "token": "now",
+        "count": 1
+      },
+      {
+        "token": "nun",
+        "count": 1
+      },
+      {
+        "token": "off",
+        "count": 1
+      },
+      {
+        "token": "our",
+        "count": 1
+      },
+      {
+        "token": "painted",
+        "count": 1
+      },
+      {
+        "token": "per",
+        "count": 1
+      },
+      {
+        "token": "pill",
+        "count": 1
+      },
+      {
+        "token": "receiver",
+        "count": 1
+      },
+      {
+        "token": "replace",
+        "count": 1
+      },
+      {
+        "token": "restore",
+        "count": 1
+      },
+      {
+        "token": "rooms",
+        "count": 1
+      },
+      {
+        "token": "salah",
+        "count": 1
+      },
+      {
+        "token": "sign",
+        "count": 1
+      },
+      {
+        "token": "so",
+        "count": 1
+      },
+      {
+        "token": "step",
+        "count": 1
+      },
+      {
+        "token": "take",
+        "count": 1
+      },
+      {
+        "token": "that",
+        "count": 1
+      },
+      {
+        "token": "this",
+        "count": 1
+      },
+      {
+        "token": "toom",
+        "count": 1
+      },
+      {
+        "token": "vats",
+        "count": 1
+      },
+      {
+        "token": "was",
+        "count": 1
+      },
+      {
+        "token": "water",
+        "count": 1
+      },
+      {
+        "token": "we",
+        "count": 1
+      },
+      {
+        "token": "with",
+        "count": 1
+      },
+      {
+        "token": "wood",
+        "count": 1
+      }
+    ],
+    "fillerLikeInsertions": [],
+    "fillerLikeTotal": 0,
+    "fillerLikeUtterances": []
+  },
+  "v4:base:int8-decoder:cpu": {
+    "totalInsertions": 109,
+    "tokenFrequency": [
+      {
+        "token": "the",
+        "count": 7
+      },
+      {
+        "token": "is",
+        "count": 6
+      },
+      {
+        "token": "and",
+        "count": 5
+      },
+      {
+        "token": "for",
+        "count": 4
+      },
+      {
+        "token": "i",
+        "count": 4
+      },
+      {
+        "token": "in",
+        "count": 4
+      },
+      {
+        "token": "of",
+        "count": 4
+      },
+      {
+        "token": "not",
+        "count": 3
+      },
+      {
+        "token": "where",
+        "count": 3
+      },
+      {
+        "token": "have",
+        "count": 2
+      },
+      {
+        "token": "on",
+        "count": 2
+      },
+      {
+        "token": "there",
+        "count": 2
+      },
+      {
+        "token": "to",
+        "count": 2
+      },
+      {
+        "token": "water",
+        "count": 2
+      },
+      {
+        "token": "a",
+        "count": 1
+      },
+      {
+        "token": "an",
+        "count": 1
+      },
+      {
+        "token": "are",
+        "count": 1
+      },
+      {
+        "token": "as",
+        "count": 1
+      },
+      {
+        "token": "at",
+        "count": 1
+      },
+      {
+        "token": "boss",
+        "count": 1
+      },
+      {
+        "token": "britain",
+        "count": 1
+      },
+      {
+        "token": "brown",
+        "count": 1
+      },
+      {
+        "token": "buba",
+        "count": 1
+      },
+      {
+        "token": "call",
+        "count": 1
+      },
+      {
+        "token": "can",
+        "count": 1
+      },
+      {
+        "token": "care",
+        "count": 1
+      },
+      {
+        "token": "conference",
+        "count": 1
+      },
+      {
+        "token": "curious",
+        "count": 1
+      },
+      {
+        "token": "dig",
+        "count": 1
+      },
+      {
+        "token": "dine",
+        "count": 1
+      },
+      {
+        "token": "fall",
+        "count": 1
+      },
+      {
+        "token": "forth",
+        "count": 1
+      },
+      {
+        "token": "fush",
+        "count": 1
+      },
+      {
+        "token": "gain",
+        "count": 1
+      },
+      {
+        "token": "game",
+        "count": 1
+      },
+      {
+        "token": "had",
+        "count": 1
+      },
+      {
+        "token": "horse",
+        "count": 1
+      },
+      {
+        "token": "how",
+        "count": 1
+      },
+      {
+        "token": "it",
+        "count": 1
+      },
+      {
+        "token": "just",
+        "count": 1
+      },
+      {
+        "token": "le",
+        "count": 1
+      },
+      {
+        "token": "lie",
+        "count": 1
+      },
+      {
+        "token": "live",
+        "count": 1
+      },
+      {
+        "token": "main",
+        "count": 1
+      },
+      {
+        "token": "mate",
+        "count": 1
+      },
+      {
+        "token": "miss",
+        "count": 1
+      },
+      {
+        "token": "monfiche",
+        "count": 1
+      },
+      {
+        "token": "myrtle",
+        "count": 1
+      },
+      {
+        "token": "new",
+        "count": 1
+      },
+      {
+        "token": "now",
+        "count": 1
+      },
+      {
+        "token": "nun",
+        "count": 1
+      },
+      {
+        "token": "off",
+        "count": 1
+      },
+      {
+        "token": "our",
+        "count": 1
+      },
+      {
+        "token": "per",
+        "count": 1
+      },
+      {
+        "token": "pill",
+        "count": 1
+      },
+      {
+        "token": "princess",
+        "count": 1
+      },
+      {
+        "token": "receiver",
+        "count": 1
+      },
+      {
+        "token": "restore",
+        "count": 1
+      },
+      {
+        "token": "rooms",
+        "count": 1
+      },
+      {
+        "token": "salar",
+        "count": 1
+      },
+      {
+        "token": "sign",
+        "count": 1
+      },
+      {
+        "token": "step",
+        "count": 1
+      },
+      {
+        "token": "sunny",
+        "count": 1
+      },
+      {
+        "token": "telling",
+        "count": 1
+      },
+      {
+        "token": "that",
+        "count": 1
+      },
+      {
+        "token": "this",
+        "count": 1
+      },
+      {
+        "token": "tum",
+        "count": 1
+      },
+      {
+        "token": "vats",
+        "count": 1
+      },
+      {
+        "token": "was",
+        "count": 1
+      },
+      {
+        "token": "we",
+        "count": 1
+      },
+      {
+        "token": "will",
+        "count": 1
+      },
+      {
+        "token": "with",
+        "count": 1
+      },
+      {
+        "token": "wood",
+        "count": 1
+      }
+    ],
+    "fillerLikeInsertions": [],
+    "fillerLikeTotal": 0,
+    "fillerLikeUtterances": []
+  },
+  "moonshine:streaming-medium": {
+    "totalInsertions": 213,
+    "tokenFrequency": [
+      {
+        "token": "yeah",
+        "count": 100
+      },
+      {
+        "token": "is",
+        "count": 6
+      },
+      {
+        "token": "the",
+        "count": 5
+      },
+      {
+        "token": "for",
+        "count": 4
+      },
+      {
+        "token": "and",
+        "count": 3
+      },
+      {
+        "token": "game",
+        "count": 3
+      },
+      {
+        "token": "his",
+        "count": 3
+      },
+      {
+        "token": "in",
+        "count": 3
+      },
+      {
+        "token": "we",
+        "count": 3
+      },
+      {
+        "token": "a",
+        "count": 2
+      },
+      {
+        "token": "an",
+        "count": 2
+      },
+      {
+        "token": "as",
+        "count": 2
+      },
+      {
+        "token": "better",
+        "count": 2
+      },
+      {
+        "token": "from",
+        "count": 2
+      },
+      {
+        "token": "he",
+        "count": 2
+      },
+      {
+        "token": "of",
+        "count": 2
+      },
+      {
+        "token": "on",
+        "count": 2
+      },
+      {
+        "token": "that",
+        "count": 2
+      },
+      {
+        "token": "yes",
+        "count": 2
+      },
+      {
+        "token": "0",
+        "count": 1
+      },
+      {
+        "token": "100s",
+        "count": 1
+      },
+      {
+        "token": "12",
+        "count": 1
+      },
+      {
+        "token": "1st",
+        "count": 1
+      },
+      {
+        "token": "2",
+        "count": 1
+      },
+      {
+        "token": "3",
+        "count": 1
+      },
+      {
+        "token": "4th",
+        "count": 1
+      },
+      {
+        "token": "account",
+        "count": 1
+      },
+      {
+        "token": "all",
+        "count": 1
+      },
+      {
+        "token": "anxiety",
+        "count": 1
+      },
+      {
+        "token": "any",
+        "count": 1
+      },
+      {
+        "token": "be",
+        "count": 1
+      },
+      {
+        "token": "bring",
+        "count": 1
+      },
+      {
+        "token": "briton",
+        "count": 1
+      },
+      {
+        "token": "can",
+        "count": 1
+      },
+      {
+        "token": "chucking",
+        "count": 1
+      },
+      {
+        "token": "citadel",
+        "count": 1
+      },
+      {
+        "token": "drink",
+        "count": 1
+      },
+      {
+        "token": "f",
+        "count": 1
+      },
+      {
+        "token": "fall",
+        "count": 1
+      },
+      {
+        "token": "gain",
+        "count": 1
+      },
+      {
+        "token": "god",
+        "count": 1
+      },
+      {
+        "token": "got",
+        "count": 1
+      },
+      {
+        "token": "had",
+        "count": 1
+      },
+      {
+        "token": "how",
+        "count": 1
+      },
+      {
+        "token": "i",
+        "count": 1
+      },
+      {
+        "token": "introducing",
+        "count": 1
+      },
+      {
+        "token": "it",
+        "count": 1
+      },
+      {
+        "token": "kind",
+        "count": 1
+      },
+      {
+        "token": "le",
+        "count": 1
+      },
+      {
+        "token": "lie",
+        "count": 1
+      },
+      {
+        "token": "miss",
+        "count": 1
+      },
+      {
+        "token": "most",
+        "count": 1
+      },
+      {
+        "token": "natural",
+        "count": 1
+      },
+      {
+        "token": "nun",
+        "count": 1
+      },
+      {
+        "token": "off",
+        "count": 1
+      },
+      {
+        "token": "okay",
+        "count": 1
+      },
+      {
+        "token": "one",
+        "count": 1
+      },
+      {
+        "token": "organism",
+        "count": 1
+      },
+      {
+        "token": "perceived",
+        "count": 1
+      },
+      {
+        "token": "princess",
+        "count": 1
+      },
+      {
+        "token": "proclaim",
+        "count": 1
+      },
+      {
+        "token": "restore",
+        "count": 1
+      },
+      {
+        "token": "roan",
+        "count": 1
+      },
+      {
+        "token": "scorched",
+        "count": 1
+      },
+      {
+        "token": "so",
+        "count": 1
+      },
+      {
+        "token": "spend",
+        "count": 1
+      },
+      {
+        "token": "step",
+        "count": 1
+      },
+      {
+        "token": "stone",
+        "count": 1
+      },
+      {
+        "token": "strongest",
+        "count": 1
+      },
+      {
+        "token": "sunny",
+        "count": 1
+      },
+      {
+        "token": "tell",
+        "count": 1
+      },
+      {
+        "token": "them",
+        "count": 1
+      },
+      {
+        "token": "to",
+        "count": 1
+      },
+      {
+        "token": "total",
+        "count": 1
+      },
+      {
+        "token": "uh",
+        "count": 1
+      },
+      {
+        "token": "vats",
+        "count": 1
+      },
+      {
+        "token": "water",
+        "count": 1
+      },
+      {
+        "token": "what",
+        "count": 1
+      },
+      {
+        "token": "where",
+        "count": 1
+      },
+      {
+        "token": "wing",
+        "count": 1
+      },
+      {
+        "token": "wood",
+        "count": 1
+      },
+      {
+        "token": "would",
+        "count": 1
+      }
+    ],
+    "fillerLikeInsertions": [
+      {
+        "token": "uh",
+        "count": 1
+      }
+    ],
+    "fillerLikeTotal": 1,
+    "fillerLikeUtterances": [
+      "3764-168670-0038"
+    ]
+  }
+}

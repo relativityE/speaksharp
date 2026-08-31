@@ -1,0 +1,23 @@
+paired bootstrap: 600 utterances, 10000 resamples, seed 0x1304600
+
+  v2:base.en                     pooled WER 0.06903
+  v4:base:q4-decoder:wasm        pooled WER 0.06985
+  v4:base:int8-decoder:cpu       pooled WER 0.06811
+  moonshine:streaming-medium     pooled WER 0.06187
+
+v2:base.en  vs  v4:base:q4-decoder:wasm
+   diff -0.00083  95% CI [-0.00451, 0.00293]  p~0.626  not distinguishable
+v2:base.en  vs  v4:base:int8-decoder:cpu
+   diff +0.00092  95% CI [-0.00199, 0.00406]  p~0.598  not distinguishable
+v2:base.en  vs  moonshine:streaming-medium
+   diff +0.00716  95% CI [0.00084, 0.01381]  p~0.026  DISTINGUISHABLE
+v4:base:q4-decoder:wasm  vs  v4:base:int8-decoder:cpu
+   diff +0.00174  95% CI [-0.00133, 0.00485]  p~0.278  not distinguishable
+v4:base:q4-decoder:wasm  vs  moonshine:streaming-medium
+   diff +0.00799  95% CI [0.00167, 0.01436]  p~0.015  DISTINGUISHABLE
+v4:base:int8-decoder:cpu  vs  moonshine:streaming-medium
+   diff +0.00624  95% CI [0.00018, 0.01227]  p~0.044  DISTINGUISHABLE
+
+--- reproduce ---
+node scripts/analysis/paired-bootstrap.mjs \
+  evidence-runs/1304-targeted-600-r2/targeted-finalists.json 10000 0x1304600
