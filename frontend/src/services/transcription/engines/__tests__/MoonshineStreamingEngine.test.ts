@@ -37,7 +37,7 @@ const fakeMic = () => {
 };
 
 const engineWith = (t: MoonshineTranscriber) => new MoonshineStreamingEngine({
-    candidateId: 'moonshine_streaming_medium',
+    candidateId: 'moonshine:streaming-medium',
     modelArch: 'MOONSHINE_STREAMING_MEDIUM',
     loadTranscriber: async () => t,
 });
@@ -60,7 +60,7 @@ describe('lifecycle parity with the Private STT contract', () => {
 
     it('CASUALTY: start before a successful init FAILS VISIBLY', async () => {
         const e = new MoonshineStreamingEngine({
-            candidateId: 'moonshine_streaming_medium', modelArch: 'MOONSHINE_STREAMING_MEDIUM',
+            candidateId: 'moonshine:streaming-medium', modelArch: 'MOONSHINE_STREAMING_MEDIUM',
             loadTranscriber: async () => { throw new Error('model unavailable'); },
         });
         const r = await e.init();
@@ -137,21 +137,21 @@ describe('metadata is OBSERVED, never defaulted', () => {
         // reports q4. An identity taken from a default is not evidence.
         const { transcriber } = recordingTranscriber(() => 'hi');
         const e = new MoonshineStreamingEngine({
-            candidateId: 'moonshine_streaming_medium', modelArch: 'MOONSHINE_STREAMING_MEDIUM',
+            candidateId: 'moonshine:streaming-medium', modelArch: 'MOONSHINE_STREAMING_MEDIUM',
             loadTranscriber: async () => transcriber,
         });
         const before = e.getMetadata();
-        expect(before.candidateId).toBe('moonshine_streaming_medium');
-        expect(before.firstDecodeAt).toBeNull();          // "not established", never a guess
+        expect(before.candidateId).toBe('moonshine:streaming-medium');
+        expect(before.observedExecution.firstDecodeAt).toBeNull();          // "not established", never a guess
         expect(before.failure).toBeNull();
 
         await e.init();
         const { mic, push } = fakeMic();
         await e.start(mic);
         push(frame(SR));
-        await vi.waitFor(() => expect(e.getMetadata().firstDecodeAt).not.toBeNull());
+        await vi.waitFor(() => expect(e.getMetadata().observedExecution.firstDecodeAt).not.toBeNull());
         expect(e.getMetadata().liveWindowSeconds).toBe(LIVE_WINDOW_SECONDS);
-        expect(e.getMetadata().runtime).toBe('@moonshine-ai/moonshine-wasm');
+        expect(e.getMetadata().configuredRuntime.package).toBe('@moonshine-ai/moonshine-wasm');
     });
 });
 
@@ -281,25 +281,75 @@ describe('sample rate is enforced, not interpreted', () => {
     });
 });
 
-describe('metadata identity is observed from the runtime', () => {
-    it('runtimeVersion and assetIdentity come from the loaded transcriber, not a constant', async () => {
-        const t = Object.assign(
-            { transcribe: async () => ({ lines: [{ text: 'x' }] }) } as MoonshineTranscriber,
-            { version: '0.1.5', modelId: 'moonshine/streaming-medium-en' },
-        );
-        const e = engineWith(t);
-        expect(e.getMetadata().runtimeVersion).toBeNull();   // not established before init
-        await e.init();
-        expect(e.getMetadata().runtimeVersion).toBe('0.1.5');
-        expect(e.getMetadata().assetIdentity).toBe('moonshine/streaming-medium-en');
-    });
-
-    it('an unidentifiable runtime reports NULL rather than inventing a version', async () => {
+describe('identity is CONFIGURED provenance, kept separate from observed execution', () => {
+    /**
+     * REPLACES an earlier block that asserted runtimeVersion/assetIdentity were introspected from the
+     * loaded transcriber. That contract was wrong in practice: the real runtime reports NEITHER, so both
+     * came back null in both real-runtime probe runs and every human session was unattributable. The
+     * identity now comes from the typed candidate registry — checked-in facts verified against the
+     * lockfile and the committed pin table — and observed facts live in their own object.
+     */
+    it('CASUALTY: a session carries a NON-NULL runtime version, model revision and pin digest', async () => {
+        // These are exactly the fields whose nullness blocked human A/B testing.
         const { transcriber } = recordingTranscriber(() => 'x');
         const e = engineWith(transcriber);
         await e.init();
-        expect(e.getMetadata().runtimeVersion).toBeNull();
-        expect(e.getMetadata().assetIdentity).toBeNull();
+        const m = e.getMetadata();
+        expect(m.configuredRuntime.package).toBe('@moonshine-ai/moonshine-wasm');
+        expect(m.configuredRuntime.version).toBe('0.1.5');
+        expect(m.configuredModel.model).toBe('medium-streaming-en');
+        expect(m.configuredModel.revision).toBe('quantized_26_07_30');
+        expect(m.configuredModel.pinDigest).toBeTruthy();
+        expect(m.configuredModel.pinDigest).toHaveLength(64);
+    });
+
+    it('configured identity does NOT come from the transcriber, even when it offers one', async () => {
+        // A runtime that reports a MATCHING version must not become the source of truth; configuration
+        // is the authority, and the runtime value is only cross-checked.
+        const t = Object.assign(
+            { transcribe: async () => ({ lines: [{ text: 'x' }] }) } as MoonshineTranscriber,
+            { version: '0.1.5', modelId: 'something/else-entirely' },
+        );
+        const e = engineWith(t);
+        await e.init();
+        expect(e.getMetadata().configuredModel.model).toBe('medium-streaming-en');
+    });
+
+    it('CASUALTY: a runtime reporting a DIFFERENT version fails init rather than being recorded', async () => {
+        // A mismatch means the loaded bytes are not the ones the registry describes. Recording it
+        // quietly would attribute a transcript to a model that did not produce it.
+        const t = Object.assign(
+            { transcribe: async () => ({ lines: [{ text: 'x' }] }) } as MoonshineTranscriber,
+            { version: '9.9.9' },
+        );
+        const e = engineWith(t);
+        const r = await e.init();
+        expect(r.isOk).toBe(false);
+        expect(e.getMetadata().failure).toMatchObject({ phase: 'init' });
+        expect(String((r as { error: Error }).error.message)).toMatch(/refusing to attribute/);
+    });
+
+    it('observed execution is SEPARATE and starts unestablished', async () => {
+        const { transcriber } = recordingTranscriber(() => 'x');
+        const e = engineWith(transcriber);
+        const before = e.getMetadata();
+        expect(before.observedExecution.initSucceeded).toBe(false);
+        expect(before.observedExecution.firstDecodeAt).toBeNull();
+        // NOT DETERMINED, never a guessed false — a false here would read as proof that inference runs
+        // on the main thread, which this engine cannot honestly claim either way.
+        expect(before.observedExecution.workerObserved).toBeNull();
+        await e.init();
+        expect(e.getMetadata().observedExecution.initSucceeded).toBe(true);
+    });
+
+    it('configured provenance carries no observed fields, and vice versa', async () => {
+        const { transcriber } = recordingTranscriber(() => 'x');
+        const e = engineWith(transcriber);
+        await e.init();
+        const m = e.getMetadata();
+        expect(Object.keys(m.configuredRuntime).concat(Object.keys(m.configuredModel))
+            .every((k) => !/observed|init|decode|backend|worker/i.test(k))).toBe(true);
+        expect(Object.keys(m.observedExecution).some((k) => /version|revision|pinDigest/i.test(k))).toBe(false);
     });
 });
 
@@ -326,5 +376,46 @@ describe('a finalized session cannot be reopened', () => {
         await e.start(fakeMic().mic);
         await e.pause();
         await expect(e.resume()).resolves.toBeUndefined();
+    });
+});
+
+describe('init FAILS CLOSED on an identity that cannot attribute a session', () => {
+    /**
+     * These guards protect the human-test contract, not a type error. `candidateId` is typed, but the
+     * value can still arrive from build configuration, so the runtime check is what actually prevents an
+     * unattributable session — and it must fail BEFORE a 147 MB download and a participant's recording.
+     */
+    const withCandidate = (id: string) => new MoonshineStreamingEngine({
+        candidateId: id as unknown as ConstructorParameters<typeof MoonshineStreamingEngine>[0]['candidateId'],
+        modelArch: 'MOONSHINE_STREAMING_MEDIUM',
+        loadTranscriber: async () => recordingTranscriber(() => 'x').transcriber,
+    });
+
+    it('CASUALTY: an UNREGISTERED candidate is refused before any weights are fetched', async () => {
+        const e = withCandidate('moonshine:streaming-enormous');
+        const r = await e.init();
+        expect(r.isOk).toBe(false);
+        expect(String((r as { error: Error }).error.message)).toMatch(/no complete configured identity/);
+        // getMetadata must survive the failure it reports, and must not fabricate configuration.
+        const m = e.getMetadata();
+        expect(m.failure).toMatchObject({ phase: 'init' });
+        expect(m.observedExecution.initSucceeded).toBe(false);
+        expect(m.configuredRuntime.version).toBe('');
+        expect(m.configuredModel.pinDigest).toBeNull();
+    });
+
+    it('CASUALTY: a candidate with NO committed pin digest is refused', async () => {
+        // Registered and otherwise complete, but its model bytes are not pin-tracked — so a transcript
+        // could not be tied to specific weights. v2:base.en is exactly such a candidate today.
+        const e = withCandidate('v2:base.en');
+        const r = await e.init();
+        expect(r.isOk).toBe(false);
+        expect(String((r as { error: Error }).error.message)).toMatch(/no committed asset pin digest/);
+    });
+
+    it('POSITIVE CONTROL: the registered Moonshine candidate initialises', async () => {
+        const e = withCandidate('moonshine:streaming-medium');
+        expect((await e.init()).isOk).toBe(true);
+        expect(e.getMetadata().configuredModel.pinDigest).toHaveLength(64);
     });
 });

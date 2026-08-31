@@ -1,6 +1,10 @@
 import type { MicStream } from '../utils/types';
 import type { Result } from '../modes/types';
 import type { AvailabilityResult, STTStrategy } from '../STTStrategy';
+import { CANDIDATES, identityOf, isCompleteIdentity, type CandidateId } from '../candidateRegistry';
+
+/** Only the registered Moonshine candidates may back this engine. */
+export type MoonshineCandidateId = Extract<CandidateId, `moonshine:${string}`>;
 
 /**
  * #1263 — Moonshine Streaming as a PRODUCT engine.
@@ -23,8 +27,11 @@ const TARGET_SAMPLE_RATE = 16_000;
 export type MoonshineArch = 'MOONSHINE_STREAMING_MEDIUM' | 'MOONSHINE_STREAMING_SMALL';
 
 export interface MoonshineEngineOptions {
-    /** Which candidate this instance IS. Recorded in metadata; never inferred from a default. */
-    candidateId: string;
+    /**
+     * Which REGISTERED candidate this instance IS. A registry id, not a free string, so the configured
+     * identity cannot be invented at the call site.
+     */
+    candidateId: MoonshineCandidateId;
     modelArch: MoonshineArch;
     /** Injected so tests drive the real lifecycle without loading a 318 MB model. */
     loadTranscriber?: (arch: MoonshineArch) => Promise<MoonshineTranscriber>;
@@ -44,18 +51,39 @@ export interface MoonshineTranscriber {
  * running one v4 candidate reports another. An identity taken from a default is not evidence, and an
  * int8 human test recorded as q4 is worse than no record at all.
  */
+/**
+ * CONFIGURED PROVENANCE AND OBSERVED EXECUTION ARE SEPARATE, AND MUST STAY SEPARATE.
+ *
+ * The runtime exposes NO version and NO model id — `runtimeVersion`/`assetIdentity` came back null from
+ * the real runtime in both probe runs. Waiting for the runtime to introspect itself therefore leaves
+ * every human session unattributable, which is what blocks A/B use.
+ *
+ * The identity is instead CONFIGURED: checked-in facts from the typed candidate registry, verified
+ * against the lockfile and the committed pin table by test. They are not introspected from the
+ * transcriber and must never be described as though they were. Observed facts — did init succeed, when
+ * was the first decode, which backend, was a Worker seen — stay in their own object, because merging
+ * them is how configuration gets reported as measurement.
+ */
 export interface MoonshineEngineMetadata {
     candidateId: string;
     engine: 'moonshine_streaming';
     modelArch: MoonshineArch;
-    runtime: '@moonshine-ai/moonshine-wasm';
-    /** The INSTALLED runtime version and the asset identity actually loaded. Null until observed. */
-    runtimeVersion: string | null;
-    assetIdentity: string | null;
-    backend: 'wasm';
+    /** CONFIGURED: from the candidate registry. Never introspected. */
+    configuredRuntime: { package: string; version: string };
+    configuredModel: { model: string; revision: string | null; pinDigest: string | null };
+    /** OBSERVED: what this run actually did. */
+    observedExecution: {
+        initSucceeded: boolean;
+        firstDecodeAt: number | null;
+        backend: 'wasm';
+        /**
+         * Whether a Worker was seen. `null` means NOT DETERMINED — the engine does not monkey-patch
+         * `Worker` in product code to find out, and a guessed `false` would read as proof that
+         * inference runs on the main thread. The responsiveness probe determines this properly.
+         */
+        workerObserved: boolean | null;
+    };
     liveWindowSeconds: number;
-    /** Set only once a decode has actually happened. Null means "not established", never a guess. */
-    firstDecodeAt: number | null;
     /** Set when the engine failed. Failure is reported, never swallowed into a fallback. */
     failure: { phase: 'init' | 'start' | 'decode' | 'stop'; message: string } | null;
 }
@@ -78,8 +106,15 @@ export class MoonshineStreamingEngine implements STTStrategy {
         this.failure ??= { phase, message };
     }
     private firstDecodeAt: number | null = null;
-    private runtimeVersion: string | null = null;
-    private assetIdentity: string | null = null;
+    /**
+     * Whether a Worker was constructed while this engine was loading. NOT DETERMINED by default: the
+     * engine will not patch `Worker` in product code, and a guessed `false` would read as evidence that
+     * inference blocks the main thread. The responsiveness probe observes this properly and injects it.
+     */
+    private workerObserved: boolean | null = null;
+
+    /** Test/probe seam: record an externally observed Worker creation as an OBSERVED fact. */
+    public noteWorkerObserved(observed: boolean): void { this.workerObserved = observed; }
     /** Once the final pass has run, no late interim decode may replace its result. */
     private finalized = false;
     /** The in-flight decode, if any. Inference is SERIALIZED: the runtime is one worker. */
@@ -105,6 +140,22 @@ export class MoonshineStreamingEngine implements STTStrategy {
 
     async init(timeoutMs = 60_000): Promise<Result<void, Error>> {
         try {
+            // FAIL CLOSED ON INCOMPLETE IDENTITY, before any weights are fetched. A session that cannot
+            // say which model produced its transcript is not usable as A/B evidence, and discovering
+            // that after a 147 MB download and a full recording wastes the participant's time as well.
+            const candidate = CANDIDATES[this.options.candidateId];
+            if (!candidate || !isCompleteIdentity(identityOf(candidate))) {
+                throw new Error(
+                    `candidate ${this.options.candidateId} has no complete configured identity; `
+                    + 'refusing to start an unattributable session',
+                );
+            }
+            if (!candidate.assets.pinDigest) {
+                throw new Error(
+                    `candidate ${this.options.candidateId} has no committed asset pin digest; `
+                    + 'refusing to start a session whose model bytes cannot be identified',
+                );
+            }
             const load = this.options.loadTranscriber
                 ?? ((arch: MoonshineArch) => defaultLoadTranscriber(arch, this.options.onDownloadProgress));
             const timeout = new Promise<never>((_, reject) =>
@@ -113,8 +164,15 @@ export class MoonshineStreamingEngine implements STTStrategy {
             const identified = this.transcriber as MoonshineTranscriber & {
                 version?: string; modelId?: string; assetDigest?: string;
             };
-            this.runtimeVersion = identified.version ?? null;
-            this.assetIdentity = identified.assetDigest ?? identified.modelId ?? null;
+            // If the runtime DOES start reporting these, they are cross-checked against the configured
+            // values rather than replacing them — a mismatch means the loaded bytes are not the ones the
+            // registry describes, which must fail rather than be quietly recorded.
+            if (identified.version && identified.version !== candidate.runtime.version) {
+                throw new Error(
+                    `runtime reported version ${identified.version} but the registry configures `
+                    + `${candidate.runtime.version}; refusing to attribute the session`,
+                );
+            }
             this.lastHeartbeat = Date.now();
             return { isOk: true, data: undefined };
         } catch (e) {
@@ -238,18 +296,30 @@ export class MoonshineStreamingEngine implements STTStrategy {
     getInterimTranscript(): string { return this.interim; }
 
     getMetadata(): MoonshineEngineMetadata {
+        // NEVER THROWS. An unregistered candidate is exactly the case where init failed, and this is the
+        // object a caller reads to find out why — a diagnostic that crashes on the failure it describes
+        // is useless. Unknown configuration is reported as empty/null, which is honest, rather than
+        // faked from a default.
+        const candidate = CANDIDATES[this.options.candidateId] as typeof CANDIDATES[CandidateId] | undefined;
         return {
             candidateId: this.options.candidateId,
             engine: 'moonshine_streaming',
             modelArch: this.options.modelArch,
-            runtime: '@moonshine-ai/moonshine-wasm',
-            // OBSERVED, not asserted. Null means "not established" — never a constant standing in for a
-            // fact, which is exactly how PrivateSTT reports one v4 candidate as another.
-            runtimeVersion: this.runtimeVersion,
-            assetIdentity: this.assetIdentity,
-            backend: 'wasm',
+            configuredRuntime: candidate
+                ? { ...candidate.runtime }
+                : { package: '@moonshine-ai/moonshine-wasm', version: '' },
+            configuredModel: {
+                model: candidate?.model.id ?? '',
+                revision: candidate?.model.revision ?? null,
+                pinDigest: candidate?.assets.pinDigest ?? null,
+            },
+            observedExecution: {
+                initSucceeded: this.transcriber !== null,
+                firstDecodeAt: this.firstDecodeAt,
+                backend: 'wasm',
+                workerObserved: this.workerObserved,
+            },
             liveWindowSeconds: LIVE_WINDOW_SECONDS,
-            firstDecodeAt: this.firstDecodeAt,
             failure: this.failure,
         };
     }
