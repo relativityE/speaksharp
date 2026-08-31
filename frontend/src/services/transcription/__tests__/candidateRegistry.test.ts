@@ -10,9 +10,9 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-    CANDIDATES, CANDIDATE_IDS, PRIVATE_STT_MODEL_IN_USE, UnknownCandidateError, UnusableCandidateError,
+    CANDIDATES, CANDIDATE_IDS, UnknownCandidateError, UnusableCandidateError,
     activeCandidate, assertBrowserUsable, candidateForRuntime, identityOf, isCompleteIdentity,
-    resolveCandidate,
+    resolveCandidate, InactiveCandidateError, PRIVATE_STT_CONFIG_PATH,
     type CandidateId,
 } from '../candidateRegistry';
 
@@ -178,12 +178,45 @@ describe('selection fails closed', () => {
 });
 
 describe('the active candidate is a checked-in build-time decision', () => {
-    it('CASUALTY: the default is still v2:base.en — Moonshine is REGISTERED, NOT ACTIVATED', () => {
-        // Registering a candidate must never activate it. Changing this line is a Product Owner ruling
-        // and has to appear in a diff, which is the entire point of a checked-in selector.
-        expect(PRIVATE_STT_MODEL_IN_USE).toBe('v2:base.en');
+    it('CASUALTY: the configured candidate is still v2:base.en — nothing was activated', () => {
+        // Registering a candidate must never activate it. Changing this is a Product Owner ruling and
+        // has to appear as a diff in a file whose only job is that decision.
         expect(activeCandidate().id).toBe('v2:base.en');
         expect(activeCandidate().engine).toBe('transformers-js');
+    });
+
+    it('CASUALTY: selection comes from the CONFIG FILE, not a constant in this module', () => {
+        // A constant here made the registry its own second control plane, which the PO rejected.
+        const src = repoFile('frontend/src/services/transcription/candidateRegistry.ts');
+        expect(src).not.toMatch(/export const PRIVATE_STT_MODEL_IN_USE/);
+        expect(PRIVATE_STT_CONFIG_PATH).toBe('frontend/src/config/private-stt.config.json');
+        const cfg = JSON.parse(repoFile(PRIVATE_STT_CONFIG_PATH)) as { candidate: string };
+        expect(cfg.candidate).toBe('v2:base.en');
+        expect(activeCandidate().id).toBe(cfg.candidate);
+    });
+
+    it('CASUALTY: an activation-INELIGIBLE candidate fails boot, never silently substituted', () => {
+        // Moonshine is registered and not ready: its live path was written against the non-streaming
+        // API. Quietly falling back to v2 would attribute a v2 transcript to a moonshine session.
+        expect(CANDIDATES['moonshine:streaming-medium'].activationReady).toBe(false);
+        expect(CANDIDATES['moonshine:streaming-medium'].notReadyReason).toBeTruthy();
+        expect(() => activeCandidate({ candidate: 'moonshine:streaming-medium' }))
+            .toThrow(InactiveCandidateError);
+        expect(() => activeCandidate({ candidate: 'moonshine:streaming-medium' }))
+            .toThrow(/not activation-ready/);
+    });
+
+    it('CASUALTY: a missing or unknown configured candidate fails closed', () => {
+        expect(() => activeCandidate({})).toThrow(/names no candidate/);
+        expect(() => activeCandidate({ candidate: '' })).toThrow(/names no candidate/);
+        expect(() => activeCandidate({ candidate: 'v9:imaginary' })).toThrow(UnknownCandidateError);
+    });
+
+    it('every candidate that is NOT activation-ready states why', () => {
+        for (const id of CANDIDATE_IDS) {
+            const c = CANDIDATES[id];
+            if (!c.activationReady) expect(c.notReadyReason, `${id}`).toBeTruthy();
+        }
     });
 
     it('the active candidate is always resolvable — a build cannot ship an unusable default', () => {
@@ -201,7 +234,7 @@ describe('the active candidate is a checked-in build-time decision', () => {
         // DESCRIBE reproduces the very defect this registry closes: a session with no attributable
         // model. Registering it makes it identifiable, not preferred.
         expect(CANDIDATE_IDS).toContain('v4:distil:q4');
-        expect(PRIVATE_STT_MODEL_IN_USE).not.toBe('v4:distil:q4');
+        expect(activeCandidate().id).not.toBe('v4:distil:q4');
         expect([...CANDIDATE_IDS].sort()).toEqual([
             'moonshine:streaming-medium', 'v2:base.en', 'v4:base:int8', 'v4:base:q4', 'v4:distil:q4',
         ]);
@@ -305,5 +338,102 @@ describe('RESOLVED runtime state maps to a candidate — the original defect', (
         ]) {
             expect(CANDIDATE_IDS).toContain(candidateForRuntime(st));
         }
+    });
+});
+
+describe('SWAPPING a candidate is a one-line config change', () => {
+    /**
+     * The point of the config plane: once the r3 results land, changing which model runs — a different
+     * v4 variant, a different Moonshine size — must be editing one value, not an engineering task.
+     * These prove the swap actually PROPAGATES rather than only changing an id.
+     */
+    it('CASUALTY: changing the config value changes engine, model, dtype AND assets', () => {
+        const v2 = activeCandidate({ candidate: 'v2:base.en' });
+        const int8 = activeCandidate({ candidate: 'v4:base:int8' });
+
+        expect(v2.engine).not.toBe(int8.engine);
+        expect(v2.model.id).not.toBe(int8.model.id);
+        expect(v2.runtime.package).not.toBe(int8.runtime.package);
+        expect(v2.assets.pinDigest).not.toBe(int8.assets.pinDigest);
+        // A swap that changed the label but kept the bytes would be the worst possible outcome: a
+        // session attributed to one model and decoded by another.
+        expect(int8.model.dtype?.decoder_model_merged).toBe('int8');
+    });
+
+    it('CASUALTY: swapping between v4 variants changes the DECODER, not just the name', () => {
+        // q4 and int8 share a repo and an encoder. If a swap between them did not change the decoder
+        // precision, the config would be decorative.
+        const q4 = activeCandidate({ candidate: 'v4:base:q4' });
+        const int8 = activeCandidate({ candidate: 'v4:base:int8' });
+        expect(q4.model.id).toBe(int8.model.id);
+        expect(q4.model.dtype?.decoder_model_merged).toBe('q4');
+        expect(int8.model.dtype?.decoder_model_merged).toBe('int8');
+        expect(q4.assets.pinDigest).not.toBe(int8.assets.pinDigest);
+    });
+
+    it('the three human-test slots are all registered and describable', () => {
+        // v2 incumbent, the v4 representative, and the Moonshine prospect. Moonshine is describable but
+        // not activatable, which is the distinction that lets us build against it before it is proven.
+        for (const id of ['v2:base.en', 'v4:base:int8', 'moonshine:streaming-medium'] as CandidateId[]) {
+            const c = CANDIDATES[id];
+            expect(c, `${id} missing`).toBeTruthy();
+            expect(isCompleteIdentity(identityOf(c)), `${id} not attributable`).toBe(true);
+            expect(c.assets.pinDigest, `${id} has no asset digest`).toBeTruthy();
+        }
+        expect(activeCandidate({ candidate: 'v4:base:int8' }).id).toBe('v4:base:int8');
+        expect(() => activeCandidate({ candidate: 'moonshine:streaming-medium' })).toThrow(/not activation-ready/);
+    });
+});
+
+describe('DROP-IN property — every candidate resolves wholly from its registry entry', () => {
+    /**
+     * The swap is only one line if NOTHING candidate-specific lives outside the registry. The moment a
+     * branch somewhere says "if moonshine then…", r3 naming a different arm becomes a rebuild instead
+     * of a config edit.
+     *
+     * This builds each slot purely from a config value and checks that every property a caller needs —
+     * engine, model, dtype, device, runtime, assets — comes back from the entry, with no field left for
+     * something else to supply.
+     */
+    const SLOTS: CandidateId[] = ['v2:base.en', 'v4:base:int8', 'moonshine:streaming-medium'];
+
+    it('CASUALTY: each slot resolves engine/model/dtype/device/runtime/assets from config alone', () => {
+        for (const id of SLOTS) {
+            // resolveCandidate is the config path minus the activation gate, so an unshippable
+            // candidate is still fully describable — which is what lets us build against it now.
+            const c = resolveCandidate(id);
+            const entry = CANDIDATES[id];
+            expect(c.engine, `${id} engine`).toBe(entry.engine);
+            expect(c.model.id, `${id} model`).toBe(entry.model.id);
+            expect(c.model.dtype, `${id} dtype`).toEqual(entry.model.dtype);
+            expect(c.model.device, `${id} device`).toBe(entry.model.device);
+            expect(c.model.sampleRateHz, `${id} sample rate`).toBe(entry.model.sampleRateHz);
+            expect(c.runtime, `${id} runtime`).toEqual(entry.runtime);
+            expect(c.assets.pinDigest, `${id} assets`).toBe(entry.assets.pinDigest);
+        }
+    });
+
+    it('CASUALTY: no candidate id is hardcoded outside the registry and its config', () => {
+        // A branch keyed on a specific candidate elsewhere in the STT tree is what turns a one-line
+        // swap back into an engineering task.
+        const offenders: string[] = [];
+        const scan = (rel: string) => {
+            const body = repoFile(rel);
+            for (const id of SLOTS) {
+                if (body.includes(`'${id}'`) || body.includes(`"${id}"`)) offenders.push(`${rel} :: ${id}`);
+            }
+        };
+        scan('frontend/src/services/transcription/engines/PrivateSTT.ts');
+        scan('frontend/src/services/transcription/utils/privateModelFlag.ts');
+        expect(offenders, 'candidate ids referenced outside the registry/config').toEqual([]);
+    });
+
+    it('swapping a slot changes only the config value — the registry supplies the rest', () => {
+        const before = activeCandidate({ candidate: 'v2:base.en' });
+        const after = activeCandidate({ candidate: 'v4:base:int8' });
+        // Same call, same code path, different everything that describes the model.
+        expect(before.id).not.toBe(after.id);
+        expect(before.model.id).not.toBe(after.model.id);
+        expect(before.runtime.package).not.toBe(after.runtime.package);
     });
 });

@@ -209,7 +209,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 variant: resolvedVariant,
                 decoderDtype: (variantCfg?.DTYPE as { decoder_model_merged?: string } | undefined)
                     ?.decoder_model_merged ?? null,
-                device: this.runtimePath?.device ?? null,
+                // `acceleration` is the decision's own field; there is no `device` on it, and
+                // inventing one would put a guessed value into a session's identity.
+                device: this.runtimePath?.acceleration ?? null,
             });
             modelIdentity = identityOf(CANDIDATES[candidateId]);
         } catch {

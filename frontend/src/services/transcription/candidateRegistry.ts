@@ -1,3 +1,4 @@
+import privateSttConfig from '../../config/private-stt.config.json';
 /**
  * #1263 — THE TYPED BOOT-TIME CANDIDATE REGISTRY.
  *
@@ -79,6 +80,14 @@ export interface BrowserExecutability {
 
 export interface Candidate {
     id: CandidateId;
+    /**
+     * Whether this candidate may actually be RUN. Registering a candidate describes it; it does not
+     * make it shippable. Moonshine is registered and NOT activation-ready until its windowed E/F
+     * validation passes, because its live path was written against the non-streaming API.
+     */
+    activationReady: boolean;
+    /** Required when activationReady is false: what is outstanding. Never left unexplained. */
+    notReadyReason?: string;
     engine: EngineKind;
     runtime: ConfiguredRuntime;
     model: ConfiguredModel;
@@ -100,6 +109,7 @@ function deepFreeze<T>(value: T): T {
 export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
     'v2:base.en': {
         id: 'v2:base.en',
+        activationReady: true,
         engine: 'transformers-js',
         runtime: { package: '@xenova/transformers', version: '2.17.2' },
         model: {
@@ -128,6 +138,7 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
     },
     'v4:base:q4': {
         id: 'v4:base:q4',
+        activationReady: true,
         engine: 'transformers-js-v4',
         runtime: { package: '@huggingface/transformers', version: '4.2.0' },
         model: {
@@ -148,6 +159,7 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
     },
     'v4:base:int8': {
         id: 'v4:base:int8',
+        activationReady: true,
         engine: 'transformers-js-v4',
         runtime: { package: '@huggingface/transformers', version: '4.2.0' },
         model: {
@@ -179,6 +191,7 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
      */
     'v4:distil:q4': {
         id: 'v4:distil:q4',
+        activationReady: true,
         engine: 'transformers-js-v4',
         runtime: { package: '@huggingface/transformers', version: '4.2.0' },
         model: {
@@ -200,6 +213,9 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
     },
     'moonshine:streaming-medium': {
         id: 'moonshine:streaming-medium',
+        activationReady: false,
+        notReadyReason: 'windowed E/F validation of the live session path has not passed; the engine\'s '
+            + 'live decode was written against the non-streaming whole-buffer API',
         engine: 'moonshine-streaming',
         runtime: { package: '@moonshine-ai/moonshine-wasm', version: '0.1.5' },
         model: {
@@ -223,18 +239,20 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
 export const CANDIDATE_IDS = Object.freeze(Object.keys(CANDIDATES) as CandidateId[]);
 
 /**
- * THE SOLE CANDIDATE SELECTOR: one checked-in, build-time value.
+ * THE SOLE CANDIDATE SELECTOR — read from a checked-in config file.
  *
- * Not a URL parameter, not localStorage, not a flag. Changing which model users get is a reviewable
- * commit, because "which model is in production" is a release decision and must appear in a diff.
+ * Previously a hardcoded constant in this module, which made the registry its own second control
+ * plane. The selection now lives in `config/private-stt.config.json`, so changing which model users
+ * get is a reviewable one-line diff in a file whose only job is that decision.
  *
- * Stays `v2:base.en` until the Product Owner rules on the frozen-600 selection. Registering a candidate
- * does NOT activate it.
+ * Not a URL parameter, not localStorage, not a flag. Those can differ per visitor and cannot be
+ * reviewed, which is exactly how a session ended up unattributable to any model.
  */
-export const PRIVATE_STT_MODEL_IN_USE: CandidateId = 'v2:base.en';
+export const PRIVATE_STT_CONFIG_PATH = 'frontend/src/config/private-stt.config.json';
 
 export class UnknownCandidateError extends Error {}
 export class UnusableCandidateError extends Error {}
+export class InactiveCandidateError extends Error {}
 
 /**
  * Map RESOLVED runtime state onto a candidate id.
@@ -321,9 +339,32 @@ export function resolveCandidate(id: string): Candidate {
     return candidate;
 }
 
-/** The candidate this build runs. Throws at boot rather than at a user's first session. */
-export function activeCandidate(): Candidate {
-    return resolveCandidate(PRIVATE_STT_MODEL_IN_USE);
+/**
+ * The candidate this build runs, read from the config file.
+ *
+ * Throws at BOOT rather than at a user's first session — after a model download and a recording is the
+ * worst possible moment to discover the configuration is wrong.
+ *
+ * The config is imported rather than fetched so an invalid value fails the build's type/JSON parse,
+ * not a runtime request.
+ */
+export function activeCandidate(config: { candidate?: string } = privateSttConfig): Candidate {
+    const id = config?.candidate;
+    if (typeof id !== 'string' || id === '') {
+        throw new UnknownCandidateError(
+            `${PRIVATE_STT_CONFIG_PATH} names no candidate; refusing to guess which model to run`,
+        );
+    }
+    const candidate = resolveCandidate(id);
+    if (!candidate.activationReady) {
+        // NEVER silently substitute. A configured candidate that cannot ship must stop the boot with
+        // its reason, not quietly become a different model whose transcript is then attributed wrongly.
+        throw new InactiveCandidateError(
+            `Private STT candidate "${id}" is registered but not activation-ready: `
+            + `${candidate.notReadyReason ?? 'no reason recorded'}`,
+        );
+    }
+    return candidate;
 }
 
 /**
