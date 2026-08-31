@@ -27,6 +27,7 @@ jobs:
     outputs:
       ready: ${{ steps.readiness.outputs.ready }}
       state: ${{ steps.readiness.outputs.state }}
+      pending: ${{ steps.readiness.outputs.pending }}
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
@@ -54,8 +55,12 @@ jobs:
           result="$(node scripts/canary-migration-readiness.mjs "$RUNNER_TEMP/canary-migrations.txt")"
           echo "ready=$(jq -r '.ready' <<<"$result")" >> "$GITHUB_OUTPUT"
           echo "state=$(jq -r '.state' <<<"$result")" >> "$GITHUB_OUTPUT"
+          echo "pending=$(jq -r '(.pending // []) | join(\", \")' <<<"$result")" >> "$GITHUB_OUTPUT"
           echo "### Canary migration readiness" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Required ordered set (all must be applied): \`20260812002000\` → \`20260811143000\` → \`20260812030000\` → \`20260812039500\` → \`20260812040000\` → \`20260812041000\` → \`20260812041500\`" >> "$GITHUB_STEP_SUMMARY"
+          # Render the set the gate ACTUALLY enforces. This line used to be a hardcoded list, and it had
+          # already drifted: it never mentioned 20260819120000 (#1314), so the summary advertised a
+          # required set smaller than the one being enforced.
+          echo "- Required ordered set (all must be applied): $(jq -r '((.required // .appliedSet) // []) | map("`" + . + "`") | join(" → ")' <<<"$result")" >> "$GITHUB_STEP_SUMMARY"
           echo "- Held (must NOT be applied): \`20260812042000\` (commercial activation)" >> "$GITHUB_STEP_SUMMARY"
           echo "- Read-only state: \`$(jq -r '.state' <<<"$result")\`" >> "$GITHUB_STEP_SUMMARY"
           state="$(jq -r '.state' <<<"$result")"
@@ -67,7 +72,12 @@ jobs:
             exit 1
           fi
           if [ "$(jq -r '.ready' <<<"$result")" != 'true' ]; then
-            echo "- **HOLD — required migration(s) pending: \`$(jq -r '(.pending // []) | join(", ")' <<<"$result")\`; canary product lanes were not executed.**" >> "$GITHUB_STEP_SUMMARY"
+            pending="$(jq -r '(.pending // []) | join(", ")' <<<"$result")"
+            echo "- **HOLD — required migration(s) pending: \`$pending\`; canary product lanes were not executed.**" >> "$GITHUB_STEP_SUMMARY"
+            # A HOLD skips `canary-check` while the run still concludes SUCCESS. Without an annotation that
+            # is a green run with ZERO product qualification, which reads exactly like a passing canary.
+            # This does not change pass/fail — it only makes the silence visible.
+            echo "::warning::CANARY HELD — no product qualification ran. Pending required migration(s): $pending (the terminal canary-result job fails this run)"
           fi
 
   canary-check:
@@ -211,6 +221,7 @@ jobs:
           READINESS_RESULT: ${{ needs.migration-readiness.result }}
           MIGRATION_READY: ${{ needs.migration-readiness.outputs.ready }}
           PRODUCT_LANES_RESULT: ${{ needs.canary-check.result }}
+          PENDING_MIGRATIONS: ${{ needs.migration-readiness.outputs.pending }}
           # This run INCLUDED the billing-qualification lane iff it is the weekly schedule or an opt-in dispatch.
           # The billing-qualification lane runs ONLY on the weekly schedule — there is no manual route.
           BILLING_QUALIFICATION_RAN: ${{ github.event.schedule == '0 6 * * 1' }}
@@ -221,14 +232,21 @@ jobs:
             exit 1
           fi
           if [ "$MIGRATION_READY" != 'true' ]; then
-            echo '## HOLD — migration pending; canary not executed' >> "$GITHUB_STEP_SUMMARY"
+            # NON-SUCCESS. A HOLD means canary-check executed ZERO product qualification, and this job is
+            # the run's terminal result. Concluding success here produced a green canary that had proven
+            # nothing — indistinguishable, to anyone reading the badge, from a passing product run. The
+            # summary keeps the three states separate so the failure is not mistaken for a product failure.
+            echo '## HOLD — required migration(s) pending; NO product qualification ran' >> "$GITHUB_STEP_SUMMARY"
+            echo "- Terminal state: **HELD (non-success)** — this is NOT a product-canary failure." >> "$GITHUB_STEP_SUMMARY"
+            echo "- Pending required migration(s): \`${PENDING_MIGRATIONS:-unknown}\`" >> "$GITHUB_STEP_SUMMARY"
             echo 'Daily active-trial product lane: produced no evidence (held).' >> "$GITHUB_STEP_SUMMARY"
             if [ "$BILLING_QUALIFICATION_RAN" = 'true' ]; then
               echo 'Weekly Stripe test-mode/test-clock billing qualification: produced no evidence (held).' >> "$GITHUB_STEP_SUMMARY"
             else
               echo 'Weekly billing qualification: not part of this run (daily active-trial cadence).' >> "$GITHUB_STEP_SUMMARY"
             fi
-            exit 0
+            echo '::error::CANARY HELD — required migration(s) pending; zero product qualification executed. This run proves nothing about the product.'
+            exit 1
           fi
           if [ "$PRODUCT_LANES_RESULT" != 'success' ]; then
             if [ "$BILLING_QUALIFICATION_RAN" = 'true' ]; then

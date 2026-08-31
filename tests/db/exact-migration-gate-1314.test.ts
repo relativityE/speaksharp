@@ -23,6 +23,12 @@ function migrationList(rows: Array<{ v: string; local: boolean; remote: boolean 
   return `${head}\n${body}`;
 }
 
+const TARGET_1314 = '20260819120000_complete_session_v2_atomic_retention_1314.sql';
+const t1314 = (postflight: string) => assertTerminalOutcome({
+  apply: 'success', verify: 'success', lint: 'success',
+  targetFile: TARGET_1314, postflights: { postflight_1314: postflight },
+});
+
 describe('#1314 exact-migration allowlist', () => {
   it('validates, and #1314 is present as a staged target', () => {
     expect(() => validateExactMigrationAllowlist()).not.toThrow();
@@ -64,11 +70,22 @@ describe('#1314 exact-migration allowlist', () => {
 describe('#1314 pending-set enforcement (does not require activation, keeps unselected pending)', () => {
   const cfg = resolveExactMigrationConfig({ SELECTED_TARGET_VERSION: V1314 });
 
+  /**
+   * The excluded set is DERIVED, never hardcoded.
+   *
+   * It was previously written out as just the activation entry, so adding #1306 Stage B to the allowlist
+   * broke these tests even though the enforcement was working correctly — the pending set is
+   * position-based, so every entry after the target is legitimately excluded. Deriving it keeps the
+   * assertions honest and stops the next allowlist addition from looking like a regression.
+   */
+  const excludedPending = cfg.excludedMigrations.map((m) => ({ v: m.version, local: true, remote: false }));
+  const excludedApplied = cfg.excludedMigrations.map((m) => ({ v: m.version, local: true, remote: true }));
+
   it('BEFORE apply: exactly {target, excluded} pending, prerequisites applied — passes', () => {
     const rows = [
       ...cfg.requiredAppliedVersions.map((v) => ({ v, local: true, remote: true })), // prerequisites applied
       { v: V1314, local: true, remote: false },            // target pending
-      { v: ACTIVATION, local: true, remote: false },        // activation still pending (excluded)
+      ...excludedPending,                                   // every later entry stays pending
     ];
     expect(() => assertBeforeApply(migrationList(rows), cfg)).not.toThrow();
   });
@@ -77,7 +94,7 @@ describe('#1314 pending-set enforcement (does not require activation, keeps unse
     const rows = [
       ...cfg.requiredAppliedVersions.map((v) => ({ v, local: true, remote: true })),
       { v: V1314, local: true, remote: false },
-      { v: ACTIVATION, local: true, remote: true },   // activation applied -> not pending -> wrong set
+      ...excludedApplied,   // an excluded entry already applied -> not pending -> wrong set
     ];
     expect(() => assertBeforeApply(migrationList(rows), cfg)).toThrow(/pending/);
   });
@@ -86,12 +103,12 @@ describe('#1314 pending-set enforcement (does not require activation, keeps unse
     const before = migrationList([
       ...cfg.requiredAppliedVersions.map((v) => ({ v, local: true, remote: true })),
       { v: V1314, local: true, remote: false },
-      { v: ACTIVATION, local: true, remote: false },
+      ...excludedPending,
     ]);
     const after = migrationList([
       ...cfg.requiredAppliedVersions.map((v) => ({ v, local: true, remote: true })),
       { v: V1314, local: true, remote: true },       // now applied
-      { v: ACTIVATION, local: true, remote: false },  // still pending
+      ...excludedPending,                             // every excluded entry still pending
     ]);
     expect(() => assertAfterApply(before, after, cfg)).not.toThrow();
   });
@@ -113,20 +130,29 @@ describe('#1314 pending-set enforcement (does not require activation, keeps unse
 
 describe('#1314 terminal authority includes the postflight outcome', () => {
   it('a failed postflight fails the terminal gate', () => {
-    expect(() => assertTerminalOutcome('success', 'success', 'success', 'failure'))
+    expect(() => t1314('failure'))
       .toThrow(/postflight/);
   });
   it('a cancelled postflight fails the terminal gate', () => {
-    expect(() => assertTerminalOutcome('success', 'success', 'success', 'cancelled'))
+    expect(() => t1314('cancelled'))
       .toThrow(/postflight/);
   });
   it('a successful postflight passes', () => {
-    expect(assertTerminalOutcome('success', 'success', 'success', 'success')).toEqual({ terminal: 'success' });
+    expect(t1314('success')).toEqual({
+      terminal: 'success',
+      enforcedPostflights: ['postflight_1314'],
+      // Added when the terminal gate stopped rejecting targets that have no bespoke postflight:
+      // coverage is now REPORTED rather than inferred from the absence of a failure.
+      postflightCoverage: 'target_specific',
+    });
   });
   it("a skipped postflight (non-#1314 migration) is allowed", () => {
-    expect(assertTerminalOutcome('success', 'success', 'success', 'skipped')).toEqual({ terminal: 'success' });
+    // CORRECTED: 'skipped' for the APPLICABLE target is no longer a pass — the gate never ran, so nothing
+    // was verified. Inapplicability is expressed by the target, not by the outcome string.
+    expect(() => t1314('skipped')).toThrow(/must be success/);
   });
   it('still fails when apply/verify/lint fail regardless of postflight', () => {
-    expect(() => assertTerminalOutcome('failure', 'success', 'success', 'success')).toThrow(/apply/);
+    expect(() => assertTerminalOutcome({ apply: 'failure', verify: 'success', lint: 'success',
+      targetFile: TARGET_1314, postflights: { postflight_1314: 'success' } })).toThrow(/apply/);
   });
 });
