@@ -776,7 +776,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
    * session was recorded with `attribution_status='unverified'` — making it ineligible for Progress.
    * The engine already returns a complete tuple (engineVersion / modelName / deviceType='browser').
    */
-  public getMetadata(): { engineVersion: string; modelName: string; deviceType: string } {
+  public getMetadata(): ReturnType<IPrivateSTT['getMetadata']> {
+    // Return type is DERIVED from the engine's, not restated. A hand-copied narrower signature here
+    // would type-strip `candidateId`/`modelIdentity` on the way out — the outer strategy is what
+    // TranscriptionService asks, so the resolved-model identity would never reach the saved session
+    // row even though the engine computed it correctly.
     return this.privateSTT.getMetadata();
   }
 
