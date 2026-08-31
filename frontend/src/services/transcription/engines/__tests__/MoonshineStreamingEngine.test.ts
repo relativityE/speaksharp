@@ -190,9 +190,19 @@ describe('the live pass is NOT the final pass — CORRECTED for the streaming se
         await vi.waitFor(() => expect(passes.length).toBeGreaterThan(0));
         expect(e.getInterimTranscript()).toMatch(/^live:/);
 
+        const liveInterim = e.getInterimTranscript();
         await e.stop();
-        expect(await e.getTranscript()).toBe(`final:${10 * SR}`);
-        expect(passes[passes.length - 1]).toBe(10 * SR);
+        const final = await e.getTranscript();
+
+        // THE PROPERTY, stated rather than implied by the fake's encoding: the final covers the WHOLE
+        // session. The old slice-based test guarded this with the wrong mechanism; the mechanism
+        // changed and the property must not travel out with it.
+        expect(final).toBe(`final:${10 * SR}`);              // every frame, not the tail
+        expect(passes[passes.length - 1]).toBe(10 * SR);     // the final pass saw the whole session
+        // and the final is NOT a live pass that happened to settle last — the hazard the engine's own
+        // stop() comment names: three seconds presented as the whole session.
+        expect(final).not.toBe(liveInterim);
+        expect(final).not.toMatch(/^live:/);
     });
 
     it('the final transcript is one pass over the session, never a concatenation of windows', async () => {
