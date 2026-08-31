@@ -42,6 +42,10 @@ import { ModelManager } from '@/services/transcription/ModelManager';
 import { MicStream } from '@/services/transcription/utils/types';
 import { getEngine } from '@/services/transcription/STTRegistry';
 import { PRIV_STT_V4, PRIV_STT_V4_DEFAULT_VARIANT, PRIV_STT_V4_VARIANTS, PRIVATE_ENGINE_OVERRIDE_KEY } from '../sttConstants';
+import {
+    CANDIDATES, candidateForRuntime, identityOf,
+    type CandidateId, type SessionModelIdentity,
+} from '../candidateRegistry';
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
 import type { PrivateSttProvider } from '../providers/types';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
@@ -179,14 +183,52 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * `private_v4:base_q4`. Previously the controller hardcoded `'transformers-js'`,
      * which erased the v4 arm. `deviceType` stays `'browser'` (on-device).
      */
-    public getMetadata(): { engineVersion: string; modelName: string; deviceType: string } {
+    public getMetadata(): {
+        engineVersion: string; modelName: string; deviceType: string;
+        candidateId?: CandidateId; modelIdentity?: SessionModelIdentity;
+    } {
         const isV4 = this._engineType === 'transformers-js-v4';
         const variant: EngineVariant = isV4 ? 'private_v4' : 'private_v2';
-        const model = isV4 ? PRIV_STT_V4_DEFAULT_VARIANT : 'whisper-base.en';
+
+        // THE RESOLVED variant, not the default constant. `PRIV_STT_V4_DEFAULT_VARIANT` is base_q4, so
+        // a session that actually resolved distil_q4 was recorded as base_q4 — the model name in the
+        // saved row named a model that never ran, and no test procedure could catch it because the
+        // identity was synthesised here rather than carried from the decision. The resolved variant was
+        // already on `this.runtimePath`; it simply was not consulted.
+        const resolvedVariant = this.runtimePath?.v4Variant ?? null;
+
+        let candidateId: CandidateId | undefined;
+        let modelIdentity: SessionModelIdentity | undefined;
+        try {
+            // DECODER PRECISION, carried explicitly. base_q4 and base_int8 share a repo and an
+            // encoder and differ only here, so a mapping keyed on the variant name alone cannot tell
+            // them apart — and an int8 session recorded as q4 is the same defect in a new place.
+            const variantCfg = resolvedVariant ? PRIV_STT_V4_VARIANTS[resolvedVariant] : null;
+            candidateId = candidateForRuntime({
+                engineType: this._engineType,
+                variant: resolvedVariant,
+                decoderDtype: (variantCfg?.DTYPE as { decoder_model_merged?: string } | undefined)
+                    ?.decoder_model_merged ?? null,
+                // `acceleration` is the decision's own field; there is no `device` on it, and
+                // inventing one would put a guessed value into a session's identity.
+                device: this.runtimePath?.acceleration ?? null,
+            });
+            modelIdentity = identityOf(CANDIDATES[candidateId]);
+        } catch {
+            // An unrecognised combination is left ABSENT, never defaulted. A row with no identity is
+            // honestly unattributable; a row carrying a guessed identity is evidence for a claim that
+            // was never measured. Legacy fields below still describe the arm.
+        }
+
+        const model = isV4
+            ? (resolvedVariant ?? PRIV_STT_V4_DEFAULT_VARIANT)
+            : 'whisper-base.en';
         return {
             engineVersion: buildEngineVersion(variant, model),
             modelName: model,
             deviceType: 'browser',
+            ...(candidateId ? { candidateId } : {}),
+            ...(modelIdentity ? { modelIdentity } : {}),
         };
     }
 
