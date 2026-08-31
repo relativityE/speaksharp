@@ -628,11 +628,30 @@ for (const spec of ARM_MATRIX) {
                     }> };
                     ModelArch: Record<string, number>;
                 };
-                const transcriber = await Transcriber.load({
+                /**
+                 * INDEPENDENT CLIPS REQUIRE A FRESH TRANSCRIBER.
+                 *
+                 * Reusing one Transcriber across the corpus made every clip's transcript depend on what
+                 * preceded it: measured order-independence was 1/6, and the visible symptom was a
+                 * spurious leading token in 101 of 600 clips. A frozen-corpus arm scores clips as
+                 * INDEPENDENT utterances, so carrying state across them is not a nuisance — it makes the
+                 * WER of that arm mean nothing.
+                 *
+                 * Per-clip `createStream()` does NOT fix it (4/6 order-independent): the state lives in
+                 * the Transcriber, not the Stream. `resetMoonshineModule()` only clears the cached
+                 * module. A fresh instance per clip is the only method measured to isolate, and it costs
+                 * ~800ms warm — about 8 minutes across 600 clips, which is affordable.
+                 *
+                 * The instance is destroyed after every clip: loading repeatedly without destroying
+                 * exhausted the WASM heap with std::bad_alloc.
+                 */
+                const loadFresh = () => Transcriber.load({
                     language: 'en',
                     modelArch: ModelArch[input.moonshineArch],
                 });
                 w.__asr = async (audio: Float32Array) => {
+                    const transcriber = await loadFresh();
+                    try {
                     const result = await transcriber.transcribe(audio);
                     // The runtime returns `{ lines: [{ text, startTime, duration }] }`. Scoring the
                     // JSON instead of the text read as WER 2.0 for a nearly-correct transcript.
@@ -641,6 +660,11 @@ for (const spec of ARM_MATRIX) {
                         ? structured.lines.map((l) => l?.text ?? '').join(' ').trim()
                         : structured?.text ?? '';
                     return { text };
+                    } finally {
+                        // Always, including on a decode failure — a leaked instance both holds hundreds
+                        // of MB and leaves state that the next clip would inherit.
+                        await (transcriber as { destroy?: () => Promise<void> | void }).destroy?.();
+                    }
                 };
                 return { ok: true as const };
             }

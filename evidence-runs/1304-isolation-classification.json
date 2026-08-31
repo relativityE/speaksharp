@@ -1,0 +1,68 @@
+{
+  "probe": "#1304 moonshine isolation conditions C-G",
+  "verdict": "ONLY_FRESH_INSTANCE_ISOLATES",
+  "clipCount": 6,
+  "runtime": "@moonshine-ai/moonshine-wasm",
+  "arch": "MediumStreaming",
+  "conditions": {
+    "sharedOrderIndependent": false,
+    "repeatStable": true,
+    "repeatA": "Yeah Husband The next thing to a wife",
+    "repeatB": "Yeah Husband The next thing to a wife",
+    "streamApiAvailable": true,
+    "streamOrderIndependent": false,
+    "streamAgreesWithReversed": "4/6",
+    "streamMatchesFresh": "4/6",
+    "sharedMatchesFresh": "3/6"
+  },
+  "rows": [
+    {
+      "id": "121-121726-0011",
+      "shared": "Husband! The next thing to a wife",
+      "reversed": "Husband The next thing to a wife",
+      "streamed": "Husband The next thing to a wife",
+      "streamedReversed": "Husband The next thing to a wife",
+      "fresh": "Husband! The next thing to a wife"
+    },
+    {
+      "id": "121-121726-0013",
+      "shared": "Yeah Tied to a woman.",
+      "reversed": "Tied to a woman.",
+      "streamed": "Tied to a woman.",
+      "streamedReversed": "Tied to a woman.",
+      "fresh": "Tied to a woman."
+    },
+    {
+      "id": "121-127105-0015",
+      "shared": "He quitted the fire and dropped back into his chair.",
+      "reversed": "Yeah He quitted the fire and dropped back into his chair.",
+      "streamed": "He quitted the fire and dropped back into his chair.",
+      "streamedReversed": "He quitted the fire and dropped back into his chair.",
+      "fresh": "He quitted the fire and dropped back into his chair."
+    },
+    {
+      "id": "1221-135767-0022",
+      "shared": "But the proprietor appeared already to have relinquished as hopeless the effort to perpetuate on this side of the Atlantic in a hard soil, and amid the close struggle for. For subsistence, The native English taste for ornamental gardening.",
+      "reversed": "But the proprietor appeared already to have relinquished as hopeless the effort to perpetuate on this side of the Atlantic in a hard soil, and amid the close struggle for his. For subsistence, The native English taste for ornamental gardening.",
+      "streamed": "But the proprietor appeared already to have relinquished as hopeless the effort to perpetuate on this side of the Atlantic in a hard soil, and amid the close struggle for. For subsistence, The native English taste for ornamental gardening.",
+      "streamedReversed": "But the proprietor appeared already to have relinquished as hopeless the effort to perpetuate on this side of the Atlantic in a hard soil, and amid the close struggle for his. For subsistence, The native English taste for ornamental gardening.",
+      "fresh": "But the proprietor appeared already to have relinquished as hopeless the effort to perpetuate on this side of the Atlantic in a hard soil, and amid the close struggle for subjection. For subsistence, The native English taste for ornamental gardening."
+    },
+    {
+      "id": "1284-1180-0015",
+      "shared": "Yeah \"'We're traveling,' replied Ojo. \"'And we stopped at your house just to rest and refresh ourselves.'",
+      "reversed": "We're travelling, replied Ojo, and we stopped at your house just to rest and refresh ourselves.",
+      "streamed": "\"'We're traveling,' replied Ojo. \"'And we stopped at your house just to rest and refresh ourselves.'",
+      "streamedReversed": "We're travelling, replied Ojo, and we stopped at your house just to rest and refresh ourselves.",
+      "fresh": "\"'We're traveling,' replied Ojo. \"'And we stopped at your house just to rest and refresh ourselves.'"
+    },
+    {
+      "id": "1580-141084-0039",
+      "shared": "I entered, and I took you into my confidence as to the suggestions of the side table.",
+      "reversed": "I entered, and I took you into my confidence as to the suggestions of the side table.",
+      "streamed": "I entered, and I took you into my confidence as to the suggestions of the side table.",
+      "streamedReversed": "I entered, and I took you into my confidence as to the suggestions of the side table.",
+      "fresh": "I entered, and I took you into my confidence as to the suggestions of the side table."
+    }
+  ]
+}
