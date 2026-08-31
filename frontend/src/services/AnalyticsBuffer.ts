@@ -4,6 +4,7 @@ import * as Sentry from "@sentry/react";
 import logger from '../lib/logger';
 import { sanitizePrivateTelemetryProps } from './transcription/privateTelemetry';
 import { projectEventProps, isGovernedEvent, type GovernedEvent } from './telemetryAllowlist';
+import { buildEnvelope, stripEnvelopeKeys, type EnvelopeSources } from './telemetry/envelope';
 
 
 /**
@@ -32,6 +33,28 @@ interface AnalyticsEvent {
 
 class AnalyticsBuffer {
   private static instance: AnalyticsBuffer;
+
+  /**
+   * Where the envelope's ambient context comes from.
+   *
+   * Injected rather than imported so the engine that ACTUALLY ran can report itself, and so a test can
+   * drive the real seam without a browser. Defaults to "nothing resolved", which yields null
+   * attribution — honest, and never a fabricated model id.
+   */
+  private static envelopeSourcesProvider: () => EnvelopeSources = () => ({});
+
+  public static setEnvelopeSources(provider: () => EnvelopeSources): void {
+    AnalyticsBuffer.envelopeSourcesProvider = provider;
+  }
+
+  public static envelopeSources(): EnvelopeSources {
+    try {
+      return AnalyticsBuffer.envelopeSourcesProvider() ?? {};
+    } catch {
+      // Telemetry must never break a session. An unavailable source yields an honest empty envelope.
+      return {};
+    }
+  }
   /** @internal */
   public queue: AnalyticsEvent[] = [];
   /** @internal */
@@ -207,8 +230,17 @@ class AnalyticsBuffer {
           );
         }
       }
+      // #1259 T2 — THE ENVELOPE IS APPLIED HERE, at the same single boundary, and LAST.
+      //
+      // Producer props are stripped of envelope keys first, so a caller can never label its own
+      // traffic `user` or claim a model it did not run. The seam's values are ambient context the
+      // producer never had: which release, which model ACTUALLY resolved, which kind of traffic.
+      // Without them a launch is unmeasurable in the two ways that already cost a release — testers
+      // indistinguishable from smoke traffic, and sessions unattributable to a model.
+      const envelope = buildEnvelope(AnalyticsBuffer.envelopeSources());
       posthog.capture(event.event, {
-        ...sanitized,
+        ...stripEnvelopeKeys(sanitized),
+        ...envelope,
         $priority: event.priority,
         $ts: event.timestamp
       });
@@ -285,7 +317,14 @@ class AnalyticsBuffer {
       // (deployed proof saw /flags requests but ZERO /e/ requests; 0 server-side events under the
       // user.id). NOTE: posthog-js 1.298.1 has NO public flush() — the prior flush() attempt was a
       // silent no-op — so the per-event send_instantly option is the correct, documented mechanism.
-      posthog.capture('account_identified', { source: 'auth_provider' }, { send_instantly: true });
+      // THE ENVELOPE APPLIES HERE TOO. This is the one capture that deliberately bypasses the buffer,
+      // so it would otherwise be the one event with no traffic_type — and a canary LOGIN looking like
+      // a user login is precisely the signal the anti-silence gate exists to provide. candidate_id is
+      // legitimately null at login: no engine has resolved yet, and null is the honest answer.
+      posthog.capture('account_identified', {
+        source: 'auth_provider',
+        ...buildEnvelope(AnalyticsBuffer.envelopeSources()),
+      }, { send_instantly: true });
       this.identityProbe.lastAccountIdentifiedError = null;
     } catch (err) {
       // Record only the error NAME (never the message) to keep the probe strictly PII-free.

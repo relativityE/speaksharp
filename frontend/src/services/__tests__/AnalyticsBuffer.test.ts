@@ -169,8 +169,16 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     const serialized = JSON.stringify(payload);
     expect(serialized).not.toContain('transcript');
     expect(serialized).not.toContain('sensitive');
-    // Only the buffer's own envelope remains.
-    expect(Object.keys(payload).every(k => k.startsWith('$'))).toBe(true);
+    // Only the buffer's own metadata and the GOVERNED EVENT ENVELOPE remain. The envelope is ambient
+    // context added at the seam ($-prefixed keys are PostHog's own); it carries no producer data, which
+    // is why an ungoverned event still ships it while shipping none of the producer's properties.
+    const allowedNonProducer = new Set([
+      'release_sha', 'traffic_type', 'candidate_id', 'engine', 'runtime_version', 'asset_digest',
+    ]);
+    expect(Object.keys(payload).every(k => k.startsWith('$') || allowedNonProducer.has(k))).toBe(true);
+    // and the envelope itself must never carry producer content.
+    expect(payload).toHaveProperty('traffic_type');
+    expect(JSON.stringify(payload)).not.toContain('sensitive');
   });
 
   // #1259 P2 — a SECOND redaction boundary for Private events: even if a `private_*` event's props bypass
@@ -214,9 +222,11 @@ describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
     analyticsBuffer.identify('user-123');
     // send_instantly skips the batch queue so the /e/ request fires immediately and PostHog
     // materializes a queryable person at user.id (identified_only mode) even on a short session.
+    // The envelope rides along here too: this capture deliberately bypasses the buffer, and without it
+    // a CANARY login would be indistinguishable from a user login.
     expect(posthog.capture).toHaveBeenCalledWith(
       'account_identified',
-      { source: 'auth_provider' },
+      expect.objectContaining({ source: 'auth_provider', traffic_type: expect.any(String) }),
       { send_instantly: true },
     );
     // STRICT no-PII: the materialization event must never carry email/name/transcript/audio/etc.
@@ -240,9 +250,11 @@ describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
 
     // #1259 T1: identify() no longer accepts a properties argument at all.
     expect(posthog.identify).toHaveBeenCalledWith('user-123');
+    // The envelope rides along here too: this capture deliberately bypasses the buffer, and without it
+    // a CANARY login would be indistinguishable from a user login.
     expect(posthog.capture).toHaveBeenCalledWith(
       'account_identified',
-      { source: 'auth_provider' },
+      expect.objectContaining({ source: 'auth_provider', traffic_type: expect.any(String) }),
       { send_instantly: true },
     );
     expect(posthog.reloadFeatureFlags).toHaveBeenCalled(); // still runs despite capture failure
