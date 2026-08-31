@@ -200,7 +200,17 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         let candidateId: CandidateId | undefined;
         let modelIdentity: SessionModelIdentity | undefined;
         try {
-            candidateId = candidateForRuntime(this._engineType, resolvedVariant);
+            // DECODER PRECISION, carried explicitly. base_q4 and base_int8 share a repo and an
+            // encoder and differ only here, so a mapping keyed on the variant name alone cannot tell
+            // them apart — and an int8 session recorded as q4 is the same defect in a new place.
+            const variantCfg = resolvedVariant ? PRIV_STT_V4_VARIANTS[resolvedVariant] : null;
+            candidateId = candidateForRuntime({
+                engineType: this._engineType,
+                variant: resolvedVariant,
+                decoderDtype: (variantCfg?.DTYPE as { decoder_model_merged?: string } | undefined)
+                    ?.decoder_model_merged ?? null,
+                device: this.runtimePath?.device ?? null,
+            });
             modelIdentity = identityOf(CANDIDATES[candidateId]);
         } catch {
             // An unrecognised combination is left ABSENT, never defaulted. A row with no identity is

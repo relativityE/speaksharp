@@ -59,6 +59,10 @@ export interface ConfiguredAssets {
     /** Where those pins live, so a reviewer can recompute the digest rather than trust it. */
     pinSource: string | null;
     componentCount: number | null;
+    /** Total bytes of the set the digest covers, where the set is a complete on-disk inventory. */
+    totalBytes?: number | null;
+    /** Where the bytes come from: an upstream pin table, or files this product ships. */
+    provenance?: 'upstream_pins' | 'self_hosted';
     /** Why there is no digest, when there is none. Never left unexplained. */
     pinNote?: string | null;
 }
@@ -106,16 +110,19 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
             sampleRateHz: 16_000,
         },
         assets: {
-            // THE SHIPPING DEFAULT HAS NO PINNED ASSETS. The committed table covers the
-            // `onnx-community/*` family and `Xenova/whisper-small.en`; there is no
-            // `Xenova/whisper-base.en` entry, and v2 loads the Xenova family because those repos are
-            // built for transformers.js v2. Recorded explicitly rather than left silently null — and it
-            // is why a pin digest is NOT part of identity completeness: requiring one would fail the
-            // current shipping default at boot. Pinning v2's assets is separate work.
-            pinDigest: null,
-            pinSource: null,
-            componentCount: null,
-            pinNote: 'no committed pins for Xenova/whisper-base.en; v2 asset identity is unpinned',
+            // THE SHIPPING DEFAULT IS SELF-HOSTED, so its identity comes from the bytes we actually
+            // ship, not from an upstream pin table. An earlier version of this entry recorded "no pins
+            // exist" and treated v2 as permanently unattributable; that was looking in the wrong place.
+            // `frontend/public/models/whisper-base.en/` IS the model, and hashing it is exact.
+            //
+            // Digest = sha256 over sorted `relpath:sha256` lines across the complete file set, the same
+            // construction used for the pinned candidates, so the values are comparable.
+            pinDigest: 'c7eaa6a9f8ccacbdafce2092d8e03752e2540acf0d4d87b01aebb05f6ba1d110',
+            pinSource: 'frontend/public/models/whisper-base.en',
+            componentCount: 12,
+            totalBytes: 80_553_222,
+            provenance: 'self_hosted',
+            pinNote: null,
         },
         browser: { ok: true },
     },
@@ -132,6 +139,7 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
         },
         assets: {
             pinDigest: '19e79a9e383779a6763c9e766ccd4e3067d5481d6468164c4b86147ddb356644',
+            provenance: 'upstream_pins',
             pinSource: 'tests/fixtures/hf-asset-pins.json',
             componentCount: 7,
             pinNote: null,
@@ -151,6 +159,7 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
         },
         assets: {
             pinDigest: '14e12c137a55be0d2e49de2d7f1330518e88de652eded865b762143f2d96251c',
+            provenance: 'upstream_pins',
             pinSource: 'tests/fixtures/hf-asset-pins.json',
             componentCount: 7,
             pinNote: null,
@@ -182,6 +191,7 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
         },
         assets: {
             pinDigest: 'b5e113f824bd8db270210d4c90ac779d2914c705bc692a9376b7cb89dbde042e',
+            provenance: 'upstream_pins',
             pinSource: 'tests/fixtures/hf-asset-pins.json',
             componentCount: 7,
             pinNote: null,
@@ -201,6 +211,7 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
         },
         assets: {
             pinDigest: '898305d7768356a7f56002a4b2c4e55dd0534a6fd1ae11b0aadc0d11d2a27891',
+            provenance: 'upstream_pins',
             pinSource: 'tests/fixtures/moonshine-asset-pins.json',
             componentCount: 7,
             pinNote: null,
@@ -234,16 +245,44 @@ export class UnusableCandidateError extends Error {}
  * not consulted. This maps what ACTUALLY resolved, and refuses combinations it does not recognise
  * rather than falling back to a default, because a wrong identity is worse than a missing one.
  */
-export function candidateForRuntime(
-    engineType: string | null | undefined,
-    v4Variant: string | null | undefined,
-): CandidateId {
+export interface ResolvedRuntimeState {
+    engineType: string | null | undefined;
+    /** The v4 variant the resolver chose, e.g. `base_q4` / `distil_q4`. */
+    variant?: string | null;
+    /** Decoder precision actually configured for this run — `q4`, `int8`, `fp32`. */
+    decoderDtype?: string | null;
+    device?: string | null;
+}
+
+/**
+ * Map RESOLVED runtime state onto a candidate id.
+ *
+ * DECODER PRECISION IS PART OF THE IDENTITY. An earlier version keyed only on `variant`, so
+ * `base_q4` and `base_int8` — the same repo and the same encoder, differing only in decoder precision —
+ * collapsed onto `v4:base:q4` or fell through unrecognised. That is exactly the mis-attribution this
+ * registry exists to prevent, and it would have made an int8 human test untrustworthy in the same way
+ * the original `PRIV_STT_V4_DEFAULT_VARIANT` bug did.
+ *
+ * Unrecognised combinations are REFUSED rather than defaulted.
+ */
+export function candidateForRuntime(state: ResolvedRuntimeState): CandidateId {
+    const { engineType, variant, decoderDtype } = state;
     if (engineType === 'transformers-js') return 'v2:base.en';
     if (engineType === 'transformers-js-v4') {
-        if (v4Variant === 'base_q4') return 'v4:base:q4';
-        if (v4Variant === 'distil_q4') return 'v4:distil:q4';
+        const base = variant === 'base_q4' || variant === 'base_int8' || variant?.startsWith('base');
+        if (variant === 'distil_q4') return 'v4:distil:q4';
+        if (base) {
+            // Prefer the explicitly resolved dtype; fall back to the dtype implied by the variant name.
+            const dtype = decoderDtype ?? (variant === 'base_int8' ? 'int8' : variant === 'base_q4' ? 'q4' : null);
+            if (dtype === 'q4') return 'v4:base:q4';
+            if (dtype === 'int8') return 'v4:base:int8';
+            throw new UnknownCandidateError(
+                `v4 base resolved decoder precision ${JSON.stringify(dtype)}; `
+                + 'refusing to attribute the session to a default precision',
+            );
+        }
         throw new UnknownCandidateError(
-            `v4 engine resolved an unrecognised variant ${JSON.stringify(v4Variant)}; `
+            `v4 engine resolved an unrecognised variant ${JSON.stringify(variant)}; `
             + 'refusing to attribute the session to a default',
         );
     }
@@ -307,6 +346,27 @@ export function identityOf(candidate: Candidate): SessionModelIdentity {
         configuredModel: { ...candidate.model },
         configuredAssets: { ...candidate.assets },
     };
+}
+
+/**
+ * TWO SEPARATE STATES, deliberately.
+ *
+ * `identityComplete` — the session can say WHICH model was configured to run.
+ * `assetsVerified`   — the exact loaded BYTES are digested and reconcilable.
+ *
+ * Collapsing them is what made v2 look unattributable: it has complete identity and, now that its
+ * self-hosted files are digested, verified assets too. Qualification-grade human testing requires BOTH;
+ * ordinary operation requires only the first, so a candidate without an asset digest can still run
+ * while being excluded from qualification evidence.
+ */
+export function assetsVerified(identity: SessionModelIdentity | null | undefined): boolean {
+    const a = identity?.configuredAssets;
+    return Boolean(a?.pinDigest && a?.pinSource && a?.componentCount);
+}
+
+/** True only when identity is complete AND the loaded bytes are digested. */
+export function isQualificationGrade(identity: SessionModelIdentity | null | undefined): boolean {
+    return isCompleteIdentity(identity) && assetsVerified(identity);
 }
 
 /** Complete = every field a session needs to be attributable. Incomplete identity must fail init. */

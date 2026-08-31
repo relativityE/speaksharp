@@ -5,8 +5,8 @@
  * quietly re-identifying a model in a human A/B.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
@@ -85,13 +85,35 @@ describe('configured asset identity is recomputed, never trusted', () => {
             .not.toBe(CANDIDATES['v4:base:int8'].assets.pinDigest);
     });
 
-    it('a candidate with NO digest says why, and the shipping default is the one that lacks pins', () => {
-        // Recorded, not hidden: requiring a pin digest for identity completeness would fail v2 at boot.
-        expect(CANDIDATES['v2:base.en'].assets.pinDigest).toBeNull();
-        expect(CANDIDATES['v2:base.en'].assets.pinNote).toMatch(/no committed pins/);
+    it('CASUALTY: v2 is digested from the SELF-HOSTED files this product ships', () => {
+        // v2 is not unattributable and never was — its bytes are in the repo. The digest is recomputed
+        // here from frontend/public/models/whisper-base.en over the complete file set, so replacing or
+        // re-quantising a shipped model file fails CI instead of silently changing what "v2" means.
+        const c = CANDIDATES['v2:base.en'];
+        expect(c.assets.provenance).toBe('self_hosted');
+        expect(c.assets.pinSource).toBe('frontend/public/models/whisper-base.en');
+
+        const root = join(REPO_ROOT, c.assets.pinSource!);
+        const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true })
+            .flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)]));
+        const files = walk(root).sort();
+        let bytes = 0;
+        const h = createHash('sha256');
+        for (const f of files) {
+            const buf = readFileSync(f);
+            bytes += buf.length;
+            h.update(`${relative(root, f)}:${createHash('sha256').update(buf).digest('hex')}\n`);
+        }
+        expect(files.length).toBe(c.assets.componentCount);
+        expect(bytes).toBe(c.assets.totalBytes);
+        expect(h.digest('hex')).toBe(c.assets.pinDigest);
+    });
+
+    it('every candidate has a digest AND a stated provenance', () => {
         for (const id of CANDIDATE_IDS) {
             const a = CANDIDATES[id].assets;
-            expect(Boolean(a.pinDigest) || Boolean(a.pinNote), `${id} has neither a digest nor a reason`).toBe(true);
+            expect(a.pinDigest, `${id} has no asset digest`).toBeTruthy();
+            expect(a.provenance, `${id} has no stated provenance`).toBeTruthy();
         }
     });
 
@@ -257,28 +279,31 @@ describe('RESOLVED runtime state maps to a candidate — the original defect', (
     it('CASUALTY: a v4 session running base_q4 is NOT attributed from a default constant', () => {
         // The defect: getMetadata() read PRIV_STT_V4_DEFAULT_VARIANT, so whatever ran was recorded as
         // base_q4. Mapping must come from the RESOLVED variant, which was available all along.
-        expect(candidateForRuntime('transformers-js-v4', 'base_q4')).toBe('v4:base:q4');
-        expect(candidateForRuntime('transformers-js-v4', 'distil_q4')).toBe('v4:distil:q4');
-        expect(candidateForRuntime('transformers-js', null)).toBe('v2:base.en');
+        expect(candidateForRuntime({ engineType: 'transformers-js-v4', variant: 'base_q4', decoderDtype: 'q4' })).toBe('v4:base:q4');
+        expect(candidateForRuntime({ engineType: 'transformers-js-v4', variant: 'base_int8', decoderDtype: 'int8' })).toBe('v4:base:int8');
+        expect(candidateForRuntime({ engineType: 'transformers-js-v4', variant: 'distil_q4' })).toBe('v4:distil:q4');
+        expect(candidateForRuntime({ engineType: 'transformers-js', variant: null })).toBe('v2:base.en');
     });
 
     it('CASUALTY: distil_q4 must NOT be attributed as base_q4', () => {
         // Exactly the mis-attribution that made a human A/B unusable, stated as its own casualty.
-        expect(candidateForRuntime('transformers-js-v4', 'distil_q4')).not.toBe('v4:base:q4');
+        expect(candidateForRuntime({ engineType: 'transformers-js-v4', variant: 'distil_q4' })).not.toBe('v4:base:q4');
     });
 
     it('CASUALTY: an unrecognised variant is REFUSED, never defaulted', () => {
-        expect(() => candidateForRuntime('transformers-js-v4', null)).toThrow(UnknownCandidateError);
-        expect(() => candidateForRuntime('transformers-js-v4', 'base_int8')).toThrow(/refusing to attribute/);
-        expect(() => candidateForRuntime('mock', null)).toThrow(UnknownCandidateError);
-        expect(() => candidateForRuntime(null, null)).toThrow(UnknownCandidateError);
+        expect(() => candidateForRuntime({ engineType: 'transformers-js-v4', variant: null })).toThrow(UnknownCandidateError);
+        expect(() => candidateForRuntime({ engineType: 'mock', variant: null })).toThrow(UnknownCandidateError);
+        expect(() => candidateForRuntime({ engineType: null, variant: null })).toThrow(UnknownCandidateError);
     });
 
     it('every id it can return is a REGISTERED candidate', () => {
-        for (const [engine, variant] of [
-            ['transformers-js', null], ['transformers-js-v4', 'base_q4'], ['transformers-js-v4', 'distil_q4'],
-        ] as const) {
-            expect(CANDIDATE_IDS).toContain(candidateForRuntime(engine, variant));
+        for (const st of [
+            { engineType: 'transformers-js', variant: null },
+            { engineType: 'transformers-js-v4', variant: 'base_q4', decoderDtype: 'q4' },
+            { engineType: 'transformers-js-v4', variant: 'base_int8', decoderDtype: 'int8' },
+            { engineType: 'transformers-js-v4', variant: 'distil_q4' },
+        ]) {
+            expect(CANDIDATE_IDS).toContain(candidateForRuntime(st));
         }
     });
 });

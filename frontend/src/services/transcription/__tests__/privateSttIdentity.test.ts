@@ -39,25 +39,26 @@ const SERVICE = 'frontend/src/services/transcription/TranscriptionService.ts';
 
 describe('a completed session is attributable to the EXACT candidate', () => {
     it('CASUALTY: a v4 session that resolved distil_q4 is NOT attributed to base_q4', () => {
-        const id = candidateForRuntime('transformers-js-v4', 'distil_q4');
+        const id = candidateForRuntime({ engineType: 'transformers-js-v4', variant: 'distil_q4' });
         expect(id).toBe('v4:distil:q4');
         expect(id).not.toBe('v4:base:q4');
         expect(identityOf(CANDIDATES[id]).configuredModel.id).toBe('onnx-community/distil-small.en');
     });
 
     it('POSITIVE CONTROL: base_q4 and the v2 default attribute completely', () => {
-        for (const [engine, variant, expected] of [
-            ['transformers-js-v4', 'base_q4', 'v4:base:q4'],
-            ['transformers-js', null, 'v2:base.en'],
+        for (const [engine, variant, dtype, expected] of [
+            ['transformers-js-v4', 'base_q4', 'q4', 'v4:base:q4'],
+            ['transformers-js-v4', 'base_int8', 'int8', 'v4:base:int8'],
+            ['transformers-js', null, null, 'v2:base.en'],
         ] as const) {
-            const id = candidateForRuntime(engine, variant);
+            const id = candidateForRuntime({ engineType: engine, variant, decoderDtype: dtype });
             expect(id).toBe(expected);
             expect(isCompleteIdentity(identityOf(CANDIDATES[id]))).toBe(true);
         }
     });
 
     it('CASUALTY: unrecognised runtime state is REFUSED, so no identity can be guessed', () => {
-        expect(() => candidateForRuntime('transformers-js-v4', null)).toThrow(UnknownCandidateError);
+        expect(() => candidateForRuntime({ engineType: 'transformers-js-v4', variant: null })).toThrow(UnknownCandidateError);
     });
 });
 
@@ -103,5 +104,40 @@ describe('the identity survives the delegation chain', () => {
     it('both hops DERIVE the return type from the engine contract', () => {
         expect(src(WHISPER)).toMatch(/ReturnType<IPrivateSTT\['getMetadata'\]>/);
         expect(src(SERVICE)).toMatch(/ReturnType<IPrivateSTT\['getMetadata'\]>/);
+    });
+});
+
+describe('decoder precision is part of the identity', () => {
+    it('CASUALTY: base_int8 is attributed to v4:base:int8, NEVER to v4:base:q4', () => {
+        // The two share a repo and an encoder and differ only in decoder precision. A mapping keyed on
+        // the variant name alone collapsed them, which would make an int8 human test untrustworthy in
+        // exactly the way the original PRIV_STT_V4_DEFAULT_VARIANT bug did.
+        const id = candidateForRuntime({
+            engineType: 'transformers-js-v4', variant: 'base_int8', decoderDtype: 'int8',
+        });
+        expect(id).toBe('v4:base:int8');
+        expect(id).not.toBe('v4:base:q4');
+    });
+
+    it('CASUALTY: the resolved dtype WINS over a variant name that disagrees', () => {
+        // If the resolver reports base_q4 while the run is configured int8, the bytes decide.
+        expect(candidateForRuntime({
+            engineType: 'transformers-js-v4', variant: 'base_q4', decoderDtype: 'int8',
+        })).toBe('v4:base:int8');
+    });
+
+    it('CASUALTY: an unknown decoder precision is REFUSED, not defaulted to q4', () => {
+        expect(() => candidateForRuntime({
+            engineType: 'transformers-js-v4', variant: 'base_fp32', decoderDtype: 'fp32',
+        })).toThrow(/refusing to attribute the session to a default precision/);
+        expect(() => candidateForRuntime({
+            engineType: 'transformers-js-v4', variant: 'base_q4', decoderDtype: null,
+        })).not.toThrow();   // variant name still implies q4 when no dtype was resolved
+    });
+
+    it('PrivateSTT passes the resolved decoder dtype, not just the variant name', () => {
+        const body = getMetadataBodyOf(src(PRIVATE_STT));
+        expect(body).toMatch(/decoderDtype:/);
+        expect(body).toMatch(/decoder_model_merged/);
     });
 });
