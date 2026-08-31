@@ -200,9 +200,12 @@ describe('the active candidate is a checked-in build-time decision', () => {
         // cannot express the third makes the comparison impossible, so this asserts the whole slate.
         expect(activeCandidate({ candidate: 'v2:base.en' }).id).toBe('v2:base.en');
         expect(activeCandidate({ candidate: 'v4:base:int8' }).id).toBe('v4:base:int8');
-        expect(activeCandidate({
-            candidate: 'moonshine:streaming-medium', acknowledgeNotProductionReady: true,
-        }).id).toBe('moonshine:streaming-medium');
+        // Moonshine additionally needs an INTERNAL build: it is selectable for comparison, not
+        // shippable, and the two permissions are deliberately separate.
+        expect(activeCandidate(
+            { candidate: 'moonshine:streaming-medium', acknowledgeNotProductionReady: true },
+            { VITE_INTERNAL_BUILD: 'true' },
+        ).id).toBe('moonshine:streaming-medium');
     });
 
     it('CASUALTY: an unapproved candidate needs an EXPLICIT acknowledgement, never a silent pass', () => {
@@ -472,33 +475,66 @@ describe('DROP-IN property — every candidate resolves wholly from its registry
     });
 });
 
-describe('the internal escape hatch is not a production backdoor', () => {
-    it('CASUALTY: a PRODUCTION build refuses the acknowledgement outright', () => {
-        // If the config shipped with the acknowledgement set, every user would receive an unvalidated
-        // model — the guard would have become a silent bypass, which is worse than no guard.
+describe('the escape hatch requires an INTERNAL build, and fails closed without one', () => {
+    const INTERNAL = { VITE_INTERNAL_BUILD: 'true' };
+    const NOT_INTERNAL = {};
+
+    it('CASUALTY: the acknowledgement is refused without an internal build', () => {
+        // If a shipped config carried the acknowledgement, every user would receive an unvalidated
+        // model — the guard would have become a silent bypass, worse than no guard.
         expect(() => activeCandidate(
             { candidate: 'moonshine:streaming-medium', acknowledgeNotProductionReady: true },
-            { PROD: true },
-        )).toThrow(/PRODUCTION build refuses acknowledgeNotProductionReady/);
+            NOT_INTERNAL,
+        )).toThrow(/requires an INTERNAL build/);
     });
 
-    it('CASUALTY: production refuses it even for a candidate that IS approved', () => {
-        // The acknowledgement must never appear in a shipped config at all, approved candidate or not,
-        // or it survives as a latent bypass waiting for the candidate list to change.
+    it('CASUALTY: refused even for an APPROVED candidate, so it cannot lie dormant', () => {
+        // Otherwise the acknowledgement survives in a shipped config as a latent bypass, waiting for
+        // the candidate list to change underneath it.
         expect(() => activeCandidate(
             { candidate: 'v2:base.en', acknowledgeNotProductionReady: true },
-            { PROD: true },
-        )).toThrow(/PRODUCTION build refuses/);
+            NOT_INTERNAL,
+        )).toThrow(/requires an INTERNAL build/);
     });
 
-    it('POSITIVE CONTROL: production runs an approved candidate normally', () => {
-        expect(activeCandidate({ candidate: 'v2:base.en' }, { PROD: true }).id).toBe('v2:base.en');
+    it('CASUALTY: it FAILS CLOSED — a forgotten flag refuses, it does not admit', () => {
+        // The dangerous direction must be unreachable by omission. Running an unapproved candidate
+        // requires SETTING a variable; forgetting one can only make the build safer.
+        for (const env of [{}, { VITE_INTERNAL_BUILD: '' }, { VITE_INTERNAL_BUILD: 'false' },
+            { VITE_INTERNAL_BUILD: '1' }, { VITE_INTERNAL_BUILD: true as unknown as string }]) {
+            expect(() => activeCandidate(
+                { candidate: 'moonshine:streaming-medium', acknowledgeNotProductionReady: true },
+                env,
+            )).toThrow(/requires an INTERNAL build/);
+        }
     });
 
-    it('POSITIVE CONTROL: a non-production build may use the acknowledgement', () => {
+    it('POSITIVE CONTROL: an internal build runs the unapproved candidate — the ear test works', () => {
+        // This is the whole point: comparing candidates on a real DEPLOYED build, without editing the
+        // pinned production build command to do it.
         expect(activeCandidate(
             { candidate: 'moonshine:streaming-medium', acknowledgeNotProductionReady: true },
-            { PROD: false },
+            INTERNAL,
         ).id).toBe('moonshine:streaming-medium');
+    });
+
+    it('the guard does NOT depend on build mode — a production-mode internal build still works', () => {
+        // Keying on import.meta.env.PROD made the only route to a deployed ear test an edit to
+        // vercel.json's pinned build command, weakening production to enable a test.
+        expect(activeCandidate(
+            { candidate: 'moonshine:streaming-medium', acknowledgeNotProductionReady: true },
+            { ...INTERNAL, PROD: true },
+        ).id).toBe('moonshine:streaming-medium');
+    });
+
+    it('an internal build WITHOUT the acknowledgement still refuses an unapproved candidate', () => {
+        // Being internal is permission to opt in, not the opt-in itself.
+        expect(() => activeCandidate(
+            { candidate: 'moonshine:streaming-medium' }, INTERNAL,
+        )).toThrow(/not approved as a production default/);
+    });
+
+    it('POSITIVE CONTROL: an ordinary production build runs the approved default', () => {
+        expect(activeCandidate({ candidate: 'v2:base.en' }, { PROD: true }).id).toBe('v2:base.en');
     });
 });

@@ -376,7 +376,7 @@ export interface PrivateSttConfig {
  */
 export function activeCandidate(
     config: PrivateSttConfig = privateSttConfig,
-    env: { PROD?: boolean } = import.meta.env as unknown as { PROD?: boolean },
+    env: Record<string, unknown> = import.meta.env as unknown as Record<string, unknown>,
 ): Candidate {
     const id = config?.candidate;
     if (typeof id !== 'string' || id === '') {
@@ -387,20 +387,28 @@ export function activeCandidate(
     const candidate = resolveCandidate(id);
 
     /**
-     * THE ESCAPE HATCH IS NOT A PRODUCTION BACKDOOR.
+     * THE ESCAPE HATCH IS NOT A PRODUCTION BACKDOOR — AND IT DOES NOT DEPEND ON BUILD MODE.
      *
-     * `acknowledgeNotProductionReady` lets an INTERNAL build run an unapproved candidate so it can be
-     * compared on the real path. If that same config file shipped to users with the acknowledgement
-     * set, every user would receive an unvalidated model — the acknowledgement would have converted a
-     * fail-closed guard into a silent bypass, which is worse than not having the guard.
+     * An earlier version keyed this on `import.meta.env.PROD`. That was wrong twice over: it made the
+     * only way to ear-test an unapproved candidate on a REAL deployment an edit to the pinned build
+     * command in vercel.json — weakening the production build to enable a test — and it tied a safety
+     * property to a value that changes for unrelated reasons.
      *
-     * A production build therefore REFUSES the acknowledgement outright, whatever the config says.
+     * The acknowledgement is honoured ONLY when the build is explicitly marked internal. That is the
+     * same `VITE_INTERNAL_BUILD` signal telemetry uses to classify traffic, so the two cannot disagree:
+     * a build permitted to run an unapproved candidate is, by construction, a build whose sessions are
+     * reported as internal traffic.
+     *
+     * FAILS CLOSED. Production simply does not set the variable, so a forgotten flag REFUSES an
+     * unapproved candidate rather than admitting one. The dangerous direction is unreachable by
+     * omission — it requires setting a variable, not forgetting one.
      */
-    if (env?.PROD === true && config.acknowledgeNotProductionReady === true) {
+    const internalBuild = env?.VITE_INTERNAL_BUILD === 'true';
+    if (config.acknowledgeNotProductionReady === true && !internalBuild) {
         throw new InactiveCandidateError(
-            `a PRODUCTION build refuses acknowledgeNotProductionReady (candidate "${id}"). `
-            + 'That acknowledgement exists for internal comparison builds only; shipping it would give '
-            + 'users a model that was never approved.',
+            `acknowledgeNotProductionReady requires an INTERNAL build (candidate "${id}"). `
+            + 'Set VITE_INTERNAL_BUILD=true for the comparison build; a build without it may not run a '
+            + 'candidate that was never approved.',
         );
     }
 
