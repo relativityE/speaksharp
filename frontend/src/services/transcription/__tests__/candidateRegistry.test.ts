@@ -213,10 +213,12 @@ describe('the active candidate is a checked-in build-time decision', () => {
     });
 
     it('every candidate that is NOT activation-ready states why', () => {
-        for (const id of CANDIDATE_IDS) {
-            const c = CANDIDATES[id];
-            if (!c.activationReady) expect(c.notReadyReason, `${id}`).toBeTruthy();
-        }
+        // Collected then asserted once. A conditional expect asserts NOTHING on the day every
+        // candidate happens to be ready, which is exactly when the rule stops being enforced.
+        const unexplained = CANDIDATE_IDS.filter((id) => !CANDIDATES[id].activationReady && !CANDIDATES[id].notReadyReason);
+        expect(unexplained).toEqual([]);
+        // and one IS ineligible today, so the assertion above is not vacuous.
+        expect(CANDIDATE_IDS.filter((id) => !CANDIDATES[id].activationReady)).toEqual(['moonshine:streaming-medium']);
     });
 
     it('the active candidate is always resolvable — a build cannot ship an unusable default', () => {
