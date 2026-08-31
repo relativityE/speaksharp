@@ -114,7 +114,6 @@ export class MoonshineStreamingEngine implements STTStrategy {
     private transcriber: MoonshineTranscriber | null = null;
     private mic: MicStream | null = null;
     private detachFrames: (() => void) | null = null;
-    private buffer: Float32Array[] = [];
     private committed = '';
     private interim = '';
     private lastHeartbeat = 0;
@@ -227,7 +226,7 @@ export class MoonshineStreamingEngine implements STTStrategy {
             this.recordFailure('start', err.message);
             throw err;
         }
-        this.buffer = []; this.committed = ''; this.interim = ''; this.finalized = false;
+        this.committed = ''; this.interim = ''; this.finalized = false;
         if (!mic) return;
         try {
             this.assertSampleRate(mic.sampleRate || TARGET_SAMPLE_RATE);
@@ -253,7 +252,6 @@ export class MoonshineStreamingEngine implements STTStrategy {
         this.mic = mic;
         this.detachFrames = mic.onFrame((frame) => {
             // Hand audio over as it arrives; the stream buffers and decides when a pass is worth making.
-            this.buffer.push(frame);
             this.stream?.addAudio(frame, mic.sampleRate || TARGET_SAMPLE_RATE);
             this.scheduleLiveWindow(mic.sampleRate || TARGET_SAMPLE_RATE);
         });
@@ -325,7 +323,6 @@ export class MoonshineStreamingEngine implements STTStrategy {
         if (this.mic && !this.detachFrames) {
             const mic = this.mic;
             this.detachFrames = mic.onFrame((frame) => {
-                this.buffer.push(frame);
                 this.stream?.addAudio(frame, mic.sampleRate || TARGET_SAMPLE_RATE);
                 this.scheduleLiveWindow(mic.sampleRate || TARGET_SAMPLE_RATE);
             });
@@ -336,7 +333,7 @@ export class MoonshineStreamingEngine implements STTStrategy {
     async terminate(): Promise<void> {
         this.detachFrames?.(); this.detachFrames = null;
         try { this.stream?.close(); } catch { /* already closed */ } finally { this.stream = null; }
-        this.mic = null; this.buffer = [];
+        this.mic = null;
         try { await this.transcriber?.destroy?.(); } finally { this.transcriber = null; }
     }
 
@@ -379,18 +376,7 @@ function textOf(result: { lines?: { text?: string }[]; text?: string }): string 
     return (result?.text ?? '').trim();
 }
 
-function concat(frames: readonly Float32Array[]): Float32Array {
-    const total = frames.reduce((n, f) => n + f.length, 0);
-    const out = new Float32Array(total);
-    let at = 0;
-    for (const f of frames) { out.set(f, at); at += f.length; }
-    return out;
-}
 
-function takeTail(frames: readonly Float32Array[], samples: number): Float32Array {
-    const all = concat(frames);
-    return all.length <= samples ? all : all.subarray(all.length - samples);
-}
 
 /**
  * The published ESM calls `__name(...)` without defining it — a PACKAGING gap in the dependency that the
