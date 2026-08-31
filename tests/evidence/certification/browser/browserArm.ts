@@ -76,11 +76,47 @@ export interface BrowserArmOptions {
     corpus: ArmProvenance['corpus'];
 }
 
+/**
+ * A single decode may not wait forever.
+ *
+ * r3 deadlocked at the start of the moonshine arm and sat at 0.0% CPU across every process for 77
+ * minutes before anyone noticed — an entire arm's worth of host time spent on nothing. The reliability
+ * schema already HAD a `timedOut` counter, read in two places, that nothing ever set: the counter
+ * existed while the mechanism did not.
+ *
+ * A hang is now a MEASUREMENT. The decode is raced against a deadline, and exceeding it throws a
+ * classified error that the arm records like any other decode failure, so the run continues and the
+ * arm reports what happened instead of stalling the host.
+ *
+ * The budget is deliberately generous — a slow model on a loaded host must not be mislabelled as
+ * hung. Real decodes on the heaviest arm measured RTF ~0.5 with p95 warm loads near 2s.
+ */
+export const DECODE_TIMEOUT_MS = 180_000;
+
+export class DecodeTimeoutError extends Error {}
+
+const withDeadline = async <T>(work: Promise<T>, ms: number, what: string): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            work,
+            new Promise<never>((_, reject) => {
+                timer = setTimeout(
+                    () => reject(new DecodeTimeoutError(`decode_timeout: ${what} exceeded ${ms}ms`)),
+                    ms,
+                );
+            }),
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+};
+
 export function createBrowserArm(options: BrowserArmOptions): DecodeArm {
     let wallClockMs = 0;
 
     const transcribe = async (locator: string, audioSeconds: number) => {
-        const result = await options.page.evaluate(
+        const result = await withDeadline(options.page.evaluate(
             async (input) => {
                 const w = window as unknown as {
                     __asr: (audio: Float32Array, opts: Record<string, unknown>) => Promise<unknown>;
@@ -101,7 +137,7 @@ export function createBrowserArm(options: BrowserArmOptions): DecodeArm {
                 };
             },
             { locator, generation: generationFor(options.route(audioSeconds)) },
-        );
+        ), DECODE_TIMEOUT_MS, locator);
         // CROSS-CHECK the page's decode against the count Node computed from the same file. The page
         // decodes FLAC through `decodeAudioData`, which RESAMPLES to the context rate — so a wrong-rate
         // source would be converted silently and the browser arm would score different audio than the
