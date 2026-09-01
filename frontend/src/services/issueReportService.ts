@@ -124,9 +124,20 @@ export const issueReportService = {
     const supabase = getSupabaseClient();
     const audioAttachmentNote = input.includeAudio ? sanitizeOptionalText(input.audioAttachmentNote) : null;
 
-    // #1306 metrics-only: the insert is transcript-free — no include_transcript / transcript_excerpt columns
-    // are written (the column is dropped by the Stage B enforcement migration). Only the user's typed fields +
-    // sanitized operational metadata + an optional audio-debug note are persisted.
+    // #1306 metrics-only: the insert is transcript-free. Only the user's typed fields + sanitized
+    // operational metadata + an optional audio-debug note are persisted.
+    //
+    // CORRECTION: an earlier version of this comment claimed `include_transcript` /
+    // `transcript_excerpt` were "dropped by the Stage B enforcement migration". They were NOT. No
+    // migration in the tree drops them and a read-only audit confirms both columns still exist in
+    // production (`transcript_excerpt text NULL`, `include_transcript boolean NOT NULL`). The same
+    // audit found 0 non-null excerpts and 0 opted-in rows across all reports, so nothing is stored
+    // there — but the column being empty is a fact about the DATA, and the comment asserted a fact
+    // about the SCHEMA that was false. A comment that says a column is gone stops anyone from checking
+    // whether it is, which is exactly how an empty column becomes a populated one.
+    //
+    // Not writing them here is what keeps it empty. Dropping the columns is a production migration and
+    // is deliberately NOT done as a side effect of this file.
     const { error } = await supabase
       .from('user_issue_reports')
       .insert({
