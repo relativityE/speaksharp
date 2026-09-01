@@ -91,7 +91,8 @@ const roundTenth = (value: number): number => Math.round(value * 10) / 10;
 
 const countMatches = (text: string, pattern: RegExp): number => text.match(pattern)?.length ?? 0;
 
-const getScoreLabel = (score: number): string => {
+/** Exported so the telemetry vocabulary can be proven complete against the real bands, not a copy of them. */
+export const getScoreLabel = (score: number): string => {
     if (score >= 8.5) return 'Polished Presenter';
     if (score >= 7) return 'Confident Speaker';
     if (score >= 5) return 'Clear Communicator';

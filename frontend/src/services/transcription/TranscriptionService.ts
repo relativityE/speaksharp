@@ -1,3 +1,4 @@
+import type { IPrivateSTT } from '../../contracts/IPrivateSTT';
 import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
 import { isEqual } from 'lodash-es';
@@ -1873,7 +1874,12 @@ export default class TranscriptionService {
   public getStartTime(): number | null { return this.startTime; }
   public getIdempotencyKey(): string | null { return this.idempotencyKey; }
   public getMetadata() {
-    const strategyMetadata = (this.strategy as unknown as { getMetadata?: () => { engineVersion: string; modelName: string; deviceType: string } | null })?.getMetadata?.();
+    // The cast must stay as WIDE as the engine's real return, or `candidateId`/`modelIdentity` survive
+    // at runtime while being invisible to every typed consumer — the identity would reach the row only
+    // by accident, and any code trying to read it would fail to compile.
+    const strategyMetadata = (this.strategy as unknown as {
+      getMetadata?: () => ReturnType<IPrivateSTT['getMetadata']> | null;
+    })?.getMetadata?.();
     return strategyMetadata || this.metadata;
   }
   /** Resolved engine type of the active strategy (e.g. 'transformers-js' | 'transformers-js-v4'). */

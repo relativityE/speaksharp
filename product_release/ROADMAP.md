@@ -14,8 +14,8 @@
 This file contains unfinished work only. Completion belongs in git history and dated evidence; current deployment facts belong in `RELEASE_STATUS.md`.
 
 <!-- CURRENCY-BLOCK
-baseline: 0e2fffd16224063e18b40174d92393632f1c1e47
-deployed-release: 0e2fffd16224063e18b40174d92393632f1c1e47
+baseline: a19324610634b9e05a375fff8838f2bbbae3a4f1
+deployed-release: a19324610634b9e05a375fff8838f2bbbae3a4f1
 verified-on: 2026-08-29
 release-blocker: model-selection
 retention-campaign: off-critical-path

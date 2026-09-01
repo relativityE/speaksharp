@@ -3,6 +3,14 @@ import { analyticsBuffer } from '../AnalyticsBuffer';
 import posthog from 'posthog-js';
 import * as Sentry from '@sentry/react';
 
+/**
+ * These are TRANSPORT tests — queueing, priority, batching, timestamps. They are deliberately indifferent
+ * to the schema registry, so they use synthetic names cast through this helper. Governance is proven in
+ * telemetryAllowlist.test.ts against the REAL producers; casting here weakens nothing in production, where
+ * `push` only accepts `GovernedEvent | private_${string}`.
+ */
+const transportEvent = (name: string) => name as Parameters<typeof analyticsBuffer.push>[0];
+
 // Mock PostHog
 vi.mock('posthog-js', () => ({
   default: {
@@ -32,8 +40,8 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
   });
 
   it('should queue events while not ready and flush asynchronously upon signal', async () => {
-    analyticsBuffer.push('Event 1', { id: 1 }, 'LOW');
-    analyticsBuffer.push('Event 2', { id: 2 }, 'LOW');
+    analyticsBuffer.push(transportEvent('Event 1'), { id: 1 }, 'LOW');
+    analyticsBuffer.push(transportEvent('Event 2'), { id: 2 }, 'LOW');
 
     expect(posthog.capture).not.toHaveBeenCalled();
     expect(analyticsBuffer.queue.length).toBe(2);
@@ -54,7 +62,7 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     analyticsBuffer.ready = true;
     
     // Critical bypasses queue
-    analyticsBuffer.push('CRITICAL_EVENT', { crash: true }, 'CRITICAL');
+    analyticsBuffer.push(transportEvent('CRITICAL_EVENT'), { crash: true }, 'CRITICAL');
     expect(posthog.capture).toHaveBeenCalledWith('CRITICAL_EVENT', expect.objectContaining({
       $priority: 'CRITICAL'
     }));
@@ -69,7 +77,7 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
       timestamp: Date.now(),
     });
 
-    analyticsBuffer.push('CRITICAL_EVENT', { crash: true }, 'CRITICAL');
+    analyticsBuffer.push(transportEvent('CRITICAL_EVENT'), { crash: true }, 'CRITICAL');
 
     expect(vi.mocked(posthog.capture).mock.calls.map(([event]) => event)).toEqual([
       'QUEUED_EVENT',
@@ -82,7 +90,7 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     
     // Flood with 1005 events
     for (let i = 0; i < MAX + 5; i++) {
-        analyticsBuffer.push(`Event ${i}`, { i }, 'LOW');
+        analyticsBuffer.push(transportEvent(`Event ${i}`), { i }, 'LOW');
     }
 
     expect(analyticsBuffer.queue.length).toBe(MAX);
@@ -124,7 +132,7 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
   it('should attach absolute timestamps and priority metadata', async () => {
     vi.setSystemTime(new Date('2026-05-22T12:00:00.000Z'));
     analyticsBuffer.ready = true;
-    analyticsBuffer.push('TimestampTest', { data: 1 }, 'HIGH');
+    analyticsBuffer.push(transportEvent('TimestampTest'), { data: 1 }, 'HIGH');
     
     await vi.advanceTimersByTimeAsync(0);
     expect(posthog.capture).toHaveBeenCalledWith('TimestampTest', expect.objectContaining({
@@ -133,39 +141,44 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     }));
   });
 
-  it('redacts transcript and audio-like analytics properties at the send boundary', () => {
+  it('an UNGOVERNED event ships no properties at all — fail closed, not redact', () => {
+    // POLICY CHANGE (#1259 T1). This test previously asserted denylist behaviour: sensitive-looking keys
+    // were REDACTED into {length, words, redacted} and everything else passed through. That failed on the
+    // key's NAME, so `message`, `reason` and `notes` sailed past.
+    //
+    // The policy is now an allowlist keyed by EVENT. `PrivacyTest` has no schema, so it ships nothing.
+    // The old expectations are deliberately not restored: making them green again would reinstate the
+    // defect.
     analyticsBuffer.ready = true;
 
-    analyticsBuffer.push('PrivacyTest', {
+    analyticsBuffer.push(transportEvent('PrivacyTest'), {
       transcript: 'um this private transcript must not leave',
       audioDataUrl: 'data:audio/wav;base64,very-sensitive',
-      nested: {
-        finalTranscript: 'another sensitive transcript',
-        safeMode: 'private',
-      },
-      values: [
-        { transcriptExcerpt: 'nested array transcript' },
-      ],
+      nested: { finalTranscript: 'another sensitive transcript', safeMode: 'private' },
+      values: [{ transcriptExcerpt: 'nested array transcript' }],
     }, 'CRITICAL');
+    analyticsBuffer.flush();
 
-    expect(posthog.capture).toHaveBeenCalledWith('PrivacyTest', expect.objectContaining({
-      transcript: { length: 41, words: 7, redacted: true },
-      audioDataUrl: { length: 36, words: 1, redacted: true },
-      nested: {
-        finalTranscript: { length: 28, words: 3, redacted: true },
-        safeMode: 'private',
-      },
-      values: [
-        { transcriptExcerpt: { length: 23, words: 3, redacted: true } },
-      ],
-      $priority: 'CRITICAL',
-    }));
-
-    const payload = JSON.stringify(vi.mocked(posthog.capture).mock.calls[0][1]);
-    expect(payload).not.toContain('private transcript');
-    expect(payload).not.toContain('very-sensitive');
-    expect(payload).not.toContain('another sensitive');
-    expect(payload).not.toContain('nested array transcript');
+    const call = ((posthog.capture as unknown as { mock: { calls: unknown[][] } }).mock.calls.slice(-1)[0]);
+    expect(call[0]).toBe('PrivacyTest');
+    const payload = call[1] as Record<string, unknown>;
+    for (const k of ['transcript', 'audioDataUrl', 'nested', 'values']) {
+      expect(payload).not.toHaveProperty(k);
+    }
+    // Nothing sensitive survives in any form — not even a redaction summary.
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain('transcript');
+    expect(serialized).not.toContain('sensitive');
+    // Only the buffer's own metadata and the GOVERNED EVENT ENVELOPE remain. The envelope is ambient
+    // context added at the seam ($-prefixed keys are PostHog's own); it carries no producer data, which
+    // is why an ungoverned event still ships it while shipping none of the producer's properties.
+    const allowedNonProducer = new Set([
+      'release_sha', 'traffic_type', 'candidate_id', 'engine', 'runtime_version', 'asset_digest',
+    ]);
+    expect(Object.keys(payload).every(k => k.startsWith('$') || allowedNonProducer.has(k))).toBe(true);
+    // and the envelope itself must never carry producer content.
+    expect(payload).toHaveProperty('traffic_type');
+    expect(JSON.stringify(payload)).not.toContain('sensitive');
   });
 
   // #1259 P2 — a SECOND redaction boundary for Private events: even if a `private_*` event's props bypass
@@ -200,7 +213,8 @@ describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
 
   it('identify() passes through the user id (no email) and reloads feature flags', () => {
     analyticsBuffer.identify('user-123');
-    expect(posthog.identify).toHaveBeenCalledWith('user-123', undefined);
+    // #1259 T1: identify() no longer accepts a properties argument at all.
+    expect(posthog.identify).toHaveBeenCalledWith('user-123');
     expect(posthog.reloadFeatureFlags).toHaveBeenCalled(); // flags re-evaluated for the identified user
   });
 
@@ -208,9 +222,11 @@ describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
     analyticsBuffer.identify('user-123');
     // send_instantly skips the batch queue so the /e/ request fires immediately and PostHog
     // materializes a queryable person at user.id (identified_only mode) even on a short session.
+    // The envelope rides along here too: this capture deliberately bypasses the buffer, and without it
+    // a CANARY login would be indistinguishable from a user login.
     expect(posthog.capture).toHaveBeenCalledWith(
       'account_identified',
-      { source: 'auth_provider' },
+      expect.objectContaining({ source: 'auth_provider', traffic_type: expect.any(String) }),
       { send_instantly: true },
     );
     // STRICT no-PII: the materialization event must never carry email/name/transcript/audio/etc.
@@ -232,10 +248,13 @@ describe('AnalyticsBuffer identity (account-linked PostHog identity)', () => {
 
     expect(() => analyticsBuffer.identify('user-123')).not.toThrow();
 
-    expect(posthog.identify).toHaveBeenCalledWith('user-123', undefined);
+    // #1259 T1: identify() no longer accepts a properties argument at all.
+    expect(posthog.identify).toHaveBeenCalledWith('user-123');
+    // The envelope rides along here too: this capture deliberately bypasses the buffer, and without it
+    // a CANARY login would be indistinguishable from a user login.
     expect(posthog.capture).toHaveBeenCalledWith(
       'account_identified',
-      { source: 'auth_provider' },
+      expect.objectContaining({ source: 'auth_provider', traffic_type: expect.any(String) }),
       { send_instantly: true },
     );
     expect(posthog.reloadFeatureFlags).toHaveBeenCalled(); // still runs despite capture failure

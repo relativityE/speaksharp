@@ -3,7 +3,7 @@
 **Status:** Authoritative (SSOT for release/deployment posture)
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-08-29
-**Last Verified:** 2026-08-29 (production `window.__APP_RELEASE__` read read-only and CACHE-BUSTED from `https://speaksharp-public.vercel.app/` = `0e2fffd16224063e18b40174d92393632f1c1e47`, HTTP 200; `origin/main` verified by `git rev-parse` at the same time. Production **==** `main` HEAD at this read.)
+**Last Verified:** 2026-08-31 (production `window.__APP_RELEASE__` READ from `https://speaksharp-public.vercel.app/` = `a19324610634b9e05a375fff8838f2bbbae3a4f1`; `origin/main` verified by `git rev-parse` at the same time. Production **==** `main` HEAD at this read. The deployed SHA is READ, never inferred from auto-deploy.)
 
 > **Currency correction (second).** #1358 corrected a 34-day drift; one day later this file was stale again — it named `5f378898` as both `main` and the deployed release, called #1304 Task 3 and Task 4 "not started" after both had merged, and still named the retention production proof as *the* release blocker after the stopping rule fired and that campaign moved off the critical path. A stale SSOT is worse than an absent one: `AGENTS.md` sends every agent here first, so wrong values here become wrong work. The values below are verified reads taken on 2026-08-28, not copied forward. The currency guard in `tests/config/documentationContract.test.ts` now fails when these task states contradict merged/open PR reality.
 **Applies To:** Current production deployment + release tracks for the SpeakSharp beta.
@@ -22,8 +22,8 @@
 # "retention". A guard that cannot tell a description of a defect from the defect is not a guard.
 #
 # So state lives here, in fixed fields, and prose stays prose.
-baseline: 0e2fffd16224063e18b40174d92393632f1c1e47
-deployed-release: 0e2fffd16224063e18b40174d92393632f1c1e47
+baseline: a19324610634b9e05a375fff8838f2bbbae3a4f1
+deployed-release: a19324610634b9e05a375fff8838f2bbbae3a4f1
 verified-on: 2026-08-29
 release-blocker: model-selection
 retention-campaign: off-critical-path
@@ -46,10 +46,10 @@ Four distinct identities — do not conflate them:
 
 | Identity | Value | How to verify |
 |---|---|---|
-| **Repository `main` (moving branch pointer)** | `0e2fffd16224063e18b40174d92393632f1c1e47` (#1366, #1360 truthful recovery copy) at 2026-08-28 | **Moving** — verify the live pointer directly (`git rev-parse origin/main`); do not treat this SHA as fixed. |
+| **Repository `main` (moving branch pointer)** | `a19324610634b9e05a375fff8838f2bbbae3a4f1` (#1388 host interlock; #1376, #1379 merged the same day) at 2026-08-31 | **Moving** — verify the live pointer directly (`git rev-parse origin/main`); do not treat this SHA as fixed. |
 | **Last product-behavior release** | `0e2fffd1` (#1366, #1360) — truthful recovery copy. It changes `SessionPage` and `UnresolvedRecoveryBanner`, both shipped, so it IS a product-behavior release. The prior one was `781e8ad6` (#1355). | Apply the criterion below; do not eyeball the PR title. |
 | **Later test/evidence commits (NOT product-behavior deployments)** | `574422ed` (#1356 scorer), `5f378898` (#1357 specs), `7db695f4` (#1346 3A), `20f3ce85` (#1362 3B), `d702d8c5`/`2f1152c0` (#1363/#1364 corpus), `069dc9e2` (#1359 retention contract) — all under `tests/**` or `scripts/**` | These change **no** deployed product behavior. |
-| **Deployed product release (verified)** | `window.__APP_RELEASE__ = 0e2fffd16224063e18b40174d92393632f1c1e47`, read cache-busted from `https://speaksharp-public.vercel.app/` (HTTP 200) on **2026-08-29**. Production == `main` HEAD at this read, but that is **not** guaranteed by auto-deploy alone: a Vercel "Ignored Build Step" can leave production behind `main`, so the deployed SHA must be **read**, not inferred. | Re-read `window.__APP_RELEASE__` from the deployed page with a cache-busting query and `Cache-Control: no-cache`, then update the value + date here. |
+| **Deployed product release (verified)** | `window.__APP_RELEASE__ = a19324610634b9e05a375fff8838f2bbbae3a4f1`, read from `https://speaksharp-public.vercel.app/` on **2026-08-31**. Production == `main` HEAD at this read, but that is **not** guaranteed by auto-deploy alone: a Vercel "Ignored Build Step" can leave production behind `main`, so the deployed SHA must be **read**, not inferred. | Re-read `window.__APP_RELEASE__` from the deployed page with a cache-busting query and `Cache-Control: no-cache`, then update the value + date here. |
 
 **Release-identity mechanism (per #1027):** the deployed `index.html` injects an inline `window.__APP_RELEASE__ = <VERCEL_GIT_COMMIT_SHA>`, surfaced at runtime as `window.__APP_RUNTIME_CONFIG__.release`. The old `__BUILD_ID__` JS `define` was **removed** in #1027 (it rotated chunk hashes every deploy → stale-chunk crashes); Sentry release is set at **runtime** (`release.inject:false`). Verify SHA-equality by reading `window.__APP_RELEASE__` from the deployed `index.html` — see [frontend/vite.config.mjs](../frontend/vite.config.mjs) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
