@@ -24,6 +24,7 @@ import type { PrivSttV4VariantId } from './sttConstants';
 import {
     isRemoteSafetyKillEngaged, SAFETY_KILL_TARGET, FALLBACK_CAUSE_REMOTE_KILL,
 } from './safetyKill';
+import { runtimeCandidateOverride } from './runtimeCandidateSwitch';
 
 /**
  * THE SOLE CANDIDATE SELECTOR — read from a checked-in config file.
@@ -187,7 +188,13 @@ export function effectiveCandidate(
     config: PrivateSttConfig = privateSttConfig,
     env: Record<string, unknown> = import.meta.env as unknown as Record<string, unknown>,
     killEngaged: boolean = isRemoteSafetyKillEngaged(),
+    runtimeOverride: CandidateId | null = runtimeCandidateOverride(),
 ): EffectiveSelection {
+    // PRECEDENCE: kill > runtime override > config.
+    //
+    // The kill outranks the internal switch deliberately. The switch exists so a comparison can be run;
+    // the kill exists because something is wrong. If both are set, the reason to stop wins — and an
+    // internal build is exactly where someone is most likely to have left a switch pointing somewhere.
     if (killEngaged) {
         // NOT `activeCandidate()` first: the kill must work even when the configured candidate is
         // unknown or activation-ineligible. A safety switch that throws before it can act is not one —
@@ -196,6 +203,13 @@ export function effectiveCandidate(
             candidate: CANDIDATES[SAFETY_KILL_TARGET],
             fallbackCause: FALLBACK_CAUSE_REMOTE_KILL,
         };
+    }
+    if (runtimeOverride) {
+        // Only reachable on an internal build: `switchCandidate` refuses to set this otherwise. The
+        // candidate is returned WITHOUT the activation check, because the whole point of the switch is
+        // to run candidates that are not production-approved yet — the same permission the config's
+        // `acknowledgeNotProductionReady` grants, asked for at runtime instead of at build time.
+        return { candidate: CANDIDATES[runtimeOverride], fallbackCause: null };
     }
     return { candidate: activeCandidate(config, env), fallbackCause: null };
 }
