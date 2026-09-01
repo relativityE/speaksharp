@@ -88,6 +88,98 @@ const engineWith = (t: MoonshineTranscriber) => new MoonshineStreamingEngine({
     loadTranscriber: async () => t,
 });
 
+describe('a failed or superseded load leaves nothing alive behind it', () => {
+    /**
+     * `Promise.race` picks a winner; it does not cancel the loser. These tests hold the loader open past
+     * the timeout and then let it succeed, which is exactly what a slow network does — the abandoned
+     * load finished, built its worker and WASM runtime, and nothing ever destroyed it.
+     */
+    const slowLoader = () => {
+        let release: (t: MoonshineTranscriber) => void = () => {};
+        const destroy = vi.fn(async () => {});
+        const transcriber = { transcribe: vi.fn(), createStream: vi.fn(), destroy } as unknown as MoonshineTranscriber;
+        return {
+            destroy,
+            transcriber,
+            load: () => new Promise<MoonshineTranscriber>((res) => { release = res; }),
+            finish: () => { release(transcriber); },
+        };
+    };
+
+    it('CASUALTY: destroys a transcriber that arrives AFTER the init timed out', async () => {
+        const slow = slowLoader();
+        const e = new MoonshineStreamingEngine({
+            candidateId: 'moonshine:streaming-medium',
+            modelArch: 'MOONSHINE_STREAMING_MEDIUM',
+            loadTranscriber: slow.load,
+        });
+
+        const result = await e.init(10);
+        expect(result.isOk, 'the init itself must still fail').toBe(false);
+        expect(slow.destroy, 'nothing has arrived yet').not.toHaveBeenCalled();
+
+        slow.finish();
+        await vi.waitFor(() => expect(slow.destroy).toHaveBeenCalledTimes(1));
+    });
+
+    it('CASUALTY: a timed-out load can never publish itself as the engine\'s runtime', async () => {
+        // The severe form. If the late transcriber were adopted, the engine would report a READY
+        // Moonshine identity for a session the user was told had failed — and metadata would name a
+        // model that no transcript came from.
+        const slow = slowLoader();
+        const e = new MoonshineStreamingEngine({
+            candidateId: 'moonshine:streaming-medium',
+            modelArch: 'MOONSHINE_STREAMING_MEDIUM',
+            loadTranscriber: slow.load,
+        });
+
+        await e.init(10);
+        slow.finish();
+        await vi.waitFor(() => expect(slow.destroy).toHaveBeenCalled());
+
+        const meta = e.getMetadata();
+        expect(meta.failure?.phase, 'the failure must still stand').toBe('init');
+        // start() must refuse: there is no runtime, regardless of what the abandoned load produced.
+        await expect(e.start(fakeMic().mic)).rejects.toThrow();
+    });
+
+    it('CASUALTY: a terminate() during a load discards the load rather than installing it', async () => {
+        const slow = slowLoader();
+        const e = new MoonshineStreamingEngine({
+            candidateId: 'moonshine:streaming-medium',
+            modelArch: 'MOONSHINE_STREAMING_MEDIUM',
+            loadTranscriber: slow.load,
+        });
+
+        const initing = e.init(10_000);
+        await e.terminate();
+        slow.finish();
+
+        const result = await initing;
+        expect(result.isOk, 'an init superseded by terminate must not report success').toBe(false);
+        await vi.waitFor(() => expect(slow.destroy).toHaveBeenCalled());
+    });
+
+    it('CASUALTY: a runtime whose reported version contradicts the registry is destroyed, not kept', async () => {
+        const destroy = vi.fn(async () => {});
+        const mismatched = {
+            transcribe: vi.fn(), createStream: vi.fn(), destroy, version: 'not-the-configured-version',
+        } as unknown as MoonshineTranscriber;
+        const e = new MoonshineStreamingEngine({
+            candidateId: 'moonshine:streaming-medium',
+            modelArch: 'MOONSHINE_STREAMING_MEDIUM',
+            loadTranscriber: async () => mismatched,
+        });
+
+        const result = await e.init();
+        expect(result.isOk).toBe(false);
+        // Refusing to ATTRIBUTE the session while leaving the mismatched runtime resident is the worst
+        // of both: the bytes we know are wrong stay loaded and the worker stays alive.
+        await vi.waitFor(() => expect(destroy).toHaveBeenCalledTimes(1));
+        await expect(e.start(fakeMic().mic)).rejects.toThrow();
+    });
+});
+
 describe('lifecycle parity with the Private STT contract', () => {
     it('init → start → stop → terminate, with the worker released', async () => {
         const { transcriber } = recordingTranscriber(() => 'hello world');

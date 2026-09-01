@@ -122,6 +122,12 @@ export interface MoonshineEngineMetadata {
 
 export class MoonshineStreamingEngine implements STTStrategy {
     private transcriber: MoonshineTranscriber | null = null;
+    /**
+     * Bumped by `terminate()` and by each `init()`. A load that is still running when its init settles
+     * belongs to a superseded generation, and whatever it eventually produces must be destroyed rather
+     * than adopted.
+     */
+    private generation = 0;
     private mic: MicStream | null = null;
     private detachFrames: (() => void) | null = null;
     private committed = '';
@@ -206,21 +212,72 @@ export class MoonshineStreamingEngine implements STTStrategy {
             }
             const load = this.options.loadTranscriber
                 ?? ((arch: MoonshineArch) => defaultLoadTranscriber(arch, this.options.onDownloadProgress));
-            const timeout = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error(`moonshine init exceeded ${timeoutMs}ms`)), timeoutMs));
-            this.transcriber = await Promise.race([load(this.options.modelArch), timeout]);
-            const identified = this.transcriber as MoonshineTranscriber & {
+
+            // THE ABANDONED LOADER. `Promise.race` only decides which promise this function waits for —
+            // it does not cancel the loser. When the timeout won, `load()` kept running: it finished
+            // fetching ~147 MB, spun up its worker and WASM runtime, and resolved to a transcriber that
+            // nothing held and nothing destroyed. The user saw an init failure while a full second
+            // runtime stayed resident, and starting the next attempt stacked another one behind it.
+            //
+            // So the load is followed to its OWN conclusion regardless of who won: whatever it produces
+            // after this init has settled is destroyed, not adopted. `myGeneration` is the test —
+            // `terminate()` and a subsequent `init()` both bump it, which also covers the case where the
+            // user gives up and switches models while a load is still in flight.
+            const myGeneration = ++this.generation;
+            let settled = false;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const loading = Promise.resolve(load(this.options.modelArch));
+            loading.then(
+                (late) => {
+                    if (settled || this.generation !== myGeneration) {
+                        // Fire-and-forget: nobody is waiting on this, and a failed destroy of an
+                        // already-orphaned runtime must not become an unhandled rejection.
+                        void Promise.resolve(late?.destroy?.()).catch(() => { /* nothing left to salvage */ });
+                    }
+                },
+                () => { /* the rejection is surfaced through the await below when it wins the race */ },
+            );
+
+            let loaded: MoonshineTranscriber;
+            try {
+                loaded = await new Promise<MoonshineTranscriber>((resolve, reject) => {
+                    timer = setTimeout(
+                        () => reject(new Error(`moonshine init exceeded ${timeoutMs}ms`)),
+                        timeoutMs,
+                    );
+                    loading.then(resolve, reject);
+                });
+            } finally {
+                settled = true;
+                // Left dangling by the old race, this kept a 60s timer alive on every successful init.
+                if (timer !== undefined) clearTimeout(timer);
+            }
+
+            const identified = loaded as MoonshineTranscriber & {
                 version?: string; modelId?: string; assetDigest?: string;
             };
             // If the runtime DOES start reporting these, they are cross-checked against the configured
             // values rather than replacing them — a mismatch means the loaded bytes are not the ones the
             // registry describes, which must fail rather than be quietly recorded.
             if (identified.version && identified.version !== candidate.runtime.version) {
+                // DESTROY BEFORE THROWING. This check previously ran after `this.transcriber` had already
+                // been assigned, so a rejected identity left the mismatched runtime installed on the
+                // engine and alive — the one case where we know the loaded model is NOT what we claim.
+                void Promise.resolve(loaded.destroy?.()).catch(() => { /* refused anyway */ });
                 throw new Error(
                     `runtime reported version ${identified.version} but the registry configures `
                     + `${candidate.runtime.version}; refusing to attribute the session`,
                 );
             }
+
+            // ASSIGNED ONLY ONCE THE IDENTITY HOLDS. Everything downstream — metadata, telemetry, the
+            // observed-identity check — reads this field, so it must never hold a runtime we have
+            // refused to attribute. A `terminate()` that landed during the load wins over this init.
+            if (this.generation !== myGeneration) {
+                void Promise.resolve(loaded.destroy?.()).catch(() => { /* superseded */ });
+                throw new Error('moonshine init was superseded before it completed');
+            }
+            this.transcriber = loaded;
             this.lastHeartbeat = Date.now();
             return { isOk: true, data: undefined };
         } catch (e) {
@@ -355,6 +412,9 @@ export class MoonshineStreamingEngine implements STTStrategy {
 
     /** Nuclear cleanup. A leaked worker outlives the session and quietly holds hundreds of MB. */
     async terminate(): Promise<void> {
+        // Bump FIRST: a load still in flight is now superseded, so its eventual transcriber is destroyed
+        // by the init continuation instead of being installed on a terminated engine.
+        this.generation++;
         this.detachFrames?.(); this.detachFrames = null;
         try { this.stream?.close(); } catch { /* already closed */ } finally { this.stream = null; }
         this.mic = null;
