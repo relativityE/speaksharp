@@ -48,6 +48,7 @@ import {
 } from '../candidateRegistry';
 import { recordResolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { effectiveCandidate, assertDeviceAvailable, v4VariantFor } from '../candidateSelection';
+import { runtimeCandidateOverride } from '../runtimeCandidateSwitch';
 import { isWebGPUSupported } from '../utils/webgpuSupport';
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
 import type { PrivateSttProvider } from '../providers/types';
@@ -390,7 +391,13 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                     allowWithoutWebGPU: candidate.model.device !== 'webgpu',
                     distilEnabled: false,
                     forceAuto: false,
-                    selectionSource: fallbackCause ? 'remote_safety_kill' : 'config',
+                    // A session decoded under an internal runtime switch must NOT be recorded as a
+                    // normal config selection: it was chosen in-page for a comparison, on a build a
+                    // real user never receives, and reading it as production evidence later would be
+                    // reading an experiment as a release.
+                    selectionSource: fallbackCause
+                        ? 'remote_safety_kill'
+                        : (runtimeCandidateOverride() ? 'runtime_switch' : 'config'),
                   }
                 : undefined,
         });

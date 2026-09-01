@@ -24,7 +24,19 @@
  *   another — the exact failure the attribution work exists to prevent, arriving through the door
  *   built to measure it.
  */
-import { CANDIDATES, UnknownCandidateError, type CandidateId } from './candidateRegistry';
+import { CANDIDATES, UnknownCandidateError, type CandidateId, type EngineKind } from './candidateRegistry';
+
+/**
+ * The engines the product facade can actually construct.
+ *
+ * `PrivateSTT` resolves a provider from `getPrivateProviderIds()`, which yields ONLY these two. A
+ * candidate naming any other engine does not fail there — it falls through to the configured engine and
+ * runs v2 while the caller believes it asked for something else. Requesting Moonshine today would
+ * therefore produce a v2 recording labelled Moonshine, which is worse than no recording at all.
+ *
+ * Moonshine joins this list in #1381, when it is registered on the real provider path.
+ */
+export const PRODUCT_ENGINES: readonly EngineKind[] = Object.freeze(['transformers-js', 'transformers-js-v4']);
 
 /** States in which the engine is doing something that a swap would corrupt. */
 export const SWITCH_BLOCKING_STATES: readonly string[] = Object.freeze([
@@ -32,7 +44,8 @@ export const SWITCH_BLOCKING_STATES: readonly string[] = Object.freeze([
 ]);
 
 export type SwitchFailureCode =
-    | 'not_internal_build' | 'unknown_candidate' | 'busy' | 'no_executor' | 'teardown_failed' | 'init_failed';
+    | 'not_internal_build' | 'unknown_candidate' | 'engine_not_integrated'
+    | 'busy' | 'switch_in_progress' | 'no_executor' | 'teardown_failed' | 'init_failed';
 
 export type SwitchOutcome =
     | { ok: true; candidate: CandidateId }
@@ -53,6 +66,8 @@ export interface SwitchExecutor {
 
 let executor: SwitchExecutor | null = null;
 let override: CandidateId | null = null;
+/** One switch at a time. Two overlapping teardowns would race over the same worker. */
+let inFlight: Promise<SwitchOutcome> | null = null;
 const listeners = new Set<(id: CandidateId | null) => void>();
 
 export function registerSwitchExecutor(next: SwitchExecutor | null): void { executor = next; }
@@ -92,26 +107,41 @@ export async function switchCandidate(
             reason: new UnknownCandidateError(`unknown candidate "${id}"`).message,
         };
     }
+    const candidate = CANDIDATES[id as CandidateId];
+    if (!PRODUCT_ENGINES.includes(candidate.engine)) {
+        // FAIL CLOSED. Falling through would run the configured engine under the requested id.
+        return {
+            ok: false, code: 'engine_not_integrated',
+            reason: `candidate "${id}" runs on ${candidate.engine}, which the product facade cannot `
+                + 'construct. Selecting it would run a DIFFERENT model under this id.',
+        };
+    }
     if (!executor) {
         return { ok: false, code: 'no_executor', reason: 'no engine is registered to switch' };
+    }
+    if (inFlight) {
+        return { ok: false, code: 'switch_in_progress', reason: 'another switch is still running' };
     }
     const state = String(executor.currentState() ?? '');
     if (SWITCH_BLOCKING_STATES.includes(state)) {
         return { ok: false, code: 'busy', reason: `refused while ${state}: finish or stop the session first` };
     }
 
+    // Captured so the closure below cannot observe a later re-registration mid-switch.
+    const engine = executor;
+    const run = async (): Promise<SwitchOutcome> => {
     const previous = override;
     // Set BEFORE initialising: the engine reads the selection on the way up, so a switch that flipped
     // the value afterwards would bring up the OLD model and then claim the new one.
     override = id as CandidateId;
     try {
-        await executor.teardown();
+        await engine.teardown();
     } catch (e) {
         override = previous;
         return { ok: false, code: 'teardown_failed', reason: e instanceof Error ? e.message : String(e) };
     }
     try {
-        await executor.initialize();
+        await engine.initialize();
     } catch (e) {
         // The old engine is already gone, so restoring the override would describe a model that is not
         // running. Leave the selection where it points and report the failure.
@@ -119,4 +149,7 @@ export async function switchCandidate(
     }
     for (const l of listeners) { try { l(override); } catch { /* never break a completed switch */ } }
     return { ok: true, candidate: override };
+    };
+    inFlight = run();
+    try { return await inFlight; } finally { inFlight = null; }
 }

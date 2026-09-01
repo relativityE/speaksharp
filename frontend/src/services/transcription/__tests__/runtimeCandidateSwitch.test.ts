@@ -30,24 +30,49 @@ describe('the in-page model switch', () => {
     beforeEach(() => { clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
     afterEach(() => { clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
 
-    it('CASUALTY: the full comparison runs in one page — v2 → distil → moonshine → v2', async () => {
+    it('CASUALTY: the comparison runs in one page — v2 → distil → v2', async () => {
         const e = executor(); registerSwitchExecutor(e);
-        // Collected then asserted once: the recorded sequence names the hop that regressed without a
-        // per-assertion message.
         const hops: Array<{ id: string; outcome: unknown; running: string }> = [];
-        for (const id of ['v4:distil:q4', 'moonshine:streaming-medium', 'v2:base.en'] as const) {
+        for (const id of ['v4:distil:q4', 'v2:base.en'] as const) {
             const outcome = await switchCandidate(id, INTERNAL);
             hops.push({ id, outcome, running: effectiveCandidate(undefined, INTERNAL, false).candidate.id });
         }
         expect(hops).toEqual([
             { id: 'v4:distil:q4', outcome: { ok: true, candidate: 'v4:distil:q4' }, running: 'v4:distil:q4' },
-            { id: 'moonshine:streaming-medium', outcome: { ok: true, candidate: 'moonshine:streaming-medium' }, running: 'moonshine:streaming-medium' },
             { id: 'v2:base.en', outcome: { ok: true, candidate: 'v2:base.en' }, running: 'v2:base.en' },
         ]);
         // Every hop tore the engine down and brought it back up — never a hand-off.
-        expect(e.calls).toEqual([
-            'teardown', 'initialize', 'teardown', 'initialize', 'teardown', 'initialize',
-        ]);
+        expect(e.calls).toEqual(['teardown', 'initialize', 'teardown', 'initialize']);
+    });
+
+    it('CASUALTY: MOONSHINE fails closed — the facade cannot construct it yet', async () => {
+        // The product facade resolves providers from a list containing only the two transformers
+        // engines. A moonshine request does not fail there; it falls through and runs the CONFIGURED
+        // engine, producing a v2 recording labelled moonshine. Refusing is the only honest answer until
+        // #1381 registers the real engine.
+        const e = executor(); registerSwitchExecutor(e);
+        const out = await switchCandidate('moonshine:streaming-medium', INTERNAL);
+        expect(out).toMatchObject({ ok: false, code: 'engine_not_integrated' });
+        expect(e.teardown).not.toHaveBeenCalled();
+        expect(runtimeCandidateOverride()).toBeNull();
+        // and the running selection is untouched
+        expect(effectiveCandidate(undefined, INTERNAL, false).candidate.id).toBe('v2:base.en');
+    });
+
+    it('CASUALTY: a SECOND switch is refused while one is still running', async () => {
+        let release: () => void = () => {};
+        const gate = new Promise<void>((r) => { release = r; });
+        const e = executor();
+        e.teardown = vi.fn(async () => { await gate; });
+        registerSwitchExecutor(e);
+
+        const first = switchCandidate('v4:distil:q4', INTERNAL);
+        const second = await switchCandidate('v2:base.en', INTERNAL);
+        expect(second).toMatchObject({ ok: false, code: 'switch_in_progress' });
+        release();
+        expect((await first).ok).toBe(true);
+        // and once it settles, switching works again
+        expect((await switchCandidate('v2:base.en', INTERNAL)).ok).toBe(true);
     });
 
     it('CASUALTY: a PRODUCTION build has no runtime selector at all', async () => {

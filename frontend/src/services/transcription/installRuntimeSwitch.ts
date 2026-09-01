@@ -14,10 +14,16 @@ import {
     type SwitchOutcome,
 } from './runtimeCandidateSwitch';
 import { effectiveCandidate } from './candidateSelection';
+import { resolvedEngine } from '@/services/telemetry/runtimeAttribution';
 
 interface SwitchWindow {
     __SS_SWITCH_CANDIDATE__?: (id: string) => Promise<SwitchOutcome>;
-    __SS_ACTIVE_CANDIDATE__?: () => { candidate: string; source: 'config' | 'runtime_switch' | 'remote_safety_kill' };
+    __SS_ACTIVE_CANDIDATE__?: () => {
+        requested: string;
+        observed: string | null;
+        matches: boolean;
+        source: 'config' | 'runtime_switch' | 'remote_safety_kill';
+    };
 }
 
 export function installRuntimeCandidateSwitch(
@@ -55,9 +61,19 @@ export function installRuntimeCandidateSwitch(
     const w = window as unknown as SwitchWindow;
     w.__SS_SWITCH_CANDIDATE__ = (id: string) => switchCandidate(id, env);
     w.__SS_ACTIVE_CANDIDATE__ = () => {
+        // REQUESTED vs OBSERVED, reported separately and never conflated.
+        //
+        // This used to return only the selection — an INTENTION. A wrapper reading it would have
+        // recorded "moonshine" for a session the engine actually decoded with v2, which is the precise
+        // defect the attribution work exists to prevent, arriving through the tool built to observe it.
+        // `observed` is what the ENGINE published when it resolved; null means nothing has resolved yet.
         const sel = effectiveCandidate();
+        const observed = resolvedEngine()?.candidateId ?? null;
         return {
-            candidate: sel.candidate.id,
+            requested: sel.candidate.id,
+            observed,
+            // The qualification wrapper must gate on THIS, not on `requested`.
+            matches: observed !== null && observed === sel.candidate.id,
             source: sel.fallbackCause ? 'remote_safety_kill' : (runtimeCandidateOverride() ? 'runtime_switch' : 'config'),
         };
     };

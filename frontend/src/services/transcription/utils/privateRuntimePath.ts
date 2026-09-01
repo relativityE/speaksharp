@@ -95,7 +95,7 @@ export interface PrivateRuntimeDecision {
    * configured candidate. `dev_harness` remains for dev/test only. `posthog_flag` is retained solely so
    * historical rows stay readable — no live path emits it, because flags can no longer select a model.
    */
-  selectionSource: 'config' | 'remote_safety_kill' | 'posthog_flag' | 'dev_harness' | 'default';
+  selectionSource: 'config' | 'runtime_switch' | 'remote_safety_kill' | 'posthog_flag' | 'dev_harness' | 'default';
 }
 
 export interface ResolvePrivateRuntimePathOptions {
@@ -126,7 +126,7 @@ export interface ResolvePrivateRuntimePathOptions {
     /** DEV/TEST-only: attempt v4 even WITHOUT WebGPU (headless-CI AUTO fallback proof). */
     forceAuto?: boolean;
     /** Honest selection provenance the caller computed (real PostHog flag vs dev/test forceAuto shim). */
-    selectionSource?: 'config' | 'remote_safety_kill' | 'posthog_flag' | 'dev_harness';
+    selectionSource?: 'config' | 'runtime_switch' | 'remote_safety_kill' | 'posthog_flag' | 'dev_harness';
     /**
      * The EXACT variant the selector named.
      *
