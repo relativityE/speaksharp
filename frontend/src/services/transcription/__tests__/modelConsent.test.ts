@@ -112,11 +112,8 @@ describe('consent is about a named set of bytes, not about the cache', () => {
     it('the quoted maximum comes from the registry, and matches the committed pin table', async () => {
         // Binds the number the user is shown to the pinned bytes, so re-pinning to larger assets fails
         // here instead of silently enlarging a download the user already agreed to.
-        const pins = await import('../../../../../tests/fixtures/moonshine-asset-pins.json');
-        const assets = (pins.default as { assets: Record<string, { bytes: number }> }).assets;
-        const medium = Object.entries(assets)
-            .filter(([k]) => k.includes('medium-streaming-en'))
-            .map(([, v]) => v.bytes);
+        const { pinnedAssetsFor } = await import('../moonshineAssetPins');
+        const medium = pinnedAssetsFor('medium-streaming-en').map((a) => a.bytes);
         expect(MOONSHINE.assets.componentCount).not.toBeNull();
         expect(medium).toHaveLength(MOONSHINE.assets.componentCount as number);
         expect(consentTermsFor(MOONSHINE).maxBytes).toBe(medium.reduce((a, b) => a + b, 0));

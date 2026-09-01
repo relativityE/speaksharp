@@ -46,7 +46,7 @@ await build({
     external: ['@moonshine-ai/moonshine-wasm'],
 });
 
-const pins = JSON.parse(readFileSync('tests/fixtures/moonshine-asset-pins.json', 'utf8')) as {
+const pins = JSON.parse(readFileSync('frontend/src/services/transcription/moonshineAssetPins.json', 'utf8')) as {
     assets: Record<string, { sha256: string }>;
 };
 const verified = new Set<string>();

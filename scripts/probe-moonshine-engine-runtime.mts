@@ -56,7 +56,7 @@ if (!existsSync(EXTERNAL)) {
     process.exit(2);
 }
 
-const pinTable = JSON.parse(readFileSync('tests/fixtures/moonshine-asset-pins.json', 'utf8')) as {
+const pinTable = JSON.parse(readFileSync('frontend/src/services/transcription/moonshineAssetPins.json', 'utf8')) as {
     runtimeVersion: string; componentSet: string;
     assets: Record<string, { sha256: string; bytes: number }>;
 };

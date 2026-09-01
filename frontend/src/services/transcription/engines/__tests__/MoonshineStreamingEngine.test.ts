@@ -47,7 +47,7 @@ const recordingTranscriber = (text: (audio: Float32Array) => string) => {
     const passes: number[] = [];
     let accumulated = 0;
     const t: MoonshineTranscriber = {
-        transcribe: async (audio) => { seen.push(audio.length); return { lines: [{ text: text(audio) }] }; },
+        transcribe: (audio) => { seen.push(audio.length); return { lines: [{ text: text(audio) }] }; },
         createStream: () => ({
             start: vi.fn(),
             addAudio: (audio: Float32Array) => { accumulated += audio.length; },
@@ -60,14 +60,15 @@ const recordingTranscriber = (text: (audio: Float32Array) => string) => {
             stop: vi.fn(),
             close: vi.fn(),
         }),
-        destroy: vi.fn(),
+        close: vi.fn(),
     };
     return { transcriber: t, seen, passes };
 };
 
 /** A transcriber with NO streaming API — start() must refuse rather than fall back. */
 const nonStreamingTranscriber = (): MoonshineTranscriber => ({
-    transcribe: async () => ({ lines: [{ text: 'whole buffer' }] }),
+    transcribe: () => ({ lines: [{ text: 'whole buffer' }] }),
+    close: vi.fn(() => {}),
     // DELIBERATELY no createStream: this double exists to prove start() refuses such a runtime.
 });
 
@@ -96,10 +97,10 @@ describe('a failed or superseded load leaves nothing alive behind it', () => {
      */
     const slowLoader = () => {
         let release: (t: MoonshineTranscriber) => void = () => {};
-        const destroy = vi.fn(async () => {});
-        const transcriber = { transcribe: vi.fn(), createStream: vi.fn(), destroy } as unknown as MoonshineTranscriber;
+        const close = vi.fn(() => {});
+        const transcriber = { transcribe: vi.fn(), createStream: vi.fn(), close } as unknown as MoonshineTranscriber;
         return {
-            destroy,
+            close,
             transcriber,
             load: () => new Promise<MoonshineTranscriber>((res) => { release = res; }),
             finish: () => { release(transcriber); },
@@ -116,10 +117,10 @@ describe('a failed or superseded load leaves nothing alive behind it', () => {
 
         const result = await e.init(10);
         expect(result.isOk, 'the init itself must still fail').toBe(false);
-        expect(slow.destroy, 'nothing has arrived yet').not.toHaveBeenCalled();
+        expect(slow.close, 'nothing has arrived yet').not.toHaveBeenCalled();
 
         slow.finish();
-        await vi.waitFor(() => expect(slow.destroy).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(slow.close).toHaveBeenCalledTimes(1));
     });
 
     it('CASUALTY: a timed-out load can never publish itself as the engine\'s runtime', async () => {
@@ -135,7 +136,7 @@ describe('a failed or superseded load leaves nothing alive behind it', () => {
 
         await e.init(10);
         slow.finish();
-        await vi.waitFor(() => expect(slow.destroy).toHaveBeenCalled());
+        await vi.waitFor(() => expect(slow.close).toHaveBeenCalled());
 
         const meta = e.getMetadata();
         expect(meta.failure?.phase, 'the failure must still stand').toBe('init');
@@ -157,13 +158,13 @@ describe('a failed or superseded load leaves nothing alive behind it', () => {
 
         const result = await initing;
         expect(result.isOk, 'an init superseded by terminate must not report success').toBe(false);
-        await vi.waitFor(() => expect(slow.destroy).toHaveBeenCalled());
+        await vi.waitFor(() => expect(slow.close).toHaveBeenCalled());
     });
 
     it('CASUALTY: a runtime whose reported version contradicts the registry is destroyed, not kept', async () => {
-        const destroy = vi.fn(async () => {});
+        const close = vi.fn(() => {});
         const mismatched = {
-            transcribe: vi.fn(), createStream: vi.fn(), destroy, version: 'not-the-configured-version',
+            transcribe: vi.fn(), createStream: vi.fn(), close, version: 'not-the-configured-version',
         } as unknown as MoonshineTranscriber;
         const e = new MoonshineStreamingEngine({
             candidateId: 'moonshine:streaming-medium',
@@ -175,7 +176,7 @@ describe('a failed or superseded load leaves nothing alive behind it', () => {
         expect(result.isOk).toBe(false);
         // Refusing to ATTRIBUTE the session while leaving the mismatched runtime resident is the worst
         // of both: the bytes we know are wrong stay loaded and the worker stays alive.
-        await vi.waitFor(() => expect(destroy).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
         await expect(e.start(fakeMic().mic)).rejects.toThrow();
     });
 });
@@ -193,7 +194,7 @@ describe('lifecycle parity with the Private STT contract', () => {
         await e.stop();
         expect(attached()).toBe(false);
         await e.terminate();
-        expect(transcriber.destroy).toHaveBeenCalled();   // a leaked worker holds hundreds of MB
+        expect(transcriber.close).toHaveBeenCalled();   // a leaked worker holds hundreds of MB
     });
 
     it('CASUALTY: start before a successful init FAILS VISIBLY', async () => {
@@ -210,7 +211,8 @@ describe('lifecycle parity with the Private STT contract', () => {
 
     it('CASUALTY: a decode failure is recorded and never becomes another model’s result', async () => {
         const t: MoonshineTranscriber = {
-            transcribe: async () => { throw new Error('whole-buffer API must not be used'); },
+            transcribe: () => { throw new Error('whole-buffer API must not be used'); },
+            close: vi.fn(() => {}),
             // The failure belongs on the PASS: that is where decoding happens in a session.
             createStream: () => ({
                 start: vi.fn(),
@@ -261,7 +263,8 @@ describe('the live pass is NOT the final pass — CORRECTED for the streaming se
     it('a live pass summarises the session so far; the final pass is FORCED', async () => {
         const passes: number[] = [];
         const t: MoonshineTranscriber = {
-            transcribe: async () => { throw new Error('whole-buffer API must not be used'); },
+            transcribe: () => { throw new Error('whole-buffer API must not be used'); },
+            close: vi.fn(() => {}),
             createStream: () => {
                 let acc = 0;
                 return {
@@ -382,7 +385,8 @@ describe('inference is SERIALIZED — one worker, one decode at a time', () => {
         let concurrent = 0, maxConcurrent = 0, accumulated = 0;
         const releases: Array<() => void> = [];
         const t: MoonshineTranscriber = {
-            transcribe: async () => { throw new Error('whole-buffer API must not be used'); },
+            transcribe: () => { throw new Error('whole-buffer API must not be used'); },
+            close: vi.fn(() => {}),
             createStream: () => ({
                 start: vi.fn(),
                 addAudio: (a: Float32Array) => { accumulated += a.length; },
@@ -497,7 +501,8 @@ describe('identity is CONFIGURED provenance, kept separate from observed executi
         // is the authority, and the runtime value is only cross-checked.
         const t = Object.assign(
             {
-                transcribe: async () => ({ lines: [{ text: 'x' }] }),
+                transcribe: () => ({ lines: [{ text: 'x' }] }),
+            close: vi.fn(() => {}),
                 createStream: () => streamOver(() => 'x'),
             } as MoonshineTranscriber,
             { version: '0.1.5', modelId: 'something/else-entirely' },
@@ -512,7 +517,8 @@ describe('identity is CONFIGURED provenance, kept separate from observed executi
         // quietly would attribute a transcript to a model that did not produce it.
         const t = Object.assign(
             {
-                transcribe: async () => ({ lines: [{ text: 'x' }] }),
+                transcribe: () => ({ lines: [{ text: 'x' }] }),
+            close: vi.fn(() => {}),
                 createStream: () => streamOver(() => 'x'),
             } as MoonshineTranscriber,
             { version: '9.9.9' },
@@ -672,5 +678,66 @@ describe('the continuous session uses the STREAMING api, never the whole-buffer 
         expect(await e.getTranscript()).toBe(`n:${4 * SR}`);
         expect(seen, 'the whole-buffer API was used for the final pass').toEqual([]);
         expect(passes[passes.length - 1]).toBe(4 * SR);
+    });
+});
+
+describe('close() runs on every exit path', () => {
+    /**
+     * The four exits, together, because the previous version of this suite proved teardown against a
+     * `destroy()` method the published runtime does not have. Every assertion passed and nothing was
+     * ever closed: the doubles implemented the invented API, so the tests agreed with the mistake.
+     */
+    const closable = () => {
+        const close = vi.fn(() => {});
+        const transcriber = {
+            transcribe: () => ({ lines: [] }),
+            createStream: () => ({ start: vi.fn(), addAudio: vi.fn(), transcribe: () => ({ lines: [] }), stop: vi.fn(), close: vi.fn() }),
+            close,
+        } as unknown as MoonshineTranscriber;
+        return { close, transcriber };
+    };
+
+    it('NORMAL TEARDOWN: terminate() closes the runtime', async () => {
+        const { close, transcriber } = closable();
+        const e = engineWith(transcriber);
+        await e.init();
+        await e.terminate();
+        expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it('FAILED INIT: a runtime refused for identity is closed, not left resident', async () => {
+        const { close, transcriber } = closable();
+        (transcriber as unknown as { version: string }).version = 'not-the-configured-version';
+        const e = engineWith(transcriber);
+        expect((await e.init()).isOk).toBe(false);
+        await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+    });
+
+    it('TIMEOUT: a transcriber arriving after the deadline is closed', async () => {
+        const { close, transcriber } = closable();
+        let release!: (t: MoonshineTranscriber) => void;
+        const e = new MoonshineStreamingEngine({
+            candidateId: 'moonshine:streaming-medium',
+            modelArch: 'MOONSHINE_STREAMING_MEDIUM',
+            loadTranscriber: () => new Promise((res) => { release = res; }),
+        });
+        expect((await e.init(10)).isOk).toBe(false);
+        release(transcriber);
+        await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+    });
+
+    it('SUPERSEDED INIT: a load overtaken by terminate() is closed rather than installed', async () => {
+        const { close, transcriber } = closable();
+        let release!: (t: MoonshineTranscriber) => void;
+        const e = new MoonshineStreamingEngine({
+            candidateId: 'moonshine:streaming-medium',
+            modelArch: 'MOONSHINE_STREAMING_MEDIUM',
+            loadTranscriber: () => new Promise((res) => { release = res; }),
+        });
+        const initing = e.init(10_000);
+        await e.terminate();
+        release(transcriber);
+        expect((await initing).isOk).toBe(false);
+        await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
     });
 });

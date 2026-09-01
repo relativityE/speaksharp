@@ -50,6 +50,9 @@ const SEQUENCE = ['v4:distil:q4', 'moonshine:streaming-medium', 'v2:base.en'] as
 
 const stubEngine = (): IPrivateSTTEngine => ({
     init: vi.fn(async () => ({ isOk: true, data: undefined })),
+    // The decode method a real recording uses. A double that omits it cannot exercise the path under
+    // test and would pass while the shipping engine threw.
+    transcribe: vi.fn(async () => ({ isOk: true, data: '' })),
     start: vi.fn(async () => {}),
     stop: vi.fn(async () => {}),
     pause: vi.fn(async () => {}),

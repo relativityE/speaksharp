@@ -113,6 +113,13 @@ export interface ResolvePrivateRuntimePathOptions {
    */
   turboModelCached: boolean;
   /**
+   * The capability reading taken ONCE by the caller. When supplied it is authoritative and this module
+   * does not probe again: a second async probe can disagree with the one that already governed the
+   * refusal gate, and the disagreement resolves as a silent downgrade to the v2 floor while the caller
+   * reports success for the candidate it asked for.
+   */
+  capabilities?: { readonly webgpuAvailable: boolean };
+  /**
    * v4 flag-gated tiering. When omitted or { enabled:false } the resolver behaves
    * identically to the v2-base default — v4 is NEVER selected, so flag-off is
    * byte-identical. When enabled, v4 is selected ONLY on confirmed WebGPU
@@ -179,11 +186,13 @@ export async function resolvePrivateRuntimePath(
   // on confirmed WebGPU; no-WebGPU stays the v2-base CPU floor. Omitted/disabled
   // `v4` never enters here, so flag-off behavior is byte-identical to the default.
   if (options.v4?.enabled) {
-    let webgpuAvailable = false;
-    try {
-      webgpuAvailable = (await detectWebGPUSupport()).supported;
-    } catch {
-      webgpuAvailable = false;
+    let webgpuAvailable = options.capabilities?.webgpuAvailable ?? false;
+    if (options.capabilities === undefined) {
+      try {
+        webgpuAvailable = (await detectWebGPUSupport()).supported;
+      } catch {
+        webgpuAvailable = false;
+      }
     }
 
     // v4 is selected on confirmed WebGPU (the conservative rollout). The DEV/TEST-only
@@ -220,11 +229,13 @@ export async function resolvePrivateRuntimePath(
 
   // Tier 1: WebGPU acceleration — only considered when explicitly allowed.
   if (options.webgpuPromotionAllowed) {
-    let webgpuAvailable = false;
-    try {
-      webgpuAvailable = (await detectWebGPUSupport()).supported;
-    } catch {
-      webgpuAvailable = false;
+    let webgpuAvailable = options.capabilities?.webgpuAvailable ?? false;
+    if (options.capabilities === undefined) {
+      try {
+        webgpuAvailable = (await detectWebGPUSupport()).supported;
+      } catch {
+        webgpuAvailable = false;
+      }
     }
 
     if (webgpuAvailable && options.turboModelCached) {

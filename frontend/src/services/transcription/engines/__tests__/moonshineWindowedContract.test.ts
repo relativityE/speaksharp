@@ -46,9 +46,9 @@ const fakeStream = () => {
 };
 
 const transcriberWith = (stream: MoonshineStream): MoonshineTranscriber => ({
-    transcribe: async () => { throw new Error('the whole-buffer API must not be used in a session'); },
+    transcribe: () => { throw new Error('the whole-buffer API must not be used in a session'); },
     createStream: () => stream,
-    destroy: vi.fn(),
+    close: vi.fn(),
 });
 
 const engineWith = (t: MoonshineTranscriber) => new MoonshineStreamingEngine({

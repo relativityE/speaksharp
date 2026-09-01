@@ -2,6 +2,7 @@ import type { MicStream } from '../utils/types';
 import type { Result } from '../modes/types';
 import type { AvailabilityResult, STTStrategy } from '../STTStrategy';
 import { CANDIDATES, identityOf, isCompleteIdentity, type CandidateId } from '../candidateRegistry';
+import { fetchVerifiedAssets, pinnedAssetsFor, pinnedTotalBytes } from '../moonshineAssetPins';
 
 /** Only the registered Moonshine candidates may back this engine. */
 export type MoonshineCandidateId = Extract<CandidateId, `moonshine:${string}`>;
@@ -65,15 +66,43 @@ export interface MoonshineStream {
 /** `TranscribeFlags.ForceUpdate` — insists on a pass that the interval would otherwise hold back. */
 export const FORCE_UPDATE = 1;
 
+/**
+ * Closed at most once, whoever gets there first.
+ *
+ * The timeout continuation and the post-await supersede check can both reach the same transcriber, and
+ * on the superseded path both did. `Transcriber.close()` is not documented as idempotent, so a second
+ * call is at best wasted and at worst throws inside teardown — the one place an exception is least
+ * welcome. Ownership is settled here rather than by reasoning about which path wins the race.
+ */
+const CLOSED = new WeakSet<object>();
+function closeOnce(t: MoonshineTranscriber | null | undefined): void {
+    if (!t || CLOSED.has(t)) return;
+    CLOSED.add(t);
+    try { t.close(); } catch { /* teardown must not throw over the original failure */ }
+}
+
 export interface MoonshineTranscriber {
-    transcribe(audio: Float32Array): Promise<{ lines?: { text?: string }[]; text?: string }>;
+    /**
+     * SYNCHRONOUS, and returns a Transcript. This was typed as returning a Promise, which TypeScript
+     * accepted because awaiting a non-Promise is legal — so the mistake could not surface as a type
+     * error, only as behaviour.
+     */
+    transcribe(audio: Float32Array, options?: { sampleRate?: number }): { lines?: { text?: string }[]; text?: string };
     /**
      * THE STREAMING ENTRY POINT. Required: this engine drives a continuous session, and the
      * whole-buffer `transcribe()` is documented as the NON-streaming call.
      */
     createStream?(options?: Record<string, unknown>): MoonshineStream;
-    /** Optional in the published runtime; called when present so workers are not leaked. */
-    destroy?(): Promise<void> | void;
+    /**
+     * THE RUNTIME'S ACTUAL TEARDOWN. This interface declared `destroy?()`, which the published
+     * `Transcriber` does not have — so every `destroy?.()` call site optional-chained to `undefined` and
+     * did nothing. The leak the timeout fix was written to close was still leaking: the checks passed
+     * because the test doubles implemented the method the interface invented.
+     *
+     * Not optional any more. A double that omits it now fails to compile, which is the only way this
+     * class of error gets caught before production.
+     */
+    close(): void;
 }
 
 /**
@@ -211,7 +240,7 @@ export class MoonshineStreamingEngine implements STTStrategy {
                 );
             }
             const load = this.options.loadTranscriber
-                ?? ((arch: MoonshineArch) => defaultLoadTranscriber(arch, this.options.onDownloadProgress));
+                ?? ((arch: MoonshineArch) => defaultLoadTranscriber(arch, this.options.onDownloadProgress, candidate.model.id));
 
             // THE ABANDONED LOADER. `Promise.race` only decides which promise this function waits for —
             // it does not cancel the loser. When the timeout won, `load()` kept running: it finished
@@ -232,7 +261,7 @@ export class MoonshineStreamingEngine implements STTStrategy {
                     if (settled || this.generation !== myGeneration) {
                         // Fire-and-forget: nobody is waiting on this, and a failed destroy of an
                         // already-orphaned runtime must not become an unhandled rejection.
-                        void Promise.resolve(late?.destroy?.()).catch(() => { /* nothing left to salvage */ });
+                        closeOnce(late);
                     }
                 },
                 () => { /* the rejection is surfaced through the await below when it wins the race */ },
@@ -263,7 +292,7 @@ export class MoonshineStreamingEngine implements STTStrategy {
                 // DESTROY BEFORE THROWING. This check previously ran after `this.transcriber` had already
                 // been assigned, so a rejected identity left the mismatched runtime installed on the
                 // engine and alive — the one case where we know the loaded model is NOT what we claim.
-                void Promise.resolve(loaded.destroy?.()).catch(() => { /* refused anyway */ });
+                closeOnce(loaded);
                 throw new Error(
                     `runtime reported version ${identified.version} but the registry configures `
                     + `${candidate.runtime.version}; refusing to attribute the session`,
@@ -274,7 +303,7 @@ export class MoonshineStreamingEngine implements STTStrategy {
             // observed-identity check — reads this field, so it must never hold a runtime we have
             // refused to attribute. A `terminate()` that landed during the load wins over this init.
             if (this.generation !== myGeneration) {
-                void Promise.resolve(loaded.destroy?.()).catch(() => { /* superseded */ });
+                closeOnce(loaded);
                 throw new Error('moonshine init was superseded before it completed');
             }
             this.transcriber = loaded;
@@ -418,7 +447,52 @@ export class MoonshineStreamingEngine implements STTStrategy {
         this.detachFrames?.(); this.detachFrames = null;
         try { this.stream?.close(); } catch { /* already closed */ } finally { this.stream = null; }
         this.mic = null;
-        try { await this.transcriber?.destroy?.(); } finally { this.transcriber = null; }
+        try { closeOnce(this.transcriber); } finally { this.transcriber = null; }
+    }
+
+    /**
+     * THE FACADE METHOD A REAL RECORDING USES.
+     *
+     * `PrivateWhisper` commits an utterance by calling `privateSTT.transcribe(audio)`, which forwards to
+     * `engine.transcribe(audio)`. This engine did not implement it at all — and `validateEngine` only
+     * requires `init`, `start` and `stop`, so the engine passed construction and every initialisation
+     * test, then would have thrown "not a function" at the first real commit decode. Every proof so far
+     * exercised init and the streaming pass; none used the method an actual recording goes through.
+     *
+     * DECODED ON ITS OWN STREAM, not the session's. The session stream is already being fed by mic
+     * frames, so pushing the same utterance into it would decode that audio twice — the transcript would
+     * gain a duplicated passage, which reads as a model defect rather than a plumbing one. A short-lived
+     * stream keeps the whole-buffer decode isolated and cannot carry state into the next session.
+     */
+    async transcribe(audio: Float32Array): Promise<Result<string, Error>> {
+        if (!this.transcriber) {
+            const err = new Error('Cannot transcribe before a successful init');
+            this.recordFailure('decode', err.message);
+            return { isOk: false, error: err };
+        }
+        let stream: MoonshineStream | null = null;
+        try {
+            // FAIL CLOSED without the streaming API, exactly as start() does. The transcriber's own
+            // whole-buffer `transcribe()` is the NON-streaming call and is documented as unsupported on a
+            // streaming arch; using it here would decode with machinery this candidate does not describe.
+            stream = this.transcriber.createStream?.() ?? null;
+            if (!stream) {
+                throw new Error('runtime exposes no streaming API; refusing the non-streaming fallback');
+            }
+            stream.start();
+            stream.addAudio(audio, TARGET_SAMPLE_RATE);
+            const text = textOf(stream.transcribe(FORCE_UPDATE));
+            this.lastHeartbeat = Date.now();
+            return { isOk: true, data: text };
+        } catch (e) {
+            const err = e instanceof Error ? e : new Error(String(e));
+            // RECORDED, never silently returned as empty text: an empty transcript is indistinguishable
+            // from a silent recording, and would be scored against the model.
+            this.recordFailure('decode', err.message);
+            return { isOk: false, error: err };
+        } finally {
+            if (stream) { try { stream.stop(); } finally { stream.close(); } }
+        }
     }
 
     async getTranscript(): Promise<string> { return this.committed || this.interim; }
@@ -506,6 +580,7 @@ export function resolveModelArch(modelArch: Record<string, unknown>, arch: Moons
 async function defaultLoadTranscriber(
     arch: MoonshineArch,
     onDownloadProgress?: (fraction: number) => void,
+    modelId?: string,
 ): Promise<MoonshineTranscriber> {
     const g = globalThis as unknown as { __name?: (t: unknown, v?: unknown) => unknown };
     g.__name ??= (target) => target;
@@ -513,11 +588,37 @@ async function defaultLoadTranscriber(
         Transcriber: { load: (o: Record<string, unknown>) => Promise<MoonshineTranscriber> };
         ModelArch: Record<string, unknown>;
     };
-    // Wired through to the runtime rather than declared and ignored. A progress callback that is never
-    // called is worse than none: the UI would show a frozen bar and read as a hang.
+
+    if (!modelId) {
+        throw new Error('refusing to load Moonshine without a model id to resolve committed pins against');
+    }
+
+    // THE PINS NOW DECIDE WHAT RUNS. This called `Transcriber.load({ language, modelArch, onProgress })`,
+    // which resolves the model through the vendor's CDN *catalog*: the executing bytes were whatever the
+    // catalog served, while our metadata reported the committed digest regardless. A re-publish, a stale
+    // edge cache or a substituted response would all have produced a session labelled with a digest
+    // nothing had checked — the model-truth failure this workstream exists to prevent, arriving through
+    // the supply chain instead of through the selector.
+    //
+    // Every component is fetched from its pinned URL and refused unless its length and SHA-256 match, and
+    // only verified buffers reach the runtime. `language` is not passed at all: it is what triggers
+    // catalog resolution, and leaving it in would let the runtime fall back to fetching its own copy.
+    const assets = pinnedAssetsFor(modelId);
+    const expectedTotal = pinnedTotalBytes(modelId);
+    const loadedByFile = new Map<string, number>();
+    const files = await fetchVerifiedAssets(assets, fetch, (file, loaded) => {
+        // BYTE-BASED, NORMALISED ONCE. The runtime's own callback is
+        // `(loaded, total, file)` — three arguments, in bytes. It was wired to a handler expecting a
+        // 0..1 FRACTION, so the first component alone reported `Math.round(3_651_296 * 100)` percent.
+        // Progress is accumulated per file against the pinned total instead, which is a number we
+        // actually know: the runtime's `total` is optional and absent for some components.
+        loadedByFile.set(file, loaded);
+        const done = [...loadedByFile.values()].reduce((a, b) => a + b, 0);
+        onDownloadProgress?.(Math.min(1, done / expectedTotal));
+    });
+
     return lib.Transcriber.load({
-        language: 'en',
+        files,
         modelArch: resolveModelArch(lib.ModelArch, arch),
-        ...(onDownloadProgress ? { onProgress: (f: number) => onDownloadProgress(f) } : {}),
     });
 }

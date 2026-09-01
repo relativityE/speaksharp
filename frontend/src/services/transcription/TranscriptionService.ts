@@ -656,8 +656,18 @@ export default class TranscriptionService {
     if (mode !== 'mock') {
       const isExplicitInit = this.fsm.is('ENGINE_INITIALIZING') || forceExplicit;
 
-      // Gate 1: CACHE_MISS specific
-      if (!availability.isAvailable && availability.reason === 'CACHE_MISS') {
+      // Gate 1: the user has to be ASKED, and must be able to answer.
+      //
+      // CONSENT_REQUIRED used to fall through to Gate 2 and become a hard engine failure, so a Moonshine
+      // selection was permanently unstartable: the consent machinery could refuse but nothing could ever
+      // grant. An unanswerable question is worse than no question — it reads to the user as the product
+      // being broken.
+      //
+      // It joins the download-consent path because that path already IS the consent interaction: the
+      // user is shown what will be downloaded and clicks to proceed. The click arrives here as an
+      // explicit init, which is where the receipt is recorded.
+      const needsUserDecision = availability.reason === 'CACHE_MISS' || availability.reason === 'CONSENT_REQUIRED';
+      if (!availability.isAvailable && needsUserDecision) {
         if (!this.fsm.is('DOWNLOAD_REQUIRED') && !isExplicitInit
           && !this.fsm.is('READY') && !this.fsm.is('RECORDING')) {
           this.fsm.transition({ type: 'DOWNLOAD_REQUIRED' });
@@ -666,11 +676,24 @@ export default class TranscriptionService {
         this.options.onStatusChange?.({
           type: 'download-required',
           message: 'Private model needs a one-time download.',
-          detail: 'Download once to use offline transcription in this browser.',
+          // The consent copy is the STRATEGY'S, not a generic line: it names the real maximum for the
+          // selected model and says the download may need to happen again if storage is cleared. The
+          // generic sentence claimed the download happens "once", which for a runtime whose cache we
+          // cannot inspect is a promise we are not in a position to make.
+          detail: availability.reason === 'CONSENT_REQUIRED' && availability.message
+            ? availability.message
+            : 'Download once to use offline transcription in this browser.',
           progress: 0
         });
 
         if (!isExplicitInit) return; // background pulse — stop here
+
+        // THE AFFIRMATIVE ACT. Reaching here on an explicit init means the user saw the size and chose
+        // to continue, so the receipt is recorded before initialisation rather than after: a load that
+        // fails partway still consumed their bandwidth with their agreement, and re-asking on the next
+        // attempt would punish them for our failure.
+        const strategy = this.strategy as { grantModelConsent?: () => void };
+        if (availability.reason === 'CONSENT_REQUIRED') strategy.grantModelConsent?.();
         // explicit init — fall through to strategy.init()
       }
 

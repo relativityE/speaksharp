@@ -33,7 +33,7 @@
 
 import { TranscriptionModeOptions, Result, ITranscriptionEngine } from '@/services/transcription/modes/types';
 import { IPrivateSTTEngine, EngineType } from '@/contracts/IPrivateSTTEngine';
-import { STTEngine, validateEngine } from '@/contracts/STTEngine';
+import { STTEngine, validateEngine, assertEngineCanDecode } from '@/contracts/STTEngine';
 import { PrivateSTTInitOptions } from '@/contracts/IPrivateSTT';
 import logger from '@/lib/logger';
 import posthog from 'posthog-js';
@@ -47,11 +47,11 @@ import {
 } from '../candidateRegistry';
 import { recordResolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { effectiveCandidate, assertDeviceAvailable, v4VariantFor } from '../candidateSelection';
-import { consentCopy, consentDecision, readReceipt, reducedDataRequested } from '../modelConsent';
+import { consentCopy, consentDecision, consentTermsFor, readReceipt, recordConsent, reducedDataRequested } from '../modelConsent';
 import type { MoonshineArch, MoonshineCandidateId } from './MoonshineStreamingEngine';
 import { MOONSHINE_ARCH_BY_CANDIDATE } from './MoonshineStreamingEngine';
 import { runtimeCandidateOverride } from '../runtimeCandidateSwitch';
-import { isWebGPUSupported } from '../utils/webgpuSupport';
+import { captureCapabilities } from '../capabilitySnapshot';
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
 import type { PrivateSttProvider } from '../providers/types';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
@@ -165,6 +165,22 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
     /** The arch a completed Moonshine init actually loaded. Null until then. */
     private moonshineArch: MoonshineArch | null = null;
+
+    /**
+     * Record the user's consent for the SELECTED candidate.
+     *
+     * Named and public so the grant is auditable rather than a side effect buried in init: consent that
+     * is recorded implicitly is indistinguishable, later, from consent that was never asked for.
+     */
+    public grantModelConsent(): void {
+        try {
+            const candidate = effectiveCandidate().candidate;
+            recordConsent(consentTermsFor(candidate), new Date().toISOString());
+        } catch {
+            // A candidate we cannot resolve is one we cannot describe to the user, so there is nothing
+            // honest to record. The next availability check will ask again.
+        }
+    }
 
     public getMetadata(): {
         engineVersion: string; modelName: string; deviceType: string;
@@ -362,8 +378,14 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // A candidate that REQUIRES an accelerator is refused HERE, visibly, rather than being quietly
         // downgraded to WASM further down. A slow run recorded under the same candidate id would be
         // evidence for a configuration nobody measured.
+        // ONE READING, USED BY BOTH DECISIONS. This called `isWebGPUSupported()` while the resolver
+        // below independently called `detectWebGPUSupport()`. Two async probes, nothing comparing them:
+        // when they disagreed the gate admitted a WebGPU-only candidate and the resolver quietly
+        // returned the v2 floor, so the session ran Whisper while the switch reported success for the
+        // model that was asked for. The snapshot is taken once here and threaded onward.
+        const capabilities = await captureCapabilities();
         if (candidate.model.device === 'webgpu') {
-            assertDeviceAvailable(candidate, await isWebGPUSupported());
+            assertDeviceAvailable(candidate, capabilities.webgpuAvailable);
         }
 
         // MOONSHINE SHORT-CIRCUITS THE v4 RESOLVER. That resolver reasons about WebGPU promotion and
@@ -397,6 +419,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const decision = await resolvePrivateRuntimePath({
             webgpuPromotionAllowed: false,
             turboModelCached: false,
+            capabilities,
             v4: wantsV4
                 ? {
                     enabled: true,
@@ -744,6 +767,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 }) as unknown as IPrivateSTTEngine;
 
             validateEngine(engine as unknown as IPrivateSTTEngine);
+            assertEngineCanDecode(engine, 'moonshine-streaming');
             const result = await (engine as unknown as IPrivateSTTEngine).init(timeoutMs, isMock);
             if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
                 return { isOk: false, error: (result as { error: Error }).error };

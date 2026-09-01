@@ -37,7 +37,7 @@ const MANIFESTS: Manifest[] = [
     },
     {
         label: 'moonshine',
-        file: 'tests/fixtures/moonshine-asset-pins.json',
+        file: 'frontend/src/services/transcription/moonshineAssetPins.json',
         cacheRoot: join('.hf-cache', 'external'),
         url: (key) => `https://${key}`,
         read: (raw) => Object.fromEntries(

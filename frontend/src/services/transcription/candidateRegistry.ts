@@ -235,7 +235,7 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
         assets: {
             pinDigest: '898305d7768356a7f56002a4b2c4e55dd0534a6fd1ae11b0aadc0d11d2a27891',
             provenance: 'upstream_pins',
-            pinSource: 'tests/fixtures/moonshine-asset-pins.json',
+            pinSource: 'frontend/src/services/transcription/moonshineAssetPins.json',
             componentCount: 7,
             // The HONEST MAXIMUM this candidate may pull over the network, summed from the seven pinned
             // components. It is not an estimate and not a typical case: consent copy quotes it as an
