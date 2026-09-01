@@ -253,7 +253,9 @@ describe('issueReportService', () => {
 
     const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
     const latestEvent = events[events.length - 1];
-    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', session_id: null });
+    // No live take to correlate to, so the link is FALSE — and the previous take's id must not be
+    // resurrected as a stand-in.
+    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', report_linked_to_session: false });
     expect(JSON.stringify(latestEvent)).not.toContain('previous-session');
   });
 
@@ -275,8 +277,11 @@ describe('issueReportService', () => {
 
     const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
     const latestEvent = events[events.length - 1];
-    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', session_id: 'current-session' });
+    // Correlated to the CURRENT take, so the link is true — but no raw identifier travels, for either
+    // the current session or the stale one.
+    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', report_linked_to_session: true });
     expect(JSON.stringify(latestEvent)).not.toContain('previous-session');
+    expect(JSON.stringify(latestEvent), 'no raw session id on the wire').not.toContain('current-session');
   });
 
   it('surfaces a persistence failure rather than masking it (persistence is authoritative)', async () => {

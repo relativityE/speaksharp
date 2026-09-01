@@ -151,10 +151,20 @@ export const issueReportService = {
     // journey (session id and the most recent content-free Private engine identity).
     // The strict allowlist guarantees no title/description/transcript/audio rides along.
     const arm = getLastPrivateIdentity();
+    // THE LINK, NOT THE IDENTIFIER. This sent a raw session UUID to the analytics vendor, so every
+    // report carried a stable per-session identifier — enough to re-identify a session from analytics
+    // alone. The wire only needs to answer whether the report is linked to a session at all.
+    //
+    // NOTE THE ASYMMETRY, because it is easy to misread: the INSERT above stores `input.sessionId`
+    // only. The fallback to the last observed private identity below was never persisted, so that
+    // correlation existed in the analytics vendor and NOWHERE ELSE — a relationship the product could
+    // not reconstruct from its own database. Reducing it to a boolean removes an identifier whose only
+    // home was a third party; the durable relationship remains the column the insert writes.
+    const correlatedSessionId = input.sessionId ?? arm.session_id ?? null;
     emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.REPORT_ISSUE_SUBMITTED, {
       issue_category: input.category,
       issue_severity: input.severity,
-      session_id: input.sessionId ?? arm.session_id ?? null,
+      report_linked_to_session: correlatedSessionId !== null,
       engine_variant: arm.engine_variant ?? null,
       release_sha: arm.release_sha ?? null,
     });

@@ -2,7 +2,7 @@
 import posthog from 'posthog-js';
 import * as Sentry from "@sentry/react";
 import logger from '../lib/logger';
-import { sanitizePrivateTelemetryProps } from './transcription/privateTelemetry';
+import { sanitizePrivateTelemetryProps } from './transcription/privateTelemetrySanitizer';
 import { projectEventProps, isGovernedEvent, type GovernedEvent } from './telemetryAllowlist';
 import { buildEnvelope, stripEnvelopeKeys, type EnvelopeSources } from './telemetry/envelope';
 import { buildTrafficSignals } from './telemetry/trafficType';
