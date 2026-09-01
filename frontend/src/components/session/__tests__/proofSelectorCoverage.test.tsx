@@ -25,9 +25,25 @@ import {
 const PROOF_FILES = [
     'tests/live/three-session-retention-proof.live.spec.ts',
     'tests/live/helpers/benchmark-utils.ts',
+    // The RELEASE journey gate. It was absent from this list and was therefore the one proof still
+    // clicking the retired combined control — the guard closed the class everywhere it looked, and this
+    // file was outside where it looked.
+    'tests/live/private-recording-proof.live.spec.ts',
 ];
 
 const progress = computeProgressVsBaseline([{ fillerCount: 34, durationSeconds: 600 }]);
+
+/** Every testid the proof files actually drive, comments stripped so prose cannot register as usage. */
+function selectorsUsedByProofs(): Set<string> {
+    const source = PROOF_FILES.map((f) => readFileSync(f, 'utf8'))
+        .map((s) => s.split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n'))
+        .join('\n');
+    const used = new Set<string>();
+    for (const m of source.matchAll(/getByTestId\('([a-zA-Z0-9_-]+)'\)|data-testid="([a-zA-Z0-9_-]+)"/g)) {
+        used.add(m[1] ?? m[2]);
+    }
+    return used;
+}
 
 /** Mount the during state and report which of `ids` actually rendered. */
 function renderDuringAndCollect(ids: readonly string[]) {
@@ -97,6 +113,23 @@ describe('#1306 proof selector coverage — the class-level guard', () => {
         const undeclared = [...used].filter((id) => !declared.has(id)).sort();
         expect(undeclared, `undeclared proof selectors — contract or exempt them: ${undeclared.join(', ')}`)
             .toEqual([]);
+    });
+
+    it('CASUALTY: no proof DRIVES a retired control', () => {
+        // The declared-selector test above cannot catch this: RETIRED ids are deliberately IN the
+        // declared set so the render test below can assert they are gone from the product. That made
+        // "declared" mean "known", not "allowed", and a proof clicking a retired control passed the
+        // guard — which is exactly how the release journey gate kept clicking a combined toggle the
+        // session overhaul had deleted, failing after signup, download and READY.
+        // Scoped to the retired CONTROL, not to retired read-only ids. A retired transcript id may
+        // legitimately appear as an `.or()` fallback when a helper serves specs whose pages render
+        // different surfaces — reading a surface that turns out absent yields null and the primary
+        // locator still answers. Driving a control that renders nowhere cannot degrade: the click has
+        // no target, so the journey simply stops, which is the failure this guard exists for.
+        const used = selectorsUsedByProofs();
+        expect(used.size, 'the scan must not be vacuous').toBeGreaterThan(10);
+        expect(used.has(RETIRED_COMBINED_CONTROL),
+            `a proof drives the retired combined control '${RETIRED_COMBINED_CONTROL}'`).toBe(false);
     });
 
     it('every exemption carries a real reason', () => {
