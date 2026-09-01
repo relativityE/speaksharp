@@ -150,8 +150,16 @@ describe('#1306 proof selector coverage — the class-level guard', () => {
      * ticket — but the list may only ever SHRINK, and nothing outside it may use the control.
      *
      * A ledger is not closure, which is why no ACTIVE workflow or package script may invoke anything on
-     * it: `private-cache` was migrated out rather than listed, because `live-release-matrix` runs it,
-     * and the superseded benchmark entrypoints were retired. That separation is asserted below.
+     * it: the superseded benchmark entrypoints were retired rather than ledgered. That separation is
+     * asserted below.
+     *
+     * `private-cache` appears on neither side. It was migrated off the retired control, but it also
+     * forces Transformers.js and disables WebGPU, so it can only ever describe a v2 cold/warm start —
+     * under a config selecting Moonshine or distil it would report a cache verdict for a model the
+     * session never ran. It was therefore removed from `live-release-matrix` entirely (#1263), and
+     * cold/warm proof of the SELECTED candidate moves to #1390, where the real switch and the observed
+     * identity make the verdict attributable. Neither ledgering nor a matrix lane would have fixed
+     * that: the harness pins the very thing the proof is supposed to vary.
      */
     const KNOWN_BROKEN_LIVE_SPECS: readonly string[] = [
         'tests/live/analytics-live-native-probe.live.spec.ts',
