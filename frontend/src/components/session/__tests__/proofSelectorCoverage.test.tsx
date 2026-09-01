@@ -148,12 +148,15 @@ describe('#1306 proof selector coverage — the class-level guard', () => {
      * deleted `session-start-stop-button`, so the click has no target and the run fails after setup.
      * They are benchmark and probe harnesses rather than the release path, so migrating them is its own
      * ticket — but the list may only ever SHRINK, and nothing outside it may use the control.
+     *
+     * A ledger is not closure, which is why no ACTIVE workflow or package script may invoke anything on
+     * it: `private-cache` was migrated out rather than listed, because `live-release-matrix` runs it,
+     * and the superseded benchmark entrypoints were retired. That separation is asserted below.
      */
     const KNOWN_BROKEN_LIVE_SPECS: readonly string[] = [
         'tests/live/analytics-live-native-probe.live.spec.ts',
         'tests/live/tester-b-private-native-stt.live.spec.ts',
         'tests/live/stt-accuracy-integration.live.spec.ts',
-        'tests/live/private-cache.live.spec.ts',
         'tests/live/benchmark-v4.live.spec.ts',
         'tests/live/benchmark-native.live.spec.ts',
         'tests/live/benchmark-cpu.live.spec.ts',
@@ -172,6 +175,29 @@ describe('#1306 proof selector coverage — the class-level guard', () => {
         // And the recorded set may not grow: a fixed spec must be deleted from the list, so the debt
         // cannot quietly stay the same size while files are swapped in and out of it.
         expect(offenders.length).toBeLessThanOrEqual(KNOWN_BROKEN_LIVE_SPECS.length);
+    });
+
+    it('CASUALTY: no ACTIVE workflow or package script invokes a ledgered broken spec', () => {
+        // The ledger records debt; it does not license running it. A workflow that still invokes a spec
+        // recorded as broken produces evidence naming a model or a journey that did not actually run,
+        // which is worse than producing none.
+        const entrypoints = [
+            ...readdirSync(join(REPO_ROOT, '.github', 'workflows'))
+                .filter((f) => /\.ya?ml$/.test(f))
+                .map((f) => join('.github', 'workflows', f)),
+            'package.json',
+        ];
+        const offenders: string[] = [];
+        for (const ep of entrypoints) {
+            const body = readFileSync(join(REPO_ROOT, ep), 'utf8');
+            for (const spec of KNOWN_BROKEN_LIVE_SPECS) {
+                // Only an actual RUN counts; naming a spec in an error message explaining the ban does not.
+                if (new RegExp(`playwright test[^\n]*${spec.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(body)) {
+                    offenders.push(`${ep} :: ${spec}`);
+                }
+            }
+        }
+        expect(offenders.sort()).toEqual([]);
     });
 
     it('NON-VACUITY: the retired-control scan actually reads these files', () => {

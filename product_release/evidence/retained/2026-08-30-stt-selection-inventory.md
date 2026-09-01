@@ -67,3 +67,46 @@ This is the same class of defect as the benchmark's `productBaseline`/`execution
 
 Moonshine has **no product engine**. `@moonshine-ai/moonshine-wasm` appears only in the benchmark
 harness and the pin registries. A registry entry does not make it reachable from the product.
+
+---
+
+## CORRECTION — 2026-09-01
+
+**Appended, not rewritten.** The original claims above are left exactly as first recorded: an inventory
+edited to look correct stops being evidence of what was actually asserted. Everything below was
+re-verified by scanning the same commit this document names, `main@024b574f`.
+
+### Confirmed correct
+
+| Claim | Verified |
+|---|---|
+| `privateEngine` read at `sttIdentity.ts:202` | yes |
+| `privateModel` read at `privateModelFlag.ts:64` | yes |
+| 30 files reference at least one token | yes (30) |
+| Moonshine has no product engine at this commit | yes |
+| The `PrivateSTT.getMetadata` defect (model read from the DEFAULT variant constant) | yes |
+
+### Factually wrong, and how
+
+The **line numbers were right and the filenames were wrong** — several distinct modules were collapsed
+into `privateModelFlag.ts`:
+
+| Original claim | Actual location at `024b574f` |
+|---|---|
+| `v4Device` at `privateModelFlag.ts:67` | `privateV4Experiment.ts:67` |
+| `v4Variant` at `privateModelFlag.ts:69` | `privateV4Experiment.ts:69` |
+| `privateEngine` at `privateModelFlag.ts:112` | `engines/PrivateSTT.ts:112` |
+| "19 source, 11 test" | **18 source, 12 test** (total 30 is correct) |
+
+This matters beyond tidiness. The inventory's stated purpose is the *count and shape* of the problem the
+config plane had to retire, and a reader following it to `privateModelFlag.ts` would have found no
+device or variant handling there, concluded the entry was stale, and moved on — leaving
+`privateV4Experiment` unretired. The one number that would have caught the mis-attribution, the
+source/test split, was also wrong in the direction that made the source surface look smaller than it was.
+
+### Disposition of the mechanisms listed above
+
+All of them are retired as of #1263: the URL parameters, the `speaksharp.*` storage keys and
+`window.__PRIVATE_MODEL__` are gone from production source, `privateV4Experiment` is deleted, and a
+repository-wide guard blocks their return. Selection is the checked-in config file, a one-way remote
+safety kill that can only force `v2:base.en`, and an internal-build-only in-page switch.

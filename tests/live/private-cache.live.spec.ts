@@ -1,5 +1,13 @@
 import { test, expect, type Page } from '@playwright/test';
-import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode } from './helpers/benchmark-utils';
+import {
+  AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode,
+  startBenchmarkRecording, stopBenchmarkRecording,
+} from './helpers/benchmark-utils';
+// The MODEL-STATE CONTROL MAP. This spec clicked `session-start-stop-button`, the combined toggle the
+// session overhaul retired — it renders on no viewport, so the download click and both recording
+// clicks had no target. `live-release-matrix` still invokes this spec, so it is migrated rather than
+// left in a known-broken ledger.
+import { MIC_CONTROL_BY_STATUS } from '../helpers/micControls';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
@@ -203,7 +211,8 @@ async function preparePrivateModelIfPrompted(page: Page) {
         `${JSON.stringify(snapshot, null, 2)}`
       );
     }
-    await page.locator('[data-testid="session-start-stop-button"]').first().click();
+    // The DOWNLOAD control, which is what `download-required` actually renders.
+    await page.getByTestId(MIC_CONTROL_BY_STATUS['download-required']).first().click();
   }
 
   await waitForPrivateReady(page);
@@ -225,14 +234,12 @@ async function waitForPrivateReady(page: Page) {
 }
 
 async function startAndStopPrivateRecording(page: Page) {
-  const startStopButton = page.getByTestId('session-start-stop-button');
-  await expect(startStopButton).toBeVisible({ timeout: 30_000 });
-  await expect(startStopButton).toBeEnabled({ timeout: 60_000 });
-  await startStopButton.click();
-  await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 45_000 });
+  // RecorderBar REPLACES MicCard while recording rather than toggling it, so start and stop are
+  // DIFFERENT controls. The retired toggle's `data-recording` attribute belonged to an element that no
+  // longer exists, so polling it reported "not recording" unconditionally.
+  await startBenchmarkRecording(page, 'private-cache');
   await page.waitForTimeout(2_000);
-  await startStopButton.click();
-  await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 45_000 });
+  await stopBenchmarkRecording(page, 'private-cache');
 }
 
 async function getCacheSnapshot(page: Page): Promise<CacheSnapshot> {

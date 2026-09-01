@@ -95,7 +95,14 @@ jobs:
           PRO_TEST_EMAIL: ${{ vars.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           STT_INCLUDE_AUDIO_DATA_URL: 'true'
-        run: pnpm exec playwright test tests/live/benchmark-cpu.live.spec.ts tests/live/benchmark-v4.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+        # RETIRED ENTRYPOINT. benchmark-cpu and benchmark-v4 drive `session-start-stop-button`, the
+        # control the session overhaul deleted, and benchmark-v4 additionally selects models through
+        # retired localStorage keys that are now inert — every arm would have run the CONFIGURED
+        # candidate while the report named another. An active workflow invoking a spec recorded as
+        # broken produces evidence that names a model which did not run, which is worse than none.
+        run: |
+          echo "::error::benchmarks.yml invoked benchmark-cpu/benchmark-v4, which are recorded as broken (retired recording control + retired selectors). Re-point them at the config plane and the shared control map before re-enabling."
+          exit 1
         timeout-minutes: 30
 
       - name: Upload Private exact app-buffer capture proof

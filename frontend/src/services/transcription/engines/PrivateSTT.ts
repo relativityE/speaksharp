@@ -564,12 +564,18 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const cacheEngine =
             preferredEngine === 'transformers-js-v4' ? 'transformers-js-v4'
                 : 'transformers-js';
-        const isDownloaded = await ModelManager.isModelDownloaded(cacheEngine);
+        const selectedVariant = (() => {
+            try { return selected ? PRIV_STT_V4_VARIANTS[v4VariantFor(selected)] : null; } catch { return null; }
+        })();
+        // PROBE THE SELECTED MODEL'S FILES. Fixing only the reported SIZE left readiness still checking
+        // base-q4's cache entries, so a distil build could report the wrong model as downloaded or as
+        // missing — the number was corrected while the answer it accompanied was not.
+        const isDownloaded = await ModelManager.isModelDownloaded(
+            cacheEngine,
+            selectedVariant?.MODEL_ID ?? PRIV_STT_V4.MODEL_ID,
+        );
 
         if (!isDownloaded) {
-            const selectedVariant = (() => {
-                try { return selected ? PRIV_STT_V4_VARIANTS[v4VariantFor(selected)] : null; } catch { return null; }
-            })();
             const sizeMB = preferredEngine === 'transformers-js-v4'
                 ? (selectedVariant?.EXPECTED_SPLIT_DOWNLOAD_MB ?? PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB)
                 : ModelManager.getModelSizeMB(cacheEngine);
