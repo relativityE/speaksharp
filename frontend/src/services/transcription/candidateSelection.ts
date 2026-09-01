@@ -18,8 +18,9 @@
 import privateSttConfig from '../../config/private-stt.config.json';
 import {
     CANDIDATES, CANDIDATE_IDS, UnknownCandidateError,
-    type Candidate,
+    type Candidate, type CandidateId,
 } from './candidateRegistry';
+import type { PrivSttV4VariantId } from './sttConstants';
 import {
     isRemoteSafetyKillEngaged, SAFETY_KILL_TARGET, FALLBACK_CAUSE_REMOTE_KILL,
 } from './safetyKill';
@@ -197,4 +198,57 @@ export function effectiveCandidate(
         };
     }
     return { candidate: activeCandidate(config, env), fallbackCause: null };
+}
+
+/**
+ * The v4 runtime variant a candidate names.
+ *
+ * A CLOSED map, not a string derived from the model id. The two base candidates share a repository and
+ * an encoder and differ only in decoder precision, so anything inferred from the id alone cannot tell
+ * them apart — which is the shape of the defect that once recorded an int8 session as q4.
+ */
+const V4_VARIANT: Readonly<Partial<Record<CandidateId, PrivSttV4VariantId>>> = Object.freeze({
+    'v4:base:q4': 'base_q4',
+    'v4:distil:q4': 'distil_q4',
+    // 'v4:base:int8' is DELIBERATELY ABSENT. It is a benchmark arm: `PRIV_STT_V4_VARIANTS` registers no
+    // int8 variant, so the engine has no way to load one. Mapping it to base_q4 to "make it work" is
+    // precisely the defect this module exists to prevent — the session would run q4 and be recorded as
+    // int8, and a comparison between them would be a model against itself.
+});
+
+export function v4VariantFor(candidate: Candidate): PrivSttV4VariantId {
+    const v = V4_VARIANT[candidate.id];
+    if (!v) {
+        throw new UnknownCandidateError(
+            `candidate "${candidate.id}" has no v4 RUNTIME variant, so the engine cannot load it. `
+            + 'It is registered for benchmarking only. Selecting it would run a different model under '
+            + 'this id; configure a candidate the runtime can actually instantiate.',
+        );
+    }
+    return v;
+}
+
+/** A candidate that requires an accelerator this device does not have. */
+export class DeviceUnavailableError extends Error {}
+
+/**
+ * Refuse a candidate whose required device is absent. VISIBLY, never by substitution.
+ *
+ * `v4:distil:q4` declares `device: 'webgpu'` because that is the only configuration it was measured
+ * in. Running it on WASM instead does not fail — it produces a transcript, slowly, and the session is
+ * then recorded as distil. An ear test comparing that against another candidate would be comparing a
+ * model to a degraded version of itself and reading the difference as quality.
+ *
+ * Silently downgrading the DEVICE is therefore the same class of error as silently downgrading the
+ * MODEL: the run no longer matches the thing being claimed about it. So the boot stops with a stated
+ * reason, and whoever configured a WebGPU-only candidate finds out on the device that cannot run it.
+ */
+export function assertDeviceAvailable(candidate: Candidate, webgpuAvailable: boolean): void {
+    if (candidate.model.device === 'webgpu' && !webgpuAvailable) {
+        throw new DeviceUnavailableError(
+            `Private STT candidate "${candidate.id}" requires WebGPU and this browser has none. `
+            + 'It is not run on WASM instead: a slow run recorded under this id would be evidence for '
+            + 'a configuration that was never measured. Select a candidate with no device requirement.',
+        );
+    }
 }

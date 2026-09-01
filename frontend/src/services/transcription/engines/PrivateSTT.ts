@@ -47,11 +47,11 @@ import {
     type CandidateId, type SessionModelIdentity,
 } from '../candidateRegistry';
 import { recordResolvedEngine } from '@/services/telemetry/runtimeAttribution';
+import { effectiveCandidate, assertDeviceAvailable, v4VariantFor } from '../candidateSelection';
+import { isWebGPUSupported } from '../utils/webgpuSupport';
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
 import type { PrivateSttProvider } from '../providers/types';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
-import { getV4FlagState } from '../privateV4Flags';
-import { getV4ExperimentOverrides } from '../privateV4Experiment';
 import { buildV4LifecycleProps, emitV4Ready, emitV4Fallback, emitV4Error } from '../privateV4Telemetry';
 import { buildEngineVersion, type EngineVariant } from '../privateTelemetry';
 // Stale import removed
@@ -359,44 +359,52 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * ever promoted when its model was pre-cached, which no production flow did.
      */
     private async resolveAutoPrivateEngine(configured: SelectedPrivateEngine): Promise<SelectedPrivateEngine> {
-        // v4 flag-gated tiering (post-paid-soft-launch). When the flag is OFF, `v4`
-        // is omitted, so the resolver returns the EXACT v2/CPU decision as before —
-        // flag-off is byte-identical to the v2-base default (no v4 ever selected).
-        const v4Flags = getV4FlagState();
-        // DEV/TEST-only force-AUTO knob: attempt v4 on the AUTO path even without WebGPU so
-        // headless CI can prove the decode-fallback contract. Inert in production.
-        const v4Experiment = getV4ExperimentOverrides();
-        const forceAuto = v4Experiment.forceAuto;
-        // Gate A candidate selection uses the dev/test forceAuto shim and must be able to compare
-        // base_q4 vs distil_q4 under identical WebGPU conditions. This variant override is honored
-        // ONLY when forceAuto is active; real PostHog selection still uses the real distil flag.
-        const distilEnabled = v4Flags.distilEnabled || (forceAuto && v4Experiment.variant === 'distil_q4');
+        // CONFIG IS THE SELECTOR.
+        //
+        // This previously read PostHog flags and a URL/localStorage experiment shim, so which model a
+        // visitor ran was a property of remote state at that moment and could not be reviewed. It now
+        // comes from a checked-in file. `effectiveCandidate()` applies the one-way safety kill and
+        // nothing else: no URL parameter, no localStorage key, no flag payload and no cohort reaches
+        // this decision, and the kill can only ever force the v2 floor.
+        const { candidate, fallbackCause } = effectiveCandidate();
+
+        // A candidate that REQUIRES an accelerator is refused HERE, visibly, rather than being quietly
+        // downgraded to WASM further down. A slow run recorded under the same candidate id would be
+        // evidence for a configuration nobody measured.
+        if (candidate.model.device === 'webgpu') {
+            assertDeviceAvailable(candidate, await isWebGPUSupported());
+        }
+
+        const wantsV4 = candidate.engine === 'transformers-js-v4';
         const decision = await resolvePrivateRuntimePath({
             webgpuPromotionAllowed: false,
             turboModelCached: false,
-            v4: (v4Flags.v4Enabled || forceAuto)
+            v4: wantsV4
                 ? {
                     enabled: true,
-                    distilEnabled,
-                    forceAuto,
-                    // Honest provenance: the REAL flag wins when on (even if forceAuto is also set);
-                    // forceAuto-only is the dev/test harness shim. This — not `reason` — drives the
-                    // artifact's selectionSource, since on real WebGPU `reason` is identical for both.
-                    selectionSource: v4Flags.v4Enabled ? 'posthog_flag' : 'dev_harness',
+                    // The EXACT variant the config named. Passing a boolean here is what made
+                    // base_int8 unselectable.
+                    variant: v4VariantFor(candidate),
+                    // WASM-capable variants are honoured without WebGPU: a checked-in selection is a
+                    // deliberate choice, not a percentage rollout that should stay conservative.
+                    allowWithoutWebGPU: candidate.model.device !== 'webgpu',
+                    distilEnabled: false,
+                    forceAuto: false,
+                    selectionSource: fallbackCause ? 'remote_safety_kill' : 'config',
                   }
                 : undefined,
         });
         this.runtimePath = decision;
-                // PUBLISH AT RESOLUTION. The telemetry seam has no handle on this engine, and events
-                // fired before the first save would otherwise carry null attribution even though the
-                // identity was already known here.
-                this.publishResolvedIdentity();
+        // PUBLISH AT RESOLUTION. The telemetry seam has no handle on this engine, and events fired
+        // before the first save would otherwise carry null attribution even though the identity was
+        // already known here.
+        this.publishResolvedIdentity();
         publishPrivateRuntimeDebug(decision);
-        logger.info({ sId: this.serviceId, rId: this.runId, runtimeDecision: decision, configured }, '[PrivateSTT] Resolved private runtime decision');
+        logger.info({
+            sId: this.serviceId, rId: this.runId, runtimeDecision: decision, configured,
+            candidateId: candidate.id, fallbackCause,
+        }, '[PrivateSTT] Resolved private runtime decision from config');
 
-        // Route to v4 ONLY when the resolver actually selected it (flag on + confirmed
-        // WebGPU). Otherwise stay on the configured v2 engine. v4 init failure falls
-        // back to v2-base in onInit (auto path only).
         if (decision.provider === 'transformers-js-v4') {
             return 'transformers-js-v4';
         }
@@ -404,25 +412,30 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     /**
-     * Internal-only v4 flag telemetry. Emitted only when the v4 flag is on, so the
-     * default v2 path stays silent. Records the attempted/selected variant, device,
-     * and any fallback reason — never user-facing engine internals. Never throws.
+     * Internal-only v4 telemetry. Records the attempted/selected variant, device, and any fallback
+     * reason — never user-facing engine internals. Never throws.
+     *
+     * GATED ON WHAT RAN, NOT ON A FLAG. This returned early unless `getV4FlagState().v4Enabled` was
+     * true. Once selection moved to config that flag stopped deciding anything, so the gate would have
+     * ended v4 telemetry silently — and an absence of events is indistinguishable from v4 never having
+     * been attempted, which is the exact ambiguity this telemetry exists to remove.
      */
     private emitV4FlagTelemetry(fallbackReason: string | null, loadMs?: number, errorClass?: string | null): void {
         try {
-            const flags = getV4FlagState();
-            if (!flags.v4Enabled) return;
             const d = this.runtimePath;
+            // The decision records the ATTEMPTED provider, so this still fires when v4 was tried and
+            // fell back to the v2 floor — which is the case most worth recording.
+            if (d?.provider !== 'transformers-js-v4') return;
             const variant = d?.v4Variant ?? null;
             const variantCfg = variant ? PRIV_STT_V4_VARIANTS[variant] : null;
             const payload = {
-                v4FlagEnabled: flags.v4Enabled,
-                distilFlagEnabled: flags.distilEnabled,
-                // Provenance of the selection so evidence can distinguish a REAL PostHog-flag
-                // selection from the dev/test forceAuto shim. Read from the decision (computed at
-                // selection time from flag-vs-forceAuto) — NOT derived from `reason`, which on real
-                // WebGPU reads `webgpu_available_v4_flag` for forceAuto too and would mislabel it.
-                selectionSource: d?.selectionSource ?? 'posthog_flag',
+                // Provenance of the selection, so evidence can tell a checked-in config choice from a
+                // safety-kill fallback or a dev harness run. Read from the decision — NOT derived from
+                // `reason`, which on real WebGPU reads identically across sources and would mislabel it.
+                // The retired v4FlagEnabled/distilFlagEnabled fields are gone: flags no longer select a
+                // model, so reporting their state alongside a selection would invite reading them as
+                // the cause of it.
+                selectionSource: d?.selectionSource ?? 'config',
                 selectedVariant: variant,
                 model: variantCfg?.MODEL_ID ?? null,
                 dtype: variantCfg ? JSON.stringify(variantCfg.DTYPE) : null,

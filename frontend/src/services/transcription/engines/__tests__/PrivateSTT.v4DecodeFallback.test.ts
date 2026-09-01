@@ -23,10 +23,19 @@ vi.mock('@/config/TestFlags', async (importOriginal) => {
     };
 });
 
-// Force the v4 flag ON so the AUTO path selects v4 (WebGPU is made usable below).
-vi.mock('../../privateV4Flags', () => ({
-    getV4FlagState: () => ({ v4Enabled: true, distilEnabled: false }),
-}));
+// CONFIGURE v4 so the AUTO path selects it. Selection is no longer a flag: this test used to force
+// `getV4FlagState`, which is not how any build chooses a model any more. The DECODE-FALLBACK contract
+// under test is unchanged — a v4 decode that fails or hangs must fall back to the v2-base floor — so
+// only the way the run arrives at v4 is re-pointed. `v4VariantFor` and `assertDeviceAvailable` stay
+// REAL, so a candidate the runtime cannot load would still fail here rather than be mocked past.
+vi.mock('../../candidateSelection', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../../candidateSelection')>();
+    const { CANDIDATES } = await import('../../candidateRegistry');
+    return {
+        ...actual,
+        effectiveCandidate: () => ({ candidate: CANDIDATES['v4:base:q4'], fallbackCause: null }),
+    };
+});
 
 const v4Transcribe = vi.fn();
 const tjTranscribe = vi.fn();
