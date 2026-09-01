@@ -1,3 +1,4 @@
+import { activeCandidate } from '../candidateSelection';
 /**
  * ============================================================================
  * TRANSFORMERS.JS V4 ENGINE
@@ -208,7 +209,27 @@ export class TransformersJSV4Engine extends STTEngine {
                 dtype: v4Model.DTYPE,
                 progress_callback,
             };
-            const mainThreadDevice = experimentDevice ?? PRIV_STT_V4.DEVICE;
+            /**
+             * THE CANDIDATE'S DEVICE IS PART OF ITS IDENTITY.
+             *
+             * PRIV_STT_V4.DEVICE is null, so without this a WebGPU-only candidate (distil) loaded with
+             * NO device and transformers.js defaulted to WASM — where distil decodes at RTF ~2.2 and a
+             * listener would hear a slow model and blame the model. The device now comes from the same
+             * registry entry that supplies the model and dtype, so a candidate cannot be run on a
+             * backend it was never meant for.
+             *
+             * Explicit experiment overrides still win, because they exist to A/B the device itself.
+             */
+            const candidateDevice = (() => {
+                try {
+                    const c = activeCandidate();
+                    return c.engine === 'transformers-js-v4' ? c.model.device ?? null : null;
+                } catch {
+                    // An unresolvable config must not silently pick a device; fall through to the default.
+                    return null;
+                }
+            })();
+            const mainThreadDevice = experimentDevice ?? candidateDevice ?? PRIV_STT_V4.DEVICE;
             if (mainThreadDevice) {
                 pipelineOptions.device = mainThreadDevice;
             }

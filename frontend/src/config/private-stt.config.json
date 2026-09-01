@@ -1,0 +1,13 @@
+{
+  "$comment": [
+    "THE SOLE SELECTOR for the Private STT candidate. Checked in, so changing which model users get is",
+    "a reviewable commit rather than a URL parameter or a value in someone's browser.",
+    "",
+    "This is an INTERNAL instrument, not a user-facing picker: users get exactly the one candidate named",
+    "here. Rollback is editing this file, not emergency engineering.",
+    "",
+    "Valid ids come from frontend/src/services/transcription/candidateRegistry.ts. An unknown or",
+    "activation-ineligible id fails boot with a stated reason; it is never silently substituted."
+  ],
+  "candidate": "v2:base.en"
+}
