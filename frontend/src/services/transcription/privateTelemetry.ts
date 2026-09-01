@@ -11,7 +11,12 @@ export const PRIVATE_TELEMETRY_EVENTS = {
 } as const;
 
 export type PrivateTelemetryEvent = typeof PRIVATE_TELEMETRY_EVENTS[keyof typeof PRIVATE_TELEMETRY_EVENTS];
-export type EngineVariant = 'private_v2' | 'private_v4';
+/**
+ * The arm a session ran under. `private_moonshine` exists because the alternative — folding a third
+ * engine into a two-value union — forces every consumer into a binary that quietly resolves the unknown
+ * case to `private_v2`, which is how Moonshine sessions were being saved under Whisper's name.
+ */
+export type EngineVariant = 'private_v2' | 'private_v4' | 'private_moonshine';
 export type AssignmentSource = 'default' | 'posthog_flag' | 'allowlist' | 'deterministic_override';
 
 export const PRIVATE_TELEMETRY_ALLOWED_PROPS = [

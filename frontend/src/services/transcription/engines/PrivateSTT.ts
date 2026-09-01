@@ -47,7 +47,7 @@ import {
 } from '../candidateRegistry';
 import { recordResolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { effectiveCandidate, assertDeviceAvailable, v4VariantFor } from '../candidateSelection';
-import type { MoonshineCandidateId } from './MoonshineStreamingEngine';
+import type { MoonshineArch, MoonshineCandidateId } from './MoonshineStreamingEngine';
 import { MOONSHINE_ARCH_BY_CANDIDATE } from './MoonshineStreamingEngine';
 import { runtimeCandidateOverride } from '../runtimeCandidateSwitch';
 import { isWebGPUSupported } from '../utils/webgpuSupport';
@@ -162,12 +162,24 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         }
     }
 
+    /** The arch a completed Moonshine init actually loaded. Null until then. */
+    private moonshineArch: MoonshineArch | null = null;
+
     public getMetadata(): {
         engineVersion: string; modelName: string; deviceType: string;
         candidateId?: CandidateId; modelIdentity?: SessionModelIdentity;
     } {
+        // AN EXPLICIT THREE-WAY. This was `isV4 ? 'private_v4' : 'private_v2'`, a two-value boolean over
+        // what is now three engines — so every Moonshine session fell through the else and was persisted
+        // as `private_v2` / `whisper-base.en`. The saved row named a model that had not run, which is
+        // precisely the comparison the human test exists to make; the arm would have been invisible in
+        // its own results. A boolean cannot be extended safely here, so the engine is switched on
+        // directly and an unknown engine is left unattributed rather than defaulted.
         const isV4 = this._engineType === 'transformers-js-v4';
-        const variant: EngineVariant = isV4 ? 'private_v4' : 'private_v2';
+        const isMoonshine = this._engineType === 'moonshine-streaming';
+        const variant: EngineVariant = isV4
+            ? 'private_v4'
+            : isMoonshine ? 'private_moonshine' : 'private_v2';
 
         // THE RESOLVED variant, not the default constant. `PRIV_STT_V4_DEFAULT_VARIANT` is base_q4, so
         // a session that actually resolved distil_q4 was recorded as base_q4 — the model name in the
@@ -185,7 +197,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             const variantCfg = resolvedVariant ? PRIV_STT_V4_VARIANTS[resolvedVariant] : null;
             candidateId = candidateForRuntime({
                 engineType: this._engineType,
-                variant: resolvedVariant,
+                // The Moonshine arch IS its variant for identity purposes; `v4Variant` is null on that
+                // path and passing it would send the registry a provider with no model.
+                variant: isMoonshine ? this.moonshineArch : resolvedVariant,
                 decoderDtype: (variantCfg?.DTYPE as { decoder_model_merged?: string } | undefined)
                     ?.decoder_model_merged ?? null,
                 // `acceleration` is the decision's own field; there is no `device` on it, and
@@ -199,9 +213,12 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             // was never measured. Legacy fields below still describe the arm.
         }
 
+        // Moonshine's model name comes from the registry entry the arch resolved to, never from a
+        // constant: a hardcoded name here is the same defect as `PRIV_STT_V4_DEFAULT_VARIANT` was.
         const model = isV4
             ? (resolvedVariant ?? PRIV_STT_V4_DEFAULT_VARIANT)
-            : 'whisper-base.en';
+            : isMoonshine ? (modelIdentity?.configuredModel.id ?? 'unknown')
+                : 'whisper-base.en';
         return {
             engineVersion: buildEngineVersion(variant, model),
             modelName: model,
@@ -698,6 +715,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             }
             this.engine = engine as unknown as IPrivateSTTEngine;
             this._engineType = 'moonshine-streaming';
+            // Recorded only after a successful init, and recorded as the ARCH that was actually loaded
+            // rather than the candidate that was requested, so metadata cannot describe a model the
+            // session never ran.
+            this.moonshineArch = arch;
             return { isOk: true, data: 'moonshine-streaming' as EngineType };
         } catch (error) {
             return { isOk: false, error: error instanceof Error ? error : new Error(String(error)) };

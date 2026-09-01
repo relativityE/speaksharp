@@ -297,6 +297,18 @@ export function candidateForRuntime(state: ResolvedRuntimeState): CandidateId {
             + 'refusing to attribute the session to a default',
         );
     }
+    if (engineType === 'moonshine-streaming') {
+        // KEYED ON THE ARCH, NOT THE PROVIDER. Only the medium arch is registered today, so mapping the
+        // provider straight to `moonshine:streaming-medium` would look correct and stay correct until
+        // the moment someone runs SmallStreaming — at which point every small session would be recorded,
+        // and compared, as medium. The provider says which machinery ran; only the arch says which model
+        // did, and it is the model the human test is choosing between.
+        if (variant === 'MOONSHINE_STREAMING_MEDIUM') return 'moonshine:streaming-medium';
+        throw new UnknownCandidateError(
+            `moonshine engine resolved arch ${JSON.stringify(variant)}, which no registered candidate `
+            + 'describes; refusing to attribute the session to the one arch that happens to be registered',
+        );
+    }
     throw new UnknownCandidateError(
         `no candidate maps to engine type ${JSON.stringify(engineType)}`,
     );
