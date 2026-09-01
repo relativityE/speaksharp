@@ -31,24 +31,19 @@ type CacheSnapshot = {
   } | null
 }
 
+// ONE ARM. The other two selected via `?privateModel=whisper-tiny.en` / `=whisper-base.en` and
+// asserted `selectionSource: 'url'` — a channel and a source that no longer exist, so both would have
+// decoded with the CONFIGURED model while the case labelled them tiny and base. A cache proof whose
+// two arms silently run the same model compares nothing.
+//
+// Per-model cache behaviour returns when the config plane can express it (one build per candidate),
+// not through a URL.
 const PRIVATE_MODEL_CASES = [
   {
     label: 'default-base',
     sessionPath: '/session',
     expectedModel: 'whisper-base.en',
     expectedSelectionSource: 'default',
-  },
-  {
-    label: 'tiny-fallback',
-    sessionPath: '/session?privateModel=whisper-tiny.en',
-    expectedModel: 'whisper-tiny.en',
-    expectedSelectionSource: 'url',
-  },
-  {
-    label: 'base-opt-in',
-    sessionPath: '/session?privateModel=whisper-base.en',
-    expectedModel: 'whisper-base.en',
-    expectedSelectionSource: 'url',
   },
 ] as const;
 

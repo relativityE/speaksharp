@@ -181,15 +181,24 @@ describe('#1306 proof selector coverage — the class-level guard', () => {
         // The ledger records debt; it does not license running it. A workflow that still invokes a spec
         // recorded as broken produces evidence naming a model or a journey that did not actually run,
         // which is worse than producing none.
+        // Workflows, the package manifest, AND shell wrappers. `run-v4-gates.sh` invoked broken
+        // proofs directly, so a scan that stopped at YAML and package.json would have called the
+        // separation clean while a wrapper still launched them.
+        const shellWrappers = readdirSync(join(REPO_ROOT, 'scripts'))
+            .filter((f) => /\.(sh|mjs|mts)$/.test(f))
+            .map((f) => join('scripts', f));
         const entrypoints = [
             ...readdirSync(join(REPO_ROOT, '.github', 'workflows'))
                 .filter((f) => /\.ya?ml$/.test(f))
                 .map((f) => join('.github', 'workflows', f)),
             'package.json',
+            ...shellWrappers,
         ];
         const offenders: string[] = [];
         for (const ep of entrypoints) {
-            const body = readFileSync(join(REPO_ROOT, ep), 'utf8');
+            // Comments stripped: an explanation of WHY a lane is retired names the spec, and must not
+            // read as an invocation of it.
+            const body = code(readFileSync(join(REPO_ROOT, ep), 'utf8'));
             for (const spec of KNOWN_BROKEN_LIVE_SPECS) {
                 // Only an actual RUN counts; naming a spec in an error message explaining the ban does not.
                 if (new RegExp(`playwright test[^\n]*${spec.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(body)) {

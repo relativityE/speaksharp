@@ -104,6 +104,30 @@ device or variant handling there, concluded the entry was stale, and moved on �
 `privateV4Experiment` unretired. The one number that would have caught the mis-attribution, the
 source/test split, was also wrong in the direction that made the source surface look smaller than it was.
 
+### Also wrong: what the localStorage section claimed
+
+The original table lists `privateEngine · privateModel · speaksharp.private.engine` as
+"localStorage keys read as selection input". Re-verified at `main@024b574f`:
+
+- **`privateEngine` and `privateModel` were NOT localStorage keys in production.** They were URL
+  parameters, and `privateModel` was additionally a window global (`window.__PRIVATE_MODEL__`). The
+  only place they appear as storage keys is a TEST that sets them to prove production ignores them —
+  so the row recorded a test fixture as a production mechanism.
+- **The real storage keys were omitted entirely.** The complete set at that commit:
+  `speaksharp.private.engine`, `speaksharp.v4.device`, `speaksharp.v4.variant`,
+  `speaksharp.v4.decoderDtype`, `speaksharp.v4.forceAuto`, `speaksharp.v4.noWorker`.
+  Five of the six were missing.
+
+Both errors point the same way: the storage surface was recorded as smaller and differently shaped
+than it was, so anyone retiring "the three localStorage keys" would have left five real ones behind.
+
+### Also missing: the provider-default authority
+
+The mechanism table omits the one that decided the answer when every other mechanism was silent —
+`services/transcription/providers/sttProviderConfig.ts`, whose `defaultProvider: 'transformers-js'`
+was the authority for the normal path. An inventory of selection mechanisms that omits the default
+selector describes only the exceptions.
+
 ### Disposition of the mechanisms listed above
 
 All of them are retired as of #1263: the URL parameters, the `speaksharp.*` storage keys and

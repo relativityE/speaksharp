@@ -19,6 +19,15 @@ import { PRIV_STT_MODELS } from '../sttConstants';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+const REPO_ROOT = (() => {
+    let dir = dirname(new URL(import.meta.url).pathname);
+    for (let i = 0; i < 12; i += 1) {
+        try { if (statSync(join(dir, 'pnpm-lock.yaml')).isFile()) return dir; } catch { /* keep walking */ }
+        dir = dirname(dir);
+    }
+    throw new Error('repo root not found');
+})();
+
 const SRC = (() => {
     let dir = dirname(new URL(import.meta.url).pathname);
     for (let i = 0; i < 12; i += 1) {
@@ -44,6 +53,27 @@ const BANNED_PARAMS = [
 /** These are unambiguous: they exist only as selection channels, so a bare mention is a regression. */
 const BANNED_TOKENS = ['__PRIVATE_MODEL__', 'speaksharp.private.engine', 'speaksharp.v4.'];
 
+/**
+ * Scripts are entrypoints too.
+ *
+ * The scan covered `frontend/src` only, so `run-v4-gates.sh` and `manual-stt-corpus-proof.mjs` kept
+ * driving retired channels invisibly — a guard that only watches application source cannot see the
+ * launch points that actually run against production.
+ */
+function scriptFiles(): string[] {
+    const dir = join(REPO_ROOT, 'scripts');
+    const out: string[] = [];
+    const walk = (d: string) => {
+        for (const e of readdirSync(d, { withFileTypes: true })) {
+            const p = join(d, e.name);
+            if (e.isDirectory()) walk(p);
+            else if (/\.(sh|mjs|mts|cjs)$/.test(e.name)) out.push(p);
+        }
+    };
+    walk(dir);
+    return out;
+}
+
 function productionFiles(dir: string, out: string[] = []): string[] {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
         const p = join(dir, e.name);
@@ -57,10 +87,19 @@ function productionFiles(dir: string, out: string[] = []): string[] {
     return out;
 }
 
-/** Strip line and block comments so a retirement NOTE never counts as a usage. */
+/**
+ * Strip comments so a retirement NOTE never counts as a usage.
+ *
+ * Handles `#` as well as `//`: the scan now covers shell scripts, and a `#` explanation of WHY a
+ * channel is retired would otherwise be read as the channel still being used — the guard would flag
+ * its own documentation and stay red forever, which is how a guard gets disabled.
+ */
 function code(src: string): string {
     return src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n')
-        .filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*'))
+        .filter((l) => {
+            const s = l.trim();
+            return !s.startsWith('//') && !s.startsWith('*') && !s.startsWith('#');
+        })
         .join('\n');
 }
 
@@ -73,10 +112,10 @@ describe('no retired model-selection channel exists in production source', () =>
 
     it('CASUALTY: no window global or storage key for model selection survives', () => {
         const offenders: string[] = [];
-        for (const f of files) {
+        for (const f of [...files, ...scriptFiles()]) {
             const body = code(readFileSync(f, 'utf8'));
             for (const token of BANNED_TOKENS) {
-                if (body.includes(token)) offenders.push(`${f.slice(SRC.length + 1)} :: ${token}`);
+                if (body.includes(token)) offenders.push(`${f.replace(REPO_ROOT + '/', '')} :: ${token}`);
             }
         }
         expect(offenders.sort()).toEqual([]);
@@ -84,17 +123,17 @@ describe('no retired model-selection channel exists in production source', () =>
 
     it('CASUALTY: nothing READS a selection value from the query string or storage', () => {
         const offenders: string[] = [];
-        for (const f of files) {
+        for (const f of [...files, ...scriptFiles()]) {
             const body = code(readFileSync(f, 'utf8'));
             // BOTH quote styles. A single-quote-only pattern is bypassed by `getItem("privateModel")`
             // — and a guard that can be sidestepped by pressing a different key is not a guard.
             for (const m of body.matchAll(/(?:\.get|getItem)\(\s*['"`]([a-zA-Z0-9_.]+)['"`]\s*\)/g)) {
-                if (BANNED_PARAMS.includes(m[1])) offenders.push(`${f.slice(SRC.length + 1)} :: ${m[1]}`);
+                if (BANNED_PARAMS.includes(m[1])) offenders.push(`${f.replace(REPO_ROOT + '/', '')} :: ${m[1]}`);
             }
             // INDIRECT reads: the literal bound to a name and read through it. Catching only inline
             // literals would leave `const K = 'privateModel'; params.get(K)` invisible.
             for (const m of body.matchAll(/['"`]([a-zA-Z0-9_.]+)['"`]/g)) {
-                if (BANNED_PARAMS.includes(m[1])) offenders.push(`${f.slice(SRC.length + 1)} :: literal ${m[1]}`);
+                if (BANNED_PARAMS.includes(m[1])) offenders.push(`${f.replace(REPO_ROOT + '/', '')} :: literal ${m[1]}`);
             }
         }
         expect(offenders.sort()).toEqual([]);
