@@ -97,24 +97,6 @@ function getConfiguredPrivateEngine(): PrivateEngineType {
 }
 
 /**
- * RETIRED: the `?privateEngine=` / localStorage engine override.
- *
- * It resolved a Private engine from a URL parameter and a localStorage key, gated to dev/test. Two
- * problems survived that gate. The parameter NAMES INTERNAL ENGINE BUILDS to anyone who reads a URL,
- * and a per-visitor selection channel is one mistaken gate away from being a production selector — the
- * same shape as `?privateModel=`, which turned out to have no gate at all.
- *
- * Which model runs is now one reviewable config value, plus an internal-build-only in-page switch for
- * the human comparison. Both are reviewable; a URL is not. The programmatic `forceEngine` option is
- * unaffected: it is not publicly settable, so it is not a visitor-reachable channel.
- */
-export function isPrivateEngineOverrideActive(): boolean {
-    // No override channel remains, so this is always false. Kept because Private telemetry reads it to
-    // attribute `assignment_source`, and that attribution must now always say "not overridden".
-    return false;
-}
-
-/**
  * Dual-engine Private STT facade
  */
 /** Upper bound on a v4 AUTO-path decode. A base_q4-on-WASM decode can HANG and never return;

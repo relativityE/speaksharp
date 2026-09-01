@@ -6,7 +6,6 @@ import TranscriptionService, { getTranscriptionService } from '@/services/transc
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
 import { resolvePrivateModel } from '@/services/transcription/utils/privateModelFlag';
 import { getV4FlagState } from '@/services/transcription/privateV4Flags';
-import { isPrivateEngineOverrideActive } from '@/services/transcription/engines/PrivateSTT';
 import type { MetricsEngine } from '@/services/telemetry/MetricsEngine';
 import { createShadowMetricsEngine, toTelemetryMode, isShadowMetricsEngineEnabled } from '@/services/telemetry/shadowMetricsEngine';
 import { safeResetSessionTelemetry } from '@/services/telemetry/sessionTelemetryBus';
@@ -235,6 +234,9 @@ const NATIVE_NOISE_TRANSCRIPTS = new Set([
     'the',
     'on the',
 ]);
+
+/** Distinguishes "the soft path handled it" from "there was no service to destroy". */
+const SOFT_RESET = Symbol('soft-reset');
 
 export type RuntimeState =
     | 'IDLE'
@@ -527,7 +529,8 @@ export class SpeechRuntimeController {
             const flags = getV4FlagState();
             const assignment = resolvePrivateAssignment({
                 resolvedEngineType: this.getResolvedEngineType(),
-                overrideActive: isPrivateEngineOverrideActive(),
+                // No engine-override channel exists any more, so this is constant.
+                overrideActive: false,
                 allowlisted: flags.allowlisted,
                 rolloutEnabled: flags.v4Enabled,
             });
@@ -2906,14 +2909,19 @@ export class SpeechRuntimeController {
      * ✅ HARD RESET (Synchronous Barrier)
      * 1. version++, 2. Cancel tokens, 3. Clear activeTasks, 4. Clear Queue
      */
-    public reset(reason: string = 'manual'): void {
+    /**
+     * The synchronous half of a hard reset, shared by `reset()` and `hardResetAwaited()` so the two can
+     * never drift. Returns the detached service for the caller to destroy, or SOFT_RESET when the soft
+     * path already handled it.
+     */
+    private applyHardResetState(reason: string): TranscriptionService | null | typeof SOFT_RESET {
         if (reason === 'subscriber_unmount') {
             logger.debug('[SpeechRuntimeController] Soft reset: Detaching subscriber (preserving engine)');
             if (this.serviceUnsubscribe) {
                 this.serviceUnsubscribe();
                 this.serviceUnsubscribe = null;
             }
-            return;
+            return SOFT_RESET;
         }
 
         logger.warn({ reason, state: this.state }, '[SpeechRuntimeController] HARD RESET triggered');
@@ -2937,20 +2945,13 @@ export class SpeechRuntimeController {
         // 3. Reset Queue
         this.commandQueue = Promise.resolve();
 
-        // 4. Fire-and-forget destruction
+        // 4. Detach the service. DESTRUCTION IS THE CALLER'S CHOICE: `reset()` keeps the historical
+        //    fire-and-forget behaviour, `hardResetAwaited()` waits for it.
         const svc = this.service;
         this.service = null;
         if (svc) {
             this.stopWatchdog();
             this.stopHeartbeat();
-            svc.destroy().catch((destroyError) => {
-                logger.warn({
-                    destroyError,
-                    reason,
-                    state: this.state,
-                    lifecycleVersion: this.lifecycleVersion,
-                }, '[SpeechRuntimeController] Service destroy failed during hard reset');
-            });
         }
 
         this.serviceUnsubscribe = null;
@@ -2965,8 +2966,53 @@ export class SpeechRuntimeController {
         this.isSubscriberReady = false;
         this.resetEphemeralState(reason);
 
+        return svc;
+    }
+
+    /**
+     * Hard reset, FIRE AND FORGET. Historical behaviour, unchanged: state is cleared synchronously and
+     * destruction plus the transitions run unawaited.
+     */
+    public reset(reason: string = 'manual'): void {
+        const svc = this.applyHardResetState(reason);
+        if (svc === SOFT_RESET) return;
+        if (svc) {
+            svc.destroy().catch((destroyError) => {
+                logger.warn({ destroyError, reason, state: this.state, lifecycleVersion: this.lifecycleVersion },
+                    '[SpeechRuntimeController] Service destroy failed during hard reset');
+            });
+        }
         void this.transition('TERMINATED');
         void this.transition('IDLE');
+    }
+
+    /**
+     * THE SAME hard reset, AWAITED. Resolves only once the old service is destroyed and the lifecycle
+     * has transitioned.
+     *
+     * WHY THIS EXISTS. `reset()` clears state synchronously and leaves destruction and both transitions
+     * running unawaited, so a caller cannot tell when the previous engine is actually gone. Polling the
+     * published state is not a substitute: at the moment a model switch begins the state is already
+     * READY — that is why the switch was permitted — so a settled-state check passes on its first read,
+     * before the reset has changed anything. Two engines could then briefly share one worker.
+     *
+     * Ownership sits here, with the controller that owns the lifecycle, rather than in the caller.
+     */
+    public async hardResetAwaited(reason: string): Promise<void> {
+        const svc = this.applyHardResetState(reason);
+        if (svc === SOFT_RESET) return;
+        if (svc) {
+            try {
+                await svc.destroy();
+            } catch (destroyError) {
+                // A destroy that fails must not strand the caller: the service is already detached, so
+                // the old engine is unreachable either way. Reported, not swallowed silently.
+                logger.warn({ destroyError, reason, state: this.state, lifecycleVersion: this.lifecycleVersion },
+                    '[SpeechRuntimeController] Service destroy failed during awaited hard reset');
+            }
+        }
+        await this.transition('TERMINATED');
+        await this.transition('IDLE');
     }
 
     private resetEphemeralState(reason: string = 'unknown'): void {

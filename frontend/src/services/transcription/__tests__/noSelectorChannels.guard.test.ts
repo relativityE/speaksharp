@@ -13,7 +13,9 @@
  * This scans PRODUCTION SOURCE with comments stripped, so the retirement notes that explain the ban do
  * not themselves trip it.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
+import { resolvePrivateModel } from '../utils/privateModelFlag';
+import { PRIV_STT_MODELS } from '../sttConstants';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
@@ -97,5 +99,39 @@ describe('no retired model-selection channel exists in production source', () =>
         const hits = [...planted.matchAll(/(?:\.get|getItem)\(\s*'([a-zA-Z0-9_.]+)'\s*\)/g)]
             .filter((m) => BANNED_PARAMS.includes(m[1]));
         expect(hits).toHaveLength(1);
+    });
+});
+
+/**
+ * THE ONE PLACE the retired names may still be written down.
+ *
+ * Proving a channel is inert requires naming it, and if every suite that wants that proof names it
+ * again, the vocabulary spreads back through the codebase — which is half of why the parameters were a
+ * disclosure problem. So the inertness proofs live here, beside the ban that makes them true, and
+ * nowhere else.
+ */
+describe('the retired channels are inert, proven in the fixture that owns their names', () => {
+    interface ModelWindow { __PRIVATE_MODEL__?: string }
+    afterEach(() => {
+        window.history.replaceState({}, '', '/');
+        delete (window as unknown as ModelWindow).__PRIVATE_MODEL__;
+        window.localStorage.clear();
+    });
+
+    it('CASUALTY: no retired URL parameter changes the resolved model', () => {
+        window.history.replaceState({}, '', `?${BANNED_PARAMS.map((k) => `${k}=whisper-small.en`).join('&')}`);
+        expect(resolvePrivateModel()).toBe(PRIV_STT_MODELS.DEFAULT);
+    });
+
+    it('CASUALTY: no retired storage key changes the resolved model', () => {
+        for (const k of BANNED_PARAMS) window.localStorage.setItem(k, 'whisper-small.en');
+        expect(resolvePrivateModel()).toBe(PRIV_STT_MODELS.DEFAULT);
+    });
+
+    it('CASUALTY: the window global changes nothing, even with a VALID candidate id', () => {
+        const other = Object.keys(PRIV_STT_MODELS.CANDIDATES).find((k) => k !== PRIV_STT_MODELS.DEFAULT);
+        expect(other, 'need a second registered candidate for this to mean anything').toBeTruthy();
+        (window as unknown as ModelWindow).__PRIVATE_MODEL__ = other;
+        expect(resolvePrivateModel()).toBe(PRIV_STT_MODELS.DEFAULT);
     });
 });

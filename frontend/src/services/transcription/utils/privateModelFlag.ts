@@ -60,30 +60,6 @@ export function resolvePrivateModel(): PrivateModelKey {
   return PRIV_STT_MODELS.DEFAULT as PrivateModelKey;
 }
 
-/** Retired: nothing can override the model per visitor any more, so this is always false. */
-export function isPrivateModelOverridden(): boolean {
-  return false;
-}
-
-/** Retired: there is no request channel left to read, so nothing is ever requested. */
-export function getRequestedPrivateModel(): string | null {
-  return null;
-}
-
-/**
- * Retired guard. It existed because a silent fallback made `?privateModel=` look honoured when it was
- * not. With the parameter gone there is no requested-but-unsupported state to reject: an unsupported
- * candidate is now refused at CONFIG selection, before a session starts.
- */
-export function assertValidPrivateModelSelection(): void {
-  /* no requested model can exist */
-}
-
-/** Where the model selection came from this session: window flag, URL param, or the default. */
-export function resolvePrivateModelSource(): PrivateModelSelectionSource {
-  return 'default';
-}
-
 /** Publish the model-eval telemetry snapshot (test-only; no behavior impact). */
 export function publishPrivateModelTelemetry(telemetry: PrivateModelTelemetry): void {
   if (typeof window === 'undefined') return;

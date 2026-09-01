@@ -1,96 +1,121 @@
-/**
- * #1263 — the REAL switch executor's lifecycle, not an injected fake.
- *
- * `runtimeCandidateSwitch.test.ts` proves the switch's DECISIONS against a stub executor. It cannot see
- * the two defects that live in the executor itself:
- *
- *   - `reset()` fires `svc.destroy().catch(...)` without awaiting it and transitions with `void`, so it
- *     returns while destruction is still in flight. Depending on it alone let `initialize()` start
- *     against a service that was still tearing down.
- *   - `resolvedEngine()` holds what the OUTGOING engine published and was never cleared in production,
- *     so a switch that failed to initialise kept reporting the previous model as the running one.
- *
- * These drive the executor `installRuntimeCandidateSwitch` actually registers, with the controller and
- * service mocked, and assert ORDER and ATTRIBUTION rather than merely that the calls happened.
- */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-
-const order: string[] = [];
-const destroy = vi.fn(async () => { order.push('destroy'); });
-const reset = vi.fn(() => { order.push('reset'); });
-const initiateModelDownload = vi.fn(async () => { order.push('initiateModelDownload'); });
-
-vi.mock('@/services/SpeechRuntimeController', () => ({
-    speechRuntimeController: { reset, initiateModelDownload },
-}));
-vi.mock('../TranscriptionService', () => ({
-    getTranscriptionService: () => ({ destroy }),
-}));
-
-import { installRuntimeCandidateSwitch, waitForSettled } from '../installRuntimeSwitch';
+// @vitest-environment jsdom
+//
+// #1263 — ONE COMBINED ORDERING PROOF, against the REAL controller.
+//
+// The critical condition is that the new engine does not begin initialising while the old engine's
+// destruction is still unresolved. Proving that in two halves — "hardResetAwaited() waits" in a
+// controller test, "the installer calls hardResetAwaited()" in a mocked test — leaves the join
+// untested: an installer wired to `reset()` instead would satisfy both halves and still start two
+// engines over one worker. So this drives the real singleton through the real switch, and holds
+// destruction open across the boundary.
+//
+// Only the SERVICE is a stub, because the subject is teardown ordering rather than a transcription
+// engine, and `initiateModelDownload` is spied so the test does not download a model.
+import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest';
+import type { TranscriptionMode } from '../TranscriptionPolicy';
+import { speechRuntimeController } from '@/services/SpeechRuntimeController';
+import { installRuntimeCandidateSwitch } from '../installRuntimeSwitch';
 import { switchCandidate, clearRuntimeCandidateOverride, registerSwitchExecutor } from '../runtimeCandidateSwitch';
 import { recordResolvedEngine, resolvedEngine, clearResolvedEngine } from '@/services/telemetry/runtimeAttribution';
 
-const INTERNAL = { VITE_INTERNAL_BUILD: 'true' };
-const setState = (s: string) => document.documentElement.setAttribute('data-runtime-state', s);
+vi.mock('../../../lib/logger', () => ({
+    default: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+}));
 
-describe('the real switch executor', () => {
+const INTERNAL = { VITE_INTERNAL_BUILD: 'true' };
+
+/** A service whose destruction we hold open, so ordering is observable rather than inferred. */
+function deferredService() {
+    let release!: () => void;
+    const destroyed = { value: false };
+    const gate = new Promise<void>((r) => { release = r; });
+    const destroy = vi.fn(async () => { await gate; destroyed.value = true; });
+    return { svc: { destroy } as unknown as never, destroy, destroyed, release };
+}
+
+describe('model switch — combined real-controller ordering', () => {
+    let initSpy: MockInstance<(mode?: TranscriptionMode) => Promise<void>>;
+    const order: string[] = [];
+
     beforeEach(() => {
         order.length = 0;
-        vi.clearAllMocks();
         clearRuntimeCandidateOverride();
         clearResolvedEngine();
         registerSwitchExecutor(null);
-        setState('READY');
+        (speechRuntimeController as unknown as { state: string }).state = 'READY';
+        document.documentElement.setAttribute('data-runtime-state', 'READY');
+        initSpy = vi.spyOn(speechRuntimeController, 'initiateModelDownload')
+            .mockImplementation(async () => { order.push('initiateModelDownload'); });
         installRuntimeCandidateSwitch(INTERNAL);
     });
     afterEach(() => {
+        initSpy.mockRestore();
+        registerSwitchExecutor(null);
         clearRuntimeCandidateOverride();
         clearResolvedEngine();
-        registerSwitchExecutor(null);
+        speechRuntimeController.service = null;
         document.documentElement.removeAttribute('data-runtime-state');
     });
 
-    it('CASUALTY: destruction is AWAITED before the new engine initialises', async () => {
-        const out = await switchCandidate('v4:distil:q4', INTERNAL);
+    it('CASUALTY: initialisation does NOT begin while the old engine is still being destroyed', async () => {
+        const { svc, destroyed, release } = deferredService();
+        speechRuntimeController.service = svc;
+
+        const pending = switchCandidate('v4:distil:q4', INTERNAL);
+
+        // Give the switch every chance to run ahead: several microtask turns and a macrotask.
+        await Promise.resolve();
+        await Promise.resolve();
+        await new Promise((r) => setTimeout(r, 20));
+
+        expect(destroyed.value, 'destruction is still open').toBe(false);
+        expect(initSpy, 'the new engine must not have started').not.toHaveBeenCalled();
+
+        release();
+        const out = await pending;
+
         expect(out.ok).toBe(true);
-        // The old service is destroyed, state is cleared, and only then does the new engine come up.
-        expect(order).toEqual(['destroy', 'reset', 'initiateModelDownload']);
+        expect(destroyed.value).toBe(true);
+        expect(initSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('CASUALTY: a SLOW destroy still completes before initialise starts', async () => {
-        destroy.mockImplementationOnce(async () => {
-            await new Promise((r) => setTimeout(r, 30));
-            order.push('destroy');
-        });
-        await switchCandidate('v4:distil:q4', INTERNAL);
-        expect(order.indexOf('destroy')).toBeLessThan(order.indexOf('initiateModelDownload'));
-    });
-
-    it('CASUALTY: the OUTGOING engine identity is cleared, not carried into the new session', async () => {
+    it('CASUALTY: the OUTGOING identity is cleared before the new engine comes up', async () => {
         recordResolvedEngine({ candidateId: 'v2:base.en', modelIdentity: { engine: 'transformers-js' } });
-        expect(resolvedEngine()?.candidateId).toBe('v2:base.en');
-        await switchCandidate('v4:distil:q4', INTERNAL);
-        // Nothing has resolved on the NEW engine yet, so the honest answer is "unknown", never the
-        // model that is no longer running.
+        const { svc, release } = deferredService();
+        speechRuntimeController.service = svc;
+
+        const pending = switchCandidate('v4:distil:q4', INTERNAL);
+        await Promise.resolve();
+        // Already unknown while the old engine is still dying — never the model that is going away.
+        expect(resolvedEngine()).toBeNull();
+        release();
+        await pending;
         expect(resolvedEngine()).toBeNull();
     });
 
-    it('CASUALTY: a FAILED switch does not keep reporting the previous model', async () => {
+    it('CASUALTY: a failed initialisation does not resurrect the previous model identity', async () => {
         recordResolvedEngine({ candidateId: 'v2:base.en', modelIdentity: { engine: 'transformers-js' } });
-        initiateModelDownload.mockImplementationOnce(async () => { throw new Error('model would not load'); });
+        initSpy.mockImplementationOnce(async () => { throw new Error('model would not load'); });
+        speechRuntimeController.service = null;
+
         const out = await switchCandidate('v4:distil:q4', INTERNAL);
         expect(out).toMatchObject({ ok: false, code: 'init_failed' });
         expect(resolvedEngine()).toBeNull();
     });
 
-    it('a teardown that never settles FAILS rather than hanging', async () => {
-        // Driven directly with a millisecond budget: going through switchCandidate would wait out the
-        // real 15s teardown allowance on every CI run to prove a branch that needs no wall-clock.
-        await expect(waitForSettled(() => 'STOPPING', 60, 10)).rejects.toThrow(/did not settle/);
+    it('CASUALTY: MOONSHINE is refused before anything is torn down', async () => {
+        const { svc, destroy } = deferredService();
+        speechRuntimeController.service = svc;
+        const out = await switchCandidate('moonshine:streaming-medium', INTERNAL);
+        expect(out).toMatchObject({ ok: false, code: 'engine_not_integrated' });
+        expect(destroy).not.toHaveBeenCalled();
+        expect(initSpy).not.toHaveBeenCalled();
     });
 
-    it('POSITIVE CONTROL: a settled state returns immediately', async () => {
-        await expect(waitForSettled(() => 'READY', 60, 10)).resolves.toBeUndefined();
+    it('POSITIVE CONTROL: with no service attached the switch still completes', async () => {
+        speechRuntimeController.service = null;
+        const out = await switchCandidate('v4:distil:q4', INTERNAL);
+        expect(out.ok).toBe(true);
+        expect(initSpy).toHaveBeenCalledTimes(1);
     });
 });

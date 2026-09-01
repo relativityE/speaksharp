@@ -27,27 +27,6 @@ interface SwitchWindow {
     };
 }
 
-/** Lifecycle states that mean the previous engine is fully gone. */
-const SETTLED_STATES = new Set(['IDLE', 'TERMINATED', 'READY', 'DOWNLOAD_REQUIRED', 'FAILED', 'FAILED_VISIBLE']);
-const SETTLE_TIMEOUT_MS = 15_000;
-const SETTLE_POLL_MS = 50;
-
-/** Resolve once the runtime reports a settled state, or throw so the switch reports a failure. */
-export async function waitForSettled(
-    read: () => string | null = () => document.documentElement.getAttribute('data-runtime-state'),
-    timeoutMs: number = SETTLE_TIMEOUT_MS,
-    pollMs: number = SETTLE_POLL_MS,
-): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-        if (SETTLED_STATES.has(String(read() ?? 'IDLE'))) return;
-        if (Date.now() >= deadline) {
-            throw new Error(`engine did not settle within ${timeoutMs}ms (state=${String(read())})`);
-        }
-        await new Promise((r) => setTimeout(r, pollMs));
-    }
-}
-
 export function installRuntimeCandidateSwitch(
     env: Record<string, unknown> = import.meta.env as unknown as Record<string, unknown>,
 ): boolean {
@@ -62,33 +41,20 @@ export function installRuntimeCandidateSwitch(
 
         teardown: async () => {
             // ATTRIBUTION IS UNKNOWN FROM HERE. `resolvedEngine()` holds what the OUTGOING engine
-            // published, and nothing in production ever cleared it. A switch that then failed to
-            // initialise would keep reporting the previous model as the running one — an observed
-            // identity that outlives the engine that produced it is worse than no identity, because it
-            // reads as evidence. Cleared FIRST so no window exists where a dead engine is still named.
+            // published and nothing in production ever cleared it, so a switch that then failed to
+            // initialise kept reporting the previous model as the running one. An observed identity
+            // that outlives its engine is worse than none, because it reads as evidence.
             clearResolvedEngine();
 
-            // Imported lazily: this module is pulled in at boot, and importing the controller eagerly
-            // would drag the transcription stack into the entry chunk.
-            const [{ speechRuntimeController }, svc] = await Promise.all([
-                import('@/services/SpeechRuntimeController'),
-                import('./TranscriptionService'),
-            ]);
+            const { speechRuntimeController } = await import('@/services/SpeechRuntimeController');
 
-            // AWAIT THE REAL TEARDOWN FIRST. `reset()` fires `svc.destroy().catch(...)` without
-            // awaiting it and transitions with `void`, so it returns while destruction is still in
-            // flight. Relying on it alone let `initialize()` start against a service that was still
-            // tearing down — two engines briefly alive over one worker.
-            await svc.getTranscriptionService().destroy();
-
-            // Then clear transcript, session and fallback state. Its internal destroy is now a no-op
-            // on an already-destroyed service.
-            speechRuntimeController.reset('candidate-switch');
-
-            // And do not return until the lifecycle has actually settled, so the caller's
-            // `initialize()` cannot overlap the tail of the reset above. Bounded: a teardown that never
-            // settles must surface as a failed switch, not as a hang.
-            await waitForSettled();
+            // ONE CONTROLLER-OWNED AWAITED OPERATION. This previously called `reset()` — which clears
+            // state synchronously but leaves destruction and both transitions running unawaited — and
+            // then polled the published state for a settled value. That check could not work: at the
+            // moment a switch begins the state is already READY (that is why the switch was permitted),
+            // so the first poll passed before the reset had changed anything, and the new engine could
+            // start against a service still tearing down.
+            await speechRuntimeController.hardResetAwaited('candidate-switch');
         },
 
         initialize: async () => {

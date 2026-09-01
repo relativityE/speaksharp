@@ -2,10 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PRIV_STT_MODELS, PRIV_STT_V4 } from '../sttConstants';
 import {
-    assertValidPrivateModelSelection,
-    isPrivateModelOverridden,
     resolvePrivateModel,
-    resolvePrivateModelSource,
 } from '../utils/privateModelFlag';
 
 /**
@@ -22,10 +19,8 @@ import {
  */
 describe('release-spine guards: Private STT default + opt-in', () => {
     beforeEach(() => {
-        delete (window as { __PRIVATE_MODEL__?: string }).__PRIVATE_MODEL__;
     });
     afterEach(() => {
-        delete (window as { __PRIVATE_MODEL__?: string }).__PRIVATE_MODEL__;
     });
 
     it('base.en is the registered default Private model (PRIVATE-BASE-DEFAULT)', () => {
@@ -34,8 +29,6 @@ describe('release-spine guards: Private STT default + opt-in', () => {
 
     it('default Private provider resolves to base.en (not v4, not tiny) with no flag', () => {
         expect(resolvePrivateModel()).toBe('whisper-base.en');
-        expect(resolvePrivateModelSource()).toBe('default');
-        expect(isPrivateModelOverridden()).toBe(false);
     });
 
     it('CASUALTY: tiny.en is NOT the default and is no longer flag-selectable either', () => {
@@ -43,10 +36,7 @@ describe('release-spine guards: Private STT default + opt-in', () => {
         // per-visitor channel with no dev/test gate, so the emergency route was also an attack route.
         // Emergency fallback is now the one-way safety kill (to v2), which no visitor can reach.
         expect(resolvePrivateModel()).not.toBe('whisper-tiny.en');
-        (window as { __PRIVATE_MODEL__?: string }).__PRIVATE_MODEL__ = 'whisper-tiny.en';
         expect(resolvePrivateModel()).not.toBe('whisper-tiny.en');
-        expect(isPrivateModelOverridden()).toBe(false);
-        expect(resolvePrivateModelSource()).toBe('default');
     });
 
     it('the default model consent size is ~80 MB (base) — honest download-consent copy', () => {
@@ -58,10 +48,8 @@ describe('release-spine guards: Private STT default + opt-in', () => {
 
 describe('release-spine guards: v4 cannot become default or leak via the Private path', () => {
     beforeEach(() => {
-        delete (window as { __PRIVATE_MODEL__?: string }).__PRIVATE_MODEL__;
     });
     afterEach(() => {
-        delete (window as { __PRIVATE_MODEL__?: string }).__PRIVATE_MODEL__;
     });
 
     it('the v4 engine key is not the Private default and not a selectable candidate', () => {
@@ -81,37 +69,12 @@ describe('release-spine guards: v4 cannot become default or leak via the Private
         }
     });
 
-    it('CASUALTY: v4 cannot be requested through the Private flag — the channel is gone', () => {
-        // This used to assert the request was REJECTED. The stronger guarantee now is that no request
-        // can be made: the window flag and `?privateModel=` are retired, so the resolver is unreachable
-        // from anything a visitor controls and always returns the configured default.
-        for (const bogus of [PRIV_STT_V4.ENGINE_KEY, PRIV_STT_V4.MODEL_ID, 'onnx-community/whisper-base.en']) {
-            (window as { __PRIVATE_MODEL__?: string }).__PRIVATE_MODEL__ = bogus;
-            expect(resolvePrivateModel()).toBe('whisper-base.en');
-            // Nothing is requested, so there is nothing to reject.
-            expect(() => assertValidPrivateModelSelection()).not.toThrow();
-        }
-    });
-});
-
-describe('release-spine guards: unknown selections reject, no silent fallback', () => {
-    beforeEach(() => {
-        delete (window as { __PRIVATE_MODEL__?: string }).__PRIVATE_MODEL__;
-    });
-    afterEach(() => {
-        delete (window as { __PRIVATE_MODEL__?: string }).__PRIVATE_MODEL__;
-    });
-
-    it('CASUALTY: an unknown model flag is INERT, not merely rejected', () => {
-        // Rejecting a request proves the request could be made. Ignoring it proves it cannot.
-        (window as { __PRIVATE_MODEL__?: string }).__PRIVATE_MODEL__ = 'whisper-enormous.en';
-        expect(() => assertValidPrivateModelSelection()).not.toThrow();
-        expect(resolvePrivateModel()).toBe('whisper-base.en');
-    });
-
-    it('no flag and a valid candidate both pass the start-time assertion', () => {
-        expect(() => assertValidPrivateModelSelection()).not.toThrow();
-        (window as { __PRIVATE_MODEL__?: string }).__PRIVATE_MODEL__ = 'whisper-base.en';
-        expect(() => assertValidPrivateModelSelection()).not.toThrow();
+    it('v4 is never the resolved Private model', () => {
+        // Channel INERTNESS (and the retired names it needs to say out loud) is proven once, in
+        // `__tests__/noSelectorChannels.guard.test.ts`. What belongs here is the release-spine claim:
+        // whatever the resolver returns, it is never a v4 identity.
+        const resolved: string = resolvePrivateModel();
+        expect([PRIV_STT_V4.ENGINE_KEY, PRIV_STT_V4.MODEL_ID]).not.toContain(resolved);
+        expect(resolved).toBe('whisper-base.en');
     });
 });

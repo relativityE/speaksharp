@@ -16,8 +16,6 @@ import { NOT_AVAILABLE, type Maybe } from './sttEvidence';
 import { PRIV_STT_MODELS } from './sttConstants';
 import {
     resolvePrivateModel,
-    resolvePrivateModelSource,
-    isPrivateModelOverridden,
     type PrivateModelSelectionSource,
 } from './utils/privateModelFlag';
 
@@ -58,8 +56,6 @@ export interface SttIdentityInput {
     modelOverridden?: boolean | null;
     /** Approx download size (MB) for the resolved model. */
     approxMB?: number | null;
-    /** RETIRED override mirror. Always null; kept so the identity shape stays stable. */
-    engineOverride?: string | null;
     /** v4 runtime identity, present only when a v4 run published `__PRIVATE_V4_RUNTIME__`. */
     v4?: SttIdentityV4Input | null;
 }
@@ -99,7 +95,6 @@ function val<T>(v: T | null | undefined): Maybe<T> {
 export function buildSttIdentity(input: SttIdentityInput): SttIdentity {
     const mode = input.mode ?? null;
     const isV4 = Boolean(input.v4);
-    const engineOverridden = Boolean(input.engineOverride && input.engineOverride.trim().length > 0);
 
     let provider: string | null = null;
     let engine: string | null = null;
@@ -165,7 +160,8 @@ export function buildSttIdentity(input: SttIdentityInput): SttIdentity {
         mode: val(mode),
         provider: val(provider),
         engine: val(engine),
-        engineSelection: engineOverridden ? 'override' : 'default',
+        // Always 'default': the override channel this reported is retired.
+        engineSelection: 'default',
         modelId: val(modelId),
         selectionSource: val(input.modelSelectionSource),
         modelOverridden: val(input.modelOverridden),
@@ -193,21 +189,6 @@ interface V4RuntimeGlobal {
     onnxRuntimeVersion?: string;
 }
 
-/**
- * RETIRED: the engine-override mirror.
- *
- * This read `?privateEngine=` and the matching localStorage key so a debug badge could display the
- * override in force. It was diagnostic only, but it was still a live read of a channel that no longer
- * exists — and a diagnostic that reports a selector keeps the selector's name in the product, which is
- * half of why the parameter was a disclosure problem in the first place.
- *
- * Selection is now config, the one-way safety kill, or the internal-build in-page switch. None of them
- * is per-visitor, so there is nothing here left to mirror.
- */
-function readEngineOverride(_win: Window): string | null {
-    return null;
-}
-
 /** Assemble identity from the live window globals + selection flags. Safe when window is absent. */
 export function collectSttIdentityFromWindow(
     win: Window | undefined = typeof window !== 'undefined' ? window : undefined,
@@ -232,10 +213,10 @@ export function collectSttIdentityFromWindow(
     return buildSttIdentity({
         mode,
         privateModelKey,
-        modelSelectionSource: resolvePrivateModelSource(),
-        modelOverridden: isPrivateModelOverridden(),
+        // Selection is the config file; there is no per-visitor source or override to report.
+        modelSelectionSource: 'default',
+        modelOverridden: false,
         approxMB,
-        engineOverride: readEngineOverride(win),
         v4,
     });
 }
