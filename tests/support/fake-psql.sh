@@ -17,6 +17,18 @@ V1A="uuid, text, text, integer, text"
 V1B="uuid, text, integer, text, jsonb, integer, double precision, double precision, jsonb, jsonb"
 V2="uuid, text, integer, text, jsonb, integer, double precision, double precision, jsonb, jsonb, text"
 
+# The parser-based control (`to_regprocedure`) asks the same existence question a different way. The
+# stub answers it from the SAME fixture as the catalogue count, so the two agree by construction here;
+# whether they agree against a REAL catalogue is proven in the PGlite suite, which is the only place
+# that question is meaningful.
+if has "to_regprocedure"; then
+  if has "complete_session_v2("; then echo "${F_V2_COUNT:-1}"
+  elif has "($V1A)"; then echo "${F_V1A_COUNT:-1}"
+  elif has "($V1B)"; then echo "${F_V1B_COUNT:-1}"
+  else echo 0; fi
+  exit 0
+fi
+
 if has "split_part"; then echo "${F_V2_PUBLIC:-0}"; exit 0; fi
 
 if has "has_function_privilege"; then
