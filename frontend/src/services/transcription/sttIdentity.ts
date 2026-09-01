@@ -2,8 +2,8 @@
  * STT-IDENTITY-DIAG — consolidated, dev/test-only STT run identity.
  *
  * A human (or proof harness) watching a live session cannot otherwise tell WHICH engine/model is
- * running (v2 tiny vs v2 base vs experimental v4), how it was selected (default vs `?privateModel=` /
- * `?privateEngine=` override), its size, where it loaded from, device/backend, or release status.
+ * running (v2 base vs v4), how it was selected (config — the URL/localStorage overrides are
+ * retired), its size, where it loaded from, device/backend, or release status.
  * This module assembles those already-published signals into ONE object so the dev/test badge and the
  * proof artifacts speak the same vocabulary (the reviewer's required field set).
  *
@@ -13,7 +13,7 @@
  * `userHidden` is true for Private.
  */
 import { NOT_AVAILABLE, type Maybe } from './sttEvidence';
-import { PRIV_STT_MODELS, PRIVATE_ENGINE_OVERRIDE_KEY } from './sttConstants';
+import { PRIV_STT_MODELS } from './sttConstants';
 import {
     resolvePrivateModel,
     resolvePrivateModelSource,
@@ -58,7 +58,7 @@ export interface SttIdentityInput {
     modelOverridden?: boolean | null;
     /** Approx download size (MB) for the resolved model. */
     approxMB?: number | null;
-    /** Raw `?privateEngine=` / localStorage engine override value, if any. */
+    /** RETIRED override mirror. Always null; kept so the identity shape stays stable. */
     engineOverride?: string | null;
     /** v4 runtime identity, present only when a v4 run published `__PRIVATE_V4_RUNTIME__`. */
     v4?: SttIdentityV4Input | null;
@@ -193,19 +193,18 @@ interface V4RuntimeGlobal {
     onnxRuntimeVersion?: string;
 }
 
-/** Read the raw `?privateEngine=` / localStorage engine override. Uses the SAME shared
- *  `PRIVATE_ENGINE_OVERRIDE_KEY` as PrivateSTT so this debug mirror cannot drift from the
- *  real override key. (Diagnostic display only — the badge is debug-gated; gating of the
- *  override BEHAVIOR lives in PrivateSTT.) */
-function readEngineOverride(win: Window): string | null {
-    try {
-        const fromQuery = new URLSearchParams(win.location.search).get('privateEngine');
-        if (fromQuery && fromQuery.length > 0) return fromQuery;
-        const stored = win.localStorage?.getItem(PRIVATE_ENGINE_OVERRIDE_KEY);
-        if (stored && stored.length > 0) return stored;
-    } catch {
-        /* ignore */
-    }
+/**
+ * RETIRED: the engine-override mirror.
+ *
+ * This read `?privateEngine=` and the matching localStorage key so a debug badge could display the
+ * override in force. It was diagnostic only, but it was still a live read of a channel that no longer
+ * exists — and a diagnostic that reports a selector keeps the selector's name in the product, which is
+ * half of why the parameter was a disclosure problem in the first place.
+ *
+ * Selection is now config, the one-way safety kill, or the internal-build in-page switch. None of them
+ * is per-visitor, so there is nothing here left to mirror.
+ */
+function readEngineOverride(_win: Window): string | null {
     return null;
 }
 

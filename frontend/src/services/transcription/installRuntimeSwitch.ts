@@ -14,6 +14,7 @@ import {
     type SwitchOutcome,
 } from './runtimeCandidateSwitch';
 import { effectiveCandidate } from './candidateSelection';
+import { clearResolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { resolvedEngine } from '@/services/telemetry/runtimeAttribution';
 
 interface SwitchWindow {
@@ -24,6 +25,27 @@ interface SwitchWindow {
         matches: boolean;
         source: 'config' | 'runtime_switch' | 'remote_safety_kill';
     };
+}
+
+/** Lifecycle states that mean the previous engine is fully gone. */
+const SETTLED_STATES = new Set(['IDLE', 'TERMINATED', 'READY', 'DOWNLOAD_REQUIRED', 'FAILED', 'FAILED_VISIBLE']);
+const SETTLE_TIMEOUT_MS = 15_000;
+const SETTLE_POLL_MS = 50;
+
+/** Resolve once the runtime reports a settled state, or throw so the switch reports a failure. */
+export async function waitForSettled(
+    read: () => string | null = () => document.documentElement.getAttribute('data-runtime-state'),
+    timeoutMs: number = SETTLE_TIMEOUT_MS,
+    pollMs: number = SETTLE_POLL_MS,
+): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+        if (SETTLED_STATES.has(String(read() ?? 'IDLE'))) return;
+        if (Date.now() >= deadline) {
+            throw new Error(`engine did not settle within ${timeoutMs}ms (state=${String(read())})`);
+        }
+        await new Promise((r) => setTimeout(r, pollMs));
+    }
 }
 
 export function installRuntimeCandidateSwitch(
@@ -39,17 +61,34 @@ export function installRuntimeCandidateSwitch(
         currentState: () => document.documentElement.getAttribute('data-runtime-state'),
 
         teardown: async () => {
+            // ATTRIBUTION IS UNKNOWN FROM HERE. `resolvedEngine()` holds what the OUTGOING engine
+            // published, and nothing in production ever cleared it. A switch that then failed to
+            // initialise would keep reporting the previous model as the running one — an observed
+            // identity that outlives the engine that produced it is worse than no identity, because it
+            // reads as evidence. Cleared FIRST so no window exists where a dead engine is still named.
+            clearResolvedEngine();
+
             // Imported lazily: this module is pulled in at boot, and importing the controller eagerly
             // would drag the transcription stack into the entry chunk.
             const [{ speechRuntimeController }, svc] = await Promise.all([
                 import('@/services/SpeechRuntimeController'),
                 import('./TranscriptionService'),
             ]);
-            // reset() clears transcript, session and fallback state; destroy() takes the worker down.
-            // Both are required: leaving either behind would carry one model's words into the next
-            // model's session, which is the attribution failure this switch exists to make measurable.
+
+            // AWAIT THE REAL TEARDOWN FIRST. `reset()` fires `svc.destroy().catch(...)` without
+            // awaiting it and transitions with `void`, so it returns while destruction is still in
+            // flight. Relying on it alone let `initialize()` start against a service that was still
+            // tearing down — two engines briefly alive over one worker.
+            await svc.getTranscriptionService().destroy();
+
+            // Then clear transcript, session and fallback state. Its internal destroy is now a no-op
+            // on an already-destroyed service.
             speechRuntimeController.reset('candidate-switch');
-            await svc.getTranscriptionService()?.destroy();
+
+            // And do not return until the lifecycle has actually settled, so the caller's
+            // `initialize()` cannot overlap the tail of the reset above. Bounded: a teardown that never
+            // settles must surface as a failed switch, not as a hang.
+            await waitForSettled();
         },
 
         initialize: async () => {

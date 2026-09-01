@@ -1,127 +1,59 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+/**
+ * #1263 — the Private model flag channel is RETIRED.
+ *
+ * This suite used to prove that `window.__PRIVATE_MODEL__` and `?privateModel=` were honoured, that the
+ * selection source was reported as `window`/`url`, and that an unsupported requested model threw rather
+ * than silently falling back.
+ *
+ * Every one of those described a per-visitor selection channel that had NO dev/test gate — it worked on
+ * the production site, and the parameter named internal model builds to anyone reading a URL. The
+ * channel is gone, so the assertions are inverted: nothing can request a model here any more.
+ */
+import { describe, it, expect, afterEach } from 'vitest';
 import {
-  resolvePrivateModel,
-  isPrivateModelOverridden,
-  resolvePrivateModelSource,
-  publishPrivateModelTelemetry,
-  getRequestedPrivateModel,
-  assertValidPrivateModelSelection,
-  type PrivateModelTelemetry,
+    resolvePrivateModel, isPrivateModelOverridden, getRequestedPrivateModel,
+    resolvePrivateModelSource, assertValidPrivateModelSelection,
 } from '../privateModelFlag';
 import { PRIV_STT_MODELS } from '../../sttConstants';
 
-type ModelWindow = Window & {
-  __PRIVATE_MODEL__?: string;
-  __PRIVATE_MODEL_TELEMETRY__?: PrivateModelTelemetry;
-};
+interface ModelWindow { __PRIVATE_MODEL__?: string }
 
-const w = window as ModelWindow;
-const originalLocation = window.location;
-
-function setSearch(search: string): void {
-  Object.defineProperty(window, 'location', { configurable: true, value: { search } as unknown as Location });
-}
-
-describe('privateModelFlag', () => {
-  beforeEach(() => {
-    delete w.__PRIVATE_MODEL__;
-    delete w.__PRIVATE_MODEL_TELEMETRY__;
-    setSearch('');
-  });
-  afterEach(() => {
-    delete w.__PRIVATE_MODEL__;
-    delete w.__PRIVATE_MODEL_TELEMETRY__;
-    Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
-  });
-
-  describe('resolvePrivateModel', () => {
-    it('defaults to the production model when unset (byte-identical default path)', () => {
-      expect(resolvePrivateModel()).toBe(PRIV_STT_MODELS.DEFAULT);
-      expect(isPrivateModelOverridden()).toBe(false);
+describe('privateModelFlag — selection channel retired', () => {
+    afterEach(() => {
+        window.history.replaceState({}, '', '/');
+        delete (window as unknown as ModelWindow).__PRIVATE_MODEL__;
+        window.localStorage.clear();
     });
 
-    it('honors a valid window override', () => {
-      w.__PRIVATE_MODEL__ = 'whisper-small.en';
-      expect(resolvePrivateModel()).toBe('whisper-small.en');
-      expect(isPrivateModelOverridden()).toBe(true);
+    it('CASUALTY: ?privateModel= cannot change the model', () => {
+        window.history.replaceState({}, '', '?privateModel=whisper-small.en');
+        expect(resolvePrivateModel()).toBe(PRIV_STT_MODELS.DEFAULT);
+        expect(resolvePrivateModelSource()).toBe('default');
+        expect(isPrivateModelOverridden()).toBe(false);
     });
 
-    it('honors a valid ?privateModel= override', () => {
-      // base.en is now the DEFAULT (PRIVATE-BASE-DEFAULT); use a non-default candidate to prove an
-      // explicit URL override is honored + flagged as overridden.
-      setSearch('?privateModel=whisper-tiny.en');
-      expect(resolvePrivateModel()).toBe('whisper-tiny.en');
-      expect(isPrivateModelOverridden()).toBe(true);
+    it('CASUALTY: the window global cannot change the model', () => {
+        (window as unknown as ModelWindow).__PRIVATE_MODEL__ = 'whisper-small.en';
+        expect(resolvePrivateModel()).toBe(PRIV_STT_MODELS.DEFAULT);
+        expect(resolvePrivateModelSource()).toBe('default');
     });
 
-    it('falls back to the default on an unknown model (no blind switch)', () => {
-      w.__PRIVATE_MODEL__ = 'gpt-4o-whisper';
-      expect(resolvePrivateModel()).toBe(PRIV_STT_MODELS.DEFAULT);
-      setSearch('?privateModel=not-a-model');
-      expect(resolvePrivateModel()).toBe(PRIV_STT_MODELS.DEFAULT);
-    });
-  });
-
-  describe('publishPrivateModelTelemetry', () => {
-    it('publishes the snapshot to window.__PRIVATE_MODEL_TELEMETRY__', () => {
-      const snapshot: PrivateModelTelemetry = {
-        model: 'whisper-small.en',
-        runtime: 'transformers-js',
-        approxMB: PRIV_STT_MODELS.CANDIDATES['whisper-small.en'].approxMB,
-        overridden: true,
-        selectionSource: 'url',
-        loadTimeMs: 1820,
-        fallbackPath: 'remote-only',
-        cloudFallbackAttempted: false,
-      };
-      publishPrivateModelTelemetry(snapshot);
-      expect(w.__PRIVATE_MODEL_TELEMETRY__).toEqual(snapshot);
-      // Privacy invariant must be observable + always false.
-      expect(w.__PRIVATE_MODEL_TELEMETRY__?.cloudFallbackAttempted).toBe(false);
-    });
-  });
-
-  describe('resolvePrivateModelSource', () => {
-    it("is 'default' with no flag, 'window' for the window flag, 'url' for the query param", () => {
-      expect(resolvePrivateModelSource()).toBe('default');
-      w.__PRIVATE_MODEL__ = 'whisper-base.en';
-      expect(resolvePrivateModelSource()).toBe('window');
-      delete w.__PRIVATE_MODEL__;
-      setSearch('?privateModel=whisper-base.en');
-      expect(resolvePrivateModelSource()).toBe('url');
-    });
-  });
-
-  describe('getRequestedPrivateModel', () => {
-    it('returns null when no flag is present, and the raw value when one is (valid or not)', () => {
-      expect(getRequestedPrivateModel()).toBeNull();
-      w.__PRIVATE_MODEL__ = 'whisper-base.en';
-      expect(getRequestedPrivateModel()).toBe('whisper-base.en');
-      delete w.__PRIVATE_MODEL__;
-      setSearch('?privateModel=totally-made-up');
-      expect(getRequestedPrivateModel()).toBe('totally-made-up');
-    });
-  });
-
-  describe('assertValidPrivateModelSelection (STT-P6-HUMAN: no silent tiny fallback)', () => {
-    it('is a no-op when no flag is set (default path unaffected)', () => {
-      expect(() => assertValidPrivateModelSelection()).not.toThrow();
+    it('CASUALTY: nothing is ever reported as requested', () => {
+        window.history.replaceState({}, '', '?privateModel=not-a-real-model');
+        (window as unknown as ModelWindow).__PRIVATE_MODEL__ = 'also-not-real';
+        expect(getRequestedPrivateModel()).toBeNull();
     });
 
-    it('is a no-op for a supported candidate', () => {
-      w.__PRIVATE_MODEL__ = 'whisper-base.en';
-      expect(() => assertValidPrivateModelSelection()).not.toThrow();
-      delete w.__PRIVATE_MODEL__;
-      setSearch('?privateModel=whisper-small.en');
-      expect(() => assertValidPrivateModelSelection()).not.toThrow();
+    it('the unsupported-request guard no longer throws — there is no request to reject', () => {
+        // It existed because a silent fallback made `?privateModel=` look honoured when it was not.
+        // With no request channel, an unsupported candidate is refused at CONFIG selection instead,
+        // before a session starts.
+        window.history.replaceState({}, '', '?privateModel=not-a-real-model');
+        expect(() => assertValidPrivateModelSelection()).not.toThrow();
     });
 
-    it('THROWS (no silent tiny fallback) when an explicitly requested model is unsupported', () => {
-      w.__PRIVATE_MODEL__ = 'whisper-large-v3';
-      expect(() => assertValidPrivateModelSelection()).toThrow(/MODEL_LOAD_FAILED.*whisper-large-v3.*not supported/);
-      delete w.__PRIVATE_MODEL__;
-      setSearch('?privateModel=bogus');
-      expect(() => assertValidPrivateModelSelection()).toThrow(/MODEL_LOAD_FAILED/);
+    it('POSITIVE CONTROL: the default is a real, registered model key', () => {
+        expect(typeof PRIV_STT_MODELS.DEFAULT).toBe('string');
+        expect(Object.keys(PRIV_STT_MODELS.CANDIDATES)).toContain(PRIV_STT_MODELS.DEFAULT);
     });
-  });
 });

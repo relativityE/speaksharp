@@ -1,45 +1,49 @@
-// @vitest-environment happy-dom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+/**
+ * #1263 — the v4 experiment override channel is RETIRED.
+ *
+ * This suite used to prove that `?v4Device`, `?v4Variant`, `?v4DecoderDtype`, `?v4NoWorker` and
+ * `?v4ForceAuto` (plus their localStorage twins) were honoured in dev/test and inert in production.
+ * The channel itself is now gone, so those assertions describe behaviour that no longer exists.
+ *
+ * What replaces them is the opposite claim: no input of any kind reaches this function.
+ */
+import { describe, it, expect, afterEach } from 'vitest';
 import { getV4ExperimentOverrides } from '../privateV4Experiment';
 
-// Injectable window (matches the codebase pattern, e.g. collectSttIdentityFromWindow) so
-// the reader is testable without happy-dom history/location plumbing.
-function mockWin(search: string, storage: Record<string, string> = {}): Window {
-    return {
-        location: { search } as Location,
-        localStorage: { getItem: (k: string) => storage[k] ?? null } as unknown as Storage,
-    } as unknown as Window;
-}
+const KEYS = [
+    'v4Device', 'v4Variant', 'v4DecoderDtype', 'v4NoWorker', 'v4ForceAuto',
+    'privateEngine', 'privateModel',
+];
+const STORAGE_KEYS = [
+    'speaksharp.v4.device', 'speaksharp.v4.variant', 'speaksharp.v4.decoderDtype',
+    'speaksharp.v4.noWorker', 'speaksharp.v4.forceAuto', 'speaksharp.private.engine',
+];
 
-describe('getV4ExperimentOverrides — dev/test-gated v4 decode A/B knobs', () => {
-    // gate = import.meta.env.DEV || ENV.isTest; __TEST__ keeps the gate open in unit tests.
-    beforeEach(() => { (globalThis as { __TEST__?: boolean }).__TEST__ = true; });
-    afterEach(() => { (globalThis as { __TEST__?: boolean }).__TEST__ = true; });
-
-    it('defaults to no overrides', () => {
-        expect(getV4ExperimentOverrides(mockWin(''))).toEqual({ noWorker: false, forceAuto: false });
+describe('the v4 experiment override channel', () => {
+    afterEach(() => {
+        window.history.replaceState({}, '', '/');
+        window.localStorage.clear();
     });
 
-    it('reads device + decoderDtype + variant + noWorker from query params', () => {
-        expect(getV4ExperimentOverrides(mockWin('?v4Device=wasm&v4DecoderDtype=fp32&v4Variant=distil_q4&v4NoWorker=1')))
-            .toEqual({ device: 'wasm', decoderDtype: 'fp32', variant: 'distil_q4', noWorker: true, forceAuto: false });
+    it('CASUALTY: no URL parameter changes the result', () => {
+        window.history.replaceState({}, '', `?${KEYS.map((k) => `${k}=webgpu`).join('&')}`);
+        expect(getV4ExperimentOverrides()).toEqual({ noWorker: false, forceAuto: false });
     });
 
-    it('reads v4ForceAuto (the headless-CI AUTO fallback knob)', () => {
-        expect(getV4ExperimentOverrides(mockWin('?v4ForceAuto=1&v4Device=wasm')))
-            .toEqual({ device: 'wasm', noWorker: false, forceAuto: true });
+    it('CASUALTY: no localStorage key changes the result', () => {
+        for (const k of STORAGE_KEYS) window.localStorage.setItem(k, '1');
+        expect(getV4ExperimentOverrides()).toEqual({ noWorker: false, forceAuto: false });
     });
 
-    it('falls back to localStorage when no query param', () => {
-        expect(getV4ExperimentOverrides(mockWin('', { 'speaksharp.v4.device': 'webgpu', 'speaksharp.v4.decoderDtype': 'int8', 'speaksharp.v4.variant': 'base_q4', 'speaksharp.v4.forceAuto': '1' })))
-            .toEqual({ device: 'webgpu', decoderDtype: 'int8', variant: 'base_q4', noWorker: false, forceAuto: true });
+    it('CASUALTY: device, variant and dtype can no longer be expressed at all', () => {
+        window.history.replaceState({}, '', '?v4Device=webgpu&v4Variant=distil_q4&v4DecoderDtype=int8');
+        const o = getV4ExperimentOverrides() as unknown as Record<string, unknown>;
+        expect(o.device).toBeUndefined();
+        expect(o.variant).toBeUndefined();
+        expect(o.decoderDtype).toBeUndefined();
     });
 
-    it('rejects invalid device/dtype/variant values', () => {
-        expect(getV4ExperimentOverrides(mockWin('?v4Device=banana&v4DecoderDtype=fp64&v4Variant=turbo'))).toEqual({ noWorker: false, forceAuto: false });
-    });
-
-    it('undefined window -> no overrides', () => {
-        expect(getV4ExperimentOverrides(undefined)).toEqual({ noWorker: false, forceAuto: false });
+    it('takes no argument — there is no window to read from', () => {
+        expect(getV4ExperimentOverrides.length).toBe(0);
     });
 });

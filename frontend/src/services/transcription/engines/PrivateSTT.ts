@@ -15,7 +15,7 @@
  * Main entry point for Private STT. Automatically selects the best engine:
  *
  * 1. In CI/Playwright/unit (ENV.disableWasm): Forces TransformersJSEngine (safe).
- * 2. Explicit override (forceEngine / ?privateEngine / localStorage): runs that
+ * 2. Explicit override (programmatic `forceEngine` only): runs that
  *    engine strictly, with NO automatic fallback.
  * 3. Default (auto) path: promotes to WhisperTurbo (WebGPU) only when WebGPU is
  *    genuinely usable AND the turbo model is already cached, otherwise stays on
@@ -37,11 +37,10 @@ import { STTEngine, validateEngine } from '@/contracts/STTEngine';
 import { PrivateSTTInitOptions } from '@/contracts/IPrivateSTT';
 import logger from '@/lib/logger';
 import posthog from 'posthog-js';
-import { ENV } from '@/config/TestFlags';
 import { ModelManager } from '@/services/transcription/ModelManager';
 import { MicStream } from '@/services/transcription/utils/types';
 import { getEngine } from '@/services/transcription/STTRegistry';
-import { PRIV_STT_V4, PRIV_STT_V4_DEFAULT_VARIANT, PRIV_STT_V4_VARIANTS, PRIVATE_ENGINE_OVERRIDE_KEY } from '../sttConstants';
+import { PRIV_STT_V4, PRIV_STT_V4_DEFAULT_VARIANT, PRIV_STT_V4_VARIANTS } from '../sttConstants';
 import {
     CANDIDATES, candidateForRuntime, identityOf,
     type CandidateId, type SessionModelIdentity,
@@ -98,41 +97,21 @@ function getConfiguredPrivateEngine(): PrivateEngineType {
 }
 
 /**
- * Whether the explicit private-engine override (`?privateEngine` / localStorage) may
- * be honored. MERGE-SAFETY: this is a DEV / TEST / E2E affordance ONLY. In a production
- * build a normal user must NOT be able to force an engine (e.g. v4) via a public URL or
- * localStorage and thereby bypass the PostHog flag. `import.meta.env.DEV` is the dev
- * server; `ENV.isTest` covers unit + E2E. Both are false in the production build, so a
- * normal production user always falls through to the flag-gated resolver (v2-base when
- * flags are off). `forceEngine` (a programmatic option, not publicly settable) is
- * unaffected and still honored.
- */
-function isPrivateOverrideContextAllowed(): boolean {
-    return import.meta.env.DEV === true || ENV.isTest;
-}
-
-function getPrivateEngineOverride(): PrivateEngineType | null {
-    if (typeof window === 'undefined') return null;
-    if (!isPrivateOverrideContextAllowed()) return null;
-
-    const queryValue = new URLSearchParams(window.location.search).get('privateEngine');
-    const storedValue = window.localStorage.getItem(PRIVATE_ENGINE_OVERRIDE_KEY);
-    const value = queryValue || storedValue;
-
-    if (isPrivateEngineProvider(value)) {
-        return value;
-    }
-
-    return null;
-}
-
-/**
- * Whether a deterministic Private-engine override is active (dev/test/E2E only). Used by
- * Private engine telemetry to attribute `assignment_source='deterministic_override'`. Honors the
- * same gating as `getPrivateEngineOverride` — always false in production.
+ * RETIRED: the `?privateEngine=` / localStorage engine override.
+ *
+ * It resolved a Private engine from a URL parameter and a localStorage key, gated to dev/test. Two
+ * problems survived that gate. The parameter NAMES INTERNAL ENGINE BUILDS to anyone who reads a URL,
+ * and a per-visitor selection channel is one mistaken gate away from being a production selector — the
+ * same shape as `?privateModel=`, which turned out to have no gate at all.
+ *
+ * Which model runs is now one reviewable config value, plus an internal-build-only in-page switch for
+ * the human comparison. Both are reviewable; a URL is not. The programmatic `forceEngine` option is
+ * unaffected: it is not publicly settable, so it is not a visitor-reachable channel.
  */
 export function isPrivateEngineOverrideActive(): boolean {
-    return getPrivateEngineOverride() != null;
+    // No override channel remains, so this is always false. Kept because Private telemetry reads it to
+    // attribute `assignment_source`, and that attribution must now always say "not overridden".
+    return false;
 }
 
 /**
@@ -265,7 +244,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const forceEngine = options.forceEngine === 'mock' || isPrivateEngineProvider(options.forceEngine ?? null)
             ? options.forceEngine as SelectedPrivateEngine
             : null;
-        const overrideEngine = forceEngine || getPrivateEngineOverride();
+        // `forceEngine` only: the URL/localStorage override is retired. A programmatic option is not a
+        // visitor-reachable channel, so it stays.
+        const overrideEngine = forceEngine;
         const selectedEngine = overrideEngine || getConfiguredPrivateEngine();
 
         if (this.engine && !overrideEngine) {
@@ -283,7 +264,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             return Result.ok(undefined);
         }
 
-        // EXPLICIT OVERRIDE PATH (forceEngine / ?privateEngine / localStorage):
+        // EXPLICIT OVERRIDE PATH (programmatic forceEngine only):
         // strict, no automatic fallback. A user/test that explicitly demands an
         // engine must get exactly that engine or a hard failure — this preserves
         // the v4 contract ("failed explicit init does not silently fall back").
@@ -596,7 +577,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             return this.engine.checkAvailability();
         }
 
-        const preferredEngine = (getPrivateEngineOverride() || getConfiguredPrivateEngine()) as EngineType;
+        const preferredEngine = getConfiguredPrivateEngine() as EngineType;
         const cacheEngine =
             preferredEngine === 'transformers-js-v4' ? 'transformers-js-v4'
                 : 'transformers-js';

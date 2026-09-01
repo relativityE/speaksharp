@@ -15,7 +15,6 @@
  *   ?v4Variant=base_q4|distil_q4       / speaksharp.v4.variant
  *   ?v4NoWorker=1                      / speaksharp.v4.noWorker
  */
-import { ENV } from '@/config/TestFlags';
 
 export type V4ExperimentDevice = 'webgpu' | 'wasm' | 'auto';
 export type V4ExperimentDecoderDtype = 'q4' | 'q8' | 'int8' | 'fp32';
@@ -41,39 +40,19 @@ export interface V4ExperimentOverrides {
     forceAuto: boolean;
 }
 
-const DEVICES: readonly string[] = ['webgpu', 'wasm', 'auto'];
-const DTYPES: readonly string[] = ['q4', 'q8', 'int8', 'fp32'];
-const VARIANTS: readonly string[] = ['base_q4', 'distil_q4'];
-
-/** Experiment overrides are honored ONLY in dev/test/E2E. Production build => false.
- *  (Same gate as the private-engine override — see PrivateSTT.isPrivateOverrideContextAllowed.) */
-function experimentAllowed(): boolean {
-    return import.meta.env.DEV === true || ENV.isTest;
-}
-
-export function getV4ExperimentOverrides(
-    win: Window | undefined = typeof window !== 'undefined' ? window : undefined,
-): V4ExperimentOverrides {
-    if (!win || !experimentAllowed()) return { noWorker: false, forceAuto: false };
-    const read = (queryKey: string, storageKey: string): string | undefined => {
-        try {
-            const fromQuery = new URLSearchParams(win.location.search).get(queryKey);
-            if (fromQuery) return fromQuery;
-            return win.localStorage?.getItem(storageKey) ?? undefined;
-        } catch {
-            return undefined;
-        }
-    };
-    const device = read('v4Device', 'speaksharp.v4.device');
-    const decoderDtype = read('v4DecoderDtype', 'speaksharp.v4.decoderDtype');
-    const variant = read('v4Variant', 'speaksharp.v4.variant');
-    const noWorker = read('v4NoWorker', 'speaksharp.v4.noWorker') === '1';
-    const forceAuto = read('v4ForceAuto', 'speaksharp.v4.forceAuto') === '1';
-    return {
-        device: DEVICES.includes(device ?? '') ? (device as V4ExperimentDevice) : undefined,
-        decoderDtype: DTYPES.includes(decoderDtype ?? '') ? (decoderDtype as V4ExperimentDecoderDtype) : undefined,
-        variant: VARIANTS.includes(variant ?? '') ? (variant as V4ExperimentVariant) : undefined,
-        noWorker,
-        forceAuto,
-    };
+/**
+ * RETIRED: every URL parameter and localStorage key this used to read.
+ *
+ * It resolved `v4Device`, `v4DecoderDtype`, `v4Variant`, `v4NoWorker` and `v4ForceAuto` from the query
+ * string and matching storage keys, gated to dev/test. The gate was real, but two things survived it:
+ * the parameters NAME INTERNAL ENGINE INTERNALS — device, decoder precision, model variant — to anyone
+ * reading a URL, and a per-visitor channel is one mistaken gate from becoming a production selector.
+ * `?privateModel=` proved that risk was not hypothetical: it had no gate at all.
+ *
+ * Which model runs, on which device, is now one reviewable config value, with an internal-build-only
+ * in-page switch for the human comparison. Returning the inert default keeps every caller compiling
+ * while removing the channel itself.
+ */
+export function getV4ExperimentOverrides(): V4ExperimentOverrides {
+    return { noWorker: false, forceAuto: false };
 }
