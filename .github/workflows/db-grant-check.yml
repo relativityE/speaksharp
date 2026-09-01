@@ -104,25 +104,30 @@ jobs:
           set -euo pipefail
           if [ -z "$SUPABASE_ACCESS_TOKEN" ] || [ -z "$SUPABASE_PROJECT_ID" ]; then
             echo "Missing SUPABASE_ACCESS_TOKEN or SUPABASE_PROJECT_ID"; exit 2; fi
+          # FAILS CLOSED, exactly as the other two query steps do. A malformed body or an unexpected
+          # response shape must stop the audit rather than be rendered as a finding: "no rows" and "the
+          # response was not what we asked for" are different answers, and printing the second as the
+          # first is how an audit reports safety it never established.
           run_sql() {
-            local sql="$1" body response
+            local sql="$1" field="$2" kind="$3" body response
             body=$(printf '{"query":%s}' "$(printf '%s' "$sql" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')")
             response=$(curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 30 --retry 2 --retry-all-errors \
               -X POST "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_ID}/database/query" \
               -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" -H "Content-Type: application/json" -d "$body")
+            printf '%s' "$response" | python3 -c 'import json,sys; field,kind=sys.argv[1:]; d=json.load(sys.stdin); assert isinstance(d,list) and len(d)==1 and isinstance(d[0],dict) and field in d[0], "invalid query response"; value=d[0][field]; assert (kind=="integer" and isinstance(value,int) and not isinstance(value,bool)) or (kind=="array" and isinstance(value,list)), "invalid response field type"' "$field" "$kind"
             printf '%s\n' "$response"
           }
           PRESENCE="SELECT coalesce(json_agg(row_to_json(t) ORDER BY t.column_name), '[]'::json) AS cols FROM (SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='user_issue_reports' AND column_name IN ('transcript_excerpt','include_transcript')) t;"
           echo "## #1306 — user_issue_reports transcript column audit (read-only, no content)" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "### Column presence" | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```json' | tee -a "$GITHUB_STEP_SUMMARY"
-          PRES=$(run_sql "$PRESENCE"); printf '%s\n' "$PRES" | tee -a "$GITHUB_STEP_SUMMARY"
+          PRES=$(run_sql "$PRESENCE" cols array); printf '%s\n' "$PRES" | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' | tee -a "$GITHUB_STEP_SUMMARY"
           if printf '%s' "$PRES" | grep -q '"column_name":"transcript_excerpt"'; then
             COUNTS="SELECT count(*) AS total_rows, count(transcript_excerpt) AS non_null_excerpts, count(*) FILTER (WHERE include_transcript) AS opted_in_rows FROM public.user_issue_reports;"
             echo "### Aggregate counts only — NO transcript content is selected" | tee -a "$GITHUB_STEP_SUMMARY"
             echo '```json' | tee -a "$GITHUB_STEP_SUMMARY"
-            run_sql "$COUNTS" | tee -a "$GITHUB_STEP_SUMMARY"
+            run_sql "$COUNTS" total_rows integer | tee -a "$GITHUB_STEP_SUMMARY"
             echo '```' | tee -a "$GITHUB_STEP_SUMMARY"
             echo "COLUMN PRESENT — the source comment claiming Stage B dropped it is FALSE." | tee -a "$GITHUB_STEP_SUMMARY"
           else

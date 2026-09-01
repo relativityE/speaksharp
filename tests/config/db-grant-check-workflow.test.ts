@@ -15,11 +15,19 @@ describe('#1261 read-only DB grant workflow', () => {
   });
 
   it('fails closed on HTTP errors, timeouts, invalid JSON, and an unexpected response shape', () => {
-    expect(workflow.match(/set -euo pipefail/g)?.length).toBe(2);
-    expect(workflow.match(/--fail-with-body/g)?.length).toBe(2);
-    expect(workflow.match(/--show-error/g)?.length).toBe(2);
-    expect(workflow.match(/--connect-timeout 10/g)?.length).toBe(2);
-    expect(workflow.match(/--max-time 30/g)?.length).toBe(2);
+    // THREE query steps now: the two SECURITY DEFINER scans and the issue-report column audit. The
+    // count is asserted rather than a mere presence check precisely so that ADDING a step forces this
+    // review — a new step that queried the database without these guards would otherwise inherit the
+    // suite's approval silently, which is how the column audit shipped without them the first time.
+    const QUERY_STEPS = 3;
+    expect(workflow.match(/set -euo pipefail/g)?.length).toBe(QUERY_STEPS);
+    expect(workflow.match(/--fail-with-body/g)?.length).toBe(QUERY_STEPS);
+    expect(workflow.match(/--show-error/g)?.length).toBe(QUERY_STEPS);
+    expect(workflow.match(/--connect-timeout 10/g)?.length).toBe(QUERY_STEPS);
+    expect(workflow.match(/--max-time 30/g)?.length).toBe(QUERY_STEPS);
+    // Every step must VALIDATE the response shape, not merely fetch it.
+    expect(workflow.match(/invalid query response/g)?.length).toBe(2);
+    expect(workflow.match(/invalid response field type/g)?.length).toBe(2);
     expect(workflow).toContain('json.load(sys.stdin)');
     expect(workflow).toContain('invalid grant-check response');
     expect(workflow).toContain('invalid query response');
