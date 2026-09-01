@@ -158,6 +158,20 @@ export class MoonshineStreamingEngine implements STTStrategy {
 
     constructor(private readonly options: MoonshineEngineOptions) {}
 
+    /**
+     * The provider id `PrivateSTT` routes on. Distinct from `getEngineType()`, which is the engine's
+     * own legacy label — conflating them would make the facade's routing key depend on a string chosen
+     * for telemetry.
+     */
+    public readonly type = 'moonshine-streaming' as const;
+
+    /**
+     * Options are fixed for this engine's lifetime: which candidate it IS was decided at construction,
+     * and a mid-session change would mean the running model no longer matched the identity it reports.
+     * Accepted and ignored so the facade's interface is satisfied without inventing mutability.
+     */
+    public updateOptions(): void { /* identity is immutable for the life of the engine */ }
+
     getEngineType(): string { return 'moonshine_streaming'; }
     getLastHeartbeatTimestamp(): number { return this.lastHeartbeat; }
 
@@ -399,6 +413,18 @@ function textOf(result: { lines?: { text?: string }[]; text?: string }): string 
  * selected. That is the exact "identity taken from a default" failure this engine exists to prevent, and
  * no test with an injected transcriber can see it, because only the DEFAULT loader touches the enum.
  */
+/**
+ * Which arch each registered Moonshine candidate IS.
+ *
+ * Lives HERE, with the module that owns arch knowledge, rather than in the facade: a candidate id
+ * hardcoded in `PrivateSTT` is a second place the slate is written down, and the registry guard flags
+ * it for exactly that reason. Absent entry means refuse — never load whichever arch happens to be
+ * first and report the configured id over it.
+ */
+export const MOONSHINE_ARCH_BY_CANDIDATE: Readonly<Partial<Record<MoonshineCandidateId, MoonshineArch>>> = Object.freeze({
+    'moonshine:streaming-medium': 'MOONSHINE_STREAMING_MEDIUM',
+});
+
 export const RUNTIME_ARCH_MEMBER: Readonly<Record<MoonshineArch, string>> = Object.freeze({
     MOONSHINE_STREAMING_SMALL: 'SmallStreaming',
     MOONSHINE_STREAMING_MEDIUM: 'MediumStreaming',

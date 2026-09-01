@@ -50,7 +50,7 @@ export interface PrivateRuntimeDecision {
   runtime: PrivateRuntimeKind;
   /** Concrete engine the facade will initialize. (The GPU tier is parked; the WebGPU
    *  successor engine is transformers-js-v4 — whisper-turbo was retired.) */
-  provider: 'transformers-js-v4' | 'transformers-js';
+  provider: 'transformers-js-v4' | 'transformers-js' | 'moonshine-streaming';
   /** When provider is v4, which model TIER was chosen; null on the v2/CPU path. */
   v4Variant: PrivSttV4VariantId | null;
   /** Acceleration class. */

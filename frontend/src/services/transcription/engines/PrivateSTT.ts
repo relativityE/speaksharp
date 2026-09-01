@@ -47,6 +47,8 @@ import {
 } from '../candidateRegistry';
 import { recordResolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { effectiveCandidate, assertDeviceAvailable, v4VariantFor } from '../candidateSelection';
+import type { MoonshineCandidateId } from './MoonshineStreamingEngine';
+import { MOONSHINE_ARCH_BY_CANDIDATE } from './MoonshineStreamingEngine';
 import { runtimeCandidateOverride } from '../runtimeCandidateSwitch';
 import { isWebGPUSupported } from '../utils/webgpuSupport';
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
@@ -346,6 +348,33 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             assertDeviceAvailable(candidate, await isWebGPUSupported());
         }
 
+        // MOONSHINE SHORT-CIRCUITS THE v4 RESOLVER. That resolver reasons about WebGPU promotion and
+        // v4 variants, neither of which describes Moonshine; routing it through would force a v4-shaped
+        // decision onto an engine that is not one, and the recorded provenance would describe the wrong
+        // machinery. Its runtime decision is stated directly instead.
+        if (candidate.engine === 'moonshine-streaming') {
+            const decision: PrivateRuntimeDecision = {
+                runtime: 'wasm-singlethread',
+                provider: 'moonshine-streaming',
+                v4Variant: null,
+                acceleration: 'cpu',
+                reason: 'no_webgpu_or_isolation',
+                selectionSource: fallbackCause ? 'remote_safety_kill' : (runtimeCandidateOverride() ? 'runtime_switch' : 'config'),
+                webgpuAvailable: false,
+                turboCached: false,
+                crossOriginIsolated: typeof globalThis.crossOriginIsolated === 'boolean' ? globalThis.crossOriginIsolated : false,
+                wasmThreadCount: 1,
+                fallbackAvailable: false,
+                cloudFallbackAttempted: false,
+            };
+            this.runtimePath = decision;
+            publishPrivateRuntimeDebug(decision);
+            logger.info({
+                sId: this.serviceId, rId: this.runId, candidateId: candidate.id, fallbackCause,
+            }, '[PrivateSTT] Resolved Moonshine runtime decision from config');
+            return 'moonshine-streaming';
+        }
+
         const wantsV4 = candidate.engine === 'transformers-js-v4';
         const decision = await resolvePrivateRuntimePath({
             webgpuPromotionAllowed: false,
@@ -624,7 +653,55 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         }
         if (engineType === 'transformers-js') return this.initSafeEngine(timeoutMs, isMock);
         if (engineType === 'transformers-js-v4') return this.initV4Engine(timeoutMs, isMock);
+        if (engineType === 'moonshine-streaming') return this.initMoonshineEngine(timeoutMs, isMock);
         return { isOk: false as const, error: new Error(`Unknown private provider: ${engineType}`) };
+    }
+
+    /**
+     * Initialize the Moonshine streaming engine.
+     *
+     * NO SUBSTITUTION, by the same rule as v4: Moonshine is only ever reached because the config or an
+     * internal switch named it, so a failure here is surfaced rather than quietly becoming v2. A
+     * comparison recording that silently ran a different model is worse than a missing one.
+     *
+     * The arch is derived from the CANDIDATE ID rather than passed in, so the running weights and the
+     * reported identity cannot disagree.
+     */
+    private async initMoonshineEngine(timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
+        const options = this.options as TranscriptionModeOptions;
+        try {
+            const candidate = effectiveCandidate().candidate;
+            if (candidate.engine !== 'moonshine-streaming') {
+                return { isOk: false, error: new Error(`Moonshine requested but config names ${candidate.id}`) };
+            }
+            const arch = MOONSHINE_ARCH_BY_CANDIDATE[candidate.id as MoonshineCandidateId];
+            if (!arch) {
+                // Absent, never guessed: an unmapped Moonshine candidate would otherwise load whichever
+                // arch happened to be first and report the configured id over it.
+                return { isOk: false, error: new Error(`no Moonshine arch registered for ${candidate.id}`) };
+            }
+
+            // Registry lookup first, so tests drive the real facade without a 318 MB download.
+            const factory = getEngine('moonshine-streaming');
+            const engine = factory
+                ? factory(options)
+                : new (await import('./MoonshineStreamingEngine')).MoonshineStreamingEngine({
+                    candidateId: candidate.id as MoonshineCandidateId,
+                    modelArch: arch,
+                    onDownloadProgress: (f) => options.onModelLoadProgress?.(Math.round(f * 100)),
+                }) as unknown as IPrivateSTTEngine;
+
+            validateEngine(engine as unknown as IPrivateSTTEngine);
+            const result = await (engine as unknown as IPrivateSTTEngine).init(timeoutMs, isMock);
+            if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
+                return { isOk: false, error: (result as { error: Error }).error };
+            }
+            this.engine = engine as unknown as IPrivateSTTEngine;
+            this._engineType = 'moonshine-streaming';
+            return { isOk: true, data: 'moonshine-streaming' as EngineType };
+        } catch (error) {
+            return { isOk: false, error: error instanceof Error ? error : new Error(String(error)) };
+        }
     }
 
     /**
