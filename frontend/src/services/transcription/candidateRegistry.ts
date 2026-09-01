@@ -237,6 +237,12 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
             provenance: 'upstream_pins',
             pinSource: 'tests/fixtures/moonshine-asset-pins.json',
             componentCount: 7,
+            // The HONEST MAXIMUM this candidate may pull over the network, summed from the seven pinned
+            // components. It is not an estimate and not a typical case: consent copy quotes it as an
+            // upper bound, so understating it would make the consent meaningless. Bound to the pin table
+            // by test, so re-pinning to larger assets fails CI instead of silently enlarging a download
+            // the user already consented to.
+            totalBytes: 304_690_919,
             pinNote: null,
         },
         browser: { ok: true },

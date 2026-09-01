@@ -14,6 +14,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CANDIDATES } from '../../candidateRegistry';
+import { CONSENT_STORAGE_KEY, consentTermsFor } from '../../modelConsent';
 import { sttRegistry } from '../../STTRegistry';
 import type { IPrivateSTTEngine } from '../../../../contracts/IPrivateSTTEngine';
 
@@ -70,5 +71,45 @@ describe('a Moonshine session reports Moonshine', () => {
         // but no digest describes a model we cannot prove we ran.
         expect(identity?.configuredAssets.pinDigest)
             .toBe(CANDIDATES['moonshine:streaming-medium'].assets.pinDigest);
+    });
+});
+
+describe('readiness for Moonshine is a consent question, not a cache question', () => {
+    beforeEach(() => {
+        sttRegistry.register('moonshine-streaming', () => fakeMoonshineEngine() as never);
+        window.localStorage.clear();
+    });
+    afterEach(() => { sttRegistry.clear(); window.localStorage.clear(); vi.restoreAllMocks(); });
+
+    it('CASUALTY: with NO consent, readiness asks — quoting Moonshine size, not v2 cache state', async () => {
+        const { PrivateSTT } = await import('../PrivateSTT');
+        const pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+
+        const availability = await pstt.checkAvailability();
+        expect(availability.isAvailable).toBe(false);
+        // NOT `CACHE_MISS`: that asserts the assets are absent, which for a runtime that manages its own
+        // storage we cannot observe. This says only that we lack the user's agreement.
+        expect(availability.reason).toBe('CONSENT_REQUIRED');
+        expect(availability.sizeMB).toBe(305);
+        expect(availability.message).toMatch(/may download up to 305 MB/);
+        expect(availability.message).not.toMatch(/cached|already downloaded/i);
+    });
+
+    it('CASUALTY: consent lets initialization proceed but never by itself means READY', async () => {
+        const terms = consentTermsFor(CANDIDATES['moonshine:streaming-medium']);
+        window.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify({
+            [terms.candidateId]: { ...terms, grantedAt: '2026-09-01T00:00:00.000Z' },
+        }));
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        const pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+
+        expect((await pstt.checkAvailability()).isAvailable, 'no repeat prompt with a valid receipt').toBe(true);
+        // Availability is permission to TRY. Identity stays absent until a real engine has initialised
+        // and published it -- consent must never be able to manufacture a READY-looking session.
+        expect(pstt.getMetadata().candidateId).toBeUndefined();
+
+        await pstt.init();
+        expect(pstt.getMetadata().candidateId).toBe('moonshine:streaming-medium');
     });
 });

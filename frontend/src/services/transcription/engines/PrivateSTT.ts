@@ -47,6 +47,7 @@ import {
 } from '../candidateRegistry';
 import { recordResolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { effectiveCandidate, assertDeviceAvailable, v4VariantFor } from '../candidateSelection';
+import { consentCopy, consentDecision, readReceipt, reducedDataRequested } from '../modelConsent';
 import type { MoonshineArch, MoonshineCandidateId } from './MoonshineStreamingEngine';
 import { MOONSHINE_ARCH_BY_CANDIDATE } from './MoonshineStreamingEngine';
 import { runtimeCandidateOverride } from '../runtimeCandidateSwitch';
@@ -607,6 +608,40 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             try { return effectiveCandidate().candidate; } catch { return null; }
         })();
         const preferredEngine = (selected?.engine ?? getConfiguredPrivateEngine()) as EngineType;
+
+        // MOONSHINE IS A CONSENT QUESTION, NOT A CACHE QUESTION.
+        //
+        // The branch below probes a Transformers cache. Moonshine does not use one — its runtime fetches
+        // and stores its own assets and exposes no probe — so falling through here read a DIFFERENT
+        // engine's cache and answered about v2. A user with v2 cached was told the model was ready and
+        // then pulled ~305 MB with no prompt at all; when a prompt did appear it quoted v2's ~80 MB.
+        //
+        // We cannot honestly answer "is it cached?", so we stop asking. What we can record is that the
+        // user agreed to a possible download of a NAMED set of bytes, which stays true across sessions
+        // and does not require seeing the disk. A valid receipt means initialization may proceed without
+        // nagging; it never means the assets are present, and it never means READY — only the real
+        // engine publishing a matching identity does that.
+        if (selected?.engine === 'moonshine-streaming') {
+            const decision = consentDecision(
+                selected,
+                readReceipt(selected.id),
+                reducedDataRequested(),
+            );
+            if (decision.state === 'consent_required') {
+                return {
+                    isAvailable: false,
+                    reason: 'CONSENT_REQUIRED',
+                    message: consentCopy(decision.terms),
+                    // Omitted rather than sent as 0 when unknown: a consent prompt reading "0 MB" is
+                    // worse than one that declines to name a number.
+                    ...(decision.maxBytes === null ? {} : { sizeMB: Math.round(decision.maxBytes / 1_000_000) }),
+                };
+            }
+            // Consent covers this exact candidate, asset set, runtime and size. Nothing is asserted about
+            // whether a download will actually occur.
+            return { isAvailable: true };
+        }
+
         const cacheEngine =
             preferredEngine === 'transformers-js-v4' ? 'transformers-js-v4'
                 : 'transformers-js';

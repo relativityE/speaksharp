@@ -10,7 +10,13 @@ import { Result } from './modes/types';
 
 export interface AvailabilityResult {
   isAvailable: boolean;
-  reason?: 'CACHE_MISS' | 'NO_API_KEY' | 'OFFLINE' | 'PERMISSION_DENIED' | 'UNSUPPORTED' | 'UNKNOWN';
+  /**
+   * `CONSENT_REQUIRED` is deliberately distinct from `CACHE_MISS`. CACHE_MISS asserts the assets are
+   * absent, which for an engine that manages its own storage we cannot observe — reusing it would put a
+   * claim about the disk in front of the user that nothing verified. CONSENT_REQUIRED says only that we
+   * do not hold the user's agreement to a possible download of this exact asset set.
+   */
+  reason?: 'CACHE_MISS' | 'CONSENT_REQUIRED' | 'NO_API_KEY' | 'OFFLINE' | 'PERMISSION_DENIED' | 'UNSUPPORTED' | 'UNKNOWN';
   message?: string;
   sizeMB?: number;
 }
