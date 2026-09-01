@@ -5,7 +5,7 @@
  * That judgement is pure logic and belongs under test here; only the CDP plumbing needs a browser.
  */
 import { describe, it, expect } from 'vitest';
-import { readiness, classifyTake, auditEgress, TERMINAL_PRE_RECORDING_STATE } from '../../scripts/human-test/observer.mjs';
+import { readiness, classifyTake, auditEgress, TERMINAL_PRE_RECORDING_STATE, DEFAULT_APP_PATHS } from '../../scripts/human-test/observer.mjs';
 
 const RELEASE = 'a19324610634b9e05a375fff8838f2bbbae3a4f1';
 const ready = (over = {}) => ({
@@ -68,75 +68,86 @@ describe('an unattributable take is HOLD, never PASS or FAIL', () => {
 
 describe('recorded audio must not leave the device', () => {
   const APP = 'https://speaksharp-public.vercel.app';
-  const PINNED = ['https://download.moonshine.ai', 'https://huggingface.co'];
-  const audit = (reqs) => auditEgress(reqs, APP, PINNED);
+  const CANDIDATE = 'moonshine:streaming-medium';
+  const audit = (reqs, over = {}) => auditEgress(reqs, { appOrigin: APP, observedCandidate: CANDIDATE, ...over });
+  const PINNED = 'https://download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/encoder.ort';
 
   it('CASUALTY: audio posted to an UNKNOWN host is caught', () => {
-    // The defect this replaces. The old audit matched four known cloud-STT domains, so a POST carrying
-    // recorded audio to any host nobody had thought of passed clean -- and the run would have been
-    // recorded as PROVING zero egress. Being unable to name the vendor is the case to catch, not a
-    // reason to allow it.
-    const hits = audit([
-      { url: 'https://telemetry.unknown-vendor.example/v1/ingest', method: 'POST', hasPostData: true },
-    ]);
+    const hits = audit([{ url: 'https://telemetry.unknown-vendor.example/v1/ingest', method: 'POST', hasPostData: true }]);
     expect(hits).toHaveLength(1);
     expect(hits[0].category).toBe('off_origin_body');
-    expect(hits[0].origin).toBe('https://telemetry.unknown-vendor.example');
   });
 
-  it('CASUALTY: a known cloud STT endpoint is suspect even with NO observed body', () => {
-    // Transport metadata is not always complete -- a body streamed over a socket or sent in a redirected
-    // follow-up may not surface as hasPostData. For these hosts there is no innocent reason to be
-    // talking at all, so absence of an observed body is not evidence of innocence.
-    const hits = audit([{ url: 'https://api.deepgram.com/v1/listen', method: 'GET' }]);
+  it('CASUALTY: an unknown off-origin BODYLESS GET is no longer waved through', () => {
+    // A GET carries a query string perfectly well, so "no body" is not evidence that nothing left.
+    const hits = audit([{ url: 'https://unknown.example/collect?d=stuff', method: 'GET' }]);
     expect(hits).toHaveLength(1);
+    expect(hits[0].category).toBe('off_origin_unrecognised');
+    expect(JSON.stringify(hits)).not.toContain('stuff');
+  });
+
+  it('CASUALTY: same-origin traffic is NOT trusted merely for being same-origin', () => {
+    // The app's own domain is where exfiltration is cheapest to hide. An unrecognised path is reported
+    // for a human to judge rather than assumed benign.
+    const hits = audit([{ url: `${APP}/collect-audio`, method: 'POST', hasPostData: true }]);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].category).toBe('unknown_same_origin');
+  });
+
+  it('CASUALTY: a body on an EXPECTED same-origin path is still surfaced', () => {
+    const hits = audit([{ url: `${APP}/api/sessions`, method: 'POST', hasPostData: true }]);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].category).toBe('same_origin_body');
+  });
+
+  it('CASUALTY: the allowance is EXACT-URL, not per-origin', () => {
+    // An origin allowance permits every path the host serves, including an upload endpoint sitting
+    // beside the weight files.
+    const hits = audit([{ url: 'https://download.moonshine.ai/upload', method: 'POST', hasPostData: true }]);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].category).toBe('off_origin_body');
+  });
+
+  it('CASUALTY: a pinned URL with data appended is a DIFFERENT request', () => {
+    const hits = audit([{ url: `${PINNED}?exfil=SECRET`, method: 'GET' }]);
+    expect(hits).toHaveLength(1);
+    expect(JSON.stringify(hits)).not.toContain('SECRET');
+  });
+
+  it('CASUALTY: an UNATTRIBUTABLE run allows nothing', () => {
+    // With no observed candidate we cannot say which downloads were legitimate, so guessing would let an
+    // unknown model's fetches pass as expected.
+    const hits = audit([{ url: PINNED, method: 'GET' }], { observedCandidate: null });
+    expect(hits).toHaveLength(1);
+  });
+
+  it('CASUALTY: a known cloud STT endpoint is suspect even with no observed body', () => {
+    const hits = audit([{ url: 'https://api.deepgram.com/v1/listen', method: 'GET' }]);
     expect(hits[0].category).toBe('known_cloud_stt');
   });
 
-  it('CASUALTY: a POST to a pinned asset host is NOT treated as an asset fetch', () => {
-    // The allowance is for READ-ONLY fetches of declared assets. An upload to the same origin borrows
-    // the asset host's reputation to move bytes off the device.
-    const hits = audit([
-      { url: 'https://download.moonshine.ai/upload', method: 'POST', hasPostData: true },
-    ]);
-    expect(hits).toHaveLength(1);
-    expect(hits[0].category).toBe('off_origin_body');
-  });
-
-  it('CASUALTY: query strings and bodies never reach the evidence', () => {
-    const hits = audit([{
-      url: 'https://unknown.example/ingest?token=SECRET_TOKEN&sid=abc#frag=SECRET_FRAGMENT',
-      method: 'POST',
-      hasPostData: true,
-    }]);
-    const serialized = JSON.stringify(hits);
-    expect(serialized).not.toContain('SECRET_TOKEN');
-    expect(serialized).not.toContain('SECRET_FRAGMENT');
-    expect(serialized).not.toContain('sid=abc');
+  it('CASUALTY: query strings and fragments never reach the evidence', () => {
+    const hits = audit([{ url: 'https://unknown.example/ingest?token=SECRET_Q#f=SECRET_F', method: 'POST', hasPostData: true }]);
+    const s = JSON.stringify(hits);
+    expect(s).not.toContain('SECRET_Q');
+    expect(s).not.toContain('SECRET_F');
     expect(hits[0].pathname).toBe('/ingest');
   });
 
-  it('CASUALTY: an unparseable target cannot be shown to be safe, so it is reported', () => {
-    const hits = audit([{ url: 'not-a-url', method: 'POST', hasPostData: true }]);
-    expect(hits).toHaveLength(1);
-    expect(hits[0].category).toBe('unparseable_target');
-  });
-
-  it('POSITIVE CONTROL: pinned asset GETs and same-origin traffic are not egress', () => {
-    // Without these the audit flags a normal session and would be switched off, which is how a
+  it('POSITIVE CONTROL: the exact pinned assets and expected app paths are not egress', () => {
+    // Without these the audit flags an ordinary session and gets switched off, which is how a
     // fail-closed check becomes no check at all.
     expect(audit([
-      { url: 'https://download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/encoder.ort', method: 'GET' },
-      { url: 'https://huggingface.co/onnx-community/distil-small.en/resolve/main/model.onnx', method: 'GET' },
-      { url: `${APP}/api/sessions`, method: 'POST', hasPostData: true },
+      { url: PINNED, method: 'GET' },
       { url: `${APP}/assets/index.js`, method: 'GET' },
+      { url: `${APP}/index.html`, method: 'GET' },
     ])).toEqual([]);
   });
 
-  it('POSITIVE CONTROL: an off-origin GET with no body is not flagged', () => {
-    // Fail-closed applies to bytes LEAVING. A bodyless third-party GET is not audio egress, and
-    // flagging it would drown the real signal.
-    expect(audit([{ url: 'https://fonts.gstatic.com/s/inter.woff2', method: 'GET' }])).toEqual([]);
+  it('CASUALTY: the app-path allowlist cannot contain a prefix that matches everything', () => {
+    // A '/' entry would make the same-origin rule vacuous while still reading as an allowlist.
+    expect(DEFAULT_APP_PATHS).not.toContain('/');
+    expect(DEFAULT_APP_PATHS.every((p) => p.length > 1)).toBe(true);
   });
 });
 

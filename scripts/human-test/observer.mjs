@@ -1,3 +1,4 @@
+import { expectedAssetUrls } from './pinAuthority.mjs';
 /**
  * #1390 — the CDP OBSERVER for the three-model human comparison.
  *
@@ -119,6 +120,14 @@ export const KNOWN_CLOUD_STT = Object.freeze([
 
 const SAFE_ASSET_METHODS = new Set(['GET', 'HEAD']);
 
+/**
+ * Same-origin paths the app is expected to request. Deliberately a short, explicit list: anything not on
+ * it is reported rather than assumed benign, which is what "fail closed on unknown same-origin" means.
+ */
+export const DEFAULT_APP_PATHS = Object.freeze(['/assets/', '/api/', '/models/', '/favicon', '/index.html']);
+// NOTE: '/' is deliberately NOT on this list. A '/' prefix matches every path, which would make the
+// same-origin rule vacuous while reading as an allowlist — the failure mode being closed here.
+
 /** Origin + path only. Query strings and fragments carry tokens; bodies and headers carry content. */
 function safeRequestForEvidence(request, category) {
   let origin = null;
@@ -144,36 +153,73 @@ function safeRequestForEvidence(request, category) {
  * @param pinnedAssetOrigins origins serving the run's declared model assets. Passed in rather than
  *   hardcoded, so the allowance is scoped to the assets THIS run pinned instead of to a vendor family.
  */
-export function auditEgress(requests, appOrigin, pinnedAssetOrigins = []) {
-  const allowedAssets = new Set(
-    (pinnedAssetOrigins ?? []).map((o) => { try { return new URL(o).origin; } catch { return o; } }),
-  );
+/**
+ * Classify captured requests. Returns only the SUSPECT ones, sanitized.
+ *
+ * FAIL CLOSED IN BOTH DIRECTIONS. The previous version had four holes, each of which looked like a
+ * reasonable allowance and together left the audit unable to see most exfiltration:
+ *
+ *  - it took the allowed origins as a PARAMETER, so the operator running the check decided what counted
+ *    as a legitimate model download;
+ *  - it matched by ORIGIN, so every path a permitted host serves was allowed — an upload endpoint on the
+ *    asset CDN was indistinguishable from a weight file;
+ *  - it trusted every SAME-ORIGIN body, so audio posted to the app's own domain passed silently;
+ *  - it permitted unknown off-origin BODYLESS GETs, and a GET carries a query string.
+ *
+ * Now: exact committed asset URLs are derived from the registry for the candidate that was OBSERVED to
+ * run, same-origin traffic must match an expected path or it is reported, and anything not positively
+ * recognised is reported regardless of method or body.
+ *
+ * @param requests captured request metadata
+ * @param options.appOrigin the app's own origin
+ * @param options.observedCandidate the candidate the ENGINE published — never the requested one, since
+ *   the point is to audit what actually ran
+ * @param options.expectedSameOriginPaths path prefixes the app is expected to call
+ */
+export function auditEgress(requests, options = {}) {
+  const { appOrigin, observedCandidate, expectedSameOriginPaths = DEFAULT_APP_PATHS } = options;
+
+  // An unattributable run gets an EMPTY allowance: if we cannot say which model ran, we cannot say which
+  // downloads were legitimate, and guessing would let an unknown model's fetches pass as expected.
+  let allowedUrls = new Set();
+  if (observedCandidate) {
+    try { allowedUrls = expectedAssetUrls(observedCandidate); } catch { allowedUrls = new Set(); }
+  }
+
   let appO = null;
-  try { appO = new URL(appOrigin).origin; } catch { /* handled below */ }
+  try { appO = new URL(appOrigin).origin; } catch { /* every request then reads as off-origin */ }
 
   return (requests ?? []).flatMap((r) => {
-    let origin;
-    try { origin = new URL(r.url).origin; } catch {
-      // An unparseable target cannot be shown to be safe, so it is not treated as safe.
+    let url;
+    try { url = new URL(r.url); } catch {
       return [safeRequestForEvidence(r, 'unparseable_target')];
     }
-    const hasBody = Boolean(r.hasPostData);
     const method = (r.method || '').toUpperCase();
-    let host = '';
-    try { host = new URL(r.url).hostname; } catch { /* already handled */ }
+    const hasBody = Boolean(r.hasPostData);
+    const readOnly = SAFE_ASSET_METHODS.has(method) && !hasBody;
 
-    // Known cloud STT: suspect even without an observed body.
-    if (KNOWN_CLOUD_STT.some((rx) => rx.test(host))) {
+    if (KNOWN_CLOUD_STT.some((rx) => rx.test(url.hostname))) {
       return [safeRequestForEvidence(r, 'known_cloud_stt')];
     }
-    // The app's own origin. Whether the app itself does the right thing with audio is a different
-    // question, proven elsewhere; this audit is about bytes leaving for a third party.
-    if (appO && origin === appO) return [];
-    // Pinned model assets, fetched read-only. A POST to an asset host is NOT an asset fetch.
-    if (allowedAssets.has(origin) && SAFE_ASSET_METHODS.has(method) && !hasBody) return [];
-    // Everything else off-origin with a body — regardless of hostname. This is the case the blocklist
-    // could not see.
-    if (hasBody) return [safeRequestForEvidence(r, 'off_origin_body')];
-    return [];
+
+    // AN EXACT COMMITTED ASSET, fetched read-only and carrying NOTHING extra. Comparing only
+    // origin+pathname would allow `<pinned-url>?exfil=...`, which is a fine way to move data out under a
+    // URL that passes the allowance — so a query or fragment disqualifies the match outright.
+    const bare = `${url.origin}${url.pathname}`;
+    if (allowedUrls.has(bare) && readOnly && url.search === '' && url.hash === '') return [];
+
+    if (appO && url.origin === appO) {
+      // SAME-ORIGIN IS NOT A FREE PASS. The app's own domain is where exfiltration is cheapest to hide,
+      // so a request must look like something the app is expected to do. Anything else is reported for a
+      // human to judge rather than assumed benign.
+      const expected = expectedSameOriginPaths.some((p) => url.pathname.startsWith(p));
+      if (expected && !hasBody) return [];
+      if (expected && hasBody) return [safeRequestForEvidence(r, 'same_origin_body')];
+      return [safeRequestForEvidence(r, 'unknown_same_origin')];
+    }
+
+    // Everything else off-origin, INCLUDING a bodyless GET: a query string carries data perfectly well,
+    // and an unrecognised host is exactly the case the old blocklist could not see.
+    return [safeRequestForEvidence(r, hasBody ? 'off_origin_body' : 'off_origin_unrecognised')];
   });
 }
