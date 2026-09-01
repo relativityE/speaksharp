@@ -99,17 +99,44 @@ describe('the active candidate is a checked-in build-time decision', () => {
         expect(activeCandidate().id).toBe(cfg.candidate);
     });
 
-    it('CASUALTY: ALL THREE human-test candidates are selectable from config', () => {
-        // The Product Owner tests v2, int8 and moonshine side by side on the real path. A config that
-        // cannot express the third makes the comparison impossible, so this asserts the whole slate.
+    it('CASUALTY: the THREE contract candidates are selectable from config', () => {
+        // The recorded product contract is Moonshine / v2 base.en / v4 distil-q4. A config that cannot
+        // express all three makes the human comparison impossible, so this asserts the whole slate.
         expect(activeCandidate({ candidate: 'v2:base.en' }).id).toBe('v2:base.en');
-        expect(activeCandidate({ candidate: 'v4:base:int8' }).id).toBe('v4:base:int8');
+        expect(activeCandidate({ candidate: 'v4:distil:q4' }).id).toBe('v4:distil:q4');
         // Moonshine additionally needs an INTERNAL build: it is selectable for comparison, not
-        // shippable, and the two permissions are deliberately separate.
+        // shippable, and the two permissions are deliberately separate. #1381 activates it.
         expect(activeCandidate(
             { candidate: 'moonshine:streaming-medium', acknowledgeNotProductionReady: true },
             { VITE_INTERNAL_BUILD: 'true' },
         ).id).toBe('moonshine:streaming-medium');
+    });
+
+    it('CASUALTY: the benchmark controls FAIL CLOSED when configured', () => {
+        // base_q4 and base_int8 are measured arms, not product candidates. int8 additionally has no
+        // runtime variant at all, so selecting it could only ever run a DIFFERENT model under its id —
+        // which is the defect this whole plane exists to prevent. Neither may boot silently.
+        // Collected then asserted once: the loop reports WHICH control regressed without needing a
+        // per-assertion message the lint rule disallows.
+        const booted = ['v4:base:q4', 'v4:base:int8'].filter((id) => {
+            try { activeCandidate({ candidate: id }); return true; } catch { return false; }
+        });
+        expect(booted).toEqual([]);
+        const unexplained = ['v4:base:q4', 'v4:base:int8'].filter((id) => {
+            try { activeCandidate({ candidate: id }); return true; } catch (e) {
+                return !(e instanceof InactiveCandidateError) || !/benchmark control only/.test(String(e));
+            }
+        });
+        expect(unexplained).toEqual([]);
+    });
+
+    it('the benchmark controls remain REGISTERED — they are still attribution targets', () => {
+        // Refusing to RUN them must not erase them: a past or benchmark run that resolved base_q4 still
+        // has to be attributable to base_q4 rather than to nothing.
+        const unattributable = (['v4:base:q4', 'v4:base:int8'] as const).filter(
+            (id) => !CANDIDATES[id] || !isCompleteIdentity(identityOf(CANDIDATES[id])),
+        );
+        expect(unattributable).toEqual([]);
     });
 
     it('CASUALTY: an unapproved candidate needs an EXPLICIT acknowledgement, never a silent pass', () => {
@@ -156,8 +183,13 @@ describe('the active candidate is a checked-in build-time decision', () => {
         // candidate happens to be ready, which is exactly when the rule stops being enforced.
         const unexplained = CANDIDATE_IDS.filter((id) => !CANDIDATES[id].activationReady && !CANDIDATES[id].notReadyReason);
         expect(unexplained).toEqual([]);
-        // and one IS ineligible today, so the assertion above is not vacuous.
-        expect(CANDIDATE_IDS.filter((id) => !CANDIDATES[id].activationReady)).toEqual(['moonshine:streaming-medium']);
+        // and some ARE ineligible today, so the assertion above is not vacuous. This set is the
+        // recorded contract: only v2 and distil-q4 may ship, Moonshine is pending #1381 activation, and
+        // the two base controls are benchmark arms that selection refuses.
+        expect(CANDIDATE_IDS.filter((id) => !CANDIDATES[id].activationReady))
+            .toEqual(['v4:base:q4', 'v4:base:int8', 'moonshine:streaming-medium']);
+        expect(CANDIDATE_IDS.filter((id) => CANDIDATES[id].activationReady))
+            .toEqual(['v2:base.en', 'v4:distil:q4']);
     });
 
     it('the active candidate is always resolvable — a build cannot ship an unusable default', () => {
@@ -190,22 +222,23 @@ describe('SWAPPING a candidate is a one-line config change', () => {
      */
     it('CASUALTY: changing the config value changes engine, model, dtype AND assets', () => {
         const v2 = activeCandidate({ candidate: 'v2:base.en' });
-        const int8 = activeCandidate({ candidate: 'v4:base:int8' });
+        const distil = activeCandidate({ candidate: 'v4:distil:q4' });
 
-        expect(v2.engine).not.toBe(int8.engine);
-        expect(v2.model.id).not.toBe(int8.model.id);
-        expect(v2.runtime.package).not.toBe(int8.runtime.package);
-        expect(v2.assets.pinDigest).not.toBe(int8.assets.pinDigest);
+        expect(v2.engine).not.toBe(distil.engine);
+        expect(v2.model.id).not.toBe(distil.model.id);
+        expect(v2.runtime.package).not.toBe(distil.runtime.package);
+        expect(v2.assets.pinDigest).not.toBe(distil.assets.pinDigest);
         // A swap that changed the label but kept the bytes would be the worst possible outcome: a
         // session attributed to one model and decoded by another.
-        expect(int8.model.dtype?.decoder_model_merged).toBe('int8');
+        expect(distil.model.device).toBe('webgpu');
     });
 
     it('CASUALTY: swapping between v4 variants changes the DECODER, not just the name', () => {
         // q4 and int8 share a repo and an encoder. If a swap between them did not change the decoder
-        // precision, the config would be decorative.
-        const q4 = activeCandidate({ candidate: 'v4:base:q4' });
-        const int8 = activeCandidate({ candidate: 'v4:base:int8' });
+        // precision, the config would be decorative. Read from the REGISTRY: both are benchmark
+        // controls that selection refuses, and this asserts what distinguishes them as measured arms.
+        const q4 = CANDIDATES['v4:base:q4'];
+        const int8 = CANDIDATES['v4:base:int8'];
         expect(q4.model.id).toBe(int8.model.id);
         expect(q4.model.dtype?.decoder_model_merged).toBe('q4');
         expect(int8.model.dtype?.decoder_model_merged).toBe('int8');
@@ -221,7 +254,7 @@ describe('SWAPPING a candidate is a one-line config change', () => {
             expect(isCompleteIdentity(identityOf(c)), `${id} not attributable`).toBe(true);
             expect(c.assets.pinDigest, `${id} has no asset digest`).toBeTruthy();
         }
-        expect(activeCandidate({ candidate: 'v4:base:int8' }).id).toBe('v4:base:int8');
+        expect(activeCandidate({ candidate: 'v4:distil:q4' }).id).toBe('v4:distil:q4');
         expect(() => activeCandidate({ candidate: 'moonshine:streaming-medium' })).toThrow(/not approved as a production default/);
     });
 });
@@ -236,7 +269,7 @@ describe('DROP-IN property — every candidate resolves wholly from its registry
      * engine, model, dtype, device, runtime, assets — comes back from the entry, with no field left for
      * something else to supply.
      */
-    const SLOTS: CandidateId[] = ['v2:base.en', 'v4:base:int8', 'moonshine:streaming-medium'];
+    const SLOTS: CandidateId[] = ['v2:base.en', 'v4:distil:q4', 'moonshine:streaming-medium'];
 
     it('CASUALTY: each slot resolves engine/model/dtype/device/runtime/assets from config alone', () => {
         for (const id of SLOTS) {
@@ -271,7 +304,7 @@ describe('DROP-IN property — every candidate resolves wholly from its registry
 
     it('swapping a slot changes only the config value — the registry supplies the rest', () => {
         const before = activeCandidate({ candidate: 'v2:base.en' });
-        const after = activeCandidate({ candidate: 'v4:base:int8' });
+        const after = activeCandidate({ candidate: 'v4:distil:q4' });
         // Same call, same code path, different everything that describes the model.
         expect(before.id).not.toBe(after.id);
         expect(before.model.id).not.toBe(after.model.id);

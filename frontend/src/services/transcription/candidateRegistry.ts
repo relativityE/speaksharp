@@ -137,7 +137,9 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
     },
     'v4:base:q4': {
         id: 'v4:base:q4',
-        activationReady: true,
+        activationReady: false,
+        notReadyReason:
+            'benchmark control only. It is a measured arm and a valid ATTRIBUTION target, but it is not one of the three candidates under product comparison, so a build may not ship it as the default',
         engine: 'transformers-js-v4',
         runtime: { package: '@huggingface/transformers', version: '4.2.0' },
         model: {
@@ -158,7 +160,9 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
     },
     'v4:base:int8': {
         id: 'v4:base:int8',
-        activationReady: true,
+        activationReady: false,
+        notReadyReason:
+            'benchmark control only, and PRIV_STT_V4_VARIANTS registers no int8 runtime variant, so the engine cannot load it at all. Selecting it could only ever run a different model under this id',
         engine: 'transformers-js-v4',
         runtime: { package: '@huggingface/transformers', version: '4.2.0' },
         model: {
