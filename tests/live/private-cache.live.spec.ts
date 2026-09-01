@@ -9,7 +9,7 @@ import {
 // left in a known-broken ledger.
 import { MIC_CONTROL_BY_STATUS } from '../helpers/micControls';
 import privateSttConfig from '../../frontend/src/config/private-stt.config.json';
-import { CANDIDATES } from '../../frontend/src/services/transcription/candidateRegistry';
+import { CANDIDATES, candidateForRuntime } from '../../frontend/src/services/transcription/candidateRegistry';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
@@ -23,6 +23,7 @@ type CacheSnapshot = {
   indexedDbNames: string[]
   modelStatus: string | null
   runtimeProvider: string | null
+  runtimeVariant: string | null
   runtimeState: string | null
   sttReady: string | null
   downloadVisible: boolean
@@ -46,11 +47,26 @@ type CacheSnapshot = {
 const CONFIGURED_CANDIDATE = CANDIDATES[privateSttConfig.candidate as keyof typeof CANDIDATES];
 const CONFIGURED_IS_V2 = CONFIGURED_CANDIDATE?.engine === 'transformers-js';
 
+/**
+ * The candidate the ENGINE actually initialised, as a full id.
+ *
+ * Reconstructed through the registry's own reverse mapping so the harness and the product share one
+ * definition of what a (provider, variant) pair means. Returns null when the pair maps to nothing —
+ * unattributable, which must fail rather than default to anything.
+ */
+function observedCandidateId(snapshot: { runtimeProvider: string | null; runtimeVariant: string | null }): string | null {
+  try {
+    return candidateForRuntime({ engineType: snapshot.runtimeProvider, variant: snapshot.runtimeVariant });
+  } catch {
+    return null;
+  }
+}
+
 const PRIVATE_MODEL_CASES = [
   {
     label: `configured-${privateSttConfig.candidate}`,
     sessionPath: '/session',
-    expectedEngine: CONFIGURED_CANDIDATE?.engine,
+    expectedCandidateId: privateSttConfig.candidate,
     /** v2-only surface; asserted only when the configured engine actually publishes it. */
     expectedV2ModelKey: CONFIGURED_IS_V2 ? 'whisper-base.en' : null,
   },
@@ -103,8 +119,11 @@ test.describe.serial('Private first-start and second-start cache proof @live', (
 
       expect(isPrivateReadySnapshot(firstReady), JSON.stringify({ modelCase, firstReady })).toBe(true);
       expect(firstReady.transformerCacheKeyCount, JSON.stringify({ modelCase, firstReady })).toBeGreaterThan(0);
-      // Model-agnostic: the provider the engine ITSELF published must be the configured one.
-      expect(firstReady.runtimeProvider, JSON.stringify({ modelCase, firstReady })).toBe(modelCase.expectedEngine);
+      // FULL CANDIDATE ID, both sides. Expected comes from the config; observed is reconstructed from
+      // what the ENGINE published (provider + variant) through the registry's own reverse mapping. A
+      // provider-only comparison would accept base_q4 for a distil configuration.
+      expect(observedCandidateId(firstReady), JSON.stringify({ modelCase, firstReady }))
+        .toBe(modelCase.expectedCandidateId);
       if (modelCase.expectedV2ModelKey) {
         expect(firstReady.privateModelTelemetry?.model, JSON.stringify({ modelCase, firstReady })).toBe(modelCase.expectedV2ModelKey);
         expect(firstReady.privateModelTelemetry?.selectionSource, JSON.stringify({ modelCase, firstReady })).toBe('default');
@@ -118,7 +137,8 @@ test.describe.serial('Private first-start and second-start cache proof @live', (
       await waitForPrivateReady(page);
 
       const secondReady = await getCacheSnapshot(page);
-      expect(secondReady.runtimeProvider, JSON.stringify({ modelCase, secondReady })).toBe(modelCase.expectedEngine);
+      expect(observedCandidateId(secondReady), JSON.stringify({ modelCase, secondReady }))
+        .toBe(modelCase.expectedCandidateId);
       if (modelCase.expectedV2ModelKey) {
         expect(secondReady.privateModelTelemetry?.model, JSON.stringify({ modelCase, secondReady })).toBe(modelCase.expectedV2ModelKey);
       }
@@ -130,7 +150,7 @@ test.describe.serial('Private first-start and second-start cache proof @live', (
 
       const evidence = {
         model: modelCase.label,
-        expectedEngine: modelCase.expectedEngine,
+        expectedCandidateId: modelCase.expectedCandidateId,
         firstStart: firstReady,
         secondStart: secondReady,
         cachePersisted: secondReady.transformerCacheKeyCount >= firstReady.transformerCacheKeyCount,
@@ -288,6 +308,11 @@ async function getCacheSnapshot(page: Page): Promise<CacheSnapshot> {
       // without depending on the v2-only model-telemetry object.
       runtimeProvider: (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: { provider?: string } })
         .__PRIVATE_STT_RUNTIME_DEBUG__?.provider ?? null,
+      // The VARIANT as well. `provider` is `transformers-js-v4` for base_q4, base_int8 AND distil_q4,
+      // so a provider-only check cannot tell a distil run from a base run — it would pass while the
+      // wrong model decoded the take.
+      runtimeVariant: (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: { v4Variant?: string | null } })
+        .__PRIVATE_STT_RUNTIME_DEBUG__?.v4Variant ?? null,
     };
   });
 }
