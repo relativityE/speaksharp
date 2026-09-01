@@ -8,6 +8,8 @@ import {
     expectBenchmarkRecordingStarted,
     expectBenchmarkTranscriptOutput,
     waitForBenchmarkSaveCandidate,
+    startBenchmarkRecording,
+    stopBenchmarkRecording,
 } from './helpers/benchmark-utils';
 import { FILLER_CONV_01_AUDIO } from './helpers/audio-fixtures';
 import {
@@ -153,9 +155,18 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
         });
 
         await test.step('Mock-free Private recording — prove Private runtime identity WHILE recording', async () => {
-            const startStop = page.getByTestId('session-start-stop-button');
-            await expect(startStop).toBeEnabled({ timeout: 60_000 });
-            await startStop.click();
+            // START THROUGH THE CONTROL THE PRODUCT ACTUALLY RENDERS.
+            //
+            // This clicked `session-start-stop-button`, the combined toggle the session overhaul
+            // retired. Nothing renders that id on any viewport, so the locator could never resolve and
+            // the run failed after signup, model download and READY — reporting a broken journey when
+            // the app had reached an enabled start control. `startBenchmarkRecording` resolves the
+            // control from MIC_CONTROL_BY_STATUS, the same map the components are tested against, so
+            // the harness and the product cannot drift apart again.
+            //
+            // The three benchmark specs were migrated to this helper; this proof was missed, which is
+            // why the identical defect survived here alone.
+            await startBenchmarkRecording(page, 'private-proof');
             await expectBenchmarkRecordingStarted(page, 'private-proof');
             // P1.2 runtime identity during recording — anchored on the ACTUAL INSTANTIATED engine, not a
             // serviceMode label. Read the producing mode (serviceMode) AND the running engine's OWN provider from
@@ -187,8 +198,10 @@ test.describe('#1089 exact-SHA Private recording proof @live', () => {
             // fix 3: remember the INSTANTIATED arm/model so the persisted row can be checked to MATCH it exactly.
             runtimeIdentity = { runtimeProvider: runtimeVerdict.runtimeProvider, modelId: runtimeVerdict.modelId };
             await expectBenchmarkTranscriptOutput(page, 'private-proof', 60_000, 3);
-            await startStop.click();
-            await expect(startStop).toHaveAttribute('data-recording', 'false', { timeout: 120_000 });
+            // STOP THROUGH THE RECORDER BAR. RecorderBar REPLACES MicCard while recording rather than
+            // toggling it, so re-clicking the start control — as this did — could never stop anything,
+            // and the `data-recording` attribute it then polled belongs to the same absent element.
+            await stopBenchmarkRecording(page, 'private-proof');
             await waitForBenchmarkSaveCandidate(page, 'private-proof', 120_000);
             expect(providerHits, `no Cloud/provider requests allowed: ${providerHits.join(',')}`).toEqual([]);
         });
