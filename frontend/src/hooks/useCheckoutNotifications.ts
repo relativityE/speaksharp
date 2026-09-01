@@ -5,6 +5,9 @@ import { toast } from '@/lib/toast';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 import React from 'react';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import {
+    CONVERSION_SOURCES, UTM_SOURCES, UTM_MEDIUMS, UTM_CAMPAIGNS, closeAttribution,
+} from '@/services/conversionVocabulary';
 import { useQueryClient } from '@tanstack/react-query';
 
 /**
@@ -20,10 +23,15 @@ export function useCheckoutNotifications() {
     useEffect(() => {
         const params = new URLSearchParams(location.search);
         const checkoutStatus = params.get('checkout');
-        const conversionSource = params.get('conversion_source') ?? 'unknown';
-        const utmSource = params.get('utm_source') ?? 'unknown';
-        const utmMedium = params.get('utm_medium') ?? 'unknown';
-        const utmCampaign = params.get('utm_campaign') ?? 'unknown';
+        // CLOSED AT THE PRODUCER. These four values arrive on a visitor-controlled URL, so anything we
+        // did not emit collapses to `unknown` here rather than being echoed into a governed event.
+        // `?? 'unknown'` only defended against a MISSING parameter; a present one was passed through
+        // verbatim, which let `?checkout=success&conversion_source=<anything>` write caller text into
+        // the funnel. `unknown` is the honest answer: this return could not be attributed.
+        const conversionSource = closeAttribution(params.get('conversion_source'), CONVERSION_SOURCES);
+        const utmSource = closeAttribution(params.get('utm_source'), UTM_SOURCES);
+        const utmMedium = closeAttribution(params.get('utm_medium'), UTM_MEDIUMS);
+        const utmCampaign = closeAttribution(params.get('utm_campaign'), UTM_CAMPAIGNS);
 
         // Create a unique key for this specific toast event to prevent duplicates in StrictMode
         const currentToastId = checkoutStatus ? `${checkoutStatus}-${location.search}` : null;

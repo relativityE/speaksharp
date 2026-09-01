@@ -5,6 +5,8 @@ import logger from '../lib/logger';
 import { sanitizePrivateTelemetryProps } from './transcription/privateTelemetry';
 import { projectEventProps, isGovernedEvent, type GovernedEvent } from './telemetryAllowlist';
 import { buildEnvelope, stripEnvelopeKeys, type EnvelopeSources } from './telemetry/envelope';
+import { buildTrafficSignals } from './telemetry/trafficType';
+import { resolvedEngine } from './telemetry/runtimeAttribution';
 
 
 /**
@@ -41,7 +43,42 @@ class AnalyticsBuffer {
    * drive the real seam without a browser. Defaults to "nothing resolved", which yields null
    * attribution — honest, and never a fabricated model id.
    */
-  private static envelopeSourcesProvider: () => EnvelopeSources = () => ({});
+  private static envelopeSourcesProvider: () => EnvelopeSources =
+    () => AnalyticsBuffer.productionEnvelopeSources();
+
+  /**
+   * The AUTHENTICATED account id, captured where it is already known.
+   *
+   * `traffic_type` classifies by WHO IS SIGNED IN, so the envelope needs the account id. Reading it
+   * from a client self-declaration is the failure this field exists to prevent, and re-querying auth
+   * at capture time would make every event await a promise.
+   */
+  private static currentAccountId: string | null = null;
+
+  /**
+   * THE PRODUCTION SOURCES — the default, not an opt-in.
+   *
+   * This used to default to `() => ({})`, so every field was null and every session read as `user`
+   * traffic unless something called `setEnvelopeSources()`. Nothing in production did. The envelope
+   * was wired end to end and still emitted nothing, which is indistinguishable from not having built
+   * it — and it fails in the direction that HIDES our own traffic among real users.
+   *
+   * Making the default real inverts that: wiring can no longer be forgotten, only deliberately
+   * replaced (which `setEnvelopeSources` still allows, for tests and for a harness that knows better).
+   */
+  private static productionEnvelopeSources(): EnvelopeSources {
+    return {
+      // The deployed release id injected into index.html. Null when absent — never a guess.
+      releaseSha: typeof window !== 'undefined' ? (window.__APP_RELEASE__ ?? null) : null,
+      // What the engine RESOLVED, published by the engine itself at resolution time.
+      engineMetadata: resolvedEngine(),
+      // Build-time signals plus the signed-in account; a visitor cannot forge either.
+      trafficSignals: buildTrafficSignals(
+        import.meta.env as unknown as Record<string, string | undefined>,
+        AnalyticsBuffer.currentAccountId,
+      ),
+    };
+  }
 
   public static setEnvelopeSources(provider: () => EnvelopeSources): void {
     AnalyticsBuffer.envelopeSourcesProvider = provider;
@@ -265,6 +302,10 @@ class AnalyticsBuffer {
    */
   public identify(userId: string): void {
 
+    // Record BEFORE the capture below: `account_identified` is itself a governed event, and an
+    // account identified after the fact would emit that first event as `user` traffic — precisely the
+    // canary-looks-like-a-user confusion the field exists to remove.
+    AnalyticsBuffer.currentAccountId = userId || null;
     this.identityProbe.identifyCalls += 1;
     try {
       posthog.identify(userId);

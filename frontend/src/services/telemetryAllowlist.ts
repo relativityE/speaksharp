@@ -33,6 +33,10 @@
  */
 
 /** Transcription engine modes. NOT the Focus Points practice modes — see PRACTICE_MODES. */
+import {
+    CONVERSION_SOURCES, UTM_SOURCES, UTM_MEDIUMS, UTM_CAMPAIGNS, closedWith,
+} from './conversionVocabulary';
+
 const STT_MODES = ['private', 'browser', 'cloud', 'native', 'unknown'] as const;
 /** `PracticeMode` in practiceTelemetry.ts. The SAME property name `mode` with a DIFFERENT closed set. */
 const PRACTICE_MODES = ['quick', 'objective'] as const;
@@ -94,9 +98,17 @@ const CONVERSION_FIELDS = {
     ...EXPERIMENT_FIELDS,
 } as const;
 
+/**
+ * Checkout return attribution is read from the visitor-controlled URL query, so these are CLOSED
+ * vocabularies rather than `slug()`. A slug rule constrains shape, not origin — it accepted any
+ * slug-shaped string a visitor put in `?conversion_source=`. The producer collapses anything we did
+ * not emit to `unknown`, and this rule is what makes that collapse enforceable at the seam.
+ */
 const CHECKOUT_RETURN_FIELDS = {
-    conversion_source: slug(),
-    utm_source: slug(), utm_medium: slug(), utm_campaign: slug(),
+    conversion_source: enumOf(closedWith(CONVERSION_SOURCES)),
+    utm_source: enumOf(closedWith(UTM_SOURCES)),
+    utm_medium: enumOf(closedWith(UTM_MEDIUMS)),
+    utm_campaign: enumOf(closedWith(UTM_CAMPAIGNS)),
 } as const;
 
 const COACHING_CORE = {

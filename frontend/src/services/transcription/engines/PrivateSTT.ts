@@ -46,6 +46,7 @@ import {
     CANDIDATES, candidateForRuntime, identityOf,
     type CandidateId, type SessionModelIdentity,
 } from '../candidateRegistry';
+import { recordResolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
 import type { PrivateSttProvider } from '../providers/types';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
@@ -183,6 +184,21 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * `private_v4:base_q4`. Previously the controller hardcoded `'transformers-js'`,
      * which erased the v4 arm. `deviceType` stays `'browser'` (on-device).
      */
+    /**
+     * Publish the RESOLVED identity to the telemetry seam.
+     *
+     * Never throws: attribution is evidence about a session, and failing to record it must not end the
+     * session it describes.
+     */
+    private publishResolvedIdentity(): void {
+        try {
+            const { candidateId, modelIdentity } = this.getMetadata();
+            recordResolvedEngine(candidateId ? { candidateId, modelIdentity } : null);
+        } catch {
+            // An unresolvable combination stays absent rather than becoming a guessed identity.
+        }
+    }
+
     public getMetadata(): {
         engineVersion: string; modelName: string; deviceType: string;
         candidateId?: CandidateId; modelIdentity?: SessionModelIdentity;
@@ -278,6 +294,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                     turboModelCached: false,
                 });
                 this.runtimePath = decision;
+                // PUBLISH AT RESOLUTION. The telemetry seam has no handle on this engine, and events
+                // fired before the first save would otherwise carry null attribution even though the
+                // identity was already known here.
+                this.publishResolvedIdentity();
                 publishPrivateRuntimeDebug(decision);
                 logger.info({ sId: this.serviceId, rId: this.runId, runtimeDecision: decision, selectedEngine, source: 'override' }, '[PrivateSTT] Published explicit CPU runtime decision');
             }
@@ -367,6 +387,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 : undefined,
         });
         this.runtimePath = decision;
+                // PUBLISH AT RESOLUTION. The telemetry seam has no handle on this engine, and events
+                // fired before the first save would otherwise carry null attribution even though the
+                // identity was already known here.
+                this.publishResolvedIdentity();
         publishPrivateRuntimeDebug(decision);
         logger.info({ sId: this.serviceId, rId: this.runId, runtimeDecision: decision, configured }, '[PrivateSTT] Resolved private runtime decision');
 

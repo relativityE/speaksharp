@@ -1,20 +1,13 @@
 import { analyticsBuffer } from './AnalyticsBuffer';
+import type { ConversionSource } from './conversionVocabulary';
 import { getSessionCoachingExperimentProperties } from './sessionCoachingExperiment';
 
 export type BillingPlan = 'free' | 'pro';
 export type CheckoutPlan = 'pro';
 
-export type ConversionSource =
-  | 'hero_primary'
-  | 'landing_cta'
-  | 'pricing_free_card'
-  | 'pricing_pro_card'
-  | 'nav_upgrade'
-  | 'analytics_overview_banner'
-  | 'analytics_empty_state'
-  | 'limit_modal'
-  | 'post_session_prompt'
-  | 'free_plan_support';
+// The vocabulary lives in `conversionVocabulary` so the producer that closes an inbound checkout
+// return and the allowlist that validates the outbound event read the SAME list.
+export type { ConversionSource };
 
 type ConversionContext = {
   source: ConversionSource;
