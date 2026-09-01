@@ -72,3 +72,27 @@ describe('evidence never carries a raw target URL', () => {
       .toMatchObject({ origin: null, pathname: null });
   });
 });
+
+describe('the ambiguity error never echoes a raw target URL', () => {
+    it('CASUALTY: two matching tabs carrying secrets leak neither into the error', () => {
+        // The operator hits this error exactly when several app tabs are open -- most likely straight
+        // after an auth round-trip, when one of them IS the callback URL with a token in its query or
+        // fragment. The error goes to a terminal and into run logs, which are as durable as the evidence
+        // file, so redacting evidence while leaving this path raw protects nothing.
+        const { error, target } = selectAppTarget([
+            { id: '1', type: 'page', url: 'https://app.example/auth/callback?access_token=SECRET_QUERY' },
+            { id: '2', type: 'page', url: 'https://app.example/session#id_token=SECRET_FRAGMENT' },
+        ], 'https://app.example');
+
+        expect(target).toBeNull();
+        expect(error).not.toContain('SECRET_QUERY');
+        expect(error).not.toContain('SECRET_FRAGMENT');
+        expect(error).not.toContain('access_token');
+        expect(error).not.toContain('?');
+        expect(error).not.toContain('#');
+        // Still actionable: the operator needs to know how many and which pages to close.
+        expect(error).toContain('2 pages');
+        expect(error).toContain('/auth/callback');
+        expect(error).toContain('/session');
+    });
+});

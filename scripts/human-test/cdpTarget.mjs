@@ -49,10 +49,19 @@ export function selectAppTarget(targets, appOrigin) {
         return { target: null, error: `no open page on ${appOrigin} (open the app in the launched browser first)` };
     }
     if (matching.length > 1) {
+        // SANITIZED THROUGH THE SAME PROJECTION AS EVIDENCE. This listed `t.url` raw. The operator hits
+        // this error precisely when several app tabs are open — which is most likely right after an auth
+        // round-trip, when one of those tabs is a callback URL carrying a token in its query or
+        // fragment. The error goes to a terminal and into run logs, so it is exactly as durable as the
+        // evidence file, and redacting one exit while leaving the other open protects nothing.
+        const listed = matching
+            .map((t) => safeTargetForEvidence(t))
+            .map((s) => `${s.origin ?? 'unparseable'}${s.pathname ?? ''}`)
+            .join(', ');
         return {
             target: null,
             error: `${matching.length} pages open on ${appOrigin}; close the extras so the take cannot be `
-                + `attributed to the wrong tab (${matching.map((t) => t.url).join(', ')})`,
+                + `attributed to the wrong tab (${listed})`,
         };
     }
     return { target: matching[0], error: null };
