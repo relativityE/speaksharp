@@ -23,7 +23,7 @@ import logger from '@/lib/logger';
 import { redactTranscript } from '@/lib/logRedaction';
 import { STTEngine } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_MODELS, samplesToSeconds } from '../sttConstants';
-import { resolvePrivateModel, isPrivateModelOverridden, resolvePrivateModelSource, publishPrivateModelTelemetry, assertValidPrivateModelSelection } from '../utils/privateModelFlag';
+import { resolvePrivateModel, publishPrivateModelTelemetry } from '../utils/privateModelFlag';
 import workerUrl from './transformers-js.worker.ts?worker&url';
 import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
 
@@ -571,7 +571,6 @@ export class TransformersJSEngine extends STTEngine {
         // STT-P6-HUMAN: reject an explicitly-requested-but-unsupported `?privateModel=` flag here,
         // before any worker/model load, instead of silently running tiny (which made invalid model
         // requests look honored). No flag or a valid candidate → no-op (default path unchanged).
-        assertValidPrivateModelSelection();
         this.worker = new Worker(workerUrl, { type: 'module' });
         this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
             const response = event.data;
@@ -610,8 +609,8 @@ export class TransformersJSEngine extends STTEngine {
                     model: loadedModelKey,
                     runtime: 'transformers-js',
                     approxMB: PRIV_STT_MODELS.CANDIDATES[loadedModelKey].approxMB,
-                    overridden: isPrivateModelOverridden(),
-                    selectionSource: resolvePrivateModelSource(),
+                    overridden: false,
+                    selectionSource: 'default',
                     loadTimeMs: response.loadTimeMs,
                     // Default tiny is bundled (local→remote fallback); candidates are remote-only.
                     fallbackPath: loadedModelKey === PRIV_STT_MODELS.DEFAULT ? 'local-then-remote' : 'remote-only',
@@ -649,8 +648,8 @@ export class TransformersJSEngine extends STTEngine {
             model: selectedModel,
             runtime: 'transformers-js',
             approxMB: modelCfg.approxMB,
-            overridden: isPrivateModelOverridden(),
-            selectionSource: resolvePrivateModelSource(),
+            overridden: false,
+            selectionSource: 'default',
             loadTimeMs: null,
             fallbackPath: selectedModel === PRIV_STT_MODELS.DEFAULT ? 'local-then-remote' : 'remote-only',
             cloudFallbackAttempted: false,

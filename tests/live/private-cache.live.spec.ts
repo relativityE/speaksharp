@@ -1,5 +1,15 @@
 import { test, expect, type Page } from '@playwright/test';
-import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode } from './helpers/benchmark-utils';
+import {
+  AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode,
+  startBenchmarkRecording, stopBenchmarkRecording,
+} from './helpers/benchmark-utils';
+// The MODEL-STATE CONTROL MAP. This spec clicked `session-start-stop-button`, the combined toggle the
+// session overhaul retired — it renders on no viewport, so the download click and both recording
+// clicks had no target. `live-release-matrix` still invokes this spec, so it is migrated rather than
+// left in a known-broken ledger.
+import { MIC_CONTROL_BY_STATUS } from '../helpers/micControls';
+import privateSttConfig from '../../frontend/src/config/private-stt.config.json';
+import { CANDIDATES, candidateForRuntime } from '../../frontend/src/services/transcription/candidateRegistry';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
@@ -12,6 +22,8 @@ type CacheSnapshot = {
   transformerCacheKeyCount: number
   indexedDbNames: string[]
   modelStatus: string | null
+  runtimeProvider: string | null
+  runtimeVariant: string | null
   runtimeState: string | null
   sttReady: string | null
   downloadVisible: boolean
@@ -23,24 +35,40 @@ type CacheSnapshot = {
   } | null
 }
 
+// THE EXPECTATION COMES FROM THE CONFIG PLANE, NOT A LITERAL.
+//
+// This hardcoded `whisper-base.en` and `selectionSource: 'default'`, and additionally read
+// `__PRIVATE_MODEL_TELEMETRY__` — a surface published ONLY by TransformersJSEngine. Under a config that
+// selects distil or Moonshine the v2 engine never runs, so that object is never published and the
+// proof would fail or, worse, assert v2's identity for a session decoded by another model.
+//
+// The proof's subject is CACHE behaviour, which is model-agnostic. Model identity is asserted against
+// whatever the checked-in config actually names, through a surface every engine publishes.
+const CONFIGURED_CANDIDATE = CANDIDATES[privateSttConfig.candidate as keyof typeof CANDIDATES];
+const CONFIGURED_IS_V2 = CONFIGURED_CANDIDATE?.engine === 'transformers-js';
+
+/**
+ * The candidate the ENGINE actually initialised, as a full id.
+ *
+ * Reconstructed through the registry's own reverse mapping so the harness and the product share one
+ * definition of what a (provider, variant) pair means. Returns null when the pair maps to nothing —
+ * unattributable, which must fail rather than default to anything.
+ */
+function observedCandidateId(snapshot: { runtimeProvider: string | null; runtimeVariant: string | null }): string | null {
+  try {
+    return candidateForRuntime({ engineType: snapshot.runtimeProvider, variant: snapshot.runtimeVariant });
+  } catch {
+    return null;
+  }
+}
+
 const PRIVATE_MODEL_CASES = [
   {
-    label: 'default-base',
+    label: `configured-${privateSttConfig.candidate}`,
     sessionPath: '/session',
-    expectedModel: 'whisper-base.en',
-    expectedSelectionSource: 'default',
-  },
-  {
-    label: 'tiny-fallback',
-    sessionPath: '/session?privateModel=whisper-tiny.en',
-    expectedModel: 'whisper-tiny.en',
-    expectedSelectionSource: 'url',
-  },
-  {
-    label: 'base-opt-in',
-    sessionPath: '/session?privateModel=whisper-base.en',
-    expectedModel: 'whisper-base.en',
-    expectedSelectionSource: 'url',
+    expectedCandidateId: privateSttConfig.candidate,
+    /** v2-only surface; asserted only when the configured engine actually publishes it. */
+    expectedV2ModelKey: CONFIGURED_IS_V2 ? 'whisper-base.en' : null,
   },
 ] as const;
 
@@ -91,8 +119,15 @@ test.describe.serial('Private first-start and second-start cache proof @live', (
 
       expect(isPrivateReadySnapshot(firstReady), JSON.stringify({ modelCase, firstReady })).toBe(true);
       expect(firstReady.transformerCacheKeyCount, JSON.stringify({ modelCase, firstReady })).toBeGreaterThan(0);
-      expect(firstReady.privateModelTelemetry?.model, JSON.stringify({ modelCase, firstReady })).toBe(modelCase.expectedModel);
-      expect(firstReady.privateModelTelemetry?.selectionSource, JSON.stringify({ modelCase, firstReady })).toBe(modelCase.expectedSelectionSource);
+      // FULL CANDIDATE ID, both sides. Expected comes from the config; observed is reconstructed from
+      // what the ENGINE published (provider + variant) through the registry's own reverse mapping. A
+      // provider-only comparison would accept base_q4 for a distil configuration.
+      expect(observedCandidateId(firstReady), JSON.stringify({ modelCase, firstReady }))
+        .toBe(modelCase.expectedCandidateId);
+      if (modelCase.expectedV2ModelKey) {
+        expect(firstReady.privateModelTelemetry?.model, JSON.stringify({ modelCase, firstReady })).toBe(modelCase.expectedV2ModelKey);
+        expect(firstReady.privateModelTelemetry?.selectionSource, JSON.stringify({ modelCase, firstReady })).toBe('default');
+      }
 
       await startAndStopPrivateRecording(page);
 
@@ -102,7 +137,11 @@ test.describe.serial('Private first-start and second-start cache proof @live', (
       await waitForPrivateReady(page);
 
       const secondReady = await getCacheSnapshot(page);
-      expect(secondReady.privateModelTelemetry?.model, JSON.stringify({ modelCase, secondReady })).toBe(modelCase.expectedModel);
+      expect(observedCandidateId(secondReady), JSON.stringify({ modelCase, secondReady }))
+        .toBe(modelCase.expectedCandidateId);
+      if (modelCase.expectedV2ModelKey) {
+        expect(secondReady.privateModelTelemetry?.model, JSON.stringify({ modelCase, secondReady })).toBe(modelCase.expectedV2ModelKey);
+      }
       await startAndStopPrivateRecording(page);
       const zeroHfResult = zeroHfAudit
         ? await zeroHfAudit.assertZeroHuggingFace({ requireModelsFromOrigin: true })
@@ -111,7 +150,7 @@ test.describe.serial('Private first-start and second-start cache proof @live', (
 
       const evidence = {
         model: modelCase.label,
-        expectedModel: modelCase.expectedModel,
+        expectedCandidateId: modelCase.expectedCandidateId,
         firstStart: firstReady,
         secondStart: secondReady,
         cachePersisted: secondReady.transformerCacheKeyCount >= firstReady.transformerCacheKeyCount,
@@ -203,7 +242,8 @@ async function preparePrivateModelIfPrompted(page: Page) {
         `${JSON.stringify(snapshot, null, 2)}`
       );
     }
-    await page.locator('[data-testid="session-start-stop-button"]').first().click();
+    // The DOWNLOAD control, which is what `download-required` actually renders.
+    await page.getByTestId(MIC_CONTROL_BY_STATUS['download-required']).first().click();
   }
 
   await waitForPrivateReady(page);
@@ -225,14 +265,12 @@ async function waitForPrivateReady(page: Page) {
 }
 
 async function startAndStopPrivateRecording(page: Page) {
-  const startStopButton = page.getByTestId('session-start-stop-button');
-  await expect(startStopButton).toBeVisible({ timeout: 30_000 });
-  await expect(startStopButton).toBeEnabled({ timeout: 60_000 });
-  await startStopButton.click();
-  await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 45_000 });
+  // RecorderBar REPLACES MicCard while recording rather than toggling it, so start and stop are
+  // DIFFERENT controls. The retired toggle's `data-recording` attribute belonged to an element that no
+  // longer exists, so polling it reported "not recording" unconditionally.
+  await startBenchmarkRecording(page, 'private-cache');
   await page.waitForTimeout(2_000);
-  await startStopButton.click();
-  await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 45_000 });
+  await stopBenchmarkRecording(page, 'private-cache');
 }
 
 async function getCacheSnapshot(page: Page): Promise<CacheSnapshot> {
@@ -266,6 +304,15 @@ async function getCacheSnapshot(page: Page): Promise<CacheSnapshot> {
       sttReady: root.getAttribute('data-stt-ready'),
       downloadVisible: Boolean(setupNote && getComputedStyle(setupNote).display !== 'none'),
       privateModelTelemetry: telemetry,
+      // Published by publishPrivateRuntimeDebug for EVERY private engine, so identity can be checked
+      // without depending on the v2-only model-telemetry object.
+      runtimeProvider: (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: { provider?: string } })
+        .__PRIVATE_STT_RUNTIME_DEBUG__?.provider ?? null,
+      // The VARIANT as well. `provider` is `transformers-js-v4` for base_q4, base_int8 AND distil_q4,
+      // so a provider-only check cannot tell a distil run from a base run — it would pass while the
+      // wrong model decoded the take.
+      runtimeVariant: (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: { v4Variant?: string | null } })
+        .__PRIVATE_STT_RUNTIME_DEBUG__?.v4Variant ?? null,
     };
   });
 }

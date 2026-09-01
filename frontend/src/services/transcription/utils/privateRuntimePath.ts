@@ -87,7 +87,15 @@ export interface PrivateRuntimeDecision {
    * Decode-time FALLBACK is a separate outcome (orthogonal again): it's recorded via the telemetry
    * `fallbackReason`/`finalProvider` so we keep WHO originally selected v4, not collapse it to 'fallback'.
    */
-  selectionSource: 'posthog_flag' | 'dev_harness' | 'default';
+  /**
+   * WHERE THE SELECTION CAME FROM.
+   *
+   * `config` is the normal path: a checked-in file named the candidate. `remote_safety_kill` means the
+   * one-way emergency switch forced the v2 floor, so the session must not be read as evidence about the
+   * configured candidate. `dev_harness` remains for dev/test only. `posthog_flag` is retained solely so
+   * historical rows stay readable — no live path emits it, because flags can no longer select a model.
+   */
+  selectionSource: 'config' | 'runtime_switch' | 'remote_safety_kill' | 'posthog_flag' | 'dev_harness' | 'default';
 }
 
 export interface ResolvePrivateRuntimePathOptions {
@@ -118,7 +126,25 @@ export interface ResolvePrivateRuntimePathOptions {
     /** DEV/TEST-only: attempt v4 even WITHOUT WebGPU (headless-CI AUTO fallback proof). */
     forceAuto?: boolean;
     /** Honest selection provenance the caller computed (real PostHog flag vs dev/test forceAuto shim). */
-    selectionSource?: 'posthog_flag' | 'dev_harness';
+    selectionSource?: 'config' | 'runtime_switch' | 'remote_safety_kill' | 'posthog_flag' | 'dev_harness';
+    /**
+     * The EXACT variant the selector named.
+     *
+     * `distilEnabled` is a BOOLEAN, and a boolean cannot express three variants: it resolved to
+     * `distil_q4` or `base_q4` and could therefore never select `base_int8` at all. A configuration
+     * naming int8 would have run q4 and been recorded as whatever the resolver chose — a model that was
+     * never asked for. When this is set it decides the variant outright.
+     */
+    variant?: PrivSttV4VariantId;
+    /**
+     * May v4 run WITHOUT WebGPU?
+     *
+     * The flag-era rollout was conservative: no WebGPU meant stay on the v2 floor. Config selection is
+     * a deliberate, reviewed choice, and the WASM-capable v4 variants are exactly the ones being
+     * compared, so a checked-in selection is honoured on WASM. A candidate that genuinely REQUIRES an
+     * accelerator is refused earlier, at selection, rather than silently downgraded here.
+     */
+    allowWithoutWebGPU?: boolean;
   };
 }
 
@@ -164,10 +190,13 @@ export async function resolvePrivateRuntimePath(
     // `forceAuto` knob ALSO selects v4 without WebGPU so headless CI can exercise the
     // AUTO-path decode fallback (v4 attempt -> decode fail -> v2-base). forceAuto is gated
     // in PrivateSTT (dev/test/E2E only) and is never set in production.
-    if (webgpuAvailable || options.v4.forceAuto) {
+    if (webgpuAvailable || options.v4.forceAuto || options.v4.allowWithoutWebGPU) {
       // Both v4 tiers load via the worker model-param. distil_q4 is the WebGPU ACCURACY tier
       // and requires its own explicit flag ON TOP of WebGPU; otherwise base_q4 is the floor.
-      const v4Variant: PrivSttV4VariantId = options.v4.distilEnabled ? 'distil_q4' : 'base_q4';
+      // An EXPLICIT variant wins. The boolean below is the retired flag-era shape, kept only so an
+      // unmigrated caller behaves as it did; it cannot express base_int8.
+      const v4Variant: PrivSttV4VariantId =
+        options.v4.variant ?? (options.v4.distilEnabled ? 'distil_q4' : 'base_q4');
       return {
         runtime: webgpuAvailable ? 'webgpu' : 'wasm-singlethread',
         provider: 'transformers-js-v4',

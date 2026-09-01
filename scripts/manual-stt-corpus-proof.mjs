@@ -72,6 +72,35 @@ const V4_DEVICE = (process.env.STT_V4_DEVICE || '').trim();
 const V4_DECODER_DTYPE = (process.env.STT_V4_DECODER_DTYPE || '').trim();
 const V4_VARIANT = (process.env.STT_V4_VARIANT || '').trim();
 const V4_NO_WORKER = process.env.STT_V4_NO_WORKER === '1' || process.env.STT_V4_NO_WORKER === 'true';
+
+// REFUSE BEFORE ANYTHING IS OPENED OR WRITTEN.
+//
+// These env vars used to reach the app as per-arm URL parameters and a window global. Selection is the
+// checked-in config file now, so none of them chooses a model: every arm would decode with the
+// CONFIGURED candidate while the corpus report named a different one — accuracy numbers attributed to
+// weights that never ran.
+//
+// This check sits at module scope, BEFORE the browser launches and before any artifact is written. A
+// refusal raised inside the per-fixture loop would already have opened a browser, downloaded a model
+// and produced partial output that looks like a run.
+const RETIRED_SELECTION_ENV = [
+  ['STT_PRIVATE_ENGINE', PRIVATE_ENGINE],
+  ['STT_PRIVATE_MODEL', PRIVATE_MODEL],
+  ['STT_V4_VARIANT', V4_VARIANT],
+  ['STT_V4_DEVICE', V4_DEVICE],
+  ['STT_V4_DECODER_DTYPE', V4_DECODER_DTYPE],
+  ['STT_V4_FORCE_AUTO', V4_FORCE_AUTO ? '1' : ''],
+  ['STT_V4_NO_WORKER', V4_NO_WORKER ? '1' : ''],
+].filter(([, v]) => Boolean(v)).map(([k]) => k);
+
+if (RETIRED_SELECTION_ENV.length > 0) {
+  throw new Error(
+    `manual-stt-corpus-proof was asked to select a Private model through retired channels `
+    + `(${RETIRED_SELECTION_ENV.join(', ')}). Selection is the checked-in config file: run one build `
+    + `per candidate instead of one run with per-arm overrides. Refusing before opening a browser so `
+    + `no partial artifact can be mistaken for a measured run.`,
+  );
+}
 const CUSTOM_WORD = (process.env.STT_CUSTOM_WORD || '').trim().toLowerCase();
 const NATIVE_CONTINUOUS = process.env.STT_NATIVE_CONTINUOUS || '';
 const NATIVE_INTERIM_RESULTS = process.env.STT_NATIVE_INTERIM_RESULTS || '';
@@ -614,7 +643,8 @@ async function clearPrivateModelStorage(page) {
       }
     }
 
-    localStorage.removeItem('speaksharp.private.engine');
+    // The retired engine-override storage key is not cleared here any more: it no longer exists, so
+    // removing it was a no-op that kept the name alive in an active script.
 
     return {
       deletedCaches,
@@ -1572,9 +1602,6 @@ async function fetchLatestSavedSessions(page, expectedTranscript = '') {
 async function runFixture(page, mode, fixture) {
   resetAudioFrameStats();
   const sessionUrl = new URL('/session', BASE_URL);
-  if (mode === 'private' && PRIVATE_ENGINE) {
-    sessionUrl.searchParams.set('privateEngine', PRIVATE_ENGINE);
-  }
   if (EXTRA_QUERY) {
     const extra = new URLSearchParams(EXTRA_QUERY.startsWith('?') ? EXTRA_QUERY.slice(1) : EXTRA_QUERY);
     for (const [key, value] of extra.entries()) {
@@ -1586,28 +1613,6 @@ async function runFixture(page, mode, fixture) {
   }
   if (mode === 'private' && PRIVATE_VAD) {
     sessionUrl.searchParams.set('privateVad', PRIVATE_VAD);
-  }
-  if (mode === 'private' && PRIVATE_MODEL) {
-    sessionUrl.searchParams.set('privateModel', PRIVATE_MODEL);
-  }
-  if (mode === 'private' && PRIVATE_RESAMPLER) {
-    sessionUrl.searchParams.set('privateResampler', PRIVATE_RESAMPLER);
-  }
-  // v4 decode-experiment / AUTO-fallback URL params (app honors them dev/test-only).
-  if (mode === 'private' && V4_FORCE_AUTO) {
-    sessionUrl.searchParams.set('v4ForceAuto', '1');
-  }
-  if (mode === 'private' && V4_DEVICE) {
-    sessionUrl.searchParams.set('v4Device', V4_DEVICE);
-  }
-  if (mode === 'private' && V4_DECODER_DTYPE) {
-    sessionUrl.searchParams.set('v4DecoderDtype', V4_DECODER_DTYPE);
-  }
-  if (mode === 'private' && V4_VARIANT) {
-    sessionUrl.searchParams.set('v4Variant', V4_VARIANT);
-  }
-  if (mode === 'private' && V4_NO_WORKER) {
-    sessionUrl.searchParams.set('v4NoWorker', '1');
   }
   if (mode === 'native') {
     if (NATIVE_CONTINUOUS) {
@@ -1631,11 +1636,6 @@ async function runFixture(page, mode, fixture) {
   // #1325: privacy-safe filler count trace — install for EVERY run and audio route (independent of the
   // deprecated mic-injection path), so interim-vs-final count transitions are always capturable.
   await installFillerCountTrace(page);
-  if (mode === 'private' && PRIVATE_MODEL) {
-    await page.addInitScript((model) => {
-      window.__PRIVATE_MODEL__ = model;
-    }, PRIVATE_MODEL);
-  }
   await page.goto(sessionUrl.toString(), { waitUntil: 'domcontentloaded' });
   await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 });
   // #1325 item 3: fail closed on a stale/mismatched deployed bundle before any evidence is captured.

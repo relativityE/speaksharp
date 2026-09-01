@@ -235,7 +235,8 @@ export const PRIV_STT_V4_DEFAULT_VARIANT: PrivSttV4VariantId = 'base_q4';
  * cannot drift. NOTE: the override itself is honored only in dev/test/E2E — see
  * `PrivateSTT.getPrivateEngineOverride`. It is NOT a production user affordance.
  */
-export const PRIVATE_ENGINE_OVERRIDE_KEY = 'speaksharp.private.engine';
+// RETIRED: the localStorage engine-override key. Its only readers are gone; the constant is removed
+// rather than left defined, because a key that still exists is a key someone can start reading again.
 
 /**
  * Private model-eval candidates (flag-gated A/B). The CI Private v2 benchmark showed

@@ -280,6 +280,13 @@ const startInitializing = async () => {
 
   // Defer heavy WASM initialization to avoid competing with React hydration
   const initSTT = () => {
+    // Install the in-page model switch. Returns immediately on any build that is not marked internal,
+    // so a build a real user receives has no runtime selector — the config file remains the only one.
+    void import('./services/transcription/installRuntimeSwitch')
+      .then(({ installRuntimeCandidateSwitch }) => {
+        if (installRuntimeCandidateSwitch()) logger.debug('[main.tsx] internal build: model switch installed');
+      })
+      .catch((err) => logger.warn({ err }, '[main.tsx] runtime model switch unavailable'));
     // Lazy import of SpeechRuntimeController
     void import('./services/SpeechRuntimeController').then(({ speechRuntimeController }) => {
       speechRuntimeController.initializeInfrastructure()

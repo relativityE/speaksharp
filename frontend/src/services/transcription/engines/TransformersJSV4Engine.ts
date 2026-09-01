@@ -1,3 +1,4 @@
+import { activeCandidate } from '../candidateSelection';
 /**
  * ============================================================================
  * TRANSFORMERS.JS V4 ENGINE
@@ -19,7 +20,6 @@ import { readPrivateDecodeOptionsOverride, V4_ANTI_LOOP_DECODE_DEFAULTS } from '
 import { STTEngine } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT_V4, PRIV_STT_V4_VARIANTS, PRIV_STT_V4_DEFAULT_VARIANT, type PrivSttV4VariantId, samplesToSeconds } from '../sttConstants';
 import { buildShippingDecodeOptions } from '../decodeOptions';
-import { getV4ExperimentOverrides } from '../privateV4Experiment';
 import v4WorkerUrl from './transformers-js-v4.worker.ts?worker&url';
 
 type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers')['pipeline']>>;
@@ -137,17 +137,15 @@ export class TransformersJSV4Engine extends STTEngine {
         // load THIS variant's model/dtype instead of a hardcoded constant.
         const variant: PrivSttV4VariantId = (this.options as { v4Variant?: PrivSttV4VariantId })?.v4Variant ?? PRIV_STT_V4_DEFAULT_VARIANT;
         const baseVariant = PRIV_STT_V4_VARIANTS[variant];
-        // DEV/TEST-only decode root-cause overrides (device A/B + dtype). Inert in production.
-        const exp = getV4ExperimentOverrides();
+        // The variant's OWN dtype and device. The `?v4DecoderDtype=` / `?v4Device=` overrides that used
+        // to be merged in here are retired: a URL naming a decoder precision both disclosed engine
+        // internals and let a visitor change what decoded their session.
         const v4Model = {
             MODEL_ID: baseVariant.MODEL_ID,
-            DTYPE: exp.decoderDtype
-                ? { ...baseVariant.DTYPE, decoder_model_merged: exp.decoderDtype }
-                : baseVariant.DTYPE,
+            DTYPE: baseVariant.DTYPE,
             EXPECTED_SPLIT_DOWNLOAD_MB: baseVariant.EXPECTED_SPLIT_DOWNLOAD_MB,
         };
         this.v4ModelId = v4Model.MODEL_ID;
-        const experimentDevice = exp.device && exp.device !== 'auto' ? exp.device : undefined;
         if (this.transcriber || this.worker) {
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJSV4] Engine already initialized, skipping.');
             options.onReady?.();
@@ -171,8 +169,8 @@ export class TransformersJSV4Engine extends STTEngine {
         }
 
         try {
-            if (this.shouldUseWorker() && !exp.noWorker) {
-                await this.initWorker(isMock, v4Model, experimentDevice);
+            if (this.shouldUseWorker()) {
+                await this.initWorker(isMock, v4Model);
                 options.onModelLoadProgress?.(100);
                 this.updateHeartbeat();
                 options.onReady?.();
@@ -208,7 +206,27 @@ export class TransformersJSV4Engine extends STTEngine {
                 dtype: v4Model.DTYPE,
                 progress_callback,
             };
-            const mainThreadDevice = experimentDevice ?? PRIV_STT_V4.DEVICE;
+            /**
+             * THE CANDIDATE'S DEVICE IS PART OF ITS IDENTITY.
+             *
+             * PRIV_STT_V4.DEVICE is null, so without this a WebGPU-only candidate (distil) loaded with
+             * NO device and transformers.js defaulted to WASM — where distil decodes at RTF ~2.2 and a
+             * listener would hear a slow model and blame the model. The device now comes from the same
+             * registry entry that supplies the model and dtype, so a candidate cannot be run on a
+             * backend it was never meant for.
+             *
+             * Explicit experiment overrides still win, because they exist to A/B the device itself.
+             */
+            const candidateDevice = (() => {
+                try {
+                    const c = activeCandidate();
+                    return c.engine === 'transformers-js-v4' ? c.model.device ?? null : null;
+                } catch {
+                    // An unresolvable config must not silently pick a device; fall through to the default.
+                    return null;
+                }
+            })();
+            const mainThreadDevice = candidateDevice ?? PRIV_STT_V4.DEVICE;
             if (mainThreadDevice) {
                 pipelineOptions.device = mainThreadDevice;
             }
