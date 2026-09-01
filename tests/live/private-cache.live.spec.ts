@@ -8,6 +8,8 @@ import {
 // clicks had no target. `live-release-matrix` still invokes this spec, so it is migrated rather than
 // left in a known-broken ledger.
 import { MIC_CONTROL_BY_STATUS } from '../helpers/micControls';
+import privateSttConfig from '../../frontend/src/config/private-stt.config.json';
+import { CANDIDATES } from '../../frontend/src/services/transcription/candidateRegistry';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
@@ -20,6 +22,7 @@ type CacheSnapshot = {
   transformerCacheKeyCount: number
   indexedDbNames: string[]
   modelStatus: string | null
+  runtimeProvider: string | null
   runtimeState: string | null
   sttReady: string | null
   downloadVisible: boolean
@@ -31,19 +34,25 @@ type CacheSnapshot = {
   } | null
 }
 
-// ONE ARM. The other two selected via `?privateModel=whisper-tiny.en` / `=whisper-base.en` and
-// asserted `selectionSource: 'url'` — a channel and a source that no longer exist, so both would have
-// decoded with the CONFIGURED model while the case labelled them tiny and base. A cache proof whose
-// two arms silently run the same model compares nothing.
+// THE EXPECTATION COMES FROM THE CONFIG PLANE, NOT A LITERAL.
 //
-// Per-model cache behaviour returns when the config plane can express it (one build per candidate),
-// not through a URL.
+// This hardcoded `whisper-base.en` and `selectionSource: 'default'`, and additionally read
+// `__PRIVATE_MODEL_TELEMETRY__` — a surface published ONLY by TransformersJSEngine. Under a config that
+// selects distil or Moonshine the v2 engine never runs, so that object is never published and the
+// proof would fail or, worse, assert v2's identity for a session decoded by another model.
+//
+// The proof's subject is CACHE behaviour, which is model-agnostic. Model identity is asserted against
+// whatever the checked-in config actually names, through a surface every engine publishes.
+const CONFIGURED_CANDIDATE = CANDIDATES[privateSttConfig.candidate as keyof typeof CANDIDATES];
+const CONFIGURED_IS_V2 = CONFIGURED_CANDIDATE?.engine === 'transformers-js';
+
 const PRIVATE_MODEL_CASES = [
   {
-    label: 'default-base',
+    label: `configured-${privateSttConfig.candidate}`,
     sessionPath: '/session',
-    expectedModel: 'whisper-base.en',
-    expectedSelectionSource: 'default',
+    expectedEngine: CONFIGURED_CANDIDATE?.engine,
+    /** v2-only surface; asserted only when the configured engine actually publishes it. */
+    expectedV2ModelKey: CONFIGURED_IS_V2 ? 'whisper-base.en' : null,
   },
 ] as const;
 
@@ -94,8 +103,12 @@ test.describe.serial('Private first-start and second-start cache proof @live', (
 
       expect(isPrivateReadySnapshot(firstReady), JSON.stringify({ modelCase, firstReady })).toBe(true);
       expect(firstReady.transformerCacheKeyCount, JSON.stringify({ modelCase, firstReady })).toBeGreaterThan(0);
-      expect(firstReady.privateModelTelemetry?.model, JSON.stringify({ modelCase, firstReady })).toBe(modelCase.expectedModel);
-      expect(firstReady.privateModelTelemetry?.selectionSource, JSON.stringify({ modelCase, firstReady })).toBe(modelCase.expectedSelectionSource);
+      // Model-agnostic: the provider the engine ITSELF published must be the configured one.
+      expect(firstReady.runtimeProvider, JSON.stringify({ modelCase, firstReady })).toBe(modelCase.expectedEngine);
+      if (modelCase.expectedV2ModelKey) {
+        expect(firstReady.privateModelTelemetry?.model, JSON.stringify({ modelCase, firstReady })).toBe(modelCase.expectedV2ModelKey);
+        expect(firstReady.privateModelTelemetry?.selectionSource, JSON.stringify({ modelCase, firstReady })).toBe('default');
+      }
 
       await startAndStopPrivateRecording(page);
 
@@ -105,7 +118,10 @@ test.describe.serial('Private first-start and second-start cache proof @live', (
       await waitForPrivateReady(page);
 
       const secondReady = await getCacheSnapshot(page);
-      expect(secondReady.privateModelTelemetry?.model, JSON.stringify({ modelCase, secondReady })).toBe(modelCase.expectedModel);
+      expect(secondReady.runtimeProvider, JSON.stringify({ modelCase, secondReady })).toBe(modelCase.expectedEngine);
+      if (modelCase.expectedV2ModelKey) {
+        expect(secondReady.privateModelTelemetry?.model, JSON.stringify({ modelCase, secondReady })).toBe(modelCase.expectedV2ModelKey);
+      }
       await startAndStopPrivateRecording(page);
       const zeroHfResult = zeroHfAudit
         ? await zeroHfAudit.assertZeroHuggingFace({ requireModelsFromOrigin: true })
@@ -114,7 +130,7 @@ test.describe.serial('Private first-start and second-start cache proof @live', (
 
       const evidence = {
         model: modelCase.label,
-        expectedModel: modelCase.expectedModel,
+        expectedEngine: modelCase.expectedEngine,
         firstStart: firstReady,
         secondStart: secondReady,
         cachePersisted: secondReady.transformerCacheKeyCount >= firstReady.transformerCacheKeyCount,
@@ -268,6 +284,10 @@ async function getCacheSnapshot(page: Page): Promise<CacheSnapshot> {
       sttReady: root.getAttribute('data-stt-ready'),
       downloadVisible: Boolean(setupNote && getComputedStyle(setupNote).display !== 'none'),
       privateModelTelemetry: telemetry,
+      // Published by publishPrivateRuntimeDebug for EVERY private engine, so identity can be checked
+      // without depending on the v2-only model-telemetry object.
+      runtimeProvider: (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: { provider?: string } })
+        .__PRIVATE_STT_RUNTIME_DEBUG__?.provider ?? null,
     };
   });
 }
