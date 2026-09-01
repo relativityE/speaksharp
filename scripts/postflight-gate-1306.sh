@@ -27,21 +27,50 @@ check() {
   else printf '  FAIL %-52s expected=%s actual=%s\n' "$1" "$2" "$3"; fails=$((fails+1)); fi
 }
 
-# Exact identity arguments of the two legacy overloads and the successor.
+# Exact ARGUMENT TYPES of the two legacy overloads and the successor — types only, NO parameter names.
+#
+# TYPES ONLY, AND THE COMPARISON MUST AGREE. `pg_get_function_identity_arguments()` reconstructs the
+# identity argument DECLARATION and includes parameter names whenever a function has them
+# ("p_session_id uuid, ..."). These functions declare named parameters, so comparing that rendering
+# against a types-only constant can never match, and every signature-derived check reports absence
+# regardless of catalogue state.
+#
+# That mismatch fails as a REFUSAL, which is the hard direction to notice: a gate that wrongly refuses
+# is indistinguishable from one that correctly refuses without reading the catalogue independently.
+# Checks not built on the comparison (the PUBLIC-grant shape, the overload count) are unaffected, so a
+# disagreement between them is the signal.
+#
+# `pg_catalog.oidvectortypes(p.proargtypes)` renders types only and never names, matching the form
+# these constants are written in. This is the matching #1314's gate already uses.
 V1A='uuid, text, text, integer, text'
 V1B='uuid, text, integer, text, jsonb, integer, double precision, double precision, jsonb, jsonb'
 V2='uuid, text, integer, text, jsonb, integer, double precision, double precision, jsonb, jsonb, text'
 
-sig_count() { # $1 = proname, $2 = identity args
+sig_count() { # $1 = proname, $2 = argument TYPES (no names)
   q "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
      WHERE n.nspname='public' AND p.proname='$1'
-       AND pg_get_function_identity_arguments(p.oid)='$2';"
+       AND pg_catalog.oidvectortypes(p.proargtypes)='$2';"
 }
-priv() { # $1 = role, $2 = proname, $3 = identity args  -> t/f
+# INDEPENDENT CONTROL. `to_regprocedure` resolves a signature through the parser rather than by string
+# comparison, so it cannot share a formatting mistake with the catalogue query above. The two are
+# cross-checked below: if they ever disagree, the gate stops rather than trusting whichever one happens
+# to be consulted first.
+regproc_present() { # $1 = proname, $2 = argument types -> 1/0
+  q "SELECT (to_regprocedure('public.$1($2)') IS NOT NULL)::int;"
+}
+priv() { # $1 = role, $2 = proname, $3 = argument TYPES  -> t/f
   q "SELECT COALESCE(has_function_privilege('$1', p.oid, 'EXECUTE'), false)
      FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
      WHERE n.nspname='public' AND p.proname='$2'
-       AND pg_get_function_identity_arguments(p.oid)='$3';"
+       AND pg_catalog.oidvectortypes(p.proargtypes)='$3';"
+}
+# Both resolvers must agree about existence for every signature the gate reasons about.
+agree() { # $1 = label, $2 = proname, $3 = types
+  local a b; a="$(sig_count "$2" "$3")"; b="$(regproc_present "$2" "$3")"
+  if [ "$a" != "$b" ]; then
+    printf '  FAIL %-52s catalogue=%s parser=%s\n' "$1 resolvers disagree" "$a" "$b"
+    fails=$((fails+1))
+  fi
 }
 # PUBLIC is not an ordinary role and cannot be passed to has_function_privilege; a PUBLIC grant appears in
 # the ACL as an entry with an EMPTY grantee (`=X/grantor`), so it is detected by shape.
@@ -52,6 +81,10 @@ public_grants() { # $1 = proname
 }
 
 echo "#1306 Stage B gate — mode=$MODE"
+
+agree 'v1-A' complete_session    "$V1A"
+agree 'v1-B' complete_session    "$V1B"
+agree 'v2'   complete_session_v2 "$V2"
 
 TOTAL_V1="$(q "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
                 WHERE n.nspname='public' AND p.proname='complete_session';")"

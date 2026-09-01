@@ -490,3 +490,189 @@ describe('#1306 — no production source calls the legacy complete_session RPC',
         expect(storage).toMatch(/\.rpc\(\s*['"`]complete_session_v2['"`]/);
     });
 });
+
+/**
+ * THE GATE'S OWN SQL, RUN AGAINST REAL POSTGRESQL.
+ *
+ * `tests/unit/postflightGate1306.test.js` drives the gate through a STUBBED psql: it supplies the
+ * answer the query would have returned. That can prove the gate's control flow and can never prove its
+ * SQL, so a predicate that matches nothing is indistinguishable from one that matches correctly. A
+ * signature comparison is therefore only meaningful when executed against a real catalogue.
+ *
+ * These read the constants and the predicate OUT OF THE SHIPPED SCRIPT and execute them here, so the
+ * test cannot drift from what the gate actually runs.
+ */
+describe('#1306 Stage B gate — signature matching against real PostgreSQL', () => {
+    const GATE_SRC = readFileSync(resolve(process.cwd(), 'scripts', 'postflight-gate-1306.sh'), 'utf8');
+    /** Pull a constant out of the script so the test and the gate cannot disagree. */
+    const constant = (name: string): string => {
+        const m = new RegExp(`^${name}='([^']*)'`, 'm').exec(GATE_SRC);
+        if (!m) throw new Error(`gate constant ${name} not found`);
+        return m[1];
+    };
+    const V1A_S = constant('V1A');
+    const V1B_S = constant('V1B');
+    const V2_S = constant('V2');
+
+    const countByTypes = async (db: PGlite, name: string, types: string) => {
+        const r = await db.query<{ c: number }>(
+            `SELECT count(*)::int AS c FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+             WHERE n.nspname='public' AND p.proname=$1
+               AND pg_catalog.oidvectortypes(p.proargtypes)=$2`, [name, types]);
+        return r.rows[0].c;
+    };
+    const countByIdentityArgs = async (db: PGlite, name: string, types: string) => {
+        const r = await db.query<{ c: number }>(
+            `SELECT count(*)::int AS c FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+             WHERE n.nspname='public' AND p.proname=$1
+               AND pg_get_function_identity_arguments(p.oid)=$2`, [name, types]);
+        return r.rows[0].c;
+    };
+
+    /** The gate's own grant predicate, run against a live catalogue. */
+    const execPriv = async (d: PGlite, role: string, name: string, types: string) => {
+        const r = await d.query<{ ok: boolean }>(
+            `SELECT COALESCE(has_function_privilege($1, p.oid, 'EXECUTE'), false) AS ok
+             FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+             WHERE n.nspname='public' AND p.proname=$2
+               AND pg_catalog.oidvectortypes(p.proargtypes)=$3`, [role, name, types]);
+        return r.rows[0]?.ok ?? false;
+    };
+
+    let db: PGlite;
+    beforeAll(async () => { db = await preStageB(); });
+
+    it('CASUALTY: the gate constants match all three functions by TYPES', async () => {
+        expect(await countByTypes(db, 'complete_session', V1A_S)).toBe(1);
+        expect(await countByTypes(db, 'complete_session', V1B_S)).toBe(1);
+        expect(await countByTypes(db, 'complete_session_v2', V2_S)).toBe(1);
+    });
+
+    it('CASUALTY: the RETIRED comparison matches NOTHING against a real catalogue', async () => {
+        // These functions declare NAMED parameters, and identity-arguments includes the names, so the
+        // types-only constants cannot match it — every signature check reports absence.
+        expect(await countByIdentityArgs(db, 'complete_session', V1A_S)).toBe(0);
+        expect(await countByIdentityArgs(db, 'complete_session', V1B_S)).toBe(0);
+        expect(await countByIdentityArgs(db, 'complete_session_v2', V2_S)).toBe(0);
+    });
+
+    it('the functions really do carry parameter NAMES — the premise of the defect', async () => {
+        const r = await db.query<{ a: string }>(
+            `SELECT pg_get_function_identity_arguments(p.oid) AS a
+             FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+             WHERE n.nspname='public' AND p.proname='complete_session_v2'`);
+        expect(r.rows[0].a).toMatch(/p_session_id uuid/);
+    });
+
+    it('the parser-based control agrees with the catalogue query', async () => {
+        for (const [name, types] of [['complete_session', V1A_S], ['complete_session', V1B_S],
+            ['complete_session_v2', V2_S]] as const) {
+            const r = await db.query<{ p: number }>(
+                `SELECT (to_regprocedure($1) IS NOT NULL)::int AS p`, [`public.${name}(${types})`]);
+            expect(r.rows[0].p, `${name}(${types})`).toBe(await countByTypes(db, name, types));
+        }
+    });
+
+    it('CASUALTY: a WRONG argument type does not match', async () => {
+        expect(await countByTypes(db, 'complete_session', V1A_S.replace('integer', 'bigint'))).toBe(0);
+    });
+
+    it('CASUALTY: the WRONG argument order does not match', async () => {
+        const swapped = V1A_S.split(', ').reverse().join(', ');
+        expect(await countByTypes(db, 'complete_session', swapped)).toBe(0);
+    });
+
+    it('CASUALTY: an EXTRA trailing argument does not match', async () => {
+        expect(await countByTypes(db, 'complete_session_v2', `${V2_S}, boolean`)).toBe(0);
+    });
+
+    it('CASUALTY: an absent function reports 0, not an error', async () => {
+        expect(await countByTypes(db, 'complete_session_v3', V2_S)).toBe(0);
+    });
+
+    it('CASUALTY: the SHIPPED SCRIPT uses the corrected predicate, not the retired one', () => {
+        // The tests above prove which SQL is correct; this proves the gate actually RUNS it. Without
+        // this, restoring the old comparison in the script would leave every assertion above green —
+        // they would still be comparing two SQL forms the gate no longer uses.
+        const bodies = [...GATE_SRC.matchAll(/^(?:sig_count|priv)\(\)[\s\S]*?\n}/gm)].map((m) => m[0]);
+        expect(bodies.length, 'sig_count and priv must both be found').toBe(2);
+        for (const b of bodies) {
+            expect(b).toMatch(/pg_catalog\.oidvectortypes\(p\.proargtypes\)/);
+            expect(b).not.toMatch(/pg_get_function_identity_arguments/);
+        }
+    });
+
+    /**
+     * REAL CATALOGUE MUTATIONS, not fixtures.
+     *
+     * The stubbed suite can assert that the gate REACTS to an extra overload or a missing grant, because
+     * it hands the gate those answers. It cannot assert that the gate's SQL would OBSERVE either one.
+     * These create the condition in a live catalogue and run the gate's own predicate against it.
+     */
+    it('CASUALTY: an ACTUAL extra v2 overload is observed as ambiguity', async () => {
+        const db2 = await preStageB();
+        const before = await db2.query<{ c: number }>(
+            `SELECT count(*)::int AS c FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+             WHERE n.nspname='public' AND p.proname='complete_session_v2'`);
+        expect(before.rows[0].c, 'precondition: exactly one overload').toBe(1);
+
+        // A genuinely different signature, so this is a second overload rather than a replacement.
+        await db2.exec(`CREATE FUNCTION public.complete_session_v2(p_session_id uuid, p_note text)
+                        RETURNS void LANGUAGE sql AS $$ SELECT NULL::void $$;`);
+
+        const after = await db2.query<{ c: number }>(
+            `SELECT count(*)::int AS c FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+             WHERE n.nspname='public' AND p.proname='complete_session_v2'`);
+        expect(after.rows[0].c, "the gate's overload check must see 2").toBe(2);
+        // The exact-signature check still resolves the intended function — ambiguity is caught by the
+        // count, not by the signature match silently picking one.
+        expect(await countByTypes(db2, 'complete_session_v2', V2_S)).toBe(1);
+        await db2.close();
+    });
+
+    it('CASUALTY: an ACTUALLY REVOKED authenticated grant is observed as absent', async () => {
+        const db2 = await preStageB();
+        expect(await execPriv(db2, 'authenticated', 'complete_session', V1A_S),
+            'precondition: granted before revoke').toBe(true);
+
+        await db2.exec(`REVOKE EXECUTE ON FUNCTION public.complete_session(${V1A_S}) FROM authenticated;`);
+
+        expect(await execPriv(db2, 'authenticated', 'complete_session', V1A_S)).toBe(false);
+        // Scoped: revoking one overload for one role must not disturb the others.
+        expect(await execPriv(db2, 'service_role', 'complete_session', V1A_S)).toBe(true);
+        expect(await execPriv(db2, 'authenticated', 'complete_session', V1B_S)).toBe(true);
+        await db2.close();
+    });
+
+    it('CASUALTY: an ACTUALLY REVOKED service_role grant on v2 is observed as absent', async () => {
+        const db2 = await preStageB();
+        expect(await execPriv(db2, 'service_role', 'complete_session_v2', V2_S)).toBe(true);
+        await db2.exec(`REVOKE EXECUTE ON FUNCTION public.complete_session_v2(${V2_S}) FROM service_role;`);
+        expect(await execPriv(db2, 'service_role', 'complete_session_v2', V2_S)).toBe(false);
+        expect(await execPriv(db2, 'authenticated', 'complete_session_v2', V2_S)).toBe(true);
+        await db2.close();
+    });
+
+    it('CASUALTY: an ACTUAL grant to anon on v2 is observed', async () => {
+        const db2 = await preStageB();
+        expect(await execPriv(db2, 'anon', 'complete_session_v2', V2_S),
+            'precondition: anon must not reach v2').toBe(false);
+        await db2.exec(`GRANT EXECUTE ON FUNCTION public.complete_session_v2(${V2_S}) TO anon;`);
+        expect(await execPriv(db2, 'anon', 'complete_session_v2', V2_S)).toBe(true);
+        await db2.close();
+    });
+
+    it('grants resolve through the SAME corrected predicate', async () => {
+        for (const [name, types] of [['complete_session', V1A_S], ['complete_session', V1B_S],
+            ['complete_session_v2', V2_S]] as const) {
+            for (const role of ['authenticated', 'service_role']) {
+                const r = await db.query<{ ok: boolean }>(
+                    `SELECT COALESCE(has_function_privilege($1, p.oid, 'EXECUTE'), false) AS ok
+                     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+                     WHERE n.nspname='public' AND p.proname=$2
+                       AND pg_catalog.oidvectortypes(p.proargtypes)=$3`, [role, name, types]);
+                expect(r.rows[0]?.ok, `${role} on ${name}(${types})`).toBe(true);
+            }
+        }
+    });
+});
