@@ -259,7 +259,13 @@ describe('issueReportService', () => {
     expect(JSON.stringify(latestEvent)).not.toContain('previous-session');
   });
 
-  it('uses the newly persisted recording identity instead of an older fallback', async () => {
+  it('reports NO link when the row has no session, even with a live take in the tab', async () => {
+    // THE REGRESSION. This asserted `true` here, because the boolean was derived from
+    // `input.sessionId ?? <live take id>`. The DB insert has no such fallback — it stores
+    // `input.sessionId` alone — so a report filed mid-take before the session is persisted produced a
+    // row with NO session link while telemetry claimed there was one. Every such report inflated the
+    // funnel's linkage rate, and the disagreement was invisible because the two values were computed
+    // from different inputs.
     setPrivateTelemetryContext({ session_id: 'previous-session' });
     clearPrivateRecordingIdentity();
     setPrivateTelemetryContext({ session_id: 'current-session' });
@@ -277,11 +283,41 @@ describe('issueReportService', () => {
 
     const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
     const latestEvent = events[events.length - 1];
-    // Correlated to the CURRENT take, so the link is true — but no raw identifier travels, for either
-    // the current session or the stale one.
-    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', report_linked_to_session: true });
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ session_id: null }));
+    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', report_linked_to_session: false });
+    // The engine identity still rides along — it is content-free and is what makes a report
+    // diagnosable — but neither session identifier reaches the wire.
     expect(JSON.stringify(latestEvent)).not.toContain('previous-session');
     expect(JSON.stringify(latestEvent), 'no raw session id on the wire').not.toContain('current-session');
+  });
+
+  it('keeps the boolean in agreement with the persisted row for every input', async () => {
+    // The invariant, stated once over both branches: the boolean is a description of the ROW. Deriving
+    // it from any other source is what allowed the two to drift apart, so this asserts them together
+    // rather than asserting each in isolation.
+    const LINKED = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+    for (const sessionId of [LINKED, null]) {
+      insert.mockClear();
+      setPrivateTelemetryContext({ session_id: 'a-live-take', engine_variant: 'private_v2' });
+      await issueReportService.submit({
+        userId: 'user-1',
+        sessionId,
+        category: 'recording_transcription',
+        severity: 'medium',
+        title: 'Agreement check',
+        description: 'The boolean must describe the row that was written.',
+        pageUrl: 'http://localhost:5174/session',
+        metadata: { route: '/session' },
+        includeAudio: false,
+      });
+
+      const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
+      const emitted = events[events.length - 1].report_linked_to_session;
+      const written = (insert.mock.calls[0][0] as { session_id: string | null }).session_id;
+      expect(emitted, `row session_id=${written} must agree with the emitted boolean`)
+        .toBe(written !== null);
+      expect(JSON.stringify(events[events.length - 1])).not.toContain('a-live-take');
+    }
   });
 
   it('surfaces a persistence failure rather than masking it (persistence is authoritative)', async () => {

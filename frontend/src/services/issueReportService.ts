@@ -127,11 +127,15 @@ export const issueReportService = {
     // #1306 metrics-only: the insert is transcript-free — no include_transcript / transcript_excerpt columns
     // are written (the column is dropped by the Stage B enforcement migration). Only the user's typed fields +
     // sanitized operational metadata + an optional audio-debug note are persisted.
+    // THE ONE VALUE, used for both the row and the telemetry boolean. Computing them separately is
+    // what let them disagree.
+    const persistedSessionId = input.sessionId ?? null;
+
     const { error } = await supabase
       .from('user_issue_reports')
       .insert({
         user_id: input.userId ?? null,
-        session_id: input.sessionId ?? null,
+        session_id: persistedSessionId,
         category: input.category,
         severity: input.severity,
         title: input.title.trim(),
@@ -147,24 +151,27 @@ export const issueReportService = {
       throw error;
     }
 
-    // Non-PII analytics breadcrumb so a Report Issue can be correlated to the user's
-    // journey (session id and the most recent content-free Private engine identity).
-    // The strict allowlist guarantees no title/description/transcript/audio rides along.
-    const arm = getLastPrivateIdentity();
+    // Non-PII analytics breadcrumb so a Report Issue can be correlated to the user's journey (whether
+    // it is linked to a session, plus the most recent content-free Private engine identity). The strict
+    // allowlist guarantees no title/description/transcript/audio rides along.
+    //
     // THE LINK, NOT THE IDENTIFIER. This sent a raw session UUID to the analytics vendor, so every
     // report carried a stable per-session identifier — enough to re-identify a session from analytics
     // alone. The wire only needs to answer whether the report is linked to a session at all.
     //
-    // NOTE THE ASYMMETRY, because it is easy to misread: the INSERT above stores `input.sessionId`
-    // only. The fallback to the last observed private identity below was never persisted, so that
-    // correlation existed in the analytics vendor and NOWHERE ELSE — a relationship the product could
-    // not reconstruct from its own database. Reducing it to a boolean removes an identifier whose only
-    // home was a third party; the durable relationship remains the column the insert writes.
-    const correlatedSessionId = input.sessionId ?? arm.session_id ?? null;
+    // DERIVED FROM WHAT WAS INSERTED, not from a wider fallback. The first version computed this from
+    // `input.sessionId ?? arm.session_id`, so a report with no session on its ROW could still emit
+    // `report_linked_to_session: true` on the strength of the last engine identity seen in this tab.
+    // That is a claim about the database made from something the database never saw — the same
+    // intention-over-evidence error as reporting a requested model instead of the one that ran, and it
+    // would have made the funnel's linkage rate quietly wrong in the optimistic direction.
+    //
+    // The fallback also never reached the row: it existed in the analytics vendor and nowhere else.
+    const arm = getLastPrivateIdentity();
     emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.REPORT_ISSUE_SUBMITTED, {
       issue_category: input.category,
       issue_severity: input.severity,
-      report_linked_to_session: correlatedSessionId !== null,
+      report_linked_to_session: persistedSessionId !== null,
       engine_variant: arm.engine_variant ?? null,
       release_sha: arm.release_sha ?? null,
     });
