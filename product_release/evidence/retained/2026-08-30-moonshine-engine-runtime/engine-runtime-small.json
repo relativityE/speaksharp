@@ -1,0 +1,320 @@
+{
+  "probe": "#1263 moonshine engine on the real runtime",
+  "verdict": "pass",
+  "arch": "MOONSHINE_STREAMING_SMALL",
+  "runtimePackage": "@moonshine-ai/moonshine-wasm",
+  "runtimeVersion": "0.1.5",
+  "componentSet": "quantized_26_07_30",
+  "engineSource": "frontend/src/services/transcription/engines/MoonshineStreamingEngine.ts",
+  "bundleSha256": "ebdb92691f02afcde854186c1a129bf4064afff9ba1a45910972fd27cc4dc6ea",
+  "fixture": {
+    "path": "tests/fixtures/harvard_sentences_16k.wav",
+    "sha256": "2cefa30a144a158fb50b9d222e9f6ed8f85b491c37b7747367dc8d4e4a222363"
+  },
+  "findings": [
+    "PASS default loader produced a transcriber — init returned ok",
+    "PASS live window decoded real speech — 8 words after 4.0s fed",
+    "PASS final pass decoded real speech — 38 words",
+    "PASS window transcript is SHORTER than the final — 8 vs 38 words",
+    "PASS window transcript is not the final transcript",
+    "PASS final carries substantially more than one window — final 38, window 8, last-window 10",
+    "PASS NO request carried a body — recorded audio never left the device — 0 bodied requests",
+    "PASS every off-origin request was a PINNED asset — 7 off-origin",
+    "PASS zero pin violations — []",
+    "PASS download progress was reported — 3682 callbacks"
+  ],
+  "outcome": {
+    "ok": true,
+    "loadMs": 1021.5049998760223,
+    "finalMs": 1273.0449998378754,
+    "audioSeconds": 12.2339375,
+    "sampleRate": 16000,
+    "liveWindowSeconds": 3,
+    "interimAtWindow": "Old beer lingers, a dash of pepper-spoiled",
+    "fedAtWindow": 4,
+    "interimAtEnd": "5. Truck. The twister left no trace of the time.",
+    "final": "The stale smell of old beer lingers, a dash of pepper spoils beef stew, the swan dive was far short of perfect. The box was thrown beside the parked truck the twister left no trace of the track",
+    "metadata": {
+      "candidateId": "probe-engine-runtime",
+      "engine": "moonshine_streaming",
+      "modelArch": "MOONSHINE_STREAMING_SMALL",
+      "runtime": "@moonshine-ai/moonshine-wasm",
+      "runtimeVersion": null,
+      "assetIdentity": null,
+      "backend": "wasm",
+      "liveWindowSeconds": 3,
+      "firstDecodeAt": 1788128545308,
+      "failure": null
+    },
+    "progressCount": 3682,
+    "progressMax": 165489086
+  },
+  "egress": {
+    "total": 37,
+    "offOrigin": 7,
+    "withBody": 0,
+    "requests": [
+      {
+        "url": "http://127.0.0.1:51903/engine-runtime.html",
+        "method": "GET",
+        "resourceType": "document",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/engine.bundle.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/fixtures/harvard_sentences_16k.wav",
+        "method": "GET",
+        "resourceType": "fetch",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/index.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/module.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/errors.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/enums.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/asset-downloader.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/transcriber.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/stream.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/mic-transcriber.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/stt-worker-host.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/text-to-speech.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/voice-clone.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/grapheme-to-phonemizer.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/agent-flow.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/types.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/events.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/tts-worker-host.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/embedding-model.js",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/moonshine.mjs",
+        "method": "GET",
+        "resourceType": "script",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "http://127.0.0.1:51903/lib/@moonshine-ai/moonshine-wasm/dist/moonshine.wasm",
+        "method": "GET",
+        "resourceType": "fetch",
+        "bodyBytes": 0,
+        "disposition": "local"
+      },
+      {
+        "url": "https://download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/adapter.ort",
+        "method": "GET",
+        "resourceType": "fetch",
+        "bodyBytes": 0,
+        "disposition": "pinned_asset"
+      },
+      {
+        "url": "https://download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/cross_kv.ort",
+        "method": "GET",
+        "resourceType": "fetch",
+        "bodyBytes": 0,
+        "disposition": "pinned_asset"
+      },
+      {
+        "url": "https://download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/decoder_kv.ort",
+        "method": "GET",
+        "resourceType": "fetch",
+        "bodyBytes": 0,
+        "disposition": "pinned_asset"
+      },
+      {
+        "url": "https://download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/encoder.ort",
+        "method": "GET",
+        "resourceType": "fetch",
+        "bodyBytes": 0,
+        "disposition": "pinned_asset"
+      },
+      {
+        "url": "https://download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/frontend.ort",
+        "method": "GET",
+        "resourceType": "fetch",
+        "bodyBytes": 0,
+        "disposition": "pinned_asset"
+      },
+      {
+        "url": "https://download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/streaming_config.json",
+        "method": "GET",
+        "resourceType": "fetch",
+        "bodyBytes": 0,
+        "disposition": "pinned_asset"
+      },
+      {
+        "url": "https://download.moonshine.ai/model/small-streaming-en/quantized_26_07_30/tokenizer.bin",
+        "method": "GET",
+        "resourceType": "fetch",
+        "bodyBytes": 0,
+        "disposition": "pinned_asset"
+      }
+    ]
+  },
+  "pinViolations": [],
+  "harnessRuntimeFailures": []
+}
