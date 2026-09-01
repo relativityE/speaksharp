@@ -12,7 +12,18 @@
 // The contract lives in tests/helpers/micControls.ts and is the SAME object the proof helpers import.
 // A hand-copied list here would drift from the proof and become a fourth vacuous check.
 import { describe, it, expect, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+
+/** Repo root: the directory owning pnpm-lock.yaml. */
+const REPO_ROOT = (() => {
+    let dir = dirname(new URL(import.meta.url).pathname);
+    for (let i = 0; i < 12; i += 1) {
+        try { if (statSync(join(dir, 'pnpm-lock.yaml')).isFile()) return dir; } catch { /* keep walking */ }
+        dir = dirname(dir);
+    }
+    throw new Error('repo root not found');
+})();
 import { render, screen, cleanup } from '../../../../tests/support/test-utils';
 import { MicCard } from '../MicCard';
 import { SessionDuringState } from '../SessionDuringState';
@@ -22,28 +33,42 @@ import {
     RETIRED_COMBINED_CONTROL,
 } from '../../../../../tests/helpers/micControls';
 
-const PROOF_FILES = [
+/**
+ * EVERY live spec and helper, discovered rather than listed.
+ *
+ * This was a hand-maintained list of three files, and the release journey gate was not on it — which
+ * is exactly why it kept driving a control the session overhaul had deleted. A list that must be
+ * remembered is a list that will be forgotten, so the set is now derived from the tree.
+ */
+/** The curated session-surface proofs whose EVERY selector must be contracted. */
+const CONTRACTED_PROOF_FILES = [
     'tests/live/three-session-retention-proof.live.spec.ts',
     'tests/live/helpers/benchmark-utils.ts',
-    // The RELEASE journey gate. It was absent from this list and was therefore the one proof still
-    // clicking the retired combined control — the guard closed the class everywhere it looked, and this
-    // file was outside where it looked.
     'tests/live/private-recording-proof.live.spec.ts',
 ];
 
-const progress = computeProgressVsBaseline([{ fillerCount: 34, durationSeconds: 600 }]);
+const PROOF_FILES = (() => {
+    const dir = join(REPO_ROOT, 'tests', 'live');
+    const out: string[] = [];
+    const walk = (d: string) => {
+        for (const e of readdirSync(d, { withFileTypes: true })) {
+            const p = join(d, e.name);
+            if (e.isDirectory()) walk(p);
+            else if (/\.(ts|mts)$/.test(e.name)) out.push(p.slice(REPO_ROOT.length + 1));
+        }
+    };
+    walk(dir);
+    return out;
+})();
 
-/** Every testid the proof files actually drive, comments stripped so prose cannot register as usage. */
-function selectorsUsedByProofs(): Set<string> {
-    const source = PROOF_FILES.map((f) => readFileSync(f, 'utf8'))
-        .map((s) => s.split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n'))
-        .join('\n');
-    const used = new Set<string>();
-    for (const m of source.matchAll(/getByTestId\('([a-zA-Z0-9_-]+)'\)|data-testid="([a-zA-Z0-9_-]+)"/g)) {
-        used.add(m[1] ?? m[2]);
-    }
-    return used;
-}
+/** Strip comments so a retirement NOTE explaining the ban never counts as a usage. */
+const code = (src: string): string => src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*'))
+    .join('\n');
+
+const progress = computeProgressVsBaseline([{ fillerCount: 34, durationSeconds: 600 }]);
 
 /** Mount the during state and report which of `ids` actually rendered. */
 function renderDuringAndCollect(ids: readonly string[]) {
@@ -94,7 +119,7 @@ describe('#1306 proof selector coverage — the class-level guard', () => {
         // Closes the drift gap: a new literal selector added to the proof must be declared here, so it
         // cannot reach production unproven. Constants are covered by the contract check above; this
         // catches raw strings, which is how every previous instance entered the code.
-        const source = PROOF_FILES.map((f) => readFileSync(f, 'utf8'))
+        const source = CONTRACTED_PROOF_FILES.map((f) => readFileSync(f, 'utf8'))
             .map((t) => t.split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n'))
             .join('\n');
         const used = new Set<string>();
@@ -115,21 +140,46 @@ describe('#1306 proof selector coverage — the class-level guard', () => {
             .toEqual([]);
     });
 
-    it('CASUALTY: no proof DRIVES a retired control', () => {
-        // The declared-selector test above cannot catch this: RETIRED ids are deliberately IN the
-        // declared set so the render test below can assert they are gone from the product. That made
-        // "declared" mean "known", not "allowed", and a proof clicking a retired control passed the
-        // guard — which is exactly how the release journey gate kept clicking a combined toggle the
-        // session overhaul had deleted, failing after signup, download and READY.
-        // Scoped to the retired CONTROL, not to retired read-only ids. A retired transcript id may
-        // legitimately appear as an `.or()` fallback when a helper serves specs whose pages render
-        // different surfaces — reading a surface that turns out absent yields null and the primary
-        // locator still answers. Driving a control that renders nowhere cannot degrade: the click has
-        // no target, so the journey simply stops, which is the failure this guard exists for.
-        const used = selectorsUsedByProofs();
-        expect(used.size, 'the scan must not be vacuous').toBeGreaterThan(10);
-        expect(used.has(RETIRED_COMBINED_CONTROL),
-            `a proof drives the retired combined control '${RETIRED_COMBINED_CONTROL}'`).toBe(false);
+    /**
+     * Live specs that STILL drive the retired combined control, enumerated so the debt is visible and
+     * BOUNDED rather than discovered one production dispatch at a time.
+     *
+     * Every one of these is broken the same way the release journey gate was: the session overhaul
+     * deleted `session-start-stop-button`, so the click has no target and the run fails after setup.
+     * They are benchmark and probe harnesses rather than the release path, so migrating them is its own
+     * ticket — but the list may only ever SHRINK, and nothing outside it may use the control.
+     */
+    const KNOWN_BROKEN_LIVE_SPECS: readonly string[] = [
+        'tests/live/analytics-live-native-probe.live.spec.ts',
+        'tests/live/tester-b-private-native-stt.live.spec.ts',
+        'tests/live/stt-accuracy-integration.live.spec.ts',
+        'tests/live/private-cache.live.spec.ts',
+        'tests/live/benchmark-v4.live.spec.ts',
+        'tests/live/benchmark-native.live.spec.ts',
+        'tests/live/benchmark-cpu.live.spec.ts',
+        'tests/live/analytics-journey.live.spec.ts',
+        'tests/live/filler-source-comparison.live.spec.ts',
+        'tests/live/driver-dependent/private-stt.live.spec.ts',
+    ];
+
+    it('CASUALTY: no NEW proof drives the retired control, and the broken set only shrinks', () => {
+        const offenders = PROOF_FILES.filter((f) => {
+            const body = code(readFileSync(join(REPO_ROOT, f), 'utf8'));
+            return body.includes(RETIRED_COMBINED_CONTROL);
+        });
+        // Nothing outside the recorded set may drive it — that is the regression this blocks.
+        expect(offenders.filter((f) => !KNOWN_BROKEN_LIVE_SPECS.includes(f)).sort()).toEqual([]);
+        // And the recorded set may not grow: a fixed spec must be deleted from the list, so the debt
+        // cannot quietly stay the same size while files are swapped in and out of it.
+        expect(offenders.length).toBeLessThanOrEqual(KNOWN_BROKEN_LIVE_SPECS.length);
+    });
+
+    it('NON-VACUITY: the retired-control scan actually reads these files', () => {
+        // Without this, an empty offender list would be indistinguishable from a scan that read nothing.
+        expect(PROOF_FILES.length).toBeGreaterThan(10);
+        const anyRetired = PROOF_FILES.some((f) => code(readFileSync(join(REPO_ROOT, f), 'utf8'))
+            .includes(RETIRED_COMBINED_CONTROL));
+        expect(anyRetired, 'the known-broken specs must still be detectable').toBe(true);
     });
 
     it('every exemption carries a real reason', () => {

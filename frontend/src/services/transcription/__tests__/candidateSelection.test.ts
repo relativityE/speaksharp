@@ -31,6 +31,9 @@ const REPO_ROOT = (() => {
 })();
 const repoFile = (rel: string): string => readFileSync(join(REPO_ROOT, rel), 'utf8');
 
+/** An internal comparison build: the only context that may run a non-default candidate. */
+const INTERNAL_ENV = { VITE_INTERNAL_BUILD: 'true' };
+
 describe('selection fails closed', () => {
     it('CASUALTY: an unknown candidate id is REFUSED', () => {
         expect(() => resolveCandidate('v4:base:q8')).toThrow(UnknownCandidateError);
@@ -103,7 +106,12 @@ describe('the active candidate is a checked-in build-time decision', () => {
         // The recorded product contract is Moonshine / v2 base.en / v4 distil-q4. A config that cannot
         // express all three makes the human comparison impossible, so this asserts the whole slate.
         expect(activeCandidate({ candidate: 'v2:base.en' }).id).toBe('v2:base.en');
-        expect(activeCandidate({ candidate: 'v4:distil:q4' }).id).toBe('v4:distil:q4');
+        // distil is internally selectable, NOT a public default: it has no qualification evidence yet,
+        // so it needs the same explicit acknowledgement Moonshine does.
+        expect(activeCandidate(
+            { candidate: 'v4:distil:q4', acknowledgeNotProductionReady: true },
+            { VITE_INTERNAL_BUILD: 'true' },
+        ).id).toBe('v4:distil:q4');
         // Moonshine additionally needs an INTERNAL build: it is selectable for comparison, not
         // shippable, and the two permissions are deliberately separate. #1381 activates it.
         expect(activeCandidate(
@@ -118,6 +126,8 @@ describe('the active candidate is a checked-in build-time decision', () => {
         // which is the defect this whole plane exists to prevent. Neither may boot silently.
         // Collected then asserted once: the loop reports WHICH control regressed without needing a
         // per-assertion message the lint rule disallows.
+        // Deliberately WITHOUT the acknowledgement: a plain configuration naming a control must stop
+        // the boot with its stated reason.
         const booted = ['v4:base:q4', 'v4:base:int8'].filter((id) => {
             try { activeCandidate({ candidate: id }); return true; } catch { return false; }
         });
@@ -186,10 +196,11 @@ describe('the active candidate is a checked-in build-time decision', () => {
         // and some ARE ineligible today, so the assertion above is not vacuous. This set is the
         // recorded contract: only v2 and distil-q4 may ship, Moonshine is pending #1381 activation, and
         // the two base controls are benchmark arms that selection refuses.
+        // Only v2 may ship as the public default today. distil and Moonshine are internally
+        // selectable pending qualification; the two base arms are benchmark controls.
         expect(CANDIDATE_IDS.filter((id) => !CANDIDATES[id].activationReady))
-            .toEqual(['v4:base:q4', 'v4:base:int8', 'moonshine:streaming-medium']);
-        expect(CANDIDATE_IDS.filter((id) => CANDIDATES[id].activationReady))
-            .toEqual(['v2:base.en', 'v4:distil:q4']);
+            .toEqual(['v4:base:q4', 'v4:base:int8', 'v4:distil:q4', 'moonshine:streaming-medium']);
+        expect(CANDIDATE_IDS.filter((id) => CANDIDATES[id].activationReady)).toEqual(['v2:base.en']);
     });
 
     it('the active candidate is always resolvable — a build cannot ship an unusable default', () => {
@@ -222,7 +233,10 @@ describe('SWAPPING a candidate is a one-line config change', () => {
      */
     it('CASUALTY: changing the config value changes engine, model, dtype AND assets', () => {
         const v2 = activeCandidate({ candidate: 'v2:base.en' });
-        const distil = activeCandidate({ candidate: 'v4:distil:q4' });
+        const distil = activeCandidate(
+            { candidate: 'v4:distil:q4', acknowledgeNotProductionReady: true },
+            { VITE_INTERNAL_BUILD: 'true' },
+        );
 
         expect(v2.engine).not.toBe(distil.engine);
         expect(v2.model.id).not.toBe(distil.model.id);
@@ -248,14 +262,21 @@ describe('SWAPPING a candidate is a one-line config change', () => {
     it('the three human-test slots are all registered and describable', () => {
         // v2 incumbent, the v4 representative, and the Moonshine prospect. Moonshine is describable but
         // not activatable, which is the distinction that lets us build against it before it is proven.
-        for (const id of ['v2:base.en', 'v4:base:int8', 'moonshine:streaming-medium'] as CandidateId[]) {
+        for (const id of ['v2:base.en', 'v4:distil:q4', 'moonshine:streaming-medium'] as CandidateId[]) {
             const c = CANDIDATES[id];
             expect(c, `${id} missing`).toBeTruthy();
             expect(isCompleteIdentity(identityOf(c)), `${id} not attributable`).toBe(true);
             expect(c.assets.pinDigest, `${id} has no asset digest`).toBeTruthy();
         }
-        expect(activeCandidate({ candidate: 'v4:distil:q4' }).id).toBe('v4:distil:q4');
-        expect(() => activeCandidate({ candidate: 'moonshine:streaming-medium' })).toThrow(/not approved as a production default/);
+        // Both non-incumbent slots are describable and internally selectable, and neither may ship as
+        // the public default until a human comparison has actually been run.
+        for (const id of ['v4:distil:q4', 'moonshine:streaming-medium'] as CandidateId[]) {
+            expect(activeCandidate({ candidate: id, acknowledgeNotProductionReady: true }, INTERNAL_ENV).id).toBe(id);
+        }
+        const shippable = (['v4:distil:q4', 'moonshine:streaming-medium'] as CandidateId[]).filter((id) => {
+            try { activeCandidate({ candidate: id }); return true; } catch { return false; }
+        });
+        expect(shippable).toEqual([]);
     });
 });
 
@@ -304,7 +325,10 @@ describe('DROP-IN property — every candidate resolves wholly from its registry
 
     it('swapping a slot changes only the config value — the registry supplies the rest', () => {
         const before = activeCandidate({ candidate: 'v2:base.en' });
-        const after = activeCandidate({ candidate: 'v4:distil:q4' });
+        const after = activeCandidate(
+            { candidate: 'v4:distil:q4', acknowledgeNotProductionReady: true },
+            { VITE_INTERNAL_BUILD: 'true' },
+        );
         // Same call, same code path, different everything that describes the model.
         expect(before.id).not.toBe(after.id);
         expect(before.model.id).not.toBe(after.model.id);

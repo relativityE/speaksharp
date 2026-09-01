@@ -1633,7 +1633,13 @@ async function runFixture(page, mode, fixture) {
   await installFillerCountTrace(page);
   if (mode === 'private' && PRIVATE_MODEL) {
     await page.addInitScript((model) => {
-      window.__PRIVATE_MODEL__ = model;
+      // INERT SINCE SELECTION MOVED TO CONFIG. Assigning this used to choose the model; it now does
+      // nothing, so every arm would decode with the configured candidate while the corpus report named
+      // `model`. Fail loudly rather than emit mislabelled accuracy numbers.
+      throw new Error(
+        `manual-stt-corpus-proof selects models via window.__PRIVATE_MODEL__, which is retired. `
+        + `Arm "${model}" would actually run the configured candidate. Re-point at the config plane.`,
+      );
     }, PRIVATE_MODEL);
   }
   await page.goto(sessionUrl.toString(), { waitUntil: 'domcontentloaded' });

@@ -194,7 +194,11 @@ export const CANDIDATES: Readonly<Record<CandidateId, Candidate>> = deepFreeze({
      */
     'v4:distil:q4': {
         id: 'v4:distil:q4',
-        activationReady: true,
+        activationReady: false,
+        notReadyReason:
+            'no qualification evidence exists for this candidate on the product path. It is selectable '
+            + 'for internal comparison via acknowledgeNotProductionReady, and becomes eligible as a '
+            + 'public default only once a human comparison has actually been run against it',
         engine: 'transformers-js-v4',
         runtime: { package: '@huggingface/transformers', version: '4.2.0' },
         model: {

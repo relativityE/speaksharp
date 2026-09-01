@@ -14,6 +14,8 @@ import {
     isRemoteSafetyKillEngaged, SAFETY_KILL_FLAG, SAFETY_KILL_TARGET, FALLBACK_CAUSE_REMOTE_KILL,
 } from '../safetyKill';
 
+const INTERNAL_ENV = { VITE_INTERNAL_BUILD: 'true' };
+
 vi.mock('posthog-js', () => ({ default: { isFeatureEnabled: vi.fn() } }));
 const flag = posthog.isFeatureEnabled as unknown as ReturnType<typeof vi.fn>;
 
@@ -23,14 +25,14 @@ describe('the kill can only ever force v2:base.en', () => {
 
     it('CASUALTY: engaged, it forces v2:base.en even though config names something else', () => {
         flag.mockReturnValue(true);
-        const sel = effectiveCandidate({ candidate: 'v4:distil:q4' });
+        const sel = effectiveCandidate({ candidate: 'v4:distil:q4', acknowledgeNotProductionReady: true }, INTERNAL_ENV);
         expect(sel.candidate.id).toBe('v2:base.en');
         expect(sel.fallbackCause).toBe(FALLBACK_CAUSE_REMOTE_KILL);
     });
 
     it('CASUALTY: disengaged, CONFIG decides — the kill has no positive power', () => {
         flag.mockReturnValue(false);
-        const sel = effectiveCandidate({ candidate: 'v4:distil:q4' });
+        const sel = effectiveCandidate({ candidate: 'v4:distil:q4', acknowledgeNotProductionReady: true }, INTERNAL_ENV);
         expect(sel.candidate.id).toBe('v4:distil:q4');
         expect(sel.fallbackCause).toBeNull();
     });
@@ -64,7 +66,7 @@ describe('the kill can only ever force v2:base.en', () => {
     it('an unreadable flag FAILS OFF — the configured candidate still runs', () => {
         flag.mockImplementation(() => { throw new Error('posthog exploded'); });
         expect(isRemoteSafetyKillEngaged()).toBe(false);
-        const sel = effectiveCandidate({ candidate: 'v4:distil:q4' });
+        const sel = effectiveCandidate({ candidate: 'v4:distil:q4', acknowledgeNotProductionReady: true }, INTERNAL_ENV);
         expect(sel.candidate.id).toBe('v4:distil:q4');
     });
 

@@ -3002,13 +3002,19 @@ export class SpeechRuntimeController {
         const svc = this.applyHardResetState(reason);
         if (svc === SOFT_RESET) return;
         if (svc) {
+            // A REJECTED DESTROY PROPAGATES. It was previously logged and stepped over, which is the
+            // dangerous reading: "detached" is a fact about our reference, not about the worker. If
+            // destruction failed, the old engine may still hold the worker and the microphone, and
+            // starting the next one on top is precisely the two-engines-one-worker state this awaited
+            // path exists to prevent. Refusing the switch is recoverable; a silent overlap is not.
             try {
                 await svc.destroy();
             } catch (destroyError) {
-                // A destroy that fails must not strand the caller: the service is already detached, so
-                // the old engine is unreachable either way. Reported, not swallowed silently.
                 logger.warn({ destroyError, reason, state: this.state, lifecycleVersion: this.lifecycleVersion },
-                    '[SpeechRuntimeController] Service destroy failed during awaited hard reset');
+                    '[SpeechRuntimeController] Service destroy FAILED during awaited hard reset');
+                await this.transition('TERMINATED');
+                await this.transition('IDLE');
+                throw destroyError instanceof Error ? destroyError : new Error(String(destroyError));
             }
         }
         await this.transition('TERMINATED');

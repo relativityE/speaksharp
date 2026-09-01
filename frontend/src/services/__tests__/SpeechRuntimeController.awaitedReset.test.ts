@@ -103,11 +103,15 @@ describe('SpeechRuntimeController — awaited vs fire-and-forget hard reset', ()
         expect(destroyed.value).toBe(true);
     });
 
-    it('a destroy that REJECTS still completes the reset instead of stranding the caller', async () => {
+    it('CASUALTY: a destroy that REJECTS propagates — the caller must not proceed', async () => {
+        // Treating a failed destruction as success is the dangerous reading: detaching our reference
+        // says nothing about whether the worker and microphone were released. The caller has to be able
+        // to refuse the next engine.
         const destroy = vi.fn(async () => { throw new Error('worker would not die'); });
         controller.service = { destroy } as unknown as never;
-        await expect(controller.hardResetAwaited('candidate-switch')).resolves.toBeUndefined();
+        await expect(controller.hardResetAwaited('candidate-switch')).rejects.toThrow(/worker would not die/);
         expect(destroy).toHaveBeenCalled();
+        // State is still cleared and the lifecycle still lands, so a failed teardown is recoverable.
         expect(controller.service).toBeNull();
     });
 

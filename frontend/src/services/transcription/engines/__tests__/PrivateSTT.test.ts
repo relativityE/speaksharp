@@ -16,7 +16,7 @@ import { Result } from '../../modes/types';
 import type { PrivateSTT as PrivateSTTType } from '../PrivateSTT';
 import { ENV } from '../../../../config/TestFlags';
 import { STTEngine } from '../../../../contracts/STTEngine';
-import { PRIV_STT_V4 } from '../../sttConstants';
+import { PRIV_STT_V4_VARIANTS } from '../../sttConstants';
 
 // Mock underlying libraries to avoid resolution errors
 vi.mock('@xenova/transformers', () => ({}));
@@ -385,30 +385,34 @@ describe('PrivateSTT (Routing Logic)', () => {
         expect(factory).not.toHaveBeenCalled();
     });
 
-    it('contract: v4 availability reports cache miss and q4 split size before explicit setup', async () => {
+    it('contract: v4 availability reports cache miss and the SELECTED variant size', async () => {
         globalThis.__TEST__ = false;
-        // Reached through the CONFIG plane, not a localStorage override. That override used to select
-        // the engine here; it is retired, so the only way to be on v4 is for the configuration to say
-        // so — which is exactly the property under test everywhere else.
+        // Availability follows the CONFIG SELECTION, not the provider default: a build configured for
+        // a v4 variant must probe that variant and quote ITS download size. Reporting base_q4's number
+        // for a different variant is a consent prompt about the wrong model.
         vi.resetModules();
-        vi.doMock('../../providers/sttProviderConfig', async (importOriginal) => {
-            const actual = await importOriginal<typeof import('../../providers/sttProviderConfig')>();
+        vi.doMock('../../candidateSelection', async (importOriginal) => {
+            const actual = await importOriginal<typeof import('../../candidateSelection')>();
+            const { CANDIDATES } = await import('../../candidateRegistry');
             return {
                 ...actual,
-                getDefaultProviderForMode: (mode: string) =>
-                    (mode === 'private' ? 'transformers-js-v4' : actual.getDefaultProviderForMode(mode as never)),
+                effectiveCandidate: () => ({ candidate: CANDIDATES['v4:base:q4'], fallbackCause: null }),
             };
         });
+        try {
+            const { PrivateSTT } = await import('../PrivateSTT');
+            pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            const availability = await pstt.checkAvailability();
 
-        const { PrivateSTT } = await import('../PrivateSTT');
-        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
-        const availability = await pstt.checkAvailability();
-
-        expect(availability.isAvailable).toBe(false);
-        expect(availability.reason).toBe('CACHE_MISS');
-        expect(availability.sizeMB).toBe(PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB);
-        vi.doUnmock('../../providers/sttProviderConfig');
-        vi.resetModules();
+            expect(availability.isAvailable).toBe(false);
+            expect(availability.reason).toBe('CACHE_MISS');
+            expect(availability.sizeMB).toBe(PRIV_STT_V4_VARIANTS.base_q4.EXPECTED_SPLIT_DOWNLOAD_MB);
+        } finally {
+            // UNCONDITIONAL. A throwing assertion previously left this module mocked, and the NEXT
+            // test then resolved v4 and failed for a reason that had nothing to do with it.
+            vi.doUnmock('../../candidateSelection');
+            vi.resetModules();
+        }
     });
 
     it('contract: does not fall back to a non-configured registry provider when configured provider is absent', async () => {

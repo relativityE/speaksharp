@@ -86,8 +86,15 @@ describe('no retired model-selection channel exists in production source', () =>
         const offenders: string[] = [];
         for (const f of files) {
             const body = code(readFileSync(f, 'utf8'));
-            for (const m of body.matchAll(/(?:\.get|getItem)\(\s*'([a-zA-Z0-9_.]+)'\s*\)/g)) {
+            // BOTH quote styles. A single-quote-only pattern is bypassed by `getItem("privateModel")`
+            // — and a guard that can be sidestepped by pressing a different key is not a guard.
+            for (const m of body.matchAll(/(?:\.get|getItem)\(\s*['"`]([a-zA-Z0-9_.]+)['"`]\s*\)/g)) {
                 if (BANNED_PARAMS.includes(m[1])) offenders.push(`${f.slice(SRC.length + 1)} :: ${m[1]}`);
+            }
+            // INDIRECT reads: the literal bound to a name and read through it. Catching only inline
+            // literals would leave `const K = 'privateModel'; params.get(K)` invisible.
+            for (const m of body.matchAll(/['"`]([a-zA-Z0-9_.]+)['"`]/g)) {
+                if (BANNED_PARAMS.includes(m[1])) offenders.push(`${f.slice(SRC.length + 1)} :: literal ${m[1]}`);
             }
         }
         expect(offenders.sort()).toEqual([]);
@@ -95,10 +102,21 @@ describe('no retired model-selection channel exists in production source', () =>
 
     it('NON-VACUITY: the read-scan matches a planted selector read', () => {
         // Proves the regex actually fires, so an empty offender list means "clean", not "never looked".
-        const planted = `const x = new URLSearchParams(s).get('privateModel');`;
-        const hits = [...planted.matchAll(/(?:\.get|getItem)\(\s*'([a-zA-Z0-9_.]+)'\s*\)/g)]
-            .filter((m) => BANNED_PARAMS.includes(m[1]));
-        expect(hits).toHaveLength(1);
+        // Every evasion the scan must survive, not just the shape it was first written against.
+        const planted = [
+            `new URLSearchParams(s).get('privateModel')`,
+            `new URLSearchParams(s).get("privateModel")`,
+            `localStorage.getItem("speaksharp.private.engine")`,
+            `const K = 'v4Variant'; params.get(K)`,
+        ].join('\n');
+        const found = new Set<string>();
+        for (const m of planted.matchAll(/(?:\.get|getItem)\(\s*['"`]([a-zA-Z0-9_.]+)['"`]\s*\)/g)) {
+            if (BANNED_PARAMS.includes(m[1])) found.add(m[1]);
+        }
+        for (const m of planted.matchAll(/['"`]([a-zA-Z0-9_.]+)['"`]/g)) {
+            if (BANNED_PARAMS.includes(m[1])) found.add(m[1]);
+        }
+        expect([...found].sort()).toEqual(['privateModel', 'speaksharp.private.engine', 'v4Variant']);
     });
 });
 

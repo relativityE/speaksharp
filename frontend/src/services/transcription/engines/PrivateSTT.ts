@@ -114,7 +114,6 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     private runtimePath: PrivateRuntimeDecision | null = null;
     // True ONLY when the AUTO (flag) path successfully initialized v4. Gates the
     // decode-time fallback to v2-base; the strict explicit-override path never sets it.
-    private v4AutoFallbackEligible = false;
 
     /**
      * PrivateSTT manages the dual-engine strategy for on-device transcription.
@@ -219,7 +218,6 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         this.serviceId = options.serviceId || 'unknown';
         this.runId = options.runId || 'unknown';
-        this.v4AutoFallbackEligible = false; // reset per init; only auto-path v4 success re-enables
 
         logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🚀 Privacy-first engine selection started...');
 
@@ -258,10 +256,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                     turboModelCached: false,
                 });
                 this.runtimePath = decision;
-                // PUBLISH AT RESOLUTION. The telemetry seam has no handle on this engine, and events
-                // fired before the first save would otherwise carry null attribution even though the
-                // identity was already known here.
-                this.publishResolvedIdentity();
+                // Identity is published AFTER the engine initialises — see initSelectedEngine.
                 publishPrivateRuntimeDebug(decision);
                 logger.info({ sId: this.serviceId, rId: this.runId, runtimeDecision: decision, selectedEngine, source: 'override' }, '[PrivateSTT] Published explicit CPU runtime decision');
             }
@@ -278,24 +273,36 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const autoEngine = await this.resolveAutoPrivateEngine(selectedEngine);
         logger.info({ sId: this.serviceId, rId: this.runId, provider: autoEngine, configured: selectedEngine, source: 'auto' }, '[PrivateSTT] Initializing auto-selected private provider');
         const initStart = performance.now();
+        // AN EXPLICITLY SELECTED CANDIDATE IS NEVER SUBSTITUTED.
+        //
+        // The v4 -> v2 fallback existed when v4 was a percentage rollout: a flagged user must not be
+        // stranded, and which model they got was not a claim anyone relied on. Selection is now a
+        // reviewed config decision, so substituting silently produces a v2 recording under the
+        // selected candidate's id — a comparison of distil against v2 would be v2 against v2, and the
+        // difference would be read as quality. The safety kill remains the way to move traffic to v2,
+        // and it is explicit and recorded as `remote_safety_kill`.
+        const explicitlySelected = this.runtimePath?.selectionSource === 'config'
+            || this.runtimePath?.selectionSource === 'runtime_switch';
+
         const primary = await this.initSelectedEngine(autoEngine, timeoutMs, isMock);
         if (primary.isOk) {
-            // Eligible for a one-shot decode-time fallback ONLY when the AUTO path chose v4.
-            this.v4AutoFallbackEligible = autoEngine === 'transformers-js-v4';
             this.emitV4FlagTelemetry(null, Math.round(performance.now() - initStart));
             return Result.ok(undefined);
         }
 
-        // v4 → v2-base fallback (AUTO path only; the explicit-override path stays
-        // strict). A flagged v4 user must never be stranded: if v4 init/load fails,
-        // fall back to the proven v2-base engine.
-        if (autoEngine === 'transformers-js-v4') {
+        if (autoEngine === 'transformers-js-v4' && !explicitlySelected) {
             logger.warn({ sId: this.serviceId, rId: this.runId, error: (primary as { error?: Error }).error }, '[PrivateSTT] v4 init failed; falling back to v2-base');
             const fallback = await this.initSafeEngine(timeoutMs, isMock);
             this.emitV4FlagTelemetry('v4_init_failed', Math.round(performance.now() - initStart));
             return fallback.isOk ? Result.ok(undefined) : (fallback as Result<void, Error>);
         }
 
+        if (autoEngine === 'transformers-js-v4') {
+            // Reported as a v4 failure, then surfaced. Silence here would look like a working session.
+            logger.error({ sId: this.serviceId, rId: this.runId, error: (primary as { error?: Error }).error },
+                '[PrivateSTT] explicitly selected v4 failed to initialise; REFUSING to substitute v2-base');
+            this.emitV4FlagTelemetry('v4_init_failed_no_substitution', Math.round(performance.now() - initStart));
+        }
         return primary as Result<void, Error>;
     }
 
@@ -365,10 +372,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 : undefined,
         });
         this.runtimePath = decision;
-        // PUBLISH AT RESOLUTION. The telemetry seam has no handle on this engine, and events fired
-        // before the first save would otherwise carry null attribution even though the identity was
-        // already known here.
-        this.publishResolvedIdentity();
+        // Identity is published AFTER the engine initialises — see initSelectedEngine.
         publishPrivateRuntimeDebug(decision);
         logger.info({
             sId: this.serviceId, rId: this.runId, runtimeDecision: decision, configured,
@@ -489,45 +493,33 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         if (!this.engine) {
             return { isOk: false, error: new Error('PrivateSTT not initialized.') };
         }
-        const v4Auto = this.v4AutoFallbackEligible && this._engineType === 'transformers-js-v4';
-
-        // On the AUTO path, BOUND the v4 decode: a base_q4-on-WASM decode can HANG and never
-        // return (no error, no result), which would strand the user because the fallback only
-        // runs AFTER transcribe resolves. Race it against a timeout so a stuck decode becomes a
-        // failure we can fall back from. v2 / strict-override paths call transcribe directly.
-        const result = v4Auto
+        // BOUND EVERY v4 DECODE, SUBSTITUTE FOR NONE.
+        //
+        // Two separate protections used to be fused into one flag. The BOUND exists because a
+        // base_q4-on-WASM decode can hang and never return, stranding the session; the SUBSTITUTION
+        // re-ran the audio on v2. Only the substitution is unsafe now: selection is an explicit,
+        // reviewed choice, so quietly producing a v2 transcript under the selected candidate's id
+        // would make a comparison of two models a comparison of one against itself.
+        //
+        // Keeping them fused would have been worse than either: the flag is only ever false today, so
+        // the hang protection would have been switched off along with the substitution.
+        const isV4 = this._engineType === 'transformers-js-v4';
+        const result = isV4
             ? await this.transcribeBounded(this.engine, audio, V4_AUTO_DECODE_TIMEOUT_MS)
             : await this.engine.transcribe(audio);
 
-        // A flagged v4 engine on the AUTO path "produced nothing" if it ERRORED / TIMED OUT or
-        // returned an EMPTY / whitespace transcript. base_q4 on WASM can fail SILENTLY
-        // (isOk:true, data:"") or hang, so all three must trigger fallback — otherwise the user
-        // is stranded. Genuine silence is safe: v2 also returns empty. Strict override never
-        // sets the flag, so it is unaffected.
-        const v4Empty = v4Auto && result.isOk && result.data.trim().length === 0;
-        const v4ProducedNothing = v4Auto && (!result.isOk || v4Empty);
-
-        if (result.isOk && !v4Empty) return result;
-
-        // DECODE-time fallback (AUTO / flag path only): tear down v4, init the proven v2-base
-        // engine, and RE-TRANSCRIBE the SAME audio (no data loss). One-shot: clear the flag.
-        if (v4ProducedNothing) {
-            this.v4AutoFallbackEligible = false;
-            const errorClass = result.isOk ? 'EmptyTranscript' : (result.error instanceof Error ? result.error.name : 'Error');
-            logger.warn({ sId: this.serviceId, rId: this.runId, errorClass, empty: result.isOk }, '[PrivateSTT] v4 produced no transcript; falling back to v2-base and re-transcribing');
-            try { await this.engine.terminate?.(); } catch { /* best-effort v4 teardown */ }
-            const fallback = await this.initSafeEngine();
-            if (!fallback.isOk || !this.engine) {
-                return result; // v2 also unavailable — surface v4's original result
-            }
-            this.emitV4FlagTelemetry('v4_decode_failed', undefined, errorClass);
-            return this.engine.transcribe(audio);
+        if (!result.isOk && isV4) {
+            // Surfaced, never swapped. A failed decode is visible; a substituted one is not.
+            const errorClass = result.error instanceof Error ? result.error.name : 'Error';
+            logger.warn({ sId: this.serviceId, rId: this.runId, errorClass },
+                '[PrivateSTT] v4 decode failed; REFUSING to re-transcribe on v2-base');
+            this.emitV4FlagTelemetry('v4_decode_failed_no_substitution', undefined, errorClass);
         }
         return result;
     }
 
-    /** Race a v4 decode against a timeout so a HUNG WASM decode degrades to a failure we can fall
-     *  back from (AUTO path only). The timeout never throws; it resolves to a failure Result. */
+    /** Race a v4 decode against a timeout so a HUNG WASM decode becomes a reported failure instead of
+     *  an unbounded wait. The timeout never throws; it resolves to a failure Result. */
     private async transcribeBounded(engine: IPrivateSTTEngine, audio: Float32Array, ms: number): Promise<Result<string, Error>> {
         let timer: ReturnType<typeof setTimeout> | undefined;
         const timeout = new Promise<Result<string, Error>>((resolve) => {
@@ -559,15 +551,27 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             return this.engine.checkAvailability();
         }
 
-        const preferredEngine = getConfiguredPrivateEngine() as EngineType;
+        // READINESS IS ABOUT THE SELECTED CANDIDATE, NOT THE DEFAULT.
+        //
+        // This read the provider default and quoted `EXPECTED_Q4_SPLIT_DOWNLOAD_MB` for any v4, so a
+        // build configured for distil reported base_q4's ~142 MB while distil needs ~251 MB, and probed
+        // the wrong model for cache presence. The user was told a number for a model they were not
+        // getting — a download-consent prompt has to be about the thing being downloaded.
+        const selected = (() => {
+            try { return effectiveCandidate().candidate; } catch { return null; }
+        })();
+        const preferredEngine = (selected?.engine ?? getConfiguredPrivateEngine()) as EngineType;
         const cacheEngine =
             preferredEngine === 'transformers-js-v4' ? 'transformers-js-v4'
                 : 'transformers-js';
         const isDownloaded = await ModelManager.isModelDownloaded(cacheEngine);
 
         if (!isDownloaded) {
+            const selectedVariant = (() => {
+                try { return selected ? PRIV_STT_V4_VARIANTS[v4VariantFor(selected)] : null; } catch { return null; }
+            })();
             const sizeMB = preferredEngine === 'transformers-js-v4'
-                ? PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB
+                ? (selectedVariant?.EXPECTED_SPLIT_DOWNLOAD_MB ?? PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB)
                 : ModelManager.getModelSizeMB(cacheEngine);
             return {
                 isAvailable: false,
@@ -581,7 +585,22 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
 
+    /**
+     * PUBLISH THE OBSERVED IDENTITY ONLY ONCE AN ENGINE EXISTS.
+     *
+     * This used to be published at RESOLUTION, before initialisation, while `_engineType` still held
+     * the previous value or none. An observer could then read a model identity for an engine that had
+     * not been built — and after a switch, the app could reach READY reporting either the OUTGOING
+     * model or nothing at all. `observed` must mean "this is running", so it is written here, after a
+     * successful init, and stays null until then.
+     */
     private async initSelectedEngine(engineType: SelectedPrivateEngine, timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
+        const outcome = await this.initSelectedEngineInner(engineType, timeoutMs, isMock);
+        if (outcome.isOk) this.publishResolvedIdentity();
+        return outcome;
+    }
+
+    private async initSelectedEngineInner(engineType: SelectedPrivateEngine, timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
         if (engineType === 'mock') {
             const factory = getEngine('mock');
             if (factory) {
