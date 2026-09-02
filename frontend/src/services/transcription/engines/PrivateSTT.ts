@@ -173,13 +173,15 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * is recorded implicitly is indistinguishable, later, from consent that was never asked for.
      */
     public grantModelConsent(): void {
-        try {
-            const candidate = effectiveCandidate().candidate;
-            recordConsent(consentTermsFor(candidate), new Date().toISOString());
-        } catch {
-            // A candidate we cannot resolve is one we cannot describe to the user, so there is nothing
-            // honest to record. The next availability check will ask again.
-        }
+        // NOTHING IS SWALLOWED HERE EITHER. This caught every failure, so a storage error surfaced by
+        // `recordConsent` was discarded a second time and the caller still proceeded to initialise. Two
+        // layers of suppression over the same fact produced a user who granted consent, waited for a
+        // ~305 MB download, and was asked again next session — with no error anywhere.
+        //
+        // An unresolvable candidate is a real failure too: it means we cannot say WHAT was consented to,
+        // and a receipt that does not name its subject is not one.
+        const candidate = effectiveCandidate().candidate;
+        recordConsent(consentTermsFor(candidate), new Date().toISOString());
     }
 
     public getMetadata(): {

@@ -710,7 +710,26 @@ export default class TranscriptionService {
             this.options.onStatusChange?.({ type: 'error', message: 'Private model consent could not be saved.' });
             throw error;
           }
-          strategy.grantModelConsent();
+          try {
+            strategy.grantModelConsent();
+          } catch (cause) {
+            // A GRANT THAT WAS NOT PERSISTED IS NOT A GRANT. Storage can be unavailable (private
+            // browsing, blocked site data) or fail under quota, and both used to be swallowed twice
+            // over — so the user agreed, waited for a ~305 MB download, and was asked again next
+            // session with no error anywhere. Initialization must not proceed on a decision we cannot
+            // remember.
+            const error = TranscriptionError.engineFailure(
+              mode,
+              cause instanceof Error ? cause.message : 'STT_CONSENT_NOT_PERSISTED: consent could not be saved',
+            );
+            logger.error({ mode, cause }, '[TranscriptionService] Consent could not be persisted; refusing to initialize');
+            this.fsm.transition({ type: 'ERROR_OCCURRED', error });
+            this.options.onStatusChange?.({
+              type: 'error',
+              message: 'Your choice could not be saved, so the model was not downloaded. Check your browser storage settings and try again.',
+            });
+            throw error;
+          }
           // RE-ASK, DO NOT REUSE. The result above was computed BEFORE the grant, and the gate below
           // still reads it: recording consent and then failing on the stale pre-consent answer left a
           // first-time user unable to start at all — they clicked the button, we saved their decision,

@@ -11,7 +11,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CANDIDATES } from '../candidateRegistry';
-import { CONSENT_STORAGE_KEY, consentDecision, consentTermsFor, readReceipt } from '../modelConsent';
+import {
+  ConsentNotPersistedError, CONSENT_STORAGE_KEY, consentDecision, consentTermsFor, readReceipt, recordConsent,
+} from '../modelConsent';
 import { sttRegistry } from '../STTRegistry';
 import type { IPrivateSTTEngine } from '../../../contracts/IPrivateSTTEngine';
 
@@ -78,5 +80,62 @@ describe('consent recorded once is not asked again by a new session', () => {
         expect(stored).not.toBeNull();
         expect(stored).toMatchObject(consentTermsFor(candidate));
         expect(window.localStorage.getItem(CONSENT_STORAGE_KEY)).toContain('moonshine:streaming-medium');
+    });
+});
+
+describe('a grant that was not persisted is not a grant', () => {
+    const terms = () => consentTermsFor(CANDIDATES['moonshine:streaming-medium']);
+    const NOW = '2026-09-02T00:00:00.000Z';
+
+    it('CASUALTY: NO STORAGE produces a named failure instead of a receipt', () => {
+        // This returned the receipt object anyway, with a comment claiming "a receipt we cannot persist
+        // simply prompts again next time" — which describes the repeated-prompt loop this mechanism
+        // exists to prevent, written as though it were a design choice.
+        expect(() => recordConsent(terms(), NOW, null))
+            .toThrow(ConsentNotPersistedError);
+        expect(() => recordConsent(terms(), NOW, null))
+            .toThrow(/STT_CONSENT_NOT_PERSISTED/);
+    });
+
+    it('CASUALTY: a FAILING setItem produces a named failure', () => {
+        // Private browsing and quota errors both land here. The user agreed, the download ran, and the
+        // question came back next session with no error anywhere.
+        const failing = {
+            getItem: () => '{}',
+            setItem: () => { throw new Error('QuotaExceededError'); },
+        };
+        expect(() => recordConsent(terms(), NOW, failing)).toThrow(/STT_CONSENT_NOT_PERSISTED/);
+    });
+
+    it('CASUALTY: a write that cannot be READ BACK is a failure', () => {
+        // `setItem` returning without throwing is not proof the value survived, and the whole point of
+        // the receipt is that a later session finds it.
+        const amnesiac = { getItem: () => '{}', setItem: () => {} };
+        expect(() => recordConsent(terms(), NOW, amnesiac)).toThrow(/could not be read back/);
+    });
+
+    it('CASUALTY: the engine no longer swallows a persistence failure', async () => {
+        // Two layers of suppression over the same fact: `recordConsent` discarded it, and the engine
+        // caught whatever survived. The caller proceeded to initialise either way.
+        const { PrivateSTT } = await import('../engines/PrivateSTT');
+        const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw new Error('SecurityError');
+        });
+        try {
+            const facade = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+            expect(() => facade.grantModelConsent()).toThrow(/STT_CONSENT_NOT_PERSISTED/);
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
+    it('POSITIVE CONTROL: a working store still records and reads back', () => {
+        const memory: Record<string, string> = {};
+        const store = {
+            getItem: (k: string) => memory[k] ?? null,
+            setItem: (k: string, v: string) => { memory[k] = v; },
+        };
+        expect(() => recordConsent(terms(), NOW, store)).not.toThrow();
+        expect(readReceipt(terms().candidateId, store)).toMatchObject(terms());
     });
 });
