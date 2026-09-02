@@ -103,7 +103,9 @@ describe('the receipt holds on audio, not on traffic', () => {
     };
     const base = (over = {}) => ({
         probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
-        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP, ...over,
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
+        workerInstrumentation: { attached: 0, installed: 0, installFailures: 0, drained: 0, drainFailures: 0 },
+        ...over,
     });
 
     it('CASUALTY: a take with ordinary vendor traffic and no audio PASSES', () => {
@@ -127,9 +129,9 @@ describe('the receipt holds on audio, not on traffic', () => {
     });
 
     it('CASUALTY: a socket carrying BINARY frames holds; a JSON socket does not', () => {
-        const bin = receiptVerdict(base({ sockets: [{ url: 'wss://x/s', frameCount: 50, binaryFrames: 50, byteCount: 900_000 }] }));
+        const bin = receiptVerdict(base({ sockets: [{ url: 'wss://x/s', frameCount: 50, sentBinaryFrames: 50, receivedBinaryFrames: 0, byteCount: 900_000 }] }));
         expect(bin.verdict).toBe('HOLD');
-        const text = receiptVerdict(base({ sockets: [{ url: 'wss://x/s', frameCount: 50, binaryFrames: 0, byteCount: 900 }] }));
+        const text = receiptVerdict(base({ sockets: [{ url: 'wss://x/s', frameCount: 50, sentBinaryFrames: 0, receivedBinaryFrames: 0, byteCount: 900 }] }));
         expect(text.verdict).toBe('PASS');
         expect(text.review.length).toBe(1);
     });
@@ -154,5 +156,117 @@ describe('worker context is preserved, because that is where PCM lives', () => {
     it('a main-document finding defaults to "main"', () => {
         const hits = audit([rec({ url: 'https://vendor.example/u', kind: 'audio', bytes: 10 })]);
         expect(hits[0].context).toBe('main');
+    });
+});
+
+describe('worker instrumentation fails closed', () => {
+    const probe = {
+        release: 'r1', requestedCandidate: 'moonshine:streaming-medium',
+        observedCandidate: 'moonshine:streaming-medium', identityMatches: true,
+        modelStatus: 'ready', runtimeState: 'READY',
+    };
+    const base = (over = {}) => ({
+        probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0 },
+        ...over,
+    });
+
+    it('CASUALTY: an install FAILURE makes PASS impossible', () => {
+        // "Attached" is CDP's doing; installing is ours, and an injected script's exception goes
+        // nowhere. A run where every install failed looked identical to a run where nothing was sent —
+        // and the second is the claim being made.
+        const out = receiptVerdict(base({
+            workerInstrumentation: { attached: 1, installed: 0, installFailures: 1, drained: 0, drainFailures: 0 },
+        }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/install\(s\) failed/);
+    });
+
+    it('CASUALTY: workers attached but none instrumented is HOLD', () => {
+        const out = receiptVerdict(base({
+            workerInstrumentation: { attached: 2, installed: 0, installFailures: 0, drained: 0, drainFailures: 0 },
+        }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/attached but none were instrumented/);
+    });
+
+    it('CASUALTY: an unreadable worker is HOLD', () => {
+        const out = receiptVerdict(base({
+            workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 0, drainFailures: 1 },
+        }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/could not be read back/);
+    });
+
+    it('CASUALTY: no instrumentation report at all is HOLD', () => {
+        const out = receiptVerdict(base({ workerInstrumentation: null }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/worker instrumentation was not reported/);
+    });
+
+    it('POSITIVE CONTROL: attached, instrumented and read gives a clean receipt', () => {
+        expect(receiptVerdict(base()).verdict).toBe('PASS');
+    });
+
+    it('POSITIVE CONTROL: a run with no workers at all is not penalised', () => {
+        // Zero attached is not a failure to instrument — there was nothing to instrument.
+        expect(receiptVerdict(base({
+            workerInstrumentation: { attached: 0, installed: 0, installFailures: 0, drained: 0, drainFailures: 0 },
+        })).verdict).toBe('PASS');
+    });
+});
+
+describe('worker binary does not depend on document state', () => {
+    it('CASUALTY: worker opaque binary to a SAME-ORIGIN proxy holds', () => {
+        // Worker records carry runtimeState null — a worker has no document — so the
+        // same_origin_binary_during_recording rule could never fire for them, and the context holding
+        // PCM walked through the one rule meant to catch it.
+        const hits = blocking([rec({
+            url: `${APP}/api/proxy`, kind: 'binary', bytes: 64_000, context: 'worker', runtimeState: null,
+        })]);
+        expect(hits).toHaveLength(1);
+        expect(hits[0].category).toBe('worker_binary');
+    });
+
+    it('CASUALTY: an opaque Request body cannot produce a clean receipt', () => {
+        const hits = blocking([rec({ url: 'https://vendor.example/u', kind: 'opaque_stream', bytes: -1 })]);
+        expect(hits).toHaveLength(1);
+    });
+
+    it('POSITIVE CONTROL: worker TEXT to our own origin is still allowed', () => {
+        expect(blocking([rec({ url: `${APP}/api/sessions`, kind: 'json', bytes: 100, context: 'worker' })])).toEqual([]);
+    });
+});
+
+describe('socket direction is not symmetric', () => {
+    const probe = {
+        release: 'r1', requestedCandidate: 'moonshine:streaming-medium',
+        observedCandidate: 'moonshine:streaming-medium', identityMatches: true,
+        modelStatus: 'ready', runtimeState: 'READY',
+    };
+    const base = (over = {}) => ({
+        probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
+        workerInstrumentation: { attached: 0, installed: 0, installFailures: 0, drained: 0, drainFailures: 0 },
+        ...over,
+    });
+
+    it('CASUALTY: ONE outgoing binary frame holds the take', () => {
+        const out = receiptVerdict(base({
+            sockets: [{ url: 'wss://x/s', frameCount: 10, sentBinaryFrames: 1, receivedBinaryFrames: 0 }],
+        }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/sent 1 binary frame/);
+    });
+
+    it('POSITIVE CONTROL: incoming-only binary passes with an advisory', () => {
+        // Inbound bytes cannot establish egress. Scoring both directions the same way held valid takes
+        // over servers that simply reply in binary.
+        const out = receiptVerdict(base({
+            sockets: [{ url: 'wss://x/s', frameCount: 40, sentBinaryFrames: 0, receivedBinaryFrames: 40 }],
+        }));
+        expect(out.verdict).toBe('PASS');
+        expect(out.review.some((s) => s.category === 'websocket_binary_received')).toBe(true);
     });
 });

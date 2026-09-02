@@ -59,6 +59,12 @@ export const PAYLOAD_TRIPWIRE = `(() => {
       return { kind: ctor === 'Float32Array' ? 'audio' : 'binary', mime: null, bytes: body.byteLength, ctor };
     }
     if (body instanceof ArrayBuffer) return { kind: 'binary', mime: null, bytes: body.byteLength };
+    // A STREAM CANNOT BE INSPECTED WITHOUT CONSUMING IT, so it is reported as opaque rather than
+    // falling through to the object branch, where JSON.stringify would have described a ReadableStream
+    // as an empty object and a clean receipt would follow.
+    if (typeof ReadableStream !== 'undefined' && body instanceof ReadableStream) {
+      return { kind: 'opaque_stream', mime: null, bytes: -1 };
+    }
     if (typeof body === 'object') {
       let bytes = 0;
       try { bytes = JSON.stringify(body).length; } catch (e) { void e; bytes = -1; }
@@ -90,11 +96,35 @@ export const PAYLOAD_TRIPWIRE = `(() => {
   if (origFetch) {
     w.fetch = function (input, init) {
       try {
-        const url = typeof input === 'string' ? input : (input && input.url);
+        // A URL object stringifies to its href; only the sanitized projection is ever retained.
+        const url = typeof input === 'string' ? input
+          : (input && typeof input === 'object' && 'href' in input) ? String(input)
+            : (input && input.url);
         const method = (init && init.method) || (input && input.method) || 'GET';
         const headerMime = init && init.headers && typeof init.headers === 'object'
           ? (init.headers['Content-Type'] || init.headers['content-type'] || null) : null;
-        note('fetch', url, method, init && init.body, headerMime);
+
+        // REQUEST BODIES WERE INVISIBLE. Only \`init.body\` was read, so
+        // \`fetch(new Request(url, { body: audioBlob }))\` recorded an empty payload and produced a clean
+        // receipt for a request carrying audio. A Request's body is a stream that cannot be read here
+        // without consuming it and breaking the app, so it is reported as opaque and fails closed.
+        let body = init && init.body;
+        let mime = headerMime;
+        if (body === undefined || body === null) {
+          const isRequest = typeof Request !== 'undefined' && input instanceof Request;
+          if (isRequest) {
+            try { mime = mime || input.headers.get('content-type'); } catch (e) { void e; }
+            if (input.body) body = { __ss_opaque_request_body: true };
+            else if (input.bodyUsed) body = { __ss_opaque_request_body: true };
+          }
+        }
+        if (body && body.__ss_opaque_request_body) {
+          note('fetch', url, method, undefined, mime);
+          records[records.length - 1].kind = 'opaque_stream';
+          records[records.length - 1].bytes = -1;
+        } else {
+          note('fetch', url, method, body, mime);
+        }
       } catch (e) { void e; }
       return origFetch.apply(this, arguments);
     };

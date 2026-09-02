@@ -98,13 +98,27 @@ const main = async () => {
     // result "zero audio egress". Auto-attach catches each worker as it starts, holds it at the
     // debugger, installs the same tripwire, and lets it run.
     const workerSessions = new Set();
+    // COUNTED SEPARATELY, because they mean different things. Attaching is CDP's doing; installing and
+    // reading back are ours, and either can fail silently. A run where every install failed otherwise
+    // looked exactly like a run where nothing was sent.
+    const workerStats = { attached: 0, installed: 0, installFailures: 0, drained: 0, drainFailures: 0 };
+    const installedSessions = new Set();
+
     client.on('Target.attachedToTarget', async ({ sessionId, targetInfo }) => {
         if (!/worker/i.test(targetInfo?.type ?? '')) return;
         workerSessions.add(sessionId);
+        workerStats.attached += 1;
         try {
             await client.send('Runtime.enable', {}, sessionId);
-            await client.send('Runtime.evaluate', { expression: PAYLOAD_TRIPWIRE }, sessionId);
-        } catch { /* a worker we cannot instrument is reported as such below */ }
+            const res = await client.send('Runtime.evaluate', { expression: PAYLOAD_TRIPWIRE }, sessionId);
+            // An exception inside the injected script comes back as exceptionDetails rather than a
+            // rejected promise, so a thrown installer would otherwise count as a success.
+            if (res?.exceptionDetails) throw new Error('tripwire threw during install');
+            workerStats.installed += 1;
+            installedSessions.add(sessionId);
+        } catch {
+            workerStats.installFailures += 1;
+        }
         try { await client.send('Runtime.runIfWaitingForDebugger', {}, sessionId); } catch { /* already running */ }
     });
     await client.send('Target.setAutoAttach', {
@@ -120,21 +134,24 @@ const main = async () => {
         requests.push({ url: request.url, method: request.method, hasPostData: Boolean(request.hasPostData) });
     });
     client.on('Network.webSocketCreated', ({ requestId, url }) => {
-        socketsByRequest.set(requestId, { url, frameCount: 0, binaryFrames: 0, byteCount: 0 });
+        socketsByRequest.set(requestId, { url, frameCount: 0, sentBinaryFrames: 0, receivedBinaryFrames: 0, byteCount: 0 });
     });
-    const countFrame = ({ requestId, response }) => {
+    const countFrame = (direction) => ({ requestId, response }) => {
         const s = socketsByRequest.get(requestId);
         if (!s) return;
         s.frameCount += 1;
-        // opcode 2 is a BINARY frame. Which frames could carry audio is the question; what they said is
-        // not, and reading a payload here would put audio into the artifact meant to prove it never left.
-        if (Number(response?.opcode) === 2) s.binaryFrames += 1;
+        // opcode 2 is a BINARY frame. Direction matters: only OUTBOUND binary can establish audio
+        // egress, and inbound binary was previously scored identically. What the frames said is never
+        // read -- that would put audio into the artifact meant to prove it never left.
+        if (Number(response?.opcode) === 2) {
+            if (direction === 'sent') s.sentBinaryFrames += 1; else s.receivedBinaryFrames += 1;
+        }
         // LENGTH ONLY. Whether a channel carried frames is the question; what they said is not, and
         // reading a payload here would put audio into the very artifact meant to prove it never left.
         s.byteCount += Number(response?.payloadData?.length ?? 0);
     };
-    client.on('Network.webSocketFrameSent', countFrame);
-    client.on('Network.webSocketFrameReceived', countFrame);
+    client.on('Network.webSocketFrameSent', countFrame('sent'));
+    client.on('Network.webSocketFrameReceived', countFrame('received'));
 
     // PHASES ARE OBSERVED, NEVER ASSERTED. A dry-run shortcut used to call notePhase('recording') and
     // notePhase('stop-save') as soon as the page reached READY, which manufactured the very lifecycle
@@ -147,15 +164,17 @@ const main = async () => {
     // it — and a worker ending early is exactly what a short recording looks like. Records are
     // accumulated per session so a terminated worker's findings survive it.
     const workerRecords = new Map();
+    const drainedOk = new Set();
     const drainWorkers = async () => {
-        for (const sessionId of workerSessions) {
+        for (const sessionId of installedSessions) {
             try {
                 const { result } = await client.send('Runtime.evaluate', {
                     expression: READ_TRIPWIRE, returnByValue: true, awaitPromise: false,
                 }, sessionId);
                 const parsed = JSON.parse(result?.value ?? '[]');
                 if (parsed.length > 0) workerRecords.set(sessionId, parsed);
-            } catch { /* the session is gone; whatever was drained earlier is kept */ }
+                drainedOk.add(sessionId);
+            } catch { /* recorded as a drain failure at the end; earlier drains are kept */ }
         }
     };
 
@@ -186,6 +205,8 @@ const main = async () => {
     try { payloads = JSON.parse(tripwire?.value ?? '[]'); } catch { payloads = []; }
 
     await drainWorkers();
+    workerStats.drained = drainedOk.size;
+    workerStats.drainFailures = installedSessions.size - drainedOk.size;
     for (const records of workerRecords.values()) {
         payloads.push(...records.map((p) => ({ ...p, context: 'worker' })));
     }
@@ -194,7 +215,7 @@ const main = async () => {
     const receipt = {
         ...receiptVerdict({
             probe, expectedCandidate: CANDIDATE, expectedRelease: RELEASE,
-            payloads, sockets, phases, appOrigin: APP,
+            payloads, sockets, phases, appOrigin: APP, workerInstrumentation: workerStats,
         }),
         capturedAt: new Date().toISOString(),
         expectedCandidate: CANDIDATE,
@@ -205,7 +226,7 @@ const main = async () => {
         dryRun: DRY_RUN,
         requestCount: requests.length,
         payloadCount: payloads.length,
-        workerContextsObserved: workerSessions.size,
+        workerInstrumentation: workerStats,
     };
 
     mkdirSync(dirname(OUT), { recursive: true });

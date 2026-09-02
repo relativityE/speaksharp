@@ -366,17 +366,20 @@ export function auditSockets(sockets) {
   return (sockets ?? []).map((s) => {
     let origin = null;
     try { origin = new URL(s.url).origin; } catch { /* unparseable is still a socket */ }
-    // BINARY IS THE DISCRIMINATOR. Holding on the mere existence of a socket held valid takes over
-    // ordinary vendor transports, and the honest question is whether the channel carried bytes that
-    // could be audio. Frame COUNTS and sizes are recorded; no payload is ever read.
-    const carriedBinary = Boolean(s.binaryFrames) && Number(s.binaryFrames) > 0;
+    // SENT, NOT RECEIVED. Both directions incremented one counter, so binary arriving FROM a server
+    // was scored identically to audio leaving for one — and inbound bytes cannot establish egress. Only
+    // outbound binary can. Frame counts and sizes are recorded; no payload is ever read.
+    const sentBinary = Number(s.sentBinaryFrames ?? 0);
+    const receivedBinary = Number(s.receivedBinaryFrames ?? 0);
     return {
       origin,
       frames: Number(s.frameCount ?? 0),
-      binaryFrames: Number(s.binaryFrames ?? 0),
+      sentBinaryFrames: sentBinary,
+      receivedBinaryFrames: receivedBinary,
       bytes: Number(s.byteCount ?? 0),
-      carriedBinary,
-      category: carriedBinary ? 'websocket_binary' : 'websocket_opened',
+      carriedBinary: sentBinary > 0,
+      category: sentBinary > 0 ? 'websocket_binary_sent'
+        : receivedBinary > 0 ? 'websocket_binary_received' : 'websocket_opened',
     };
   });
 }
@@ -390,6 +393,7 @@ export function auditSockets(sockets) {
  */
 export function receiptVerdict({
   probe, expectedCandidate, expectedRelease, payloads, sockets, phases, appOrigin,
+  workerInstrumentation,
 }) {
   const problems = [];
   const review = [];
@@ -414,11 +418,33 @@ export function receiptVerdict({
     problems.push('payload observation was not enabled; zero audio egress cannot be claimed');
   }
 
+  // WORKER INSTRUMENTATION FAILS CLOSED.
+  //
+  // "Workers attached" was being read as "workers watched". Attaching is CDP's doing; installing the
+  // tripwire and reading it back are ours, and either can fail silently — an injected script's
+  // exception goes nowhere, and a terminated session's read throws into a catch. A run where every
+  // install failed looked identical to a run where nothing was sent, and the second is the claim being
+  // made. Each outcome is therefore counted separately, and anything short of "instrumented and read"
+  // holds the take.
+  const w = workerInstrumentation ?? null;
+  if (w === null) {
+    problems.push('worker instrumentation was not reported; zero worker audio egress cannot be claimed');
+  } else {
+    if (w.installFailures > 0) problems.push(`${w.installFailures} worker tripwire install(s) failed`);
+    if (w.drainFailures > 0) problems.push(`${w.drainFailures} worker(s) could not be read back`);
+    if (w.attached > 0 && w.installed === 0) {
+      problems.push(`${w.attached} worker(s) attached but none were instrumented`);
+    }
+    if (w.installed > 0 && w.drained === 0) {
+      problems.push(`${w.installed} worker(s) instrumented but none were read`);
+    }
+  }
+
   // Sockets are judged the same way. A socket carrying JSON is a transport choice; a socket carrying
   // binary frames during a recording is the channel best suited to streaming audio out.
   const socketFindings = auditSockets(sockets);
   for (const s of socketFindings) {
-    if (s.carriedBinary) problems.push(`websocket sent binary frames to ${s.origin}`);
+    if (s.carriedBinary) problems.push(`websocket sent ${s.sentBinaryFrames} binary frame(s) to ${s.origin}`);
     else review.push(s);
   }
   if (sockets === undefined || sockets === null) {
@@ -437,6 +463,7 @@ export function receiptVerdict({
     review,
     payloads: payloadFindings,
     sockets: socketFindings,
+    workerInstrumentation: w,
   };
 }
 
@@ -455,7 +482,7 @@ export const EXPECTED_TELEMETRY_VENDORS = Object.freeze([
 /** Payload kinds that mean captured audio is leaving the device. */
 const AUDIO_KINDS = new Set(['audio']);
 /** Kinds that are not audio on their face but cannot be shown to be text either. */
-const OPAQUE_KINDS = new Set(['binary', 'blob', 'unknown']);
+const OPAQUE_KINDS = new Set(['binary', 'blob', 'unknown', 'opaque_stream']);
 
 /**
  * Judge SENT PAYLOADS against the actual promise: audio never leaves the browser.
@@ -505,6 +532,12 @@ export function auditPayloads(records, { appOrigin } = {}) {
     // Opaque bytes cannot be shown to be text. Off-origin they are a finding outright; to the app's own
     // origin they are a finding only while recording, when captured audio exists to send.
     if (OPAQUE_KINDS.has(r.kind)) {
+      // A WORKER'S OPAQUE BYTES HOLD REGARDLESS OF DESTINATION. Worker records carry
+      // `runtimeState: null` -- a worker has no document to read it from -- so the
+      // `same_origin_binary_during_recording` rule could never fire for them, and same-origin opaque
+      // binary from the STT worker walked straight through the one rule meant to catch it. The worker
+      // that holds PCM has no innocent reason to send opaque bytes anywhere during a bounded proof.
+      if (r.context === 'worker') return finding('worker_binary');
       if (!sameOrigin) return finding('unexplained_binary');
       if (during) return finding('same_origin_binary_during_recording');
       return [];
@@ -524,6 +557,6 @@ export function auditPayloads(records, { appOrigin } = {}) {
 
 /** Only audio-bearing findings block a take; the rest are reported for review. */
 export const BLOCKING_PAYLOAD_CATEGORIES = Object.freeze([
-  'audio_egress', 'same_origin_audio', 'unexplained_binary',
+  'audio_egress', 'same_origin_audio', 'unexplained_binary', 'worker_binary',
   'same_origin_binary_during_recording', 'unparseable_target',
 ]);

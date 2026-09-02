@@ -20,7 +20,9 @@ const goodProbe = (over = {}) => ({
 const base = (over = {}) => ({
     probe: goodProbe(), expectedCandidate: CANDIDATE, expectedRelease: RELEASE,
     payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'],
-    appOrigin: APP, ...over,
+    appOrigin: APP,
+    workerInstrumentation: { attached: 0, installed: 0, installFailures: 0, drained: 0, drainFailures: 0 },
+    ...over,
 });
 
 describe('the receipt requires requested === observed === expected', () => {
@@ -67,10 +69,10 @@ describe('streamed traffic is a channel, not a request', () => {
         // them, so it held valid takes, and a rule that always holds gets removed. Binary frames are the
         // discriminator that actually bears on whether audio could have left.
         const out = receiptVerdict(base({
-            sockets: [{ url: 'wss://unknown.example/stream', frameCount: 400, binaryFrames: 400, byteCount: 900_000 }],
+            sockets: [{ url: 'wss://unknown.example/stream', frameCount: 400, sentBinaryFrames: 400, receivedBinaryFrames: 0, byteCount: 900_000 }],
         }));
         expect(out.verdict).toBe('HOLD');
-        expect(out.problems.join(' ')).toMatch(/websocket sent binary frames/);
+        expect(out.problems.join(' ')).toMatch(/websocket sent 400 binary frame/);
     });
 
     it('CASUALTY: NOT observing sockets is different from observing none', () => {
@@ -105,7 +107,7 @@ describe('the receipt contains nothing content-bearing', () => {
             { transport: 'beacon', url: `${APP}/u/ada@example.com/notes`, method: 'POST', kind: 'binary', bytes: 40, runtimeState: 'RECORDING' },
         ];
 
-        const receipt = receiptVerdict(base({ payloads, sockets: [{ url: 'wss://x/s', frameCount: 1, binaryFrames: 0, byteCount: 5 }] }));
+        const receipt = receiptVerdict(base({ payloads, sockets: [{ url: 'wss://x/s', frameCount: 1, sentBinaryFrames: 0, receivedBinaryFrames: 0, byteCount: 5 }] }));
         const serialized = JSON.stringify(receipt);
 
         for (const forbidden of [
