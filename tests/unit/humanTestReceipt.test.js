@@ -2,7 +2,7 @@
  * #1403 — the receipt authority. Every input is recomputed, and nothing content-bearing survives.
  */
 import { describe, it, expect } from 'vitest';
-import { auditEgress, auditSockets, receiptVerdict } from '../../scripts/human-test/observer.mjs';
+import { auditSockets, receiptVerdict } from '../../scripts/human-test/observer.mjs';
 
 const RELEASE = 'a19324610634b9e05a375fff8838f2bbbae3a4f1';
 const CANDIDATE = 'moonshine:streaming-medium';
@@ -19,7 +19,8 @@ const goodProbe = (over = {}) => ({
 });
 const base = (over = {}) => ({
     probe: goodProbe(), expectedCandidate: CANDIDATE, expectedRelease: RELEASE,
-    egress: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], ...over,
+    payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'],
+    appOrigin: APP, ...over,
 });
 
 describe('the receipt requires requested === observed === expected', () => {
@@ -57,13 +58,19 @@ describe('the receipt requires requested === observed === expected', () => {
 });
 
 describe('streamed traffic is a channel, not a request', () => {
-    it('CASUALTY: any websocket during the bounded run is HOLD', () => {
+    it('CASUALTY: a websocket carrying BINARY frames is HOLD', () => {
         // A socket is one request at creation and then an open pipe: every frame after the handshake is
-        // invisible to a request audit, so a clean egress report proved nothing about the channel best
+        // invisible to a request audit, so a clean request report proved nothing about the channel best
         // suited to streaming audio out.
-        const out = receiptVerdict(base({ sockets: [{ url: 'wss://unknown.example/stream', frameCount: 400, byteCount: 900_000 }] }));
+        //
+        // Holding on the mere EXISTENCE of a socket was the wrong rule: ordinary vendor transports use
+        // them, so it held valid takes, and a rule that always holds gets removed. Binary frames are the
+        // discriminator that actually bears on whether audio could have left.
+        const out = receiptVerdict(base({
+            sockets: [{ url: 'wss://unknown.example/stream', frameCount: 400, binaryFrames: 400, byteCount: 900_000 }],
+        }));
         expect(out.verdict).toBe('HOLD');
-        expect(out.problems.join(' ')).toMatch(/websocket/);
+        expect(out.problems.join(' ')).toMatch(/websocket sent binary frames/);
     });
 
     it('CASUALTY: NOT observing sockets is different from observing none', () => {
@@ -92,13 +99,13 @@ describe('every lifecycle phase must actually be observed', () => {
 
 describe('the receipt contains nothing content-bearing', () => {
     it('CASUALTY: no bodies, query values, headers, transcript, tokens or raw paths survive', () => {
-        const egress = auditEgress([
-            { url: `${APP}/api/log/transcript-words?words=umm,like,basically&token=SECRET_TOKEN`, method: 'POST', hasPostData: true },
-            { url: 'https://vendor.example/upload?apikey=SECRET_KEY#frag=SECRET_FRAG', method: 'POST', hasPostData: true },
-            { url: `${APP}/u/ada@example.com/notes`, method: 'GET' },
-        ], { appOrigin: APP, observedCandidate: CANDIDATE });
+        const payloads = [
+            { transport: 'fetch', url: `${APP}/api/log/transcript-words?words=umm,like,basically&token=SECRET_TOKEN`, method: 'POST', kind: 'json', bytes: 30, runtimeState: 'READY' },
+            { transport: 'fetch', url: 'https://vendor.example/upload?apikey=SECRET_KEY#frag=SECRET_FRAG', method: 'POST', kind: 'audio', mime: 'audio/webm', bytes: 900, runtimeState: 'RECORDING' },
+            { transport: 'beacon', url: `${APP}/u/ada@example.com/notes`, method: 'POST', kind: 'binary', bytes: 40, runtimeState: 'RECORDING' },
+        ];
 
-        const receipt = receiptVerdict(base({ egress, sockets: [{ url: 'wss://x/s', frameCount: 1, byteCount: 5 }] }));
+        const receipt = receiptVerdict(base({ payloads, sockets: [{ url: 'wss://x/s', frameCount: 1, binaryFrames: 0, byteCount: 5 }] }));
         const serialized = JSON.stringify(receipt);
 
         for (const forbidden of [
@@ -108,8 +115,11 @@ describe('the receipt contains nothing content-bearing', () => {
             expect(serialized, `receipt leaked ${forbidden}`).not.toContain(forbidden);
         }
         // It still says something useful: how many, of what kind, and where.
-        expect(receipt.egress.length).toBe(3);
-        expect(receipt.egress.every((e) => typeof e.routeHash === 'string')).toBe(true);
+        // Two findings, not three: the same-origin JSON is ordinary product behaviour and correctly
+        // produces nothing. The audio and the during-recording binary are the ones that matter.
+        expect(receipt.payloads.map((e) => e.category).sort())
+            .toEqual(['audio_egress', 'same_origin_binary_during_recording']);
+        expect(receipt.payloads.every((e) => typeof e.routeHash === 'string')).toBe(true);
         expect(receipt.verdict).toBe('HOLD');
     });
 });

@@ -1,0 +1,58 @@
+{
+  "verdict": "HOLD",
+  "problems": [
+    "release null != expected any",
+    "no engine has published an identity yet",
+    "the page published no requested candidate",
+    "observed null != expected moonshine:streaming-medium",
+    "model status is null",
+    "runtime state is RECORDING, not READY",
+    "audio_egress: audio via fetch to https://vendor.example",
+    "audio_egress: audio (audio/webm) via fetch to https://vendor.example",
+    "lifecycle phase \"stop-save\" was never observed"
+  ],
+  "review": [],
+  "payloads": [
+    {
+      "transport": "fetch",
+      "origin": "https://vendor.example",
+      "route": "other",
+      "routeHash": "9a5ea6ccd4dc",
+      "kind": "audio",
+      "mime": null,
+      "bytes": 64000,
+      "duringRecording": false,
+      "context": "worker",
+      "category": "audio_egress"
+    },
+    {
+      "transport": "fetch",
+      "origin": "https://vendor.example",
+      "route": "other",
+      "routeHash": "6bd6846f66dc",
+      "kind": "audio",
+      "mime": "audio/webm",
+      "bytes": 2048,
+      "duringRecording": false,
+      "context": "worker",
+      "category": "audio_egress"
+    }
+  ],
+  "sockets": [],
+  "capturedAt": "2026-09-02T02:47:52.435Z",
+  "expectedCandidate": "moonshine:streaming-medium",
+  "requestedCandidate": null,
+  "observedCandidate": null,
+  "release": null,
+  "target": {
+    "id": "F094DA945984F37086706C4C1F9DB72B",
+    "type": "page",
+    "origin": "http://127.0.0.1:877",
+    "route": "app-shell",
+    "routeHash": "8a5edab28263"
+  },
+  "dryRun": true,
+  "requestCount": 2,
+  "payloadCount": 2,
+  "workerContextsObserved": 2
+}

@@ -18,7 +18,8 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { WebSocket } from 'ws';
 import { assertLoopbackOrigin, selectAppTarget, safeTargetForEvidence } from './cdpTarget.mjs';
-import { IDENTITY_PROBE, auditEgress, receiptVerdict } from './observer.mjs';
+import { IDENTITY_PROBE, receiptVerdict } from './observer.mjs';
+import { PAYLOAD_TRIPWIRE, READ_TRIPWIRE } from './payloadTripwire.mjs';
 
 const arg = (name, fallback = null) => {
     const i = process.argv.indexOf(`--${name}`);
@@ -58,16 +59,16 @@ function cdp(wsUrl) {
             pending.delete(msg.id);
             if (msg.error) reject(new Error(msg.error.message)); else resolve(msg.result);
         } else if (msg.method) {
-            (handlers.get(msg.method) ?? []).forEach((h) => h(msg.params));
+            (handlers.get(msg.method) ?? []).forEach((h) => h(msg.params, msg.sessionId));
         }
     });
     return {
         ready,
         on: (method, handler) => handlers.set(method, [...(handlers.get(method) ?? []), handler]),
-        send: (method, params = {}) => new Promise((resolve, reject) => {
+        send: (method, params = {}, sessionId) => new Promise((resolve, reject) => {
             const id = nextId++;
             pending.set(id, { resolve, reject });
-            ws.send(JSON.stringify({ id, method, params }));
+            ws.send(JSON.stringify(sessionId ? { id, method, params, sessionId } : { id, method, params }));
         }),
         close: () => ws.close(),
     };
@@ -87,6 +88,29 @@ const main = async () => {
     await client.send('Page.enable');
     await client.send('Runtime.enable');
 
+    // BEFORE APP CODE. Installed via addScriptToEvaluateOnNewDocument so the wrappers win the race
+    // against every fetch the app makes at boot; wrapping after load would miss exactly the early
+    // traffic, which is when the model downloads and any startup socket happen.
+    await client.send('Page.addScriptToEvaluateOnNewDocument', { source: PAYLOAD_TRIPWIRE });
+
+    // WORKERS TOO — this is where the audio actually is. Private STT runs its model in a Web Worker, so
+    // a main-document-only tripwire would watch the one context least likely to hold PCM and call the
+    // result "zero audio egress". Auto-attach catches each worker as it starts, holds it at the
+    // debugger, installs the same tripwire, and lets it run.
+    const workerSessions = new Set();
+    client.on('Target.attachedToTarget', async ({ sessionId, targetInfo }) => {
+        if (!/worker/i.test(targetInfo?.type ?? '')) return;
+        workerSessions.add(sessionId);
+        try {
+            await client.send('Runtime.enable', {}, sessionId);
+            await client.send('Runtime.evaluate', { expression: PAYLOAD_TRIPWIRE }, sessionId);
+        } catch { /* a worker we cannot instrument is reported as such below */ }
+        try { await client.send('Runtime.runIfWaitingForDebugger', {}, sessionId); } catch { /* already running */ }
+    });
+    await client.send('Target.setAutoAttach', {
+        autoAttach: true, waitForDebuggerOnStart: true, flatten: true,
+    });
+
     const requests = [];
     const socketsByRequest = new Map();
     const phases = [];
@@ -96,12 +120,15 @@ const main = async () => {
         requests.push({ url: request.url, method: request.method, hasPostData: Boolean(request.hasPostData) });
     });
     client.on('Network.webSocketCreated', ({ requestId, url }) => {
-        socketsByRequest.set(requestId, { url, frameCount: 0, byteCount: 0 });
+        socketsByRequest.set(requestId, { url, frameCount: 0, binaryFrames: 0, byteCount: 0 });
     });
     const countFrame = ({ requestId, response }) => {
         const s = socketsByRequest.get(requestId);
         if (!s) return;
         s.frameCount += 1;
+        // opcode 2 is a BINARY frame. Which frames could carry audio is the question; what they said is
+        // not, and reading a payload here would put audio into the artifact meant to prove it never left.
+        if (Number(response?.opcode) === 2) s.binaryFrames += 1;
         // LENGTH ONLY. Whether a channel carried frames is the question; what they said is not, and
         // reading a payload here would put audio into the very artifact meant to prove it never left.
         s.byteCount += Number(response?.payloadData?.length ?? 0);
@@ -109,8 +136,28 @@ const main = async () => {
     client.on('Network.webSocketFrameSent', countFrame);
     client.on('Network.webSocketFrameReceived', countFrame);
 
+    // PHASES ARE OBSERVED, NEVER ASSERTED. A dry-run shortcut used to call notePhase('recording') and
+    // notePhase('stop-save') as soon as the page reached READY, which manufactured the very lifecycle
+    // evidence the receipt exists to record. A receipt that invents its own phases is worse than no
+    // receipt: it reads as proof that a take happened.
     notePhase('pre-record');
     await client.send('Page.navigate', { url: APP });
+
+    // DRAINED AS WE GO. A worker that ends before the final read would otherwise take its evidence with
+    // it — and a worker ending early is exactly what a short recording looks like. Records are
+    // accumulated per session so a terminated worker's findings survive it.
+    const workerRecords = new Map();
+    const drainWorkers = async () => {
+        for (const sessionId of workerSessions) {
+            try {
+                const { result } = await client.send('Runtime.evaluate', {
+                    expression: READ_TRIPWIRE, returnByValue: true, awaitPromise: false,
+                }, sessionId);
+                const parsed = JSON.parse(result?.value ?? '[]');
+                if (parsed.length > 0) workerRecords.set(sessionId, parsed);
+            } catch { /* the session is gone; whatever was drained earlier is kept */ }
+        }
+    };
 
     const probeOnce = async () => {
         const { result } = await client.send('Runtime.evaluate', {
@@ -124,16 +171,31 @@ const main = async () => {
     let probe = null;
     while (Date.now() < deadline) {
         probe = await probeOnce();
+        await drainWorkers();
         if (probe?.runtimeState === 'RECORDING') notePhase('recording');
         if (probe?.sessionPersisted === 'true' || probe?.sessionPersisted === true) { notePhase('stop-save'); break; }
-        if (DRY_RUN && probe?.runtimeState === 'READY') { notePhase('recording'); notePhase('stop-save'); break; }
         await new Promise((r) => setTimeout(r, 1000));
     }
 
-    const egress = auditEgress(requests, { appOrigin: APP, observedCandidate: probe?.observedCandidate ?? null });
+    // What the page actually SENT, classified by kind. This is the payload-boundary fact the
+    // request-metadata audit could never supply.
+    const { result: tripwire } = await client.send('Runtime.evaluate', {
+        expression: READ_TRIPWIRE, returnByValue: true, awaitPromise: false,
+    });
+    let payloads = [];
+    try { payloads = JSON.parse(tripwire?.value ?? '[]'); } catch { payloads = []; }
+
+    await drainWorkers();
+    for (const records of workerRecords.values()) {
+        payloads.push(...records.map((p) => ({ ...p, context: 'worker' })));
+    }
+
     const sockets = [...socketsByRequest.values()];
     const receipt = {
-        ...receiptVerdict({ probe, expectedCandidate: CANDIDATE, expectedRelease: RELEASE, egress, sockets, phases }),
+        ...receiptVerdict({
+            probe, expectedCandidate: CANDIDATE, expectedRelease: RELEASE,
+            payloads, sockets, phases, appOrigin: APP,
+        }),
         capturedAt: new Date().toISOString(),
         expectedCandidate: CANDIDATE,
         requestedCandidate: probe?.requestedCandidate ?? null,
@@ -142,6 +204,8 @@ const main = async () => {
         target: safeTargetForEvidence(target),
         dryRun: DRY_RUN,
         requestCount: requests.length,
+        payloadCount: payloads.length,
+        workerContextsObserved: workerSessions.size,
     };
 
     mkdirSync(dirname(OUT), { recursive: true });

@@ -207,6 +207,14 @@ export const ROUTE_CATEGORIES = Object.freeze([
     'issue-report', 'auth', 'telemetry', 'other',
 ]);
 
+export function routeCategoryFor(pathname) {
+    return categoriseRoute(pathname);
+}
+
+export function routeDigestFor(pathname) {
+    return routeDigest(pathname);
+}
+
 function categoriseRoute(pathname) {
     if (pathname === '/' || pathname === '/index.html') return 'app-shell';
     if (pathname.startsWith('/assets/')) return 'static-asset';
@@ -358,11 +366,17 @@ export function auditSockets(sockets) {
   return (sockets ?? []).map((s) => {
     let origin = null;
     try { origin = new URL(s.url).origin; } catch { /* unparseable is still a socket */ }
+    // BINARY IS THE DISCRIMINATOR. Holding on the mere existence of a socket held valid takes over
+    // ordinary vendor transports, and the honest question is whether the channel carried bytes that
+    // could be audio. Frame COUNTS and sizes are recorded; no payload is ever read.
+    const carriedBinary = Boolean(s.binaryFrames) && Number(s.binaryFrames) > 0;
     return {
       origin,
       frames: Number(s.frameCount ?? 0),
+      binaryFrames: Number(s.binaryFrames ?? 0),
       bytes: Number(s.byteCount ?? 0),
-      category: 'websocket_opened',
+      carriedBinary,
+      category: carriedBinary ? 'websocket_binary' : 'websocket_opened',
     };
   });
 }
@@ -374,22 +388,42 @@ export function auditSockets(sockets) {
  * an empty egress list only counts if sockets were also observed, and a take whose identity cannot be
  * established is unusable regardless of how clean everything else looks.
  */
-export function receiptVerdict({ probe, expectedCandidate, expectedRelease, egress, sockets, phases }) {
+export function receiptVerdict({
+  probe, expectedCandidate, expectedRelease, payloads, sockets, phases, appOrigin,
+}) {
   const problems = [];
+  const review = [];
   const r = readiness(probe, expectedCandidate, expectedRelease);
   problems.push(...r.problems);
 
+  // JUDGED BY PAYLOAD, NOT BY DESTINATION. Every off-origin body used to be a HOLD, so ordinary Sentry
+  // and PostHog traffic held a take on a page that had never recorded — no audio could have left. A
+  // check that holds every valid take gets "fixed" by allowlisting vendors, and a vendor allowlist
+  // authorises whatever that vendor is sent, audio included. The promise is about audio, and the
+  // product documents that transcript TEXT is persisted server-side, so text is not a violation.
+  const payloadFindings = auditPayloads(payloads ?? [], { appOrigin });
+  const blocking = payloadFindings.filter((f) => BLOCKING_PAYLOAD_CATEGORIES.includes(f.category));
+  const advisory = payloadFindings.filter((f) => !BLOCKING_PAYLOAD_CATEGORIES.includes(f.category));
+  for (const f of blocking) {
+    problems.push(`${f.category}: ${f.kind}${f.mime ? ` (${f.mime})` : ''} via ${f.transport} to ${f.origin}`);
+  }
+  review.push(...advisory);
+
+  if (payloads === undefined || payloads === null) {
+    // NOT observing payloads is different from observing none, and only one of the two is evidence.
+    problems.push('payload observation was not enabled; zero audio egress cannot be claimed');
+  }
+
+  // Sockets are judged the same way. A socket carrying JSON is a transport choice; a socket carrying
+  // binary frames during a recording is the channel best suited to streaming audio out.
   const socketFindings = auditSockets(sockets);
-  // A socket during a bounded local run has no legitimate purpose, and frames are the one channel that
-  // can carry continuous audio without another request ever appearing.
-  if (socketFindings.length > 0) {
-    problems.push(`${socketFindings.length} websocket(s) opened during the run`);
+  for (const s of socketFindings) {
+    if (s.carriedBinary) problems.push(`websocket sent binary frames to ${s.origin}`);
+    else review.push(s);
   }
   if (sockets === undefined || sockets === null) {
-    // NOT observing sockets is different from observing none, and only one of the two is evidence.
     problems.push('socket observation was not enabled; zero streamed egress cannot be claimed');
   }
-  if ((egress ?? []).length > 0) problems.push(`${egress.length} suspect request(s)`);
 
   const required = ['pre-record', 'recording', 'stop-save'];
   for (const phase of required) {
@@ -399,7 +433,97 @@ export function receiptVerdict({ probe, expectedCandidate, expectedRelease, egre
   return {
     verdict: problems.length === 0 ? 'PASS' : 'HOLD',
     problems,
-    egress: egress ?? [],
+    // Reported, but not blocking: a human should see these without them holding a valid take.
+    review,
+    payloads: payloadFindings,
     sockets: socketFindings,
   };
 }
+
+/**
+ * Telemetry vendors whose ordinary traffic is EXPECTED — and expected to be TEXT.
+ *
+ * Categorised explicitly rather than allowlisted. A vendor allowlist authorises whatever that vendor is
+ * sent, which would let audio out through the one destination nobody looks at twice. Being on this list
+ * makes a JSON error report unremarkable; it does nothing for a Blob.
+ */
+export const EXPECTED_TELEMETRY_VENDORS = Object.freeze([
+  { match: /(^|\.)sentry\.io$/i, name: 'sentry' },
+  { match: /(^|\.)posthog\.com$/i, name: 'posthog' },
+]);
+
+/** Payload kinds that mean captured audio is leaving the device. */
+const AUDIO_KINDS = new Set(['audio']);
+/** Kinds that are not audio on their face but cannot be shown to be text either. */
+const OPAQUE_KINDS = new Set(['binary', 'blob', 'unknown']);
+
+/**
+ * Judge SENT PAYLOADS against the actual promise: audio never leaves the browser.
+ *
+ * The promise is deliberately narrower than "nothing leaves". Final transcript TEXT is persisted
+ * server-side for the two newest transcript-bearing sessions — documented, and not a violation. Treating
+ * it as one produced a check that held every valid take, and a check that always holds gets fixed by
+ * whitelisting vendors, which is how audio would eventually pass.
+ *
+ * @param records tripwire records: transport, url, method, kind, mime, bytes, runtimeState
+ * @param appOrigin the app's own origin
+ */
+export function auditPayloads(records, { appOrigin } = {}) {
+  let appO = null;
+  try { appO = new URL(appOrigin).origin; } catch { /* everything then reads as off-origin */ }
+
+  return (records ?? []).flatMap((r) => {
+    let url;
+    try { url = new URL(r.url); } catch {
+      return [{
+        transport: r.transport, origin: null, route: null, kind: r.kind, bytes: r.bytes,
+        context: r.context ?? 'main', category: 'unparseable_target',
+      }];
+    }
+    const sameOrigin = appO !== null && url.origin === appO;
+    const vendor = EXPECTED_TELEMETRY_VENDORS.find((v) => v.match.test(url.hostname));
+    const during = r.runtimeState === 'RECORDING';
+    const finding = (category) => ([{
+      transport: r.transport,
+      origin: url.origin,
+      route: routeCategoryFor(url.pathname),
+      routeHash: routeDigestFor(url.pathname),
+      kind: r.kind,
+      mime: r.mime ?? null,
+      bytes: typeof r.bytes === 'number' ? r.bytes : null,
+      duringRecording: during,
+      // WHICH CONTEXT SENT IT. Dropping this made a worker finding indistinguishable from a main-document
+      // one, and for this product the difference is the whole point: the STT worker is where PCM lives.
+      context: r.context ?? 'main',
+      category,
+    }]);
+
+    // AUDIO ANYWHERE IS THE VIOLATION, including to the app's own origin: a same-origin endpoint that
+    // forwards audio is exactly the shape a well-meaning "upload for better accuracy" feature takes.
+    if (AUDIO_KINDS.has(r.kind)) return finding(sameOrigin ? 'same_origin_audio' : 'audio_egress');
+
+    // Opaque bytes cannot be shown to be text. Off-origin they are a finding outright; to the app's own
+    // origin they are a finding only while recording, when captured audio exists to send.
+    if (OPAQUE_KINDS.has(r.kind)) {
+      if (!sameOrigin) return finding('unexplained_binary');
+      if (during) return finding('same_origin_binary_during_recording');
+      return [];
+    }
+
+    // Text-shaped payloads. Expected vendors and the app's own origin are ordinary product behaviour --
+    // including transcript persistence, which the product documents rather than hides.
+    if (r.kind === 'text' || r.kind === 'json' || r.kind === 'form' || r.kind === 'empty') {
+      if (sameOrigin || vendor) return [];
+      // Text to an unrecognised third party is not audio egress, but it is worth a human glance.
+      return finding('unrecognised_text_destination');
+    }
+
+    return finding('unclassified_payload');
+  });
+}
+
+/** Only audio-bearing findings block a take; the rest are reported for review. */
+export const BLOCKING_PAYLOAD_CATEGORIES = Object.freeze([
+  'audio_egress', 'same_origin_audio', 'unexplained_binary',
+  'same_origin_binary_during_recording', 'unparseable_target',
+]);
