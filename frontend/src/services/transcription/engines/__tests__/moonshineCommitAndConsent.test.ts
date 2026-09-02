@@ -104,3 +104,63 @@ describe('a finalized take is not decoded a second time', () => {
         expect(decodes.session + decodes.fresh, 'the decode must actually run').toBe(1);
     });
 });
+
+describe('the SHIPPING stop order commits exactly one inference', () => {
+    /**
+     * The real order is `TranscriptionService -> PrivateWhisper.onStop -> PrivateSTT.transcribe`, and
+     * `onStop` never calls the engine's `stop()`. Every earlier test here called `stop()` first, so it
+     * exercised an order the product does not use — the guard it proved was unreachable on the real
+     * path, and the fresh-stream inference ran on every take.
+     */
+    it('CASUALTY: a commit decode with NO prior stop() still runs exactly one inference, on the session stream', async () => {
+        const { transcriber, decodes } = countingRuntime('I think that is basically it', 'I think that is');
+        const e = engineWith(transcriber);
+        await e.init();
+        await e.start(fakeMic());
+
+        // Straight to the commit decode, as PrivateWhisper does.
+        const result = await e.transcribe(audio(3));
+
+        expect(result.isOk && result.data, 'trailing words must survive').toBe('I think that is basically it');
+        expect(decodes.fresh, 'no fresh stream may be opened during the final commit').toBe(0);
+        expect(decodes.session, 'exactly one final inference').toBe(1);
+    });
+
+    it('CASUALTY: a later stop() does NOT decode a second time', async () => {
+        const { transcriber, decodes } = countingRuntime('the whole take', 'fresh');
+        const e = engineWith(transcriber);
+        await e.init();
+        await e.start(fakeMic());
+
+        await e.transcribe(audio(2));
+        const afterCommit = decodes.session + decodes.fresh;
+        await e.stop();
+
+        expect(decodes.session + decodes.fresh, 'stop after a commit must not finalize again').toBe(afterCommit);
+        expect(await e.getTranscript()).toBe('the whole take');
+    });
+
+    it('CASUALTY: an honestly EMPTY take stays empty through the shipping order', async () => {
+        // The case where a second inference is most likely to invent something out of noise.
+        const { transcriber, decodes } = countingRuntime('', 'words from silence');
+        const e = engineWith(transcriber);
+        await e.init();
+        await e.start(fakeMic());
+
+        const result = await e.transcribe(audio(3));
+        expect(result.isOk && result.data).toBe('');
+        expect(decodes.fresh).toBe(0);
+    });
+
+    it('POSITIVE CONTROL: a standalone decode with no live session still opens one stream', async () => {
+        // The whole-buffer path outside a session must keep working; this fix must not turn it into a
+        // no-op that returns an empty string.
+        const { transcriber, decodes } = countingRuntime('standalone', 'standalone');
+        const e = engineWith(transcriber);
+        await e.init();
+
+        const result = await e.transcribe(audio(1));
+        expect(result.isOk && result.data).toBe('standalone');
+        expect(decodes.session + decodes.fresh).toBe(1);
+    });
+});
