@@ -206,7 +206,7 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   /**
    * Implementation of transcribe from IPrivateSTTEngine
    */
-  abstract transcribe(audio: Float32Array): Promise<Result<string, Error>>;
+  abstract transcribe(audio: Float32Array, options?: { final?: boolean }): Promise<Result<string, Error>>;
 
   /**
    * Implementation of destroy from IPrivateSTTEngine

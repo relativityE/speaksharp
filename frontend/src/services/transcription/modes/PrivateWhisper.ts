@@ -1501,7 +1501,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         }, '[PRIVATE_TRACE] model_inference_start');
       }
       const capturedAudioIndex = capturePrivateInferenceAudio(processedAudio);
-      const result = await this.privateSTT.transcribe(processedAudio);
+      // `force` IS the finality signal: `processAudio({ force: true })` is the stop-commit and every
+      // other call is a live window. Passing it through is what lets a streaming engine finalize once
+      // instead of guessing -- and guessing closed the session stream on the first live decode.
+      const result = await this.privateSTT.transcribe(processedAudio, { final: force });
       if (this.status !== 'transcribing') {
         pushPrivateTimeline('model_inference_result_ignored_after_stop', {
           serviceId: this.serviceId,
@@ -2070,8 +2073,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.status = 'stopped';
   }
 
-  async transcribe(audio: Float32Array): Promise<Result<string, Error>> {
-    return this.privateSTT.transcribe(audio);
+  async transcribe(audio: Float32Array, options?: { final?: boolean }): Promise<Result<string, Error>> {
+    return this.privateSTT.transcribe(audio, options);
   }
 
   private cleanupFrameListener(): void {

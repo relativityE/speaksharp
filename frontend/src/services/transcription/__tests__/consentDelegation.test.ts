@@ -78,3 +78,31 @@ describe('the object the service calls can actually record consent', () => {
         expect(src(SERVICE)).toMatch(/grantModelConsent/);
     });
 });
+
+describe('the caller signals finality, because the engine cannot infer it', () => {
+    it('CASUALTY: processAudio passes its `force` through as `final`', () => {
+        // The engine sees a Float32Array either way. `processAudio({ force: true })` is the stop-commit
+        // and every other call is a live window, so the caller is the only place that knows. Dropping
+        // this argument turns the commit into a live window: nothing finalizes, and the take is decoded
+        // by a fresh stream again.
+        //
+        // Asserted here because no test drives `processAudio` itself — mutation showed that removing the
+        // argument failed nothing at all, which is the gap this closes.
+        const whisper = src(WHISPER);
+        expect(whisper, 'the live/commit decode must carry finality')
+            .toMatch(/privateSTT\.transcribe\(processedAudio,\s*\{\s*final:\s*force\s*\}\)/);
+    });
+
+    it('CASUALTY: the wrapper forwards options rather than dropping them', () => {
+        const whisper = src(WHISPER);
+        const at = whisper.indexOf('async transcribe(audio: Float32Array');
+        const method = whisper.slice(at, at + 260);
+        expect(method).toMatch(/options\?:\s*\{\s*final\?:\s*boolean\s*\}/);
+        expect(method, 'options dropped here would strand the finality signal')
+            .toMatch(/this\.privateSTT\.transcribe\(audio,\s*options\)/);
+    });
+
+    it('the facade forwards options to the engine', () => {
+        expect(src(ENGINE)).toMatch(/this\.engine\.transcribe\(audio,\s*options\)/);
+    });
+});

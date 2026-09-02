@@ -482,7 +482,7 @@ export class MoonshineStreamingEngine implements STTStrategy {
      * gain a duplicated passage, which reads as a model defect rather than a plumbing one. A short-lived
      * stream keeps the whole-buffer decode isolated and cannot carry state into the next session.
      */
-    async transcribe(audio: Float32Array): Promise<Result<string, Error>> {
+    async transcribe(audio: Float32Array, options?: { final?: boolean }): Promise<Result<string, Error>> {
         // A FINALIZED SESSION IS ALREADY DECODED. `stop()` runs the forced final pass over the session
         // stream and commits the result; `PrivateWhisper` then calls this to commit the utterance. On a
         // streaming arch that meant the SAME audio was inferred twice — once by the session stream that
@@ -501,22 +501,32 @@ export class MoonshineStreamingEngine implements STTStrategy {
         // said nothing — fell through to a fresh inference anyway. That is the exact case where a second
         // decode is most likely to invent something out of noise, and the empty result was the honest
         // one.
-        // THE COMMIT DECODE FINALIZES THE LIVE SESSION rather than opening a new one.
+        // FINALITY COMES FROM THE CALLER, because the engine cannot tell these two apart.
         //
-        // The shipping order is `TranscriptionService -> PrivateWhisper.onStop -> PrivateSTT.transcribe`,
-        // and `onStop` never calls the engine's `stop()`. So the previous guard -- return early only if
-        // already finalized -- never fired on the real path: the engine was still live, and the commit
-        // built a FRESH stream over the processed buffer. That is a second inference of the same take by
-        // a stream with none of the session's state, which drops trailing words and can turn an honestly
-        // empty result into invented text.
+        // `PrivateWhisper` calls `transcribe` on a timer during recording AND once at stop; both arrive
+        // here as a Float32Array. The previous version finalized whenever a live session existed, which
+        // closed the session stream on the FIRST live decode and silently dropped the rest of the user's
+        // speech -- a worse defect than the double inference it was fixing, and one the leaf-engine tests
+        // could not see because they never drove the live loop at all.
         //
-        // Finalizing here makes the session's forced pass the authority, and it is the SAME pass `stop()`
-        // would have performed -- exactly one inference, whichever entry point arrives first.
-        if (this.stream && !this.finalized) {
-            await this.finalizeSession();
-        }
+        // `processAudio({ force: true })` is the stop-commit; every other call is a live window.
+        const isFinal = options?.final === true;
+
         if (this.finalized) {
+            // Already committed by whichever entry point arrived first. Never decode again.
             return { isOk: true, data: this.committed };
+        }
+
+        if (this.stream) {
+            if (isFinal) {
+                // The authoritative forced pass, on the stream that heard the take.
+                await this.finalizeSession();
+                return { isOk: true, data: this.committed };
+            }
+            // A LIVE window during an open session. The session stream is already decoding on its own
+            // schedule, so this reports what it has rather than opening a second stream over the same
+            // audio -- and above all it does not close anything.
+            return { isOk: true, data: this.interim };
         }
         if (!this.transcriber) {
             const err = new Error('Cannot transcribe before a successful init');

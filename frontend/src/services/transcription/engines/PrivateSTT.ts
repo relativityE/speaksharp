@@ -561,7 +561,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     /**
      * Interface requirement: Transcribe audio data
      */
-    public async transcribe(audio: Float32Array): Promise<Result<string, Error>> {
+    public async transcribe(audio: Float32Array, options?: { final?: boolean }): Promise<Result<string, Error>> {
         if (!this.engine) {
             return { isOk: false, error: new Error('PrivateSTT not initialized.') };
         }
@@ -578,7 +578,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const isV4 = this._engineType === 'transformers-js-v4';
         const result = isV4
             ? await this.transcribeBounded(this.engine, audio, V4_AUTO_DECODE_TIMEOUT_MS)
-            : await this.engine.transcribe(audio);
+            : await this.engine.transcribe(audio, options);
 
         if (!result.isOk && isV4) {
             // Surfaced, never swapped. A failed decode is visible; a substituted one is not.

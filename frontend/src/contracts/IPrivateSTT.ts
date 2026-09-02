@@ -22,7 +22,7 @@ export interface IPrivateSTT {
      */
     stop(): Promise<void>;
 
-    transcribe(audio: Float32Array): Promise<Result<string, Error>>;
+    transcribe(audio: Float32Array, options?: { final?: boolean }): Promise<Result<string, Error>>;
     destroy(): Promise<void>;
     getEngineType(): string;
     /**
