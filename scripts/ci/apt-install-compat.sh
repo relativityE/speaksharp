@@ -17,6 +17,13 @@ set -euo pipefail
 BUNDLE="${1:?usage: apt-install-compat.sh <bundle-dir> <canvas-sharp|playwright>}"
 MANIFEST="${2:?usage: apt-install-compat.sh <bundle-dir> <canvas-sharp|playwright>}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# RETURN (#1406): the frozen manifest is only authoritative for a shard of the SAME Ubuntu family,
+# codename, architecture and locked Playwright version. That authority lived inline in the offline script,
+# so this path originally ran apt with none of it. It is enforced here BEFORE apt runs.
+bash "$SCRIPT_DIR/apt-distribution-gate.sh" "$BUNDLE" compat
+
 [ -f "$BUNDLE/$MANIFEST.manifest" ] \
   || { echo "::error::[compat] missing frozen manifest: $BUNDLE/$MANIFEST.manifest — fail closed"; exit 1; }
 

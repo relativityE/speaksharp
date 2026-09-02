@@ -17,19 +17,34 @@ import yaml from 'js-yaml';
 const root = process.cwd();
 const SCRIPTS = resolve(root, 'scripts/ci');
 
+// The distribution gate derives the shard's identity from /etc/os-release, `dpkg --print-architecture` and
+// the lockfile. A test that does not supply all three is not exercising the compat path — it is being
+// refused before reaching it. DIST_ENV + the dpkg stub give the shard a valid identity; the casualties
+// below then vary ONE field to prove the refusal is real.
+const LOCKED_PW = (readFileSync(resolve(root, 'pnpm-lock.yaml'), 'utf8')
+  .match(/playwright-core@(\d+\.\d+\.\d+)/) || [])[1];
+const DIST_ENV = { ID: 'ubuntu', VERSION_CODENAME: 'noble' };
+
 let dir;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'apt-skew-')); });
 afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
 /** A bundle whose provenance says it was prefetched on `prepVersion`. */
-function makeBundle({ prepVersion, manifest = 'canvas-sharp', pkgs = ['build-essential', 'libcairo2-dev'] } = {}) {
+function makeBundle({ prepVersion, manifest = 'canvas-sharp', pkgs = ['build-essential', 'libcairo2-dev'], dist = {}, offlineInputs = false } = {}) {
   const bundle = join(dir, 'apt-bundle');
   mkdirSync(join(bundle, 'debs'), { recursive: true });
   if (prepVersion !== null) {
+    const d = { FAMILY: 'ubuntu', CODENAME: 'noble', ARCH: 'amd64', PLAYWRIGHT_VERSION: LOCKED_PW, ...dist };
     writeFileSync(join(bundle, 'image.manifest'),
-      `FAMILY=ubuntu\nCODENAME=noble\nARCH=amd64\nPLAYWRIGHT_VERSION=1.55.0\nImageOS=ubuntu24\nImageVersion=${prepVersion}\n`);
+      `FAMILY=${d.FAMILY}\nCODENAME=${d.CODENAME}\nARCH=${d.ARCH}\nPLAYWRIGHT_VERSION=${d.PLAYWRIGHT_VERSION}\nImageOS=ubuntu24\nImageVersion=${prepVersion}\n`);
   }
   if (pkgs !== null) writeFileSync(join(bundle, `${manifest}.manifest`), pkgs.join('\n') + '\n');
+  // apt-install-offline.sh checks bundle presence at step 0, BEFORE the distribution gate at step 1, so a
+  // test aiming at the gate must satisfy step 0 or it never gets there.
+  if (offlineInputs) {
+    writeFileSync(join(bundle, 'sha256sums.txt'), '');
+    writeFileSync(join(bundle, 'debs', 'Packages'), '');
+  }
   return bundle;
 }
 
@@ -148,7 +163,7 @@ describe('compatibility path: bounded, single attempt, fail-closed, never the st
       '  *) exit 0 ;;',
       'esac',
     ].join('\n') + '\n');
-    writeFileSync(join(bin, 'dpkg'), `#!/usr/bin/env bash\necho "INVOKE dpkg $*" >> ${journal}\nexit 0\n`);
+    writeFileSync(join(bin, 'dpkg'), `#!/usr/bin/env bash\nif [ "$1" = "--print-architecture" ]; then echo amd64; exit 0; fi\necho "INVOKE dpkg $*" >> ${journal}\nexit 0\n`);
     for (const f of ['sudo', 'timeout', 'apt-get', 'dpkg']) chmodSync(join(bin, f), 0o755);
     const read = () => readFileSync(journal, 'utf8');
     return {
@@ -163,7 +178,7 @@ describe('compatibility path: bounded, single attempt, fail-closed, never the st
   it('installs the frozen manifest and never references the bundle .debs', () => {
     const bundle = makeBundle({ prepVersion: '20260823.283.1', pkgs: ['build-essential', 'libcairo2-dev'] });
     const s = stubbedPath();
-    const r = run(compat, [bundle, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}` });
+    const r = run(compat, [bundle, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}`, ...DIST_ENV });
     expect(r.code).toBe(0);
     const j = s.read();
     expect(j).toMatch(/^INVOKE apt-get .*install .*build-essential/m);
@@ -175,14 +190,14 @@ describe('compatibility path: bounded, single attempt, fail-closed, never the st
   it('is bounded by a 300s deadline with a kill grace', () => {
     const bundle = makeBundle({ prepVersion: 'A' });
     const s = stubbedPath();
-    run(compat, [bundle, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}` });
+    run(compat, [bundle, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}`, ...DIST_ENV });
     expect(s.read()).toMatch(/timeout -k 30 300/);
   });
 
   it('a timeout (124) fails the job, is reported DISTINCTLY, and is never retried or repaired', () => {
     const bundle = makeBundle({ prepVersion: 'A' });
     const s = stubbedPath({ installExit: 124 });
-    const r = run(compat, [bundle, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}` });
+    const r = run(compat, [bundle, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}`, ...DIST_ENV });
     expect(r.code).toBe(124);
     expect(r.out).toContain('TIMEOUT/CANCEL');
     expect(r.out).toContain('no retry/repair');
@@ -194,7 +209,7 @@ describe('compatibility path: bounded, single attempt, fail-closed, never the st
   it('a genuine apt failure propagates its own exit code and is not reported as a timeout', () => {
     const bundle = makeBundle({ prepVersion: 'A' });
     const s = stubbedPath({ installExit: 100 });
-    const r = run(compat, [bundle, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}` });
+    const r = run(compat, [bundle, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}`, ...DIST_ENV });
     expect(r.code).toBe(100);
     expect(r.out).toContain('genuine apt/dpkg exit');
     expect(r.out).not.toContain('TIMEOUT/CANCEL');
@@ -204,12 +219,12 @@ describe('compatibility path: bounded, single attempt, fail-closed, never the st
   it('fails closed on a missing or empty frozen manifest rather than installing nothing', () => {
     const s = stubbedPath();
     const noManifest = makeBundle({ prepVersion: 'A', pkgs: null });
-    const r1 = run(compat, [noManifest, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}` });
+    const r1 = run(compat, [noManifest, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}`, ...DIST_ENV });
     expect(r1.code).toBe(1);
     expect(r1.out).toContain('missing frozen manifest');
     rmSync(join(dir, 'apt-bundle'), { recursive: true, force: true });
     const emptyManifest = makeBundle({ prepVersion: 'A', pkgs: [] });
-    const r2 = run(compat, [emptyManifest, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}` });
+    const r2 = run(compat, [emptyManifest, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}`, ...DIST_ENV });
     expect(r2.code).toBe(1);
     expect(s.installs()).toBe(0);
   });
@@ -224,7 +239,7 @@ describe('compatibility path: bounded, single attempt, fail-closed, never the st
   ])('refuses a manifest containing %s and installs nothing', (_label, token) => {
     const bundle = makeBundle({ prepVersion: 'A', pkgs: [token] });
     const s = stubbedPath();
-    const r = run(compat, [bundle, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}` });
+    const r = run(compat, [bundle, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}`, ...DIST_ENV });
     expect(r.code).toBe(1);
     expect(r.out).toContain('not a valid package name');
     expect(s.installs(), 'a rejected manifest must not install a partial set').toBe(0);
@@ -264,5 +279,114 @@ describe('the dispatcher is what CI actually runs', () => {
       expect(existsSync(join(SCRIPTS, f)), `${f} must exist`).toBe(true);
       execFileSync('bash', ['-n', join(SCRIPTS, f)]);
     }
+  });
+});
+
+describe('distribution authority applies to BOTH paths (#1406 RETURN)', () => {
+  const gate = resolve(SCRIPTS, 'apt-distribution-gate.sh');
+  const compat = resolve(SCRIPTS, 'apt-install-compat.sh');
+
+  /** Report a shard whose distribution identity we control, so a mismatch is observable. */
+  function shardEnv({ arch = 'amd64' } = {}) {
+    const bin = join(dir, 'dbin');
+    mkdirSync(bin, { recursive: true });
+    const journal = join(dir, 'dj.txt');
+    writeFileSync(journal, '');
+    writeFileSync(join(bin, 'dpkg'), `#!/usr/bin/env bash\nif [ "$1" = "--print-architecture" ]; then echo ${arch}; exit 0; fi\nexit 0\n`);
+    writeFileSync(join(bin, 'sudo'), `#!/usr/bin/env bash\nexec "$@"\n`);
+    writeFileSync(join(bin, 'timeout'), `#!/usr/bin/env bash\nshift 3\nexec "$@"\n`);
+    writeFileSync(join(bin, 'apt-get'), `#!/usr/bin/env bash\necho "INVOKE apt-get $*" >> ${journal}\nexit 0\n`);
+    for (const f of ['dpkg', 'sudo', 'timeout', 'apt-get']) chmodSync(join(bin, f), 0o755);
+    return { bin, installs: () => (readFileSync(journal, 'utf8').match(/^INVOKE apt-get .*\binstall\b/gm) || []).length };
+  }
+
+  // The defect returned on #1406: the compatibility path ran apt with no distribution authority at all.
+  it('the compatibility path REFUSES a foreign architecture and runs no apt', () => {
+    const bundle = makeBundle({ prepVersion: 'A', dist: { ARCH: 'arm64' } });
+    const s = shardEnv({ arch: 'amd64' });
+    const r = run(compat, [bundle, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}`, ...DIST_ENV });
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/distribution mismatch on arch/);
+    expect(s.installs(), 'no apt may run without distribution authority').toBe(0);
+  });
+
+  it.each(['FAMILY', 'CODENAME'])('the compatibility path REFUSES a foreign %s', (field) => {
+    const bundle = makeBundle({ prepVersion: 'A', dist: { [field]: 'not-this-distro' } });
+    const s = shardEnv();
+    const r = run(compat, [bundle, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}`, ...DIST_ENV });
+    expect(r.code).toBe(1);
+    expect(s.installs()).toBe(0);
+  });
+
+  it.each([['prep', { PLAYWRIGHT_VERSION: 'unknown' }], ['empty', { PLAYWRIGHT_VERSION: '' }]])(
+    'missing/unknown authority (%s) fails closed rather than matching', (_l, dist) => {
+      const bundle = makeBundle({ prepVersion: 'A', dist });
+      const s = shardEnv();
+      const r = run(compat, [bundle, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}`, ...DIST_ENV });
+      expect(r.code).toBe(1);
+      expect(r.out).toMatch(/authority missing\/unknown/);
+      expect(s.installs()).toBe(0);
+    });
+
+  it('an UNREADABLE image.manifest fails closed with a named error and runs no apt', () => {
+    const bundle = makeBundle({ prepVersion: 'A' });
+    chmodSync(join(bundle, 'image.manifest'), 0o000);
+    const s = shardEnv();
+    const r = run(compat, [bundle, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}`, ...DIST_ENV });
+    chmodSync(join(bundle, 'image.manifest'), 0o644);
+    expect(r.code).toBe(1);
+    expect(r.out, 'the failure must NAME the cause, not die inside sed under set -e').toContain('unreadable');
+    expect(s.installs()).toBe(0);
+  });
+
+  // Requirement 3, stated once for every authority failure mode rather than per-case.
+  it.each([
+    ['missing manifest', { drop: true, named: /missing .*image\.manifest/ }],
+    ['foreign arch', { dist: { ARCH: 'arm64' }, named: /distribution mismatch on arch/ }],
+    ['foreign codename', { dist: { CODENAME: 'jammy' }, named: /distribution mismatch on codename/ }],
+    ['unknown playwright', { dist: { PLAYWRIGHT_VERSION: 'unknown' }, named: /playwright authority missing\/unknown/ }],
+    ['empty family', { dist: { FAMILY: '' }, named: /family authority missing\/unknown/ }],
+  ])('apt is NEVER invoked after an authority failure: %s', (_label, opts) => {
+    const bundle = makeBundle({ prepVersion: 'A', dist: opts.dist || {} });
+    if (opts.drop) rmSync(join(bundle, 'image.manifest'));
+    const s = shardEnv();
+    const r = run(compat, [bundle, 'canvas-sharp'], { PATH: `${s.bin}:${process.env.PATH}`, ...DIST_ENV });
+    expect(r.code).toBe(1);
+    // The error must NAME this cause. A generic `::error::` would let a manifest-presence check be deleted
+    // and pass on the empty-field check's message instead.
+    expect(r.out).toMatch(opts.named);
+    expect(s.installs(), 'no apt command may follow a failed authority check').toBe(0);
+  });
+
+  // Executed, not grepped: the previous version asserted the script TEXT contained the gate's filename,
+  // which the explanatory comment satisfied on its own — deleting the actual call still passed.
+  it('the OFFLINE path also refuses a foreign architecture, before any checksum or apt work', () => {
+    const bundle = makeBundle({ prepVersion: 'A', dist: { ARCH: 'arm64' }, offlineInputs: true });
+    const s = shardEnv({ arch: 'amd64' });
+    const r = run(resolve(SCRIPTS, 'apt-install-offline.sh'), [bundle, 'canvas-sharp'],
+      { PATH: `${s.bin}:${process.env.PATH}`, ...DIST_ENV });
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/distribution mismatch on arch/);
+    expect(s.installs(), 'the offline path must not reach apt either').toBe(0);
+  });
+
+  it('the OFFLINE path proceeds past the gate when the distribution matches', () => {
+    const bundle = makeBundle({ prepVersion: 'A', offlineInputs: true });
+    const s = shardEnv();
+    const r = run(resolve(SCRIPTS, 'apt-install-offline.sh'), [bundle, 'canvas-sharp'],
+      { PATH: `${s.bin}:${process.env.PATH}`, ...DIST_ENV });
+    expect(r.out, 'a matching distribution must clear the gate').toMatch(/distribution compatible/);
+  });
+
+  it('the gate is invoked by BOTH installation paths, before apt', () => {
+    const compatText = readFileSync(compat, 'utf8');
+    const offlineText = readFileSync(resolve(SCRIPTS, 'apt-install-offline.sh'), 'utf8');
+    for (const [name, text] of [['compat', compatText], ['offline', offlineText]]) {
+      expect(text, `${name} must call the shared gate`).toContain('apt-distribution-gate.sh');
+      const gateAt = text.indexOf('apt-distribution-gate.sh');
+      const aptAt = text.search(/^(sudo )?(apt-get|timeout|sudo apt-get)/m);
+      expect(gateAt, `${name}: the gate must precede any apt invocation`).toBeLessThan(aptAt === -1 ? Infinity : aptAt);
+    }
+    expect(existsSync(gate)).toBe(true);
   });
 });

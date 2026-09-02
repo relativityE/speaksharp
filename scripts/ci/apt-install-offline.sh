@@ -13,25 +13,14 @@ for f in "$BUNDLE/debs" "$BUNDLE/sha256sums.txt" "$BUNDLE/$MANIFEST.manifest" "$
   [ -e "$f" ] || { echo "::error::[offline] missing bundle input: $f — fail closed"; exit 1; }
 done
 
-# ── 1. Distribution compatibility gate — prep and shard MUST match on Ubuntu FAMILY + CODENAME + ARCH +
-#       locked Playwright version, else fail closed (NO mirror fallback). ImageVersion equality is enforced
-#       UPSTREAM by apt-install.sh, which only routes here on an exact match — so reaching this script is
-#       itself the image-equality proof, and re-deriving it here would be duplicate authority. It stays
-#       logged below for provenance. ────────────────────────────────────────────────────────────────────
-PREP_FAMILY="$(sed -n 's/^FAMILY=//p'      "$BUNDLE/image.manifest")"
-PREP_CODENAME="$(sed -n 's/^CODENAME=//p'  "$BUNDLE/image.manifest")"
-PREP_ARCH="$(sed -n 's/^ARCH=//p'          "$BUNDLE/image.manifest")"
-PREP_PW="$(sed -n 's/^PLAYWRIGHT_VERSION=//p' "$BUNDLE/image.manifest")"
-PREP_IMGVER="$(sed -n 's/^ImageVersion=//p'   "$BUNDLE/image.manifest")"
-. /etc/os-release 2>/dev/null || true
-CUR_FAMILY="${ID:-unknown}"; CUR_CODENAME="${VERSION_CODENAME:-unknown}"; CUR_ARCH="$(dpkg --print-architecture)"
-CUR_PW="$(grep -m1 -oE 'playwright-core@[0-9]+\.[0-9]+\.[0-9]+' pnpm-lock.yaml 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)"
+# ── 1. Distribution compatibility gate — delegated to apt-distribution-gate.sh so the SAME authority
+#       applies to both installation paths and cannot drift between them. ImageVersion equality is enforced
+#       UPSTREAM by apt-install.sh, which only routes here on an exact match, so reaching this script is
+#       itself the image-equality proof; it stays logged for provenance. ─────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PREP_IMGVER="$(sed -n 's/^ImageVersion=//p' "$BUNDLE/image.manifest")"
 echo "[offline] provenance (image equality already enforced by apt-install.sh): prep ImageVersion=$PREP_IMGVER ; shard ImageVersion=${ImageVersion:-unknown}"
-if [ "$CUR_FAMILY" != "$PREP_FAMILY" ] || [ "$CUR_CODENAME" != "$PREP_CODENAME" ] || [ "$CUR_ARCH" != "$PREP_ARCH" ] || [ "$CUR_PW" != "$PREP_PW" ]; then
-  echo "::error::[offline] distribution mismatch (prep=$PREP_FAMILY/$PREP_CODENAME/$PREP_ARCH/pw$PREP_PW shard=$CUR_FAMILY/$CUR_CODENAME/$CUR_ARCH/pw$CUR_PW) — fail closed, NO mirror fallback"
-  exit 1
-fi
-echo "[offline] distribution compatible: $PREP_FAMILY/$PREP_CODENAME/$PREP_ARCH/playwright-$PREP_PW"
+bash "$SCRIPT_DIR/apt-distribution-gate.sh" "$BUNDLE" offline
 
 # ── 2. Verify EVERY .deb against SHA-256 (fail closed) ────────────────────────────────────────────────────
 ( cd "$BUNDLE/debs" && sha256sum -c ../sha256sums.txt ) \
