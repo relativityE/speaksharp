@@ -280,3 +280,27 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   }
 
 }
+
+/**
+ * A DECODING engine, specifically.
+ *
+ * `validateEngine` above is also applied to the SERVICE, which drives recording through
+ * `startTranscription`/`stopTranscription` and legitimately has no `transcribe`. Requiring the method
+ * there would reject a correct object, so the stricter check lives here and is applied only where a
+ * concrete engine is constructed.
+ *
+ * It exists because `MoonshineStreamingEngine` shipped without `transcribe` at all. The engine passed
+ * `validateEngine`, passed every initialisation test, and would have thrown "not a function" at the
+ * first real commit decode — which a user experiences as a recording that silently produced nothing.
+ * Construction is the right moment to find that: the alternative is finding it mid-session, after the
+ * audio is already gone.
+ */
+export function assertEngineCanDecode(engine: unknown, engineType: string): void {
+  const record = engine as Record<string, unknown> | null;
+  if (!record || typeof record.transcribe !== 'function') {
+    throw new Error(
+      `STT_ENGINE_CANNOT_DECODE: ${engineType} has no transcribe(audio) method, so a committed `
+      + 'utterance could never be decoded. Refusing to construct it.',
+    );
+  }
+}

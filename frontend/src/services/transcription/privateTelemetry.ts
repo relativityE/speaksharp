@@ -11,7 +11,12 @@ export const PRIVATE_TELEMETRY_EVENTS = {
 } as const;
 
 export type PrivateTelemetryEvent = typeof PRIVATE_TELEMETRY_EVENTS[keyof typeof PRIVATE_TELEMETRY_EVENTS];
-export type EngineVariant = 'private_v2' | 'private_v4';
+/**
+ * The arm a session ran under. `private_moonshine` exists because the alternative — folding a third
+ * engine into a two-value union — forces every consumer into a binary that quietly resolves the unknown
+ * case to `private_v2`, which is how Moonshine sessions were being saved under Whisper's name.
+ */
+export type EngineVariant = 'private_v2' | 'private_v4' | 'private_moonshine';
 export type AssignmentSource = 'default' | 'posthog_flag' | 'allowlist' | 'deterministic_override';
 
 export const PRIVATE_TELEMETRY_ALLOWED_PROPS = [
@@ -63,9 +68,14 @@ export function resolvePrivateAssignment(input: {
     posthog_flag_key: string;
     posthog_flag_value: boolean;
 } {
-    const engine_variant: EngineVariant = input.resolvedEngineType === 'transformers-js-v4'
-        ? 'private_v4'
-        : 'private_v2';
+    // THE SAME TWO-WAY BOOLEAN AS getMetadata HAD, in the DURABLE path. Correcting only the metadata
+    // left this one: `resolvedPrivateEngineVersion` is built from here and persisted at stop, so a
+    // Moonshine session was still saved as `private_v2:...` on the row that outlives the tab. The
+    // in-memory label was right and the stored one was wrong, which is the worse half to get wrong.
+    const engine_variant: EngineVariant =
+        input.resolvedEngineType === 'transformers-js-v4' ? 'private_v4'
+            : input.resolvedEngineType === 'moonshine-streaming' ? 'private_moonshine'
+                : 'private_v2';
     const assignment_source: AssignmentSource = input.overrideActive
         ? 'deterministic_override'
         : input.allowlisted

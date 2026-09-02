@@ -257,3 +257,28 @@ describe('RESOLVED runtime state maps to a candidate — the original defect', (
         }
     });
 });
+
+describe('a Moonshine session is attributed by ARCH, not by provider', () => {
+    it('CASUALTY: the medium arch resolves to the medium candidate', () => {
+        expect(candidateForRuntime({
+            engineType: 'moonshine-streaming', variant: 'MOONSHINE_STREAMING_MEDIUM',
+        })).toBe('moonshine:streaming-medium');
+    });
+
+    it('CASUALTY: an arch no candidate describes is REFUSED, not mapped to the only one registered', () => {
+        // `moonshine:streaming-medium` is currently the sole registered Moonshine candidate, so mapping
+        // the provider straight to it would pass every test written today and silently record every
+        // SmallStreaming session as medium the day someone runs one. That is the arm the human test is
+        // comparing, so a wrong label there invalidates the comparison rather than merely mislabelling
+        // a row.
+        for (const variant of ['MOONSHINE_STREAMING_SMALL', 'MOONSHINE_STREAMING_TINY', null]) {
+            expect(() => candidateForRuntime({ engineType: 'moonshine-streaming', variant }))
+                .toThrow(UnknownCandidateError);
+        }
+    });
+
+    it('CASUALTY: the provider alone never yields an identity', () => {
+        expect(() => candidateForRuntime({ engineType: 'moonshine-streaming', variant: undefined as never }))
+            .toThrow(/refusing to attribute/);
+    });
+});

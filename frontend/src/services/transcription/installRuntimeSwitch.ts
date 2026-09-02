@@ -61,6 +61,10 @@ export function installRuntimeCandidateSwitch(
             const { speechRuntimeController } = await import('@/services/SpeechRuntimeController');
             await speechRuntimeController.initiateModelDownload('private');
         },
+
+        // What the ENGINE published, read from the same source `__SS_ACTIVE_CANDIDATE__` reports as
+        // `observed`. Deliberately not the selection: comparing the selection to itself always agrees.
+        observedCandidate: () => resolvedEngine()?.candidateId ?? null,
     });
 
     const w = window as unknown as SwitchWindow;

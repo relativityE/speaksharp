@@ -19,6 +19,7 @@ import {
     clearPrivateRecordingIdentity,
     buildPrivateEnvProps,
     buildEngineVersion,
+    type EngineVariant,
 } from '@/services/transcription/privateTelemetry';
 import { ATTRIBUTION_STATUS, type AttributionStatus } from '@/constants/attributionStatus';
 import { useReadinessStore } from '@/stores/useReadinessStore';
@@ -237,6 +238,18 @@ const NATIVE_NOISE_TRANSCRIPTS = new Set([
 
 /** Distinguishes "the soft path handled it" from "there was no service to destroy". */
 const SOFT_RESET = Symbol('soft-reset');
+
+/**
+ * The model each arm loads when metadata has not surfaced one yet.
+ *
+ * `private_moonshine` is deliberately ABSENT rather than mapped to a plausible id: its model is chosen
+ * by the registry per candidate, so any constant here would be a guess, and a guessed model id is
+ * indistinguishable from a measured one once it is on a saved row.
+ */
+const DEFAULT_MODEL_FOR_ARM: Partial<Record<EngineVariant, string>> = {
+    private_v4: 'base_q4',
+    private_v2: 'whisper-base.en',
+};
 
 export type RuntimeState =
     | 'IDLE'
@@ -537,7 +550,12 @@ export class SpeechRuntimeController {
             const meta = this.service?.getMetadata?.();
             // Fall back to the variant's default model id if metadata hasn't surfaced one yet, so
             // the durable engine_version is always private_v2:<model> / private_v4:<model>.
-            const model = meta?.modelName ?? (assignment.engine_variant === 'private_v4' ? 'base_q4' : 'whisper-base.en');
+            // NO WHISPER FALLBACK FOR A NON-WHISPER ARM. The `else` here named `whisper-base.en`, so a
+            // Moonshine session whose metadata had not surfaced yet was persisted under Whisper's model
+            // name — a guess that is indistinguishable downstream from a measurement. Where the arm's
+            // default is not known, the model is left absent and `buildEngineVersion` records the arm
+            // alone, which is honest about what we do and do not know.
+            const model = meta?.modelName ?? DEFAULT_MODEL_FOR_ARM[assignment.engine_variant] ?? null;
             const release = typeof window !== 'undefined' ? (window.__APP_RELEASE__ ?? null) : null;
             setPrivateTelemetryContext({
                 session_id: this.sessionId,

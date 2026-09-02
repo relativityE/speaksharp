@@ -219,15 +219,23 @@ export function isPrivateRuntimeIdentity(input: {
     const modelId = input?.modelId != null ? String(input.modelId) : null;
     const runtimeProvider = input?.runtimeProvider != null ? String(input.runtimeProvider) : null;
     const isPrivate = serviceMode === 'private';
-    // Instantiated-engine proof: the running strategy's OWN provider must be the on-device Transformers.js
-    // family (exact match), never a serviceMode-derived label. Missing/ambiguous/cloud/web-speech is rejected.
-    const isTransformersRuntime = !!runtimeProvider && /^transformers-js(-v4)?$/i.test(runtimeProvider);
+    // Instantiated-engine proof: the running strategy's OWN provider must be an ON-DEVICE private
+    // engine (exact match), never a serviceMode-derived label. Missing/ambiguous/cloud/web-speech is
+    // rejected.
+    //
+    // MOONSHINE IS ON-DEVICE TOO. This matched only the Transformers.js family, so the moment Moonshine
+    // ran through the product path the proof would have rejected a correct session — reporting a
+    // privacy/identity failure for an engine that satisfies every property the check exists to enforce.
+    // A validator that names implementations rather than the property it is testing goes stale silently
+    // every time an implementation is added.
+    const ON_DEVICE_PRIVATE_ENGINES = /^(transformers-js(-v4)?|moonshine-streaming)$/i;
+    const isTransformersRuntime = !!runtimeProvider && ON_DEVICE_PRIVATE_ENGINES.test(runtimeProvider);
     const notFallbackModel = !!modelId && !/tiny/i.test(modelId);
     const noFallbackHandoff = input?.fallbackOccurred !== true;
     const ok = isPrivate && isTransformersRuntime && notFallbackModel && noFallbackHandoff;
     const reason = ok ? ''
         : !isPrivate ? `producing serviceMode is '${serviceMode}', expected 'private'`
-            : !isTransformersRuntime ? `instantiated running engine provider '${runtimeProvider}' is not the on-device Transformers.js engine (a serviceMode='private' label with a Browser/Cloud/missing/ambiguous running engine is rejected)`
+            : !isTransformersRuntime ? `instantiated running engine provider '${runtimeProvider}' is not an on-device private engine (a serviceMode='private' label with a Browser/Cloud/missing/ambiguous running engine is rejected)`
                 : !notFallbackModel ? `running model '${modelId}' is the emergency tiny fallback, not the default`
                     : 'a runtime fallback/handoff occurred';
     return { ok, serviceMode, modelId, runtimeProvider, reason };

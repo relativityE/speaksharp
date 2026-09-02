@@ -18,45 +18,61 @@ const PRODUCTION = { VITE_INTERNAL_BUILD: undefined };
 
 function executor(state = 'READY') {
     const calls: string[] = [];
-    return {
+    // `observed` defaults to agreeing with the selection so the happy path behaves like a working
+    // engine; a test sets it to disagree to prove the postcondition actually compares something. The
+    // REAL executor reads what the engine published (`resolvedEngine()`), which is what makes the
+    // comparison meaningful in production — see the four-hop real-facade proof.
+    const e = {
         calls,
+        observed: null as string | null,
+        useSelectionAsObserved: true,
         currentState: () => state,
         teardown: vi.fn(async () => { calls.push('teardown'); }),
         initialize: vi.fn(async () => { calls.push('initialize'); }),
+        observedCandidate: () => (e.useSelectionAsObserved ? runtimeCandidateOverride() : e.observed),
     };
+    return e;
 }
 
 describe('the in-page model switch', () => {
     beforeEach(() => { clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
     afterEach(() => { clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
 
-    it('CASUALTY: the comparison runs in one page — v2 → distil → v2', async () => {
+    it('CASUALTY: the FULL comparison runs in one page — v2 → distil → moonshine → v2', async () => {
+        // The sequence the human test actually performs. Moonshine was refused here until it was
+        // registered on the real provider path; the refusal is now lifted, so the whole slate is
+        // reachable without a reload.
         const e = executor(); registerSwitchExecutor(e);
         const hops: Array<{ id: string; outcome: unknown; running: string }> = [];
-        for (const id of ['v4:distil:q4', 'v2:base.en'] as const) {
+        for (const id of ['v4:distil:q4', 'moonshine:streaming-medium', 'v2:base.en'] as const) {
             const outcome = await switchCandidate(id, INTERNAL);
             hops.push({ id, outcome, running: effectiveCandidate(undefined, INTERNAL, false).candidate.id });
         }
         expect(hops).toEqual([
             { id: 'v4:distil:q4', outcome: { ok: true, candidate: 'v4:distil:q4' }, running: 'v4:distil:q4' },
+            { id: 'moonshine:streaming-medium', outcome: { ok: true, candidate: 'moonshine:streaming-medium' }, running: 'moonshine:streaming-medium' },
             { id: 'v2:base.en', outcome: { ok: true, candidate: 'v2:base.en' }, running: 'v2:base.en' },
         ]);
         // Every hop tore the engine down and brought it back up — never a hand-off.
-        expect(e.calls).toEqual(['teardown', 'initialize', 'teardown', 'initialize']);
+        expect(e.calls).toEqual(['teardown', 'initialize', 'teardown', 'initialize', 'teardown', 'initialize']);
     });
 
-    it('CASUALTY: MOONSHINE fails closed — the facade cannot construct it yet', async () => {
-        // The product facade resolves providers from a list containing only the two transformers
-        // engines. A moonshine request does not fail there; it falls through and runs the CONFIGURED
-        // engine, producing a v2 recording labelled moonshine. Refusing is the only honest answer until
-        // #1381 registers the real engine.
+    it('CASUALTY: an engine the facade cannot construct is still refused', async () => {
+        // Moonshine is integrated now, so the guard is proven against a synthetic candidate instead —
+        // otherwise the check would have been deleted along with its only example, and the next engine
+        // added without a provider path would fall through and run the CONFIGURED model under its id.
         const e = executor(); registerSwitchExecutor(e);
-        const out = await switchCandidate('moonshine:streaming-medium', INTERNAL);
+        const unbuildable = { ...CANDIDATES['v2:base.en'], id: 'v9:unbuildable', engine: 'not-an-engine' };
+        const patched = { ...CANDIDATES, 'v9:unbuildable': unbuildable } as unknown as typeof CANDIDATES;
+        const out = await switchCandidate('v9:unbuildable', INTERNAL, patched);
         expect(out).toMatchObject({ ok: false, code: 'engine_not_integrated' });
         expect(e.teardown).not.toHaveBeenCalled();
         expect(runtimeCandidateOverride()).toBeNull();
-        // and the running selection is untouched
-        expect(effectiveCandidate(undefined, INTERNAL, false).candidate.id).toBe('v2:base.en');
+    });
+
+    it('POSITIVE CONTROL: moonshine is now switchable', async () => {
+        registerSwitchExecutor(executor());
+        expect((await switchCandidate('moonshine:streaming-medium', INTERNAL)).ok).toBe(true);
     });
 
     it('CASUALTY: a SECOND switch is refused while one is still running', async () => {
@@ -158,5 +174,38 @@ describe('the in-page model switch', () => {
         await switchCandidate('v4:distil:q4', INTERNAL);
         clearRuntimeCandidateOverride();
         expect(effectiveCandidate(undefined, INTERNAL, false).candidate.id).toBe(CANDIDATES['v2:base.en'].id);
+    });
+});
+
+describe('the switch refuses to report success for a model that is not running', () => {
+    it('CASUALTY: a mismatch between requested and observed FAILS the switch', async () => {
+        // Initialising without throwing is not evidence the requested model is the one running. A
+        // resolver that quietly fell back completes just as cleanly, and reporting ok there hands the
+        // operator a take labelled with a model that never ran.
+        const e = executor(); registerSwitchExecutor(e);
+        e.useSelectionAsObserved = false;
+        e.observed = 'v2:base.en';
+
+        const out = await switchCandidate('moonshine:streaming-medium', INTERNAL);
+        expect(out).toMatchObject({ ok: false, code: 'identity_mismatch' });
+        expect(out.ok === false && out.reason).toMatch(/is running "v2:base.en"/);
+        // The engine is torn down rather than left running under a label we have refused.
+        expect(e.calls.filter((c) => c === 'teardown')).toHaveLength(2);
+    });
+
+    it('CASUALTY: an engine that published NOTHING is not a successful switch', async () => {
+        const e = executor(); registerSwitchExecutor(e);
+        e.useSelectionAsObserved = false;
+        e.observed = null;
+
+        const out = await switchCandidate('v4:distil:q4', INTERNAL);
+        expect(out).toMatchObject({ ok: false, code: 'identity_mismatch' });
+        expect(out.ok === false && out.reason).toMatch(/published no identity/);
+    });
+
+    it('POSITIVE CONTROL: agreement still reports success', async () => {
+        const e = executor(); registerSwitchExecutor(e);
+        const out = await switchCandidate('v4:distil:q4', INTERNAL);
+        expect(out).toEqual({ ok: true, candidate: 'v4:distil:q4' });
     });
 });

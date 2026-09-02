@@ -15,7 +15,7 @@ import { Result } from '@/services/transcription/modes/types';
 /**
  * Engine type identifier
  */
-export type EngineType = 'transformers-js' | 'transformers-js-v4' | 'mock' | 'native' | 'cloud' | 'native-browser' | 'assemblyai' | 'deepgram';
+export type EngineType = 'transformers-js' | 'transformers-js-v4' | 'moonshine-streaming' | 'mock' | 'native' | 'cloud' | 'native-browser' | 'assemblyai' | 'deepgram';
 
 /**
  * Callbacks for engine lifecycle events
