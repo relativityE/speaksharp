@@ -173,3 +173,71 @@ describe('READY requires the controller to have settled, not just the model', ()
     expect(readiness(ready(), 'v4:distil:q4', RELEASE)).toEqual({ ready: true, problems: [] });
   });
 });
+
+describe('the allowance resolves for EVERY arm being compared', () => {
+    const APP = 'https://speaksharp-public.vercel.app';
+    const at = (candidate, reqs) => auditEgress(reqs, { appOrigin: APP, observedCandidate: candidate });
+
+    it('CASUALTY: the self-hosted v2 arm resolves — a directory pinSource is not a JSON table', () => {
+        // This threw EISDIR and the caller turned it into an empty allowance. Failing closed is right;
+        // failing closed on one of the three models being compared is a broken tool, because every
+        // legitimate v2 model fetch would be reported as suspected egress.
+        const hits = at('v2:base.en', [{ url: `${APP}/models/whisper-base.en/config.json`, method: 'GET' }]);
+        expect(hits, 'a committed self-hosted asset is not egress').toEqual([]);
+    });
+
+    it('CASUALTY: the distil arm resolves — a bare-digest pin table is not an object table', () => {
+        // These produced `url: undefined`, so distil's allowance matched nothing.
+        const hits = at('v4:distil:q4', [{
+            url: 'https://huggingface.co/onnx-community/distil-small.en/resolve/main/config.json',
+            method: 'GET',
+        }]);
+        expect(hits).toEqual([]);
+    });
+
+    it('CASUALTY: one arm\'s assets are NOT allowed while another arm is running', () => {
+        // The allowance is per observed candidate. Moonshine weights fetched during a v2 session are not
+        // "a known model host" — they are a fetch the running arm has no reason to make.
+        const hits = at('v2:base.en', [{
+            url: 'https://download.moonshine.ai/model/medium-streaming-en/quantized_26_07_30/encoder.ort',
+            method: 'GET',
+        }]);
+        expect(hits).toHaveLength(1);
+    });
+
+    it('CASUALTY: a self-hosted asset path with a query is not the asset', () => {
+        const hits = at('v2:base.en', [{ url: `${APP}/models/whisper-base.en/config.json?leak=SECRET`, method: 'GET' }]);
+        expect(hits).toHaveLength(1);
+        expect(JSON.stringify(hits)).not.toContain('SECRET');
+    });
+});
+
+describe('same-origin queries and raw path identifiers', () => {
+    const APP = 'https://speaksharp-public.vercel.app';
+    const audit = (reqs) => auditEgress(reqs, { appOrigin: APP, observedCandidate: 'moonshine:streaming-medium' });
+
+    it('CASUALTY: a same-origin GET with a query string is flagged', () => {
+        // Allowed on path alone, `/api/log?transcript=...` passed as ordinary app traffic. No body is
+        // needed to move data, and the app's own domain is where it is least likely to be questioned.
+        const hits = audit([{ url: `${APP}/api/log?transcript=SECRET`, method: 'GET' }]);
+        expect(hits).toHaveLength(1);
+        expect(hits[0].category).toBe('same_origin_query');
+        expect(JSON.stringify(hits)).not.toContain('SECRET');
+    });
+
+    it('CASUALTY: identifiers inside the PATH are redacted, not just the query', () => {
+        // Retaining raw segments put session UUIDs into evidence via the path — the same
+        // re-identification the query redaction prevents, one component over.
+        const hits = audit([
+            { url: `${APP}/analytics/130bbc6c-5d89-465d-91e6-51f5a5951e34`, method: 'POST', hasPostData: true },
+        ]);
+        const s = JSON.stringify(hits);
+        expect(s).not.toContain('130bbc6c');
+        expect(hits[0].pathname).toBe('/analytics/:uuid');
+    });
+
+    it('route SHAPE survives redaction, so a finding stays actionable', () => {
+        const hits = audit([{ url: `${APP}/api/sessions/999999/audio`, method: 'POST', hasPostData: true }]);
+        expect(hits[0].pathname).toBe('/api/sessions/:id/audio');
+    });
+});

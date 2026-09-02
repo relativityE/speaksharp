@@ -1,4 +1,4 @@
-import { expectedAssetUrls } from './pinAuthority.mjs';
+import { expectedAssetUrls, expectedSameOriginAssetPaths } from './pinAuthority.mjs';
 /**
  * #1390 — the CDP OBSERVER for the three-model human comparison.
  *
@@ -128,14 +128,32 @@ export const DEFAULT_APP_PATHS = Object.freeze(['/assets/', '/api/', '/models/',
 // NOTE: '/' is deliberately NOT on this list. A '/' prefix matches every path, which would make the
 // same-origin rule vacuous while reading as an allowlist — the failure mode being closed here.
 
-/** Origin + path only. Query strings and fragments carry tokens; bodies and headers carry content. */
+/**
+ * Path segments that are IDENTIFIERS rather than route structure.
+ *
+ * Retaining raw segments put session UUIDs and similar ids into evidence via the path — the same
+ * re-identification the query redaction exists to prevent, arriving one component over. Route shape is
+ * what makes a finding actionable; the id inside it is not.
+ */
+function redactPath(pathname) {
+    return pathname.split('/').map((segment) => {
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segment)) return ':uuid';
+        if (/^[0-9a-f]{16,}$/i.test(segment)) return ':hex';
+        if (/^\d{4,}$/.test(segment)) return ':id';
+        // A long opaque segment is an identifier often enough that keeping it is the riskier default.
+        if (segment.length > 40) return ':opaque';
+        return segment;
+    }).join('/');
+}
+
+/** Origin + redacted path only. Query strings and fragments carry tokens; bodies and headers carry content. */
 function safeRequestForEvidence(request, category) {
   let origin = null;
   let pathname = null;
   try {
     const u = new URL(request.url);
     origin = u.origin;
-    pathname = u.pathname;
+    pathname = redactPath(u.pathname);
   } catch { /* an unparseable URL is reported as such, never echoed */ }
   return {
     origin,
@@ -182,8 +200,14 @@ export function auditEgress(requests, options = {}) {
   // An unattributable run gets an EMPTY allowance: if we cannot say which model ran, we cannot say which
   // downloads were legitimate, and guessing would let an unknown model's fetches pass as expected.
   let allowedUrls = new Set();
+  let allowedSameOriginAssets = new Set();
   if (observedCandidate) {
-    try { allowedUrls = expectedAssetUrls(observedCandidate); } catch { allowedUrls = new Set(); }
+    try {
+      allowedUrls = expectedAssetUrls(observedCandidate);
+      // The shipping v2 default is SELF-HOSTED: its assets are exact same-origin paths, not CDN URLs.
+      // Without these the v2 arm of a three-model comparison flags every legitimate model fetch.
+      allowedSameOriginAssets = expectedSameOriginAssetPaths(observedCandidate);
+    } catch { allowedUrls = new Set(); allowedSameOriginAssets = new Set(); }
   }
 
   let appO = null;
@@ -212,7 +236,14 @@ export function auditEgress(requests, options = {}) {
       // SAME-ORIGIN IS NOT A FREE PASS. The app's own domain is where exfiltration is cheapest to hide,
       // so a request must look like something the app is expected to do. Anything else is reported for a
       // human to judge rather than assumed benign.
+      // An EXACT self-hosted model asset, fetched read-only and carrying nothing extra.
+      if (allowedSameOriginAssets.has(url.pathname) && readOnly && url.search === '') return [];
+
       const expected = expectedSameOriginPaths.some((p) => url.pathname.startsWith(p));
+      // A QUERY STRING CARRIES DATA. Same-origin GETs were allowed on path alone, so
+      // `/api/log?transcript=...` passed as ordinary app traffic — no body required, and the app's own
+      // domain is exactly where that is least likely to be questioned.
+      if (expected && url.search !== '') return [safeRequestForEvidence(r, 'same_origin_query')];
       if (expected && !hasBody) return [];
       if (expected && hasBody) return [safeRequestForEvidence(r, 'same_origin_body')];
       return [safeRequestForEvidence(r, 'unknown_same_origin')];
