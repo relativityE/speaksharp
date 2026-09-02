@@ -80,6 +80,22 @@ describe('the object the service calls can actually record consent', () => {
 });
 
 describe('the caller signals finality, because the engine cannot infer it', () => {
+    it('CASUALTY: the PRIMARY terminal commit requests finalization', () => {
+        // `onStop()` calls `commitWholeUtteranceTranscript()` FIRST; `processAudio({ force: true })` runs
+        // only as a fallback when that commit yields an empty transcript. Marking finality on the
+        // fallback alone meant the normal path never requested it: a streaming engine returned its
+        // interim, PrivateWhisper stored it, and being non-empty the fallback was skipped — so the
+        // authoritative final pass never ran and trailing speech stayed missing on every ordinary take.
+        //
+        // This is a SOURCE assertion, and it is weaker than a behavioural one. See the limitation noted
+        // on the PR: the full PrivateWhisper lifecycle proof is not yet delivered.
+        const whisper = src(WHISPER);
+        const at = whisper.indexOf('private async commitWholeUtteranceTranscript(');
+        const commit = whisper.slice(at, whisper.indexOf('const decodeMs', at) + 40);
+        expect(commit, 'the primary commit must send final: true')
+            .toMatch(/privateSTT\.transcribe\(audio,\s*\{\s*final:\s*true\s*\}\)/);
+    });
+
     it('CASUALTY: processAudio passes its `force` through as `final`', () => {
         // The engine sees a Float32Array either way. `processAudio({ force: true })` is the stop-commit
         // and every other call is a live window, so the caller is the only place that knows. Dropping

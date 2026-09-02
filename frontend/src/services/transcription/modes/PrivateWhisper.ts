@@ -2425,7 +2425,14 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // Branch 2: finalize preprocessing (concat + energy + audio capture) before the model call.
     this.finalizePrepMs = Number((decodeStartedAtMs - commitEnteredAtMs).toFixed(1));
     this.publishPrivateTiming();
-    const result = await this.privateSTT.transcribe(audio);
+    // THE PRIMARY TERMINAL COMMIT. `onStop()` calls this first; `processAudio({ force: true })` runs
+    // only as a FALLBACK when this produces an empty transcript. Marking finality on the fallback alone
+    // meant the normal path never requested it: a streaming engine returned its interim, this stored it,
+    // and -- being non-empty -- the fallback was skipped and the authoritative final pass never ran.
+    // Trailing speech stayed missing on every ordinary take.
+    //
+    // Finality is a property of THIS call, not of the `force` flag on an unrelated one.
+    const result = await this.privateSTT.transcribe(audio, { final: true });
     const decodeMs = Number((performance.now() - decodeStartedAtMs).toFixed(1));
     // Branch 3: the model decode itself.
     this.finalizeDecodeMs = decodeMs;
