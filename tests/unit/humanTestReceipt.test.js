@@ -21,7 +21,7 @@ const base = (over = {}) => ({
     probe: goodProbe(), expectedCandidate: CANDIDATE, expectedRelease: RELEASE,
     payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'],
     appOrigin: APP,
-    workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true },
+    workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0 },
     egress: [],
     ...over,
 });

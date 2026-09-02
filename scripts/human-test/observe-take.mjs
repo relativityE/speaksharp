@@ -104,6 +104,11 @@ const main = async () => {
     const workerStats = {
         attached: 0, installed: 0, installFailures: 0, drained: 0, drainFailures: 0,
         mainTripwireInstalled: false,
+        // Network was enabled on the ROOT session only. A worker's own requests were therefore never
+        // reported, so a worker query-bearing GET -- data in the URL, no body for the payload audit to
+        // classify -- bypassed the request audit completely. Counted separately because "we tried" and
+        // "it is observing" are different claims.
+        networkEnabled: 0, networkFailures: 0,
     };
     const installedSessions = new Set();
 
@@ -111,6 +116,14 @@ const main = async () => {
         if (!/worker/i.test(targetInfo?.type ?? '')) return;
         workerSessions.add(sessionId);
         workerStats.attached += 1;
+        // NETWORK FIRST, and verified. Without it the worker's requests are invisible to the request
+        // audit no matter how good the payload tripwire is.
+        try {
+            await client.send('Network.enable', {}, sessionId);
+            workerStats.networkEnabled += 1;
+        } catch {
+            workerStats.networkFailures += 1;
+        }
         try {
             await client.send('Runtime.enable', {}, sessionId);
             const res = await client.send('Runtime.evaluate', { expression: PAYLOAD_TRIPWIRE }, sessionId);
@@ -133,9 +146,19 @@ const main = async () => {
     const phases = [];
     const notePhase = (p) => { if (!phases.includes(p)) phases.push(p); };
     let recordingStartedAt = null;
+    let persistedAt = null;
+    // How long to keep watching after save before giving up on a terminal state.
+    const POST_SAVE_GRACE_MS = 15_000;
 
-    client.on('Network.requestWillBeSent', ({ request }) => {
-        requests.push({ url: request.url, method: request.method, hasPostData: Boolean(request.hasPostData) });
+    client.on('Network.requestWillBeSent', ({ request }, sessionId) => {
+        requests.push({
+            url: request.url,
+            method: request.method,
+            hasPostData: Boolean(request.hasPostData),
+            // MAIN VERSUS WORKER, preserved. A finding that cannot say which context issued the request
+            // loses the distinction that matters most for this product.
+            context: sessionId && workerSessions.has(sessionId) ? 'worker' : 'main',
+        });
     });
     client.on('Network.webSocketCreated', ({ requestId, url }) => {
         socketsByRequest.set(requestId, { url, frameCount: 0, sentBinaryFrames: 0, receivedBinaryFrames: 0, byteCount: 0 });
@@ -219,7 +242,22 @@ const main = async () => {
             // computed at the end of the run described every record equally, including startup traffic.
             if (recordingStartedAt === null) recordingStartedAt = Date.now();
         }
-        if (probe?.sessionPersisted === 'true' || probe?.sessionPersisted === true) { notePhase('stop-save'); break; }
+        // PERSISTENCE IS NOT THE END OF THE TAKE. Breaking at the first `sessionPersisted` stopped
+        // observation before stop/save/cleanup reached its terminal state, so anything sent during
+        // teardown -- exactly when a "just upload the audio too" step would live -- was never seen, and
+        // the receipt covered only part of the lifecycle it claims to describe.
+        if (probe?.sessionPersisted === 'true' || probe?.sessionPersisted === true) {
+            notePhase('stop-save');
+            persistedAt = persistedAt ?? Date.now();
+        }
+        // Continue until the controller settles back to a terminal state, with a bounded grace period so
+        // a stuck teardown cannot hold the run open forever.
+        if (persistedAt !== null) {
+            const settled = probe?.runtimeState === 'READY' || probe?.runtimeState === 'IDLE'
+                || probe?.runtimeState === 'TERMINATED';
+            if (settled) { notePhase('terminal'); break; }
+            if (Date.now() - persistedAt > POST_SAVE_GRACE_MS) { notePhase('terminal-timeout'); break; }
+        }
         await new Promise((r) => setTimeout(r, 1000));
     }
 

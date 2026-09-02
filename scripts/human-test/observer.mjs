@@ -355,6 +355,11 @@ export function auditEgress(requests, options = {}) {
     // accounted for. Whether AUDIO went there is the payload audit's question, and it blocks audio to
     // these hosts exactly as it does anywhere else.
     if (EXPECTED_TELEMETRY_VENDORS.some((v) => v.match.test(url.hostname))) {
+      // RECOGNISED BY ORIGIN, BUT A QUERY IS NOT COVERED BY THAT. A query-bearing GET carries its data
+      // in the URL, so there is no body for the payload audit to classify -- being on the vendor list
+      // would have laundered it through on the destination alone. That is precisely the hole a vendor
+      // allowlist creates, arriving through the one exception we granted.
+      if (url.search !== '') return [safeRequestForEvidence(r, 'expected_vendor_query')];
       return [safeRequestForEvidence(r, 'expected_vendor')];
     }
 
@@ -427,6 +432,8 @@ export function auditSockets(sockets) {
 export const BLOCKING_EGRESS_CATEGORIES = Object.freeze([
   'unknown_same_origin', 'same_origin_query', 'off_origin_unrecognised', 'unparseable_target',
   'known_cloud_stt',
+  // A vendor's recognised ORIGIN does not account for data in the query string.
+  'expected_vendor_query',
 ]);
 
 export const PRIVACY_HOLD_CATEGORIES = Object.freeze([
@@ -498,6 +505,20 @@ export function receiptVerdict({
     }
     // The main document's tripwire is the other half. Its absence was never checked at all, so a run
     // where the page-level install silently failed reported no payloads and read as clean.
+    // NETWORK OBSERVATION PER WORKER. Enabling it on the root session says nothing about the workers,
+    // and a worker whose requests are unobserved can issue a query-bearing GET -- data in the URL, no
+    // body for the payload audit to classify -- that no audit ever sees. "We attached" is not "we are
+    // watching".
+    if (w.networkFailures > 0) {
+      problems.push(`${w.networkFailures} worker(s) could not have network observation enabled`);
+    }
+    if (w.attached > 0 && (w.networkEnabled ?? 0) === 0) {
+      problems.push(`${w.attached} worker(s) attached with no network observation; their requests are unaudited`);
+    }
+    if (w.attached > 0 && w.networkEnabled !== undefined && w.networkEnabled < w.installed) {
+      problems.push('fewer workers have network observation than have tripwires; some requests are unaudited');
+    }
+
     if (w.mainTripwireInstalled !== true) {
       problems.push('the main-document tripwire was not confirmed installed; payload observation is unproven');
     }
