@@ -477,7 +477,13 @@ export class MoonshineStreamingEngine implements STTStrategy {
         //
         // The committed transcript is returned instead. It is not a cache of this call's argument — it
         // is the result of decoding the same take, by the stream that actually heard it.
-        if (this.finalized && this.committed) {
+        //
+        // FINALIZATION IS THE AUTHORITY, NOT A NON-EMPTY STRING. This tested `finalized && committed`,
+        // so a take that legitimately committed an EMPTY transcript — silence, a mis-start, a user who
+        // said nothing — fell through to a fresh inference anyway. That is the exact case where a second
+        // decode is most likely to invent something out of noise, and the empty result was the honest
+        // one.
+        if (this.finalized) {
             return { isOk: true, data: this.committed };
         }
         if (!this.transcriber) {

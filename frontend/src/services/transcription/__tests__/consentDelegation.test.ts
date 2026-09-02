@@ -41,10 +41,33 @@ describe('the object the service calls can actually record consent', () => {
         expect(method.slice(0, 900)).toMatch(/privateSTT/);
     });
 
-    it('CASUALTY: a facade that cannot record consent is logged, not silently ignored', () => {
+    it('CASUALTY: a facade that cannot record consent THROWS rather than logging and continuing', () => {
+        // Returning void is not failing closed. Logging and continuing let TranscriptionService proceed
+        // to initialise the model as though consent had been saved: the download ran, nothing was
+        // persisted, and the next session asked again — every step reporting success while the user was
+        // stuck in a loop.
         const whisper = src(WHISPER);
-        const method = whisper.slice(whisper.indexOf('public grantModelConsent('), whisper.indexOf('public grantModelConsent(') + 900);
+        const at = whisper.indexOf('public grantModelConsent(');
+        const method = whisper.slice(at, at + 1600);
         expect(method).toMatch(/logger\.error/);
+        expect(method, 'a missing recorder must stop initialization, not be noted in a log')
+            .toMatch(/throw new Error\('STT_CONSENT_AUTHORITY_MISSING/);
+    });
+
+    it('CASUALTY: the SERVICE refuses to initialize when the strategy has no consent recorder', () => {
+        // `strategy.grantModelConsent?.()` no-ops when the method is absent entirely, so a strategy
+        // without a recorder proceeded to model initialization as though the decision had been saved.
+        // The wrapper's throw cannot help there — the call never reaches it.
+        const service = src(SERVICE);
+        const at = service.indexOf("if (availability.reason === 'CONSENT_REQUIRED')");
+        const block = service.slice(at, at + 1600);
+        expect(block).toMatch(/typeof strategy\.grantModelConsent !== 'function'/);
+        expect(block).toMatch(/STT_CONSENT_AUTHORITY_MISSING/);
+        expect(block, 'the refusal must be thrown, not logged').toMatch(/throw error/);
+        // The call itself is unconditional now; the guard above decides. Asserted on the CALL rather
+        // than by grepping for the old optional form, which also appears in the comment explaining it.
+        expect(block, 'the grant must be called unconditionally once the guard has passed')
+            .toMatch(/\n\s*strategy\.grantModelConsent\(\);/);
     });
 
     it('the engine still owns the receipt', () => {

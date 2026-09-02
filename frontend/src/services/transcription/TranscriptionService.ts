@@ -694,7 +694,23 @@ export default class TranscriptionService {
         // attempt would punish them for our failure.
         const strategy = this.strategy as { grantModelConsent?: () => void };
         if (availability.reason === 'CONSENT_REQUIRED') {
-          strategy.grantModelConsent?.();
+          // REQUIRED, NOT OPTIONAL. `strategy.grantModelConsent?.()` no-ops when the method is absent,
+          // so a strategy without a consent recorder proceeded to initialise the model as though the
+          // decision had been saved: the download ran, nothing was persisted, and the next session asked
+          // again. Every step reported success while the user was stuck in a loop.
+          //
+          // A build that cannot record a decision the user just made must stop, visibly and by name.
+          if (typeof strategy.grantModelConsent !== 'function') {
+            const error = TranscriptionError.engineFailure(
+              mode,
+              'STT_CONSENT_AUTHORITY_MISSING: consent cannot be recorded, so initialization must not proceed',
+            );
+            logger.error({ mode }, '[TranscriptionService] Strategy cannot record model consent; refusing to initialize');
+            this.fsm.transition({ type: 'ERROR_OCCURRED', error });
+            this.options.onStatusChange?.({ type: 'error', message: 'Private model consent could not be saved.' });
+            throw error;
+          }
+          strategy.grantModelConsent();
           // RE-ASK, DO NOT REUSE. The result above was computed BEFORE the grant, and the gate below
           // still reads it: recording consent and then failing on the stale pre-consent answer left a
           // first-time user unable to start at all — they clicked the button, we saved their decision,

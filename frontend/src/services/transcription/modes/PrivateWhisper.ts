@@ -911,10 +911,16 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   public grantModelConsent(): void {
     const engine = this.privateSTT as { grantModelConsent?: () => void };
     if (typeof engine.grantModelConsent !== 'function') {
-      // Loud, not silent: a facade that cannot record consent means the user is about to be asked
-      // forever, and that must not look like success.
+      // THROWS, because returning void is not failing closed. Logging and continuing let
+      // `TranscriptionService` proceed to initialise the model as though consent had been recorded —
+      // the download runs, nothing is persisted, and the next session asks again. The user is trapped
+      // in a loop that reports success at every step, which is precisely the shape the original defect
+      // had: a call that appears to work and records nothing.
+      //
+      // A missing consent recorder is a build that cannot honour a decision the user made. Stopping is
+      // the only honest response.
       logger.error({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] PrivateSTT facade does not expose grantModelConsent');
-      return;
+      throw new Error('STT_CONSENT_AUTHORITY_MISSING: consent cannot be recorded, so initialization must not proceed');
     }
     engine.grantModelConsent();
   }

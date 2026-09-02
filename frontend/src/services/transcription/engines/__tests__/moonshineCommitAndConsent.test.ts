@@ -73,6 +73,25 @@ describe('a finalized take is not decoded a second time', () => {
         expect(result.isOk && result.data).not.toBe('I think that is');
     });
 
+    it('CASUALTY: a finalized EMPTY transcript stays empty and runs no fresh inference', async () => {
+        // The authority was `finalized && committed`, so a take that legitimately committed an empty
+        // transcript — silence, a mis-start, a user who said nothing — fell through to a fresh decode
+        // anyway. That is exactly where a second inference is most likely to invent something out of
+        // noise, and the empty result was the honest one.
+        const { transcriber, decodes } = countingRuntime('', 'hallucinated words from silence');
+        const e = engineWith(transcriber);
+        await e.init();
+        await e.start(fakeMic());
+        await e.stop();
+
+        const before = decodes.fresh;
+        const result = await e.transcribe(audio(3));
+
+        expect(result.isOk).toBe(true);
+        expect(result.isOk && result.data, 'silence must stay silent').toBe('');
+        expect(decodes.fresh, 'no fresh stream may decode a finalized take').toBe(before);
+    });
+
     it('POSITIVE CONTROL: before finalization, transcribe still performs a real decode', async () => {
         // The fix must not turn the facade decode into a no-op for takes that have not been stopped.
         // No session was started, so the first stream this creates IS the decode under test.
