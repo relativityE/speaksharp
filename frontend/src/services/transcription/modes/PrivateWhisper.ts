@@ -1044,6 +1044,15 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.liveProvisionalTranscript = '';
     this.firstTranscriptAgreementRounds = 0;
     this.isStopping = false;
+    // START THE ENGINE'S OWN SESSION. This was never called, so a streaming engine never opened its
+    // live stream and every decode used a fresh standalone one -- the root cause beneath the whole
+    // finality effort. v2/v4 `onStart` is a log-only no-op, so delegating changes nothing for them.
+    try {
+      await this.privateSTT.start(mic, []);
+    } catch (error) {
+      logger.error({ error, sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] Engine start failed');
+      throw error;
+    }
     this.streamStartAtMs = performance.now();
     this.speechStartAtMs = null;
     this.retainedUtterancePrerollSamplesAtStart = 0;
@@ -2034,6 +2043,16 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         });
       }
     } finally {
+      // CLOSE THE ENGINE'S SESSION, after the terminal commit has finalized it. In the `finally` because
+      // a stream must not be left open when the commit throws. Ordering matters: the commit is the
+      // transcript authority and `finalizeSession` is idempotent, so this tears down without decoding
+      // again. Never called before, which is why a streaming engine's session was neither opened nor
+      // closed and the finality work could not take effect.
+      try {
+        await this.privateSTT.stop();
+      } catch (error) {
+        logger.warn({ error, sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] Engine stop failed');
+      }
       if (hasUtteranceToFinalize) {
         this.onStatusChange?.({ type: 'ready', message: 'Ready to record' });
       }

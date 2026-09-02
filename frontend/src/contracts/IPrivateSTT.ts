@@ -2,6 +2,7 @@ import type { CandidateId, SessionModelIdentity } from '../services/transcriptio
 import { EngineType } from './IPrivateSTTEngine';
 import { TranscriptionModeOptions, Result } from '../services/transcription/modes/types';
 import { AvailabilityResult } from '../services/transcription/STTStrategy';
+import type { MicStream } from '../services/transcription/utils/types';
 
 export interface PrivateSTTInitOptions extends TranscriptionModeOptions {
     forceEngine?: EngineType;
@@ -13,9 +14,14 @@ export interface IPrivateSTT {
     init(timeoutMs?: number): Promise<Result<void, Error>>;
 
     /**
-     * Start the underlying engine
+     * Start the underlying engine.
+     *
+     * TAKES THE MIC, because a streaming engine needs it to open its live session. This declared no
+     * parameters and `PrivateWhisper` never called it at all, so `MoonshineStreamingEngine.start()` never
+     * ran: no session stream was ever created, and every decode fell to the standalone fresh-stream path.
+     * The whole finality mechanism was inert in production for want of this call.
      */
-    start(): Promise<void>;
+    start(mic?: MicStream, userWords?: string[]): Promise<void>;
 
     /**
      * Stop the underlying engine

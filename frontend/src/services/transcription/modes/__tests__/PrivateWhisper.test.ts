@@ -27,6 +27,10 @@ const mocks = vi.hoisted(() => ({
     init: vi.fn(),
     checkAvailability: vi.fn(),
     transcribe: vi.fn(),
+    // The engine's own session lifecycle. PrivateWhisper never called these, so a streaming engine's
+    // live stream was never opened and every decode used a fresh standalone one.
+    engineStart: vi.fn(),
+    engineStop: vi.fn(),
     reset: vi.fn(),
     stop: vi.fn(),
     isMeaningfullySilent: vi.fn().mockReturnValue(false),
@@ -46,6 +50,8 @@ vi.mock('../../engines/PrivateSTT', () => {
         init: mocks.init,
         checkAvailability: mocks.checkAvailability,
         transcribe: mocks.transcribe,
+        start: mocks.engineStart,
+        stop: mocks.engineStop,
         getEngineType: vi.fn().mockReturnValue('transformers-js')
     }));
     return {
@@ -67,6 +73,8 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         mocks.init.mockReset();
         mocks.checkAvailability.mockReset();
         mocks.transcribe.mockReset();
+        mocks.engineStart.mockReset();
+        mocks.engineStop.mockReset();
         mocks.reset.mockReset();
         mocks.stop.mockReset();
         mocks.isMeaningfullySilent.mockReset();
@@ -133,6 +141,42 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         expect(mocks.transcribe).toHaveBeenCalled();
 
         await privateWhisper.stop();
+        vi.useRealTimers();
+    });
+
+    it('lifecycle: the engine session is started with the mic and stopped on Stop', async () => {
+        /**
+         * #1405 root cause. PrivateWhisper never called `privateSTT.start()` or `.stop()`, so
+         * `MoonshineStreamingEngine.start()` never ran, no live stream was ever created, and every decode
+         * fell to the standalone fresh-stream path. Three previous rounds of finality work were therefore
+         * inert in production: the branch they depended on could not be reached.
+         *
+         * v2/v4 `onStart` is a log-only no-op, so this delegation changes nothing for them.
+         */
+        vi.useFakeTimers();
+        mocks.transcribe.mockResolvedValue(Result.ok('text'));
+        await privateWhisper.init();
+
+        const mockMic: MicStream = {
+            state: 'ready',
+            sampleRate: PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+            onFrame: vi.fn(() => () => { }),
+            offFrame: vi.fn(),
+            stop: vi.fn(),
+            close: vi.fn(),
+            _mediaStream: new MediaStream(),
+        };
+
+        await privateWhisper.start(mockMic);
+        expect(mocks.engineStart, 'the engine session must be opened').toHaveBeenCalled();
+        // The MIC is what a streaming engine needs to open its session; starting without it would leave
+        // the engine unable to receive frames.
+        expect(mocks.engineStart.mock.calls[0][0]).toBe(mockMic);
+        expect(mocks.engineStop, 'nothing may close the session before Stop').not.toHaveBeenCalled();
+
+        await privateWhisper.stop();
+        expect(mocks.engineStop, 'the engine session must be closed on Stop').toHaveBeenCalled();
+
         vi.useRealTimers();
     });
 
