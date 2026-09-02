@@ -519,6 +519,27 @@ export function receiptVerdict({
       problems.push('fewer workers have network observation than have tripwires; some requests are unaudited');
     }
 
+    // A STABLE, COMPLETE SNAPSHOT. Individual counters could each look fine while the set was still
+    // being assembled: two workers attached, one enabled, one installed, zero failures purely because
+    // the second had not finished its setup yet. Requiring the counts to AGREE is what makes the
+    // snapshot a statement about the run rather than about when we happened to look.
+    if (w.setupPending) {
+      problems.push('worker setup was still pending when the receipt was written; observation is incomplete');
+    }
+    if (w.attached > 0 && !(w.attached === (w.networkEnabled ?? 0) && w.attached === w.installed)) {
+      problems.push(
+        `worker setup is uneven (attached ${w.attached}, network ${w.networkEnabled ?? 0}, `
+        + `instrumented ${w.installed}); some contexts were not fully observed`,
+      );
+    }
+    if (w.installed > 0 && w.drained !== w.installed) {
+      problems.push(`${w.installed - w.drained} instrumented worker(s) had no final readback`);
+    }
+    if (w.postSealCallbacks) {
+      // Evidence that arrived after the verdict cannot have informed it.
+      problems.push(`${w.postSealCallbacks} worker callback(s) fired after the receipt was sealed`);
+    }
+
     if (w.mainTripwireInstalled !== true) {
       problems.push('the main-document tripwire was not confirmed installed; payload observation is unproven');
     }
@@ -566,9 +587,27 @@ export function receiptVerdict({
     problems.push('request-level egress was not audited; unaccounted traffic cannot be ruled out');
   }
 
-  const required = ['pre-record', 'recording', 'stop-save'];
+  // TERMINAL IS REQUIRED, AND A TIMEOUT IS NOT IT. Observation continues past `sessionPersisted` until
+  // the controller settles, with a grace period so a stuck teardown cannot hold the run open forever --
+  // but the grace period expiring was recorded as a phase and then never checked, so a take whose
+  // teardown never completed still PASSED. Teardown is where a "just upload the audio too" step would
+  // live, so an unobserved one is missing evidence, not an absent finding.
+  //
+  // A timeout is a PROOF hold: we did not see enough. It is not a privacy hold -- nothing observed says
+  // audio left -- and conflating the two would either raise a false alarm or teach the operator to
+  // discount real ones.
+  const required = ['pre-record', 'recording', 'stop-save', 'terminal'];
   for (const phase of required) {
-    if (!(phases ?? []).includes(phase)) problems.push(`lifecycle phase "${phase}" was never observed`);
+    if (!(phases ?? []).includes(phase)) {
+      const message = `lifecycle phase "${phase}" was never observed`;
+      problems.push(message);
+      proofProblems.push(message);
+    }
+  }
+  if ((phases ?? []).includes('terminal-timeout')) {
+    const message = 'teardown never reached a terminal state before the grace period expired';
+    problems.push(message);
+    proofProblems.push(message);
   }
 
   return {

@@ -105,8 +105,8 @@ describe('the receipt holds on audio, not on traffic', () => {
     };
     const base = (over = {}) => ({
         probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
-        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
-        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0 },
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save', 'terminal'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
     egress: [],
         ...over,
     });
@@ -170,8 +170,8 @@ describe('worker instrumentation fails closed', () => {
     };
     const base = (over = {}) => ({
         probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
-        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
-        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0 },
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save', 'terminal'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
     egress: [],
         ...over,
     });
@@ -181,7 +181,7 @@ describe('worker instrumentation fails closed', () => {
         // nowhere. A run where every install failed looked identical to a run where nothing was sent —
         // and the second is the claim being made.
         const out = receiptVerdict(base({
-            workerInstrumentation: { attached: 1, installed: 0, installFailures: 1, drained: 0, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0 },
+            workerInstrumentation: { attached: 1, installed: 0, installFailures: 1, drained: 0, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
         }));
         expect(out.verdict).toBe('HOLD');
         expect(out.problems.join(' ')).toMatch(/install\(s\) failed/);
@@ -189,7 +189,7 @@ describe('worker instrumentation fails closed', () => {
 
     it('CASUALTY: workers attached but none instrumented is HOLD', () => {
         const out = receiptVerdict(base({
-            workerInstrumentation: { attached: 2, installed: 0, installFailures: 0, drained: 0, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0 },
+            workerInstrumentation: { attached: 2, installed: 0, installFailures: 0, drained: 0, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
         }));
         expect(out.verdict).toBe('HOLD');
         expect(out.problems.join(' ')).toMatch(/attached but none were instrumented/);
@@ -197,7 +197,7 @@ describe('worker instrumentation fails closed', () => {
 
     it('CASUALTY: an unreadable worker is HOLD', () => {
         const out = receiptVerdict(base({
-            workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 0, drainFailures: 1, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0 },
+            workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 0, drainFailures: 1, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
         }));
         expect(out.verdict).toBe('HOLD');
         expect(out.problems.join(' ')).toMatch(/could not be read back/);
@@ -221,7 +221,7 @@ describe('worker instrumentation fails closed', () => {
         // happened, and the guard only fired when workers had attached — so a run that attached nothing
         // sailed through with zero problems.
         const out = receiptVerdict(base({
-            workerInstrumentation: { attached: 0, installed: 0, installFailures: 0, drained: 0, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0 },
+            workerInstrumentation: { attached: 0, installed: 0, installFailures: 0, drained: 0, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
         }));
         expect(out.verdict).toBe('HOLD');
         expect(out.problems.join(' ')).toMatch(/the context that holds PCM was not observed/);
@@ -231,7 +231,7 @@ describe('worker instrumentation fails closed', () => {
         // An absent installer and a page that sent nothing produce identical evidence — an empty payload
         // list — and only one of them is a clean run. Its presence was never checked at all.
         const out = receiptVerdict(base({
-            workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: false, networkEnabled: 1, networkFailures: 0 },
+            workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: false, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
         }));
         expect(out.verdict).toBe('HOLD');
         expect(out.problems.join(' ')).toMatch(/main-document tripwire was not confirmed/);
@@ -268,8 +268,8 @@ describe('socket direction is not symmetric', () => {
     };
     const base = (over = {}) => ({
         probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
-        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
-        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0 },
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save', 'terminal'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
     egress: [],
         ...over,
     });
@@ -301,8 +301,8 @@ describe('captured audio outlives the RECORDING state', () => {
     };
     const base = (over = {}) => ({
         probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
-        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
-        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0 },
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save', 'terminal'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
     egress: [],
         ...over,
     });
@@ -353,8 +353,8 @@ describe('the request-level audit reaches the verdict', () => {
     };
     const base = (over = {}) => ({
         probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
-        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
-        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0 },
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save', 'terminal'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
         egress: [],
         ...over,
     });
@@ -391,8 +391,8 @@ describe('a read that fails is not a read that found nothing', () => {
     };
     const base = (over = {}) => ({
         probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
-        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
-        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0 },
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save', 'terminal'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
         egress: [],
         ...over,
     });
@@ -429,7 +429,7 @@ describe('a read that fails is not a read that found nothing', () => {
         expect(receiptVerdict(base({
             workerInstrumentation: {
                 attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0,
-                mainTripwireInstalled: true, mainReadOk: true, networkEnabled: 1, networkFailures: 0,
+                mainTripwireInstalled: true, mainReadOk: true, networkEnabled: 1, networkFailures: 0, setupPending: 0,
             },
         })).verdict).toBe('PASS');
     });
@@ -443,8 +443,8 @@ describe('the receipt says WHY it held', () => {
     };
     const base = (over = {}) => ({
         probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
-        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
-        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, mainReadOk: true, networkEnabled: 1, networkFailures: 0 },
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save', 'terminal'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, mainReadOk: true, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
         egress: [],
         ...over,
     });
@@ -464,7 +464,7 @@ describe('the receipt says WHY it held', () => {
         // right response. Collapsing the two invites a run of proof holds to be read as a privacy
         // problem, or a privacy hold to be dismissed as flaky instrumentation.
         const out = receiptVerdict(base({
-            workerInstrumentation: { attached: 1, installed: 0, installFailures: 1, drained: 0, drainFailures: 0, mainTripwireInstalled: true, mainReadOk: true, networkEnabled: 1, networkFailures: 0 },
+            workerInstrumentation: { attached: 1, installed: 0, installFailures: 1, drained: 0, drainFailures: 0, mainTripwireInstalled: true, mainReadOk: true, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
         }));
         expect(out.verdict).toBe('HOLD');
         expect(out.holdKind).toBe('proof');
@@ -482,7 +482,7 @@ describe('the receipt says WHY it held', () => {
         // If audio may have left, that is the headline regardless of what else went wrong.
         const out = receiptVerdict(base({
             payloads: [rec({ url: 'https://vendor.example/u', kind: 'audio', bytes: 10 })],
-            workerInstrumentation: { attached: 1, installed: 0, installFailures: 1, drained: 0, drainFailures: 0, mainTripwireInstalled: true, mainReadOk: true, networkEnabled: 1, networkFailures: 0 },
+            workerInstrumentation: { attached: 1, installed: 0, installFailures: 1, drained: 0, drainFailures: 0, mainTripwireInstalled: true, mainReadOk: true, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
         }));
         expect(out.holdKind).toBe('privacy');
         expect(out.proofProblems.length).toBeGreaterThan(0);
@@ -516,8 +516,8 @@ describe('the COMBINED path: a real ordinary take passes both audits', () => {
      */
     const receiptFor = (requests, payloads, recordingStartedAt = START) => receiptVerdict({
         probe, expectedCandidate: CANDIDATE, expectedRelease: 'r1',
-        payloads, sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
-        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, mainReadOk: true, networkEnabled: 1, networkFailures: 0 },
+        payloads, sockets: [], phases: ['pre-record', 'recording', 'stop-save', 'terminal'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, mainReadOk: true, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
         egress: auditEgress(requests, { appOrigin: APP, observedCandidate: CANDIDATE }),
         recordingStartedAt,
     });
@@ -573,8 +573,8 @@ describe('recording time is per-record, not per-run', () => {
     const START = 2_000_000;
     const base = (over = {}) => ({
         probe, expectedCandidate: CANDIDATE, expectedRelease: 'r1',
-        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
-        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, mainReadOk: true, networkEnabled: 1, networkFailures: 0 },
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save', 'terminal'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, mainReadOk: true, networkEnabled: 1, networkFailures: 0, setupPending: 0 },
         egress: [], recordingStartedAt: START, ...over,
     });
 
@@ -615,11 +615,11 @@ describe('worker requests are observed, and origin alone launders nothing', () =
     };
     const WORKERS_OK = {
         attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0,
-        mainTripwireInstalled: true, mainReadOk: true, networkEnabled: 1, networkFailures: 0,
+        mainTripwireInstalled: true, mainReadOk: true, networkEnabled: 1, networkFailures: 0, setupPending: 0,
     };
     const receiptFor = (requests, over = {}) => receiptVerdict({
         probe, expectedCandidate: CANDIDATE, expectedRelease: 'r1',
-        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save', 'terminal'], appOrigin: APP,
         workerInstrumentation: WORKERS_OK,
         egress: auditEgress(requests, { appOrigin: APP, observedCandidate: CANDIDATE }),
         recordingStartedAt: 1_000, ...over,
@@ -683,7 +683,7 @@ describe('worker requests are observed, and origin alone launders nothing', () =
         const out = receiptVerdict({
             probe, expectedCandidate: CANDIDATE, expectedRelease: 'r1',
             payloads: [rec({ url: 'https://us.i.posthog.com/e/', kind: 'audio', mime: 'audio/webm', bytes: 400_000, t: 2_000 })],
-            sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
+            sockets: [], phases: ['pre-record', 'recording', 'stop-save', 'terminal'], appOrigin: APP,
             workerInstrumentation: WORKERS_OK, egress: [], recordingStartedAt: 1_000,
         });
         expect(out.holdKind).toBe('privacy');
@@ -700,5 +700,84 @@ describe('worker requests are observed, and origin alone launders nothing', () =
         });
         expect(out.verdict, 'post-save opaque bytes must still be judged').toBe('HOLD');
         expect(out.holdKind).toBe('privacy');
+    });
+});
+
+describe('a take must reach terminal, and every worker must finish being observed', () => {
+    const CANDIDATE = 'moonshine:streaming-medium';
+    const probe = {
+        release: 'r1', requestedCandidate: CANDIDATE, observedCandidate: CANDIDATE,
+        identityMatches: true, modelStatus: 'ready', runtimeState: 'READY',
+    };
+    const COMPLETE = {
+        attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0,
+        mainTripwireInstalled: true, mainReadOk: true, networkEnabled: 1, networkFailures: 0,
+        setupPending: 0,
+    };
+    const base = (over = {}) => ({
+        probe, expectedCandidate: CANDIDATE, expectedRelease: 'r1',
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save', 'terminal'],
+        appOrigin: APP, workerInstrumentation: COMPLETE, egress: [], recordingStartedAt: 1_000, ...over,
+    });
+
+    it('CASUALTY: clean audits and persistence but NO terminal state is a proof HOLD', () => {
+        // Observation continues past `sessionPersisted` until the controller settles, but the grace
+        // period expiring was recorded as a phase and never checked — so a take whose teardown never
+        // completed still PASSED. Teardown is where a "just upload the audio too" step would live, so an
+        // unobserved one is missing evidence, not an absent finding.
+        const out = receiptVerdict(base({ phases: ['pre-record', 'recording', 'stop-save'] }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.holdKind, 'nothing observed says audio left').toBe('proof');
+        expect(out.problems.join(' ')).toMatch(/"terminal" was never observed/);
+    });
+
+    it('CASUALTY: a terminal TIMEOUT is a named proof HOLD, not a pass', () => {
+        const out = receiptVerdict(base({
+            phases: ['pre-record', 'recording', 'stop-save', 'terminal-timeout'],
+        }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.holdKind).toBe('proof');
+        expect(out.problems.join(' ')).toMatch(/never reached a terminal state before the grace period/);
+    });
+
+    it('CASUALTY: two workers attached but only one completed is a proof HOLD', () => {
+        // The un-awaited attach handler incremented `attached` immediately while setup was still in
+        // flight, so every counter could look consistent purely because the second worker had not
+        // finished. Requiring them to AGREE makes the snapshot a statement about the run.
+        const out = receiptVerdict(base({
+            workerInstrumentation: { ...COMPLETE, attached: 2, networkEnabled: 1, installed: 1, drained: 1 },
+        }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/worker setup is uneven/);
+    });
+
+    it('CASUALTY: worker setup still PENDING when the receipt is written is a proof HOLD', () => {
+        const out = receiptVerdict(base({ workerInstrumentation: { ...COMPLETE, setupPending: 1 } }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/still pending when the receipt was written/);
+    });
+
+    it('CASUALTY: an instrumented worker with no final readback is a proof HOLD', () => {
+        const out = receiptVerdict(base({
+            workerInstrumentation: { ...COMPLETE, attached: 2, networkEnabled: 2, installed: 2, drained: 1 },
+        }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/no final readback/);
+    });
+
+    it('CASUALTY: a worker callback after the receipt is sealed is reported', () => {
+        // Evidence arriving after the verdict cannot have informed it, and folding it in silently would
+        // make the receipt describe a moment that never existed.
+        const out = receiptVerdict(base({ workerInstrumentation: { ...COMPLETE, postSealCallbacks: 1 } }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/after the receipt was sealed/);
+    });
+
+    it('POSITIVE CONTROL: authoritative terminal plus every worker fully observed is eligible for PASS', () => {
+        const out = receiptVerdict(base({
+            workerInstrumentation: { ...COMPLETE, attached: 2, networkEnabled: 2, installed: 2, drained: 2 },
+        }));
+        expect(out.verdict).toBe('PASS');
+        expect(out.holdKind).toBeNull();
     });
 });

@@ -111,11 +111,26 @@ const main = async () => {
         networkEnabled: 0, networkFailures: 0,
     };
     const installedSessions = new Set();
+    // EVERY SETUP IS TRACKED AS A PROMISE. `Target.attachedToTarget` is an event handler: CDP does not
+    // await it, so `attached` incremented immediately while Network/Runtime setup was still pending. The
+    // receipt could then be written from a partial snapshot -- two workers attached, one enabled, one
+    // installed, zero failures because the second was simply not finished yet -- and every guard passed
+    // on a count that was still moving.
+    const workerSetups = [];
+    let receiptSealed = false;
 
-    client.on('Target.attachedToTarget', async ({ sessionId, targetInfo }) => {
+    client.on('Target.attachedToTarget', ({ sessionId, targetInfo }) => {
         if (!/worker/i.test(targetInfo?.type ?? '')) return;
         workerSessions.add(sessionId);
         workerStats.attached += 1;
+        workerSetups.push(setUpWorker(sessionId));
+    });
+
+    async function setUpWorker(sessionId) {
+        // Nothing a worker reports after the receipt is sealed may change it: evidence that arrives
+        // after the verdict cannot have informed it, and silently folding it in would make the receipt
+        // describe a moment that never existed.
+        if (receiptSealed) { workerStats.postSealCallbacks = (workerStats.postSealCallbacks ?? 0) + 1; return; }
         // NETWORK FIRST, and verified. Without it the worker's requests are invisible to the request
         // audit no matter how good the payload tripwire is.
         try {
@@ -136,7 +151,7 @@ const main = async () => {
             workerStats.installFailures += 1;
         }
         try { await client.send('Runtime.runIfWaitingForDebugger', {}, sessionId); } catch { /* already running */ }
-    });
+    }
     await client.send('Target.setAutoAttach', {
         autoAttach: true, waitForDebuggerOnStart: true, flatten: true,
     });
@@ -292,7 +307,25 @@ const main = async () => {
         workerStats.mainReadOk = mainReadOk;
     } catch { workerStats.mainTripwireInstalled = false; workerStats.mainReadOk = false; }
 
+    // AWAIT EVERY WORKER SETUP BEFORE READING EVIDENCE, bounded so one that never finishes cannot hold
+    // the run open. `Target.attachedToTarget` is an event handler and CDP does not await it, so
+    // `attached` incremented immediately while Network/Runtime setup was still in flight: the receipt
+    // could be written from a snapshot that was still moving -- two attached, one enabled, one
+    // installed, zero failures only because the second had not finished. A setup still pending here is
+    // unfinished observation, not an absent finding.
+    const SETUP_GRACE_MS = 10_000;
+    let settleTimer;
+    const stillPending = await Promise.race([
+        Promise.allSettled(workerSetups).then(() => false),
+        new Promise((resolve) => { settleTimer = setTimeout(() => resolve(true), SETUP_GRACE_MS); }),
+    ]);
+    clearTimeout(settleTimer);
+    workerStats.setupPending = stillPending ? 1 : 0;
+
     await drainWorkers();
+    // SEALED. Anything a worker reports from here cannot have informed the verdict, and folding it in
+    // silently would make the receipt describe a moment that never existed.
+    receiptSealed = true;
     workerStats.drained = [...drainStatus.values()].filter(Boolean).length;
     workerStats.drainFailures = installedSessions.size - workerStats.drained;
     for (const records of workerRecords.values()) {
