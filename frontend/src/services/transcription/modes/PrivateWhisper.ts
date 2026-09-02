@@ -896,6 +896,29 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[PrivateWhisper] Initialized (dual-engine facade).');
   }
 
+  /**
+   * DELEGATED, because the consent lives on the engine and the caller holds this wrapper.
+   *
+   * `TranscriptionService` records consent with `strategy.grantModelConsent?.()`, and `strategy` is this
+   * mode wrapper — which did not have the method. The optional call resolved to `undefined` and did
+   * nothing, so the receipt was never written and Moonshine asked for consent again on every single
+   * attempt: the user granted it, the download started, and the next session asked once more.
+   *
+   * Exactly the `destroy?.()` shape from the engine work — an optional call to a method that does not
+   * exist on the object at hand, silently succeeding. It sits right beside `checkAvailability`, which
+   * delegates the very question this answers.
+   */
+  public grantModelConsent(): void {
+    const engine = this.privateSTT as { grantModelConsent?: () => void };
+    if (typeof engine.grantModelConsent !== 'function') {
+      // Loud, not silent: a facade that cannot record consent means the user is about to be asked
+      // forever, and that must not look like success.
+      logger.error({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] PrivateSTT facade does not expose grantModelConsent');
+      return;
+    }
+    engine.grantModelConsent();
+  }
+
   public async checkAvailability(): Promise<import('../STTStrategy').AvailabilityResult> {
     if (typeof this.privateSTT.checkAvailability === 'function') {
       return this.privateSTT.checkAvailability();

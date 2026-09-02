@@ -465,6 +465,21 @@ export class MoonshineStreamingEngine implements STTStrategy {
      * stream keeps the whole-buffer decode isolated and cannot carry state into the next session.
      */
     async transcribe(audio: Float32Array): Promise<Result<string, Error>> {
+        // A FINALIZED SESSION IS ALREADY DECODED. `stop()` runs the forced final pass over the session
+        // stream and commits the result; `PrivateWhisper` then calls this to commit the utterance. On a
+        // streaming arch that meant the SAME audio was inferred twice — once by the session stream that
+        // had heard the whole take, and again on a fresh stream built from the processed buffer.
+        //
+        // The second result wins, and it is the weaker one: a stream that has just been handed a buffer
+        // has none of the session's accumulated state, so trailing words the session had already
+        // committed can come back missing. The user sees the end of their sentence disappear, and it
+        // reads as the model dropping words rather than as the pipeline decoding twice.
+        //
+        // The committed transcript is returned instead. It is not a cache of this call's argument — it
+        // is the result of decoding the same take, by the stream that actually heard it.
+        if (this.finalized && this.committed) {
+            return { isOk: true, data: this.committed };
+        }
         if (!this.transcriber) {
             const err = new Error('Cannot transcribe before a successful init');
             this.recordFailure('decode', err.message);
