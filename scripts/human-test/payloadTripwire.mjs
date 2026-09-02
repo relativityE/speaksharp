@@ -77,6 +77,9 @@ export const PAYLOAD_TRIPWIRE = `(() => {
     try {
       const c = classify(body);
       records.push({
+        // WHEN, so "during the take" can be decided per record rather than for the whole run. Without
+        // it a single end-of-run flag applied retroactively to startup traffic.
+        t: Date.now(),
         transport,
         url: String(url || ''),
         method: String(method || 'GET').toUpperCase(),

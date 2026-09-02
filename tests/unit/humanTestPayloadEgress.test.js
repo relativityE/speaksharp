@@ -11,7 +11,9 @@
  * PAYLOAD.
  */
 import { describe, it, expect } from 'vitest';
-import { auditPayloads, receiptVerdict, BLOCKING_PAYLOAD_CATEGORIES } from '../../scripts/human-test/observer.mjs';
+import {
+  auditEgress, auditPayloads, receiptVerdict, BLOCKING_PAYLOAD_CATEGORIES,
+} from '../../scripts/human-test/observer.mjs';
 
 const APP = 'https://speaksharp-public.vercel.app';
 const audit = (records) => auditPayloads(records, { appOrigin: APP });
@@ -315,8 +317,11 @@ describe('captured audio outlives the RECORDING state', () => {
     });
 
     it('CASUALTY: opaque binary AFTER the state returns to READY still holds once a take has been recorded', () => {
+        // Placed by TIMESTAMP relative to when recording began, not by a run-wide flag: the record is
+        // after the take started, so captured audio existed when it was sent.
         const out = receiptVerdict(base({
-            payloads: [rec({ url: `${APP}/api/save`, kind: 'opaque_stream', bytes: -1, runtimeState: 'READY' })],
+            recordingStartedAt: 1_000,
+            payloads: [rec({ url: `${APP}/api/save`, kind: 'opaque_stream', bytes: -1, runtimeState: 'READY', t: 2_000 })],
         }));
         expect(out.verdict).toBe('HOLD');
     });
@@ -326,7 +331,8 @@ describe('captured audio outlives the RECORDING state', () => {
         // startup traffic and teach the operator to skim.
         const out = receiptVerdict(base({
             phases: ['pre-record'],
-            payloads: [rec({ url: `${APP}/api/x`, kind: 'binary', bytes: 90_000, runtimeState: 'READY' })],
+            recordingStartedAt: null,
+            payloads: [rec({ url: `${APP}/api/x`, kind: 'binary', bytes: 90_000, runtimeState: 'READY', t: 500 })],
         }));
         expect(out.problems.filter((p) => /binary|audio/.test(p))).toEqual([]);
     });
@@ -491,5 +497,112 @@ describe('the receipt says WHY it held', () => {
         }));
         expect(out.verdict).toBe('PASS');
         expect(out.holdKind).toBeNull();
+    });
+});
+
+describe('the COMBINED path: a real ordinary take passes both audits', () => {
+    const CANDIDATE = 'moonshine:streaming-medium';
+    const probe = {
+        release: 'r1', requestedCandidate: CANDIDATE, observedCandidate: CANDIDATE,
+        identityMatches: true, modelStatus: 'ready', runtimeState: 'READY',
+    };
+    const START = 1_000_000;
+
+    /**
+     * Builds the receipt from REAL audits over the same traffic, rather than supplying `egress: []`.
+     * Every positive control until now stubbed the request audit out, so none of them exercised the
+     * integration the false HOLD lived in — the assertions were correct and positioned where the
+     * failure could not reach them.
+     */
+    const receiptFor = (requests, payloads, recordingStartedAt = START) => receiptVerdict({
+        probe, expectedCandidate: CANDIDATE, expectedRelease: 'r1',
+        payloads, sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, mainReadOk: true },
+        egress: auditEgress(requests, { appOrigin: APP, observedCandidate: CANDIDATE }),
+        recordingStartedAt,
+    });
+
+    it('POSITIVE CONTROL: transcript persistence and vendor traffic pass BOTH audits', () => {
+        // `auditEgress` knows only WHERE a request went, so it necessarily flags the transcript JSON we
+        // deliberately persist and every Sentry/PostHog POST as bodies going somewhere. Blocking on that
+        // reintroduced the exact false HOLD the payload work removed — and a check that holds every
+        // valid take is one that gets switched off.
+        const out = receiptFor(
+            [
+                { url: `${APP}/api/sessions`, method: 'POST', hasPostData: true },
+                { url: 'https://o1.ingest.us.sentry.io/api/envelope', method: 'POST', hasPostData: true },
+                { url: 'https://us.i.posthog.com/e/', method: 'POST', hasPostData: true },
+                { url: 'https://us-assets.i.posthog.com/static/array.js', method: 'GET' },
+                { url: `${APP}/assets/index.js`, method: 'GET' },
+            ],
+            [
+                rec({ url: `${APP}/api/sessions`, kind: 'json', bytes: 12_000, runtimeState: 'STOPPING', t: START + 500 }),
+                rec({ url: 'https://o1.ingest.us.sentry.io/api/envelope', kind: 'text', bytes: 800, t: START + 10 }),
+                rec({ url: 'https://us.i.posthog.com/e/', kind: 'json', bytes: 400, t: START + 20 }),
+            ],
+        );
+        expect(out.problems).toEqual([]);
+        expect(out.verdict).toBe('PASS');
+        expect(out.holdKind).toBeNull();
+    });
+
+    it('CASUALTY: a genuinely unknown destination still holds through the combined path', () => {
+        const out = receiptFor([{ url: 'https://unknown.example/collect', method: 'GET' }], []);
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/off_origin_unrecognised/);
+    });
+
+    it('CASUALTY: audio to an EXPECTED vendor still holds — recognised is not trusted', () => {
+        // The request audit accounts for the destination; whether audio went there is the payload
+        // audit's question, and being on the vendor list changes nothing about that.
+        const out = receiptFor(
+            [{ url: 'https://us.i.posthog.com/e/', method: 'POST', hasPostData: true }],
+            [rec({ url: 'https://us.i.posthog.com/e/', kind: 'audio', mime: 'audio/webm', bytes: 480_000, t: START + 5 })],
+        );
+        expect(out.verdict).toBe('HOLD');
+        expect(out.holdKind).toBe('privacy');
+    });
+});
+
+describe('recording time is per-record, not per-run', () => {
+    const CANDIDATE = 'moonshine:streaming-medium';
+    const probe = {
+        release: 'r1', requestedCandidate: CANDIDATE, observedCandidate: CANDIDATE,
+        identityMatches: true, modelStatus: 'ready', runtimeState: 'READY',
+    };
+    const START = 2_000_000;
+    const base = (over = {}) => ({
+        probe, expectedCandidate: CANDIDATE, expectedRelease: 'r1',
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, mainReadOk: true },
+        egress: [], recordingStartedAt: START, ...over,
+    });
+
+    it('CASUALTY: a STARTUP opaque request in a run that later records is NOT a privacy hold', () => {
+        // `recordingBegun` was one flag computed at the end of the run and applied to every retained
+        // record, so a request sent before any recording — when no captured audio existed — was judged
+        // as during-take. That is a false PRIVACY hold: it accuses the product of leaking audio it did
+        // not have. The earlier positive control could not catch it, because it used a run whose phases
+        // never included 'recording' at all.
+        const out = receiptVerdict(base({
+            payloads: [rec({ url: `${APP}/api/x`, kind: 'binary', bytes: 90_000, runtimeState: 'READY', t: START - 5_000 })],
+        }));
+        expect(out.verdict).toBe('PASS');
+        expect(out.holdKind).toBeNull();
+    });
+
+    it('CASUALTY: the same request AFTER recording began is a privacy hold', () => {
+        const out = receiptVerdict(base({
+            payloads: [rec({ url: `${APP}/api/x`, kind: 'binary', bytes: 90_000, runtimeState: 'READY', t: START + 5_000 })],
+        }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.holdKind).toBe('privacy');
+    });
+
+    it('a record that reports STOPPING is during the take regardless of its timestamp', () => {
+        const out = receiptVerdict(base({
+            payloads: [rec({ url: `${APP}/api/x`, kind: 'binary', bytes: 10, runtimeState: 'STOPPING', t: START - 1 })],
+        }));
+        expect(out.holdKind).toBe('privacy');
     });
 });

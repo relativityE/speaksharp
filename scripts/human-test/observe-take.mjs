@@ -132,6 +132,7 @@ const main = async () => {
     const socketsByRequest = new Map();
     const phases = [];
     const notePhase = (p) => { if (!phases.includes(p)) phases.push(p); };
+    let recordingStartedAt = null;
 
     client.on('Network.requestWillBeSent', ({ request }) => {
         requests.push({ url: request.url, method: request.method, hasPostData: Boolean(request.hasPostData) });
@@ -212,7 +213,12 @@ const main = async () => {
     while (Date.now() < deadline) {
         probe = await probeOnce();
         await drainWorkers();
-        if (probe?.runtimeState === 'RECORDING') notePhase('recording');
+        if (probe?.runtimeState === 'RECORDING') {
+            notePhase('recording');
+            // The MOMENT recording began, so a payload can be placed before or after it. A single flag
+            // computed at the end of the run described every record equally, including startup traffic.
+            if (recordingStartedAt === null) recordingStartedAt = Date.now();
+        }
         if (probe?.sessionPersisted === 'true' || probe?.sessionPersisted === true) { notePhase('stop-save'); break; }
         await new Promise((r) => setTimeout(r, 1000));
     }
@@ -273,6 +279,7 @@ const main = async () => {
         ...receiptVerdict({
             probe, expectedCandidate: CANDIDATE, expectedRelease: RELEASE,
             payloads, sockets, phases, appOrigin: APP, workerInstrumentation: workerStats, egress,
+            recordingStartedAt,
         }),
         capturedAt: new Date().toISOString(),
         expectedCandidate: CANDIDATE,

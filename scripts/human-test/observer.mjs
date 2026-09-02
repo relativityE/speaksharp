@@ -149,6 +149,11 @@ export const KNOWN_CLOUD_STT = Object.freeze([
   /(^|\.)openai\.com$/i,
 ]);
 
+export const EXPECTED_TELEMETRY_VENDORS = Object.freeze([
+  { match: /(^|\.)sentry\.io$/i, name: 'sentry' },
+  { match: /(^|\.)posthog\.com$/i, name: 'posthog' },
+]);
+
 const SAFE_ASSET_METHODS = new Set(['GET', 'HEAD']);
 
 /**
@@ -344,6 +349,15 @@ export function auditEgress(requests, options = {}) {
       return [safeRequestForEvidence(r, 'unknown_same_origin')];
     }
 
+    // EXPECTED TELEMETRY VENDORS ARE RECOGNISED HERE TOO. They were not, so Sentry and PostHog -- whose
+    // asset GETs and error POSTs the app makes on every page -- produced `off_origin_unrecognised` and
+    // held every valid take. Recognised is not the same as trusted: this only says the destination is
+    // accounted for. Whether AUDIO went there is the payload audit's question, and it blocks audio to
+    // these hosts exactly as it does anywhere else.
+    if (EXPECTED_TELEMETRY_VENDORS.some((v) => v.match.test(url.hostname))) {
+      return [safeRequestForEvidence(r, 'expected_vendor')];
+    }
+
     // Everything else off-origin, INCLUDING a bodyless GET: a query string carries data perfectly well,
     // and an unrecognised host is exactly the case the old blocklist could not see.
     return [safeRequestForEvidence(r, hasBody ? 'off_origin_body' : 'off_origin_unrecognised')];
@@ -403,6 +417,18 @@ export function auditSockets(sockets) {
  * Expected non-audio transcript, text and telemetry traffic appears in neither: it is documented product
  * behaviour, not a violation.
  */
+/**
+ * Request-level categories that BLOCK.
+ *
+ * Deliberately excludes `same_origin_body` and `unrecognised_text_destination`: whether those are
+ * acceptable depends on what was in them, which is the payload audit's question, and it answers it.
+ * What remains are destinations and shapes no content inspection can excuse.
+ */
+export const BLOCKING_EGRESS_CATEGORIES = Object.freeze([
+  'unknown_same_origin', 'same_origin_query', 'off_origin_unrecognised', 'unparseable_target',
+  'known_cloud_stt',
+]);
+
 export const PRIVACY_HOLD_CATEGORIES = Object.freeze([
   'audio_egress', 'same_origin_audio', 'unexplained_binary', 'worker_binary',
   'same_origin_binary_during_recording',
@@ -410,7 +436,7 @@ export const PRIVACY_HOLD_CATEGORIES = Object.freeze([
 
 export function receiptVerdict({
   probe, expectedCandidate, expectedRelease, payloads, sockets, phases, appOrigin,
-  workerInstrumentation, egress,
+  workerInstrumentation, egress, recordingStartedAt = null,
 }) {
   const problems = [];
   // Privacy: audio may have left the device. Proof: we did not observe enough to say anything.
@@ -426,9 +452,7 @@ export function receiptVerdict({
   // check that holds every valid take gets "fixed" by allowlisting vendors, and a vendor allowlist
   // authorises whatever that vendor is sent, audio included. The promise is about audio, and the
   // product documents that transcript TEXT is persisted server-side, so text is not a violation.
-  // Once the run has entered recording, captured audio exists for the rest of it — including stop/save.
-  const recordingBegun = (phases ?? []).includes('recording');
-  const payloadFindings = auditPayloads(payloads ?? [], { appOrigin, recordingBegun });
+  const payloadFindings = auditPayloads(payloads ?? [], { appOrigin, recordingStartedAt });
   const blocking = payloadFindings.filter((f) => BLOCKING_PAYLOAD_CATEGORIES.includes(f.category));
   const advisory = payloadFindings.filter((f) => !BLOCKING_PAYLOAD_CATEGORIES.includes(f.category));
   for (const f of blocking) {
@@ -498,8 +522,24 @@ export function receiptVerdict({
   // executable receipt, so exact pinned-asset matching, unknown same-origin paths and unrecognised
   // off-origin channels had no effect on whether a take passed. Audio egress is the promise; this is
   // "anything went somewhere we cannot account for", and a take carrying either is not clean.
+  // THE TWO AUDITS ANSWER DIFFERENT QUESTIONS, and wiring the request audit in without reconciling them
+  // made it overrule the one that can actually see content. `auditEgress` knows only WHERE a request
+  // went; it necessarily flags the transcript JSON we deliberately persist to `/api/sessions`, and every
+  // Sentry/PostHog POST, as bodies going somewhere. The payload audit knows WHAT was sent and correctly
+  // accepts all of those.
+  //
+  // So the request audit contributes only what payload classification cannot see: a destination or a
+  // shape we cannot account for. Anything whose acceptability depends on the CONTENT is advisory here
+  // and decided there. Blocking on it reintroduced exactly the false HOLD the payload work removed --
+  // and a check that holds every valid take is one that gets switched off.
   for (const finding of egress ?? []) {
-    problems.push(`${finding.category} to ${finding.origin ?? 'an unparseable target'}`);
+    const message = `${finding.category} to ${finding.origin ?? 'an unparseable target'}`;
+    if (BLOCKING_EGRESS_CATEGORIES.includes(finding.category)) {
+      problems.push(message);
+      proofProblems.push(message);
+    } else {
+      review.push(finding);
+    }
   }
   if (egress === undefined || egress === null) {
     problems.push('request-level egress was not audited; unaccounted traffic cannot be ruled out');
@@ -534,10 +574,6 @@ export function receiptVerdict({
  * sent, which would let audio out through the one destination nobody looks at twice. Being on this list
  * makes a JSON error report unremarkable; it does nothing for a Blob.
  */
-export const EXPECTED_TELEMETRY_VENDORS = Object.freeze([
-  { match: /(^|\.)sentry\.io$/i, name: 'sentry' },
-  { match: /(^|\.)posthog\.com$/i, name: 'posthog' },
-]);
 
 /** Payload kinds that mean captured audio is leaving the device. */
 const AUDIO_KINDS = new Set(['audio']);
@@ -555,7 +591,7 @@ const OPAQUE_KINDS = new Set(['binary', 'blob', 'unknown', 'opaque_stream']);
  * @param records tripwire records: transport, url, method, kind, mime, bytes, runtimeState
  * @param appOrigin the app's own origin
  */
-export function auditPayloads(records, { appOrigin, recordingBegun = false } = {}) {
+export function auditPayloads(records, { appOrigin, recordingStartedAt = null } = {}) {
   let appO = null;
   try { appO = new URL(appOrigin).origin; } catch { /* everything then reads as off-origin */ }
 
@@ -569,14 +605,24 @@ export function auditPayloads(records, { appOrigin, recordingBegun = false } = {
     }
     const sameOrigin = appO !== null && url.origin === appO;
     const vendor = EXPECTED_TELEMETRY_VENDORS.find((v) => v.match.test(url.hostname));
-    // AUDIO OUTLIVES THE `RECORDING` STATE. This tested `runtimeState === 'RECORDING'` only, so opaque
-    // bytes sent during STOPPING or after the state returned to READY were treated as ordinary traffic —
-    // and stop/save is precisely when a recording's audio would be uploaded. Captured audio exists from
-    // the moment recording starts until the take is finished with, so the window is "recording has
-    // begun", not "the state says RECORDING right now".
+    // AUDIO OUTLIVES THE `RECORDING` STATE, BUT IT DOES NOT PRECEDE IT.
+    //
+    // Two errors, in opposite directions. The first was testing `runtimeState === 'RECORDING'` only, so
+    // opaque bytes sent during STOPPING or after the state returned to READY read as ordinary traffic --
+    // and stop/save is exactly when a take's audio would be uploaded.
+    //
+    // The second was fixing that with a single run-wide `recordingBegun` flag, computed at the end and
+    // applied to EVERY retained record. An opaque startup request, sent before any recording when no
+    // captured audio existed, was then judged as during-take and produced a false PRIVACY hold -- the
+    // most damaging kind to get wrong, since it accuses the product of leaking audio it never had.
+    //
+    // Each record now carries its own timestamp and is placed relative to the moment recording actually
+    // began. A record with no timestamp falls back to the state it reported, which is conservative in
+    // the safe direction: audio kinds hold regardless of this window, so only same-origin opaque binary
+    // depends on it.
     const during = r.runtimeState === 'RECORDING'
       || r.runtimeState === 'STOPPING'
-      || recordingBegun;
+      || (recordingStartedAt !== null && typeof r.t === 'number' && r.t >= recordingStartedAt);
     const finding = (category) => ([{
       transport: r.transport,
       origin: url.origin,
