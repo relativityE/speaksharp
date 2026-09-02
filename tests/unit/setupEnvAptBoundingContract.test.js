@@ -142,7 +142,12 @@ describe('local-repository install: file:-only, image/checksum gated, no retry/r
   });
   it('gates on DISTRIBUTION (family/codename/arch/playwright), treats ImageVersion as provenance-only, uses --no-remove, fails closed', () => {
     expect(offline).toMatch(/distribution mismatch/i);       // loosened gate replaces exact-ImageVersion equality
-    expect(offline).toContain('NOT gated');                  // ImageVersion is provenance only, not a blocking check
+    // #1313 INVERTED. This previously asserted ImageVersion was 'NOT gated' — it encoded the defect: a
+    // bundle prefetched on one runner image reached a shard running a newer one, whose -dev packages pin
+    // exact-equal runtime deps, and apt died with "held broken packages" before any test ran. Equality is
+    // now enforced UPSTREAM by apt-install.sh, so this script may only ever run on a matching image.
+    expect(offline).not.toContain('NOT gated');
+    expect(offline).toContain('UPSTREAM by apt-install.sh');
     expect(offline).not.toContain('image mismatch');         // the exact-image-build proxy gate is gone
     expect(offline).toContain('sha256sum -c');               // checksum integrity retained
     // apt-native --no-remove on BOTH the simulation and the real install (no removals/downgrades to force a fit)
@@ -160,8 +165,11 @@ describe('local-repository install: file:-only, image/checksum gated, no retry/r
 
 describe('shards consume the bundle offline (#1311)', () => {
   it('the action skips the network apt steps and runs the offline install under apt-bundle', () => {
-    expect(stepByName('Install apt deps from bundle (offline, no mirror)')).toBeTruthy();
-    expect(actionText).toContain('scripts/ci/apt-install-offline.sh');
+    // The step is no longer unconditionally offline — on an image mismatch it takes the bounded
+    // compatibility path — so it no longer claims to be, and the action calls the dispatcher that decides.
+    expect(stepByName('Install apt deps (image-gated: offline bundle, else bounded compatibility)')).toBeTruthy();
+    expect(actionText).toContain('scripts/ci/apt-install.sh');
+    expect(actionText, 'the shard must not bypass the image gate').not.toMatch(/run: bash scripts\/ci\/apt-install-offline\.sh/);
   });
   it('unit shards request the canvas-sharp bundle; e2e shards request the playwright bundle', () => {
     const unitSetup = ci.jobs['unit-shard'].steps.find((s) => s.name === 'Setup Environment');

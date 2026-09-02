@@ -14,9 +14,10 @@ for f in "$BUNDLE/debs" "$BUNDLE/sha256sums.txt" "$BUNDLE/$MANIFEST.manifest" "$
 done
 
 # ── 1. Distribution compatibility gate — prep and shard MUST match on Ubuntu FAMILY + CODENAME + ARCH +
-#       locked Playwright version, else fail closed (NO mirror fallback). ImageVersion is logged for
-#       PROVENANCE only and is NOT a blocking equality check (the local `apt --simulate` on the shard's real
-#       dpkg state is the functional compatibility proof — see below). ─────────────────────────────────────
+#       locked Playwright version, else fail closed (NO mirror fallback). ImageVersion equality is enforced
+#       UPSTREAM by apt-install.sh, which only routes here on an exact match — so reaching this script is
+#       itself the image-equality proof, and re-deriving it here would be duplicate authority. It stays
+#       logged below for provenance. ────────────────────────────────────────────────────────────────────
 PREP_FAMILY="$(sed -n 's/^FAMILY=//p'      "$BUNDLE/image.manifest")"
 PREP_CODENAME="$(sed -n 's/^CODENAME=//p'  "$BUNDLE/image.manifest")"
 PREP_ARCH="$(sed -n 's/^ARCH=//p'          "$BUNDLE/image.manifest")"
@@ -25,7 +26,7 @@ PREP_IMGVER="$(sed -n 's/^ImageVersion=//p'   "$BUNDLE/image.manifest")"
 . /etc/os-release 2>/dev/null || true
 CUR_FAMILY="${ID:-unknown}"; CUR_CODENAME="${VERSION_CODENAME:-unknown}"; CUR_ARCH="$(dpkg --print-architecture)"
 CUR_PW="$(grep -m1 -oE 'playwright-core@[0-9]+\.[0-9]+\.[0-9]+' pnpm-lock.yaml 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)"
-echo "[offline] provenance (NOT gated): prep ImageVersion=$PREP_IMGVER ; shard ImageVersion=${ImageVersion:-unknown}"
+echo "[offline] provenance (image equality already enforced by apt-install.sh): prep ImageVersion=$PREP_IMGVER ; shard ImageVersion=${ImageVersion:-unknown}"
 if [ "$CUR_FAMILY" != "$PREP_FAMILY" ] || [ "$CUR_CODENAME" != "$PREP_CODENAME" ] || [ "$CUR_ARCH" != "$PREP_ARCH" ] || [ "$CUR_PW" != "$PREP_PW" ]; then
   echo "::error::[offline] distribution mismatch (prep=$PREP_FAMILY/$PREP_CODENAME/$PREP_ARCH/pw$PREP_PW shard=$CUR_FAMILY/$CUR_CODENAME/$CUR_ARCH/pw$CUR_PW) — fail closed, NO mirror fallback"
   exit 1
