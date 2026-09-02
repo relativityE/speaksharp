@@ -35,7 +35,7 @@ describe('READY means the engine published a MATCHING identity', () => {
     // A switch that silently ran v2 would otherwise be recorded as distil.
     const r = readiness(ready({ observedCandidate: 'v2:base.en', identityMatches: false }), 'v4:distil:q4', RELEASE);
     expect(r.ready).toBe(false);
-    expect(r.problems.join(' ')).toMatch(/observed v2:base\.en != requested v4:distil:q4/);
+    expect(r.problems.join(' ')).toMatch(/requested v4:distil:q4 != observed v2:base\.en/);
   });
 
   it('CASUALTY: a stale deployment is refused', () => {
@@ -131,7 +131,8 @@ describe('recorded audio must not leave the device', () => {
     const s = JSON.stringify(hits);
     expect(s).not.toContain('SECRET_Q');
     expect(s).not.toContain('SECRET_F');
-    expect(hits[0].pathname).toBe('/ingest');
+    expect(hits[0].route).toBe('other');
+    expect(hits[0].routeHash).toMatch(/^[0-9a-f]{12}$/);
   });
 
   it('POSITIVE CONTROL: the exact pinned assets and expected app paths are not egress', () => {
@@ -216,13 +217,22 @@ describe('same-origin queries and raw path identifiers', () => {
     const APP = 'https://speaksharp-public.vercel.app';
     const audit = (reqs) => auditEgress(reqs, { appOrigin: APP, observedCandidate: 'moonshine:streaming-medium' });
 
-    it('CASUALTY: a same-origin GET with a query string is flagged', () => {
-        // Allowed on path alone, `/api/log?transcript=...` passed as ordinary app traffic. No body is
-        // needed to move data, and the app's own domain is where it is least likely to be questioned.
-        const hits = audit([{ url: `${APP}/api/log?transcript=SECRET`, method: 'GET' }]);
+    it('CASUALTY: a query on a KNOWN operation is flagged', () => {
+        // No body is needed to move data, and the app's own domain is where it is least likely to be
+        // questioned.
+        const hits = audit([{ url: `${APP}/api/sessions?transcript=SECRET`, method: 'GET' }]);
         expect(hits).toHaveLength(1);
         expect(hits[0].category).toBe('same_origin_query');
         expect(JSON.stringify(hits)).not.toContain('SECRET');
+    });
+
+    it('CASUALTY: an /api/ path that is NOT a known operation no longer passes on its prefix', () => {
+        // `/api/` was a prefix allowance, so `/api/log/transcript-words` passed as ordinary traffic
+        // purely because of where it started -- and a path is a perfectly good place to put words.
+        const hits = audit([{ url: `${APP}/api/log/transcript-words`, method: 'GET' }]);
+        expect(hits).toHaveLength(1);
+        expect(hits[0].category).toBe('unknown_same_origin');
+        expect(JSON.stringify(hits), 'the words must not ride along in the route').not.toContain('transcript-words');
     });
 
     it('CASUALTY: identifiers inside the PATH are redacted, not just the query', () => {
@@ -233,11 +243,28 @@ describe('same-origin queries and raw path identifiers', () => {
         ]);
         const s = JSON.stringify(hits);
         expect(s).not.toContain('130bbc6c');
-        expect(hits[0].pathname).toBe('/analytics/:uuid');
+        expect(hits[0].route).toBe('other');
+        expect(hits[0].routeHash).toMatch(/^[0-9a-f]{12}$/);
     });
 
-    it('route SHAPE survives redaction, so a finding stays actionable', () => {
-        const hits = audit([{ url: `${APP}/api/sessions/999999/audio`, method: 'POST', hasPostData: true }]);
-        expect(hits[0].pathname).toBe('/api/sessions/:id/audio');
+    it('CASUALTY: content-bearing segments heuristics would have KEPT are gone', () => {
+        // The old redaction dropped UUIDs, long hex and long segments and kept the rest, so a short
+        // email, a username or a search term survived verbatim. A bounded category plus a digest has no
+        // such gap: whatever is not a known route shape is hashed.
+        const hits = audit([
+            { url: `${APP}/u/ada@example.com/notes`, method: 'POST', hasPostData: true },
+            { url: `${APP}/search/umm-i-mean-basically`, method: 'GET' },
+        ]);
+        const s = JSON.stringify(hits);
+        expect(s).not.toContain('ada@example.com');
+        expect(s).not.toContain('umm-i-mean-basically');
+        for (const h of hits) expect(h.route).toBe('other');
+    });
+
+    it('the digest is stable and non-reversible, so occurrences can still be compared', () => {
+        const once = audit([{ url: `${APP}/secret/path`, method: 'POST', hasPostData: true }]);
+        const twice = audit([{ url: `${APP}/secret/path`, method: 'POST', hasPostData: true }]);
+        expect(once[0].routeHash).toBe(twice[0].routeHash);
+        expect(once[0].routeHash).not.toContain('secret');
     });
 });

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { expectedAssetUrls, expectedSameOriginAssetPaths } from './pinAuthority.mjs';
 /**
  * #1390 — the CDP OBSERVER for the three-model human comparison.
@@ -52,18 +53,48 @@ export function readiness(probe, expectedCandidate, expectedRelease) {
   if (expectedRelease && probe.release !== expectedRelease) {
     problems.push(`release ${probe.release} != expected ${expectedRelease}`);
   }
-  if (probe.observedCandidate === null) problems.push('no engine has published an identity yet');
-  if (expectedCandidate && probe.observedCandidate !== expectedCandidate) {
-    problems.push(`observed ${probe.observedCandidate} != requested ${expectedCandidate}`);
+
+  // THE THREE-WAY EQUALITY, RECOMPUTED HERE.
+  //
+  // This trusted `identityMatches` as an independent premise. That boolean is computed by the PAGE, from
+  // the same values it also reports — so a publisher that computed it wrongly, or a page serving a stale
+  // build, could assert agreement that the values themselves contradict, and the receipt would carry the
+  // page's own claim about itself as though it were an observation. The wrapper exists precisely because
+  // the page cannot be its own witness.
+  //
+  // `expected` is the third term and is NOT optional in a scored take: an arm the operator did not ask
+  // for is unusable even when requested and observed agree with each other.
+  if (!expectedCandidate) {
+    problems.push('no expected candidate supplied; a take that nothing was asked of cannot be scored');
   }
-  if (!probe.identityMatches) problems.push('requested and observed identity disagree');
+  if (probe.observedCandidate === null) problems.push('no engine has published an identity yet');
+  if (probe.requestedCandidate === null || probe.requestedCandidate === undefined) {
+    problems.push('the page published no requested candidate');
+  }
+  if (probe.requestedCandidate !== probe.observedCandidate) {
+    problems.push(`requested ${probe.requestedCandidate} != observed ${probe.observedCandidate}`);
+  }
+  if (expectedCandidate && probe.observedCandidate !== expectedCandidate) {
+    problems.push(`observed ${probe.observedCandidate} != expected ${expectedCandidate}`);
+  }
+  // A publisher boolean that CONTRADICTS the recomputation is itself a defect worth reporting: the page
+  // is wrong about something, and which side is wrong is not knowable from here.
+  const recomputed = probe.requestedCandidate !== null
+    && probe.requestedCandidate === probe.observedCandidate
+    && probe.observedCandidate === expectedCandidate;
+  if (probe.identityMatches === true && !recomputed) {
+    problems.push('the page reports identityMatches=true, which the published values contradict');
+  }
+  if (probe.identityMatches === false && recomputed) {
+    problems.push('the page reports identityMatches=false, which the published values contradict');
+  }
+
   if (probe.modelStatus !== 'ready') problems.push(`model status is ${probe.modelStatus}`);
   // THE TERMINAL PRE-RECORDING STATE, not merely a ready-looking model. `modelStatus` says the weights
   // are in place; it says nothing about whether the controller has finished settling. A page probed
   // during INITIATING or ENGINE_INITIALIZING can report a ready model while the mic control is not yet
   // live, and a take started there loses its opening audio -- which reads afterwards as the MODEL
-  // clipping the start of the sentence. That would be scored against the arm, and it is exactly the
-  // kind of harness artefact this comparison cannot afford.
+  // clipping the start of the sentence.
   //
   // RECORDING and STOPPING are deliberately not accepted: they are healthy states, but a take must
   // start from a session that has not already begun.
@@ -124,40 +155,92 @@ const SAFE_ASSET_METHODS = new Set(['GET', 'HEAD']);
  * Same-origin paths the app is expected to request. Deliberately a short, explicit list: anything not on
  * it is reported rather than assumed benign, which is what "fail closed on unknown same-origin" means.
  */
-export const DEFAULT_APP_PATHS = Object.freeze(['/assets/', '/api/', '/models/', '/favicon', '/index.html']);
+/**
+ * The EXACT same-origin operations a bounded run performs, by journey phase.
+ *
+ * This was a prefix list containing `/api/`, which permitted every endpoint the app serves. A queryless
+ * GET to `/api/log/transcript-words` passed as ordinary traffic purely because of where it started — and
+ * a path is a perfectly good place to put words. Prefixes are how an allowlist stops being one.
+ *
+ * Exact strings only. A new operation has to be added here deliberately, which is the point: the run is
+ * bounded, so its traffic is enumerable.
+ */
+export const EXACT_JOURNEY_OPERATIONS = Object.freeze({
+    persist: Object.freeze(['/api/sessions', '/api/sessions/complete']),
+    read: Object.freeze(['/api/sessions/list', '/api/analytics/summary']),
+    issueReport: Object.freeze(['/api/issue-reports']),
+    auth: Object.freeze(['/api/auth/session']),
+    telemetry: Object.freeze(['/api/telemetry']),
+});
+
+/**
+ * The app shell itself, matched EXACTLY.
+ *
+ * `/` was removed from the prefix list because as a prefix it matches every path. As an exact string it
+ * is simply the page the operator loads, and leaving it out made every run report its own app shell as
+ * suspected egress — noise that teaches the operator to skim the findings.
+ */
+export const EXACT_APP_SHELL = Object.freeze(['/', '/index.html']);
+
+/** Static app paths, matched by prefix because their filenames are build-generated. */
+export const DEFAULT_APP_PATHS = Object.freeze(['/assets/', '/favicon', '/index.html']);
 // NOTE: '/' is deliberately NOT on this list. A '/' prefix matches every path, which would make the
 // same-origin rule vacuous while reading as an allowlist — the failure mode being closed here.
 
+const ALL_EXACT_OPERATIONS = Object.freeze(Object.values(EXACT_JOURNEY_OPERATIONS).flat());
+
 /**
- * Path segments that are IDENTIFIERS rather than route structure.
+ * A BOUNDED CATEGORY, NOT A REDACTED PATH.
  *
- * Retaining raw segments put session UUIDs and similar ids into evidence via the path — the same
- * re-identification the query redaction exists to prevent, arriving one component over. Route shape is
- * what makes a finding actionable; the id inside it is not.
+ * The previous version replaced UUIDs, long hex and long segments and kept everything else. Heuristics
+ * decide what to drop, so whatever they did not anticipate was retained verbatim — short emails,
+ * usernames, search terms, a filler word in a route. Evidence is durable and shared, so "we removed the
+ * shapes we thought of" is the wrong default.
+ *
+ * A path is reported as one of a FIXED set of categories, and anything unrecognised becomes a truncated
+ * SHA-256 of the path. The digest is non-reversible and stable, so two occurrences can be compared and
+ * an investigator can confirm a specific suspected path by hashing it themselves — without the receipt
+ * ever carrying content.
  */
-function redactPath(pathname) {
-    return pathname.split('/').map((segment) => {
-        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segment)) return ':uuid';
-        if (/^[0-9a-f]{16,}$/i.test(segment)) return ':hex';
-        if (/^\d{4,}$/.test(segment)) return ':id';
-        // A long opaque segment is an identifier often enough that keeping it is the riskier default.
-        if (segment.length > 40) return ':opaque';
-        return segment;
-    }).join('/');
+export const ROUTE_CATEGORIES = Object.freeze([
+    'app-shell', 'static-asset', 'model-asset', 'session-persist', 'session-read',
+    'issue-report', 'auth', 'telemetry', 'other',
+]);
+
+function categoriseRoute(pathname) {
+    if (pathname === '/' || pathname === '/index.html') return 'app-shell';
+    if (pathname.startsWith('/assets/')) return 'static-asset';
+    if (pathname.startsWith('/models/')) return 'model-asset';
+    if (EXACT_JOURNEY_OPERATIONS.persist.includes(pathname)) return 'session-persist';
+    if (EXACT_JOURNEY_OPERATIONS.read.includes(pathname)) return 'session-read';
+    if (EXACT_JOURNEY_OPERATIONS.issueReport.includes(pathname)) return 'issue-report';
+    if (EXACT_JOURNEY_OPERATIONS.auth.includes(pathname)) return 'auth';
+    if (EXACT_JOURNEY_OPERATIONS.telemetry.includes(pathname)) return 'telemetry';
+    return 'other';
+}
+
+/** Non-reversible, stable, and short enough to read in a receipt. */
+function routeDigest(pathname) {
+    return createHash('sha256').update(pathname).digest('hex').slice(0, 12);
 }
 
 /** Origin + redacted path only. Query strings and fragments carry tokens; bodies and headers carry content. */
 function safeRequestForEvidence(request, category) {
   let origin = null;
-  let pathname = null;
+  let route = null;
+  let routeHash = null;
   try {
     const u = new URL(request.url);
     origin = u.origin;
-    pathname = redactPath(u.pathname);
+    route = categoriseRoute(u.pathname);
+    routeHash = routeDigest(u.pathname);
   } catch { /* an unparseable URL is reported as such, never echoed */ }
   return {
     origin,
-    pathname,
+    // No path, redacted or otherwise. A category plus a non-reversible digest says where a request went
+    // without carrying what it said.
+    route,
+    routeHash,
     method: (request.method || '').toUpperCase() || null,
     category,
   };
@@ -239,7 +322,11 @@ export function auditEgress(requests, options = {}) {
       // An EXACT self-hosted model asset, fetched read-only and carrying nothing extra.
       if (allowedSameOriginAssets.has(url.pathname) && readOnly && url.search === '') return [];
 
-      const expected = expectedSameOriginPaths.some((p) => url.pathname.startsWith(p));
+      // EXACT operation, or a static app prefix whose filenames the build generates. `/api/` as a
+      // prefix is gone: it permitted every endpoint the app serves.
+      const expected = EXACT_APP_SHELL.includes(url.pathname)
+        || ALL_EXACT_OPERATIONS.includes(url.pathname)
+        || expectedSameOriginPaths.some((p) => url.pathname.startsWith(p));
       // A QUERY STRING CARRIES DATA. Same-origin GETs were allowed on path alone, so
       // `/api/log?transcript=...` passed as ordinary app traffic — no body required, and the app's own
       // domain is exactly where that is least likely to be questioned.
@@ -253,4 +340,66 @@ export function auditEgress(requests, options = {}) {
     // and an unrecognised host is exactly the case the old blocklist could not see.
     return [safeRequestForEvidence(r, hasBody ? 'off_origin_body' : 'off_origin_unrecognised')];
   });
+}
+
+/**
+ * Sockets, which request metadata cannot see at all.
+ *
+ * `auditEgress` reasons about requests. A WebSocket is ONE request at creation and then an open pipe:
+ * every audio frame after the handshake is invisible to that audit, so a clean egress report proved
+ * nothing about the channel most suited to streaming audio out. This is not a gap in the rules — it is a
+ * gap in what was being looked at.
+ *
+ * The bounded run has no legitimate socket, so any socket is HOLD rather than a judgement call about its
+ * contents. Frames are counted and their sizes summed; NOTHING from a payload is retained, because the
+ * question is whether a channel existed, not what crossed it.
+ */
+export function auditSockets(sockets) {
+  return (sockets ?? []).map((s) => {
+    let origin = null;
+    try { origin = new URL(s.url).origin; } catch { /* unparseable is still a socket */ }
+    return {
+      origin,
+      frames: Number(s.frameCount ?? 0),
+      bytes: Number(s.byteCount ?? 0),
+      category: 'websocket_opened',
+    };
+  });
+}
+
+/**
+ * The receipt verdict. HOLD is a first-class outcome, never a soft pass.
+ *
+ * Every input is recomputed here rather than trusted: the page's own agreement boolean is not evidence,
+ * an empty egress list only counts if sockets were also observed, and a take whose identity cannot be
+ * established is unusable regardless of how clean everything else looks.
+ */
+export function receiptVerdict({ probe, expectedCandidate, expectedRelease, egress, sockets, phases }) {
+  const problems = [];
+  const r = readiness(probe, expectedCandidate, expectedRelease);
+  problems.push(...r.problems);
+
+  const socketFindings = auditSockets(sockets);
+  // A socket during a bounded local run has no legitimate purpose, and frames are the one channel that
+  // can carry continuous audio without another request ever appearing.
+  if (socketFindings.length > 0) {
+    problems.push(`${socketFindings.length} websocket(s) opened during the run`);
+  }
+  if (sockets === undefined || sockets === null) {
+    // NOT observing sockets is different from observing none, and only one of the two is evidence.
+    problems.push('socket observation was not enabled; zero streamed egress cannot be claimed');
+  }
+  if ((egress ?? []).length > 0) problems.push(`${egress.length} suspect request(s)`);
+
+  const required = ['pre-record', 'recording', 'stop-save'];
+  for (const phase of required) {
+    if (!(phases ?? []).includes(phase)) problems.push(`lifecycle phase "${phase}" was never observed`);
+  }
+
+  return {
+    verdict: problems.length === 0 ? 'PASS' : 'HOLD',
+    problems,
+    egress: egress ?? [],
+    sockets: socketFindings,
+  };
 }

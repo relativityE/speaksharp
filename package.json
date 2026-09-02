@@ -11,6 +11,7 @@
   "packageManager": "pnpm@10.29.1",
   "scripts": {
     "setup": "pnpm install --frozen-lockfile",
+    "human-test:observe": "node scripts/human-test/observe-take.mjs",
     "preflight": "node scripts/pnpm-only.mjs && ./scripts/preflight.sh",
     "dev": "pnpm dev:real",
     "dev:real": "node scripts/check-vite-env.mjs development 5174 && node scripts/start-vite.mjs development",

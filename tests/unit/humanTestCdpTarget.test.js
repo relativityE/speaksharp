@@ -64,12 +64,14 @@ describe('evidence never carries a raw target URL', () => {
     const safe = safeTargetForEvidence(page(`${APP}/auth/callback?access_token=SECRET#refresh=ALSO`));
     expect(JSON.stringify(safe)).not.toContain('SECRET');
     expect(JSON.stringify(safe)).not.toContain('ALSO');
-    expect(safe).toMatchObject({ origin: APP, pathname: '/auth/callback' });
+    expect(safe).toMatchObject({ origin: APP, route: 'auth' });
+    expect(safe.routeHash).toMatch(/^[0-9a-f]{12}$/);
+    expect(JSON.stringify(safe)).not.toContain('callback');
   });
 
   it('an unparseable URL yields nulls rather than being echoed', () => {
     expect(safeTargetForEvidence({ id: 'x', type: 'page', url: 'not a url' }))
-      .toMatchObject({ origin: null, pathname: null });
+      .toMatchObject({ origin: null, route: null });
   });
 });
 
@@ -92,7 +94,7 @@ describe('the ambiguity error never echoes a raw target URL', () => {
         expect(error).not.toContain('#');
         // Still actionable: the operator needs to know how many and which pages to close.
         expect(error).toContain('2 pages');
-        expect(error).toContain('/auth/callback');
-        expect(error).toContain('/session');
+        expect(error).toContain('(auth)');
+        expect(error).toContain('(session)');
     });
 });

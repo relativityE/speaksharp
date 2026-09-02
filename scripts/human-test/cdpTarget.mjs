@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /**
  * #1390 — CDP PORT AND TARGET DISCOVERY.
  *
@@ -56,7 +57,9 @@ export function selectAppTarget(targets, appOrigin) {
         // evidence file, and redacting one exit while leaving the other open protects nothing.
         const listed = matching
             .map((t) => safeTargetForEvidence(t))
-            .map((s) => `${s.origin ?? 'unparseable'}${s.pathname ?? ''}`)
+            // Origin plus the ROUTE CATEGORY: enough for the operator to tell an auth callback tab from
+            // the session tab and close the right one, without the path itself.
+            .map((s) => `${s.origin ?? 'unparseable'} (${s.route ?? 'unknown'})`)
             .join(', ');
         return {
             target: null,
@@ -73,14 +76,28 @@ export function selectAppTarget(targets, appOrigin) {
  * Target URLs carry query strings and fragments, which is where auth callbacks put tokens. The
  * evidence file is the thing we keep and share, so it holds origin + path only.
  */
+function categoriseTargetRoute(pathname) {
+    if (pathname === '/' || pathname === '/index.html') return 'app-shell';
+    if (pathname.startsWith('/session')) return 'session';
+    if (pathname.startsWith('/analytics')) return 'analytics';
+    if (pathname.startsWith('/auth')) return 'auth';
+    return 'other';
+}
+
 export function safeTargetForEvidence(target) {
     if (!target) return null;
     let origin = null;
-    let pathname = null;
+    let route = null;
+    let routeHash = null;
     try {
         const u = new URL(target.url);
         origin = u.origin;
-        pathname = u.pathname;
+        // THE SAME TREATMENT AS EVERY OTHER PATH. This retained `pathname` verbatim, so a receipt
+        // captured from a tab sitting on `/analytics/<session-uuid>` carried that id — the exact
+        // retention the request evidence had already been corrected for, surviving one field over
+        // because the target was projected by a different function.
+        route = categoriseTargetRoute(u.pathname);
+        routeHash = createHash('sha256').update(u.pathname).digest('hex').slice(0, 12);
     } catch { /* leave null rather than echo an unparseable URL */ }
-    return { id: target.id ?? null, type: target.type ?? null, origin, pathname };
+    return { id: target.id ?? null, type: target.type ?? null, origin, route, routeHash };
 }
