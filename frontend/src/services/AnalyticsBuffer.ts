@@ -157,7 +157,20 @@ class AnalyticsBuffer {
    * `private_*` events are exempt from the schema registry because they carry their OWN allowlist
    * re-projection (`sanitizePrivateTelemetryProps`), applied in `send()`.
    */
-  public push(event: AnalyticsEventName, properties?: Record<string, unknown>, priority: AnalyticsPriority = 'LOW'): void {
+  public push(
+    event: AnalyticsEventName,
+    properties?: Record<string, unknown>,
+    priority: AnalyticsPriority = 'LOW',
+    /**
+     * Set false by a producer that has established it CANNOT attribute this event to a model.
+     *
+     * Without it the envelope silently overruled such a producer: Report Issue emitted
+     * `engine_variant: null` for an unverifiable link, and the envelope then attached the current tab's
+     * `candidate_id`, `engine`, `runtime_version` and `asset_digest` on the way to the wire — so a report
+     * about a Moonshine session filed after switching to v2 arrived attributed to v2.
+     */
+    modelAttributionVerified = true,
+  ): void {
 
     const analyticsEvent: AnalyticsEvent = {
       event,
@@ -166,7 +179,7 @@ class AnalyticsBuffer {
       timestamp: Date.now(),
       // Captured HERE, at the producer boundary, while the state that produced the event is still the
       // current state.
-      envelope: buildEnvelope(AnalyticsBuffer.envelopeSources()),
+      envelope: buildEnvelope(AnalyticsBuffer.envelopeSources(), modelAttributionVerified),
     };
 
     // CRITICAL Tier: Immediate delivery

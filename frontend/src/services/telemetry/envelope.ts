@@ -37,11 +37,40 @@ export interface EnvelopeSources {
     trafficSignals?: TrafficSignals;
 }
 
-export function buildEnvelope(sources: EnvelopeSources = {}): EventEnvelope {
+/**
+ * The empty attribution. Every model field null, stated once so "unverified" cannot drift into a
+ * partially-populated shape that reads as a measurement.
+ */
+export const UNVERIFIED_ATTRIBUTION: CandidateAttribution = Object.freeze({
+    candidate_id: null,
+    engine: null,
+    runtime_version: null,
+    asset_digest: null,
+});
+
+export function buildEnvelope(
+    sources: EnvelopeSources = {},
+    /**
+     * A PRODUCER THAT KNOWS IT CANNOT ATTRIBUTE OVERRULES THE AMBIENT STATE.
+     *
+     * The envelope always read `resolvedEngine()` — whatever model is live in this tab right now. For
+     * most events that is the right answer. For a Report Issue whose linked session cannot be verified,
+     * it is precisely the wrong one: the producer had already worked out that it must not name a model,
+     * emitted `engine_variant: null`, and then the envelope helpfully supplied `candidate_id`, `engine`,
+     * `runtime_version` and `asset_digest` from the current tab on the way to the wire.
+     *
+     * So a report about a Moonshine session, filed after switching to v2, reached PostHog attributed to
+     * v2 — with the honest null sitting beside it. Release and traffic type stay ambient: they are
+     * independently known and have nothing to do with which model ran.
+     */
+    modelAttributionVerified = true,
+): EventEnvelope {
     return {
         release_sha: sources.releaseSha ?? null,
         traffic_type: resolveTrafficType(sources.trafficSignals ?? {}),
-        ...attributionFromEngine(sources.engineMetadata ?? null),
+        ...(modelAttributionVerified
+            ? attributionFromEngine(sources.engineMetadata ?? null)
+            : UNVERIFIED_ATTRIBUTION),
     };
 }
 

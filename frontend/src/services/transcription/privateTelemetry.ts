@@ -133,7 +133,13 @@ export function emitPrivateTelemetry(event: PrivateTelemetryEvent, props?: Recor
         //
         // The buffer re-applies `sanitizePrivateTelemetryProps` on the way out, so the content-free
         // guarantee is unchanged — it is now enforced at both ends rather than only here.
-        analyticsBuffer.push(event as Parameters<typeof analyticsBuffer.push>[0], safe, 'LOW');
+        // THE PRODUCER'S VERDICT TRAVELS WITH THE EVENT. An event that says
+    // `model_attribution_verified: false` has already established that it cannot name a model; letting
+    // the envelope supply one from ambient state would overrule the only code that actually knew.
+    const modelAttributionVerified = safe.model_attribution_verified !== false;
+    analyticsBuffer.push(
+        event as Parameters<typeof analyticsBuffer.push>[0], safe, 'LOW', modelAttributionVerified,
+    );
 
         if (typeof window !== 'undefined') {
             const target = window as unknown as { __SS_PRIVATE_EVENTS__?: Array<Record<string, unknown>> };
