@@ -208,6 +208,19 @@ export default class TranscriptionService {
   private telemetrySeq = 0;
   private activeStrategyId: string | null = null;
   private strategyVersion: number = 0;
+
+  /**
+   * The user's setup decision, held for THIS facade only.
+   *
+   * It exists because a decision we could not write down is still a decision the user made. When the
+   * receipt fails to persist (blocked site data, quota, a read-back that comes back empty) the session
+   * continues on this flag instead of refusing, and the user is told plainly that it was not saved.
+   *
+   * Deliberately per-instance and never persisted: a new facade has no record to read, so it asks
+   * again — which is the truth. A successful `recordConsent` writes the real receipt, and that is what
+   * suppresses the prompt for the next facade; this flag never does that job.
+   */
+  private consentGrantedThisSession = false;
   private isModeLocked: boolean = false;
   private lastError: TranscriptionError | null = null;
   private idempotencyKey: string | null = null;
@@ -666,6 +679,11 @@ export default class TranscriptionService {
       // It joins the download-consent path because that path already IS the consent interaction: the
       // user is shown what will be downloaded and clicks to proceed. The click arrives here as an
       // explicit init, which is where the receipt is recorded.
+      // A consent already granted in THIS session is not asked again, saved or not. Without this, a
+      // second init after an unsaved grant re-enters the download prompt mid-session.
+      if (!availability.isAvailable && availability.reason === 'CONSENT_REQUIRED' && this.consentGrantedThisSession) {
+        availability = { isAvailable: true };
+      }
       const needsUserDecision = availability.reason === 'CACHE_MISS' || availability.reason === 'CONSENT_REQUIRED';
       if (!availability.isAvailable && needsUserDecision) {
         if (!this.fsm.is('DOWNLOAD_REQUIRED') && !isExplicitInit
@@ -711,24 +729,26 @@ export default class TranscriptionService {
             throw error;
           }
           try {
+            // Persisted. The RECEIPT is what stops the next facade asking — deliberately not the
+            // in-memory flag, which is per-instance and could never reach another facade. Setting it
+            // here was dead code: a successful write makes `checkAvailability` report available, so the
+            // flag was never read on this path. No mutant could kill it, which is how it was found.
             strategy.grantModelConsent();
           } catch (cause) {
-            // A GRANT THAT WAS NOT PERSISTED IS NOT A GRANT. Storage can be unavailable (private
-            // browsing, blocked site data) or fail under quota, and both used to be swallowed twice
-            // over — so the user agreed, waited for a ~305 MB download, and was asked again next
-            // session with no error anywhere. Initialization must not proceed on a decision we cannot
-            // remember.
-            const error = TranscriptionError.engineFailure(
-              mode,
-              cause instanceof Error ? cause.message : 'STT_CONSENT_NOT_PERSISTED: consent could not be saved',
-            );
-            logger.error({ mode, cause }, '[TranscriptionService] Consent could not be persisted; refusing to initialize');
-            this.fsm.transition({ type: 'ERROR_OCCURRED', error });
+            // STORAGE FAILURE MUST NOT MAKE PRIVATE STT UNUSABLE. Refusing here was worse than the bug
+            // it replaced: a user with blocked site data clicked "Set up Private" and could never
+            // transcribe at all, when the honest outcome is that their setup works NOW and may be asked
+            // for again later. The user's decision is real — only our record of it failed.
+            //
+            // So: warn, do not claim it was saved, and let this session proceed. The grant is held in
+            // memory for THIS facade only, which is exactly the truth — nothing was written, so a new
+            // facade legitimately asks again.
+            logger.warn({ mode, cause }, '[TranscriptionService] Consent could not be persisted; continuing this session unsaved');
+            this.consentGrantedThisSession = true;
             this.options.onStatusChange?.({
-              type: 'error',
-              message: 'Your choice could not be saved, so the model was not downloaded. Check your browser storage settings and try again.',
+              type: 'warning',
+              message: 'Setup couldn\u2019t be saved. You may be asked to set up Private again next time.',
             });
-            throw error;
           }
           // RE-ASK, DO NOT REUSE. The result above was computed BEFORE the grant, and the gate below
           // still reads it: recording consent and then failing on the stale pre-consent answer left a
@@ -738,6 +758,13 @@ export default class TranscriptionService {
           availability = typeof this.strategy.checkAvailability === 'function'
             ? await this.strategy.checkAvailability()
             : { isAvailable: true };
+          // When the receipt could not be written, the strategy still answers CONSENT_REQUIRED — it has
+          // no record to read. Asking again inside the same live session would show the setup prompt a
+          // second time for a decision the user already made, so the in-memory grant stands in for the
+          // receipt HERE ONLY, and never across facades.
+          if (!availability.isAvailable && availability.reason === 'CONSENT_REQUIRED' && this.consentGrantedThisSession) {
+            availability = { isAvailable: true };
+          }
           if (availability.isAvailable) {
             this.options.onStatusChange?.({ type: 'download-required', message: 'Preparing the private model…', progress: 0 });
           }

@@ -60,7 +60,12 @@ describe('the object the service calls can actually record consent', () => {
         // The wrapper's throw cannot help there — the call never reaches it.
         const service = src(SERVICE);
         const at = service.indexOf("if (availability.reason === 'CONSENT_REQUIRED')");
-        const block = service.slice(at, at + 1600);
+        // Bounded by the NEXT gate, not by a character count. A 1600-char window silently excluded the
+        // very call it was asserting on once the block's comments grew past it (the call sat at 1611),
+        // reporting a regression that did not exist. The block's real end is where Gate 2 begins.
+        const end = service.indexOf('// Gate 2', at);
+        expect(end, 'the Gate 2 boundary must exist for this slice to be meaningful').toBeGreaterThan(at);
+        const block = service.slice(at, end);
         expect(block).toMatch(/typeof strategy\.grantModelConsent !== 'function'/);
         expect(block).toMatch(/STT_CONSENT_AUTHORITY_MISSING/);
         expect(block, 'the refusal must be thrown, not logged').toMatch(/throw error/);
