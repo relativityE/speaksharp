@@ -101,7 +101,10 @@ const main = async () => {
     // COUNTED SEPARATELY, because they mean different things. Attaching is CDP's doing; installing and
     // reading back are ours, and either can fail silently. A run where every install failed otherwise
     // looked exactly like a run where nothing was sent.
-    const workerStats = { attached: 0, installed: 0, installFailures: 0, drained: 0, drainFailures: 0 };
+    const workerStats = {
+        attached: 0, installed: 0, installFailures: 0, drained: 0, drainFailures: 0,
+        mainTripwireInstalled: false,
+    };
     const installedSessions = new Set();
 
     client.on('Target.attachedToTarget', async ({ sessionId, targetInfo }) => {
@@ -168,10 +171,20 @@ const main = async () => {
     const drainWorkers = async () => {
         for (const sessionId of installedSessions) {
             try {
-                const { result } = await client.send('Runtime.evaluate', {
+                const evaluated = await client.send('Runtime.evaluate', {
                     expression: READ_TRIPWIRE, returnByValue: true, awaitPromise: false,
                 }, sessionId);
-                const parsed = JSON.parse(result?.value ?? '[]');
+                // AN EXCEPTION INSIDE THE EXPRESSION RESOLVES THE CALL. CDP reports it as
+                // `exceptionDetails` rather than rejecting, so a throwing readback landed here with
+                // `result.value === undefined`, `JSON.parse('[]')` produced an empty list, and the
+                // session was recorded as a SUCCESSFUL read of nothing. A worker whose evidence could
+                // not be retrieved then scored identically to a worker that sent nothing — which is the
+                // claim the receipt goes on to make.
+                //
+                // The same trap was already fixed for install; this is the read half of it.
+                if (evaluated?.exceptionDetails) throw new Error('worker readback threw');
+                if (typeof evaluated?.result?.value !== 'string') throw new Error('worker readback returned no value');
+                const parsed = JSON.parse(evaluated.result.value);
                 if (parsed.length > 0) workerRecords.set(sessionId, parsed);
                 drainedOk.add(sessionId);
             } catch { /* recorded as a drain failure at the end; earlier drains are kept */ }
@@ -203,6 +216,16 @@ const main = async () => {
     });
     let payloads = [];
     try { payloads = JSON.parse(tripwire?.value ?? '[]'); } catch { payloads = []; }
+
+    // CONFIRM THE MAIN TRIPWIRE EXISTS, rather than inferring it from an empty payload list. An absent
+    // installer and a page that sent nothing produce identical evidence, and only one of them is a
+    // clean run.
+    try {
+        const { result: present } = await client.send('Runtime.evaluate', {
+            expression: 'Array.isArray(globalThis.__SS_TRIPWIRE__)', returnByValue: true, awaitPromise: false,
+        });
+        workerStats.mainTripwireInstalled = present?.value === true;
+    } catch { workerStats.mainTripwireInstalled = false; }
 
     await drainWorkers();
     workerStats.drained = drainedOk.size;

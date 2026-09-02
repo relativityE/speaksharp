@@ -104,7 +104,7 @@ describe('the receipt holds on audio, not on traffic', () => {
     const base = (over = {}) => ({
         probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
         payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
-        workerInstrumentation: { attached: 0, installed: 0, installFailures: 0, drained: 0, drainFailures: 0 },
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true },
         ...over,
     });
 
@@ -168,7 +168,7 @@ describe('worker instrumentation fails closed', () => {
     const base = (over = {}) => ({
         probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
         payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
-        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0 },
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true },
         ...over,
     });
 
@@ -177,7 +177,7 @@ describe('worker instrumentation fails closed', () => {
         // nowhere. A run where every install failed looked identical to a run where nothing was sent —
         // and the second is the claim being made.
         const out = receiptVerdict(base({
-            workerInstrumentation: { attached: 1, installed: 0, installFailures: 1, drained: 0, drainFailures: 0 },
+            workerInstrumentation: { attached: 1, installed: 0, installFailures: 1, drained: 0, drainFailures: 0, mainTripwireInstalled: true },
         }));
         expect(out.verdict).toBe('HOLD');
         expect(out.problems.join(' ')).toMatch(/install\(s\) failed/);
@@ -185,7 +185,7 @@ describe('worker instrumentation fails closed', () => {
 
     it('CASUALTY: workers attached but none instrumented is HOLD', () => {
         const out = receiptVerdict(base({
-            workerInstrumentation: { attached: 2, installed: 0, installFailures: 0, drained: 0, drainFailures: 0 },
+            workerInstrumentation: { attached: 2, installed: 0, installFailures: 0, drained: 0, drainFailures: 0, mainTripwireInstalled: true },
         }));
         expect(out.verdict).toBe('HOLD');
         expect(out.problems.join(' ')).toMatch(/attached but none were instrumented/);
@@ -193,7 +193,7 @@ describe('worker instrumentation fails closed', () => {
 
     it('CASUALTY: an unreadable worker is HOLD', () => {
         const out = receiptVerdict(base({
-            workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 0, drainFailures: 1 },
+            workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 0, drainFailures: 1, mainTripwireInstalled: true },
         }));
         expect(out.verdict).toBe('HOLD');
         expect(out.problems.join(' ')).toMatch(/could not be read back/);
@@ -209,11 +209,28 @@ describe('worker instrumentation fails closed', () => {
         expect(receiptVerdict(base()).verdict).toBe('PASS');
     });
 
-    it('POSITIVE CONTROL: a run with no workers at all is not penalised', () => {
-        // Zero attached is not a failure to instrument — there was nothing to instrument.
-        expect(receiptVerdict(base({
-            workerInstrumentation: { attached: 0, installed: 0, installFailures: 0, drained: 0, drainFailures: 0 },
-        })).verdict).toBe('PASS');
+    it('CASUALTY: a run with NO instrumented worker cannot PASS', () => {
+        // This test previously asserted the opposite — that zero workers "is not a failure to
+        // instrument, there was nothing to instrument". That reasoning encoded the false pass: for this
+        // product Private STT decodes in a Web Worker, so a take with no instrumented worker means the
+        // context holding PCM was never watched. "No findings" then describes where we looked, not what
+        // happened, and the guard only fired when workers had attached — so a run that attached nothing
+        // sailed through with zero problems.
+        const out = receiptVerdict(base({
+            workerInstrumentation: { attached: 0, installed: 0, installFailures: 0, drained: 0, drainFailures: 0, mainTripwireInstalled: true },
+        }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/the context that holds PCM was not observed/);
+    });
+
+    it('CASUALTY: an unconfirmed MAIN tripwire cannot PASS', () => {
+        // An absent installer and a page that sent nothing produce identical evidence — an empty payload
+        // list — and only one of them is a clean run. Its presence was never checked at all.
+        const out = receiptVerdict(base({
+            workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: false },
+        }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/main-document tripwire was not confirmed/);
     });
 });
 
@@ -248,7 +265,7 @@ describe('socket direction is not symmetric', () => {
     const base = (over = {}) => ({
         probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
         payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
-        workerInstrumentation: { attached: 0, installed: 0, installFailures: 0, drained: 0, drainFailures: 0 },
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true },
         ...over,
     });
 
@@ -268,5 +285,52 @@ describe('socket direction is not symmetric', () => {
         }));
         expect(out.verdict).toBe('PASS');
         expect(out.review.some((s) => s.category === 'websocket_binary_received')).toBe(true);
+    });
+});
+
+describe('captured audio outlives the RECORDING state', () => {
+    const probe = {
+        release: 'r1', requestedCandidate: 'moonshine:streaming-medium',
+        observedCandidate: 'moonshine:streaming-medium', identityMatches: true,
+        modelStatus: 'ready', runtimeState: 'READY',
+    };
+    const base = (over = {}) => ({
+        probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true },
+        ...over,
+    });
+
+    it('CASUALTY: same-origin opaque binary during STOPPING holds', () => {
+        // The window tested was `runtimeState === 'RECORDING'` exactly, so bytes leaving during stop —
+        // which is when a take's audio would actually be uploaded — read as ordinary traffic.
+        const out = receiptVerdict(base({
+            payloads: [rec({ url: `${APP}/api/x`, kind: 'binary', bytes: 90_000, runtimeState: 'STOPPING' })],
+        }));
+        expect(out.verdict).toBe('HOLD');
+    });
+
+    it('CASUALTY: opaque binary AFTER the state returns to READY still holds once a take has been recorded', () => {
+        const out = receiptVerdict(base({
+            payloads: [rec({ url: `${APP}/api/save`, kind: 'opaque_stream', bytes: -1, runtimeState: 'READY' })],
+        }));
+        expect(out.verdict).toBe('HOLD');
+    });
+
+    it('POSITIVE CONTROL: the same bytes BEFORE any recording are not a violation', () => {
+        // No take has happened, so no captured audio exists to send. Holding here would flag ordinary
+        // startup traffic and teach the operator to skim.
+        const out = receiptVerdict(base({
+            phases: ['pre-record'],
+            payloads: [rec({ url: `${APP}/api/x`, kind: 'binary', bytes: 90_000, runtimeState: 'READY' })],
+        }));
+        expect(out.problems.filter((p) => /binary|audio/.test(p))).toEqual([]);
+    });
+
+    it('POSITIVE CONTROL: transcript TEXT at stop/save is still allowed', () => {
+        const out = receiptVerdict(base({
+            payloads: [rec({ url: `${APP}/api/sessions`, kind: 'json', bytes: 12_000, runtimeState: 'STOPPING' })],
+        }));
+        expect(out.verdict).toBe('PASS');
     });
 });

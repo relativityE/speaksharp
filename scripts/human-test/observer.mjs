@@ -405,7 +405,9 @@ export function receiptVerdict({
   // check that holds every valid take gets "fixed" by allowlisting vendors, and a vendor allowlist
   // authorises whatever that vendor is sent, audio included. The promise is about audio, and the
   // product documents that transcript TEXT is persisted server-side, so text is not a violation.
-  const payloadFindings = auditPayloads(payloads ?? [], { appOrigin });
+  // Once the run has entered recording, captured audio exists for the rest of it — including stop/save.
+  const recordingBegun = (phases ?? []).includes('recording');
+  const payloadFindings = auditPayloads(payloads ?? [], { appOrigin, recordingBegun });
   const blocking = payloadFindings.filter((f) => BLOCKING_PAYLOAD_CATEGORIES.includes(f.category));
   const advisory = payloadFindings.filter((f) => !BLOCKING_PAYLOAD_CATEGORIES.includes(f.category));
   for (const f of blocking) {
@@ -432,11 +434,25 @@ export function receiptVerdict({
   } else {
     if (w.installFailures > 0) problems.push(`${w.installFailures} worker tripwire install(s) failed`);
     if (w.drainFailures > 0) problems.push(`${w.drainFailures} worker(s) could not be read back`);
-    if (w.attached > 0 && w.installed === 0) {
-      problems.push(`${w.attached} worker(s) attached but none were instrumented`);
+
+    // ZERO INSTRUMENTED WORKERS IS NOT A CLEAN RUN. The guard read `attached > 0 && installed === 0`, so
+    // a run that attached NOTHING — auto-attach never armed, the worker starting before the observer, a
+    // browser that reported no worker targets at all — sailed past with zero problems. For this product
+    // that is the worst possible pass: Private STT decodes in a Web Worker, so a take with no
+    // instrumented worker means the context holding PCM was never watched, and "no findings" is a
+    // statement about where we looked rather than about what happened.
+    if (w.installed === 0) {
+      problems.push(w.attached > 0
+        ? `${w.attached} worker(s) attached but none were instrumented`
+        : 'no worker was instrumented; the context that holds PCM was not observed');
     }
     if (w.installed > 0 && w.drained === 0) {
       problems.push(`${w.installed} worker(s) instrumented but none were read`);
+    }
+    // The main document's tripwire is the other half. Its absence was never checked at all, so a run
+    // where the page-level install silently failed reported no payloads and read as clean.
+    if (w.mainTripwireInstalled !== true) {
+      problems.push('the main-document tripwire was not confirmed installed; payload observation is unproven');
     }
   }
 
@@ -495,7 +511,7 @@ const OPAQUE_KINDS = new Set(['binary', 'blob', 'unknown', 'opaque_stream']);
  * @param records tripwire records: transport, url, method, kind, mime, bytes, runtimeState
  * @param appOrigin the app's own origin
  */
-export function auditPayloads(records, { appOrigin } = {}) {
+export function auditPayloads(records, { appOrigin, recordingBegun = false } = {}) {
   let appO = null;
   try { appO = new URL(appOrigin).origin; } catch { /* everything then reads as off-origin */ }
 
@@ -509,7 +525,14 @@ export function auditPayloads(records, { appOrigin } = {}) {
     }
     const sameOrigin = appO !== null && url.origin === appO;
     const vendor = EXPECTED_TELEMETRY_VENDORS.find((v) => v.match.test(url.hostname));
-    const during = r.runtimeState === 'RECORDING';
+    // AUDIO OUTLIVES THE `RECORDING` STATE. This tested `runtimeState === 'RECORDING'` only, so opaque
+    // bytes sent during STOPPING or after the state returned to READY were treated as ordinary traffic —
+    // and stop/save is precisely when a recording's audio would be uploaded. Captured audio exists from
+    // the moment recording starts until the take is finished with, so the window is "recording has
+    // begun", not "the state says RECORDING right now".
+    const during = r.runtimeState === 'RECORDING'
+      || r.runtimeState === 'STOPPING'
+      || recordingBegun;
     const finding = (category) => ([{
       transport: r.transport,
       origin: url.origin,
