@@ -33,6 +33,10 @@ export const PRIVATE_TELEMETRY_ALLOWED_PROPS = [
     'issue_severity',
     /** Whether the report/session pair is linked. NOT the identifier — see the module note. */
     'report_linked_to_session',
+    // Says whether the engine identity on this event belongs to the SESSION the report is linked to,
+    // rather than to whatever last resolved in the tab. Without it a null arm is indistinguishable from
+    // an unrecorded one, and a populated arm is indistinguishable from a borrowed one.
+    'model_attribution_verified',
 ] as const;
 
 export type PrivateTelemetryProp = typeof PRIVATE_TELEMETRY_ALLOWED_PROPS[number];

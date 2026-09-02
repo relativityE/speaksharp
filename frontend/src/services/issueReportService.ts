@@ -167,13 +167,27 @@ export const issueReportService = {
     // would have made the funnel's linkage rate quietly wrong in the optimistic direction.
     //
     // The fallback also never reached the row: it existed in the analytics vendor and nowhere else.
+    // ATTRIBUTION FOLLOWS THE LINK, NOT THE TAB.
+    //
+    // `getLastPrivateIdentity()` is process-global: it holds whatever engine most recently resolved in
+    // this tab, which is not necessarily the engine that produced the session this report is about. A
+    // report filed with no linked session — or filed after switching models — was attributed to the
+    // current arm anyway, so a complaint about Moonshine could be filed under v2 and counted against it.
+    //
+    // With no persisted session there is nothing to attribute the report TO, and the honest answer is
+    // explicit: `null` with `model_attribution_verified: false`. Naming the most recent engine would be
+    // a guess that reads downstream exactly like a measurement.
     const arm = getLastPrivateIdentity();
+    const linked = persistedSessionId !== null;
+    // Verified only when the report is linked AND the identity we hold belongs to that same session.
+    const attributionVerified = linked && arm.session_id === persistedSessionId;
     emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.REPORT_ISSUE_SUBMITTED, {
       issue_category: input.category,
       issue_severity: input.severity,
-      report_linked_to_session: persistedSessionId !== null,
-      engine_variant: arm.engine_variant ?? null,
-      release_sha: arm.release_sha ?? null,
+      report_linked_to_session: linked,
+      model_attribution_verified: attributionVerified,
+      engine_variant: attributionVerified ? (arm.engine_variant ?? null) : null,
+      release_sha: attributionVerified ? (arm.release_sha ?? null) : null,
     });
 
     return { id: null };

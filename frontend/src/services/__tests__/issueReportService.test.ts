@@ -339,3 +339,64 @@ describe('issueReportService', () => {
     ).rejects.toBeTruthy();
   });
 });
+
+describe('a report is attributed to the session it is linked to, never to the tab', () => {
+    it('CASUALTY: an UNLINKED report carries no arm, rather than borrowing the current one', async () => {
+        // `getLastPrivateIdentity()` is process-global: it holds whatever engine most recently resolved
+        // in this tab, which need not be the engine that produced anything this report is about. Naming
+        // it would read downstream exactly like a measurement.
+        setPrivateTelemetryContext({ session_id: 'some-other-session', engine_variant: 'private_v2', release_sha: 'abc123' });
+        await issueReportService.submit({
+            userId: 'user-1', sessionId: null,
+            category: 'recording_transcription', severity: 'medium',
+            title: 'Something went wrong', description: 'It did not work.',
+            pageUrl: 'http://localhost:5174/session', metadata: { route: '/session' }, includeAudio: false,
+        });
+
+        const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
+        const latest = events[events.length - 1];
+        expect(latest.report_linked_to_session).toBe(false);
+        expect(latest.model_attribution_verified).toBe(false);
+        expect(latest.engine_variant, 'an unlinked report must not borrow an arm').toBeNull();
+        expect(latest.release_sha).toBeNull();
+    });
+
+    it('CASUALTY: a report linked to session A is NOT attributed to a later session B', async () => {
+        const A = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+        // The tab has since moved on to another session on a different arm.
+        setPrivateTelemetryContext({ session_id: 'session-B', engine_variant: 'private_moonshine', release_sha: 'def456' });
+        await issueReportService.submit({
+            userId: 'user-1', sessionId: A,
+            category: 'recording_transcription', severity: 'medium',
+            title: 'About session A', description: 'The transcript was wrong.',
+            pageUrl: 'http://localhost:5174/session', metadata: { route: '/session' }, includeAudio: false,
+        });
+
+        const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
+        const latest = events[events.length - 1];
+        expect(latest.report_linked_to_session).toBe(true);
+        // Linked, but the identity we hold is session B's — so the arm is not verified and is withheld.
+        // A complaint about one model being filed against another is the defect this prevents.
+        expect(latest.model_attribution_verified).toBe(false);
+        expect(latest.engine_variant).toBeNull();
+        expect(JSON.stringify(latest)).not.toContain('session-B');
+    });
+
+    it('POSITIVE CONTROL: when the identity belongs to the linked session, the arm rides along', async () => {
+        const A = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+        setPrivateTelemetryContext({ session_id: A, engine_variant: 'private_moonshine', release_sha: 'abc123' });
+        await issueReportService.submit({
+            userId: 'user-1', sessionId: A,
+            category: 'recording_transcription', severity: 'medium',
+            title: 'About session A', description: 'The transcript was wrong.',
+            pageUrl: 'http://localhost:5174/session', metadata: { route: '/session' }, includeAudio: false,
+        });
+
+        const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
+        const latest = events[events.length - 1];
+        expect(latest.model_attribution_verified).toBe(true);
+        expect(latest.engine_variant).toBe('private_moonshine');
+        // Still no raw identifier on the wire.
+        expect(JSON.stringify(latest)).not.toContain(A);
+    });
+});

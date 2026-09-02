@@ -130,7 +130,13 @@ const REPORT_ISSUE_FIELDS = {
     issue_category: enumOf(ISSUE_CATEGORIES),
     issue_severity: enumOf(ISSUE_SEVERITIES),
     report_linked_to_session: { kind: 'bool' } as FieldRule,
-    engine_variant: enumOf(['private_v2', 'private_v4', 'moonshine_streaming']),
+    // Whether the arm below belongs to the session this report is LINKED to, rather than to whatever
+    // engine last resolved in the tab. A null arm and a borrowed arm are otherwise indistinguishable.
+    model_attribution_verified: { kind: 'bool' } as FieldRule,
+    // `private_moonshine`, matching the EngineVariant union. This read `moonshine_streaming` — a value
+    // the app never produces — so a Moonshine report's arm failed the enum and was DROPPED, leaving
+    // exactly the Moonshine reports unattributed while every other arm carried its label.
+    engine_variant: enumOf(['private_v2', 'private_v4', 'private_moonshine']),
     release_sha: slug(64),
 } as const;
 
