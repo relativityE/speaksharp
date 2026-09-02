@@ -206,3 +206,54 @@ describe('a committed utterance reaches Moonshine through the REAL facade', () =
         expect(JSON.stringify(result)).not.toContain('whisper would say this');
     });
 });
+
+describe('the facade forwards finality to the engine unchanged', () => {
+    /**
+     * #1405 layer two. PrivateWhisper owns the decision; PrivateSTT must carry it without alteration.
+     * Dropping the option here would strand the signal between the layer that knows and the layer that
+     * acts, and the symptom would be identical to the original defect.
+     */
+    const seen: Array<{ final: boolean | undefined }> = [];
+
+    beforeEach(() => {
+        seen.length = 0;
+        sttRegistry.register('moonshine-streaming', (() => ({
+            init: vi.fn(async () => ({ isOk: true, data: undefined })),
+            transcribe: vi.fn(async (_a: Float32Array, options?: { final?: boolean }) => {
+                seen.push({ final: options?.final });
+                return { isOk: true, data: options?.final ? 'final text' : 'interim text' };
+            }),
+            start: vi.fn(async () => {}), stop: vi.fn(async () => {}),
+            pause: vi.fn(async () => {}), resume: vi.fn(async () => {}),
+            terminate: vi.fn(async () => {}),
+            getTranscript: vi.fn(async () => ''), getInterimTranscript: vi.fn(() => ''),
+        })) as never);
+        window.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify({
+            'moonshine:streaming-medium': {
+                ...consentTermsFor(CANDIDATES['moonshine:streaming-medium']),
+                grantedAt: '2026-09-02T00:00:00.000Z',
+            },
+        }));
+    });
+    afterEach(() => { sttRegistry.clear(); window.localStorage.clear(); vi.restoreAllMocks(); });
+
+    it('CASUALTY: final:true arrives at the engine as final:true', async () => {
+        const { PrivateSTT } = await import('../PrivateSTT');
+        const pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
+        const result = await pstt.transcribe(new Float32Array(16_000).fill(0.1), { final: true });
+        expect(seen).toEqual([{ final: true }]);
+        expect(result.isOk && result.data).toBe('final text');
+    });
+
+    it('CASUALTY: a live call arrives as NON-final, not silently promoted', async () => {
+        const { PrivateSTT } = await import('../PrivateSTT');
+        const pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
+        await pstt.transcribe(new Float32Array(16_000).fill(0.1), { final: false });
+        await pstt.transcribe(new Float32Array(16_000).fill(0.1));
+        expect(seen).toEqual([{ final: false }, { final: undefined }]);
+    });
+});
