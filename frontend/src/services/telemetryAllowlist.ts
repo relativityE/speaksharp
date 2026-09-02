@@ -37,6 +37,13 @@ import {
     CONVERSION_SOURCES, UTM_SOURCES, UTM_MEDIUMS, UTM_CAMPAIGNS, closedWith,
 } from './conversionVocabulary';
 
+/** The checked-in Report Issue vocabularies — the same slugs the database stores. */
+const ISSUE_CATEGORIES = [
+    'recording_transcription', 'analytics_sessions', 'billing_subscription', 'account_signin',
+    'privacy_data', 'speed_performance', 'something_else',
+] as const;
+const ISSUE_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const;
+
 const STT_MODES = ['private', 'browser', 'cloud', 'native', 'unknown'] as const;
 /** `PracticeMode` in practiceTelemetry.ts. The SAME property name `mode` with a DIFFERENT closed set. */
 const PRACTICE_MODES = ['quick', 'objective'] as const;
@@ -111,6 +118,28 @@ const CHECKOUT_RETURN_FIELDS = {
     utm_campaign: enumOf(closedWith(UTM_CAMPAIGNS)),
 } as const;
 
+/**
+ * Report Issue. Governed rather than free-form because this is the ONE surface where a user types
+ * prose: the title and description are real user content and belong in the database row, never in an
+ * analytics payload. Only the closed classification and a LINK BOOLEAN ride the wire.
+ *
+ * `report_linked_to_session` replaces the raw session UUID that used to travel here. The database keeps
+ * the relationship; the browser only needs to answer whether one exists.
+ */
+const REPORT_ISSUE_FIELDS = {
+    issue_category: enumOf(ISSUE_CATEGORIES),
+    issue_severity: enumOf(ISSUE_SEVERITIES),
+    report_linked_to_session: { kind: 'bool' } as FieldRule,
+    // Whether the arm below belongs to the session this report is LINKED to, rather than to whatever
+    // engine last resolved in the tab. A null arm and a borrowed arm are otherwise indistinguishable.
+    model_attribution_verified: { kind: 'bool' } as FieldRule,
+    // `private_moonshine`, matching the EngineVariant union. This read `moonshine_streaming` — a value
+    // the app never produces — so a Moonshine report's arm failed the enum and was DROPPED, leaving
+    // exactly the Moonshine reports unattributed while every other arm carried its label.
+    engine_variant: enumOf(['private_v2', 'private_v4', 'private_moonshine']),
+    release_sha: slug(64),
+} as const;
+
 const COACHING_CORE = {
     experiment: slug(),
     variant: enumOf(SESSION_COACHING_VARIANTS),
@@ -164,6 +193,9 @@ export const EVENT_SCHEMAS = Object.freeze({
     conversion_cta_viewed: CONVERSION_FIELDS,
     conversion_cta_clicked: CONVERSION_FIELDS,
     checkout_started: CONVERSION_FIELDS,
+    // Report Issue. The DIALOG's title and description are real user prose and stay in the database
+    // row; only the closed classification and a link boolean travel here.
+    report_issue_submitted: REPORT_ISSUE_FIELDS,
     checkout_returned_success: CHECKOUT_RETURN_FIELDS,
     checkout_returned_cancelled: CHECKOUT_RETURN_FIELDS,
     landing_preview_clicked: CONVERSION_FIELDS,

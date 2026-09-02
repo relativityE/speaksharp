@@ -253,11 +253,19 @@ describe('issueReportService', () => {
 
     const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
     const latestEvent = events[events.length - 1];
-    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', session_id: null });
+    // No live take to correlate to, so the link is FALSE — and the previous take's id must not be
+    // resurrected as a stand-in.
+    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', report_linked_to_session: false });
     expect(JSON.stringify(latestEvent)).not.toContain('previous-session');
   });
 
-  it('uses the newly persisted recording identity instead of an older fallback', async () => {
+  it('reports NO link when the row has no session, even with a live take in the tab', async () => {
+    // THE REGRESSION. This asserted `true` here, because the boolean was derived from
+    // `input.sessionId ?? <live take id>`. The DB insert has no such fallback — it stores
+    // `input.sessionId` alone — so a report filed mid-take before the session is persisted produced a
+    // row with NO session link while telemetry claimed there was one. Every such report inflated the
+    // funnel's linkage rate, and the disagreement was invisible because the two values were computed
+    // from different inputs.
     setPrivateTelemetryContext({ session_id: 'previous-session' });
     clearPrivateRecordingIdentity();
     setPrivateTelemetryContext({ session_id: 'current-session' });
@@ -275,8 +283,41 @@ describe('issueReportService', () => {
 
     const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
     const latestEvent = events[events.length - 1];
-    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', session_id: 'current-session' });
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ session_id: null }));
+    expect(latestEvent).toMatchObject({ event: 'report_issue_submitted', report_linked_to_session: false });
+    // The engine identity still rides along — it is content-free and is what makes a report
+    // diagnosable — but neither session identifier reaches the wire.
     expect(JSON.stringify(latestEvent)).not.toContain('previous-session');
+    expect(JSON.stringify(latestEvent), 'no raw session id on the wire').not.toContain('current-session');
+  });
+
+  it('keeps the boolean in agreement with the persisted row for every input', async () => {
+    // The invariant, stated once over both branches: the boolean is a description of the ROW. Deriving
+    // it from any other source is what allowed the two to drift apart, so this asserts them together
+    // rather than asserting each in isolation.
+    const LINKED = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+    for (const sessionId of [LINKED, null]) {
+      insert.mockClear();
+      setPrivateTelemetryContext({ session_id: 'a-live-take', engine_variant: 'private_v2' });
+      await issueReportService.submit({
+        userId: 'user-1',
+        sessionId,
+        category: 'recording_transcription',
+        severity: 'medium',
+        title: 'Agreement check',
+        description: 'The boolean must describe the row that was written.',
+        pageUrl: 'http://localhost:5174/session',
+        metadata: { route: '/session' },
+        includeAudio: false,
+      });
+
+      const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
+      const emitted = events[events.length - 1].report_linked_to_session;
+      const written = (insert.mock.calls[0][0] as { session_id: string | null }).session_id;
+      expect(emitted, `row session_id=${written} must agree with the emitted boolean`)
+        .toBe(written !== null);
+      expect(JSON.stringify(events[events.length - 1])).not.toContain('a-live-take');
+    }
   });
 
   it('surfaces a persistence failure rather than masking it (persistence is authoritative)', async () => {
@@ -297,4 +338,65 @@ describe('issueReportService', () => {
       }),
     ).rejects.toBeTruthy();
   });
+});
+
+describe('a report is attributed to the session it is linked to, never to the tab', () => {
+    it('CASUALTY: an UNLINKED report carries no arm, rather than borrowing the current one', async () => {
+        // `getLastPrivateIdentity()` is process-global: it holds whatever engine most recently resolved
+        // in this tab, which need not be the engine that produced anything this report is about. Naming
+        // it would read downstream exactly like a measurement.
+        setPrivateTelemetryContext({ session_id: 'some-other-session', engine_variant: 'private_v2', release_sha: 'abc123' });
+        await issueReportService.submit({
+            userId: 'user-1', sessionId: null,
+            category: 'recording_transcription', severity: 'medium',
+            title: 'Something went wrong', description: 'It did not work.',
+            pageUrl: 'http://localhost:5174/session', metadata: { route: '/session' }, includeAudio: false,
+        });
+
+        const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
+        const latest = events[events.length - 1];
+        expect(latest.report_linked_to_session).toBe(false);
+        expect(latest.model_attribution_verified).toBe(false);
+        expect(latest.engine_variant, 'an unlinked report must not borrow an arm').toBeNull();
+        expect(latest.release_sha).toBeNull();
+    });
+
+    it('CASUALTY: a report linked to session A is NOT attributed to a later session B', async () => {
+        const A = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+        // The tab has since moved on to another session on a different arm.
+        setPrivateTelemetryContext({ session_id: 'session-B', engine_variant: 'private_moonshine', release_sha: 'def456' });
+        await issueReportService.submit({
+            userId: 'user-1', sessionId: A,
+            category: 'recording_transcription', severity: 'medium',
+            title: 'About session A', description: 'The transcript was wrong.',
+            pageUrl: 'http://localhost:5174/session', metadata: { route: '/session' }, includeAudio: false,
+        });
+
+        const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
+        const latest = events[events.length - 1];
+        expect(latest.report_linked_to_session).toBe(true);
+        // Linked, but the identity we hold is session B's — so the arm is not verified and is withheld.
+        // A complaint about one model being filed against another is the defect this prevents.
+        expect(latest.model_attribution_verified).toBe(false);
+        expect(latest.engine_variant).toBeNull();
+        expect(JSON.stringify(latest)).not.toContain('session-B');
+    });
+
+    it('POSITIVE CONTROL: when the identity belongs to the linked session, the arm rides along', async () => {
+        const A = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+        setPrivateTelemetryContext({ session_id: A, engine_variant: 'private_moonshine', release_sha: 'abc123' });
+        await issueReportService.submit({
+            userId: 'user-1', sessionId: A,
+            category: 'recording_transcription', severity: 'medium',
+            title: 'About session A', description: 'The transcript was wrong.',
+            pageUrl: 'http://localhost:5174/session', metadata: { route: '/session' }, includeAudio: false,
+        });
+
+        const events = (window as unknown as { __SS_PRIVATE_EVENTS__: Array<Record<string, unknown>> }).__SS_PRIVATE_EVENTS__;
+        const latest = events[events.length - 1];
+        expect(latest.model_attribution_verified).toBe(true);
+        expect(latest.engine_variant).toBe('private_moonshine');
+        // Still no raw identifier on the wire.
+        expect(JSON.stringify(latest)).not.toContain(A);
+    });
 });

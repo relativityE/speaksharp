@@ -127,11 +127,15 @@ export const issueReportService = {
     // #1306 metrics-only: the insert is transcript-free — no include_transcript / transcript_excerpt columns
     // are written (the column is dropped by the Stage B enforcement migration). Only the user's typed fields +
     // sanitized operational metadata + an optional audio-debug note are persisted.
+    // THE ONE VALUE, used for both the row and the telemetry boolean. Computing them separately is
+    // what let them disagree.
+    const persistedSessionId = input.sessionId ?? null;
+
     const { error } = await supabase
       .from('user_issue_reports')
       .insert({
         user_id: input.userId ?? null,
-        session_id: input.sessionId ?? null,
+        session_id: persistedSessionId,
         category: input.category,
         severity: input.severity,
         title: input.title.trim(),
@@ -147,16 +151,43 @@ export const issueReportService = {
       throw error;
     }
 
-    // Non-PII analytics breadcrumb so a Report Issue can be correlated to the user's
-    // journey (session id and the most recent content-free Private engine identity).
-    // The strict allowlist guarantees no title/description/transcript/audio rides along.
+    // Non-PII analytics breadcrumb so a Report Issue can be correlated to the user's journey (whether
+    // it is linked to a session, plus the most recent content-free Private engine identity). The strict
+    // allowlist guarantees no title/description/transcript/audio rides along.
+    //
+    // THE LINK, NOT THE IDENTIFIER. This sent a raw session UUID to the analytics vendor, so every
+    // report carried a stable per-session identifier — enough to re-identify a session from analytics
+    // alone. The wire only needs to answer whether the report is linked to a session at all.
+    //
+    // DERIVED FROM WHAT WAS INSERTED, not from a wider fallback. The first version computed this from
+    // `input.sessionId ?? arm.session_id`, so a report with no session on its ROW could still emit
+    // `report_linked_to_session: true` on the strength of the last engine identity seen in this tab.
+    // That is a claim about the database made from something the database never saw — the same
+    // intention-over-evidence error as reporting a requested model instead of the one that ran, and it
+    // would have made the funnel's linkage rate quietly wrong in the optimistic direction.
+    //
+    // The fallback also never reached the row: it existed in the analytics vendor and nowhere else.
+    // ATTRIBUTION FOLLOWS THE LINK, NOT THE TAB.
+    //
+    // `getLastPrivateIdentity()` is process-global: it holds whatever engine most recently resolved in
+    // this tab, which is not necessarily the engine that produced the session this report is about. A
+    // report filed with no linked session — or filed after switching models — was attributed to the
+    // current arm anyway, so a complaint about Moonshine could be filed under v2 and counted against it.
+    //
+    // With no persisted session there is nothing to attribute the report TO, and the honest answer is
+    // explicit: `null` with `model_attribution_verified: false`. Naming the most recent engine would be
+    // a guess that reads downstream exactly like a measurement.
     const arm = getLastPrivateIdentity();
+    const linked = persistedSessionId !== null;
+    // Verified only when the report is linked AND the identity we hold belongs to that same session.
+    const attributionVerified = linked && arm.session_id === persistedSessionId;
     emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.REPORT_ISSUE_SUBMITTED, {
       issue_category: input.category,
       issue_severity: input.severity,
-      session_id: input.sessionId ?? arm.session_id ?? null,
-      engine_variant: arm.engine_variant ?? null,
-      release_sha: arm.release_sha ?? null,
+      report_linked_to_session: linked,
+      model_attribution_verified: attributionVerified,
+      engine_variant: attributionVerified ? (arm.engine_variant ?? null) : null,
+      release_sha: attributionVerified ? (arm.release_sha ?? null) : null,
     });
 
     return { id: null };

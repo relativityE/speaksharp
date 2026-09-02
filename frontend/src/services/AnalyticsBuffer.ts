@@ -2,9 +2,9 @@
 import posthog from 'posthog-js';
 import * as Sentry from "@sentry/react";
 import logger from '../lib/logger';
-import { sanitizePrivateTelemetryProps } from './transcription/privateTelemetry';
+import { sanitizePrivateTelemetryProps } from './transcription/privateTelemetrySanitizer';
 import { projectEventProps, isGovernedEvent, type GovernedEvent } from './telemetryAllowlist';
-import { buildEnvelope, stripEnvelopeKeys, type EnvelopeSources } from './telemetry/envelope';
+import { buildEnvelope, stripEnvelopeKeys, type EnvelopeSources, type EventEnvelope } from './telemetry/envelope';
 import { buildTrafficSignals } from './telemetry/trafficType';
 import { resolvedEngine } from './telemetry/runtimeAttribution';
 
@@ -24,6 +24,21 @@ interface AnalyticsEvent {
   properties?: Record<string, unknown>;
   priority: AnalyticsPriority;
   timestamp: number;
+  /**
+   * THE ENVELOPE AS IT WAS WHEN THE EVENT HAPPENED.
+   *
+   * Built at `push()`, not at `send()`. The envelope answers "which model produced this?", and the
+   * buffer can hold an event across a flush delay or an in-page model switch — so building it at send
+   * time attributed a queued event to whichever engine happened to be resolved when the queue drained.
+   * A take recorded on Moonshine and flushed after a switch to v2 was filed under v2, and nothing about
+   * the event looked wrong afterwards.
+   *
+   * Snapshotting is the fix rather than "flush faster": any delay at all reintroduces it.
+   *
+   * Optional only for events injected directly into the queue (tests, and any future non-push path);
+   * `send()` falls back to building one so such an event is still enveloped, just not snapshotted.
+   */
+  envelope?: EventEnvelope;
 }
 
 // #1259 T1 — the key-NAME denylist that used to live here is GONE, deliberately.
@@ -142,13 +157,29 @@ class AnalyticsBuffer {
    * `private_*` events are exempt from the schema registry because they carry their OWN allowlist
    * re-projection (`sanitizePrivateTelemetryProps`), applied in `send()`.
    */
-  public push(event: AnalyticsEventName, properties?: Record<string, unknown>, priority: AnalyticsPriority = 'LOW'): void {
+  public push(
+    event: AnalyticsEventName,
+    properties?: Record<string, unknown>,
+    priority: AnalyticsPriority = 'LOW',
+    /**
+     * Set false by a producer that has established it CANNOT attribute this event to a model.
+     *
+     * Without it the envelope silently overruled such a producer: Report Issue emitted
+     * `engine_variant: null` for an unverifiable link, and the envelope then attached the current tab's
+     * `candidate_id`, `engine`, `runtime_version` and `asset_digest` on the way to the wire — so a report
+     * about a Moonshine session filed after switching to v2 arrived attributed to v2.
+     */
+    modelAttributionVerified = true,
+  ): void {
 
     const analyticsEvent: AnalyticsEvent = {
       event,
       properties,
       priority,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      // Captured HERE, at the producer boundary, while the state that produced the event is still the
+      // current state.
+      envelope: buildEnvelope(AnalyticsBuffer.envelopeSources(), modelAttributionVerified),
     };
 
     // CRITICAL Tier: Immediate delivery
@@ -274,7 +305,9 @@ class AnalyticsBuffer {
       // producer never had: which release, which model ACTUALLY resolved, which kind of traffic.
       // Without them a launch is unmeasurable in the two ways that already cost a release — testers
       // indistinguishable from smoke traffic, and sessions unattributable to a model.
-      const envelope = buildEnvelope(AnalyticsBuffer.envelopeSources());
+      // The snapshot taken at push. Rebuilding here would re-acquire whatever is global NOW, which is
+      // exactly the drift this replaces.
+      const envelope = event.envelope ?? buildEnvelope(AnalyticsBuffer.envelopeSources());
       posthog.capture(event.event, {
         ...stripEnvelopeKeys(sanitized),
         ...envelope,

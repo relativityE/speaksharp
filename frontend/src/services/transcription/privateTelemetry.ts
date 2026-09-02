@@ -1,5 +1,6 @@
-import posthog from 'posthog-js';
 import logger from '@/lib/logger';
+import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import { sanitizePrivateTelemetryProps, type PrivateTelemetryProps } from './privateTelemetrySanitizer';
 import { V4_FLAG_KEYS } from './privateV4Flags';
 
 export const PRIVATE_TELEMETRY_EVENTS = {
@@ -19,43 +20,14 @@ export type PrivateTelemetryEvent = typeof PRIVATE_TELEMETRY_EVENTS[keyof typeof
 export type EngineVariant = 'private_v2' | 'private_v4' | 'private_moonshine';
 export type AssignmentSource = 'default' | 'posthog_flag' | 'allowlist' | 'deterministic_override';
 
-export const PRIVATE_TELEMETRY_ALLOWED_PROPS = [
-    'session_id',
-    'release_sha',
-    'engine_variant',
-    'assignment_source',
-    'posthog_flag_key',
-    'posthog_flag_value',
-    'model',
-    'browser',
-    'device_memory_gb',
-    'setup_duration_ms',
-    'error_code',
-    'fallback_reason',
-    'resolved_device',
-    'webgpu_available',
-    'issue_category',
-    'issue_severity',
-] as const;
-
-export type PrivateTelemetryProp = typeof PRIVATE_TELEMETRY_ALLOWED_PROPS[number];
-export type PrivateTelemetryProps = Partial<Record<PrivateTelemetryProp, string | number | boolean | null>>;
-const ALLOWED = new Set<string>(PRIVATE_TELEMETRY_ALLOWED_PROPS);
-
-/** Two-boundary content-free projection for Private engineering telemetry. */
-export function sanitizePrivateTelemetryProps(input?: Record<string, unknown>): PrivateTelemetryProps {
-    const out: PrivateTelemetryProps = {};
-    if (!input) return out;
-    for (const key of Object.keys(input)) {
-        if (!ALLOWED.has(key)) continue;
-        const value = input[key];
-        if (value === undefined) continue;
-        if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-            out[key as PrivateTelemetryProp] = value;
-        }
-    }
-    return out;
-}
+// The projection moved to `privateTelemetrySanitizer` so the governed seam can import it without a
+// cycle. Re-exported here because existing call sites import it from this module.
+export {
+    PRIVATE_TELEMETRY_ALLOWED_PROPS,
+    sanitizePrivateTelemetryProps,
+    type PrivateTelemetryProp,
+    type PrivateTelemetryProps,
+} from './privateTelemetrySanitizer';
 
 export function resolvePrivateAssignment(input: {
     resolvedEngineType: string | null | undefined;
@@ -148,13 +120,31 @@ export function emitPrivateTelemetry(event: PrivateTelemetryEvent, props?: Recor
     try {
         const safe = sanitizePrivateTelemetryProps({ ...activeContext, ...(props ?? {}) });
         logger.info({ ...safe, event }, '[PRIVATE_TELEMETRY]');
-        // Second independent projection immediately before the wire.
-        const wireSafe = sanitizePrivateTelemetryProps(safe as Record<string, unknown>);
-        posthog?.capture?.(event, wireSafe);
+
+        // THROUGH THE GOVERNED BOUNDARY, NOT AROUND IT.
+        //
+        // This called `posthog.capture` directly, so `private_*` events — and the Report Issue event —
+        // reached the vendor without passing `AnalyticsBuffer`, which is where the #1259 envelope is
+        // applied. Every one of them therefore carried no `candidate_id`, no `traffic_type` and no
+        // `release_sha` from the seam: a Private session's own telemetry could not say which model
+        // produced it, which is precisely what the attribution work exists to establish. It also
+        // hand-rolled two of those fields from its own context, which is the producer-supplied pattern
+        // the envelope replaces.
+        //
+        // The buffer re-applies `sanitizePrivateTelemetryProps` on the way out, so the content-free
+        // guarantee is unchanged — it is now enforced at both ends rather than only here.
+        // THE PRODUCER'S VERDICT TRAVELS WITH THE EVENT. An event that says
+    // `model_attribution_verified: false` has already established that it cannot name a model; letting
+    // the envelope supply one from ambient state would overrule the only code that actually knew.
+    const modelAttributionVerified = safe.model_attribution_verified !== false;
+    analyticsBuffer.push(
+        event as Parameters<typeof analyticsBuffer.push>[0], safe, 'LOW', modelAttributionVerified,
+    );
+
         if (typeof window !== 'undefined') {
             const target = window as unknown as { __SS_PRIVATE_EVENTS__?: Array<Record<string, unknown>> };
             if (!Array.isArray(target.__SS_PRIVATE_EVENTS__)) target.__SS_PRIVATE_EVENTS__ = [];
-            target.__SS_PRIVATE_EVENTS__.push({ event, ts: Date.now(), ...wireSafe });
+            target.__SS_PRIVATE_EVENTS__.push({ event, ts: Date.now(), ...safe });
             if (target.__SS_PRIVATE_EVENTS__.length > 200) target.__SS_PRIVATE_EVENTS__.splice(0, target.__SS_PRIVATE_EVENTS__.length - 200);
         }
     } catch {
