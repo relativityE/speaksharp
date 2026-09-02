@@ -116,3 +116,93 @@ describe('readiness for Moonshine is a consent question, not a cache question', 
         expect(pstt.getMetadata().candidateId).toBe('moonshine:streaming-medium');
     });
 });
+
+describe('a committed utterance reaches Moonshine through the REAL facade', () => {
+    /**
+     * `PrivateWhisper` commits an utterance with `privateSTT.transcribe(audio)`. The earlier proof called
+     * `engine.transcribe(audio)` directly, which skips the facade entirely — the very hop where the
+     * engine was missing the method. A test that bypasses the layer under repair cannot show it is
+     * repaired.
+     *
+     * Only the RUNTIME is a double here, and it implements the published surface. Everything from
+     * `PrivateSTT.transcribe` down is production code.
+     */
+    const runtimeSpy = { received: [] as number[], decodes: 0 };
+
+    const realRuntimeDouble = () => ({
+        transcribe: () => { throw new Error('the non-streaming API must not be used in a session'); },
+        close: vi.fn(() => {}),
+        createStream: () => ({
+            start: vi.fn(),
+            addAudio: (audio: Float32Array) => { runtimeSpy.received.push(audio.length); },
+            transcribe: () => { runtimeSpy.decodes += 1; return { lines: [{ text: 'the real facade decoded this' }] }; },
+            stop: vi.fn(),
+            close: vi.fn(),
+        }),
+    });
+
+    beforeEach(async () => {
+        runtimeSpy.received = []; runtimeSpy.decodes = 0;
+        const { MoonshineStreamingEngine } = await import('../MoonshineStreamingEngine');
+        // The REAL engine, constructed by the REAL facade; only its transcriber is injected.
+        sttRegistry.register('moonshine-streaming', ((options: unknown) => new MoonshineStreamingEngine({
+            candidateId: 'moonshine:streaming-medium',
+            modelArch: 'MOONSHINE_STREAMING_MEDIUM',
+            loadTranscriber: async () => realRuntimeDouble(),
+            ...(options as object),
+        })) as never);
+        window.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify({
+            'moonshine:streaming-medium': {
+                ...consentTermsFor(CANDIDATES['moonshine:streaming-medium']),
+                grantedAt: '2026-09-01T00:00:00.000Z',
+            },
+        }));
+    });
+    afterEach(() => { sttRegistry.clear(); window.localStorage.clear(); vi.restoreAllMocks(); });
+
+    it('POSITIVE CONTROL: PrivateSTT.transcribe(audio) decodes on Moonshine and returns its text', async () => {
+        const { PrivateSTT } = await import('../PrivateSTT');
+        const pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+        expect(pstt.getEngineType()).toBe('moonshine-streaming');
+
+        const audio = new Float32Array(16_000 * 2).fill(0.1);
+        const result = await pstt.transcribe(audio);
+
+        expect(result.isOk, 'the facade commit decode must succeed on Moonshine').toBe(true);
+        expect(result.isOk && result.data).toBe('the real facade decoded this');
+        // The audio crossed every hop and reached the runtime intact.
+        expect(runtimeSpy.received).toEqual([audio.length]);
+        expect(runtimeSpy.decodes).toBe(1);
+        // And the session is still attributed to Moonshine, not to a fallback.
+        expect(pstt.getMetadata().candidateId).toBe('moonshine:streaming-medium');
+    });
+
+    it('CASUALTY: the facade does NOT silently re-transcribe on v2 when Moonshine decode fails', async () => {
+        const { MoonshineStreamingEngine } = await import('../MoonshineStreamingEngine');
+        sttRegistry.clear();
+        sttRegistry.register('moonshine-streaming', (() => new MoonshineStreamingEngine({
+            candidateId: 'moonshine:streaming-medium',
+            modelArch: 'MOONSHINE_STREAMING_MEDIUM',
+            loadTranscriber: async () => ({
+                transcribe: () => ({ lines: [{ text: 'whisper would say this' }] }),
+                close: vi.fn(() => {}),
+                createStream: () => ({
+                    start: vi.fn(), addAudio: vi.fn(),
+                    transcribe: () => { throw new Error('moonshine decode failed'); },
+                    stop: vi.fn(), close: vi.fn(),
+                }),
+            }),
+        })) as never);
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        const pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+        const result = await pstt.transcribe(new Float32Array(16_000).fill(0.1));
+
+        expect(result.isOk).toBe(false);
+        // A failed Moonshine decode that quietly returned another model's text would be scored as
+        // Moonshine's output — the substitution this whole workstream exists to prevent.
+        expect(JSON.stringify(result)).not.toContain('whisper would say this');
+    });
+});

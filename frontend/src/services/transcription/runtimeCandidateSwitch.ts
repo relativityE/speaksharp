@@ -47,7 +47,10 @@ export const SWITCH_BLOCKING_STATES: readonly string[] = Object.freeze([
 
 export type SwitchFailureCode =
     | 'not_internal_build' | 'unknown_candidate' | 'engine_not_integrated'
-    | 'busy' | 'switch_in_progress' | 'no_executor' | 'teardown_failed' | 'init_failed';
+    | 'busy' | 'switch_in_progress' | 'no_executor' | 'teardown_failed' | 'init_failed'
+    // The engine came up, but not as the candidate that was asked for. Distinct from `init_failed`
+    // because nothing failed: this is the success path producing the wrong model.
+    | 'identity_mismatch';
 
 export type SwitchOutcome =
     | { ok: true; candidate: CandidateId }
@@ -64,6 +67,14 @@ export interface SwitchExecutor {
     teardown: () => Promise<void>;
     /** Bring the engine back up on the candidate now in force. */
     initialize: () => Promise<void>;
+    /**
+     * What the ENGINE published after coming up, or null if it published nothing.
+     *
+     * Required, not optional: an executor that cannot report the observed identity cannot have its
+     * postcondition checked, and making it optional would let the check be skipped by omission — which
+     * is how the switch came to report success without ever comparing anything.
+     */
+    observedCandidate: () => string | null;
 }
 
 let executor: SwitchExecutor | null = null;
@@ -156,6 +167,26 @@ export async function switchCandidate(
         // running. Leave the selection where it points and report the failure.
         return { ok: false, code: 'init_failed', reason: e instanceof Error ? e.message : String(e) };
     }
+
+    // THE POSTCONDITION. Initialising without error is not evidence that the requested model is the one
+    // running: a resolver that quietly fell back, an engine that came up on a different variant, or a
+    // selection read at the wrong moment all complete without throwing. Reporting `ok` there hands the
+    // operator a take labelled with a model that never ran — the exact substitution this switch exists
+    // to make impossible, arriving through the success path instead of the failure path.
+    //
+    // Compared against what the ENGINE published, not against the selection we just wrote.
+    const observed = engine.observedCandidate();
+    if (observed !== override) {
+        await engine.teardown().catch(() => { /* already failing; do not mask the mismatch */ });
+        return {
+            ok: false,
+            code: 'identity_mismatch',
+            reason: observed === null
+                ? `switched to "${override}" but the engine published no identity, so nothing can be attributed`
+                : `switched to "${override}" but the engine is running "${observed}"`,
+        };
+    }
+
     for (const l of listeners) { try { l(override); } catch { /* never break a completed switch */ } }
     return { ok: true, candidate: override };
     };

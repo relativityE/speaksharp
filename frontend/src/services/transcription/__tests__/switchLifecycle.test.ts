@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } fr
 import type { TranscriptionMode } from '../TranscriptionPolicy';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { installRuntimeCandidateSwitch } from '../installRuntimeSwitch';
-import { switchCandidate, clearRuntimeCandidateOverride, registerSwitchExecutor } from '../runtimeCandidateSwitch';
+import { switchCandidate, clearRuntimeCandidateOverride, registerSwitchExecutor, runtimeCandidateOverride } from '../runtimeCandidateSwitch';
 import { recordResolvedEngine, resolvedEngine, clearResolvedEngine } from '@/services/telemetry/runtimeAttribution';
 
 vi.mock('../../../lib/logger', () => ({
@@ -45,7 +45,15 @@ describe('model switch — combined real-controller ordering', () => {
         (speechRuntimeController as unknown as { state: string }).state = 'READY';
         document.documentElement.setAttribute('data-runtime-state', 'READY');
         initSpy = vi.spyOn(speechRuntimeController, 'initiateModelDownload')
-            .mockImplementation(async () => { order.push('initiateModelDownload'); });
+            .mockImplementation(async () => {
+                order.push('initiateModelDownload');
+                // PUBLISH AN IDENTITY, as a real engine coming up does. The switch now refuses to report
+                // success unless the engine's observed identity matches the request, so a stub that
+                // brings nothing up is correctly a failed switch — and these tests are about teardown
+                // ORDERING, not about an engine that never arrives.
+                const selected = runtimeCandidateOverride();
+                if (selected) recordResolvedEngine({ candidateId: selected } as never);
+            });
         installRuntimeCandidateSwitch(INTERNAL);
     });
     afterEach(() => {
@@ -90,7 +98,11 @@ describe('model switch — combined real-controller ordering', () => {
         expect(resolvedEngine()).toBeNull();
         release();
         await pending;
-        expect(resolvedEngine()).toBeNull();
+        // Once the new engine is up it publishes ITS identity. The property that matters is that the
+        // OUTGOING model never survives the switch — asserting null here only held while the stub
+        // brought nothing up, which is not what a completed switch looks like.
+        expect(resolvedEngine()?.candidateId).toBe('v4:distil:q4');
+        expect(resolvedEngine()?.candidateId).not.toBe('v2:base.en');
     });
 
     it('CASUALTY: a failed initialisation does not resurrect the previous model identity', async () => {

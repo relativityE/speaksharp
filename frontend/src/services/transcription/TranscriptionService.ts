@@ -648,7 +648,7 @@ export default class TranscriptionService {
     }
 
     // 🛡️ 2. Availability Probe (Heartbeat Guard)
-    const availability = typeof this.strategy.checkAvailability === 'function'
+    let availability = typeof this.strategy.checkAvailability === 'function'
       ? await this.strategy.checkAvailability()
       : { isAvailable: true };
 
@@ -693,12 +693,31 @@ export default class TranscriptionService {
         // fails partway still consumed their bandwidth with their agreement, and re-asking on the next
         // attempt would punish them for our failure.
         const strategy = this.strategy as { grantModelConsent?: () => void };
-        if (availability.reason === 'CONSENT_REQUIRED') strategy.grantModelConsent?.();
+        if (availability.reason === 'CONSENT_REQUIRED') {
+          strategy.grantModelConsent?.();
+          // RE-ASK, DO NOT REUSE. The result above was computed BEFORE the grant, and the gate below
+          // still reads it: recording consent and then failing on the stale pre-consent answer left a
+          // first-time user unable to start at all — they clicked the button, we saved their decision,
+          // and then told them it had failed. The receipt exists now, so the honest thing is to ask the
+          // strategy again rather than reason about what the old answer would have become.
+          availability = typeof this.strategy.checkAvailability === 'function'
+            ? await this.strategy.checkAvailability()
+            : { isAvailable: true };
+          if (availability.isAvailable) {
+            this.options.onStatusChange?.({ type: 'download-required', message: 'Preparing the private model…', progress: 0 });
+          }
+        }
         // explicit init — fall through to strategy.init()
       }
 
-      // Gate 2: General availability failure
-      if (!availability.isAvailable && availability.reason !== 'CACHE_MISS') {
+      // Gate 2: General availability failure.
+      //
+      // Recomputed from the CURRENT availability, not the one Gate 1 saw. Hard-coding `!== 'CACHE_MISS'`
+      // here is what let CONSENT_REQUIRED fall through to a hard failure even after the user had granted
+      // it: a second reason meaning "ask the user" existed, and only one of the two gates knew.
+      const stillNeedsUserDecision =
+        availability.reason === 'CACHE_MISS' || availability.reason === 'CONSENT_REQUIRED';
+      if (!availability.isAvailable && !stillNeedsUserDecision) {
         const error = TranscriptionError.engineFailure(mode, availability.message || 'Strategy unavailable');
         logger.error({ mode, reason: availability.reason }, '[TranscriptionService] Strategy NOT AVAILABLE. Gating execution.');
         this.fsm.transition({ type: 'ERROR_OCCURRED', error });

@@ -18,12 +18,20 @@ const PRODUCTION = { VITE_INTERNAL_BUILD: undefined };
 
 function executor(state = 'READY') {
     const calls: string[] = [];
-    return {
+    // `observed` defaults to agreeing with the selection so the happy path behaves like a working
+    // engine; a test sets it to disagree to prove the postcondition actually compares something. The
+    // REAL executor reads what the engine published (`resolvedEngine()`), which is what makes the
+    // comparison meaningful in production — see the four-hop real-facade proof.
+    const e = {
         calls,
+        observed: null as string | null,
+        useSelectionAsObserved: true,
         currentState: () => state,
         teardown: vi.fn(async () => { calls.push('teardown'); }),
         initialize: vi.fn(async () => { calls.push('initialize'); }),
+        observedCandidate: () => (e.useSelectionAsObserved ? runtimeCandidateOverride() : e.observed),
     };
+    return e;
 }
 
 describe('the in-page model switch', () => {
@@ -166,5 +174,38 @@ describe('the in-page model switch', () => {
         await switchCandidate('v4:distil:q4', INTERNAL);
         clearRuntimeCandidateOverride();
         expect(effectiveCandidate(undefined, INTERNAL, false).candidate.id).toBe(CANDIDATES['v2:base.en'].id);
+    });
+});
+
+describe('the switch refuses to report success for a model that is not running', () => {
+    it('CASUALTY: a mismatch between requested and observed FAILS the switch', async () => {
+        // Initialising without throwing is not evidence the requested model is the one running. A
+        // resolver that quietly fell back completes just as cleanly, and reporting ok there hands the
+        // operator a take labelled with a model that never ran.
+        const e = executor(); registerSwitchExecutor(e);
+        e.useSelectionAsObserved = false;
+        e.observed = 'v2:base.en';
+
+        const out = await switchCandidate('moonshine:streaming-medium', INTERNAL);
+        expect(out).toMatchObject({ ok: false, code: 'identity_mismatch' });
+        expect(out.ok === false && out.reason).toMatch(/is running "v2:base.en"/);
+        // The engine is torn down rather than left running under a label we have refused.
+        expect(e.calls.filter((c) => c === 'teardown')).toHaveLength(2);
+    });
+
+    it('CASUALTY: an engine that published NOTHING is not a successful switch', async () => {
+        const e = executor(); registerSwitchExecutor(e);
+        e.useSelectionAsObserved = false;
+        e.observed = null;
+
+        const out = await switchCandidate('v4:distil:q4', INTERNAL);
+        expect(out).toMatchObject({ ok: false, code: 'identity_mismatch' });
+        expect(out.ok === false && out.reason).toMatch(/published no identity/);
+    });
+
+    it('POSITIVE CONTROL: agreement still reports success', async () => {
+        const e = executor(); registerSwitchExecutor(e);
+        const out = await switchCandidate('v4:distil:q4', INTERNAL);
+        expect(out).toEqual({ ok: true, candidate: 'v4:distil:q4' });
     });
 });
