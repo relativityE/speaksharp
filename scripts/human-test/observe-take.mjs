@@ -18,7 +18,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { WebSocket } from 'ws';
 import { assertLoopbackOrigin, selectAppTarget, safeTargetForEvidence } from './cdpTarget.mjs';
-import { IDENTITY_PROBE, receiptVerdict } from './observer.mjs';
+import { IDENTITY_PROBE, auditEgress, receiptVerdict } from './observer.mjs';
 import { PAYLOAD_TRIPWIRE, READ_TRIPWIRE } from './payloadTripwire.mjs';
 
 const arg = (name, fallback = null) => {
@@ -167,7 +167,11 @@ const main = async () => {
     // it — and a worker ending early is exactly what a short recording looks like. Records are
     // accumulated per session so a terminated worker's findings survive it.
     const workerRecords = new Map();
-    const drainedOk = new Set();
+    // THE LATEST READ WINS. This was a monotonic Set, so one early success permanently marked a worker
+    // as readable and a FINAL read failure -- the one that decides whether the retained evidence is
+    // complete -- was erased by it. A worker that stopped responding halfway through a take scored as
+    // fully observed.
+    const drainStatus = new Map();
     const drainWorkers = async () => {
         for (const sessionId of installedSessions) {
             try {
@@ -186,8 +190,12 @@ const main = async () => {
                 if (typeof evaluated?.result?.value !== 'string') throw new Error('worker readback returned no value');
                 const parsed = JSON.parse(evaluated.result.value);
                 if (parsed.length > 0) workerRecords.set(sessionId, parsed);
-                drainedOk.add(sessionId);
-            } catch { /* recorded as a drain failure at the end; earlier drains are kept */ }
+                drainStatus.set(sessionId, true);
+            } catch {
+                // Recorded as the CURRENT state of this session. Records already drained are kept, but
+                // the receipt reports that the latest read failed.
+                drainStatus.set(sessionId, false);
+            }
         }
     };
 
@@ -211,11 +219,21 @@ const main = async () => {
 
     // What the page actually SENT, classified by kind. This is the payload-boundary fact the
     // request-metadata audit could never supply.
-    const { result: tripwire } = await client.send('Runtime.evaluate', {
-        expression: READ_TRIPWIRE, returnByValue: true, awaitPromise: false,
-    });
+    // THE SAME EXCEPTION TRAP AS THE DRAIN, IN THE MAIN READ. A throwing expression resolves with
+    // `exceptionDetails` rather than rejecting, so `?? '[]'` turned a failed read of the main document
+    // into "the page sent nothing" -- the one conclusion the receipt must never reach by accident. The
+    // read is now required to return an actual string.
     let payloads = [];
-    try { payloads = JSON.parse(tripwire?.value ?? '[]'); } catch { payloads = []; }
+    let mainReadOk = false;
+    try {
+        const evaluated = await client.send('Runtime.evaluate', {
+            expression: READ_TRIPWIRE, returnByValue: true, awaitPromise: false,
+        });
+        if (evaluated?.exceptionDetails) throw new Error('main tripwire read threw');
+        if (typeof evaluated?.result?.value !== 'string') throw new Error('main tripwire read returned no value');
+        payloads = JSON.parse(evaluated.result.value);
+        mainReadOk = true;
+    } catch { mainReadOk = false; }
 
     // CONFIRM THE MAIN TRIPWIRE EXISTS, rather than inferring it from an empty payload list. An absent
     // installer and a page that sent nothing produce identical evidence, and only one of them is a
@@ -224,21 +242,37 @@ const main = async () => {
         const { result: present } = await client.send('Runtime.evaluate', {
             expression: 'Array.isArray(globalThis.__SS_TRIPWIRE__)', returnByValue: true, awaitPromise: false,
         });
-        workerStats.mainTripwireInstalled = present?.value === true;
-    } catch { workerStats.mainTripwireInstalled = false; }
+        // PRESENCE IS NOT ENOUGH. The array can exist while the read that retrieves it fails, and an
+        // installed-but-unreadable tripwire yields the same empty list as a page that sent nothing.
+        workerStats.mainTripwireInstalled = present?.value === true && mainReadOk;
+        workerStats.mainReadOk = mainReadOk;
+    } catch { workerStats.mainTripwireInstalled = false; workerStats.mainReadOk = false; }
 
     await drainWorkers();
-    workerStats.drained = drainedOk.size;
-    workerStats.drainFailures = installedSessions.size - drainedOk.size;
+    workerStats.drained = [...drainStatus.values()].filter(Boolean).length;
+    workerStats.drainFailures = installedSessions.size - workerStats.drained;
     for (const records of workerRecords.values()) {
         payloads.push(...records.map((p) => ({ ...p, context: 'worker' })));
     }
+
+    // THE REQUEST-LEVEL AUDIT WAS COLLECTED AND NEVER CONSULTED. `requests` was populated on every
+    // `requestWillBeSent` and then dropped: `auditEgress` -- exact pinned-asset matching, unknown
+    // same-origin paths, query strings on known operations, unrecognised off-origin channels -- had no
+    // effect on the executable verdict at all. Those rules were tested and true and simply not wired to
+    // anything, which is worse than not having them: the receipt read as though they had run.
+    //
+    // Payload classification answers "did audio leave"; this answers "did anything go somewhere we
+    // cannot account for". Both belong in the verdict.
+    const egress = auditEgress(requests, {
+        appOrigin: APP,
+        observedCandidate: probe?.observedCandidate ?? null,
+    });
 
     const sockets = [...socketsByRequest.values()];
     const receipt = {
         ...receiptVerdict({
             probe, expectedCandidate: CANDIDATE, expectedRelease: RELEASE,
-            payloads, sockets, phases, appOrigin: APP, workerInstrumentation: workerStats,
+            payloads, sockets, phases, appOrigin: APP, workerInstrumentation: workerStats, egress,
         }),
         capturedAt: new Date().toISOString(),
         expectedCandidate: CANDIDATE,

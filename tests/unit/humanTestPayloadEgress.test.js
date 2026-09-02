@@ -105,6 +105,7 @@ describe('the receipt holds on audio, not on traffic', () => {
         probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
         payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
         workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true },
+    egress: [],
         ...over,
     });
 
@@ -169,6 +170,7 @@ describe('worker instrumentation fails closed', () => {
         probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
         payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
         workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true },
+    egress: [],
         ...over,
     });
 
@@ -266,6 +268,7 @@ describe('socket direction is not symmetric', () => {
         probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
         payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
         workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true },
+    egress: [],
         ...over,
     });
 
@@ -298,6 +301,7 @@ describe('captured audio outlives the RECORDING state', () => {
         probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
         payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
         workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true },
+    egress: [],
         ...over,
     });
 
@@ -332,5 +336,160 @@ describe('captured audio outlives the RECORDING state', () => {
             payloads: [rec({ url: `${APP}/api/sessions`, kind: 'json', bytes: 12_000, runtimeState: 'STOPPING' })],
         }));
         expect(out.verdict).toBe('PASS');
+    });
+});
+
+describe('the request-level audit reaches the verdict', () => {
+    const probe = {
+        release: 'r1', requestedCandidate: 'moonshine:streaming-medium',
+        observedCandidate: 'moonshine:streaming-medium', identityMatches: true,
+        modelStatus: 'ready', runtimeState: 'READY',
+    };
+    const base = (over = {}) => ({
+        probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true },
+        egress: [],
+        ...over,
+    });
+
+    it('CASUALTY: an unaccounted request holds the take', () => {
+        // `requests` was collected on every requestWillBeSent and then dropped: auditEgress -- exact
+        // pinned-asset matching, unknown same-origin paths, queries on known operations, unrecognised
+        // off-origin channels -- had no effect on the executable verdict. Those rules were tested and
+        // true and simply not wired to anything, which is worse than not having them: the receipt read
+        // as though they had run.
+        const out = receiptVerdict(base({
+            egress: [{ origin: 'https://unknown.example', route: 'other', routeHash: 'abc123def456', category: 'off_origin_unrecognised' }],
+        }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/off_origin_unrecognised/);
+    });
+
+    it('CASUALTY: not auditing requests at all is HOLD', () => {
+        const out = receiptVerdict(base({ egress: null }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/request-level egress was not audited/);
+    });
+
+    it('POSITIVE CONTROL: an audited run with no findings still passes', () => {
+        expect(receiptVerdict(base()).verdict).toBe('PASS');
+    });
+});
+
+describe('a read that fails is not a read that found nothing', () => {
+    const probe = {
+        release: 'r1', requestedCandidate: 'moonshine:streaming-medium',
+        observedCandidate: 'moonshine:streaming-medium', identityMatches: true,
+        modelStatus: 'ready', runtimeState: 'READY',
+    };
+    const base = (over = {}) => ({
+        probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true },
+        egress: [],
+        ...over,
+    });
+
+    it('CASUALTY: a main tripwire that exists but could not be READ is HOLD', () => {
+        // Array presence alone was the check. The array can exist while the read that retrieves it
+        // fails, and an installed-but-unreadable tripwire yields the same empty list as a page that
+        // sent nothing.
+        const out = receiptVerdict(base({
+            workerInstrumentation: {
+                attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0,
+                mainTripwireInstalled: false, mainReadOk: false,
+            },
+        }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/main-document tripwire was not confirmed/);
+    });
+
+    it('CASUALTY: a FINAL worker read failure is not erased by an earlier success', () => {
+        // `drainedOk` was a monotonic Set, so one early success permanently marked a worker readable and
+        // a final read failure — the one that decides whether the retained evidence is complete — was
+        // erased. A worker that stopped responding halfway through a take scored as fully observed.
+        const out = receiptVerdict(base({
+            workerInstrumentation: {
+                attached: 1, installed: 1, installFailures: 0, drained: 0, drainFailures: 1,
+                mainTripwireInstalled: true, mainReadOk: true,
+            },
+        }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.problems.join(' ')).toMatch(/could not be read back/);
+    });
+
+    it('POSITIVE CONTROL: a worker readable at the end is reported as drained', () => {
+        expect(receiptVerdict(base({
+            workerInstrumentation: {
+                attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0,
+                mainTripwireInstalled: true, mainReadOk: true,
+            },
+        })).verdict).toBe('PASS');
+    });
+});
+
+describe('the receipt says WHY it held', () => {
+    const probe = {
+        release: 'r1', requestedCandidate: 'moonshine:streaming-medium',
+        observedCandidate: 'moonshine:streaming-medium', identityMatches: true,
+        modelStatus: 'ready', runtimeState: 'READY',
+    };
+    const base = (over = {}) => ({
+        probe, expectedCandidate: 'moonshine:streaming-medium', expectedRelease: 'r1',
+        payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'], appOrigin: APP,
+        workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true, mainReadOk: true },
+        egress: [],
+        ...over,
+    });
+
+    it('CASUALTY: audio leaving is a PRIVACY hold', () => {
+        // A privacy hold means the take is evidence of a product defect and the run must stop.
+        const out = receiptVerdict(base({
+            payloads: [rec({ url: 'https://vendor.example/u', kind: 'audio', mime: 'audio/webm', bytes: 480_000 })],
+        }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.holdKind).toBe('privacy');
+        expect(out.privacyProblems.length).toBe(1);
+    });
+
+    it('CASUALTY: incomplete observation is a PROOF hold, not a privacy one', () => {
+        // A proof hold says nothing about the product — the take is unusable and re-running it is the
+        // right response. Collapsing the two invites a run of proof holds to be read as a privacy
+        // problem, or a privacy hold to be dismissed as flaky instrumentation.
+        const out = receiptVerdict(base({
+            workerInstrumentation: { attached: 1, installed: 0, installFailures: 1, drained: 0, drainFailures: 0, mainTripwireInstalled: true, mainReadOk: true },
+        }));
+        expect(out.verdict).toBe('HOLD');
+        expect(out.holdKind).toBe('proof');
+        expect(out.privacyProblems).toEqual([]);
+    });
+
+    it('CASUALTY: a socket sending binary is a PRIVACY hold', () => {
+        const out = receiptVerdict(base({
+            sockets: [{ url: 'wss://x/s', frameCount: 5, sentBinaryFrames: 5, receivedBinaryFrames: 0 }],
+        }));
+        expect(out.holdKind).toBe('privacy');
+    });
+
+    it('CASUALTY: privacy outranks proof when both are present', () => {
+        // If audio may have left, that is the headline regardless of what else went wrong.
+        const out = receiptVerdict(base({
+            payloads: [rec({ url: 'https://vendor.example/u', kind: 'audio', bytes: 10 })],
+            workerInstrumentation: { attached: 1, installed: 0, installFailures: 1, drained: 0, drainFailures: 0, mainTripwireInstalled: true, mainReadOk: true },
+        }));
+        expect(out.holdKind).toBe('privacy');
+        expect(out.proofProblems.length).toBeGreaterThan(0);
+    });
+
+    it('POSITIVE CONTROL: expected text traffic produces neither kind of hold', () => {
+        const out = receiptVerdict(base({
+            payloads: [
+                rec({ url: 'https://o1.ingest.us.sentry.io/api/envelope', kind: 'text', bytes: 900 }),
+                rec({ url: `${APP}/api/sessions`, kind: 'json', bytes: 12_000, runtimeState: 'STOPPING' }),
+            ],
+        }));
+        expect(out.verdict).toBe('PASS');
+        expect(out.holdKind).toBeNull();
     });
 });

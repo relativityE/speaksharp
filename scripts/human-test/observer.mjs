@@ -391,14 +391,35 @@ export function auditSockets(sockets) {
  * an empty egress list only counts if sockets were also observed, and a take whose identity cannot be
  * established is unusable regardless of how clean everything else looks.
  */
+/**
+ * WHY a take is held, kept distinct.
+ *
+ * A privacy hold and a proof hold mean opposite things to the operator. `privacy` says audio may have
+ * left the device — the take is evidence of a product defect and the run must stop. `proof` says we did
+ * not observe enough to make any claim — the take is unusable but says nothing about the product, and
+ * re-running it is the right response. Collapsing them into one list invites a run of proof holds to be
+ * read as a privacy problem, or worse, a privacy hold to be dismissed as flaky instrumentation.
+ *
+ * Expected non-audio transcript, text and telemetry traffic appears in neither: it is documented product
+ * behaviour, not a violation.
+ */
+export const PRIVACY_HOLD_CATEGORIES = Object.freeze([
+  'audio_egress', 'same_origin_audio', 'unexplained_binary', 'worker_binary',
+  'same_origin_binary_during_recording',
+]);
+
 export function receiptVerdict({
   probe, expectedCandidate, expectedRelease, payloads, sockets, phases, appOrigin,
-  workerInstrumentation,
+  workerInstrumentation, egress,
 }) {
   const problems = [];
+  // Privacy: audio may have left the device. Proof: we did not observe enough to say anything.
+  const privacyProblems = [];
+  const proofProblems = [];
   const review = [];
   const r = readiness(probe, expectedCandidate, expectedRelease);
   problems.push(...r.problems);
+  proofProblems.push(...r.problems);
 
   // JUDGED BY PAYLOAD, NOT BY DESTINATION. Every off-origin body used to be a HOLD, so ordinary Sentry
   // and PostHog traffic held a take on a page that had never recorded — no audio could have left. A
@@ -411,7 +432,9 @@ export function receiptVerdict({
   const blocking = payloadFindings.filter((f) => BLOCKING_PAYLOAD_CATEGORIES.includes(f.category));
   const advisory = payloadFindings.filter((f) => !BLOCKING_PAYLOAD_CATEGORIES.includes(f.category));
   for (const f of blocking) {
-    problems.push(`${f.category}: ${f.kind}${f.mime ? ` (${f.mime})` : ''} via ${f.transport} to ${f.origin}`);
+    const message = `${f.category}: ${f.kind}${f.mime ? ` (${f.mime})` : ''} via ${f.transport} to ${f.origin}`;
+    problems.push(message);
+    (PRIVACY_HOLD_CATEGORIES.includes(f.category) ? privacyProblems : proofProblems).push(message);
   }
   review.push(...advisory);
 
@@ -460,11 +483,26 @@ export function receiptVerdict({
   // binary frames during a recording is the channel best suited to streaming audio out.
   const socketFindings = auditSockets(sockets);
   for (const s of socketFindings) {
-    if (s.carriedBinary) problems.push(`websocket sent ${s.sentBinaryFrames} binary frame(s) to ${s.origin}`);
+    if (s.carriedBinary) {
+      const message = `websocket sent ${s.sentBinaryFrames} binary frame(s) to ${s.origin}`;
+      problems.push(message);
+      privacyProblems.push(message);
+    }
     else review.push(s);
   }
   if (sockets === undefined || sockets === null) {
     problems.push('socket observation was not enabled; zero streamed egress cannot be claimed');
+  }
+
+  // THE REQUEST-LEVEL FINDINGS REACH THE VERDICT. They were computed in tests and never wired to the
+  // executable receipt, so exact pinned-asset matching, unknown same-origin paths and unrecognised
+  // off-origin channels had no effect on whether a take passed. Audio egress is the promise; this is
+  // "anything went somewhere we cannot account for", and a take carrying either is not clean.
+  for (const finding of egress ?? []) {
+    problems.push(`${finding.category} to ${finding.origin ?? 'an unparseable target'}`);
+  }
+  if (egress === undefined || egress === null) {
+    problems.push('request-level egress was not audited; unaccounted traffic cannot be ruled out');
   }
 
   const required = ['pre-record', 'recording', 'stop-save'];
@@ -474,11 +512,17 @@ export function receiptVerdict({
 
   return {
     verdict: problems.length === 0 ? 'PASS' : 'HOLD',
+    // The operator needs to know which kind of hold this is before deciding what to do about it.
+    holdKind: privacyProblems.length > 0 ? 'privacy'
+      : problems.length > 0 ? 'proof' : null,
     problems,
+    privacyProblems,
+    proofProblems: proofProblems.concat(problems.filter((p) => !privacyProblems.includes(p) && !proofProblems.includes(p))),
     // Reported, but not blocking: a human should see these without them holding a valid take.
     review,
     payloads: payloadFindings,
     sockets: socketFindings,
+    egress: egress ?? [],
     workerInstrumentation: w,
   };
 }

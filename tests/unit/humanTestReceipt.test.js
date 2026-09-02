@@ -22,6 +22,7 @@ const base = (over = {}) => ({
     payloads: [], sockets: [], phases: ['pre-record', 'recording', 'stop-save'],
     appOrigin: APP,
     workerInstrumentation: { attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0, mainTripwireInstalled: true },
+    egress: [],
     ...over,
 });
 
