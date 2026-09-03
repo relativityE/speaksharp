@@ -211,6 +211,8 @@ const main = async () => {
     // complete -- was erased by it. A worker that stopped responding halfway through a take scored as
     // fully observed.
     const drainStatus = new Map();
+    /** Sessions whose read succeeded and which later became unreadable — normal teardown, not evidence loss. */
+    const postReadDrainFailures = new Set();
     const drainWorkers = async () => {
         for (const sessionId of installedSessions) {
             try {
@@ -231,9 +233,22 @@ const main = async () => {
                 if (parsed.length > 0) workerRecords.set(sessionId, parsed);
                 drainStatus.set(sessionId, true);
             } catch {
-                // Recorded as the CURRENT state of this session. Records already drained are kept, but
-                // the receipt reports that the latest read failed.
-                drainStatus.set(sessionId, false);
+                // #1403s — A COMPLETED READ IS AUTHORITATIVE AND CANNOT BE UNDONE.
+                //
+                // This loop runs every second and again during teardown. A worker that WAS read
+                // successfully and is then destroyed as the take ends -- the normal, correct end of a
+                // Private STT session -- threw here and overwrote its `true` with `false`. The receipt
+                // then reported a drain failure and HELD a take whose evidence had already been
+                // collected in full: a false HOLD caused by the app behaving properly.
+                //
+                // Once a session has yielded an authoritative read, later failures are recorded as
+                // post-read teardown and never downgrade it. A session never read stays false, which is
+                // the case that must still hold the take.
+                if (drainStatus.get(sessionId) === true) {
+                    postReadDrainFailures.add(sessionId);
+                } else {
+                    drainStatus.set(sessionId, false);
+                }
             }
         }
     };
@@ -248,8 +263,27 @@ const main = async () => {
     // Follow the take by the state the app publishes, rather than by asking the operator to tell us.
     const deadline = Date.now() + (DRY_RUN ? 60_000 : 15 * 60_000);
     let probe = null;
+    /**
+     * #1403s — EVERY identity sample is retained, not just the newest.
+     *
+     * Only the last probe survived the loop, so a candidate that changed mid-take — a switch that was
+     * not refused, an engine that fell back, a worker replaced under the session — left no trace once a
+     * later sample overwrote it. The take then attributed one model's audio to whatever happened to be
+     * running at the end. Identity is a property of the WHOLE take, so each sample is kept with the
+     * lifecycle state it was observed in.
+     */
+    const identitySamples = [];
     while (Date.now() < deadline) {
         probe = await probeOnce();
+        if (probe) {
+            identitySamples.push({
+                at: Date.now(),
+                runtimeState: probe.runtimeState ?? null,
+                observedCandidate: probe.observedCandidate ?? null,
+                requestedCandidate: probe.requestedCandidate ?? null,
+                identityMatches: probe.identityMatches ?? null,
+            });
+        }
         await drainWorkers();
         if (probe?.runtimeState === 'RECORDING') {
             notePhase('recording');
@@ -328,6 +362,9 @@ const main = async () => {
     receiptSealed = true;
     workerStats.drained = [...drainStatus.values()].filter(Boolean).length;
     workerStats.drainFailures = installedSessions.size - workerStats.drained;
+    // Reported so the receipt can distinguish "we lost the evidence" from "the worker went away after we
+    // already had it". Only the first is a proof failure; the second is the app shutting down correctly.
+    workerStats.postReadTeardowns = postReadDrainFailures.size;
     for (const records of workerRecords.values()) {
         payloads.push(...records.map((p) => ({ ...p, context: 'worker' })));
     }
@@ -350,7 +387,7 @@ const main = async () => {
         ...receiptVerdict({
             probe, expectedCandidate: CANDIDATE, expectedRelease: RELEASE,
             payloads, sockets, phases, appOrigin: APP, workerInstrumentation: workerStats, egress,
-            recordingStartedAt,
+            recordingStartedAt, identitySamples,
         }),
         capturedAt: new Date().toISOString(),
         expectedCandidate: CANDIDATE,
@@ -361,6 +398,7 @@ const main = async () => {
         dryRun: DRY_RUN,
         requestCount: requests.length,
         payloadCount: payloads.length,
+        identitySampleCount: identitySamples.length,
         workerInstrumentation: workerStats,
     };
 

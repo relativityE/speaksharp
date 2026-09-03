@@ -126,3 +126,123 @@ describe('the receipt contains nothing content-bearing', () => {
         expect(receipt.verdict).toBe('HOLD');
     });
 });
+
+/**
+ * #1403s — three defects that could invalidate Stage-1 evidence.
+ *
+ * Each is a way the receipt lied: one HELD a take whose evidence was complete, one PASSED a take whose
+ * save could not be attributed, and one attributed a whole take to whichever model happened to be
+ * running at the end. Every rule below has a positive control proving it fires AND a clean case proving
+ * it does not fire on a good take.
+ */
+const liveSample = (over = {}) => ({
+    at: 1, runtimeState: 'RECORDING', observedCandidate: CANDIDATE,
+    requestedCandidate: CANDIDATE, identityMatches: true, ...over,
+});
+const cleanSamples = () => [
+    { ...liveSample(), runtimeState: 'READY' },
+    liveSample(),
+    liveSample({ at: 2 }),
+    { ...liveSample({ at: 3 }), runtimeState: 'STOPPING' },
+];
+
+describe('#1403s worker destruction after a completed read is not evidence loss', () => {
+    it('POSITIVE CONTROL: a worker never read still HOLDS the take', () => {
+        const out = receiptVerdict(base({
+            workerInstrumentation: {
+                attached: 1, installed: 1, installFailures: 0, drained: 0, drainFailures: 1,
+                mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0, setupPending: 0,
+            },
+        }));
+        expect(out.verdict).not.toBe('PASS');
+        expect(JSON.stringify(out)).toMatch(/could not be read back/);
+    });
+
+    it('CASUALTY: a worker read authoritatively and THEN torn down does not hold the take', () => {
+        // The false HOLD: the app ending a session correctly destroyed the worker after its evidence
+        // had already been collected, and the receipt reported a failed readback.
+        const out = receiptVerdict(base({
+            workerInstrumentation: {
+                attached: 1, installed: 1, installFailures: 0, drained: 1, drainFailures: 0,
+                postReadTeardowns: 1,
+                mainTripwireInstalled: true, networkEnabled: 1, networkFailures: 0, setupPending: 0,
+            },
+        }));
+        expect(out.verdict, 'a completed read must survive the worker that produced it').toBe('PASS');
+    });
+});
+
+describe('#1403s persistence must be attributed, not merely flagged', () => {
+    it('CASUALTY: persisted=true with a non-saved status HOLDS', () => {
+        const out = receiptVerdict(base({
+            probe: goodProbe({ sessionPersisted: 'true', persistedStatus: 'pending' }),
+        }));
+        expect(out.verdict).not.toBe('PASS');
+        expect(JSON.stringify(out)).toMatch(/not a saved state/);
+    });
+
+    it('CASUALTY: persisted=true with NO published engine identity HOLDS', () => {
+        // The saved row cannot be attributed to a model, which is the whole point of the receipt.
+        const out = receiptVerdict(base({
+            probe: goodProbe({ sessionPersisted: true, observedCandidate: null }),
+        }));
+        expect(out.verdict).not.toBe('PASS');
+    });
+
+    it('POSITIVE CONTROL: persisted=true with a saved status and a published identity PASSES', () => {
+        const out = receiptVerdict(base({
+            probe: goodProbe({ sessionPersisted: 'true', persistedStatus: 'saved' }),
+            identitySamples: cleanSamples(),
+        }));
+        expect(out.verdict).toBe('PASS');
+    });
+});
+
+describe('#1403s identity is a property of the whole take', () => {
+    it('CASUALTY: a candidate that CHANGED while live HOLDS the take', () => {
+        // Only the final probe used to reach the verdict, so a mid-take change left no trace and the
+        // take was attributed to whatever ran last.
+        const out = receiptVerdict(base({
+            identitySamples: [
+                liveSample(),
+                liveSample({ at: 2, observedCandidate: 'v2:base.en' }),
+            ],
+        }));
+        expect(out.verdict).not.toBe('PASS');
+        expect(JSON.stringify(out)).toMatch(/CHANGED during the take/);
+    });
+
+    it('CASUALTY: an unexpected candidate observed while live HOLDS', () => {
+        const out = receiptVerdict(base({
+            identitySamples: [liveSample({ observedCandidate: 'v4:distil:q4' })],
+        }));
+        expect(out.verdict).not.toBe('PASS');
+    });
+
+    it('CASUALTY: an identity MISMATCH reported while live HOLDS', () => {
+        const out = receiptVerdict(base({
+            identitySamples: [liveSample({ identityMatches: false })],
+        }));
+        expect(out.verdict).not.toBe('PASS');
+    });
+
+    it('CASUALTY: samples that never cover the live take HOLD', () => {
+        // Sampling only before and after says nothing about what ran during it.
+        const out = receiptVerdict(base({
+            identitySamples: [
+                { ...liveSample(), runtimeState: 'READY' },
+                { ...liveSample({ at: 9 }), runtimeState: 'IDLE' },
+            ],
+        }));
+        expect(out.verdict).not.toBe('PASS');
+        expect(JSON.stringify(out)).toMatch(/no identity sample was captured while the take was live/);
+    });
+
+    it('POSITIVE CONTROL: a consistent identity across the whole take PASSES', () => {
+        expect(receiptVerdict(base({ identitySamples: cleanSamples() })).verdict).toBe('PASS');
+    });
+
+    it('a take with no samples supplied is unchanged (the rule is additive)', () => {
+        expect(receiptVerdict(base()).verdict).toBe('PASS');
+    });
+});

@@ -35,6 +35,13 @@ export const IDENTITY_PROBE = `(() => {
     runtimeState: root.getAttribute('data-runtime-state'),
     modelStatus: root.getAttribute('data-model-status'),
     sessionPersisted: root.getAttribute('data-session-persisted'),
+    // #1403s — the attribute alone is not attribution. It says "something set a flag", not "the session
+    // was persisted with an identity we can trust". A page that sets it early, sets it optimistically, or
+    // sets it while the engine identity is unknown produced a receipt claiming a persisted, attributed
+    // take. The status below is what the app PUBLISHES about the save, alongside the identity it was
+    // saved under, so the two can be required to agree.
+    persistedStatus: root.getAttribute('data-session-persist-status'),
+    persistedSessionId: root.getAttribute('data-session-persisted-id'),
   };
 })()`;
 
@@ -443,7 +450,7 @@ export const PRIVACY_HOLD_CATEGORIES = Object.freeze([
 
 export function receiptVerdict({
   probe, expectedCandidate, expectedRelease, payloads, sockets, phases, appOrigin,
-  workerInstrumentation, egress, recordingStartedAt = null,
+  workerInstrumentation, egress, recordingStartedAt = null, identitySamples = null,
 }) {
   const problems = [];
   // Privacy: audio may have left the device. Proof: we did not observe enough to say anything.
@@ -451,6 +458,56 @@ export function receiptVerdict({
   const proofProblems = [];
   const review = [];
   const r = readiness(probe, expectedCandidate, expectedRelease);
+
+  /**
+   * Record a PROOF hold. `problems` is what decides the verdict; `proofProblems` only classifies it.
+   * Pushing to the classifier alone reports a finding that does not hold the take — which is how the
+   * first version of the rules below passed every one of their own casualties.
+   */
+  const hold = (message) => { problems.push(message); proofProblems.push(message); };
+
+  // #1403s — IDENTITY IS A PROPERTY OF THE WHOLE TAKE, NOT ITS LAST FRAME.
+  //
+  // Only the final probe used to reach this function, so a candidate that CHANGED mid-take left no
+  // trace: a switch that was not refused, an engine that fell back, a worker replaced under the
+  // session. The take was then attributed to whatever happened to be running when it ended, and the
+  // audio of one model was reported as another's. Every retained sample is checked, and any mismatch
+  // or change while the take was live HOLDS it.
+  if (Array.isArray(identitySamples)) {
+    const LIVE = new Set(['RECORDING', 'STOPPING', 'SAVING', 'FINALIZING']);
+    const live = identitySamples.filter((s) => LIVE.has(String(s.runtimeState ?? '').toUpperCase()));
+    const observedDuringTake = [...new Set(live.map((s) => s.observedCandidate).filter(Boolean))];
+    if (observedDuringTake.length > 1) {
+      hold(
+        `the observed candidate CHANGED during the take (${observedDuringTake.length} distinct values); `
+        + 'this take cannot be attributed to one model',
+      );
+    }
+    if (expectedCandidate && observedDuringTake.some((c) => c !== expectedCandidate)) {
+      hold('a candidate other than the expected one was observed while the take was live');
+    }
+    if (live.some((s) => s.identityMatches === false)) {
+      hold('the page reported an identity mismatch while the take was live');
+    }
+    if (live.length === 0 && identitySamples.length > 0) {
+      hold('no identity sample was captured while the take was live');
+    }
+  }
+
+  // #1403s — PERSISTENCE MUST BE ATTRIBUTED, NOT MERELY FLAGGED. `data-session-persisted=true` says a
+  // flag was set, not that the session was saved under an identity we can trust. A page that sets it
+  // early, optimistically, or while the engine identity is unknown produced a receipt claiming a
+  // persisted, attributed take.
+  if (probe && (probe.sessionPersisted === 'true' || probe.sessionPersisted === true)) {
+    const status = probe.persistedStatus ?? null;
+    if (status !== null && status !== 'saved') {
+      hold(`the session reports persistence with status "${status}", which is not a saved state`);
+    }
+    // A persisted session with NO published identity is already held by `readiness()` above, which
+    // refuses any take whose engine never published one. A second check here was unkillable by mutation
+    // — removing it changed nothing — so it is left to the guard that actually decides.
+    // The casualty for this case remains, and passes through readiness.
+  }
   problems.push(...r.problems);
   proofProblems.push(...r.problems);
 
@@ -487,6 +544,9 @@ export function receiptVerdict({
     problems.push('worker instrumentation was not reported; zero worker audio egress cannot be claimed');
   } else {
     if (w.installFailures > 0) problems.push(`${w.installFailures} worker tripwire install(s) failed`);
+    // #1403s — DESTRUCTION AFTER A COMPLETED READ IS NOT EVIDENCE LOSS. A worker read authoritatively
+    // and then torn down as the take ends is the app behaving correctly; counting that as a failed
+    // readback HELD takes whose evidence was already complete. Only a session never read counts.
     if (w.drainFailures > 0) problems.push(`${w.drainFailures} worker(s) could not be read back`);
 
     // ZERO INSTRUMENTED WORKERS IS NOT A CLEAN RUN. The guard read `attached > 0 && installed === 0`, so
