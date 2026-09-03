@@ -186,6 +186,16 @@ interface SessionActions {
     addHistorySegment: (segment: HistorySegment) => void;
     setHistory: (history: Array<HistorySegment>) => void;
     resetSession: () => void;
+    /**
+     * #1407 — clear the finished take and its review so a NEW Focus Points set starts clean, WITHOUT
+     * touching app-global authoritative state.
+     *
+     * `resetSession()` is whole-store and takes `progressGate` / `progressGateResolvedFor` with it. The
+     * rendered safety gate then blocks Start, and the reconciliation effect that would resolve it does
+     * not rerun because the authenticated user has not changed — leaving the user unable to start the
+     * set they just created until a reload. Take state is the only thing a new set should discard.
+     */
+    resetForNewObjectiveSet: () => void;
     addChunk: (chunk: { transcript: string; timestamp: number; isFinal: boolean }) => void;
     appendChunk: (chunk: { transcript: string; timestamp: number; isFinal: boolean; isCorrection?: boolean }) => void;
     setChunks: (chunks: Array<{ transcript: string; timestamp: number; isFinal: boolean; isCorrection?: boolean }>) => void;
@@ -509,6 +519,36 @@ export const useSessionStore = create<SessionStore>((set) => {
 
     resetSession: () =>
         set(initialState),
+
+    resetForNewObjectiveSet: () =>
+        set({
+            // The finished take and everything measured from it.
+            transcript: { transcript: '', partial: '' },
+            chunks: [],
+            fillerData: {},
+            elapsedTime: 0,
+            startTime: null,
+            frozenTranscriptAtStop: null,
+            isTranscriptFinalizing: false,
+            captureLimitReached: null,
+            completedSessionDurationSeconds: null,
+            sessionSaved: false,
+            pauseMetrics: initialState.pauseMetrics,
+            finalizedAnalysis: null,
+            finalizedWordCount: null,
+            finalizedFillerData: null,
+            finalizedFillerCount: null,
+            nativeFormatting: initialState.nativeFormatting,
+            sttStatus: { type: 'ready', message: 'Ready to record' },
+            // The reviewed brief and its coverage: keeping either would show the previous take's results
+            // beside a set they were never measured against.
+            completedObjectiveBrief: null,
+            objectiveCoverageResult: null,
+            activeObjectiveBrief: null,
+            // DELIBERATELY PRESERVED — app-global authority, not take state:
+            //   progressGate / progressGateResolvedFor  (clearing them re-blocks Start with no rerun)
+            //   history, practiceFocus, sttMode, isProUser-adjacent flags, runtime/engine identity
+        }),
 
     setNativeFormatting: (nativeFormatting) =>
         set({ nativeFormatting }),

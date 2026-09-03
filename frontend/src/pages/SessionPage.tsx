@@ -89,6 +89,10 @@ export const SessionPage: React.FC = () => {
         elapsedTime,
         handleStartStop,
         showAnalyticsPrompt,
+        // #1407 P1: the terminal analytics prompt is LIFECYCLE-owned, not store state, so clearing the
+        // store left the page in its `after` projection and showed a brand-new brief through
+        // completed-review semantics. Leaving that state is part of starting a new set.
+        setShowAnalyticsPrompt,
         sessionFeedbackMessage,
         micLevel,
         transcriptContent,
@@ -429,7 +433,16 @@ export const SessionPage: React.FC = () => {
                             // points, pace or topic, and not its coverage, transcript or take state. Clearing
                             // only the brief would leave the finished take's results on screen beside a set
                             // they were never measured against.
-                            store.resetSession();
+                            //
+                            // SCOPED, not whole-store: `resetSession()` also cleared `progressGate` and
+                            // `progressGateResolvedFor`, and the reconciliation effect that resolves them
+                            // does not rerun while the authenticated user is unchanged — so the safety gate
+                            // blocked Start on the set the user had just created, until a reload.
+                            store.resetForNewObjectiveSet();
+                            // The prompt lives in the lifecycle hook, so the store reset above cannot reach
+                            // it. Without this the page stays in `after` and renders the new brief as a
+                            // completed review.
+                            setShowAnalyticsPrompt(false);
                         }
                         useSessionStore.getState().setActiveObjectiveBrief({ projectId, briefId, points, topic, paceGuideSecPerPoint });
                         setPointsSetupMode(null);

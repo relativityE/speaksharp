@@ -192,6 +192,10 @@ export function createTestSessionStore(
         resetSession: vi.fn(() =>
             set(initialState)),
 
+        // #1407: scoped new-take reset. The double mirrors the real action so a caller under test can be
+        // observed choosing the SCOPED reset over the whole-store one.
+        resetForNewObjectiveSet: vi.fn(),
+
         addChunk: vi.fn((chunk) =>
             set((state: any) => ({
                 chunks: [...state.chunks, chunk],
