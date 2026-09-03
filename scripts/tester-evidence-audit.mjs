@@ -222,8 +222,34 @@ export async function runAudit({ createClient = defaultCreateClient, env = proce
    * configured, classification FAILS rather than picking a side.
    */
   const boundaryRaw = env.SHARE_FEEDBACK_DEPLOYED_AT ?? null;
+  const boundarySha = env.SHARE_FEEDBACK_DEPLOYED_SHA ?? null;
   const boundaryMs = boundaryRaw ? Date.parse(boundaryRaw) : NaN;
-  const boundaryUsable = Number.isFinite(boundaryMs);
+  // An explicit UTC instant. A bare local-looking string would place the boundary at an hour that
+  // depends on where the audit runs, silently moving which rows count as legacy.
+  const timestampValid = Number.isFinite(boundaryMs) && /(?:Z|[+-]\d{2}:?\d{2})$/.test(String(boundaryRaw));
+  const shaValid = typeof boundarySha === 'string' && /^[0-9a-f]{40}$/.test(boundarySha);
+  const boundaryUsable = timestampValid && shaValid;
+
+  // #1408 RETURN — TRACEABILITY MUST BE ENFORCED, NOT MERELY PRINTED.
+  //
+  // Printing the SHA while classifying regardless made the traceability optional: a valid timestamp with
+  // a missing or malformed release still classified every legacy row and exited successfully, so the
+  // boundary could not be checked against any real build. The pair is now required TOGETHER whenever a
+  // row lacks an explicit kind, and either one being supplied obliges the other to be valid.
+  const missingKindRows = candidateTesterReports.filter((r) => {
+    const k = r.metadata?.feedback_kind;
+    return k !== 'issue' && k !== 'comment';
+  });
+  const boundarySupplied = boundaryRaw !== null || boundarySha !== null;
+  if ((missingKindRows.length > 0 || boundarySupplied) && !boundaryUsable) {
+    const why = [];
+    if (!boundaryRaw) why.push('SHARE_FEEDBACK_DEPLOYED_AT is absent');
+    else if (!timestampValid) why.push('SHARE_FEEDBACK_DEPLOYED_AT is not a valid explicit UTC instant');
+    if (!boundarySha) why.push('SHARE_FEEDBACK_DEPLOYED_SHA is absent');
+    else if (!shaValid) why.push('SHARE_FEEDBACK_DEPLOYED_SHA is not a full 40-character hex SHA');
+    errlog(`boundary configuration invalid: ${why.join('; ')}`);
+    return { code: 1, report: null };
+  }
 
   const kindOf = (r) => {
     const k = r.metadata?.feedback_kind;
@@ -254,7 +280,7 @@ export async function runAudit({ createClient = defaultCreateClient, env = proce
     share_feedback_boundary_utc: boundaryUsable ? new Date(boundaryMs).toISOString() : null,
     // The deployment this boundary refers to, so the timestamp can be checked against a real build
     // rather than taken on trust.
-    share_feedback_boundary_release: env.SHARE_FEEDBACK_DEPLOYED_SHA ?? null,
+    share_feedback_boundary_release: boundaryUsable ? boundarySha : null,
     by_feedback_kind: tally(list, kindOf),
     // Severity is meaningful only for defect reports. Ranking a compliment by "impact" is how a Comment
     // came to be presented as a defect in the first place.
