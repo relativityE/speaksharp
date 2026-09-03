@@ -1,6 +1,6 @@
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { PRODUCT_NAMES } from '@/constants/productNames';
-import { ObjectiveSetupForm } from '@/components/session/ObjectiveSetupForm';
+import { ObjectiveSetupForm, type ObjectiveSetupInitial } from '@/components/session/ObjectiveSetupForm';
 
 /**
  * #1046 slice 5b — the activated Focus Points entry.
@@ -18,9 +18,12 @@ export function ObjectiveSetupDialog({
     open,
     onOpenChange,
     onReady,
+    initial,
 }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    /** #1407 Edit: prefill the form from the brief being edited. Omit for a blank form (new set). */
+    initial?: ObjectiveSetupInitial;
     /** Called once the brief is persisted; the caller binds it (with the declared point labels) and
      *  navigates into the session. */
     onReady: (result: { briefId: string; projectId: string; points: string[]; topic: string; paceGuideSecPerPoint: number | null }) => void;
@@ -32,7 +35,7 @@ export function ObjectiveSetupDialog({
                 className="max-w-lg border-0 bg-transparent p-0 shadow-none"
             >
                 <DialogTitle className="sr-only">Set your {PRODUCT_NAMES.objective}</DialogTitle>
-                <ObjectiveSetupForm onReady={onReady} />
+                <ObjectiveSetupForm onReady={onReady} initial={initial} />
             </DialogContent>
         </Dialog>
     );
