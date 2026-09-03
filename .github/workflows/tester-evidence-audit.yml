@@ -81,7 +81,13 @@ jobs:
           # rows. If this is unset the audit reports those rows as UNCLASSIFIABLE rather than guessing —
           # implementing the boundary without configuring it would leave every legacy row unclassified,
           # which is why it is wired here and not only in the script.
+          # MUST be the exact UTC deployment time of the first CUSTOMER build containing Share Feedback
+          # — never the commit time, the merge time, or "now". Those would each move the boundary to an
+          # instant no user experienced, silently reclassifying real rows.
           SHARE_FEEDBACK_DEPLOYED_AT: ${{ vars.SHARE_FEEDBACK_DEPLOYED_AT }}
+          # The deployment that timestamp refers to, printed alongside it so the boundary is traceable
+          # to a real build instead of taken on trust.
+          SHARE_FEEDBACK_DEPLOYED_SHA: ${{ vars.SHARE_FEEDBACK_DEPLOYED_SHA }}
           AUDIT_EXCLUSION_LIST_REVIEWED_AT: ${{ vars.AUDIT_EXCLUSION_LIST_REVIEWED_AT }}
           # INPUTS:
           CONFIRM_EXCLUSION_MANIFEST_COMPLETE: ${{ github.event.inputs.confirm_exclusion_manifest_complete }}

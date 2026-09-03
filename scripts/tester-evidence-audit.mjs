@@ -249,6 +249,12 @@ export async function runAudit({ createClient = defaultCreateClient, env = proce
     // No boundary configured while missing-kind rows exist: we decline to classify rather than pick.
     unclassifiable_no_boundary: list.filter((r) => kindOf(r) === 'unclassifiable').length,
     share_feedback_boundary_configured: boundaryUsable,
+    // Printed so the classification is traceable: which instant separates legacy Issues from
+    // instrumentation defects. A timestamp is not a secret; the value it gates the reading of is.
+    share_feedback_boundary_utc: boundaryUsable ? new Date(boundaryMs).toISOString() : null,
+    // The deployment this boundary refers to, so the timestamp can be checked against a real build
+    // rather than taken on trust.
+    share_feedback_boundary_release: env.SHARE_FEEDBACK_DEPLOYED_SHA ?? null,
     by_feedback_kind: tally(list, kindOf),
     // Severity is meaningful only for defect reports. Ranking a compliment by "impact" is how a Comment
     // came to be presented as a defect in the first place.
