@@ -141,7 +141,7 @@ export async function runAudit({ createClient = defaultCreateClient, env = proce
   };
   const sessions = await pageAll('sessions', 'id,user_id,title,duration,transcript,total_words,filler_words,engine,created_at', 'sessions select');
   if (sessions === null) return { code: 1, report: null };
-  const reports = await pageAll('user_issue_reports', 'id,user_id,title,session_id,metadata,created_at', 'reports select');
+  const reports = await pageAll('user_issue_reports', 'id,user_id,title,session_id,severity,metadata,created_at', 'reports select');
   if (reports === null) return { code: 1, report: null };
 
   const candidateTesterSessions = sessions.filter((s) => candidateTesterIds.has(s.user_id) && !SYNTHETIC_TITLE.test(s.title ?? ''));
@@ -198,8 +198,31 @@ export async function runAudit({ createClient = defaultCreateClient, env = proce
     };
   };
   const tally = (list, f) => { const m = new Map(); for (const r of list) { const k = String(f(r) ?? 'unspecified'); m.set(k, (m.get(k) ?? 0) + 1); } return Object.fromEntries([...m].sort((a, b) => b[1] - a[1])); };
+  /**
+   * #1408s — ISSUES AND COMMENTS ARE DIFFERENT MESSAGES.
+   *
+   * Share Feedback asks the user whether their message is an Issue or a Comment and stores the answer as
+   * `metadata.feedback_kind`. Operational triage ignored it and counted every row as a defect report, so
+   * the promised routing was false: praise, questions and suggestions arrived ranked beside real defects,
+   * inflating the apparent defect count and burying the actual ones.
+   *
+   * A row with no kind is LEGACY -- submitted before the field existed -- and is reported as `unknown`
+   * rather than guessed into either bucket. Guessing would recreate the same lie in a quieter form.
+   */
+  const kindOf = (r) => {
+    const k = r.metadata?.feedback_kind;
+    return k === 'issue' || k === 'comment' ? k : 'unknown';
+  };
   const reportReport = (list) => ({
     candidate_tester_reports: list.length,
+    // The defect-bearing subset. Severity ranking applies to THIS, never to the whole list.
+    issues: list.filter((r) => kindOf(r) === 'issue').length,
+    comments: list.filter((r) => kindOf(r) === 'comment').length,
+    legacy_unknown_kind: list.filter((r) => kindOf(r) === 'unknown').length,
+    by_feedback_kind: tally(list, kindOf),
+    // Severity is meaningful only for messages the user called a defect. Ranking a compliment by
+    // "impact" is how a Comment came to be presented as a defect in the first place.
+    issue_severity: tally(list.filter((r) => kindOf(r) === 'issue'), (r) => r.severity ?? r.metadata?.severity),
     unique_reporters: new Set(list.map((r) => r.user_id)).size,
     by_issue_area: tally(list, (r) => r.metadata?.issueArea),
     by_page_key: tally(list, (r) => r.metadata?.pageKey),

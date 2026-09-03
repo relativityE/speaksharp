@@ -253,3 +253,88 @@ describe('workflow — allowlisted inputs, no individual-account secrets, no pre
     expect(workflow).toMatch(/retention-days:\s*7/);
   });
 });
+
+/**
+ * #1408s — operational triage must distinguish Issues from Comments.
+ *
+ * Share Feedback asks the user which kind of message they are sending and stores the answer as
+ * `metadata.feedback_kind`. The audit ignored it and counted every row as a defect report, so the routing
+ * the product promises was false: praise, questions and suggestions were reported beside real defects,
+ * inflating the apparent defect count and burying the actual ones.
+ */
+describe('#1408s feedback routing — Issues, Comments and legacy rows are separated', () => {
+  const CAND = [{ id: 'u1', email: 'cand@person.io', created_at: '2026-07-24T01:00:00Z' }];
+  const report = (over: Record<string, unknown>) => ({
+    id: 'r1', user_id: 'u1', title: 'a message', session_id: null,
+    severity: 'medium', created_at: '2026-07-25T01:00:00Z',
+    metadata: { canonicalRoute: '/session', releaseId: 'rel' }, ...over,
+  });
+  const withKind = (id: string, kind: string | undefined, severity = 'medium') => report({
+    id, severity,
+    metadata: {
+      canonicalRoute: '/session', releaseId: 'rel',
+      ...(kind === undefined ? {} : { feedback_kind: kind }),
+    },
+  });
+
+  const runWith = async (reports: Record<string, unknown>[]) => {
+    const { report: out } = await runAudit({
+      createClient: mockCreateClient({ pages: [CAND], reports }), env: BASE_ENV, now: NOW,
+    });
+    return out ?? '';
+  };
+
+  it('CASUALTY: a Comment is not counted as an issue', async () => {
+    const out = await runWith([withKind('r1', 'comment')]);
+    expect(out).toMatch(/report\.issues\s*:\s*0/);
+    expect(out).toMatch(/report\.comments\s*:\s*1/);
+  });
+
+  it('CASUALTY: an Issue is counted as an issue', async () => {
+    const out = await runWith([withKind('r1', 'issue')]);
+    expect(out).toMatch(/report\.issues\s*:\s*1/);
+    expect(out).toMatch(/report\.comments\s*:\s*0/);
+  });
+
+  it('CASUALTY: a legacy row with no kind is reported as unknown, never guessed into a bucket', async () => {
+    // Guessing would recreate the same lie in a quieter form: a pre-Share-Feedback row silently
+    // becoming an "Issue" is exactly the inflation this fixes.
+    const out = await runWith([withKind('r1', undefined)]);
+    expect(out).toMatch(/report\.legacy_unknown_kind\s*:\s*1/);
+    expect(out).toMatch(/report\.issues\s*:\s*0/);
+    expect(out).toMatch(/report\.comments\s*:\s*0/);
+  });
+
+  it('CASUALTY: an unrecognised kind is treated as unknown, not accepted', async () => {
+    const out = await runWith([withKind('r1', 'praise')]);
+    expect(out).toMatch(/report\.legacy_unknown_kind\s*:\s*1/);
+  });
+
+  it('CASUALTY: severity ranking covers ISSUES ONLY — a Comment is never severity-ranked', async () => {
+    // Ranking a compliment by "impact" is how a Comment came to be presented as a defect.
+    const out = await runWith([
+      withKind('r1', 'issue', 'critical'),
+      withKind('r2', 'comment', 'critical'),
+    ]);
+    const line = (out.match(/report\.issue_severity\s*:\s*(\{.*\})/) ?? [])[1] ?? '{}';
+    const tallied = JSON.parse(line);
+    expect(tallied.critical, 'only the Issue may be ranked').toBe(1);
+  });
+
+  it('a mixed batch is reported with each kind separated and the total preserved', async () => {
+    const out = await runWith([
+      withKind('r1', 'issue'), withKind('r2', 'issue'),
+      withKind('r3', 'comment'), withKind('r4', undefined),
+    ]);
+    expect(out).toMatch(/report\.candidate_tester_reports\s*:\s*4/);
+    expect(out).toMatch(/report\.issues\s*:\s*2/);
+    expect(out).toMatch(/report\.comments\s*:\s*1/);
+    expect(out).toMatch(/report\.legacy_unknown_kind\s*:\s*1/);
+  });
+
+  it('no raw user id, transcript or free-form content is emitted by the new fields', async () => {
+    const out = await runWith([withKind('r1', 'comment')]);
+    expect(out).not.toMatch(/\bu1\b/);
+    expect(out).not.toMatch(/a message/);
+  });
+});
