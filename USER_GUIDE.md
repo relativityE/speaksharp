@@ -35,7 +35,7 @@ unavailable checkout never grants access.
 ## Privacy
 
 Customer recordings use on-device Private transcription. Audio is not sent to a transcription provider.
-Transcript text is retained for the two newest transcript-bearing saved sessions; older transcript text expires while derived practice metrics and the structured next action remain. Some optional later features may process saved text on a server. On-device transcription does not mean every downstream text operation is local.
+SpeakSharp keeps the transcript from your most recent saved session so you can review it alongside the next practice action recommended from that session. When you save a newer session, the previous transcript is removed. Your practice metrics and Practice Loop history remain so you can track your progress. Some optional later features may process saved text on a server. On-device transcription does not mean every downstream text operation is local.
 
 ## Recording tips
 
@@ -58,7 +58,7 @@ For support, use **Share Feedback** inside SpeakSharp.
 
 - **Your audio never leaves your device.** Transcription runs locally in your browser.
 - **Your transcript is saved to your account** when you save a session, so you can review it and export a report.
-  Only your two most recent saved sessions keep their transcript text.
+  Only your most recent saved session keeps its transcript text, so you can review it alongside the next practice action recommended from it. Your practice metrics and Practice Loop history remain.
 - **If you ask for AI coaching**, that saved transcript is sent to Google's Gemini model to generate the
   suggestions. This happens only when you request coaching — never in the background.
 - **Your session measurements** (word count, filler counts, clarity, pace, pauses) are saved to your account.

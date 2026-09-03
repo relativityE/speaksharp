@@ -195,7 +195,7 @@ Product-status corrections that affect what we may claim:
   experience does not, and Pro-interest capture does not.
 - **The universal score is fully retired from the rendered UI** (0 live consumers); still computed in 3
   shadow-telemetry paths.
-- **Transcript text leaves the device and is stored** (bounded to the two newest saved sessions), and reaches
+- **Transcript text leaves the device and is stored** (bounded to the newest saved session), and reaches
   Google Gemini on an explicit user coaching request. Only **audio** is device-local.
 - **No moat is proven**, and there is **no user research** — no willingness-to-pay, conversion, retention or CAC
   evidence. Billing is implemented but not activated; revenue is zero.

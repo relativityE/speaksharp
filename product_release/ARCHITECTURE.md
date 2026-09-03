@@ -63,7 +63,7 @@ Each capability has exactly one owning component, so behavior cannot silently di
 ## 5. Transcript & audio storage & retention boundaries
 
 - **Private STT audio never leaves the browser.** Private transcription runs on-device (Transformers.js, same-origin worker/model assets); raw audio is not uploaded.
-- **Final transcript text is persisted only for the two newest transcript-bearing saved sessions per user.** `complete_session_v2` writes the final transcript and invokes the evidence-gated `newest_two_v1` retention coordinator. Older transcript text expires; derived metrics and the structured next action remain. The server-owned `transcript_state` (`available | expired | not_captured`) is the only authority for the distinction — clients never infer expiry from an empty string.
+- **Final transcript text is persisted only for the newest transcript-bearing saved session per user.** `complete_session_v2` writes the final transcript and invokes the evidence-gated `newest_one_v1` retention coordinator. Older transcript text expires; derived metrics and the structured next action remain. The server-owned `transcript_state` (`available | expired | not_captured`) is the only authority for the distinction — clients never infer expiry from an empty string.
 - **Retention boundary (ADR-2):** persisted session snapshots and issue reports are stored in Supabase under RLS; on-device Private audio is transient and never persisted server-side; CI UX screenshots are ephemeral (`retention-days: 1`). Transcript-derived `ai_suggestions` age out with transcript expiry and are absent from the current `PracticeSession` read model. The newest-two policy does not replace account deletion: user/account deletion and the zero-residue contract still apply independently. Any change to what is persisted is an architectural decision recorded here.
 
 ## 6. Identity & session lifecycle
@@ -168,7 +168,7 @@ boundary:
 | Data | Leaves the device? | Stored server-side? | Third party? |
 |---|---|---|---|
 | Raw audio | No | No | No |
-| Transcript text | **Yes**, on save (`p_final_transcript` → `complete_session_v2`) | **Yes**, bounded to the two newest saved sessions | **Yes**, on explicit user request — `get-ai-suggestions` → Google Gemini |
+| Transcript text | **Yes**, on save (`p_final_transcript` → `complete_session_v2`) | **Yes**, bounded to the newest saved session | **Yes**, on explicit user request — `get-ai-suggestions` → Google Gemini |
 | Derived metrics | Yes | Yes | Only within a coaching request |
 
 "Private STT audio never leaves the browser" is correct. It does **not** imply the transcript stays local.

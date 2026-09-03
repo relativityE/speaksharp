@@ -141,7 +141,7 @@ server" and "the transcript is never stored" are different statements, and neith
 | Audio transcription runs on the user's device | **True** | Same-origin worker `services/transcription/engines/transformers-js.worker.ts`; no upload path exists on the Private route |
 | Raw audio leaves the device | **Never** | No audio upload path; `ARCHITECTURE.md` §"Retention boundary" |
 | Transcript text leaves the device | **Yes, on save** | `lib/storage.ts` sends `p_final_transcript` to `complete_session_v2`; a `failed`/discarded session sends `null` |
-| Transcript text is stored server-side | **Yes, bounded** | `sessions.transcript`, retained for the two newest saved sessions only |
+| Transcript text is stored server-side | **Yes, bounded** | `sessions.transcript`, retained for the newest saved session only; practice metrics and Practice Loop history remain |
 | Transcript text reaches a third party | **Yes, on user request** | `get-ai-suggestions` reads the saved transcript and sends it to Google Gemini; user-initiated, and refused unless `transcript_state = 'available'` |
 | Derived metrics are stored | **Yes** | Word counts, filler counts, clarity score, WPM, pause metrics |
 
