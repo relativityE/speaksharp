@@ -1,5 +1,6 @@
 import logger from '@/lib/logger';
 import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
+import type { SessionPersistStatus } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import { toSanitizedCause } from '@/lib/sanitizeStartError';
 import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
@@ -1617,7 +1618,21 @@ export class SpeechRuntimeController {
         if (useSessionStore.getState().sessionSaved !== persisted) {
             useSessionStore.setState({ sessionSaved: persisted });
         }
-        syncSessionPersisted(persisted, details);
+        // #1403: publish the STATUS of the save alongside the fact of it. The status is derived HERE, in
+        // the one method every save-boundary call site already goes through, rather than at each of the
+        // three call sites -- three chances to forget is three ways for the marker to say more than the
+        // database can support.
+        //
+        // A stashed attribution retry for THIS session is the controller's own record that the
+        // attribution write did not land: the row is real, the identity it was recorded under is not yet
+        // established. Anything else at a true save is a fully attributed save.
+        const sessionId = details?.sessionId ?? null;
+        const status: SessionPersistStatus | null = !persisted
+            ? null
+            : (sessionId !== null && this.pendingAttributionRetry?.sessionId === sessionId)
+                ? 'saved-attribution-pending'
+                : 'saved';
+        syncSessionPersisted(persisted, { ...(details ?? {}), status });
     }
 
     /**

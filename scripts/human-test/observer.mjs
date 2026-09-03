@@ -500,13 +500,28 @@ export function receiptVerdict({
   // persisted, attributed take.
   if (probe && (probe.sessionPersisted === 'true' || probe.sessionPersisted === true)) {
     const status = probe.persistedStatus ?? null;
-    if (status !== null && status !== 'saved') {
+    // THE STATUS MUST BE PRESENT, NOT MERELY ACCEPTABLE.
+    //
+    // This rule previously tolerated a null status, and the app published none — the attribute did not
+    // exist anywhere in the product. So the branch could never fire: every take passed the persistence
+    // check by being unable to fail it, and the receipt reported an attributed save it had never
+    // checked. Absence of a status is now the hold, because "the page said nothing about the save" and
+    // "the page said the save was clean" are the two claims this rule exists to keep apart.
+    if (status === null) {
+      hold('the session reports persistence but published no save status; an unqualified flag is not '
+        + 'evidence that the row was saved under a recorded identity');
+    } else if (status !== 'saved') {
       hold(`the session reports persistence with status "${status}", which is not a saved state`);
     }
-    // A persisted session with NO published identity is already held by `readiness()` above, which
-    // refuses any take whose engine never published one. A second check here was unkillable by mutation
-    // — removing it changed nothing — so it is left to the guard that actually decides.
-    // The casualty for this case remains, and passes through readiness.
+    // AND IT MUST NAME THE ROW. Without an id nothing can be cross-checked against the database
+    // afterwards, so the claim "this take was persisted" is unfalsifiable — which is not the same as
+    // true. `readiness()` holds a take whose ENGINE never published an identity; it says nothing about
+    // whether the SAVE named a row, so this is a distinct fact and needs its own guard.
+    const persistedId = typeof probe.persistedSessionId === 'string' ? probe.persistedSessionId.trim() : '';
+    if (persistedId === '') {
+      hold('the session reports persistence without a session id; the saved row cannot be identified '
+        + 'or cross-checked');
+    }
   }
   problems.push(...r.problems);
   proofProblems.push(...r.problems);

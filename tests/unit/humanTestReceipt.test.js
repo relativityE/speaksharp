@@ -7,6 +7,7 @@ import { auditSockets, receiptVerdict } from '../../scripts/human-test/observer.
 const RELEASE = 'a19324610634b9e05a375fff8838f2bbbae3a4f1';
 const CANDIDATE = 'moonshine:streaming-medium';
 const APP = 'https://speaksharp-public.vercel.app';
+const SESSION_ID = '9f1c0f4a-6d2e-4a1b-9c7d-2b8e5a3f10cc';
 
 const goodProbe = (over = {}) => ({
     release: RELEASE,
@@ -189,9 +190,41 @@ describe('#1403s persistence must be attributed, not merely flagged', () => {
         expect(out.verdict).not.toBe('PASS');
     });
 
-    it('POSITIVE CONTROL: persisted=true with a saved status and a published identity PASSES', () => {
+    it('CASUALTY: persisted=true with NO published save status HOLDS', () => {
+        // The RETURNED defect. The rule tolerated a null status while the product published none, so
+        // this state -- the one every real take was in -- passed by being unable to fail.
+        const out = receiptVerdict(base({
+            probe: goodProbe({ sessionPersisted: 'true', persistedSessionId: SESSION_ID }),
+        }));
+        expect(out.verdict).not.toBe('PASS');
+        expect(JSON.stringify(out)).toMatch(/published no save status/);
+    });
+
+    it('CASUALTY: persisted=true naming NO row HOLDS, even with a clean status', () => {
+        // Nothing can be cross-checked against the database afterwards, so "this take was persisted" is
+        // unfalsifiable rather than true.
         const out = receiptVerdict(base({
             probe: goodProbe({ sessionPersisted: 'true', persistedStatus: 'saved' }),
+            identitySamples: cleanSamples(),
+        }));
+        expect(out.verdict).not.toBe('PASS');
+        expect(JSON.stringify(out)).toMatch(/without a session id/);
+    });
+
+    it('CASUALTY: a whitespace-only session id is not an id', () => {
+        const out = receiptVerdict(base({
+            probe: goodProbe({ sessionPersisted: 'true', persistedStatus: 'saved', persistedSessionId: '   ' }),
+            identitySamples: cleanSamples(),
+        }));
+        expect(out.verdict).not.toBe('PASS');
+        expect(JSON.stringify(out)).toMatch(/without a session id/);
+    });
+
+    it('POSITIVE CONTROL: a saved status, a named row and a published identity PASSES', () => {
+        const out = receiptVerdict(base({
+            probe: goodProbe({
+                sessionPersisted: 'true', persistedStatus: 'saved', persistedSessionId: SESSION_ID,
+            }),
             identitySamples: cleanSamples(),
         }));
         expect(out.verdict).toBe('PASS');
