@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { test, expect } from '@playwright/test';
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { promisify } from 'node:util';
@@ -8,6 +8,11 @@ const execFileAsync = promisify(execFile);
 
 /**
  * #1390 Stage 1 — the Preview verifier must RUN the page, not read it.
+ *
+ * PLACED IN THE E2E SUITE DELIBERATELY. These drive a real Chromium, and they previously sat in the unit
+ * suite where no browser binary is installed — so every case failed with "verification could not
+ * complete" and took `unit-shard-4` red with it. A browser test belongs where browsers exist; the e2e
+ * shards install them.
  *
  * THE RETURNED DEFECT. The previous verifier inspected served HTML and bundle text. That cannot decide
  * PASS: the switch module ships in BOTH builds, so its identifiers are present either way, and the
@@ -69,34 +74,34 @@ async function runVerifier(url, sha = SHA) {
 let installed;
 let notInstalled;
 
-beforeAll(async () => {
+test.beforeAll(async () => {
     installed = await serve(page({ install: true }));
     notInstalled = await serve(page({ install: false }));
-}, 60_000);
+});
 
-afterAll(async () => {
+test.afterAll(async () => {
     await installed?.close();
     await notInstalled?.close();
 });
 
-describe('#1390 verifier — runtime installation decides PASS, not served text', () => {
-    it('CASUALTY: a page containing the switch text but NOT installing it FAILS', async () => {
+test.describe('#1390 verifier — runtime installation decides PASS, not served text', () => {
+    test('CASUALTY: a page containing the switch text but NOT installing it FAILS', async () => {
         // This is the exact page the returned verifier passed.
         const r = await runVerifier(notInstalled.url);
         expect(r.code).not.toBe(0); // an uninstalled runtime must not verify
         expect(r.out).toMatch(/__SS_SWITCH_CANDIDATE__ is not a function|verification FAILED/);
-    }, 180_000);
+    });
 
-    it('POSITIVE CONTROL: a page that actually installs the surfaces PASSES', async () => {
+    test('POSITIVE CONTROL: a page that actually installs the surfaces PASSES', async () => {
         const r = await runVerifier(installed.url);
         if (r.code !== 0) console.error(r.out); // surface the verifier's own output on failure
         expect(r.code).toBe(0);
         expect(r.out).toMatch(/typeof window\.__SS_SWITCH_CANDIDATE__: function/);
         expect(r.out).toMatch(/typeof window\.__SS_ACTIVE_CANDIDATE__: function/);
         expect(r.out).toMatch(/PASSED \(evaluated on the running page\)/);
-    }, 180_000);
+    });
 
-    it('CASUALTY: a mismatched runtime release FAILS even when the surfaces install', async () => {
+    test('CASUALTY: a mismatched runtime release FAILS even when the surfaces install', async () => {
         const wrong = await serve(page({ install: true, release: 'b'.repeat(40) }));
         try {
             const r = await runVerifier(wrong.url);
@@ -105,20 +110,20 @@ describe('#1390 verifier — runtime installation decides PASS, not served text'
         } finally {
             await wrong.close();
         }
-    }, 180_000);
+    });
 
-    it('CASUALTY: an unreachable Preview FAILS CLOSED rather than being skipped', async () => {
+    test('CASUALTY: an unreachable Preview FAILS CLOSED rather than being skipped', async () => {
         // "Could not check" must never read as "checked and fine".
         const r = await runVerifier('http://127.0.0.1:1/');
         expect(r.code).not.toBe(0);
         expect(r.out).toMatch(/verification could not complete|verification FAILED/);
-    }, 180_000);
+    });
 
-    it('the verifier never prints the bypass secret', async () => {
+    test('the verifier never prints the bypass secret', async () => {
         const r = await runVerifier(installed.url, SHA);
         expect(r.out).not.toMatch(/x-vercel-protection-bypass/i);
         // Source-level too: the value must not reach a log line.
         const src = await import('node:fs').then((fs) => fs.readFileSync(VERIFIER, 'utf8'));
         expect(src).not.toMatch(/console\.(log|error)\([^)]*bypass/i);
-    }, 180_000);
+    });
 });

@@ -41,6 +41,22 @@ jobs:
     timeout-minutes: 30
     environment: preview
     steps:
+      # THE WORKFLOW ITSELF MUST COME FROM main.
+      #
+      # `workflow_dispatch` runs the workflow definition from the ref it is dispatched on. Dispatched from
+      # a branch, a modified copy of THIS FILE would run with the Preview secrets attached — so the first
+      # thing checked is the ref the workflow was launched from.
+      - name: Refuse a non-main workflow ref
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          echo "workflow ref: $WORKFLOW_REF"
+          if [ "$WORKFLOW_REF" != "refs/heads/main" ]; then
+            echo "::error::this workflow may only be dispatched from refs/heads/main (got $WORKFLOW_REF)"
+            exit 1
+          fi
+
       - name: Validate requested SHA shape
         env:
           REQUESTED_SHA: ${{ inputs.source_sha }}
@@ -52,29 +68,60 @@ jobs:
           fi
           echo "requested source SHA: $REQUESTED_SHA"
 
-      # Detached checkout of the EXACT commit. A ref that merely "contains" the commit is not the commit.
-      - name: Checkout exact commit (detached)
+      # TRUSTED CONTROL CHECKOUT. Everything this job EXECUTES comes from here — main — never from the
+      # requested tree. A 40-character SHA was the only thing previously checked, so any collaborator
+      # branch commit could replace `verify-internal-preview.mjs` and have it run with
+      # VERCEL_AUTOMATION_BYPASS_SECRET in its environment. "PM-authorized" lived only in the input's
+      # description; it enforced nothing.
+      - name: Checkout trusted control (main)
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          path: control
+
+      # ANCESTRY IS THE AUTHORIZATION. A SHA that is not reachable from main is not reviewed code, and
+      # nothing that follows may see a secret until this passes.
+      - name: Require the requested SHA to be an ancestor of origin/main
+        working-directory: control
+        env:
+          REQUESTED_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if ! git cat-file -e "${REQUESTED_SHA}^{commit}" 2>/dev/null; then
+            git fetch --no-tags origin "$REQUESTED_SHA" || true
+          fi
+          if ! git merge-base --is-ancestor "$REQUESTED_SHA" origin/main; then
+            echo "::error::requested SHA is not an ancestor of origin/main — refusing before any secret is used"
+            exit 1
+          fi
+          echo "requested SHA is reachable from origin/main"
+
+      # The SUBJECT tree. Built and deployed, never executed as control logic.
+      - name: Checkout subject commit (detached)
         uses: actions/checkout@v6
         with:
           ref: ${{ inputs.source_sha }}
           fetch-depth: 0
+          path: subject
 
-      # The checkout action is trusted to resolve a ref, not to have resolved the one we meant. If HEAD
-      # is anything other than the requested commit, every downstream claim about "this SHA" is false.
-      - name: Fail unless HEAD equals the requested SHA
+      - name: Fail unless the subject HEAD equals the requested SHA
+        working-directory: subject
         env:
           REQUESTED_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
           ACTUAL="$(git rev-parse HEAD)"
-          echo "checked out HEAD: $ACTUAL"
+          echo "subject HEAD: $ACTUAL"
           if [ "$ACTUAL" != "$REQUESTED_SHA" ]; then
-            echo "::error::HEAD ($ACTUAL) does not equal the requested SHA ($REQUESTED_SHA) — refusing to build"
+            echo "::error::subject HEAD ($ACTUAL) does not equal the requested SHA ($REQUESTED_SHA)"
             exit 1
           fi
 
+      # The composite action comes from the TRUSTED checkout, not the subject tree.
       - name: Setup Environment
-        uses: ./.github/actions/setup-environment
+        uses: ./control/.github/actions/setup-environment
         with:
           install-dependencies: 'true'
           # The Preview is verified by LOADING it in a real browser: served text cannot prove the switch
@@ -97,6 +144,7 @@ jobs:
           VITE_POSTHOG_KEY: ${{ vars.POSTHOG_PROJECT_API_KEY }}
           VITE_POSTHOG_HOST: ${{ vars.POSTHOG_INGEST_HOST }}
           VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+        working-directory: subject
         run: |
           set -euo pipefail
           pnpm build
@@ -113,7 +161,9 @@ jobs:
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
         run: |
           set -euo pipefail
-          URL="$(npx --yes vercel@latest deploy frontend/dist \
+          # PINNED to an exact version. A floating tag would execute whatever it resolves to at run
+          # time, with the deploy token in scope. Only the explicit subject artifact path is uploaded.
+          URL="$(npx --yes vercel@48.2.0 deploy subject/frontend/dist \
                    --token "$VERCEL_ACCESS_TOKEN" \
                    --yes --archive=tgz 2>/dev/null | tail -1)"
           case "$URL" in
@@ -152,7 +202,9 @@ jobs:
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           set -euo pipefail
-          node scripts/ci/verify-internal-preview.mjs "$PREVIEW_URL" "$REQUESTED_SHA"
+          # Control logic from the TRUSTED checkout. Running the subject tree's copy is precisely how a
+          # branch commit would have consumed the bypass secret.
+          node control/scripts/ci/verify-internal-preview.mjs "$PREVIEW_URL" "$REQUESTED_SHA"
 
       - name: Content-safe summary
         if: always()

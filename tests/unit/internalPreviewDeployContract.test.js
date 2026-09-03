@@ -39,15 +39,17 @@ describe('dispatch-only: a deployment happens because a PERSON asked, never beca
 });
 
 describe('exact-SHA checkout: "contains the commit" is not "is the commit"', () => {
-    it('checks out the requested ref rather than a branch head', () => {
-        const checkout = steps.find((s) => typeof s.uses === 'string' && s.uses.startsWith('actions/checkout'));
-        expect(checkout.with.ref).toBe('${{ inputs.source_sha }}');
+    it('the SUBJECT checkout uses the requested ref, not a branch head', () => {
+        // Two checkouts now exist: trusted control from main, and the subject under test.
+        const subject = steps.find((s) => typeof s.uses === 'string'
+            && s.uses.startsWith('actions/checkout') && s.with?.path === 'subject');
+        expect(subject.with.ref).toBe('${{ inputs.source_sha }}');
     });
 
     it('CASUALTY: refuses to build when HEAD differs from the requested SHA', () => {
         // Without this, every downstream claim about "this SHA" is unverified: the checkout action is
         // trusted to resolve a ref, not to have resolved the one we meant.
-        const guard = stepNamed('Fail unless HEAD equals the requested SHA');
+        const guard = stepNamed('Fail unless the subject HEAD equals the requested SHA');
         expect(guard).toBeTruthy();
         expect(guard.run).toMatch(/git rev-parse HEAD/);
         expect(guard.run).toMatch(/!=\s*"\$REQUESTED_SHA"/);
@@ -189,6 +191,85 @@ describe('the verifier checks the RUNNING page, not the build', () => {
     it('the workflow installs a browser, because the verifier needs one', () => {
         const setup = steps.find((s) => typeof s.uses === 'string' && s.uses.includes('setup-environment'));
         expect(setup.with['install-playwright']).toBe('true');
+    });
+});
+
+/**
+ * #1390 RETURN — UNTRUSTED CODE MUST NEVER MEET THE PREVIEW SECRETS.
+ *
+ * The workflow validated only that `source_sha` looked like a SHA, then checked that tree out and ran
+ * `verify-internal-preview.mjs` from it with VERCEL_AUTOMATION_BYPASS_SECRET in scope. Any collaborator
+ * branch commit could have replaced that script and read or exfiltrated the secret. "PM-authorized"
+ * existed only in the input's description and enforced nothing.
+ */
+describe('#1390 RETURN — only reviewed code runs, and only main may dispatch', () => {
+    const stepIndex = (name) => steps.findIndex((s) => s.name === name);
+
+    it('CASUALTY: a non-main workflow ref is refused', () => {
+        // workflow_dispatch runs the workflow DEFINITION from the ref it is launched on, so a modified
+        // copy of this file would otherwise run with the Preview secrets attached.
+        const guard = stepNamed('Refuse a non-main workflow ref');
+        expect(guard).toBeTruthy();
+        // The CONDITION, not merely the words around it. Asserting that "refs/heads/main" and "exit 1"
+        // appear somewhere in the step passed even when the test disabled the comparison entirely —
+        // the message and the exit survive in the dead branch.
+        expect(guard.run).toMatch(/if\s*\[\s*"\$WORKFLOW_REF"\s*!=\s*"refs\/heads\/main"\s*\]/);
+        expect(guard.run).toMatch(/exit 1/);
+        expect(stepIndex('Refuse a non-main workflow ref')).toBe(0);
+    });
+
+    it('CASUALTY: a branch-only SHA is rejected BEFORE any secret-bearing step', () => {
+        const ancestry = stepNamed('Require the requested SHA to be an ancestor of origin/main');
+        expect(ancestry).toBeTruthy();
+        expect(ancestry.run).toMatch(/if ! git merge-base --is-ancestor "\$REQUESTED_SHA" origin\/main; then/);
+        expect(ancestry.run).toMatch(/exit 1/);
+        // Every step that carries a secret must come after it.
+        const secretSteps = steps
+            .map((s, i) => ({ i, s }))
+            .filter(({ s }) => JSON.stringify(s.env ?? {}).includes('secrets.'));
+        const gate = stepIndex('Require the requested SHA to be an ancestor of origin/main');
+        for (const { i, s } of secretSteps) {
+            expect(i, `"${s.name}" carries a secret before the ancestry gate`).toBeGreaterThan(gate);
+        }
+    });
+
+    it('CASUALTY: a modified verifier in the SUBJECT tree is never executed', () => {
+        // The control script is run from the trusted checkout. Running the subject copy is exactly how a
+        // branch commit would have consumed the bypass secret.
+        const verify = stepNamed('Verify the running Preview');
+        expect(verify.run).toMatch(/control\/scripts\/ci\/verify-internal-preview\.mjs/);
+        expect(verify.run, 'the subject tree copy must not be invoked')
+            .not.toMatch(/(?<!control\/)\bscripts\/ci\/verify-internal-preview\.mjs/);
+    });
+
+    it('control and subject are SEPARATE checkouts', () => {
+        const checkouts = steps.filter((s) => typeof s.uses === 'string' && s.uses.startsWith('actions/checkout'));
+        expect(checkouts).toHaveLength(2);
+        expect(checkouts[0].with.ref).toBe('main');
+        expect(checkouts[0].with.path).toBe('control');
+        expect(checkouts[1].with.ref).toBe('${{ inputs.source_sha }}');
+        expect(checkouts[1].with.path).toBe('subject');
+    });
+
+    it('the composite action is taken from the trusted checkout', () => {
+        const setup = steps.find((s) => typeof s.uses === 'string' && s.uses.includes('setup-environment'));
+        expect(setup.uses).toMatch(/^\.\/control\//);
+    });
+
+    it('CASUALTY: the Vercel CLI is pinned, never `latest`', () => {
+        // `vercel@latest` executes whatever that tag resolves to at run time, with the deploy token in scope.
+        expect(text).not.toMatch(/vercel@latest/);
+        expect(stepNamed('Deploy to Vercel Preview').run).toMatch(/vercel@\d+\.\d+\.\d+/);
+    });
+
+    it('only the explicit subject artifact path is deployed', () => {
+        expect(stepNamed('Deploy to Vercel Preview').run).toMatch(/subject\/frontend\/dist/);
+    });
+
+    it('a main-ancestor exact SHA is still accepted — the gate is not a blanket refusal', () => {
+        const ancestry = stepNamed('Require the requested SHA to be an ancestor of origin/main');
+        // Refusal is conditional on the ancestry test failing, not unconditional.
+        expect(ancestry.run).toMatch(/if ! git merge-base --is-ancestor/);
     });
 
     it('requires BOTH switch surfaces', () => {
