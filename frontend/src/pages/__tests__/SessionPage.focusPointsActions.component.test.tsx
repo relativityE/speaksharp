@@ -517,3 +517,37 @@ describe('#1409s cancellation is authoritative over a pending save', () => {
         });
     });
 });
+
+describe('#1409s RETURN — leaving the page retires the opening', () => {
+    it.each(['focus-points-new-set', 'focus-points-edit'])(
+        'CASUALTY: a save begun via %s cannot mutate the store after SessionPage UNMOUNTS',
+        async (control) => {
+            // Closing the dialog retires its token, but navigation does not go through that path — the
+            // component just unmounts. A completion arriving afterwards had nothing to stop it, and the
+            // session store is global, so it mutated state for a page the user had already left.
+            const user = userEvent.setup();
+            const utils = control === 'focus-points-edit' ? givenBeforeTake() : givenAfterReview();
+            await user.click(screen.getByTestId(control));
+            await screen.findByTestId('objective-setup-form');
+            const settle = pendingOnReady!;
+
+            const before = useSessionStore.getState();
+            const beforeActive = before.activeObjectiveBrief?.briefId ?? null;
+            const beforeCompleted = before.completedObjectiveBrief?.briefId ?? null;
+            const beforeCoverage = before.objectiveCoverageResult;
+
+            utils.unmount();
+            settle({ ...RESULT, briefId: 'brief-AFTER-UNMOUNT' });
+
+            const after = useSessionStore.getState();
+            expect(after.activeObjectiveBrief?.briefId ?? null,
+                'an abandoned page must not bind a brief').toBe(beforeActive);
+            expect(after.completedObjectiveBrief?.briefId ?? null,
+                'an abandoned page must not clear the review').toBe(beforeCompleted);
+            expect(after.objectiveCoverageResult,
+                'an abandoned page must not clear coverage').toBe(beforeCoverage);
+            expect(handleStartStop, 'no recording may begin from an unmounted page').not.toHaveBeenCalled();
+            expect(setShowAnalyticsPrompt,
+                'no prompt state may change from an unmounted page').not.toHaveBeenCalledWith(false);
+        });
+});

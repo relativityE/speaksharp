@@ -103,6 +103,16 @@ export const SessionPage: React.FC = () => {
         setupTokenRef.current += 1;
         setPointsSetupMode(null);
     }, []);
+    /**
+     * #1409s RETURN — LEAVING THE PAGE ENDS THE OPENING TOO.
+     *
+     * Closing the dialog retires its token, but navigating away does not go through that path: the
+     * component simply unmounts. A save still in flight then settled against a page the user had left
+     * and mutated the GLOBAL session store — binding a brief, clearing a review, resetting the session
+     * — with no surface on screen to show it happening. Unmount is as final a withdrawal as pressing
+     * Escape, so it retires the opening the same way.
+     */
+    React.useEffect(() => () => { setupTokenRef.current += 1; }, []);
     // #891 — engine-specific finalize RTF (self-corrects from real decodes) for the "Finalizing… ~Ns"
     // countdown; the estimate itself is computed below once the recording duration is in scope.
     const activeEngineVersion = useSessionStore(state => state.activeEngineVersion);
