@@ -42,7 +42,7 @@ Transcript text is retained for the two newest transcript-bearing saved sessions
 - Use a quiet room and a close microphone.
 - Speak naturally; pauses are useful.
 - Chrome or Edge provide the most consistently tested experience.
-- If the on-device model cannot initialize, retry setup or report the issue; SpeakSharp does not silently
+- If the on-device model cannot initialize, retry setup or send us a message with Share Feedback; SpeakSharp does not silently
   switch customer audio to another transcription engine.
 
 ## Analytics
@@ -50,7 +50,7 @@ Transcript text is retained for the two newest transcript-bearing saved sessions
 After each saved session, SpeakSharp shows speaking pace, filler-word counts, transcript, and one next action.
 Progress compares like with like: Open Mic history remains separate from Focus Points history.
 
-For support, use **Report issue** inside SpeakSharp.
+For support, use **Share Feedback** inside SpeakSharp.
 
 ---
 

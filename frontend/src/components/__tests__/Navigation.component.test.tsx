@@ -167,6 +167,8 @@ describe('Navigation', () => {
             renderNavigation('/session');
 
             fireEvent.click(screen.getByTestId('nav-report-issue-button'));
+            // #1404: Message is a required first choice; without it this form cannot submit.
+            fireEvent.change(screen.getByTestId('issue-report-feedback-kind'), { target: { value: 'issue' } });
             fireEvent.change(screen.getByTestId('issue-report-title'), {
                 target: { value: 'Private mic failed' },
             });
@@ -206,6 +208,8 @@ describe('Navigation', () => {
             renderNavigation('/session');
 
             fireEvent.click(screen.getByTestId('nav-report-issue-button'));
+            // #1404: Message is a required first choice; without it this form cannot submit.
+            fireEvent.change(screen.getByTestId('issue-report-feedback-kind'), { target: { value: 'issue' } });
             fireEvent.change(screen.getByTestId('issue-report-title'), {
                 target: { value: 'Transcript issue' },
             });
@@ -246,6 +250,8 @@ describe('Navigation', () => {
             fireEvent.change(screen.getByTestId('issue-report-category'), {
                 target: { value: 'billing_subscription' },
             });
+            // #1404: Message is a required first choice; without it this form cannot submit.
+            fireEvent.change(screen.getByTestId('issue-report-feedback-kind'), { target: { value: 'issue' } });
             fireEvent.change(screen.getByTestId('issue-report-title'), {
                 target: { value: 'Billing portal issue' },
             });

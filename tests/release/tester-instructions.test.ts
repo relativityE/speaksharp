@@ -41,8 +41,31 @@ describe('canonical tester and customer instructions', () => {
   });
 
   it('keeps tester feedback plain-language and actionable', () => {
-    expect(testerGuide).toMatch(/Report Issue/i);
+    // #1404: the control is named "Share Feedback". This lock previously pinned the OLD name, so the
+    // guide stayed green while instructing testers four times to click a button that no longer exists.
+    // A guide that names a missing control is the failure this test is for, so the lock moves with it.
+    expect(testerGuide).toMatch(/Share Feedback/i);
+    expect(testerGuide, 'no stale control name may survive in active tester guidance').not.toMatch(/Report Issue/i);
     expect(testerGuide).toMatch(/confusing, broken, slow, inaccurate, or surprising/i);
+
+    // #1408 — Share Feedback carries praise, suggestions and questions as well as defects, so the SHARED
+    // guidance may not frame every message as a defect report. These two regressed once already: the
+    // guide still called a submission a "report" and asked every sender what they expected and what
+    // happened, which is meaningless for a compliment.
+    expect(testerGuide, 'a submission is a message, not a report')
+        .not.toMatch(/submitted the report|submit(ting)? a report|your report\b/i);
+    // Expected-vs-actual may appear ONLY as an optional Issue clause, never as the shared instruction.
+    // Scoped by SENTENCE: the qualifier ("For an Issue, ...") precedes the clause, so a match starting at
+    // "what you expected" would never contain it — the first version of this check failed for that reason.
+    const sentences = testerGuide.split(/(?<=[.!?])\s+/);
+    for (const sentence of sentences.filter((s) => /what you expected/i.test(s))) {
+        expect(sentence.trim(), `expected-vs-actual must be scoped to an Issue: "${sentence.trim()}"`)
+            .toMatch(/For an Issue/i);
+    }
+    // The shared instruction must name the non-defect cases explicitly.
+    expect(testerGuide).toMatch(/suggestion/i);
+    expect(testerGuide).toMatch(/question/i);
+    expect(testerGuide).toMatch(/worked well/i);
     expect(testerGuide).not.toMatch(/VITE_|127\.0\.0\.1|PostHog|WebGPU|live-release-matrix|effective_subscription_tier/i);
   });
 });

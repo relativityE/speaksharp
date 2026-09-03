@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for the external, tester-facing beta copy)
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-08-14
-**Last Verified:** 2026-08-14 — reconciled to the Private-only Open Mic and Focus Points Practice Loop, the complete 30-day trial, the $10/month continuation contract, and the page-aware Report Issue behavior. No volatile run IDs, SHAs, or current pass/fail posture are carried here.
+**Last Verified:** 2026-08-14 — reconciled to the Private-only Open Mic and Focus Points Practice Loop, the complete 30-day trial, the $10/month continuation contract, and the page-aware Share Feedback behavior. No volatile run IDs, SHAs, or current pass/fail posture are carried here.
 **Applies To:** The controlled invite-only SpeakSharp beta — the copy sent to human testers (intro, invitation, walkthrough, feedback prompts).
 **Class:** Product copy (external).
 **Authority:** The source for what testers are told and asked. This is the only place external tester copy is maintained; operators send from here verbatim.
@@ -68,7 +68,7 @@ How to test the Practice Loop
 6. Save the session and review the transcript, delivery evidence, and suggested next action.
 7. Open the saved session again from History or Progress. If a PDF report is available, open or export it.
 8. Repeat once using the suggested next action. You may use Open Mic again or try Focus Points.
-9. Use Report Issue from any page whenever something is confusing, broken, slow, inaccurate, or surprising.
+9. Use Share Feedback from any page — whenever something is confusing, broken, slow, inaccurate, or surprising, and equally when you have a suggestion, a question, or something that worked well.
 
 What to evaluate
 
@@ -84,7 +84,7 @@ What to evaluate
 - Was anything confusing or difficult to navigate?
 - What one change would make you want to return tomorrow?
 
-Report Issue automatically records the product page where you submitted the report. Tell us what you were trying to do, what you expected, and what happened. Your transcript and audio are not included unless you explicitly choose to share optional details. Please do not include passwords, confidential material, or other sensitive personal information.
+Share Feedback first asks whether your message is an **Issue** (something is broken or wrong) or a **Comment** (anything else you want to tell us). Choose one — it is required, and it decides how your message is routed. Share Feedback automatically records the product page you sent it from. Tell us what you were doing and what you would like us to know — a problem, a suggestion, a question, or something that worked well. For an Issue, it also helps to say what you expected and what happened instead. Your transcript and audio are not included unless you explicitly choose to share optional details. Please do not include passwords, confidential material, or other sensitive personal information.
 
 The complete product is free for 30 days. You will not need a card for this test. If any page asks you to pay during this beta test, stop and report it.
 
@@ -118,7 +118,7 @@ Akin
 ```text
 I'm opening a small controlled beta for SpeakSharp, a private speaking-practice coach. Start with Open Mic, record a 1–2 minute take using Private transcription on your device, save and review it, then repeat once using the suggested next action. You can also try Focus Points when specific ideas must land.
 
-Nothing records automatically. The complete product is free for 30 days, and no card is needed for this test. Use Report Issue for anything confusing, inaccurate, slow, or broken.
+Nothing records automatically. The complete product is free for 30 days, and no card is needed for this test. Use Share Feedback for anything confusing, inaccurate, slow, or broken — and for suggestions, questions, or things that worked well.
 
 Beta link: https://speaksharp-public.vercel.app/
 ```
@@ -133,7 +133,7 @@ Beta link: https://speaksharp-public.vercel.app/
 4. Repeat using the suggested next action.
 5. Try **Focus Points** if you can identify two or three ideas that should be detected.
 6. Confirm Focus Points results remain separate from Open Mic Progress.
-7. Try Report Issue from the page where a problem occurs.
+7. Try Share Feedback from the page you are on — send one Issue and one Comment.
 8. If anything asks for payment during this beta test, stop and report it.
 
 You do not need to be polished. Natural speech is more useful for testing.

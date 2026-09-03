@@ -5,6 +5,7 @@ import PracticePage from '@/pages/PracticePage';
 import { IssueReportDialog } from '@/components/IssueReportDialog';
 import { PracticeSurfaceProvider } from '@/components/practice/PracticeSurfaceContext';
 import { issueReportService } from '@/services/issueReportService';
+import { toast } from '@/lib/toast';
 
 // Keep buildIssueReportMetadata REAL (so we assert the true stored context); mock only the network submit.
 vi.mock('@/services/issueReportService', async (orig) => {
@@ -67,6 +68,8 @@ async function reportAndCapture(expectedLabel: RegExp, expectedAreas: string[]) 
   await openReport();
   expect(banner()).toHaveTextContent(expectedLabel);
   expect(areaValues()).toEqual(expectedAreas);
+  // #1404: Message is required before this form can submit.
+  fireEvent.change(screen.getByTestId('issue-report-feedback-kind'), { target: { value: 'issue' } });
   fireEvent.change(screen.getByTestId('issue-report-title'), { target: { value: 'A clear title' } });
   fireEvent.change(screen.getByTestId('issue-report-description'), { target: { value: 'A description with enough length.' } });
   fireEvent.click(screen.getByTestId('issue-report-submit'));
@@ -105,5 +108,86 @@ describe('Report Issue — /practice surface attribution (chooser surface)', () 
     const meta = await reportAndCapture(/SpeakSharp Practice/, ['understanding_choices', 'navigation', 'visual_layout', 'other']);
     expect(meta.practiceSurface).toBe('practice_home');
     expect(submit).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * #1404 user-journey evidence — BOTH products, BOTH message kinds, through the real UI.
+ *
+ * The unit tests prove the select works. These prove the thing the PO actually cares about: that a user
+ * inside each product can reach Share Feedback, send the kind they mean, be told it worked, and have the
+ * message land attributed to the product and session they were in. A kind that submits but loses its
+ * product attribution is useless to the support queue.
+ */
+describe('#1404 Share Feedback — user journey across both products', () => {
+  beforeEach(() => {
+    submit.mockClear();
+    vi.mocked(toast.success).mockClear();
+    vi.mocked(toast.error).mockClear();
+  });
+
+  async function shareFeedback(kind: 'issue' | 'comment', title: string, body: string) {
+    fireEvent.click(screen.getByTestId('nav-report-issue-button'));
+    await screen.findByTestId('issue-report-title');
+    fireEvent.change(screen.getByTestId('issue-report-feedback-kind'), { target: { value: kind } });
+    fireEvent.change(screen.getByTestId('issue-report-title'), { target: { value: title } });
+    fireEvent.change(screen.getByTestId('issue-report-description'), { target: { value: body } });
+    fireEvent.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(submit).toHaveBeenCalled());
+    return submit.mock.calls[submit.mock.calls.length - 1][0];
+  }
+
+  it('PRODUCT 1 — Open Mic: a user submits an ISSUE and is told it was sent', async () => {
+    renderApp();
+    fireEvent.click(screen.getByTestId('practice-card-freeform'));
+    expect(await screen.findByTestId('session-marker')).toBeInTheDocument();
+
+    const arg = await shareFeedback('issue', 'Mic did not start', 'I pressed record and nothing happened.');
+
+    expect(arg.metadata).toMatchObject({ feedback_kind: 'issue' });
+    // Attributed to the product the user was actually in.
+    expect(arg.metadata.pageKey).toBe('session');
+    expect(arg.metadata.canonicalRoute).toBe('/session');
+    // The user gets confirmation, and it does not misname their message.
+    expect(toast.success).toHaveBeenCalledWith('Feedback submitted');
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('PRODUCT 2 — Focus Points: a user submits a COMMENT and is told it was sent', async () => {
+    renderApp();
+    fireEvent.click(screen.getByTestId('practice-card-objective'));
+
+    const arg = await shareFeedback('comment', 'The points rail is clear', 'Seeing which points I missed made the retake obvious.');
+
+    expect(arg.metadata).toMatchObject({ feedback_kind: 'comment' });
+    // Focus Points is its own surface: a comment from here must not be attributed to Open Mic.
+    expect(arg.metadata.practiceSurface).toBe('objective_setup');
+    expect(arg.metadata.productMode).not.toBe('freeform');
+    expect(toast.success).toHaveBeenCalledWith('Feedback submitted');
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('the two products stay ISOLATED: each message carries its own surface, not the previous one', async () => {
+    renderApp();
+    fireEvent.click(screen.getByTestId('practice-card-objective'));
+    const fromObjective = await shareFeedback('comment', 'Focus Points note', 'A comment from the Focus Points surface.');
+    const objectiveSurface = fromObjective.metadata.practiceSurface;
+
+    submit.mockClear();
+    fireEvent.click(screen.getByTestId('practice-card-freeform'));
+    expect(await screen.findByTestId('session-marker')).toBeInTheDocument();
+    const fromOpenMic = await shareFeedback('issue', 'Open Mic note', 'An issue from the Open Mic session.');
+
+    expect(fromOpenMic.metadata.practiceSurface).not.toBe(objectiveSurface);
+    expect(fromOpenMic.metadata.feedback_kind).toBe('issue');
+  });
+
+  it('a failed submission still tells the user, inside a product journey', async () => {
+    renderApp();
+    fireEvent.click(screen.getByTestId('practice-card-objective'));
+    submit.mockRejectedValueOnce(new Error('network'));
+    await shareFeedback('comment', 'Focus Points note', 'A comment that will fail to send.');
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/could not be submitted/i));
   });
 });
