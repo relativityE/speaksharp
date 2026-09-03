@@ -11,6 +11,7 @@ import { StatusNotificationBar } from '@/components/session/StatusNotificationBa
 import { FreeformHelpOverlay } from '@/components/session/FreeformHelpOverlay';
 import { SttStatus } from '@/types/transcription';
 import { SessionOverhaulView } from '@/components/session/SessionOverhaulView';
+import { ObjectiveSetupDialog } from '@/components/practice/ObjectiveSetupDialog';
 import { usePracticeHistory } from '@/hooks/usePracticeHistory';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -65,6 +66,15 @@ export const SessionPage: React.FC = () => {
     // after the live brief is cleared on save (see SpeechRuntimeController / SessionOverhaulView).
     const completedObjectiveBrief = useSessionStore(state => state.completedObjectiveBrief);
     const isObjectiveSession = Boolean(activeObjectiveBrief);
+    /**
+     * #1407 — which points-setup flow is open, if any.
+     *
+     * 'edit' seeds the form from the ACTIVE brief; 'new' opens it blank. Both were unreachable before:
+     * SessionOverhaulView accepted `onEditPoints` and `onNewSet` and forwarded them to FocusPointsRail,
+     * but SessionPage never passed either, so both buttons were permanently `undefined` and never
+     * rendered. `onRetry` had a `?? onStartStop` fallback, which is why only Retry worked.
+     */
+    const [pointsSetupMode, setPointsSetupMode] = React.useState<null | 'edit' | 'new'>(null);
     // #891 — engine-specific finalize RTF (self-corrects from real decodes) for the "Finalizing… ~Ns"
     // countdown; the estimate itself is computed below once the recording duration is in scope.
     const activeEngineVersion = useSessionStore(state => state.activeEngineVersion);
@@ -394,6 +404,37 @@ export const SessionPage: React.FC = () => {
                             useSessionStore.getState().setActiveObjectiveBrief(completedObjectiveBrief);
                         }
                         void handleStartStop();
+                    }}
+                    // #1407 — neither of these starts recording and neither changes product. They open the
+                    // EXISTING setup form; the user still presses Start when they are ready.
+                    onEditPoints={() => setPointsSetupMode('edit')}
+                    onNewSet={() => setPointsSetupMode('new')}
+                />
+                <ObjectiveSetupDialog
+                    open={pointsSetupMode !== null}
+                    // Cancel/Escape closes without touching the bound brief, so the existing points survive.
+                    onOpenChange={(next) => { if (!next) setPointsSetupMode(null); }}
+                    // Edit seeds from the ACTIVE brief; 'new' passes nothing, so the form opens blank.
+                    initial={pointsSetupMode === 'edit' && activeObjectiveBrief
+                        ? {
+                            topic: activeObjectiveBrief.topic ?? null,
+                            points: activeObjectiveBrief.points ?? null,
+                            paceGuideSecPerPoint: activeObjectiveBrief.paceGuideSecPerPoint ?? null,
+                        }
+                        : undefined}
+                    onReady={({ briefId, projectId, points, topic, paceGuideSecPerPoint }) => {
+                        const store = useSessionStore.getState();
+                        if (pointsSetupMode === 'new') {
+                            // A NEW set must inherit nothing from the take just reviewed — not the previous
+                            // points, pace or topic, and not its coverage, transcript or take state. Clearing
+                            // only the brief would leave the finished take's results on screen beside a set
+                            // they were never measured against.
+                            store.resetSession();
+                        }
+                        useSessionStore.getState().setActiveObjectiveBrief({ projectId, briefId, points, topic, paceGuideSecPerPoint });
+                        setPointsSetupMode(null);
+                        // Deliberately no handleStartStop() and no navigation: the user returns to Focus
+                        // Points with the new brief bound and starts speaking when they choose.
                     }}
                 />
             </div>
