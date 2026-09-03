@@ -29,6 +29,10 @@ const mocks = vi.hoisted(() => ({
   init: vi.fn(),
   checkAvailability: vi.fn(),
   transcribe: vi.fn(),
+  // The engine's own session lifecycle. PrivateWhisper now opens and closes it, so a double without
+  // these is an incomplete engine rather than a passing test.
+  engineStart: vi.fn(),
+  engineStop: vi.fn(),
   isMeaningfullySilent: vi.fn().mockReturnValue(false),
   processAudioFrame: vi.fn(),
 }));
@@ -46,6 +50,8 @@ vi.mock('../../engines/PrivateSTT', () => {
     init: mocks.init,
     checkAvailability: mocks.checkAvailability,
     transcribe: mocks.transcribe,
+    start: mocks.engineStart,
+    stop: mocks.engineStop,
     getEngineType: vi.fn().mockReturnValue('transformers-js'),
   }));
   return { PrivateSTT: MockPrivateSTT, createPrivateSTT: vi.fn(() => new MockPrivateSTT()) };

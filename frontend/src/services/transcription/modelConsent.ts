@@ -89,18 +89,49 @@ export function readReceipt(candidateId: CandidateId, store: Store | null = defa
     }
 }
 
+export class ConsentNotPersistedError extends Error {}
+
+/**
+ * Record the grant, or say plainly that it was not recorded.
+ *
+ * THIS USED TO SWALLOW STORAGE FAILURES and return the receipt object anyway, with a comment claiming
+ * "a receipt we cannot persist simply prompts again next time". That sentence describes the repeated-
+ * prompt loop this whole mechanism exists to prevent, written as though it were a design choice. An
+ * unavailable store — private browsing, a quota error, blocked site data — produced a caller that
+ * believed consent was durable, initialization that proceeded, a ~305 MB download, and the same question
+ * again next session. Every step reporting success.
+ *
+ * A returned object is not evidence of persistence. The write is read back, because `setItem` can also
+ * fail silently under quota pressure on some browsers, and "we called setItem" is a weaker claim than
+ * "the value is there".
+ */
 export function recordConsent(
     terms: ConsentTerms,
     grantedAt: string,
     store: Store | null = defaultStore(),
 ): ConsentReceipt {
     const receipt: ConsentReceipt = { ...terms, grantedAt };
-    if (store) {
-        try {
-            const all = JSON.parse(store.getItem(STORAGE_KEY) || '{}') as Record<string, ConsentReceipt>;
-            all[terms.candidateId] = receipt;
-            store.setItem(STORAGE_KEY, JSON.stringify(all));
-        } catch { /* a receipt we cannot persist simply prompts again next time */ }
+    if (!store) {
+        throw new ConsentNotPersistedError(
+            'STT_CONSENT_NOT_PERSISTED: no storage is available, so the decision cannot be remembered',
+        );
+    }
+    try {
+        const all = JSON.parse(store.getItem(STORAGE_KEY) || '{}') as Record<string, ConsentReceipt>;
+        all[terms.candidateId] = receipt;
+        store.setItem(STORAGE_KEY, JSON.stringify(all));
+    } catch (cause) {
+        throw new ConsentNotPersistedError(
+            `STT_CONSENT_NOT_PERSISTED: the decision could not be written (${cause instanceof Error ? cause.name : 'unknown'})`,
+        );
+    }
+    // READ BACK. `setItem` returning without throwing is not proof the value survived, and the whole
+    // point of the receipt is that a later session finds it.
+    const stored = readReceipt(terms.candidateId, store);
+    if (!stored || stored.grantedAt !== grantedAt) {
+        throw new ConsentNotPersistedError(
+            'STT_CONSENT_NOT_PERSISTED: the decision was written but could not be read back',
+        );
     }
     return receipt;
 }

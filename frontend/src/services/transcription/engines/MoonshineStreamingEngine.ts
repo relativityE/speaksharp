@@ -401,19 +401,27 @@ export class MoonshineStreamingEngine implements STTStrategy {
     }
 
     /** STOP decodes the FULL accumulated buffer — the final transcript is not a concatenation of windows. */
-    async stop(): Promise<void> {
-        this.detachFrames?.(); this.detachFrames = null;
-        // AWAIT the in-flight decode before the final pass. Two concurrent transcribe() calls on a
-        // single-worker runtime race, and a live decode settling after the final one would overwrite the
-        // final transcript with a 3-second window — the user would see the last three seconds of their
-        // session presented as the whole thing.
+    /**
+     * THE AUTHORITATIVE FINAL PASS, performed exactly once.
+     *
+     * Both `stop()` and the facade's commit decode need the session's final result, and the shipping
+     * order reaches the commit decode FIRST -- `PrivateWhisper.onStop` never calls the engine's `stop()`
+     * at all. So whichever arrives first finalizes, and the other reuses it. Two entry points each doing
+     * their own decode is how the same take was inferred twice.
+     */
+    private async finalizeSession(): Promise<void> {
+        if (this.finalized || !this.stream) return;
         this.pendingWindow = false;
+        // AWAIT the in-flight live decode first. Two concurrent transcribe() calls on a single-worker
+        // runtime race, and a live decode settling after the final one would overwrite the final
+        // transcript with a 3-second window -- the user would see the last three seconds presented as
+        // the whole session.
         try { await this.inFlight; } catch { /* the live failure is already recorded */ }
         if (!this.stream) return;
         try {
-            // THE FINAL PASS IS THE SAME SESSION, forced. The previous implementation re-decoded the
-            // whole buffer as a fresh whole-buffer call, which both discarded the session's own state
-            // and used the non-streaming API on a streaming arch.
+            // THE SAME SESSION, forced. Not a fresh stream over the processed buffer: that stream has
+            // none of the session's accumulated state, so trailing words it had already committed come
+            // back missing and the user watches the end of their sentence disappear.
             this.committed = textOf(this.stream.transcribe(FORCE_UPDATE));
             this.finalized = true;
             this.lastHeartbeat = Date.now();
@@ -423,6 +431,16 @@ export class MoonshineStreamingEngine implements STTStrategy {
         } finally {
             try { this.stream.stop(); } finally { this.stream.close(); this.stream = null; }
         }
+    }
+
+    async stop(): Promise<void> {
+        this.detachFrames?.(); this.detachFrames = null;
+        // AWAIT the in-flight decode before the final pass. Two concurrent transcribe() calls on a
+        // single-worker runtime race, and a live decode settling after the final one would overwrite the
+        // final transcript with a 3-second window — the user would see the last three seconds of their
+        // session presented as the whole thing.
+        // Delegates, so a stop that follows an already-finalized commit decode does not decode again.
+        await this.finalizeSession();
     }
 
     async pause(): Promise<void> { this.detachFrames?.(); this.detachFrames = null; }
@@ -464,7 +482,52 @@ export class MoonshineStreamingEngine implements STTStrategy {
      * gain a duplicated passage, which reads as a model defect rather than a plumbing one. A short-lived
      * stream keeps the whole-buffer decode isolated and cannot carry state into the next session.
      */
-    async transcribe(audio: Float32Array): Promise<Result<string, Error>> {
+    async transcribe(audio: Float32Array, options?: { final?: boolean }): Promise<Result<string, Error>> {
+        // A FINALIZED SESSION IS ALREADY DECODED. `stop()` runs the forced final pass over the session
+        // stream and commits the result; `PrivateWhisper` then calls this to commit the utterance. On a
+        // streaming arch that meant the SAME audio was inferred twice — once by the session stream that
+        // had heard the whole take, and again on a fresh stream built from the processed buffer.
+        //
+        // The second result wins, and it is the weaker one: a stream that has just been handed a buffer
+        // has none of the session's accumulated state, so trailing words the session had already
+        // committed can come back missing. The user sees the end of their sentence disappear, and it
+        // reads as the model dropping words rather than as the pipeline decoding twice.
+        //
+        // The committed transcript is returned instead. It is not a cache of this call's argument — it
+        // is the result of decoding the same take, by the stream that actually heard it.
+        //
+        // FINALIZATION IS THE AUTHORITY, NOT A NON-EMPTY STRING. This tested `finalized && committed`,
+        // so a take that legitimately committed an EMPTY transcript — silence, a mis-start, a user who
+        // said nothing — fell through to a fresh inference anyway. That is the exact case where a second
+        // decode is most likely to invent something out of noise, and the empty result was the honest
+        // one.
+        // FINALITY COMES FROM THE CALLER, because the engine cannot tell these two apart.
+        //
+        // `PrivateWhisper` calls `transcribe` on a timer during recording AND once at stop; both arrive
+        // here as a Float32Array. The previous version finalized whenever a live session existed, which
+        // closed the session stream on the FIRST live decode and silently dropped the rest of the user's
+        // speech -- a worse defect than the double inference it was fixing, and one the leaf-engine tests
+        // could not see because they never drove the live loop at all.
+        //
+        // `processAudio({ force: true })` is the stop-commit; every other call is a live window.
+        const isFinal = options?.final === true;
+
+        if (this.finalized) {
+            // Already committed by whichever entry point arrived first. Never decode again.
+            return { isOk: true, data: this.committed };
+        }
+
+        if (this.stream) {
+            if (isFinal) {
+                // The authoritative forced pass, on the stream that heard the take.
+                await this.finalizeSession();
+                return { isOk: true, data: this.committed };
+            }
+            // A LIVE window during an open session. The session stream is already decoding on its own
+            // schedule, so this reports what it has rather than opening a second stream over the same
+            // audio -- and above all it does not close anything.
+            return { isOk: true, data: this.interim };
+        }
         if (!this.transcriber) {
             const err = new Error('Cannot transcribe before a successful init');
             this.recordFailure('decode', err.message);

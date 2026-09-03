@@ -27,6 +27,10 @@ const mocks = vi.hoisted(() => ({
     init: vi.fn(),
     checkAvailability: vi.fn(),
     transcribe: vi.fn(),
+    // The engine's own session lifecycle. PrivateWhisper never called these, so a streaming engine's
+    // live stream was never opened and every decode used a fresh standalone one.
+    engineStart: vi.fn(),
+    engineStop: vi.fn(),
     reset: vi.fn(),
     stop: vi.fn(),
     isMeaningfullySilent: vi.fn().mockReturnValue(false),
@@ -46,6 +50,8 @@ vi.mock('../../engines/PrivateSTT', () => {
         init: mocks.init,
         checkAvailability: mocks.checkAvailability,
         transcribe: mocks.transcribe,
+        start: mocks.engineStart,
+        stop: mocks.engineStop,
         getEngineType: vi.fn().mockReturnValue('transformers-js')
     }));
     return {
@@ -67,6 +73,8 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         mocks.init.mockReset();
         mocks.checkAvailability.mockReset();
         mocks.transcribe.mockReset();
+        mocks.engineStart.mockReset();
+        mocks.engineStop.mockReset();
         mocks.reset.mockReset();
         mocks.stop.mockReset();
         mocks.isMeaningfullySilent.mockReset();
@@ -133,6 +141,104 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         expect(mocks.transcribe).toHaveBeenCalled();
 
         await privateWhisper.stop();
+        vi.useRealTimers();
+    });
+
+    it('lifecycle: the engine session is started with the mic and stopped on Stop', async () => {
+        /**
+         * #1405 root cause. PrivateWhisper never called `privateSTT.start()` or `.stop()`, so
+         * `MoonshineStreamingEngine.start()` never ran, no live stream was ever created, and every decode
+         * fell to the standalone fresh-stream path. Three previous rounds of finality work were therefore
+         * inert in production: the branch they depended on could not be reached.
+         *
+         * v2/v4 `onStart` is a log-only no-op, so this delegation changes nothing for them.
+         */
+        vi.useFakeTimers();
+        mocks.transcribe.mockResolvedValue(Result.ok('text'));
+        await privateWhisper.init();
+
+        const mockMic: MicStream = {
+            state: 'ready',
+            sampleRate: PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+            onFrame: vi.fn(() => () => { }),
+            offFrame: vi.fn(),
+            stop: vi.fn(),
+            close: vi.fn(),
+            _mediaStream: new MediaStream(),
+        };
+
+        await privateWhisper.start(mockMic);
+        expect(mocks.engineStart, 'the engine session must be opened').toHaveBeenCalled();
+        // The MIC is what a streaming engine needs to open its session; starting without it would leave
+        // the engine unable to receive frames.
+        expect(mocks.engineStart.mock.calls[0][0]).toBe(mockMic);
+        expect(mocks.engineStop, 'nothing may close the session before Stop').not.toHaveBeenCalled();
+
+        await privateWhisper.stop();
+        expect(mocks.engineStop, 'the engine session must be closed on Stop').toHaveBeenCalled();
+
+        vi.useRealTimers();
+    });
+
+    it('finality: live windows are non-final and public stop() commits exactly one final decode', async () => {
+        /**
+         * #1405 — the terminal commit is the transcript authority, and it must SAY so.
+         *
+         * `onStop()` calls `commitWholeUtteranceTranscript()` first; `processAudio({ force: true })` runs
+         * only as a fallback when that commit returns empty. With the primary commit sending no finality,
+         * a streaming engine answered with its interim, PrivateWhisper stored it, and — being non-empty —
+         * the fallback was skipped, so the authoritative forced pass never ran and trailing speech stayed
+         * missing on every ordinary take.
+         *
+         * This drives the real lifecycle: init → MicStream.onFrame → timed live processing → public
+         * stop(), and distinguishes the decodes by the finality they were asked with.
+         */
+        vi.useFakeTimers();
+        mocks.transcribe.mockImplementation(async (_audio: Float32Array, options?: { final?: boolean }) => (
+            options?.final
+                ? Result.ok('I think that is basically it')
+                : Result.ok('I think')
+        ));
+        await privateWhisper.init();
+
+        let frameCallback: ((frame: Float32Array) => void) | undefined;
+        const mockMic: MicStream = {
+            state: 'ready',
+            sampleRate: PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+            onFrame: vi.fn((cb: (frame: Float32Array) => void) => { frameCallback = cb; return () => { }; }),
+            offFrame: vi.fn(),
+            stop: vi.fn(),
+            close: vi.fn(),
+            _mediaStream: new MediaStream(),
+        };
+        await privateWhisper.start(mockMic);
+
+        // Two live windows of speech before Stop.
+        for (let window = 0; window < 2; window++) {
+            frameCallback?.(new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES).fill(0.5));
+            await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
+        }
+
+        const finalityOf = (call: unknown[]) => (call[1] as { final?: boolean } | undefined)?.final === true;
+        const liveCalls = mocks.transcribe.mock.calls.filter((c) => !finalityOf(c));
+        expect(liveCalls.length, 'live windows must have run').toBeGreaterThanOrEqual(1);
+        expect(mocks.transcribe.mock.calls.some(finalityOf), 'nothing may finalize before Stop').toBe(false);
+
+        const callsBeforeStop = mocks.transcribe.mock.calls.length;
+        await privateWhisper.stop();
+
+        const finalCalls = mocks.transcribe.mock.calls.filter(finalityOf);
+        expect(finalCalls.length, 'public stop() commits exactly one final decode').toBe(1);
+        // The final call comes after every live call.
+        const finalIndex = mocks.transcribe.mock.calls.findIndex(finalityOf);
+        expect(finalIndex, 'the final decode follows the live windows').toBeGreaterThanOrEqual(callsBeforeStop);
+        // The complete transcript is authoritative, not the interim the live windows returned.
+        expect(await privateWhisper.getTranscript()).toContain('basically it');
+
+        const afterStop = mocks.transcribe.mock.calls.length;
+        await privateWhisper.stop();
+        expect(mocks.transcribe.mock.calls.length, 'repeated Stop must not decode again').toBe(afterStop);
+
         vi.useRealTimers();
     });
 

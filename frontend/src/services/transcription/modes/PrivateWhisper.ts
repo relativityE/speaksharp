@@ -896,6 +896,35 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[PrivateWhisper] Initialized (dual-engine facade).');
   }
 
+  /**
+   * DELEGATED, because the consent lives on the engine and the caller holds this wrapper.
+   *
+   * `TranscriptionService` records consent with `strategy.grantModelConsent?.()`, and `strategy` is this
+   * mode wrapper — which did not have the method. The optional call resolved to `undefined` and did
+   * nothing, so the receipt was never written and Moonshine asked for consent again on every single
+   * attempt: the user granted it, the download started, and the next session asked once more.
+   *
+   * Exactly the `destroy?.()` shape from the engine work — an optional call to a method that does not
+   * exist on the object at hand, silently succeeding. It sits right beside `checkAvailability`, which
+   * delegates the very question this answers.
+   */
+  public grantModelConsent(): void {
+    const engine = this.privateSTT as { grantModelConsent?: () => void };
+    if (typeof engine.grantModelConsent !== 'function') {
+      // THROWS, because returning void is not failing closed. Logging and continuing let
+      // `TranscriptionService` proceed to initialise the model as though consent had been recorded —
+      // the download runs, nothing is persisted, and the next session asks again. The user is trapped
+      // in a loop that reports success at every step, which is precisely the shape the original defect
+      // had: a call that appears to work and records nothing.
+      //
+      // A missing consent recorder is a build that cannot honour a decision the user made. Stopping is
+      // the only honest response.
+      logger.error({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] PrivateSTT facade does not expose grantModelConsent');
+      throw new Error('STT_CONSENT_AUTHORITY_MISSING: consent cannot be recorded, so initialization must not proceed');
+    }
+    engine.grantModelConsent();
+  }
+
   public async checkAvailability(): Promise<import('../STTStrategy').AvailabilityResult> {
     if (typeof this.privateSTT.checkAvailability === 'function') {
       return this.privateSTT.checkAvailability();
@@ -1015,6 +1044,15 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.liveProvisionalTranscript = '';
     this.firstTranscriptAgreementRounds = 0;
     this.isStopping = false;
+    // START THE ENGINE'S OWN SESSION. This was never called, so a streaming engine never opened its
+    // live stream and every decode used a fresh standalone one -- the root cause beneath the whole
+    // finality effort. v2/v4 `onStart` is a log-only no-op, so delegating changes nothing for them.
+    try {
+      await this.privateSTT.start(mic, []);
+    } catch (error) {
+      logger.error({ error, sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] Engine start failed');
+      throw error;
+    }
     this.streamStartAtMs = performance.now();
     this.speechStartAtMs = null;
     this.retainedUtterancePrerollSamplesAtStart = 0;
@@ -1472,7 +1510,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         }, '[PRIVATE_TRACE] model_inference_start');
       }
       const capturedAudioIndex = capturePrivateInferenceAudio(processedAudio);
-      const result = await this.privateSTT.transcribe(processedAudio);
+      // `force` IS the finality signal: `processAudio({ force: true })` is the stop-commit and every
+      // other call is a live window. Passing it through is what lets a streaming engine finalize once
+      // instead of guessing -- and guessing closed the session stream on the first live decode.
+      const result = await this.privateSTT.transcribe(processedAudio, { final: force });
       if (this.status !== 'transcribing') {
         pushPrivateTimeline('model_inference_result_ignored_after_stop', {
           serviceId: this.serviceId,
@@ -2002,6 +2043,16 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         });
       }
     } finally {
+      // CLOSE THE ENGINE'S SESSION, after the terminal commit has finalized it. In the `finally` because
+      // a stream must not be left open when the commit throws. Ordering matters: the commit is the
+      // transcript authority and `finalizeSession` is idempotent, so this tears down without decoding
+      // again. Never called before, which is why a streaming engine's session was neither opened nor
+      // closed and the finality work could not take effect.
+      try {
+        await this.privateSTT.stop();
+      } catch (error) {
+        logger.warn({ error, sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] Engine stop failed');
+      }
       if (hasUtteranceToFinalize) {
         this.onStatusChange?.({ type: 'ready', message: 'Ready to record' });
       }
@@ -2041,8 +2092,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.status = 'stopped';
   }
 
-  async transcribe(audio: Float32Array): Promise<Result<string, Error>> {
-    return this.privateSTT.transcribe(audio);
+  async transcribe(audio: Float32Array, options?: { final?: boolean }): Promise<Result<string, Error>> {
+    return this.privateSTT.transcribe(audio, options);
   }
 
   private cleanupFrameListener(): void {
@@ -2393,7 +2444,14 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // Branch 2: finalize preprocessing (concat + energy + audio capture) before the model call.
     this.finalizePrepMs = Number((decodeStartedAtMs - commitEnteredAtMs).toFixed(1));
     this.publishPrivateTiming();
-    const result = await this.privateSTT.transcribe(audio);
+    // THE PRIMARY TERMINAL COMMIT. `onStop()` calls this first; `processAudio({ force: true })` runs
+    // only as a FALLBACK when this produces an empty transcript. Marking finality on the fallback alone
+    // meant the normal path never requested it: a streaming engine returned its interim, this stored it,
+    // and -- being non-empty -- the fallback was skipped and the authoritative final pass never ran.
+    // Trailing speech stayed missing on every ordinary take.
+    //
+    // Finality is a property of THIS call, not of the `force` flag on an unrelated one.
+    const result = await this.privateSTT.transcribe(audio, { final: true });
     const decodeMs = Number((performance.now() - decodeStartedAtMs).toFixed(1));
     // Branch 3: the model decode itself.
     this.finalizeDecodeMs = decodeMs;

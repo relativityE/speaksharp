@@ -70,7 +70,16 @@ export interface IPrivateSTTEngine {
      * @param audio - Raw audio samples (Float32Array)
      * @returns Transcribed transcript
      */
-    transcribe(audio: Float32Array): Promise<Result<string, Error>>;
+    /**
+     * @param options.final TRUE only for the stop-commit decode.
+     *
+     * A STREAMING ENGINE CANNOT INFER THIS. `PrivateWhisper` calls `transcribe` on a timer during
+     * recording AND once at stop; to the engine both look identical. An engine that guessed "a live
+     * session means finalize" closed its stream on the FIRST live decode and dropped the rest of the
+     * user's speech. The caller knows which one it is -- `processAudio({ force: true })` is the commit
+     * -- so it says so.
+     */
+    transcribe(audio: Float32Array, options?: { final?: boolean }): Promise<Result<string, Error>>;
 
     /**
      * Clean up resources
