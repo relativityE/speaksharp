@@ -214,7 +214,7 @@ const BillingManagementPanel: React.FC<{ paymentsEnabled: boolean }> = ({ paymen
           </p>
           <p className="text-sm leading-6 text-muted-foreground">
             You can cancel from billing management when Stripe has linked your paid account. Refund or
-            cancellation questions can also be sent through Report Issue with Billing selected.
+            cancellation questions can also be sent through Share Feedback with Billing selected.
           </p>
         </div>
         <div className="flex flex-col justify-center gap-3 md:items-end">

@@ -18,6 +18,11 @@ export type IssueReportCategory =
   | 'something_else';
 export type IssueReportSeverity = 'low' | 'medium' | 'high' | 'critical';
 
+/** #1404 — Issue means something is broken; Comment is everything else a user wants to tell us. */
+export type FeedbackKind = 'issue' | 'comment';
+export const FEEDBACK_KINDS: FeedbackKind[] = ['issue', 'comment'];
+export const FEEDBACK_KIND_LABELS: Record<FeedbackKind, string> = { issue: 'Issue', comment: 'Comment' };
+
 export interface IssueReportMetadata {
   /** Sanitized route TEMPLATE (== canonicalRoute); never a full URL, query string, or hash. */
   route: string;
@@ -30,6 +35,15 @@ export interface IssueReportMetadata {
   /** Which of the three closed /practice surfaces the report came from (null off /practice). */
   practiceSurface?: string | null;
   issueArea?: string | null;
+  /**
+   * #1404 — which KIND of message this is. The form now serves feedback that is not a defect, and a
+   * comment filed as an issue is noise in the support queue. Stored in the existing metadata
+   * deliberately: no schema change, no new table, and `report_issue` stays the backend name.
+   *
+   * The STORED key is snake_case by explicit instruction, unlike its camelCase siblings — support
+   * tooling reads `feedback_kind`. The local variable stays `feedbackKind`.
+   */
+  feedback_kind?: FeedbackKind | null;
   /** Build/release id (git SHA in production) so a report pins to a build, when available. */
   releaseId?: string | null;
   releaseProofEligible?: boolean;
@@ -78,6 +92,7 @@ export const buildIssueReportMetadata = (input: {
   /** Allowlisted page context captured at dialog-open time. Its canonicalRoute becomes `route`. */
   context: PageContext;
   issueArea?: string | null;
+  feedbackKind?: FeedbackKind | null;
   plan?: string | null;
   sttMode?: TranscriptionMode | null;
   runtimeState?: string | null;
@@ -104,6 +119,10 @@ export const buildIssueReportMetadata = (input: {
     canonicalRoute: context.canonicalRoute,
     practiceSurface: context.practiceSurface ?? null,
     issueArea,
+    // Same allowlist rule as issueArea: the select is not trusted as the sole gate. An unrecognised or
+    // absent value stores NULL rather than guessing 'issue' — the form now requires an explicit choice,
+    // so a missing kind means something bypassed the form, and inventing one would hide that.
+    feedback_kind: input.feedbackKind && FEEDBACK_KINDS.includes(input.feedbackKind) ? input.feedbackKind : null,
     releaseId: runtimeConfig?.release ?? null,
     plan: input.plan ?? null,
     sttMode: input.sttMode ?? null,

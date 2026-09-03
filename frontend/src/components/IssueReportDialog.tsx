@@ -17,6 +17,9 @@ import { toast } from '@/lib/toast';
 import {
   buildIssueReportMetadata,
   issueReportService,
+  FEEDBACK_KINDS,
+  FEEDBACK_KIND_LABELS,
+  type FeedbackKind,
   type IssueReportCategory,
   type IssueReportSeverity,
 } from '@/services/issueReportService';
@@ -73,6 +76,10 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   const [pageContext, setPageContext] = React.useState<PageContext>(() => resolvePageContext(location.pathname, surface));
   const [snapshotSessionId, setSnapshotSessionId] = React.useState<string | null>(() => deriveSessionIdFromPath(location.pathname));
   const [issueArea, setIssueArea] = React.useState<string>(() => issueAreasForContext(resolvePageContext(location.pathname, surface))[0]?.value ?? 'other');
+  // #1404 — the FIRST question, because it changes how the message is triaged. It starts UNSELECTED and
+  // must be chosen: a pre-selected kind is a guess recorded as the user's answer, and "Issue" is the kind
+  // that pulls support attention, so defaulting to it would manufacture defects out of compliments.
+  const [feedbackKind, setFeedbackKind] = React.useState<FeedbackKind | ''>('');
   const [category, setCategory] = React.useState<IssueReportCategory>('recording_transcription');
   const [severity, setSeverity] = React.useState<IssueReportSeverity>('medium');
   const [title, setTitle] = React.useState('');
@@ -84,7 +91,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   const [audioAttachmentNote, setAudioAttachmentNote] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
-  const canSubmit = title.trim().length >= 4 && description.trim().length >= 10 && !isSubmitting;
+  const canSubmit = feedbackKind !== '' && title.trim().length >= 4 && description.trim().length >= 10 && !isSubmitting;
 
   const issueAreaOptions = issueAreasForContext(pageContext);
 
@@ -96,11 +103,13 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
       setPageContext(ctx);
       setSnapshotSessionId(deriveSessionIdFromPath(location.pathname));
       setIssueArea(issueAreasForContext(ctx)[0]?.value ?? 'other');
+      setFeedbackKind('');
     }
     setOpen(next);
   };
 
   const reset = () => {
+    setFeedbackKind('');
     setCategory('recording_transcription');
     setSeverity('medium');
     setTitle('');
@@ -118,6 +127,9 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
       const metadata = buildIssueReportMetadata({
         context: pageContext,
         issueArea,
+        // `canSubmit` has already refused an empty kind; the cast documents that, and the builder
+        // stores null rather than guessing if anything ever reaches it unset.
+        feedbackKind: feedbackKind || null,
         plan,
         sttMode,
         runtimeState,
@@ -136,11 +148,12 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
         includeAudio,
         audioAttachmentNote: includeAudio ? audioAttachmentNote : null,
       });
-      toast.success('Issue report submitted');
+      // Wording, not behaviour: confirming a Comment as an "Issue report" is simply untrue now.
+      toast.success('Feedback submitted');
       reset();
       setOpen(false);
     } catch {
-      toast.error('Issue report could not be submitted. Please try again or use the tester feedback link.');
+      toast.error('Feedback could not be submitted. Please try again or use the tester feedback link.');
     } finally {
       setIsSubmitting(false);
     }
@@ -155,15 +168,15 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
           size="sm"
           className="inline-flex"
           data-testid="nav-report-issue-button"
-          aria-label="Report issue"
+          aria-label="Share Feedback"
         >
           <Bug className="h-4 w-4 md:mr-2" />
-          <span className="hidden md:inline">Report issue</span>
+          <span className="hidden md:inline">Share Feedback</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Report an issue</DialogTitle>
+          <DialogTitle>Share Feedback</DialogTitle>
           <DialogDescription>
             Send the app state we need to debug. Transcript and audio details are optional and never included unless you choose them. Please don&apos;t include passwords or other sensitive personal information.
           </DialogDescription>
@@ -179,7 +192,21 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
           </div>
 
           <label className="space-y-1 text-sm font-medium">
-            What part had a problem?
+            Message
+            <select
+              className="h-10 w-full rounded-md border border-input bg-muted/60 px-3 text-sm"
+              value={feedbackKind}
+              onChange={(event) => setFeedbackKind(event.target.value as FeedbackKind | '')}
+              data-testid="issue-report-feedback-kind"
+              required
+            >
+              <option value="" disabled>Choose Issue or Comment</option>
+              {FEEDBACK_KINDS.map((k) => <option key={k} value={k}>{FEEDBACK_KIND_LABELS[k]}</option>)}
+            </select>
+          </label>
+
+          <label className="space-y-1 text-sm font-medium">
+            Where in the app?
             <select
               className="h-10 w-full rounded-md border border-input bg-muted/60 px-3 text-sm"
               value={issueArea}
@@ -216,7 +243,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
           </div>
 
           <label className="space-y-1 text-sm font-medium">
-            Short title
+            Title
             <Input
               value={title}
               onChange={(event) => setTitle(event.target.value)}
@@ -227,7 +254,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
           </label>
 
           <label className="space-y-1 text-sm font-medium">
-            What happened?
+            Short description
             <textarea
               className="min-h-28 w-full rounded-md border border-input bg-muted/60 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               value={description}
