@@ -32,11 +32,34 @@ export interface EngineCallbacks {
  * Interface for Private STT engines.
  * The transformers.js adapters (v2 + v4) implement this.
  */
+/**
+ * #1405s — what a LIVE result from this engine MEANS.
+ *
+ * `incremental` (the default): each live result is the newly decoded segment. The facade accumulates
+ * them, which is how v2/v4 build a growing draft.
+ *
+ * `snapshot`: each live result is the COMPLETE transcript so far. Accumulating those duplicates text —
+ * and worse, a snapshot that REVISES an earlier word shares no boundary with the previous one, so
+ * overlap trimming finds nothing and the whole snapshot is appended:
+ *   "hello word" + "hello world again" -> "hello word hello world again".
+ * A snapshot replaces the visible draft; it is never appended to it.
+ *
+ * Declared by the engine rather than inferred from its name, so a future snapshot engine cannot inherit
+ * incremental handling by default and silently reintroduce this.
+ */
+export type LiveResultKind = 'incremental' | 'snapshot';
+
 export interface IPrivateSTTEngine {
     /**
      * Engine type identifier
      */
     readonly type: EngineType;
+
+    /**
+     * How to interpret this engine's LIVE results. Absent means `incremental`, which is the historical
+     * behaviour every existing engine relies on.
+     */
+    readonly liveResultKind?: LiveResultKind;
 
     /**
      * Probe availability and prerequisites (Contract Requirement)

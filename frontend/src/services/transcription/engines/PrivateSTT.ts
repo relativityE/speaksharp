@@ -33,6 +33,7 @@
 
 import { TranscriptionModeOptions, Result, ITranscriptionEngine } from '@/services/transcription/modes/types';
 import { IPrivateSTTEngine, EngineType } from '@/contracts/IPrivateSTTEngine';
+import type { LiveResultKind } from '@/contracts/IPrivateSTTEngine';
 import { STTEngine, validateEngine, assertEngineCanDecode } from '@/contracts/STTEngine';
 import { PrivateSTTInitOptions } from '@/contracts/IPrivateSTT';
 import logger from '@/lib/logger';
@@ -139,6 +140,17 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      */
     public getEngineType(): EngineType {
         return this._engineType || 'transformers-js';
+    }
+
+    /**
+     * #1405s — how the ACTIVE engine's live results must be interpreted.
+     *
+     * Read from the engine rather than switched on its name: a name-based test would hand any future
+     * snapshot engine the incremental behaviour by default, which is the duplication this fixes.
+     * Absent means `incremental`, preserving v2/v4 exactly.
+     */
+    public getLiveResultKind(): LiveResultKind {
+        return this.engine?.liveResultKind ?? 'incremental';
     }
 
     /**

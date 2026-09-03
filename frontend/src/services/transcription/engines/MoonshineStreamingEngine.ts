@@ -199,6 +199,12 @@ export class MoonshineStreamingEngine implements STTStrategy {
      * for telemetry.
      */
     public readonly type = 'moonshine-streaming' as const;
+    /**
+     * #1405s — every live result from this engine is the COMPLETE transcript so far, not the
+     * newly decoded piece: `transcribe()` returns the current snapshot. Accumulating snapshots
+     * duplicates text, so the facade replaces the visible draft instead of appending to it.
+     */
+    readonly liveResultKind = 'snapshot' as const;
 
     /**
      * Options are fixed for this engine's lifetime: which candidate it IS was decided at construction,
