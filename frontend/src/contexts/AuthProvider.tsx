@@ -7,6 +7,7 @@ import logger from '../lib/logger';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import { markIdentitySettled, resetIdentitySettlement } from '@/services/transcription/modelAcquisitionTelemetry';
 
 /**
  * AUTHENTICATION PROVIDER
@@ -99,11 +100,22 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         analyticsBuffer.resetIdentity();
       }
       identifiedAnalyticsUserRef.current = null;
+      // #1259s — a DEFINITIVELY signed-out visitor is a settled identity too. Model setup begins during
+      // page initialisation, so acquisition events wait for this moment; without releasing them here a
+      // signed-out visitor's events would queue forever and never be measured.
+      markIdentitySettled();
       return;
     }
     if (identifiedAnalyticsUserRef.current === userId) return;
+    // #1259s — SIGN-OUT / ACCOUNT TRANSITION. Retire the previous settlement first, so an acquisition
+    // that begins after a switch cannot be released under the account that just left.
+    resetIdentitySettlement();
     analyticsBuffer.identify(userId); // user.id only — no email/PII to PostHog
     identifiedAnalyticsUserRef.current = userId;
+    // IDENTIFY FIRST, THEN RELEASE. Flushing before identify would attribute a returning user's cold
+    // load to anonymous traffic while their warm load landed under their own identity, so the two could
+    // never be compared — the exact question this telemetry exists to answer.
+    markIdentitySettled();
   }, [sessionState?.user?.id]);
 
   useEffect(() => {

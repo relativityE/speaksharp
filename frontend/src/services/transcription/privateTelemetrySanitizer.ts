@@ -37,6 +37,31 @@ export const PRIVATE_TELEMETRY_ALLOWED_PROPS = [
     // rather than to whatever last resolved in the tab. Without it a null arm is indistinguishable from
     // an unrecorded one, and a populated arm is indistinguishable from a borrowed one.
     'model_attribution_verified',
+
+    // ── #1259s MODEL ACQUISITION ──────────────────────────────────────────────────────────────────
+    //
+    // Every acquisition event is named `private_*`, so it passes through this projection on its way to
+    // PostHog. Without these entries the sanitizer silently dropped ALL of them and only `error_code`
+    // survived: the events would have arrived carrying nothing that answers the question they exist to
+    // answer. The unit tests mocked the buffer, so nothing saw the loss.
+    //
+    // Every field below is a measurement or an identity, never content. No URL, no asset path, no raw
+    // user id, no free-form error text.
+    'candidate_id',
+    'model_identity',
+    'asset_pin_digest',
+    'release_id',
+    'trigger',
+    /** From the real Cache Storage boundary: hit | miss | partial | unobservable. Never inferred. */
+    'cache_result',
+    'network_used',
+    'network_bytes',
+    'asset_count',
+    /** Kept separate from init: a cached load still initialises, and conflating them is unusable. */
+    'download_ms',
+    'init_ms',
+    'total_ms',
+    'outcome',
 ] as const;
 
 export type PrivateTelemetryProp = typeof PRIVATE_TELEMETRY_ALLOWED_PROPS[number];

@@ -113,6 +113,16 @@ export function markIdentitySettled(): void {
     for (const e of queued) emitNow(e.name, e.props);
 }
 
+/**
+ * #1259s — an account transition retires the previous settlement.
+ *
+ * Without this, an acquisition beginning after a sign-out or account switch would be released under the
+ * identity that had already settled — attributing one person's model download to another.
+ */
+export function resetIdentitySettlement(): void {
+    identitySettled = false;
+}
+
 /** Test seam: reset the module between cases. */
 export function __resetAcquisitionTelemetry(): void {
     pendingEvents = [];

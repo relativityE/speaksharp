@@ -57,6 +57,10 @@ import type { PrivateSttProvider } from '../providers/types';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
 import { buildV4LifecycleProps, emitV4Ready, emitV4Fallback, emitV4Error } from '../privateV4Telemetry';
 import { buildEngineVersion, type EngineVariant } from '../privateTelemetry';
+import {
+    probeCache, recordAcquisitionStart, recordAcquisitionSuccess, recordAcquisitionFailure,
+    classifyAcquisitionError, type AcquisitionSubject, type PinnedAssetRef,
+} from '../modelAcquisitionTelemetry';
 // Stale import removed
 
 declare global {
@@ -706,10 +710,71 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * model or nothing at all. `observed` must mean "this is running", so it is written here, after a
      * successful init, and stays null until then.
      */
+    /**
+     * #1259s — THE ONE PLACE MODEL ACQUISITION IS MEASURED.
+     *
+     * Both the override and auto paths funnel through here, and every approved candidate — v2, v4 distil
+     * and Moonshine — initialises inside it. Instrumenting the real routine rather than building a
+     * parallel path is the point: a simulated one would only ever measure itself.
+     *
+     * The cache is probed BEFORE the load, from real Cache Storage, so `cache_result` is an observation
+     * rather than an inference. A load that turns out fast is not evidence of a hit.
+     */
     private async initSelectedEngine(engineType: SelectedPrivateEngine, timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
-        const outcome = await this.initSelectedEngineInner(engineType, timeoutMs, isMock);
-        if (outcome.isOk) this.publishResolvedIdentity();
-        return outcome;
+        // The mock engine is not an acquisition: nothing is fetched and nothing is cached.
+        if (engineType === 'mock') return this.initSelectedEngineInner(engineType, timeoutMs, isMock);
+
+        const subject = this.acquisitionSubject();
+        const cacheResult = await probeCache(this.acquisitionAssets);
+        const startedAt = performance.now();
+        recordAcquisitionStart(subject, cacheResult);
+
+        try {
+            const outcome = await this.initSelectedEngineInner(engineType, timeoutMs, isMock);
+            const totalMs = Math.round(performance.now() - startedAt);
+            if (outcome.isOk) {
+                this.publishResolvedIdentity();
+                recordAcquisitionSuccess(this.acquisitionSubject(), {
+                    cacheResult,
+                    // A miss or partial means bytes crossed the network; a full hit means they did not.
+                    networkUsed: cacheResult === 'miss' || cacheResult === 'partial',
+                    networkBytes: this.acquisitionBytes,
+                    assetCount: this.acquisitionAssetCount,
+                    downloadMs: this.acquisitionDownloadMs,
+                    totalMs,
+                });
+            } else {
+                recordAcquisitionFailure(subject, cacheResult, classifyAcquisitionError(outcome.error), totalMs);
+            }
+            return outcome;
+        } catch (err) {
+            recordAcquisitionFailure(subject, cacheResult, classifyAcquisitionError(err),
+                Math.round(performance.now() - startedAt));
+            throw err;
+        }
+    }
+
+    /** Observed at the fetch boundary; null when the loader cannot report it. Never estimated. */
+    private acquisitionBytes: number | null = null;
+    private acquisitionAssetCount: number | null = null;
+    private acquisitionDownloadMs: number | null = null;
+    private acquisitionPinDigest: string | null = null;
+    /** Explicit setup unless a background warm-up set it; the two are different populations. */
+    private acquisitionTrigger: 'warmup' | 'explicit-setup' = 'explicit-setup';
+    /** Pinned assets for the selected candidate. Empty means the boundary is unobservable. */
+    private acquisitionAssets: PinnedAssetRef[] = [];
+
+    /** Identity of what is being acquired, from the RESOLVED candidate — never a name guess. */
+    private acquisitionSubject(): AcquisitionSubject {
+        const meta = this.getMetadata() as { candidateId?: string | null; modelIdentity?: string | null };
+        const runtimeConfig = typeof window !== 'undefined' ? window.__APP_RUNTIME_CONFIG__ : undefined;
+        return {
+            candidateId: meta.candidateId ?? 'unknown',
+            modelIdentity: meta.modelIdentity ?? 'unknown',
+            assetPinDigest: this.acquisitionPinDigest,
+            releaseId: runtimeConfig?.release ?? null,
+            trigger: this.acquisitionTrigger,
+        };
     }
 
     private async initSelectedEngineInner(engineType: SelectedPrivateEngine, timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
