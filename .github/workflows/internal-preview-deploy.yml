@@ -1,0 +1,173 @@
+# #1390 Stage 1 — DISPATCH-ONLY internal Preview deployment.
+#
+# WHY THIS EXISTS. The three-model comparison cannot run on a production release: the candidate is fixed
+# at build time by `private-stt.config.json`, and the runtime switch that moves between candidates is
+# gated on `VITE_INTERNAL_BUILD`, which production deliberately does not set. This workflow builds that
+# one internal artifact and puts it on a Vercel PREVIEW host, so a human operator can run the matrix in
+# one authenticated page without editing a URL, a config file, or localStorage.
+#
+# WHAT IT MUST NEVER DO. It has no push trigger, no schedule, and no production promotion path. It is
+# `workflow_dispatch` only, so a deployment happens because a person asked for one at a named SHA — never
+# because a branch moved. There is no production promotion flag anywhere in this file, and the contract
+# test asserts its absence literally. It also refuses outright if the host Vercel returns is the
+# production customer origin, because "deploy to preview" that silently reaches production is the
+# failure this file's whole shape exists to prevent.
+#
+# SECRETS ARE CONSUMED, NEVER EMITTED. Every value comes from its existing GitHub home and is passed
+# straight into the build environment. Nothing is echoed, written to a file, or included in output.
+name: internal-preview-deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'EXACT PM-authorized full 40-character source SHA to build and deploy'
+        required: true
+        type: string
+
+# Deliberately absent: `push:`, `schedule:`, `pull_request:`. Asserted by the contract test.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: internal-preview-deploy
+  cancel-in-progress: false
+
+jobs:
+  internal-preview:
+    name: internal-preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: preview
+    steps:
+      - name: Validate requested SHA shape
+        env:
+          REQUESTED_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$REQUESTED_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "::error::source_sha must be a full 40-character lowercase commit SHA"
+            exit 1
+          fi
+          echo "requested source SHA: $REQUESTED_SHA"
+
+      # Detached checkout of the EXACT commit. A ref that merely "contains" the commit is not the commit.
+      - name: Checkout exact commit (detached)
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+
+      # The checkout action is trusted to resolve a ref, not to have resolved the one we meant. If HEAD
+      # is anything other than the requested commit, every downstream claim about "this SHA" is false.
+      - name: Fail unless HEAD equals the requested SHA
+        env:
+          REQUESTED_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          ACTUAL="$(git rev-parse HEAD)"
+          echo "checked out HEAD: $ACTUAL"
+          if [ "$ACTUAL" != "$REQUESTED_SHA" ]; then
+            echo "::error::HEAD ($ACTUAL) does not equal the requested SHA ($REQUESTED_SHA) — refusing to build"
+            exit 1
+          fi
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-dependencies: 'true'
+          install-playwright: 'false'
+          install-native-deps: 'false'
+
+      # THE ONE DIFFERENCE FROM A NORMAL BUILD. `VITE_INTERNAL_BUILD` is injected for THIS build only and
+      # lives nowhere else — not in Vercel's Preview environment, not in Production. A build that forgets
+      # it installs no switch, which is the safe direction.
+      #
+      # BUILD_ID is the first-precedence release identity in vite.config.mjs, so the running page reports
+      # the SHA we were asked to deploy rather than whatever ref the CI runner happened to use.
+      - name: Build internal Preview artifact
+        env:
+          VITE_INTERNAL_BUILD: 'true'
+          BUILD_ID: ${{ inputs.source_sha }}
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_POSTHOG_KEY: ${{ vars.POSTHOG_PROJECT_API_KEY }}
+          VITE_POSTHOG_HOST: ${{ vars.POSTHOG_INGEST_HOST }}
+          VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+        run: |
+          set -euo pipefail
+          pnpm build
+          test -f frontend/dist/index.html || { echo "::error::build produced no index.html"; exit 1; }
+          echo "build complete for $BUILD_ID"
+
+      # PREVIEW ONLY. The production promotion flag appears nowhere in this file — not in a command and
+      # not in a comment — and the contract test asserts that literally, so a future edit that adds one
+      # fails before it can ship.
+      - name: Deploy to Vercel Preview
+        id: deploy
+        env:
+          VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          URL="$(npx --yes vercel@latest deploy frontend/dist \
+                   --token "$VERCEL_ACCESS_TOKEN" \
+                   --yes --archive=tgz 2>/dev/null | tail -1)"
+          case "$URL" in
+            https://*) : ;;
+            *) echo "::error::deploy did not return a URL"; exit 1 ;;
+          esac
+          echo "preview_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "deployment URL: $URL"
+
+      # A preview that answers on the customer origin is not a preview. Checked against the host, not the
+      # whole URL, so a preview whose path merely mentions the domain is not mistaken for production.
+      - name: Refuse a production customer host
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.preview_url }}
+        run: |
+          set -euo pipefail
+          HOST="$(printf '%s' "$PREVIEW_URL" | sed -E 's#^https?://##; s#/.*$##')"
+          echo "deployment host: $HOST"
+          case "$HOST" in
+            speaksharp.app|www.speaksharp.app|speaksharp.io|www.speaksharp.io)
+              echo "::error::deployment resolved to the PRODUCTION customer host ($HOST) — refusing"
+              exit 1 ;;
+          esac
+          case "$HOST" in
+            *.vercel.app) : ;;
+            *) echo "::error::deployment host ($HOST) is not a Vercel preview host — refusing"; exit 1 ;;
+          esac
+
+      # Verified from the RUNNING page, not from the build. A build that set the flag and a page that
+      # installs the surfaces are different claims, and only the second one matters to the operator.
+      - name: Verify the running Preview
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.preview_url }}
+          REQUESTED_SHA: ${{ inputs.source_sha }}
+          # Bounded readback of a protected Preview. Used ONLY to fetch the page under test.
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          set -euo pipefail
+          node scripts/ci/verify-internal-preview.mjs "$PREVIEW_URL" "$REQUESTED_SHA"
+
+      - name: Content-safe summary
+        if: always()
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.preview_url }}
+          REQUESTED_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Internal Preview deployment"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Source SHA | \`$REQUESTED_SHA\` |"
+            echo "| Preview URL | $PREVIEW_URL |"
+            echo "| Internal build | VITE_INTERNAL_BUILD=true (this build only) |"
+            echo "| Scope | Vercel Preview — never production |"
+            echo ""
+            echo "Internal comparison evidence only. Not production qualification, not MVP readiness."
+          } >> "$GITHUB_STEP_SUMMARY"
