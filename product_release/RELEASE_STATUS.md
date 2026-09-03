@@ -88,6 +88,21 @@ The MVP-blocking lane is **#1304 (STT down-select)**. See `ROADMAP.md` for the w
 - **Merged since:** #1304 Task 3C certified harness (`054745d7`, #1365) and the inference-runtime pinning that followed it (`0e2fffd1`, #1368). Both are test/evidence infrastructure and change no deployed product behaviour.
 - **Open:** the frozen selection benchmark is RUNNING on `main@0e2fffd1`: **600 utterances / 10,894 normalized words**. It is not a 600-word test. No model has been selected and no ranking exists.
 - **RETENTION IS NO LONGER THE RELEASE BLOCKER.** Ten browser production-proof attempts failed, every one on the test harness and never on the product; the stopping rule fired and that campaign is **off the MVP critical path**. What replaced it: #1359 executed the shipped newest-two retention contract against the real migrations in-process (PGlite) — the first time that contract has been checked anywhere. A production run remains a future, separately authorized gate, not a blocker on this release.
+- **Retention moves to newest-one in SOURCE ONLY, and two consequences are open.** The policy version marker,
+  the shared outgoing-candidate predicate, the save-path coordinator and the read-only preflight all move to
+  `newest_one_v1` together, and the superseded newest-two mutation is dropped so two retention policies cannot
+  be executable side by side. Nothing is applied to any environment: application is a separate authorization.
+  Two items are deliberately left open. (a) The product documents now describe the newest-one contract, while
+  two surfaces that describe DEPLOYED behaviour still say newest-two — the Analytics privacy line rendered to
+  users and the client-side mock RPC that models the server. Moving those before the migration is applied
+  would make the running product assert a contract the database does not yet enforce, which is the failure
+  mode that cost us a full red CI cycle previously. They move WITH application, not before it. (b) Option A
+  defers expiry while an outgoing candidate's terminal Progress evaluation is pending, and
+  `complete_session_v2` reverts a newly written transcript that did not converge; under newest-two those two
+  rules first met at a user's third save, and under newest-one they meet at the second. A user whose first
+  session has no durable evaluation therefore saves the second and keeps no transcript. Which guarantee wins
+  — never exceed one retained transcript, or never lose the newest one — is an open product decision.
+
 - **THE RELEASE BLOCKER IS NOW MODEL SELECTION.** No Private STT model has been chosen. Shipping `v2 base.en` remains the default by absence of qualifying evidence, not by measurement.
 - **Accepted post-MVP debt:** the #1354 write-ahead obligation is client-only. If the Progress evaluation fails, the browser obligation write also fails, and the user reloads after storage recovers, the client cannot reconstruct that obligation. Eliminating it requires a server-side obligation record.
 - **#1006 is CLOSED** (draft, not activated) — long since not current work; retained here only because earlier revisions of this file presented it as the open item.

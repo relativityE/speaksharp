@@ -2,12 +2,12 @@ import type { NextActionSignal } from '@/contracts/nextActionSignal';
 import type { PersistedFillerCounts } from '@/contracts/fillerCounts';
 
 /**
- * A persisted practice session: metrics, one structured next action, and — for the two newest sessions only —
+ * A persisted practice session: metrics, one structured next action, and — for the newest saved session only —
  * the retained transcript.
  *
  * #1306 originally made this type strictly content-free ("no transcript ever"). That P0 was SUPERSEDED by the
- * #1258/#1314 retention contract, which retains the transcript of the two newest saved sessions for review and
- * PDF and deletes it thereafter. `transcript` is therefore back on the type deliberately — it is not a leak and
+ * #1258/#1314 retention contract, which retains the transcript of the newest saved session for review and PDF
+ * and expires it once a newer session is saved. `transcript` is therefore back on the type deliberately — it is not a leak and
  * not an oversight, and it should not be "cleaned up" by anyone reading the older #1306 comments.
  *
  * Everything else #1306 removed STAYS removed: no ai_suggestions/coaching prose, no ground_truth, no per-session
@@ -32,8 +32,8 @@ export interface PracticeSession {
   /** #1033 STT attribution lifecycle: legacy_unknown | pending | verified | unverified. */
   attribution_status?: import('@/constants/attributionStatus').AttributionStatus;
   /**
-   * The retained transcript — present only while this session is within the newest-two retention window; absent
-   * or empty once the server has expired it. NEVER infer expiry from emptiness: `transcript_state` is the
+   * The retained transcript — present only while this is the user's newest saved session; absent or empty once
+   * a newer save has expired it. NEVER infer expiry from emptiness: `transcript_state` is the
    * server-owned authority for that distinction (`available` / `expired` / `not_captured`).
    */
   transcript?: string | null;

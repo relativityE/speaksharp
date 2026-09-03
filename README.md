@@ -13,7 +13,7 @@ SpeakSharp is a private speaking-practice application. Customer speech-to-text r
     ten-minute technical cap.
 -   **Practice Loop:** Open Mic is primary; Focus Points is optional; saved review carries delivery evidence and one next action.
 -   **Personal progress:** comparisons are between eligible sessions from the same user, mode and STT cohort. A user may explicitly accept an action and see the directional outcome of the linked repeat.
--   **Bounded retention:** transcript text is retained for the two newest transcript-bearing sessions; older text expires while derived metrics remain.
+-   **Bounded retention:** transcript text is retained for the newest transcript-bearing saved session; older text expires while derived practice metrics and Practice Loop history remain.
 -   **Fail-closed commercial path:** the product contract is 30 days then $10/month, but payments remain disabled until separately qualified and authorized.
 
 ---
