@@ -190,3 +190,75 @@ describe('#1405s the REAL emitProvisionalPartial honours the declared kind', () 
         expect((emits[emits.length - 1]?.transcript.partial ?? '')).toContain('the quick brown');
     });
 });
+
+/**
+ * #1405s RETURN — a retracted snapshot must not come back at SAVE time.
+ *
+ * THE DEFECT. Replacing only the live callback left `bestVisibleProvisionalTranscript` holding whichever
+ * snapshot was LONGEST. Finalization prefers that value over a shorter final candidate, so a snapshot the
+ * engine had already retracted could be restored and SAVED. The user watches the correct text appear,
+ * then finds words they never said in the saved transcript — which is worse than the live duplication,
+ * because it is the copy they keep.
+ *
+ * The scenario is the reviewed one: "hello world again" is superseded by "hello world", and the final
+ * must be "hello world" in both the display and the save.
+ */
+describe('#1405s RETURN — finalization cannot resurrect a longer earlier snapshot', () => {
+    type Emit = { transcript: { partial?: string; final?: string } };
+
+    async function snapshotMode() {
+        const actual = await vi.importActual<typeof import('../PrivateWhisper')>('../PrivateWhisper');
+        const emits: Emit[] = [];
+        const mode = Object.create(actual.default.prototype) as Record<string, unknown>;
+        mode.privateSTT = { getLiveResultKind: () => 'snapshot' as const };
+        mode.onTranscriptUpdate = (u: Emit) => emits.push(u);
+        mode.liveProvisionalTranscript = '';
+        mode.bestVisibleProvisionalTranscript = '';
+        mode.isStopping = false;
+        mode.serviceId = 'svc'; mode.instanceId = 'run';
+        mode.lastTranscriptEmitAtMs = 0; mode.firstProvisionalAtMs = null;
+        return { mode, emits };
+    }
+    const emit = (mode: Record<string, unknown>, text: string) => {
+        const proto = Object.getPrototypeOf(mode) as { emitProvisionalPartial: (t: string, r: string) => void };
+        proto.emitProvisionalPartial.call(mode, text, 'test');
+    };
+
+    it('CASUALTY: a retracted longer snapshot is not held as the best provisional', async () => {
+        const { mode, emits } = await snapshotMode();
+        emit(mode, 'hello world again');
+        emit(mode, 'hello world');
+
+        // What the user currently sees.
+        expect(emits[emits.length - 1]?.transcript.partial).toBe('hello world');
+        // And, critically, what finalization would reach for. Holding the longer earlier snapshot here
+        // is what let it be restored over a correct shorter final.
+        expect((mode as { bestVisibleProvisionalTranscript: string }).bestVisibleProvisionalTranscript,
+            'the retracted snapshot must not survive as the best provisional').toBe('hello world');
+    });
+
+    it('CASUALTY: the best provisional cannot outgrow the latest snapshot at any point', async () => {
+        const { mode } = await snapshotMode();
+        for (const s of ['a b c d e', 'a b c', 'a b c d']) emit(mode, s);
+        const best = (mode as { bestVisibleProvisionalTranscript: string }).bestVisibleProvisionalTranscript;
+        expect(best, 'the newest snapshot is the whole truth, however short').toBe('a b c d');
+    });
+
+    it('POSITIVE CONTROL: an incremental engine still keeps its longest accumulated draft', async () => {
+        // The "prefer longer" rule exists for sliding windows and must survive for v2/v4: there, an
+        // earlier window really does hold speech the newest one does not.
+        const actual = await vi.importActual<typeof import('../PrivateWhisper')>('../PrivateWhisper');
+        const mode = Object.create(actual.default.prototype) as Record<string, unknown>;
+        mode.privateSTT = { getLiveResultKind: () => 'incremental' as const };
+        mode.onTranscriptUpdate = () => {};
+        mode.liveProvisionalTranscript = '';
+        mode.bestVisibleProvisionalTranscript = '';
+        mode.isStopping = false;
+        mode.serviceId = 'svc'; mode.instanceId = 'run';
+        mode.lastTranscriptEmitAtMs = 0; mode.firstProvisionalAtMs = null;
+
+        emit(mode, 'the quick brown fox');
+        const best = (mode as { bestVisibleProvisionalTranscript: string }).bestVisibleProvisionalTranscript;
+        expect(best).toContain('the quick brown fox');
+    });
+});

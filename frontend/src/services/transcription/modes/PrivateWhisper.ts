@@ -847,7 +847,18 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         ? partial
         : mergeLiveProvisionalTranscript(this.liveProvisionalTranscript, partial);
     this.liveProvisionalTranscript = visiblePartial;
-    if (shouldPreferVisibleProvisional(visiblePartial, this.bestVisibleProvisionalTranscript)) {
+    if (liveResultKind === 'snapshot') {
+      // #1405s RETURN — SNAPSHOT SEMANTICS MUST REACH THE BEST-STATE TOO.
+      //
+      // Replacing only the live callback left `bestVisibleProvisionalTranscript` holding whichever
+      // snapshot was LONGEST. Finalization prefers that value over a shorter final candidate, so a
+      // snapshot the engine had retracted could come back and be SAVED: the user watches the correct
+      // text appear, then sees words they never said restored at the end.
+      //
+      // For a snapshot engine the latest accepted snapshot IS the whole truth, so it replaces the best
+      // state outright. "Longer" is not "better" when each result supersedes the last.
+      this.bestVisibleProvisionalTranscript = visiblePartial;
+    } else if (shouldPreferVisibleProvisional(visiblePartial, this.bestVisibleProvisionalTranscript)) {
       this.bestVisibleProvisionalTranscript = visiblePartial;
     } else if (!this.bestVisibleProvisionalTranscript.trim()) {
       this.bestVisibleProvisionalTranscript = visiblePartial;
