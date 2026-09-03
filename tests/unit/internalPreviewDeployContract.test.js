@@ -165,12 +165,30 @@ describe('the verifier checks the RUNNING page, not the build', () => {
         expect(verifier).toMatch(/does not equal the requested SHA/);
     });
 
-    it('CASUALTY: chunk presence alone is NOT accepted as proof the switch installs', () => {
-        // An earlier version of this check grepped the bundle for the surface identifiers and found them
-        // in BOTH builds, because the module ships either way and the install is gated at runtime.
-        // The distinguishing fact is the inlined internal-build literal.
-        expect(verifier).toMatch(/VITE_INTERNAL_BUILD\\s\*:\\s\*"true"|VITE_INTERNAL_BUILD:"true"/);
-        expect(verifier).toMatch(/would not install/);
+    it('CASUALTY: the verifier EXECUTES the page — text inspection cannot decide PASS', () => {
+        // INVERTED. This previously required the verifier to grep the bundle for an inlined literal,
+        // which encoded the rejected proof method as a requirement: the switch module ships in BOTH
+        // builds, so a page whose install never runs passed every text check. PASS is now decided by
+        // evaluating the live window in a real browser.
+        expect(verifier).toMatch(/from 'playwright'/);
+        expect(verifier).toMatch(/page\.evaluate\(/);
+        expect(verifier).toMatch(/typeof window\.__SS_SWITCH_CANDIDATE__/);
+        expect(verifier).toMatch(/typeof window\.__SS_ACTIVE_CANDIDATE__/);
+        // No text-matching may stand in for the runtime check.
+        expect(verifier, 'bundle text must not decide the verdict')
+            .not.toMatch(/chunk\.includes\(/);
+    });
+
+    it('CASUALTY: it fails closed on timeout, navigation or evaluation failure', () => {
+        // "Could not check" must never read as "checked and fine".
+        expect(verifier).toMatch(/timeout:/);
+        expect(verifier).toMatch(/verification could not complete/);
+        expect(verifier).toMatch(/process\.exit\(1\)/);
+    });
+
+    it('the workflow installs a browser, because the verifier needs one', () => {
+        const setup = steps.find((s) => typeof s.uses === 'string' && s.uses.includes('setup-environment'));
+        expect(setup.with['install-playwright']).toBe('true');
     });
 
     it('requires BOTH switch surfaces', () => {

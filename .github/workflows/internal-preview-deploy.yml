@@ -77,7 +77,9 @@ jobs:
         uses: ./.github/actions/setup-environment
         with:
           install-dependencies: 'true'
-          install-playwright: 'false'
+          # The Preview is verified by LOADING it in a real browser: served text cannot prove the switch
+          # installed, because the module ships in every build and the install is gated at runtime.
+          install-playwright: 'true'
           install-native-deps: 'false'
 
       # THE ONE DIFFERENCE FROM A NORMAL BUILD. `VITE_INTERNAL_BUILD` is injected for THIS build only and
