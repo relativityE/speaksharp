@@ -84,7 +84,7 @@ What to evaluate
 - Was anything confusing or difficult to navigate?
 - What one change would make you want to return tomorrow?
 
-Share Feedback first asks whether your message is an **Issue** (something is broken or wrong) or a **Comment** (anything else you want to tell us). Choose one — it is required, and it decides how your message is routed. Share Feedback automatically records the product page you sent it from. Tell us what you were doing and what you would like us to know — a problem, a suggestion, a question, or something that worked well. Your transcript and audio are not included unless you explicitly choose to share optional details. Please do not include passwords, confidential material, or other sensitive personal information.
+Share Feedback first asks whether your message is an **Issue** (something is broken or wrong) or a **Comment** (anything else you want to tell us). Choose one — it is required, and it decides how your message is routed. Share Feedback automatically records the product page you sent it from. Tell us what you were doing and what you would like us to know — a problem, a suggestion, a question, or something that worked well. For an Issue, it also helps to say what you expected and what happened instead. Your transcript and audio are not included unless you explicitly choose to share optional details. Please do not include passwords, confidential material, or other sensitive personal information.
 
 The complete product is free for 30 days. You will not need a card for this test. If any page asks you to pay during this beta test, stop and report it.
 
