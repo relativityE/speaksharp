@@ -38,20 +38,34 @@ vi.mock('@/contexts/AuthProvider', async (orig) => {
 // The capture form persists through guarded RPCs. Stub the FORM only — the dialog, the page wiring and
 // the rail stay real, because the wiring is the thing under test.
 const formSpy = vi.fn();
+/**
+ * #1409s — the real form AWAITS `startObjectiveBrief` and then calls `onReady`. To reproduce a save that
+ * is still in flight when the user closes the dialog, the stub captures `onReady` so a test can settle it
+ * later, at a moment of its choosing.
+ */
+let pendingOnReady: ((r: unknown) => void) | null = null;
+const RESULT = {
+    briefId: 'brief-2', projectId: 'proj-2',
+    points: ['New A', 'New B'], topic: 'New topic', paceGuideSecPerPoint: 90,
+};
 vi.mock('@/components/session/ObjectiveSetupForm', () => ({
     ObjectiveSetupForm: (props: { onReady?: (r: unknown) => void; initial?: unknown }) => {
         formSpy(props.initial);
+        // Captured on every render so the LATEST closure (carrying this opening's token) is the one a
+        // deferred settlement invokes — which is exactly what the real awaited call would do.
+        pendingOnReady = (r: unknown) => props.onReady?.(r);
         return (
             <div data-testid="objective-setup-form">
                 <div data-testid="seeded-initial">{JSON.stringify(props.initial ?? null)}</div>
                 <button
                     type="button"
                     data-testid="objective-setup-save"
-                    onClick={() => props.onReady?.({
-                        briefId: 'brief-2', projectId: 'proj-2',
-                        points: ['New A', 'New B'], topic: 'New topic', paceGuideSecPerPoint: 90,
-                    })}
+                    onClick={() => props.onReady?.(RESULT)}
                 >save</button>
+                {/* Begins a save WITHOUT settling it, so the test can close the dialog mid-flight. */}
+                <button type="button" data-testid="objective-setup-save-pending" onClick={() => {}}>
+                    save (pending)
+                </button>
             </div>
         );
     },
@@ -88,6 +102,7 @@ const lifecycle = (over: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
     vi.clearAllMocks();
+    pendingOnReady = null;
     promptOn = false;
     rerenderPage = null;
     useSessionStore.getState().resetSession();
@@ -377,5 +392,128 @@ describe('#1409 — cancelling a new set changes nothing', () => {
         expect(handleStartStop).not.toHaveBeenCalled();
         // Still the completed review the user was looking at.
         expect(screen.getByTestId('focus-points-new-set')).toBeInTheDocument();
+    });
+});
+
+/**
+ * #1409s — a save the user CANCELLED must not act when it later completes.
+ *
+ * THE DEFECT. `startObjectiveBrief` is awaited inside the form and `onReady` fires when it resolves,
+ * whether or not the dialog is still open. A user who pressed Save, changed their mind and closed the
+ * dialog could have the completed request bind a brief, CLEAR THEIR COMPLETED REVIEW and reset the
+ * session afterwards — the app acting on an instruction they had visibly withdrawn, destroying work
+ * they could still see on screen.
+ *
+ * These drive the real SessionPage chain and settle the save AFTER the cancellation, which is the only
+ * ordering that reproduces it.
+ */
+describe('#1409s cancellation is authoritative over a pending save', () => {
+    it('CASUALTY: a save settling AFTER New Set is cancelled binds nothing and destroys nothing', async () => {
+        const user = userEvent.setup();
+        givenAfterReview();
+        await user.click(screen.getByTestId('focus-points-new-set'));
+        await screen.findByTestId('objective-setup-form');
+        const settle = pendingOnReady!;
+
+        // The user changes their mind while the request is still in flight.
+        await user.keyboard('{Escape}');
+        await waitFor(() => expect(screen.queryByTestId('objective-setup-form')).not.toBeInTheDocument());
+
+        // ...and only now does the request complete.
+        settle(RESULT);
+
+        const s = useSessionStore.getState();
+        expect(s.activeObjectiveBrief, 'a withdrawn save must not bind a brief').toBeNull();
+        expect(s.completedObjectiveBrief, 'the completed review must survive').toMatchObject({ briefId: 'brief-1' });
+        expect(s.objectiveCoverageResult, 'coverage must survive').not.toBeNull();
+        expect(handleStartStop).not.toHaveBeenCalled();
+        expect(setShowAnalyticsPrompt, 'the prompt state must not change').not.toHaveBeenCalledWith(false);
+    });
+
+    it('CASUALTY: a save settling AFTER Edit is cancelled leaves the existing brief bound', async () => {
+        const user = userEvent.setup();
+        givenBeforeTake();
+        await user.click(screen.getByTestId('focus-points-edit'));
+        await screen.findByTestId('objective-setup-form');
+        const settle = pendingOnReady!;
+
+        await user.keyboard('{Escape}');
+        await waitFor(() => expect(screen.queryByTestId('objective-setup-form')).not.toBeInTheDocument());
+        settle(RESULT);
+
+        expect(useSessionStore.getState().activeObjectiveBrief,
+            'the brief the user kept must not be replaced by the one they withdrew')
+            .toMatchObject({ briefId: 'brief-1' });
+    });
+
+    it('CASUALTY: a stale save cannot act even after the dialog is REOPENED', async () => {
+        // The subtle case: cancelling and opening again must not resurrect the first request. Without a
+        // per-opening token, a guard that only asked "is a dialog open?" would let it through.
+        const user = userEvent.setup();
+        givenBeforeTake();
+        await user.click(screen.getByTestId('focus-points-edit'));
+        await screen.findByTestId('objective-setup-form');
+        const staleSettle = pendingOnReady!;
+
+        await user.keyboard('{Escape}');
+        await waitFor(() => expect(screen.queryByTestId('objective-setup-form')).not.toBeInTheDocument());
+        await user.click(screen.getByTestId('focus-points-edit'));
+        await screen.findByTestId('objective-setup-form');
+
+        staleSettle({ ...RESULT, briefId: 'brief-STALE' });
+
+        expect(useSessionStore.getState().activeObjectiveBrief?.briefId,
+            'the abandoned request must not bind through a later opening').not.toBe('brief-STALE');
+    });
+
+    it('CASUALTY: a SECOND settlement from the same opening cannot act after the first succeeded', async () => {
+        // A double-pressed Save leaves two requests in flight. The first binds and closes; the second
+        // must not then re-bind or clear anything, because its opening is over.
+        const user = userEvent.setup();
+        givenAfterReview();
+        await user.click(screen.getByTestId('focus-points-new-set'));
+        const settleAgain = (await screen.findByTestId('objective-setup-form'), pendingOnReady!);
+        await user.click(screen.getByTestId('objective-setup-save'));
+        await waitFor(() => expect(useSessionStore.getState().activeObjectiveBrief?.briefId).toBe('brief-2'));
+
+        settleAgain({ ...RESULT, briefId: 'brief-SECOND' });
+
+        expect(useSessionStore.getState().activeObjectiveBrief?.briefId,
+            'a second settlement from a finished opening must not rebind').toBe('brief-2');
+    });
+
+    it('POSITIVE CONTROL: an ordinary Edit save that is NOT cancelled still binds', async () => {
+        const user = userEvent.setup();
+        givenBeforeTake();
+        await user.click(screen.getByTestId('focus-points-edit'));
+        await user.click(await screen.findByTestId('objective-setup-save'));
+        await waitFor(() => {
+            expect(useSessionStore.getState().activeObjectiveBrief).toMatchObject({ briefId: 'brief-2' });
+        });
+    });
+
+    it('POSITIVE CONTROL: an ordinary New Set save that is NOT cancelled still binds and clears', async () => {
+        const user = userEvent.setup();
+        givenAfterReview();
+        await user.click(screen.getByTestId('focus-points-new-set'));
+        await user.click(await screen.findByTestId('objective-setup-save'));
+        await waitFor(() => {
+            expect(useSessionStore.getState().activeObjectiveBrief).toMatchObject({ briefId: 'brief-2' });
+        });
+        const s = useSessionStore.getState();
+        expect(s.completedObjectiveBrief).toBeNull();
+        expect(s.objectiveCoverageResult).toBeNull();
+    });
+
+    it('POSITIVE CONTROL: a save settling while the dialog is still OPEN is honoured', async () => {
+        // Guards against over-correcting into "ignore anything asynchronous".
+        const user = userEvent.setup();
+        givenBeforeTake();
+        await user.click(screen.getByTestId('focus-points-edit'));
+        await screen.findByTestId('objective-setup-form');
+        pendingOnReady!(RESULT);
+        await waitFor(() => {
+            expect(useSessionStore.getState().activeObjectiveBrief).toMatchObject({ briefId: 'brief-2' });
+        });
     });
 });
