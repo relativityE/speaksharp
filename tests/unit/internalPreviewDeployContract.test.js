@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, mkdtempSync, mkdirSync, copyFileSync, existsSync, rmSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import yaml from 'js-yaml';
 
 /**
@@ -236,24 +238,27 @@ describe('#1390 RETURN — only reviewed code runs, and only main may dispatch',
     it('CASUALTY: a modified verifier in the SUBJECT tree is never executed', () => {
         // The control script is run from the trusted checkout. Running the subject copy is exactly how a
         // branch commit would have consumed the bypass secret.
+        // The trusted tree is now the workspace ROOT, so "trusted" is the bare path and "untrusted" is
+        // anything reached through `subject/`.
         const verify = stepNamed('Verify the running Preview');
-        expect(verify.run).toMatch(/control\/scripts\/ci\/verify-internal-preview\.mjs/);
+        expect(verify.run).toMatch(/node\s+scripts\/ci\/verify-internal-preview\.mjs/);
         expect(verify.run, 'the subject tree copy must not be invoked')
-            .not.toMatch(/(?<!control\/)\bscripts\/ci\/verify-internal-preview\.mjs/);
+            .not.toMatch(/subject\/scripts\/ci\/verify-internal-preview\.mjs/);
     });
 
     it('control and subject are SEPARATE checkouts', () => {
         const checkouts = steps.filter((s) => typeof s.uses === 'string' && s.uses.startsWith('actions/checkout'));
         expect(checkouts).toHaveLength(2);
-        expect(checkouts[0].with.ref).toBe('main');
-        expect(checkouts[0].with.path).toBe('control');
+        expect(checkouts[0].with.ref, 'the trusted tree is checked out first').toBe('main');
+        expect(checkouts[0].with.path, 'and it occupies the workspace root').toBeUndefined();
         expect(checkouts[1].with.ref).toBe('${{ inputs.source_sha }}');
-        expect(checkouts[1].with.path).toBe('subject');
+        expect(checkouts[1].with.path, 'the subject is nested beneath it').toBe('subject');
     });
 
     it('the composite action is taken from the trusted checkout', () => {
         const setup = steps.find((s) => typeof s.uses === 'string' && s.uses.includes('setup-environment'));
-        expect(setup.uses).toMatch(/^\.\/control\//);
+        expect(setup.uses, 'the action comes from the trusted root, never from subject/')
+            .toBe('./.github/actions/setup-environment');
     });
 
     it('CASUALTY: the Vercel CLI is pinned, never `latest`', () => {
@@ -280,5 +285,128 @@ describe('#1390 RETURN — only reviewed code runs, and only main may dispatch',
     it('emits no environment value or token', () => {
         expect(verifier).not.toMatch(/console\.log\([^)]*process\.env/);
         expect(verifier).not.toMatch(/console\.log\([^)]*bypass/);
+    });
+});
+
+/**
+ * #1390 RETURN — THE EXECUTION LAYOUT, EXERCISED RATHER THAN DESCRIBED.
+ *
+ * The returned defect was not a policy hole; it was that the job could not run at all. Both checkouts were
+ * nested (`control/` and `subject/`), leaving the workspace ROOT with no `package.json` — and
+ * `setup-environment` activates pnpm by evaluating `require('./package.json').packageManager` from the
+ * root. The job died there, before the build, every time. Reading the file could not reveal that: the YAML
+ * is perfectly well-formed and every guard it declares is real. Only running the thing it depends on shows
+ * it.
+ *
+ * So this block RECONSTRUCTS the runner's workspace from the workflow's own checkout declarations and
+ * EXECUTES the composite action's real resolution command inside it. Nothing here is a text match. Move a
+ * checkout back under a subdirectory and these fail, because the reconstructed root stops holding the file
+ * the action reads.
+ */
+describe('#1390 RETURN — the workspace layout, reconstructed and executed', () => {
+    const checkouts = steps.filter((s) => typeof s.uses === 'string' && s.uses.startsWith('actions/checkout'));
+    /** Where each checkout lands, relative to the workspace root. '' means the root itself. */
+    const layout = checkouts.map((s) => ({ ref: String(s.with.ref), dir: s.with.path ?? '' }));
+    const trusted = layout.find((c) => c.ref === 'main');
+    const subject = layout.find((c) => c.ref !== 'main');
+
+    /** Build a real directory tree matching what `actions/checkout` would produce for this workflow. */
+    function materializeWorkspace() {
+        const ws = mkdtempSync(join(tmpdir(), 'ipd-layout-'));
+        for (const { dir } of layout) {
+            const target = dir ? join(ws, dir) : ws;
+            mkdirSync(target, { recursive: true });
+            // Both refs are this repository, so both trees carry these two files.
+            copyFileSync(resolve(root, 'package.json'), join(target, 'package.json'));
+            copyFileSync(resolve(root, 'pnpm-lock.yaml'), join(target, 'pnpm-lock.yaml'));
+        }
+        return ws;
+    }
+
+    it('CASUALTY: the composite action RESOLVES pnpm in the reconstructed root', () => {
+        // The exact expression `setup-environment` runs, read from the action rather than retyped, so a
+        // change there cannot drift away from this proof.
+        const action = readFileSync(resolve(root, '.github/actions/setup-environment/action.yml'), 'utf8');
+        const line = action.split('\n').find((l) => l.includes("require('./package.json')"));
+        expect(line, 'setup-environment must still resolve packageManager from the root').toBeTruthy();
+        const expr = line.match(/node -p "([^"]+)"/)[1];
+
+        const ws = materializeWorkspace();
+        try {
+            // EXECUTED. Under the returned layout the root held no package.json and this threw
+            // MODULE_NOT_FOUND — which is exactly how the job failed on a real runner.
+            const out = execFileSync(process.execPath, ['-p', expr], { cwd: ws, encoding: 'utf8' }).trim();
+            expect(out, 'the root must yield a pnpm packageManager pin').toMatch(/^pnpm@\d+\.\d+\.\d+/);
+        } finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+
+    it('CASUALTY: every declared working-directory exists in the reconstructed workspace', () => {
+        const ws = materializeWorkspace();
+        try {
+            const dirs = steps.map((s) => s['working-directory']).filter(Boolean);
+            expect(dirs.length, 'the subject steps must declare where they run').toBeGreaterThan(0);
+            for (const d of dirs) {
+                expect(existsSync(join(ws, d)), `working-directory "${d}" is not a checkout target`).toBe(true);
+            }
+        } finally {
+            rmSync(ws, { recursive: true, force: true });
+        }
+    });
+
+    it('CASUALTY: the trusted tree is the ROOT and the subject is nested beneath it', () => {
+        expect(trusted, 'main must be checked out').toBeTruthy();
+        expect(trusted.dir, 'trusted main belongs at the workspace root').toBe('');
+        expect(subject.dir, 'the subject tree must be nested, never the root').toBe('subject');
+    });
+
+    it("CASUALTY: the composite action's path resolves to a real file in the trusted tree", () => {
+        const setup = steps.find((s) => typeof s.uses === 'string' && s.uses.includes('setup-environment'));
+        const rel = setup.uses.replace(/^\.\//, '');
+        expect(rel.startsWith('subject/'), 'the action must never come from the subject tree').toBe(false);
+        expect(existsSync(resolve(root, rel, 'action.yml')),
+            `${setup.uses} must resolve inside the trusted checkout`).toBe(true);
+    });
+
+    it('CASUALTY: the verifier is executed from the trusted tree, at a path that exists', () => {
+        const step = stepNamed('Verify the running Preview');
+        const m = step.run.match(/node\s+(\S+verify-internal-preview\.mjs)/);
+        expect(m, 'the verify step must invoke the verifier').toBeTruthy();
+        expect(m[1].startsWith('subject/'), 'never run the subject tree copy').toBe(false);
+        expect(existsSync(resolve(root, m[1])), `${m[1]} must exist in the trusted tree`).toBe(true);
+    });
+
+    it('CASUALTY: the subject is INSTALLED before it is built', () => {
+        // Without its own node_modules the subject tree cannot build; `setup-environment` installs at the
+        // root, which is main, not the commit being deployed.
+        const names = steps.map((s) => s.name);
+        const install = names.findIndex((n) => /Install subject dependencies/i.test(n));
+        const build = names.findIndex((n) => /Build internal Preview artifact/i.test(n));
+        expect(install, 'the subject must be installed').toBeGreaterThan(-1);
+        expect(build).toBeGreaterThan(-1);
+        expect(install, 'install must precede build').toBeLessThan(build);
+        expect(steps[install]['working-directory'], 'and it must install the SUBJECT tree').toBe('subject');
+        expect(steps[install].run).toMatch(/--frozen-lockfile/);
+    });
+
+    it('CASUALTY: installing untrusted code sees NO secret', () => {
+        // `pnpm install` runs the deployed commit's lifecycle scripts. If a secret were in scope there,
+        // every guard above would be decoration.
+        const install = steps.find((s) => /Install subject dependencies/i.test(s.name || ''));
+        expect(install.env, 'the install step must declare no environment at all').toBeUndefined();
+        expect(job.env, 'a job-level env would put secrets in every step, including the install').toBeUndefined();
+        expect(doc.env, 'and so would a workflow-level env').toBeUndefined();
+    });
+
+    it('CASUALTY: no secret is in scope before the subject is installed', () => {
+        const names = steps.map((s) => s.name);
+        const install = names.findIndex((n) => /Install subject dependencies/i.test(n));
+        const earlier = steps.slice(0, install);
+        for (const s of earlier) {
+            const declared = JSON.stringify(s.env ?? {});
+            expect(declared, `"${s.name}" must not carry a secret before installation`)
+                .not.toMatch(/secrets\./);
+        }
     });
 });

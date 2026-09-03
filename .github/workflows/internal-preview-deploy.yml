@@ -73,17 +73,19 @@ jobs:
       # branch commit could replace `verify-internal-preview.mjs` and have it run with
       # VERCEL_AUTOMATION_BYPASS_SECRET in its environment. "PM-authorized" lived only in the input's
       # description; it enforced nothing.
-      - name: Checkout trusted control (main)
+      # main lands at the WORKSPACE ROOT, not beside the subject. `setup-environment` resolves
+      # `./package.json` and hashes `pnpm-lock.yaml` from the root, so with BOTH trees nested the root
+      # held neither file and the job died activating pnpm, before it could build anything. Root is also
+      # the safer default: any step that forgets a `working-directory` lands in reviewed code.
+      - name: Checkout trusted control (main) at the workspace root
         uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
-          path: control
 
       # ANCESTRY IS THE AUTHORIZATION. A SHA that is not reachable from main is not reviewed code, and
       # nothing that follows may see a secret until this passes.
       - name: Require the requested SHA to be an ancestor of origin/main
-        working-directory: control
         env:
           REQUESTED_SHA: ${{ inputs.source_sha }}
         run: |
@@ -119,15 +121,31 @@ jobs:
             exit 1
           fi
 
-      # The composite action comes from the TRUSTED checkout, not the subject tree.
+      # The composite action comes from the TRUSTED tree — now the workspace root.
       - name: Setup Environment
-        uses: ./control/.github/actions/setup-environment
+        uses: ./.github/actions/setup-environment
         with:
           install-dependencies: 'true'
           # The Preview is verified by LOADING it in a real browser: served text cannot prove the switch
           # installed, because the module ships in every build and the install is gated at runtime.
           install-playwright: 'true'
           install-native-deps: 'false'
+
+      # THE SUBJECT'S OWN DEPENDENCIES, INSTALLED WITH NOTHING SECRET IN SCOPE.
+      #
+      # Two separate reasons this is its own step. First, `setup-environment` installs at the root, which
+      # is main; the subject tree has no node_modules of its own, so `pnpm build` below had nothing to
+      # build with. Second, `pnpm install` runs the subject tree's lifecycle scripts — arbitrary code from
+      # the commit being deployed. This step therefore declares NO `env:` at all, and the job declares no
+      # job-level env, so no secret is reachable from it. The build step that follows is the first place a
+      # secret appears, and by then installation has already finished. The lockfile is frozen: resolving a
+      # different dependency graph than the commit recorded would deploy something nobody reviewed.
+      - name: Install subject dependencies (no secret in scope)
+        working-directory: subject
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          echo "subject dependencies installed"
 
       # THE ONE DIFFERENCE FROM A NORMAL BUILD. `VITE_INTERNAL_BUILD` is injected for THIS build only and
       # lives nowhere else — not in Vercel's Preview environment, not in Production. A build that forgets
@@ -202,9 +220,9 @@ jobs:
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           set -euo pipefail
-          # Control logic from the TRUSTED checkout. Running the subject tree's copy is precisely how a
-          # branch commit would have consumed the bypass secret.
-          node control/scripts/ci/verify-internal-preview.mjs "$PREVIEW_URL" "$REQUESTED_SHA"
+          # Control logic from the TRUSTED tree at the workspace root. Running the subject tree's copy
+          # (`subject/scripts/...`) is precisely how a branch commit would have consumed the bypass secret.
+          node scripts/ci/verify-internal-preview.mjs "$PREVIEW_URL" "$REQUESTED_SHA"
 
       - name: Content-safe summary
         if: always()
