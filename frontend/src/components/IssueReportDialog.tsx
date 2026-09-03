@@ -178,7 +178,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
         <DialogHeader>
           <DialogTitle>Share Feedback</DialogTitle>
           <DialogDescription>
-            Send the app state we need to debug. Transcript and audio details are optional and never included unless you choose them. Please don&apos;t include passwords or other sensitive personal information.
+            Tell us what&apos;s on your mind — something broken, something confusing, an idea, a question, or something that worked well. We include basic technical details about the page you were on. Transcript and audio details are optional and never included unless you choose them. Please don&apos;t include passwords or other sensitive personal information.
           </DialogDescription>
         </DialogHeader>
 
@@ -247,7 +247,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
             <Input
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="Example: Private mic did not start"
+              placeholder="One line that sums it up"
               maxLength={160}
               data-testid="issue-report-title"
             />
@@ -259,16 +259,16 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
               className="min-h-28 w-full rounded-md border border-input bg-muted/60 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              placeholder="What did you expect, what did the app do, and what were you trying to finish?"
+              placeholder="What were you doing, and what would you like us to know?"
               maxLength={5000}
               data-testid="issue-report-description"
             />
           </label>
 
           <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground" data-testid="issue-report-disclosure">
-            Linked to your account using an internal ID so support can investigate the issue. We include
-            basic technical details to help debug. We do not include your email, name, password, login
-            credentials, transcript, or audio unless you choose to add optional details.
+            Linked to your account using an internal ID so support can follow up. We include basic
+            technical details about the page you were on. We do not include your email, name, password,
+            login credentials, transcript, or audio unless you choose to add optional details.
           </div>
 
           <label className="flex items-start gap-2 text-sm">
@@ -278,7 +278,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
               onChange={(event) => setIncludeAudio(event.target.checked)}
               data-testid="issue-report-include-audio"
             />
-            <span>Include an audio-debug note. Audio itself is not uploaded by this form.</span>
+            <span>Include a note about audio or a recording. Audio itself is not uploaded by this form.</span>
           </label>
 
           {includeAudio && (

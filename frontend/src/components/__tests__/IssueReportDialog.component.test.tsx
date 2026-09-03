@@ -242,6 +242,112 @@ describe('#1404 Share Feedback — Message kind', () => {
   });
 });
 
+/**
+ * #1408 RETURN — the shared instructions must fit every kind of message.
+ *
+ * One form now serves praise, suggestions, questions and defects, and the copy is NOT conditional on the
+ * chosen kind. So the words have to work for all of them: a user with a compliment should not have to
+ * read past "what did the app do" and an example about a broken mic to answer the question.
+ */
+describe('#1408 — dialog instructions are kind-neutral', () => {
+  beforeEach(() => { mockSubmit.mockClear(); });
+
+  const openDialog = async () => {
+    const user = userEvent.setup();
+    render(<IssueReportDialog userId="u1" />, { route: '/session' });
+    await user.click(screen.getByTestId('nav-report-issue-button'));
+    await screen.findByTestId('issue-report-title');
+    return user;
+  };
+
+  it('CASUALTY: no defect-only instruction survives anywhere in the dialog', async () => {
+    await openDialog();
+    const dialog = screen.getByRole('dialog');
+    const text = dialog.textContent ?? '';
+    // Each of these presumes something went wrong, which is false for a Comment.
+    for (const defectOnly of [
+      /app state we need to debug/i,
+      /investigate the issue/i,
+      /to help debug/i,
+      /audio-debug note/i,
+    ]) {
+      expect(text, `defect-only instruction must not return: ${defectOnly}`).not.toMatch(defectOnly);
+    }
+  });
+
+  it('CASUALTY: the field placeholders do not presuppose a problem', async () => {
+    await openDialog();
+    const title = screen.getByTestId('issue-report-title') as HTMLInputElement;
+    const desc = screen.getByTestId('issue-report-description') as HTMLTextAreaElement;
+    expect(title.placeholder).not.toMatch(/did not start|failed|error|broken/i);
+    expect(desc.placeholder).not.toMatch(/what did the app do|what were you trying to finish/i);
+    // Still useful prompts, not blank.
+    expect(title.placeholder.length).toBeGreaterThan(0);
+    expect(desc.placeholder.length).toBeGreaterThan(0);
+  });
+
+  it('the description invites more than defects, without branching on the chosen kind', async () => {
+    const user = await openDialog();
+    const dialog = screen.getByRole('dialog');
+    const before = dialog.textContent ?? '';
+    expect(before).toMatch(/question|idea|worked well/i);
+    // The SAME words must stand for both kinds — conditional copy was explicitly excluded.
+    await user.selectOptions(screen.getByTestId('issue-report-feedback-kind'), 'comment');
+    expect(screen.getByRole('dialog').textContent).toBe(before);
+  });
+
+  /**
+   * The RETURN's own scenario, end to end: a user picks Comment, sees no bug-report framing anywhere on
+   * the form they are filling in, and their message still submits with the right kind. Asserted on the
+   * rendered dialog while Comment is selected — not on the source, and not before choosing.
+   */
+  it('CASUALTY: with Comment selected, no issue/debug-only language remains and submission still works', async () => {
+    const user = userEvent.setup();
+    render(<IssueReportDialog userId="u1" sttMode="private" />, { route: '/session' });
+    await user.click(screen.getByTestId('nav-report-issue-button'));
+    await user.selectOptions(await screen.findByTestId('issue-report-feedback-kind'), 'comment');
+
+    const shown = () => {
+      const d = screen.getByRole('dialog');
+      const placeholders = [...d.querySelectorAll('input, textarea')]
+        .map((el) => (el as HTMLInputElement | HTMLTextAreaElement).placeholder ?? '')
+        .join(' ');
+      return `${d.textContent ?? ''} ${placeholders}`;
+    };
+
+    // Every framing the RETURN named: debugging, broken-mic, expected-vs-actual, investigation, technical.
+    for (const bugFraming of [
+      /debug/i,
+      /mic did not start/i,
+      /what did you expect/i,
+      /what did the app do/i,
+      /investigate/i,
+      /\bbug\b/i,
+      /report an issue/i,
+    ]) {
+      expect(shown(), `Comment must not be framed as a bug report: ${bugFraming}`).not.toMatch(bugFraming);
+    }
+
+    // And it still sends.
+    await user.type(screen.getByTestId('issue-report-title'), 'The coverage rail is clear');
+    await user.type(screen.getByTestId('issue-report-description'), 'Seeing which points I missed made the retake obvious.');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    expect(mockSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ feedback_kind: 'comment', sttMode: 'private' }),
+    }));
+  });
+
+  it('the privacy commitments are untouched by the neutral wording', async () => {
+    await openDialog();
+    const disclosure = screen.getByTestId('issue-report-disclosure');
+    expect(disclosure).toHaveTextContent(/Linked to your account using an internal ID/i);
+    expect(disclosure).toHaveTextContent(/do not include your email, name, password, login credentials, transcript, or audio/i);
+    expect(screen.getByRole('dialog').textContent)
+      .toMatch(/don.t include passwords or other sensitive personal information/i);
+  });
+});
+
 describe('#1404 — renamed labels, unchanged behaviour', () => {
   beforeEach(() => { mockSubmit.mockClear(); vi.mocked(toast.success).mockClear(); vi.mocked(toast.error).mockClear(); });
 
