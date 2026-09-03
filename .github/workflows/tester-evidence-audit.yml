@@ -71,6 +71,17 @@ jobs:
           AUDIT_EXCLUDED_EMAILS_JSON: ${{ secrets.AUDIT_EXCLUDED_EMAILS_JSON }}
           # VARIABLES — printed for traceability; part of the completion gate.
           AUDIT_EXCLUSION_LIST_VERSION: ${{ vars.AUDIT_EXCLUSION_LIST_VERSION }}
+          # VARIABLE — the Share Feedback deployment moment, as an ISO-8601 timestamp.
+          #
+          # Rows created BEFORE it carry no `feedback_kind` because the product exposed an Issue-only
+          # journey, so they are legacy Issues and belong in issue and severity totals. Rows after it
+          # with no kind are an instrumentation defect.
+          #
+          # Supplied explicitly and never defaulted: an invented boundary would silently reclassify real
+          # rows. If this is unset the audit reports those rows as UNCLASSIFIABLE rather than guessing —
+          # implementing the boundary without configuring it would leave every legacy row unclassified,
+          # which is why it is wired here and not only in the script.
+          SHARE_FEEDBACK_DEPLOYED_AT: ${{ vars.SHARE_FEEDBACK_DEPLOYED_AT }}
           AUDIT_EXCLUSION_LIST_REVIEWED_AT: ${{ vars.AUDIT_EXCLUSION_LIST_REVIEWED_AT }}
           # INPUTS:
           CONFIRM_EXCLUSION_MANIFEST_COMPLETE: ${{ github.event.inputs.confirm_exclusion_manifest_complete }}

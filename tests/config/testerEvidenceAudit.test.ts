@@ -277,9 +277,12 @@ describe('#1408s feedback routing — Issues, Comments and legacy rows are separ
     },
   });
 
-  const runWith = async (reports: Record<string, unknown>[]) => {
+  // The Share Feedback deployment moment. Rows before it came from an Issue-only journey.
+  const BOUNDARY = '2026-07-25T00:00:00Z';
+  const ENV_WITH_BOUNDARY = { ...BASE_ENV, SHARE_FEEDBACK_DEPLOYED_AT: BOUNDARY };
+  const runWith = async (reports: Record<string, unknown>[], env = ENV_WITH_BOUNDARY) => {
     const { report: out } = await runAudit({
-      createClient: mockCreateClient({ pages: [CAND], reports }), env: BASE_ENV, now: NOW,
+      createClient: mockCreateClient({ pages: [CAND], reports }), env, now: NOW,
     });
     return out ?? '';
   };
@@ -296,18 +299,61 @@ describe('#1408s feedback routing — Issues, Comments and legacy rows are separ
     expect(out).toMatch(/report\.comments\s*:\s*0/);
   });
 
-  it('CASUALTY: a legacy row with no kind is reported as unknown, never guessed into a bucket', async () => {
-    // Guessing would recreate the same lie in a quieter form: a pre-Share-Feedback row silently
-    // becoming an "Issue" is exactly the inflation this fixes.
-    const out = await runWith([withKind('r1', undefined)]);
-    expect(out).toMatch(/report\.legacy_unknown_kind\s*:\s*1/);
-    expect(out).toMatch(/report\.issues\s*:\s*0/);
-    expect(out).toMatch(/report\.comments\s*:\s*0/);
+  it('CASUALTY: a PRE-boundary missing kind is a legacy Issue, with its severity retained', async () => {
+    // The old journey accepted Issues only, so these rows ARE issues. Calling them unknown removed
+    // genuine historical defects from issue totals and severity triage.
+    const row = report({ id: 'r1', severity: 'critical', created_at: '2026-07-24T01:00:00Z',
+      metadata: { canonicalRoute: '/session', releaseId: 'rel' } });
+    const out = await runWith([row]);
+    expect(out).toMatch(/report\.issues\s*:\s*1/);
+    expect(out).toMatch(/report\.issues_legacy\s*:\s*1/);
+    expect(out).toMatch(/report\.unknown_kind\s*:\s*0/);
+    const sev = JSON.parse((out.match(/report\.issue_severity\s*:\s*(\{.*\})/) ?? [])[1] ?? '{}');
+    expect(sev.critical, 'a legacy Issue keeps its severity').toBe(1);
   });
 
-  it('CASUALTY: an unrecognised kind is treated as unknown, not accepted', async () => {
-    const out = await runWith([withKind('r1', 'praise')]);
-    expect(out).toMatch(/report\.legacy_unknown_kind\s*:\s*1/);
+  it('CASUALTY: a POST-boundary missing kind is unknown, never an Issue', async () => {
+    const row = report({ id: 'r1', created_at: '2026-07-26T01:00:00Z',
+      metadata: { canonicalRoute: '/session', releaseId: 'rel' } });
+    const out = await runWith([row]);
+    expect(out).toMatch(/report\.unknown_kind\s*:\s*1/);
+    expect(out).toMatch(/report\.issues\s*:\s*0/);
+  });
+
+  it('CASUALTY: an explicit kind overrides date-based legacy handling', async () => {
+    // A pre-boundary row that SAYS it is a Comment is a Comment. The date never reclassifies an
+    // explicit answer.
+    const row = report({ id: 'r1', created_at: '2026-07-24T01:00:00Z',
+      metadata: { canonicalRoute: '/session', releaseId: 'rel', feedback_kind: 'comment' } });
+    const out = await runWith([row]);
+    expect(out).toMatch(/report\.comments\s*:\s*1/);
+    expect(out).toMatch(/report\.issues\s*:\s*0/);
+  });
+
+  it('CASUALTY: with NO boundary configured, a missing kind is unclassifiable — not guessed', async () => {
+    // An invented timestamp would silently reclassify real rows. Being wrong in either direction is
+    // worse than declining.
+    const row = report({ id: 'r1', created_at: '2026-07-24T01:00:00Z',
+      metadata: { canonicalRoute: '/session', releaseId: 'rel' } });
+    const out = await runWith([row], BASE_ENV);
+    expect(out).toMatch(/report\.unclassifiable_no_boundary\s*:\s*1/);
+    expect(out).toMatch(/report\.issues\s*:\s*0/);
+    expect(out).toMatch(/report\.share_feedback_boundary_configured\s*:\s*false/);
+  });
+
+  it('CASUALTY: an unrecognised kind is unknown, not accepted', async () => {
+    const row = report({ id: 'r1', created_at: '2026-07-26T01:00:00Z',
+      metadata: { canonicalRoute: '/session', releaseId: 'rel', feedback_kind: 'praise' } });
+    expect(await runWith([row])).toMatch(/report\.unknown_kind\s*:\s*1/);
+  });
+
+  it('CASUALTY: Comments never enter issue severity totals', async () => {
+    const out = await runWith([
+      report({ id: 'r1', severity: 'critical', created_at: '2026-07-26T01:00:00Z',
+        metadata: { canonicalRoute: '/session', releaseId: 'rel', feedback_kind: 'comment' } }),
+    ]);
+    const sev = JSON.parse((out.match(/report\.issue_severity\s*:\s*(\{.*\})/) ?? [])[1] ?? '{}');
+    expect(Object.keys(sev), 'a Comment must contribute nothing to severity').toHaveLength(0);
   });
 
   it('CASUALTY: severity ranking covers ISSUES ONLY — a Comment is never severity-ranked', async () => {
@@ -324,12 +370,14 @@ describe('#1408s feedback routing — Issues, Comments and legacy rows are separ
   it('a mixed batch is reported with each kind separated and the total preserved', async () => {
     const out = await runWith([
       withKind('r1', 'issue'), withKind('r2', 'issue'),
-      withKind('r3', 'comment'), withKind('r4', undefined),
+      withKind('r3', 'comment'),
+      report({ id: 'r4', created_at: '2026-07-26T01:00:00Z',
+        metadata: { canonicalRoute: '/session', releaseId: 'rel' } }),
     ]);
+    // Totals must reconcile exactly to everything submitted: nothing double-counted, nothing lost.
     expect(out).toMatch(/report\.candidate_tester_reports\s*:\s*4/);
-    expect(out).toMatch(/report\.issues\s*:\s*2/);
-    expect(out).toMatch(/report\.comments\s*:\s*1/);
-    expect(out).toMatch(/report\.legacy_unknown_kind\s*:\s*1/);
+    const n = (k: string) => Number((out.match(new RegExp(`report\\.${k}\\s*:\\s*(\\d+)`)) ?? [])[1] ?? -1);
+    expect(n('issues') + n('comments') + n('unknown_kind') + n('unclassifiable_no_boundary')).toBe(4);
   });
 
   it('no raw user id, transcript or free-form content is emitted by the new fields', async () => {

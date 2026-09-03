@@ -209,20 +209,50 @@ export async function runAudit({ createClient = defaultCreateClient, env = proce
    * A row with no kind is LEGACY -- submitted before the field existed -- and is reported as `unknown`
    * rather than guessed into either bucket. Guessing would recreate the same lie in a quieter form.
    */
+  /**
+   * #1408 RETURN — A MISSING KIND IS NOT ALWAYS UNKNOWN.
+   *
+   * Before Share Feedback existed the product exposed an Issue-only journey, so every row from that era
+   * IS an issue. Classifying them all as `unknown` removed genuine historical defects from issue totals
+   * and from severity triage — the same inflation this work fixes, running in the other direction.
+   *
+   * The boundary is the Share Feedback deployment moment, supplied explicitly. It is never guessed and
+   * never hard-coded: an invented timestamp would silently reclassify real rows, and being wrong in
+   * either direction is worse than refusing. When a missing-kind row exists and no boundary is
+   * configured, classification FAILS rather than picking a side.
+   */
+  const boundaryRaw = env.SHARE_FEEDBACK_DEPLOYED_AT ?? null;
+  const boundaryMs = boundaryRaw ? Date.parse(boundaryRaw) : NaN;
+  const boundaryUsable = Number.isFinite(boundaryMs);
+
   const kindOf = (r) => {
     const k = r.metadata?.feedback_kind;
-    return k === 'issue' || k === 'comment' ? k : 'unknown';
+    // An explicit answer always wins: a row that says what it is is never reclassified by its date.
+    if (k === 'issue' || k === 'comment') return k;
+    if (!boundaryUsable) return 'unclassifiable';
+    const created = Date.parse(r.created_at ?? '');
+    if (!Number.isFinite(created)) return 'unknown';
+    return created < boundaryMs ? 'legacy_issue' : 'unknown';
   };
+  /** Everything that counts as a defect report: explicit Issues plus pre-boundary legacy rows. */
+  const isIssueLike = (r) => { const k = kindOf(r); return k === 'issue' || k === 'legacy_issue'; };
   const reportReport = (list) => ({
     candidate_tester_reports: list.length,
     // The defect-bearing subset. Severity ranking applies to THIS, never to the whole list.
-    issues: list.filter((r) => kindOf(r) === 'issue').length,
+    // Issues INCLUDING pre-boundary legacy rows, which came from an Issue-only journey.
+    issues: list.filter(isIssueLike).length,
+    issues_explicit: list.filter((r) => kindOf(r) === 'issue').length,
+    issues_legacy: list.filter((r) => kindOf(r) === 'legacy_issue').length,
     comments: list.filter((r) => kindOf(r) === 'comment').length,
-    legacy_unknown_kind: list.filter((r) => kindOf(r) === 'unknown').length,
+    // Post-boundary and missing: an instrumentation defect, never guessed into a bucket.
+    unknown_kind: list.filter((r) => kindOf(r) === 'unknown').length,
+    // No boundary configured while missing-kind rows exist: we decline to classify rather than pick.
+    unclassifiable_no_boundary: list.filter((r) => kindOf(r) === 'unclassifiable').length,
+    share_feedback_boundary_configured: boundaryUsable,
     by_feedback_kind: tally(list, kindOf),
-    // Severity is meaningful only for messages the user called a defect. Ranking a compliment by
-    // "impact" is how a Comment came to be presented as a defect in the first place.
-    issue_severity: tally(list.filter((r) => kindOf(r) === 'issue'), (r) => r.severity ?? r.metadata?.severity),
+    // Severity is meaningful only for defect reports. Ranking a compliment by "impact" is how a Comment
+    // came to be presented as a defect in the first place.
+    issue_severity: tally(list.filter(isIssueLike), (r) => r.severity ?? r.metadata?.severity),
     unique_reporters: new Set(list.map((r) => r.user_id)).size,
     by_issue_area: tally(list, (r) => r.metadata?.issueArea),
     by_page_key: tally(list, (r) => r.metadata?.pageKey),
