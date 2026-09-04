@@ -3,6 +3,7 @@ import posthog from 'posthog-js';
 import * as Sentry from "@sentry/react";
 import logger from '../lib/logger';
 import { sanitizePrivateTelemetryProps } from './transcription/privateTelemetrySanitizer';
+import { sanitizeV4TelemetryProps, isV4TelemetryEvent } from './transcription/privateV4TelemetrySanitizer';
 import { projectEventProps, isGovernedEvent, type GovernedEvent } from './telemetryAllowlist';
 import { buildEnvelope, stripEnvelopeKeys, type EnvelopeSources, type EventEnvelope } from './telemetry/envelope';
 import { buildTrafficSignals } from './telemetry/trafficType';
@@ -286,7 +287,17 @@ class AnalyticsBuffer {
       const isPrivateEvent = event.event.startsWith('private_');
       let sanitized: Record<string, unknown> | undefined;
       if (isPrivateEvent) {
-        sanitized = sanitizePrivateTelemetryProps(event.properties);
+        // #1259 — TWO ALLOWLISTS SHARE THE `private_*` NAMESPACE, so the namespace alone cannot pick one.
+        //
+        // `private_stt_v4_*` events used to leave through their own `posthog.capture` in
+        // privateV4Telemetry, which is why they had a separate projection at all. Routing them here
+        // without this branch would have applied the Private allowlist to them and dropped EVERY v4
+        // field — `engine`, `dtype`, `resolvedDevice`, `loadMs`, `fallbackReason` — turning a
+        // side-channel leak into three silently empty events, which is the worse failure: it looks
+        // like working telemetry.
+        sanitized = isV4TelemetryEvent(event.event)
+          ? sanitizeV4TelemetryProps(event.properties)
+          : sanitizePrivateTelemetryProps(event.properties);
       } else {
         const projected = projectEventProps(event.event, event.properties);
         sanitized = projected.props;

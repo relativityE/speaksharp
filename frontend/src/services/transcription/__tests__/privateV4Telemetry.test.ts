@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const captureMock = vi.fn();
-vi.mock('posthog-js', () => ({
-    default: {
-        capture: (...args: unknown[]) => captureMock(...args),
-    },
+// #1259 — the seam moved. `emitV4Telemetry` used to call `posthog.capture` directly, which is exactly
+// the second capture boundary this change retires, so asserting on a posthog mock here would keep
+// testing the defect. The emitter's contract is now "hand this event to the ONE governed boundary";
+// that the boundary then projects `private_stt_v4_*` through the v4 allowlist is proved at the
+// boundary itself, in AnalyticsBuffer.test.ts, where the real projection runs.
+const pushMock = vi.fn();
+vi.mock('@/services/AnalyticsBuffer', () => ({
+    analyticsBuffer: { push: (...args: unknown[]) => pushMock(...args) },
 }));
 vi.mock('@/lib/logger', () => ({
     default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -111,19 +114,21 @@ describe('emitV4Telemetry — events + capture', () => {
         });
     });
 
-    it('captures the event with sanitized props only (PII stripped before send)', () => {
+    it('hands the event to the single governed boundary, not to posthog directly', () => {
         emitV4Telemetry(V4_TELEMETRY_EVENTS.READY, {
             variant: 'base_q4',
             loadMs: 900,
             email: 'leak@example.com',
             transcript: 'secret words',
         });
-        expect(captureMock).toHaveBeenCalledTimes(1);
-        const [event, props] = captureMock.mock.calls[0];
+        expect(pushMock).toHaveBeenCalledTimes(1);
+        const [event, props, priority] = pushMock.mock.calls[0];
         expect(event).toBe('private_stt_v4_ready');
-        expect(props).toEqual({ variant: 'base_q4', loadMs: 900 });
-        expect(props).not.toHaveProperty('email');
-        expect(props).not.toHaveProperty('transcript');
+        expect(priority).toBe('LOW');
+        // The RAW props are handed over deliberately: projecting here as well would mean a caller who
+        // reaches the buffer another way is unprotected, and it would hide a boundary regression behind
+        // a producer that happened to sanitize first.
+        expect(props).toMatchObject({ variant: 'base_q4', loadMs: 900 });
     });
 
     it('convenience emitters fire the correct event names', () => {
@@ -132,7 +137,7 @@ describe('emitV4Telemetry — events + capture', () => {
         emitV4Fallback({ fallbackAttempted: true, fallbackReason: 'v4_init_failed' });
         emitV4SessionSaved({ saved: true });
         emitV4Error({ errorClass: 'LoadError' });
-        const events = captureMock.mock.calls.map((c) => c[0]);
+        const events = pushMock.mock.calls.map((c) => c[0]);
         expect(events).toEqual([
             'private_stt_v4_ready',
             'private_stt_v4_decode_complete',
@@ -142,8 +147,8 @@ describe('emitV4Telemetry — events + capture', () => {
         ]);
     });
 
-    it('never throws when posthog.capture throws (telemetry must not break the STT path)', () => {
-        captureMock.mockImplementationOnce(() => { throw new Error('posthog down'); });
+    it('never throws when the analytics boundary throws (telemetry must not break the STT path)', () => {
+        pushMock.mockImplementationOnce(() => { throw new Error('analytics down'); });
         expect(() => emitV4Ready({ variant: 'base_q4' })).not.toThrow();
     });
 });
