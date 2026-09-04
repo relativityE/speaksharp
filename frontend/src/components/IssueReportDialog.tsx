@@ -19,6 +19,7 @@ import {
   issueReportService,
   FEEDBACK_KINDS,
   FEEDBACK_KIND_LABELS,
+  COMMENT_SEVERITY,
   type FeedbackKind,
   type IssueReportCategory,
   type IssueReportSeverity,
@@ -140,7 +141,9 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
         userId: userId ?? null,
         sessionId: snapshotSessionId,
         category,
-        severity,
+        // A Comment has no impact rating. See COMMENT_SEVERITY: a placeholder defect severity would let
+        // consumers rank it beside real defects.
+        severity: feedbackKind === 'comment' ? (COMMENT_SEVERITY as unknown as IssueReportSeverity) : severity,
         title,
         description,
         pageUrl,
@@ -196,7 +199,15 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
             <select
               className="h-10 w-full rounded-md border border-input bg-muted/60 px-3 text-sm"
               value={feedbackKind}
-              onChange={(event) => setFeedbackKind(event.target.value as FeedbackKind | '')}
+              onChange={(event) => {
+                const next = event.target.value as FeedbackKind | '';
+                setFeedbackKind(next);
+                // Switching kind must not leave a hidden value behind. Choosing Comment after picking an
+                // Impact would otherwise keep that severity in state, invisible and still submittable if
+                // the user switched back; and returning to Issue must start from the explicit default
+                // rather than whatever was selected before.
+                setSeverity('medium');
+              }}
               data-testid="issue-report-feedback-kind"
               required
             >
@@ -219,7 +230,8 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1 text-sm font-medium">
-              Category
+              {/* Same control, honest label: "Category" reads as defect classification. */}
+              {feedbackKind === 'comment' ? 'Topic' : 'Category'}
               <select
                 className="h-10 w-full rounded-md border border-input bg-muted/60 px-3 text-sm"
                 value={category}
@@ -229,17 +241,22 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
                 {CATEGORIES.map((item) => <option key={item} value={item}>{CATEGORY_LABELS[item]}</option>)}
               </select>
             </label>
-            <label className="space-y-1 text-sm font-medium">
-              Impact
-              <select
-                className="h-10 w-full rounded-md border border-input bg-muted/60 px-3 text-sm"
-                value={severity}
-                onChange={(event) => setSeverity(event.target.value as IssueReportSeverity)}
-                data-testid="issue-report-severity"
-              >
-                {SEVERITIES.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-            </label>
+            {/* #1408 — IMPACT IS A DEFECT CONTROL. Asking someone sending praise to rate its "impact"
+                is the defect framing this correction removes; the answer would also be stored as a
+                severity and ranked beside real defects. */}
+            {feedbackKind !== 'comment' && (
+              <label className="space-y-1 text-sm font-medium">
+                Impact
+                <select
+                  className="h-10 w-full rounded-md border border-input bg-muted/60 px-3 text-sm"
+                  value={severity}
+                  onChange={(event) => setSeverity(event.target.value as IssueReportSeverity)}
+                  data-testid="issue-report-severity"
+                >
+                  {SEVERITIES.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+            )}
           </div>
 
           <label className="space-y-1 text-sm font-medium">
@@ -300,7 +317,9 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
             Cancel
           </Button>
           <Button type="button" onClick={() => { void submit(); }} disabled={!canSubmit} data-testid="issue-report-submit">
-            {isSubmitting ? 'Submitting...' : 'Submit report'}
+            {/* #1408 — "Submit report" is the last piece of defect framing on the Comment path. The
+                whole form is Share Feedback; the verb is the same for both kinds. */}
+            {isSubmitting ? 'Submitting...' : 'Submit feedback'}
           </Button>
         </DialogFooter>
       </DialogContent>

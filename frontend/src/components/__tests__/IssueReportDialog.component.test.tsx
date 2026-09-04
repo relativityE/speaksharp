@@ -286,14 +286,18 @@ describe('#1408 — dialog instructions are kind-neutral', () => {
     expect(desc.placeholder.length).toBeGreaterThan(0);
   });
 
-  it('the description invites more than defects, without branching on the chosen kind', async () => {
+  it('the shared INSTRUCTIONS invite more than defects and do not branch on the chosen kind', async () => {
+    // NARROWED by the #1408 RETURN. This previously required the dialog's ENTIRE text to be byte-
+    // identical across kinds. That is now wrong: a Comment must not be shown the Impact control, and
+    // "Category" becomes "Topic". The instruction paragraph is what must not branch — the field SET
+    // legitimately differs, because asking for a defect's impact is itself the defect framing.
     const user = await openDialog();
-    const dialog = screen.getByRole('dialog');
-    const before = dialog.textContent ?? '';
+    const instructions = () =>
+      screen.getByRole('dialog').querySelector('[data-slot="dialog-description"], p')?.textContent ?? '';
+    const before = instructions();
     expect(before).toMatch(/question|idea|worked well/i);
-    // The SAME words must stand for both kinds — conditional copy was explicitly excluded.
     await user.selectOptions(screen.getByTestId('issue-report-feedback-kind'), 'comment');
-    expect(screen.getByRole('dialog').textContent).toBe(before);
+    expect(instructions(), 'the shared instructions must read the same for both kinds').toBe(before);
   });
 
   /**
@@ -398,5 +402,102 @@ describe('#1404 — renamed labels, unchanged behaviour', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/could not be submitted/i));
     expect(toast.error).not.toHaveBeenCalledWith(expect.stringMatching(/^Issue report/i));
+  });
+});
+
+/**
+ * #1408 RETURN — the Comment journey must actually be neutral, not merely relabelled.
+ *
+ * The kind selector and the surrounding copy were fixed, but the FORM was not: after choosing Comment a
+ * user was still asked to rate "Impact", still saw defect-oriented classification, and still pressed
+ * "Submit report". The message was then stored with a real defect severity, so any consumer ranking by
+ * impact would rank praise beside defects — the exact failure the routing work exists to remove.
+ */
+describe('#1408 RETURN — Comment is not a defect report in the rendered form', () => {
+  beforeEach(() => { mockSubmit.mockClear(); });
+
+  const openAs = async (kind: 'issue' | 'comment') => {
+    const user = userEvent.setup();
+    render(<IssueReportDialog userId="u1" />, { route: '/session' });
+    await user.click(screen.getByTestId('nav-report-issue-button'));
+    await user.selectOptions(await screen.findByTestId('issue-report-feedback-kind'), kind);
+    return user;
+  };
+
+  it('CASUALTY: Comment shows NO Impact control', async () => {
+    await openAs('comment');
+    expect(screen.queryByTestId('issue-report-severity'),
+      'asking someone sending praise to rate its impact is the defect framing').toBeNull();
+    expect(screen.queryByText('Impact')).toBeNull();
+  });
+
+  it('CASUALTY: Comment uses neutral Topic wording, not defect Category', async () => {
+    await openAs('comment');
+    expect(screen.getByText('Topic')).toBeInTheDocument();
+    expect(screen.queryByText('Category')).toBeNull();
+  });
+
+  it('CASUALTY: the submit control says "Submit feedback", never "Submit report"', async () => {
+    await openAs('comment');
+    const submit = screen.getByTestId('issue-report-submit');
+    expect(submit).toHaveTextContent('Submit feedback');
+    expect(submit).not.toHaveTextContent('Submit report');
+  });
+
+  it('CASUALTY: a Comment persists no meaningful defect severity', async () => {
+    const user = await openAs('comment');
+    await user.type(screen.getByTestId('issue-report-title'), 'The rail is clear');
+    await user.type(screen.getByTestId('issue-report-description'), 'Seeing missed points helped a lot.');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    const arg = mockSubmit.mock.calls[0][0];
+    expect(arg.metadata).toMatchObject({ feedback_kind: 'comment' });
+    expect(arg.severity, 'a placeholder defect severity would let consumers rank a compliment')
+      .toBe('not_applicable');
+    expect(['low', 'medium', 'high', 'critical']).not.toContain(arg.severity);
+  });
+
+  it('POSITIVE CONTROL: Issue keeps Category, Impact and its severity', async () => {
+    const user = await openAs('issue');
+    expect(screen.getByTestId('issue-report-severity')).toBeInTheDocument();
+    expect(screen.getByText('Category')).toBeInTheDocument();
+    await user.selectOptions(screen.getByTestId('issue-report-severity'), 'critical');
+    await user.type(screen.getByTestId('issue-report-title'), 'Mic did not start');
+    await user.type(screen.getByTestId('issue-report-description'), 'Pressed record and nothing happened.');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    const arg = mockSubmit.mock.calls[0][0];
+    expect(arg.severity).toBe('critical');
+    expect(arg.metadata).toMatchObject({ feedback_kind: 'issue' });
+  });
+
+  it('CASUALTY: switching Issue → Comment discards the chosen Impact', async () => {
+    // Otherwise the severity stays in state, invisible and still submittable.
+    const user = await openAs('issue');
+    await user.selectOptions(screen.getByTestId('issue-report-severity'), 'critical');
+    await user.selectOptions(screen.getByTestId('issue-report-feedback-kind'), 'comment');
+    await user.type(screen.getByTestId('issue-report-title'), 'A kind word');
+    await user.type(screen.getByTestId('issue-report-description'), 'Thanks for the coverage rail.');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalled());
+    expect(mockSubmit.mock.calls[0][0].severity).toBe('not_applicable');
+  });
+
+  it('CASUALTY: switching Comment → Issue starts from an explicit default, not a stale value', async () => {
+    const user = await openAs('issue');
+    await user.selectOptions(screen.getByTestId('issue-report-severity'), 'critical');
+    await user.selectOptions(screen.getByTestId('issue-report-feedback-kind'), 'comment');
+    await user.selectOptions(screen.getByTestId('issue-report-feedback-kind'), 'issue');
+    expect((screen.getByTestId('issue-report-severity') as HTMLSelectElement).value,
+      'the previous critical must not silently return').toBe('medium');
+  });
+
+  it('reopening after a Comment resets the form to an unchosen kind', async () => {
+    const user = await openAs('comment');
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByTestId('issue-report-feedback-kind')).not.toBeInTheDocument());
+    await user.click(screen.getByTestId('nav-report-issue-button'));
+    const kind = await screen.findByTestId('issue-report-feedback-kind');
+    expect((kind as HTMLSelectElement).value).toBe('');
   });
 });
