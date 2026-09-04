@@ -1,5 +1,11 @@
 import logger from '@/lib/logger';
 import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
+import {
+    emitRecordingState, emitStageLatency, markRuntimeReady, clearRuntimeReady, msSinceIntent, msSinceReady,
+} from '@/services/telemetry/journeyEvents';
+import {
+    beginRecordingAttempt, endRecordingAttempt,
+} from '@/services/telemetry/journeyIdentity';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import { toSanitizedCause } from '@/lib/sanitizeStartError';
@@ -1762,6 +1768,49 @@ export class SpeechRuntimeController {
 
         const previousState = this.state;
         this.state = newState;
+
+        // #1259 F01/F16 — THE TRANSITION IS THE EVENT. Emitted here, at the one place the state
+        // actually changes, so no caller can report a state the machine did not reach. A transition to
+        // the SAME state is not reported: repeated identical state is the polling noise this replaces.
+        if (previousState !== newState) {
+            try {
+                if (newState === 'READY') {
+                    // How long acquisition took, as its OWN stage. `private_setup_succeeded` already
+                    // carries a setup duration, but only for the Private path; this covers the state
+                    // machine's own view and survives an engine that reports nothing.
+                    if (previousState === 'ENGINE_INITIALIZING' || previousState === 'DOWNLOAD_REQUIRED') {
+                        const acquisition = msSinceIntent();
+                        if (acquisition !== null) emitStageLatency('model_acquisition', acquisition);
+                    }
+                    // Dates the user's wait. Production shows 113s and 126s between this moment and the
+                    // start event; without the mark, that wait cannot be attached to the click.
+                    markRuntimeReady();
+                } else if (newState === 'TERMINATED' || newState === 'IDLE') {
+                    // A torn-down engine's readiness must not date the NEXT intent as though the user
+                    // had been waiting since before the teardown.
+                    clearRuntimeReady();
+                    endRecordingAttempt();
+                } else if (newState === 'RECORDING') {
+                    // The attempt opens where recording actually begins, not where it was requested —
+                    // a refused or hung start must not consume an attempt ordinal.
+                    beginRecordingAttempt();
+                    // The two halves of the wait, kept apart. `ready_to_intent` is how long the user sat
+                    // looking at a ready control; `intent_to_recording` is how long the click took to
+                    // become a recording. One total cannot tell those apart, and they have different fixes.
+                    const readyWait = msSinceReady();
+                    if (readyWait !== null) emitStageLatency('ready_to_intent', readyWait);
+                    const startWait = msSinceIntent();
+                    if (startWait !== null) emitStageLatency('intent_to_recording', startWait);
+                } else if (newState === 'STOPPING' && previousState === 'RECORDING') {
+                    const stopWait = msSinceIntent();
+                    if (stopWait !== null) emitStageLatency('recording_to_stop_intent', stopWait);
+                }
+                emitRecordingState(previousState, newState, error?.name ?? null);
+            } catch {
+                /* telemetry must never affect the state machine */
+            }
+        }
+
         this.syncProvider(this.lifecycleVersion);
 
         // #1033 (B): a terminal failure of a recording that BEGAN must never leave the user locked with no

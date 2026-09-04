@@ -189,6 +189,38 @@ export const EVENT_SCHEMAS = Object.freeze({
         attempts: { kind: 'int', min: 0, max: 10_000 } as FieldRule,
     },
 
+    // ── F01 / F16: recording intent, state, and per-stage latency ───────────
+    /**
+     * THE CLICK, not the success. `session_started` is pushed only after `startRecording()` resolves,
+     * so a refused click emits nothing and is indistinguishable from a click never made. Every path in
+     * `handleStartStop` that returns early now reports its reason here.
+     */
+    recording_intent: {
+        intent_kind: enumOf(['start', 'stop']),
+        intent_outcome: enumOf([
+            'accepted', 'suppressed_in_flight', 'suppressed_finalizing',
+            'blocked_usage_limit', 'blocked_stale_client', 'blocked_lock_held', 'failed',
+        ]),
+        runtime_state_at_intent: enumOf(RUNTIME_STATES),
+        model_ready: { kind: 'bool' } as FieldRule,
+        ms_since_ready: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+    },
+    /** Transitions only. A poll of unchanged state is the noise this deliberately does not emit. */
+    recording_state: {
+        from_state: enumOf(RUNTIME_STATES),
+        to_state: enumOf(RUNTIME_STATES),
+        transition_cause: slug(),
+        ms_since_intent: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+    },
+    /** One stage per row. A single stop-to-review total answers none of F16's six questions. */
+    stage_latency: {
+        stage: enumOf([
+            'model_acquisition', 'ready_to_intent', 'intent_to_recording',
+            'recording_to_stop_intent', 'stop_intent_to_termination',
+        ]),
+        duration_ms: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+    },
+
     // ── conversion funnel ───────────────────────────────────────────────────
     conversion_cta_viewed: CONVERSION_FIELDS,
     conversion_cta_clicked: CONVERSION_FIELDS,

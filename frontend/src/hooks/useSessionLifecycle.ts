@@ -23,6 +23,7 @@ import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcrip
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import { emitRecordingIntent } from '@/services/telemetry/journeyEvents';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 
@@ -193,7 +194,25 @@ export const useSessionLifecycle = () => {
         const latestRuntimeState = latestSessionState.runtimeState;
         const shouldStop = latestSessionState.isListening || latestRuntimeState === 'RECORDING' || latestRuntimeState === 'STOPPING';
 
-        if (isProcessingRef.current && !shouldStop) return;
+        // #1259 F01 — the intent is the fact. Every path below returns before recording begins, and
+        // until now every one of them was silent to analytics: a refused click and a click never made
+        // produced identical telemetry (none).
+        const modelReadyAtIntent = latestRuntimeState === 'READY' || latestRuntimeState === 'RECORDING';
+        const reportIntent = (outcome: Parameters<typeof emitRecordingIntent>[0]['outcome']) =>
+            emitRecordingIntent({
+                kind: shouldStop ? 'stop' : 'start',
+                outcome,
+                runtimeState: latestRuntimeState ?? null,
+                modelReady: modelReadyAtIntent,
+            });
+
+        if (isProcessingRef.current && !shouldStop) {
+            // A SECOND CLICK WHILE THE FIRST IS IN FLIGHT. This returned with no log and no event, so
+            // "two clicks required" and "one click, silent wait" were indistinguishable in the data —
+            // which is exactly the distinction F01 asks for.
+            reportIntent('suppressed_in_flight');
+            return;
+        }
         // #1089 STRAY RECORDING: after an automatic stop the runtime FSM returns to READY while the
         // whole-utterance decode is still running, so the record control was briefly live and labelled
         // "Start". A user reaching for Stop then began a SECOND recording (the observed stray 9-second
@@ -201,6 +220,7 @@ export const useSessionLifecycle = () => {
         // completes. This is a guard, not UI polish — never rely on the disabled button alone.
         if (!shouldStop && useSessionStore.getState().isTranscriptFinalizing) {
             logger.warn('[useSessionLifecycle] ⛔ Start ignored: previous recording is still finalizing');
+            reportIntent('suppressed_finalizing');
             return;
         }
         isProcessingRef.current = true;
@@ -302,6 +322,7 @@ export const useSessionLifecycle = () => {
                     : rawError;
                 const prefix = errorMsg.startsWith('⚠️') || errorMsg.startsWith('⛔') ? '' : '⛔ ';
                 setSTTStatus({ type: 'error', message: `${prefix}${errorMsg}` });
+                reportIntent('blocked_usage_limit');
                 isProcessingRef.current = false;
                 return;
             }
@@ -315,6 +336,7 @@ export const useSessionLifecycle = () => {
                         type: 'error',
                         message: '⛔ Active session in another tab. Switch to that tab to continue.'
                     });
+                    reportIntent('blocked_lock_held');
                     return;
                 }
 
@@ -352,6 +374,7 @@ export const useSessionLifecycle = () => {
                         attempts: freshness.attempts,
                     });
                     setSTTStatus({ type: 'error', message: blockedMessage(freshness.status) ?? '' });
+                    reportIntent('blocked_stale_client');
                     return;
                 }
 
@@ -364,6 +387,10 @@ export const useSessionLifecycle = () => {
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
                 const latestMode = requestedMode;
                 const selectedPolicy = buildPolicyForUser(canUsePrivateStt, latestMode);
+                // Emitted BEFORE the await. `session_started` is pushed only after startRecording
+                // RESOLVES — so a start that hangs (the 113s and 126s waits Production already shows)
+                // records nothing at all today. The accepted intent is what makes the hang visible.
+                reportIntent('accepted');
                 await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                 analyticsBuffer.push('session_started', {
                     mode: latestMode,
@@ -414,6 +441,7 @@ export const useSessionLifecycle = () => {
                     });
                     Sentry.captureException(err);
                 });
+                reportIntent('failed');
                 analyticsBuffer.push('recording_start_failed', {
                     mode: latestMode,
                     requested_mode: requestedMode,
