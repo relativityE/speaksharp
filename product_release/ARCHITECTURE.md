@@ -174,7 +174,7 @@ boundary:
 | Data | Leaves the device? | Stored server-side? | Third party? |
 |---|---|---|---|
 | Raw audio | No | No | No |
-| Transcript text | **Yes**, on save (`p_final_transcript` → `complete_session_v2`) | **Yes**, bounded to the newest saved session | **Yes**, on explicit user request — `get-ai-suggestions` → Google Gemini |
+| Transcript text | **Yes**, on save (`p_final_transcript` → `complete_session_v2`) | **Yes**, bounded to the two newest transcript-bearing saved sessions | **Yes**, on explicit user request — `get-ai-suggestions` → Google Gemini |
 | Derived metrics | Yes | Yes | Only within a coaching request |
 
 "Private STT audio never leaves the browser" is correct. It does **not** imply the transcript stays local.
