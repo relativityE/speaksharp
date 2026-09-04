@@ -5,10 +5,20 @@ import { createProgressAggregator, type ProgressEvent } from './progressAggregat
 import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
 
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
+import { observeAcquisitionNetwork } from '../acquisitionNetworkObservation';
+import type { AcquisitionReceipt } from '../acquisitionAttempt';
 type WhisperDecodeOptions = Record<string, unknown>;
 
 type WorkerRequest =
-    | { id: number; type: 'init'; isE2E: boolean; model?: { key: string; localId: string; remoteId: string } }
+    | {
+        id: number; type: 'init'; isE2E: boolean;
+        model?: { key: string; localId: string; remoteId: string };
+        /** #1259: URL prefixes identifying this candidate's assets, so the receipt below counts model
+         *  fetches and not whatever else the worker might request. */
+        assetPrefixes?: string[];
+        /** #1259: the attempt this load belongs to. Echoed back so a superseded receipt is detectable. */
+        attempt?: { token: string; candidateId: string };
+      }
     | { id: number; type: 'transcribe'; audio: Float32Array; decodeOptions?: WhisperDecodeOptions; captureEvidence?: boolean }
     | { id: number; type: 'destroy' };
 
@@ -25,6 +35,18 @@ type WorkerResponse =
         configuredThreads: number | null;
         workerReportedThreads: null;
         crossOriginIsolated: boolean;
+        /**
+         * #1259 — THE ACQUISITION RECEIPT, MEASURED WHERE THE BYTES ACTUALLY ARRIVE.
+         *
+         * The model is fetched HERE, inside the worker, so these requests are recorded on the WORKER's
+         * performance timeline. `window.performance` on the main thread cannot see them at all: an
+         * observer there finds zero matching entries and honestly reports null bytes, null duration and
+         * unknown network use for every real v2 and v4 load — which is no measurement at all.
+         *
+         * Content-free by construction: counts, bytes, milliseconds and booleans. No URL, no asset name,
+         * no path. A pinned asset URL can identify a build, so none crosses this boundary.
+         */
+        acquisition: AcquisitionReceipt | null;
       }
     | {
         id: number;
@@ -70,7 +92,14 @@ function post(response: WorkerResponse): void {
     self.postMessage(response);
 }
 
-async function init(id: number, isE2E: boolean, model?: { key: string; localId: string; remoteId: string }): Promise<void> {
+async function init(
+    id: number, isE2E: boolean,
+    model?: { key: string; localId: string; remoteId: string },
+    // #1259: supplied by the main thread, which knows the selected candidate. Empty means the receipt
+    // reports itself unobservable rather than counting whatever happened to be fetched.
+    assetPrefixes: string[] = [],
+    attempt?: { token: string; candidateId: string },
+): Promise<void> {
     if (transcriber) {
         post({ id, type: 'ready' });
         return;
@@ -158,10 +187,34 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
         throw new Error(`MODEL_LOAD_FAILED [${loadedModelKey} local /models/${localModelId}]: ${detail}`);
     }
 
+    // Read the WORKER's own Resource Timing for the window this load occupied. `self.performance` is
+    // the worker timeline; it is the only place these fetches appear — measured, not assumed: see
+    // tests/e2e/worker-acquisition-timeline.e2e.spec.ts, where the window records zero.
+    //
+    // Taken AFTER the load has fully settled, deliberately. A resource entry is recorded when the
+    // response BODY completes, not when its headers arrive, so a reading taken mid-load would find
+    // fewer entries than were actually fetched and under-report the transfer.
+    let acquisition: AcquisitionReceipt | null = null;
+    try {
+        // NO RECEIPT WITHOUT AN IDENTITY. An observation that cannot say which attempt it describes is
+        // indistinguishable from a stale one, and the consumer would have to guess.
+        acquisition = attempt
+            ? {
+                ...observeAcquisitionNetwork(assetPrefixes, loadStart, self.performance),
+                attemptToken: attempt.token,
+                candidateId: attempt.candidateId,
+            }
+            : null;
+    } catch {
+        // A receipt we could not take is ABSENT, never a zero. Telemetry must not fail a model load.
+        acquisition = null;
+    }
+
     post({
         id,
         type: 'loaded',
         loadTimeMs: Math.round(performance.now() - loadStart),
+        acquisition,
         model: loadedModelKey,
         device: configuredThreads == null
             ? 'wasm-default-unverified'
@@ -223,7 +276,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         try {
             switch (request.type) {
                 case 'init':
-                    await init(request.id, request.isE2E, request.model);
+                    await init(request.id, request.isE2E, request.model, request.assetPrefixes ?? [], request.attempt);
                     break;
                 case 'transcribe':
                     await transcribe(request.id, request.audio, request.decodeOptions, request.captureEvidence);

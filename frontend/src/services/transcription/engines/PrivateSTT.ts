@@ -64,6 +64,7 @@ import {
 import type { Candidate } from '../candidateRegistry';
 import { assetRequestsFor, assetOriginPrefixes } from '../candidateAssetRequests';
 import { observeAcquisitionNetwork } from '../acquisitionNetworkObservation';
+import { receiptMatches, type AcquisitionAttempt, type AcquisitionReceipt } from '../acquisitionAttempt';
 // Stale import removed
 
 declare global {
@@ -748,10 +749,33 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             const totalMs = Math.round(performance.now() - startedAt);
             if (outcome.isOk) {
                 this.publishResolvedIdentity();
-                // MEASURED, NOT PREDICTED. The previous version derived `network_used` from the cache
-                // classification taken BEFORE the load — a forecast, not an observation of what the
-                // browser actually fetched.
-                const observed = observeAcquisitionNetwork(prefixes, startedAt);
+                // MEASURED, NOT PREDICTED, AND MEASURED WHERE THE BYTES ACTUALLY ARRIVE.
+                //
+                // v2 and v4 fetch their models inside a Web Worker, so those requests are recorded on
+                // the WORKER's performance timeline. Reading `window.performance` here finds nothing
+                // for them — it would honestly report an absent observation for the two candidates
+                // that matter most, which is no measurement at all. The engine therefore hands back
+                // the receipt its worker took, and that is preferred whenever it exists.
+                //
+                // The main-window read remains the fallback for an engine that loads on this thread.
+                // The two are never merged: a receipt is one observation or the other, never a blend.
+                // AND IT MUST BE THIS LOAD'S RECEIPT. The engine already refuses one that does not match
+                // its own in-flight attempt; this second check catches the case the engine cannot see —
+                // a receipt from an engine instance this acquisition has already replaced.
+                const acquiring = this.engine as {
+                    getAcquisitionReceipt?: () => AcquisitionReceipt | null;
+                    getAcquisitionAttempt?: () => AcquisitionAttempt | null;
+                };
+                const workerReceipt = acquiring.getAcquisitionReceipt?.() ?? null;
+                const boundToThisLoad = receiptMatches(workerReceipt, acquiring.getAcquisitionAttempt?.() ?? null)
+                    && workerReceipt?.candidateId === candidate?.id;
+
+                // NEVER BLENDED. A receipt is one observation or the other. Merging a worker's byte count
+                // with a main-window duration would produce a row that describes no single load, and
+                // nothing downstream could tell it apart from a real one.
+                const observed = boundToThisLoad && workerReceipt
+                    ? workerReceipt
+                    : observeAcquisitionNetwork(prefixes, startedAt);
                 recordAcquisitionSuccess(subject, {
                     cacheResult,
                     networkUsed: observed.networkUsed,

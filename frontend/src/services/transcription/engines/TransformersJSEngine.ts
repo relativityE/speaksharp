@@ -26,13 +26,24 @@ import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_MODELS, samplesToSeconds } from '.
 import { resolvePrivateModel, publishPrivateModelTelemetry } from '../utils/privateModelFlag';
 import workerUrl from './transformers-js.worker.ts?worker&url';
 import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
+import { assetOriginPrefixes } from '../candidateAssetRequests';
+import { effectiveCandidate } from '../candidateSelection';
+import {
+    mintAcquisitionAttempt, receiptMatches,
+    type AcquisitionAttempt, type AcquisitionReceipt,
+} from '../acquisitionAttempt';
 
 // Lazy-load transformers.js to avoid bundle bloat
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
 type UnknownRecord = Record<string, unknown>;
 type WhisperDecodeOptions = Record<string, unknown>;
 type WorkerRequest =
-    | { type: 'init'; isE2E: boolean; model?: { key: string; localId: string; remoteId: string } }
+    | {
+        type: 'init'; isE2E: boolean;
+        model?: { key: string; localId: string; remoteId: string };
+        assetPrefixes?: string[];
+        attempt?: AcquisitionAttempt;
+      }
     | { type: 'transcribe'; audio: Float32Array; decodeOptions?: WhisperDecodeOptions; captureEvidence?: boolean }
     | { type: 'destroy' };
 type WorkerResponse =
@@ -48,6 +59,8 @@ type WorkerResponse =
         configuredThreads?: number | null;
         workerReportedThreads?: number | null;
         crossOriginIsolated?: boolean;
+        /** #1259: the acquisition receipt, measured on the WORKER timeline where the bytes arrive. */
+        acquisition?: AcquisitionReceipt | null;
       }
     | {
         id: number;
@@ -554,7 +567,88 @@ export class TransformersJSEngine extends STTEngine {
         }
     }
 
+
+    /** The worker message handler. Extracted from the constructor closure so it can be driven directly. */
+    private handleWorkerMessage(response: WorkerResponse, options: TranscriptionModeOptions): void {
+        if (response.type === 'progress') {
+            options.onModelLoadProgress?.(response.progress);
+            return;
+        }
+
+        if (response.type === 'loaded') {
+            // #1259: THE RECEIPT IS CAPTURED HERE, where the worker reports it. The main window's
+            // Resource Timing never saw these fetches — they happened on the worker's timeline —
+            // so this message is the only observation of the real transfer that exists.
+            // ACCEPTED ONLY IF IT IS THIS ATTEMPT'S. A receipt from a superseded load — a candidate
+            // switch, a retry after failure, a torn-down worker answering late — describes a
+            // different acquisition, and attributing its numbers here is how model selection would
+            // be argued from the wrong download. Exactly once, too: a duplicate cannot overwrite.
+            const incoming = response.acquisition ?? null;
+            if (receiptMatches(incoming, this.activeAttempt) && this.acquisitionReceipt === null) {
+                this.acquisitionReceipt = incoming;
+            } else if (incoming) {
+                logger.warn({
+                    sId: this.serviceId,
+                    event: 'acquisition_receipt_rejected',
+                    reason: this.acquisitionReceipt !== null ? 'duplicate' : 'stale_or_wrong_candidate',
+                }, '[TransformersJS] ignoring an acquisition receipt that does not match the active attempt');
+            }
+            logger.info({
+                sId: this.serviceId,
+                rId: this.runId,
+                eId: this.instanceId,
+                event: 'model_loaded',
+                model: response.model,
+                load_time_ms: response.loadTimeMs,
+                engine: 'transformersjs-worker',
+                device: response.device,
+                requestedThreads: response.requestedThreads,
+                configuredThreads: response.configuredThreads,
+                workerReportedThreads: response.workerReportedThreads,
+                crossOriginIsolated: response.crossOriginIsolated,
+            }, '[TransformersJS] Worker engine initialized successfully.');
+            window.__PRIVATE_V2_WORKER_RUNTIME_EVIDENCE__ = {
+                model: response.model,
+                device: response.device ?? null,
+                requestedThreads: response.requestedThreads ?? null,
+                configuredThreads: response.configuredThreads ?? null,
+                workerReportedThreads: response.workerReportedThreads ?? null,
+                crossOriginIsolated: response.crossOriginIsolated === true,
+                modelLoadTimeMs: response.loadTimeMs,
+            };
+            // Model-eval: record the ACTUAL model load time for the A/B download/latency trade-off.
+            const loadedModelKey = resolvePrivateModel();
+            publishPrivateModelTelemetry({
+                model: loadedModelKey,
+                runtime: 'transformers-js',
+                approxMB: PRIV_STT_MODELS.CANDIDATES[loadedModelKey].approxMB,
+                overridden: false,
+                selectionSource: 'default',
+                loadTimeMs: response.loadTimeMs,
+                // Default tiny is bundled (local→remote fallback); candidates are remote-only.
+                fallbackPath: loadedModelKey === PRIV_STT_MODELS.DEFAULT ? 'local-then-remote' : 'remote-only',
+                // Privacy invariant: Private STT never routes to Cloud.
+                cloudFallbackAttempted: false,
+            });
+            return;
+        }
+
+        const pending = this.pendingWorkerRequests.get(response.id);
+        if (!pending) return;
+        this.pendingWorkerRequests.delete(response.id);
+        clearTimeout(pending.timeoutId);
+
+        if (response.type === 'error') {
+            pending.reject(new Error(response.errorMessage));
+        } else {
+            pending.resolve(response);
+        }
+    }
+
     async terminate(): Promise<void> {
+        // #1259: teardown retires the attempt too. A worker answering after termination describes an
+        // acquisition nobody is waiting for.
+        this.activeAttempt = null;
         await this.destroy();
     }
 
@@ -566,71 +660,40 @@ export class TransformersJSEngine extends STTEngine {
             !ENV.isTest;
     }
 
+    /** #1259: the worker's own acquisition observation, or null when it could not be taken. */
+    private acquisitionReceipt: AcquisitionReceipt | null = null;
+    /** The attempt currently in flight. Retired the moment the load settles, so a late receipt has
+     *  nothing to match against. */
+    private activeAttempt: AcquisitionAttempt | null = null;
+
+    /**
+     * What the WORKER measured while acquiring the model.
+     *
+     * Null means no receipt arrived, which is different from a receipt reporting zero: the first is an
+     * absent observation, the second is a measured one. The caller must not collapse them.
+     */
+    public getAcquisitionReceipt(): AcquisitionReceipt | null {
+        return this.acquisitionReceipt;
+    }
+
+    /** The attempt this engine last minted, so a caller can confirm the receipt is the one it asked for. */
+    public getAcquisitionAttempt(): AcquisitionAttempt | null {
+        return this.settledAttempt;
+    }
+
+    /** Retained after settlement purely so the caller can verify; never used to accept a receipt. */
+    private settledAttempt: AcquisitionAttempt | null = null;
+
     private async initWorker(isMock?: boolean): Promise<void> {
         const options = (this.options || {}) as TranscriptionModeOptions;
         // STT-P6-HUMAN: reject an explicitly-requested-but-unsupported `?privateModel=` flag here,
         // before any worker/model load, instead of silently running tiny (which made invalid model
         // requests look honored). No flag or a valid candidate → no-op (default path unchanged).
         this.worker = new Worker(workerUrl, { type: 'module' });
-        this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
-            const response = event.data;
-            if (response.type === 'progress') {
-                options.onModelLoadProgress?.(response.progress);
-                return;
-            }
-
-            if (response.type === 'loaded') {
-                logger.info({
-                    sId: this.serviceId,
-                    rId: this.runId,
-                    eId: this.instanceId,
-                    event: 'model_loaded',
-                    model: response.model,
-                    load_time_ms: response.loadTimeMs,
-                    engine: 'transformersjs-worker',
-                    device: response.device,
-                    requestedThreads: response.requestedThreads,
-                    configuredThreads: response.configuredThreads,
-                    workerReportedThreads: response.workerReportedThreads,
-                    crossOriginIsolated: response.crossOriginIsolated,
-                }, '[TransformersJS] Worker engine initialized successfully.');
-                window.__PRIVATE_V2_WORKER_RUNTIME_EVIDENCE__ = {
-                    model: response.model,
-                    device: response.device ?? null,
-                    requestedThreads: response.requestedThreads ?? null,
-                    configuredThreads: response.configuredThreads ?? null,
-                    workerReportedThreads: response.workerReportedThreads ?? null,
-                    crossOriginIsolated: response.crossOriginIsolated === true,
-                    modelLoadTimeMs: response.loadTimeMs,
-                };
-                // Model-eval: record the ACTUAL model load time for the A/B download/latency trade-off.
-                const loadedModelKey = resolvePrivateModel();
-                publishPrivateModelTelemetry({
-                    model: loadedModelKey,
-                    runtime: 'transformers-js',
-                    approxMB: PRIV_STT_MODELS.CANDIDATES[loadedModelKey].approxMB,
-                    overridden: false,
-                    selectionSource: 'default',
-                    loadTimeMs: response.loadTimeMs,
-                    // Default tiny is bundled (local→remote fallback); candidates are remote-only.
-                    fallbackPath: loadedModelKey === PRIV_STT_MODELS.DEFAULT ? 'local-then-remote' : 'remote-only',
-                    // Privacy invariant: Private STT never routes to Cloud.
-                    cloudFallbackAttempted: false,
-                });
-                return;
-            }
-
-            const pending = this.pendingWorkerRequests.get(response.id);
-            if (!pending) return;
-            this.pendingWorkerRequests.delete(response.id);
-            clearTimeout(pending.timeoutId);
-
-            if (response.type === 'error') {
-                pending.reject(new Error(response.errorMessage));
-            } else {
-                pending.resolve(response);
-            }
-        };
+        // #1259: assigned through a NAMED method so the acceptance decision below is addressable by
+        // test. An inline closure can only be exercised by constructing a real Worker, which means the
+        // receipt-authority rules could only ever be asserted about the source rather than run.
+        this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => this.handleWorkerMessage(event.data, options);
         this.worker.onerror = (event) => {
             const error = new Error(event.message || 'TransformersJS worker failed.');
             this.pendingWorkerRequests.forEach(({ reject, timeoutId }) => {
@@ -654,11 +717,32 @@ export class TransformersJSEngine extends STTEngine {
             fallbackPath: selectedModel === PRIV_STT_MODELS.DEFAULT ? 'local-then-remote' : 'remote-only',
             cloudFallbackAttempted: false,
         });
-        const response = await this.sendWorkerRequest({
-            type: 'init',
-            isE2E: Boolean(isMock),
-            model: { key: selectedModel, localId: modelCfg.localId, remoteId: modelCfg.remoteId },
-        });
+        // MINTED BEFORE ANYTHING IS FETCHED, from the candidate frozen at this instant.
+        const candidateForAttempt = effectiveCandidate().candidate;
+        const attempt = mintAcquisitionAttempt(candidateForAttempt.id);
+        this.activeAttempt = attempt;
+        this.settledAttempt = attempt;
+        this.acquisitionReceipt = null;
+        let response;
+        try {
+            response = await this.sendWorkerRequest({
+                type: 'init',
+                isE2E: Boolean(isMock),
+                model: { key: selectedModel, localId: modelCfg.localId, remoteId: modelCfg.remoteId },
+                // #1259: the worker measures its OWN acquisition, because the model is fetched there and
+                // the main window's Resource Timing cannot see a worker's requests. It needs to know
+                // which requests are the model's.
+                assetPrefixes: assetOriginPrefixes(candidateForAttempt),
+                attempt,
+            });
+        } finally {
+            // RETIRED THE MOMENT THE LOAD SETTLES — success, failure or cancellation alike. After this
+            // there is no active attempt for a late receipt to match, which is what makes "ignore the
+            // stale one" a property of the code rather than of timing luck.
+            this.activeAttempt = null;
+        }
+        // #1259: the receipt is captured in the message handler, not here: the `loaded` message arrives
+        // BEFORE `ready`, and `sendWorkerRequest` resolves on `ready`.
         if (response.type !== 'ready') {
             throw new Error(`Unexpected TransformersJS worker init response: ${response.type}`);
         }
