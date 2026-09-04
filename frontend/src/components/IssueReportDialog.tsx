@@ -14,7 +14,7 @@ import {
   type IssueReportCategory,
   type IssueReportSeverity,
 } from '@/services/issueReportService';
-import { resolvePageContext, issueAreasForContext, type PageContext } from '@/services/pageContext';
+import { resolvePageContext, type PageContext } from '@/services/pageContext';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 
@@ -213,7 +213,14 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
     setError(null);
     try {
       const feedbackKind: FeedbackKind = type === 'broke' ? 'issue' : 'comment';
-      const issueArea = issueAreasForContext(pageContext)[0]?.value ?? null;
+      // #1416 — NULL, NOT A GUESS.
+      //
+      // This took the FIRST allowlisted area for the page and stored it as though the user had chosen
+      // it. The redesigned form has no area selector, so there is nothing to derive from: every report
+      // from a given screen would carry the same invented classification, and it would look like data.
+      // A field that is confidently wrong is worse than one that is honestly empty, because a triage
+      // query cannot tell the two apart.
+      const issueArea = null;
       await issueReportService.submit({
         userId: userId ?? null,
         sessionId: snapshotSessionId,

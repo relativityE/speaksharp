@@ -191,6 +191,27 @@ describe('#1404 Share feedback redesign', () => {
     expect(disclosure).toHaveTextContent(/Anything you type in the feedback box is included in your report/i);
   });
 
+  it('#1416 — does NOT invent an issue area', async () => {
+    // This stored the first allowlisted area for the page as though the user had chosen it. With no
+    // area selector in the redesigned form, every report from a screen carried the same invented
+    // classification — and it looked like data. A confidently wrong field is worse than an empty one,
+    // because a triage query cannot tell the two apart.
+    const user = await open('/session');
+    await user.click(screen.getByTestId('feedback-type-broke'));
+    await user.type(screen.getByTestId('issue-report-description'), 'The next action was unclear.');
+    await user.click(screen.getByTestId('issue-report-submit'));
+
+    // Indexed rather than `.at(-1)`: this project's TS lib target predates `Array.prototype.at`, and
+    // vitest transpiles happily while `tsc` — which the gate runs — does not.
+    // The real input type is available, so assert against it rather than casting to a loose shape —
+    // a `Record<string, unknown>` cast would also have accepted a metadata object that had lost the
+    // field entirely, which is the thing being tested.
+    const calls = submit.mock.calls;
+    const submitted = calls[calls.length - 1]?.[0];
+    expect(submitted).toBeTruthy();
+    expect(submitted?.metadata?.issueArea).toBeNull();
+  });
+
   it('does not restore the long privacy block or the audio checkbox', async () => {
     await open('/session');
     // The detail stays behind "What's included" so the default form remains short.
