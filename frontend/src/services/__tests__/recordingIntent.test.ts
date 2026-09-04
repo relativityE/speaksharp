@@ -132,6 +132,55 @@ describe('#1415 P1 — the original caller is settled, once, at the right author
     });
 });
 
+describe('#1415 — a LATE failure from a superseded attempt cannot cancel its successor', () => {
+    it('A prepares, B supersedes A, A fails late — B survives and can still record', () => {
+        // The exact race the asynchronous download-rejection handler creates. That handler fires long
+        // after its attempt stopped being current: the user clicks again, B is minted, and only THEN
+        // does A's download reject. Unscoped, A's failure retires B and silently cancels a recording
+        // the user is actively asking for.
+        const settledA: string[] = [];
+        const settledB: string[] = [];
+        const a = mintRecordingIntent({
+            recordingId: 'rec-A', policy: null, userWords: [],
+            settlement: { resolve: () => settledA.push('resolve'), reject: (e) => settledA.push(e.message) },
+        });
+        const b = mintRecordingIntent({
+            recordingId: 'rec-B', policy: null, userWords: [],
+            settlement: { resolve: () => settledB.push('resolve'), reject: (e) => settledB.push(e.message) },
+        });
+
+        // A's delayed download failure arrives, carrying its real cause.
+        const late = retireRecordingIntent('acquisition_failed', a.token, new Error('DOWNLOAD_FAILED'));
+
+        // It retires NOTHING: A is already gone, and B is not A's to retire.
+        expect(late).toBeNull();
+        expect(pendingRecordingIntent()?.recordingId).toBe('rec-B');
+        expect(isCurrentIntent(b.token)).toBe(true);
+        // B's caller is untouched — it was neither settled nor cancelled by A.
+        expect(settledB).toEqual([]);
+        // A's own caller was already rejected when B replaced it; the late failure adds nothing.
+        expect(settledA).toEqual(['RECORDING_INTENT_REPLACED']);
+
+        // And B can still be claimed and started, which is the outcome the user asked for.
+        expect(claimRecordingIntent()?.recordingId).toBe('rec-B');
+        expect(settledB).toEqual([]);
+    });
+
+    it('the SAME late failure does settle its OWN attempt when that attempt is still current', () => {
+        // Scoping must not make the handler inert: when A is still the pending intent, its failure is
+        // exactly the thing that should retire it, with the real cause reaching the caller.
+        const settled: string[] = [];
+        const a = mintRecordingIntent({
+            recordingId: 'rec-A', policy: null, userWords: [],
+            settlement: { resolve: () => settled.push('resolve'), reject: (e) => settled.push(e.message) },
+        });
+        expect(retireRecordingIntent('acquisition_failed', a.token, new Error('DOWNLOAD_FAILED'))
+            ?.reason).toBe('acquisition_failed');
+        expect(pendingRecordingIntent()).toBeNull();
+        expect(settled).toEqual(['DOWNLOAD_FAILED']);
+    });
+});
+
 describe('#1415 — the resumption is bounded', () => {
     it('a fresh click is not a resumption', () => {
         expect(mint().resumed).toBe(false);

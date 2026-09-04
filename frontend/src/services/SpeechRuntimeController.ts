@@ -3125,7 +3125,17 @@ export class SpeechRuntimeController {
                     void Promise.resolve()
                         .then(() => this.initiateModelDownload(this.policy?.preferredMode ?? 'private'))
                         .catch((downloadErr: unknown) => {
-                            retireRecordingIntent('acquisition_failed');
+                            // TOKEN-SCOPED. This handler is asynchronous and can fire long after its
+                            // attempt stopped being current: the user clicks again, a newer intent is
+                            // minted, and THEN the old download rejects. Unscoped, that stale failure
+                            // retires the newer intent and silently cancels a recording the user is
+                            // actively asking for — the precise scenario `recordingIntent`'s token
+                            // scoping exists to prevent, defeated by its own caller.
+                            //
+                            // The real cause travels too, so the caller is rejected with the failure
+                            // that happened rather than a generic retirement message.
+                            retireRecordingIntent('acquisition_failed', intent.token,
+                                downloadErr instanceof Error ? downloadErr : undefined);
                             logger.warn({ downloadErr }, '[controller] #1415 preparation could not start; intent retired');
                         });
                     return;

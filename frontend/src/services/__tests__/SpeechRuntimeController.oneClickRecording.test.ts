@@ -293,6 +293,56 @@ describe('#1415 — one click, one recording', () => {
         });
     });
 
+    describe('#1415 — a LATE download failure cannot cancel a newer intent', () => {
+        it('A prepares, B supersedes, A\'s download rejects — B survives', async () => {
+            // The real race at the real call site. `initiateModelDownload` is awaited asynchronously,
+            // so its rejection can arrive after the user has clicked again and a newer intent exists.
+            // EVERY rejector is captured, in order. A single holder is overwritten when B calls the
+            // same spy, so rejecting it rejects B's download rather than A's — the test then exercises
+            // the wrong attempt entirely and passes against the defect it exists to catch.
+            //
+            // (A bare `let` assigned only inside the executor also narrows to `never`, making the call
+            // a silent no-op. Both mistakes produce a green test that proves nothing.)
+            const rejectors: Array<(e: Error) => void> = [];
+            const downloadSpy = vi
+                .spyOn(controller as unknown as { initiateModelDownload: () => Promise<void> }, 'initiateModelDownload')
+                .mockImplementation(() => new Promise<void>((_, reject) => { rejectors.push(reject); }));
+
+            engine.downloadEnabled = false;
+            const startedA = controller.startRecording(POLICY as never, []);
+            startedA.catch(() => { /* A is expected to lose */ });
+            await settle();
+
+            const intentA = pendingRecordingIntent();
+            expect(intentA).not.toBeNull();
+
+            // The session is torn down and the runtime returns to IDLE — the state in which a user can
+            // click again. A's download promise is STILL outstanding: nothing cancels it.
+            const transition = (controller as unknown as { transition: (s: string) => Promise<void> })
+                .transition.bind(controller);
+            await transition('TERMINATED');
+            await settle();
+
+            // The user clicks again. B is now the pending intent.
+            const startedB = controller.startRecording(POLICY as never, []);
+            startedB.catch(() => { /* not the subject */ });
+            await settle();
+            const intentB = pendingRecordingIntent();
+            expect(intentB, 'B must be pending for this race to exist').not.toBeNull();
+            expect(intentB?.token).not.toBe(intentA?.token);
+
+            // NOW A's long-outstanding download finally rejects. Its rejector is the FIRST captured;
+            // B's is separate and must stay pending.
+            rejectors[0](new Error('DOWNLOAD_FAILED'));
+            await settle(20);
+
+            // B is untouched. Unscoped, A's failure would have retired it and silently cancelled a
+            // recording the user is actively asking for.
+            expect(pendingRecordingIntent()?.token).toBe(intentB?.token);
+            downloadSpy.mockRestore();
+        });
+    });
+
     describe('the intent is retired when it must be', () => {
         it('teardown retires it — a stale intent must never start a recording later', async () => {
             // The download never lands, so preparation stays open and there is a live intent to
