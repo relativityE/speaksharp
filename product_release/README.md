@@ -1,13 +1,19 @@
 **Status:** Authoritative (canonical portal)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-08-29
-**Last Verified:** 2026-08-29 — canonical consolidation closed: exactly 14 active Markdown documents remain at the root of `product_release/`; superseded sources moved to `archive/superseded-docs-2026-08-29/`, retained evidence moved under `evidence/retained/`, and repository entry-point links were updated.
+**Last Reviewed:** 2026-09-04
+**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 **Applies To:** All SpeakSharp product/release documentation under `product_release/`
 **Class:** Procedure (documentation portal)
 **Authority:** Entry point, precedence model, and canonical-document map — the SSOT for *documentation structure and authority*.
 **Not Authoritative For:** current release/deployment status (→ `RELEASE_STATUS.md`); PR/merge state (→ the PR description).
 **Supersedes:** archived `content_list.md`; absorbs archived `PRECEDENCE.md` (§1).
 **Evidence Sources:** the 14 canonical documents (§2) and the archived migration ledger.
+
+<!-- pm-currentization:2026-09-04 -->
+> [!IMPORTANT]
+> **Portal currentized 4 Sep 2026.** The Production biopsy and PO decisions recorded in #1259, #1258, #1390, #1404, #1407, #1386, #1263, and #1304 supersede conflicting current-state text anywhere below this directory. The 14 root documents are current authorities after this change. `archive/**` and dated `evidence/**` remain historical provenance, never current instruction. `v4_work/**` is exploratory history; `work_items/**` is actionable only when its owning open issue says so.
+
+<!-- /pm-currentization:2026-09-04 -->
 
 # SpeakSharp Documentation Portal
 
