@@ -12,6 +12,8 @@
 <!-- pm-currentization:2026-09-04 -->
 > [!IMPORTANT]
 > **Portal currentized 4 Sep 2026.** The Production biopsy and PO decisions recorded in #1259, #1258, #1390, #1404, #1407, #1386, #1263, and #1304 supersede conflicting current-state text anywhere below this directory. The 14 root documents are current authorities after this change. `archive/**` and dated `evidence/**` remain historical provenance, never current instruction. `v4_work/**` is exploratory history; `work_items/**` is actionable only when its owning open issue says so.
+>
+> **Review census:** all 103 Markdown files under `product_release/` were dispositioned: 14 canonical authorities currentized; 2 archive/evidence routing files corrected; 5 `v4_work` runbooks marked historical; 4 `work_items` packets marked superseded; and 78 dated archive/evidence files preserved unchanged under the historical warnings.
 
 <!-- /pm-currentization:2026-09-04 -->
 
