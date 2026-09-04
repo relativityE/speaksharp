@@ -1,13 +1,19 @@
 **Status:** Authoritative (SSOT for env/secrets/config catalog, rotation, paid-path activation controls, ops health, SCA exceptions, and security rules)
 **Owner:** Operations / Security (relativityE)
-**Last Reviewed:** 2026-07-30
-**Last Verified:** 2026-07-30 — consolidated from approved interim sources (`LAUNCH_ENV_CHECKLIST.md`, `ENV_INVENTORY.md`, `SECRET_ROTATION_RUNBOOK.md`, `PAID_OPS_HARDENING_RUNBOOK.md`, `OPS_HEALTH_DASHBOARD.md`, `SCA_EXCEPTIONS.md`) and cross-checked against the cited `backend/`, `frontend/`, and `.github/workflows` paths. This document lists variable **names and scopes only — never secret values**. No current run IDs, SHAs, or deployment posture are carried here — those live only in `RELEASE_STATUS.md`.
+**Last Reviewed:** 2026-09-04
+**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 **Applies To:** The SpeakSharp beta platform's operational surface — environment configuration, secret handling, paid-path activation gating, operational health, dependency-audit exceptions, and runtime security rules.
 **Class:** Procedure.
 **Authority:** The source for the environment-variable catalog (names × scope × storage home), secret inventory & rotation procedures, the paid-path activation controls & gating architecture, operational-health checks & their security rules, the documented SCA suppressions, and the operational security rules.
 **Not Authoritative For:** current release/ops posture, run IDs & SHAs (→ `RELEASE_STATUS.md`); the release gates & workflows (→ `RELEASE_PROCESS.md`); the quality/test estate (→ `QUALITY.md`); tier/entitlement/pricing policy (→ `ENTITLEMENTS_AND_BILLING.md`); the authoritative-source & retention ADRs and structural invariants (→ `ARCHITECTURE.md`); dated audit evidence (→ `EVIDENCE_INDEX.md`); tester administration (→ `TESTER_OPERATIONS.md`).
 **Supersedes:** `LAUNCH_ENV_CHECKLIST.md`, `ENV_INVENTORY.md`, `SECRET_ROTATION_RUNBOOK.md`, `PAID_OPS_HARDENING_RUNBOOK.md`, `OPS_HEALTH_DASHBOARD.md`, `SCA_EXCEPTIONS.md` (interim sources; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §3.G extraction mapping; the `backend/supabase/functions/*`, `frontend/src/*`, and `.github/workflows/*` paths cited inline; the live consoles (Vercel / GitHub / Supabase) which remain authoritative for actual values.
+
+<!-- pm-currentization:2026-09-04 -->
+> [!IMPORTANT]
+> **Currentized 4 Sep 2026.** Human/model qualification uses only the canonical Production URL. Do not require `VITE_INTERNAL_BUILD`, a Preview environment, `VERCEL_ORG_ID`, a test branch, or a second host. The three registered STT candidates must be selectable between settled takes through controlled CDP/runtime configuration, with complete teardown and requested/observed identity receipts. Controlled PO/Dev test traffic must be distinguishable from ordinary customer traffic without collecting raw identity or creating another product variant.
+
+<!-- /pm-currentization:2026-09-04 -->
 
 # SpeakSharp Operations & Security (v1)
 
