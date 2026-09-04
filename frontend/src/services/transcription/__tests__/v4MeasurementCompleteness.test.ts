@@ -51,6 +51,12 @@ const inScope = (n: number, bytes = 1_000_000, end = LOAD_START + 3100): Entry[]
         name: `https://huggingface.co/${V4.model.id}/resolve/main/onnx/part${i}.onnx`,
         transferSize: bytes, encodedBodySize: bytes, responseEnd: end,
     }));
+/** Matched, served from cache: a real body with nothing over the wire. */
+const cached = (n: number, bytes = 1_000_000): Entry[] =>
+    Array.from({ length: n }, (_, i) => ({
+        name: `https://huggingface.co/${V4.model.id}/resolve/main/onnx/part${i}.onnx`,
+        transferSize: 0, encodedBodySize: bytes, responseEnd: LOAD_START + 40,
+    }));
 const redirected = (n: number, bytes = 1_000_000): Entry[] =>
     Array.from({ length: n }, (_, i) => ({
         // A CDN destination whose path no longer carries the repository id — the redirect case.
@@ -212,5 +218,45 @@ describe('#1259 v4 completeness reaches analytics', () => {
         expect(serialized).not.toMatch(/unobservableReason|unobservable_reason/);
         expect(serialized, 'a sentence is unbounded cardinality').not.toMatch(/no longer describes what the loader/);
         expect(serialized).not.toMatch(/attemptToken|attempt_token/);
+    });
+});
+
+describe('#1259 `network_used` claims only what was proven', () => {
+    it('CASUALTY: a COMPLETE cache-only acquisition is false', async () => {
+        // Every request was matched and every one reported a zero transfer with a real body. Nothing
+        // crossed the wire, and the observation covers everything, so `false` is a claim it can make.
+        const p = await publishThroughV4(cached(6));
+        expect(p.measurement_completeness).toBe('complete');
+        expect(p.network_used).toBe(false);
+    });
+
+    it('CASUALTY: PARTIAL with matched-cached plus out-of-scope requests is NULL, never false', async () => {
+        // THE DEFECT. Every MATCHED request was cached, so the old rule concluded "cache-only" — while
+        // three requests fell outside the scope entirely and each could have been a download. `false` is
+        // a claim about every request, and this observation cannot see every request.
+        const p = await publishThroughV4([...cached(5), ...redirected(3)]);
+        expect(p.measurement_completeness).toBe('partial');
+        expect(p.out_of_scope_count).toBe(3);
+        expect(p.network_used, 'an unproven cache-only result is unknown, not a cache hit').toBeNull();
+    });
+
+    it('CASUALTY: PARTIAL with any proven transfer is TRUE', async () => {
+        // Proof of the wire is LOCAL: one transferred byte anywhere proves the network was used,
+        // whatever else went unobserved. So `true` survives an incomplete measurement.
+        const p = await publishThroughV4([...inScope(2), ...redirected(4)]);
+        expect(p.measurement_completeness).toBe('partial');
+        expect(p.network_used).toBe(true);
+    });
+
+    it('CASUALTY: an UNOBSERVABLE acquisition is NULL', async () => {
+        const p = await publishThroughV4(redirected(6));
+        expect(p.measurement_completeness).toBe('unobservable');
+        expect(p.network_used).toBeNull();
+    });
+
+    it('CASUALTY: opaque sizes cannot prove cache-only either', async () => {
+        const opaque = cached(4).map((e) => ({ ...e, encodedBodySize: 0 }));
+        const p = await publishThroughV4(opaque);
+        expect(p.network_used, 'a response that hid its size proves nothing in either direction').toBeNull();
     });
 });

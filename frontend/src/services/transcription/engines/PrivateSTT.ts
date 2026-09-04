@@ -65,6 +65,7 @@ import type { Candidate } from '../candidateRegistry';
 import { assetRequestsFor, acquisitionScopeFor } from '../candidateAssetRequests';
 import { observeAcquisitionNetwork } from '../acquisitionNetworkObservation';
 import { receiptMatches, type AcquisitionAttempt, type AcquisitionReceipt } from '../acquisitionAttempt';
+import type { AcquisitionTrigger } from '../modelAcquisitionTelemetry';
 // Stale import removed
 
 declare global {
@@ -803,8 +804,27 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         }
     }
 
-    /** Explicit setup unless a background warm-up set it; the two are different populations. */
-    private acquisitionTrigger: 'warmup' | 'explicit-setup' = 'explicit-setup';
+    /**
+     * Why this load began. The two are different populations, and the field was previously a constant.
+     *
+     * It was declared and never assigned, so every acquisition — including a background warm-up that
+     * found the model already cached and initialised it — reported `explicit-setup`. Warm-up loads are
+     * exactly the cheap warm ones, so folding them into the explicit population made setup look faster
+     * than the experience a user who presses "Set up Private" actually gets.
+     */
+    private acquisitionTrigger: AcquisitionTrigger = 'explicit-setup';
+
+    /**
+     * Set by the caller that knows WHY initialisation is happening.
+     *
+     * `TranscriptionService.initializeStrategy` holds that authority: an explicit init is a user act,
+     * a background pulse is a warm-up. On a cache MISS the warm-up stops at DOWNLOAD_REQUIRED and never
+     * acquires — but on a cache HIT it proceeds and initialises the model, which is a real acquisition
+     * and the case this exists to label.
+     */
+    public setAcquisitionTrigger(trigger: AcquisitionTrigger): void {
+        this.acquisitionTrigger = trigger;
+    }
     /** Pinned assets for the selected candidate, filled from the registry before each load. */
     private acquisitionAssets: PinnedAssetRef[] = [];
 

@@ -140,11 +140,9 @@ export function observeAcquisitionNetwork(
     const lastEnd = Math.max(...matched.map((e) => e.responseEnd || e.startTime + e.duration));
 
     // A non-zero transferSize is proof of the wire. A zero transferSize with a real body is proof of the
-    // cache. All-opaque is proof of neither, so it stays null rather than defaulting to the flattering
-    // answer in either direction.
+    // cache. All-opaque is proof of neither.
     const provenNetwork = sized.some((e) => (e.transferSize ?? 0) > 0);
     const provenCache = sized.length > 0 && sized.every((e) => (e.transferSize ?? 0) === 0);
-    const networkUsed = provenNetwork ? true : (provenCache ? false : null);
 
     // COMPLETENESS IS DECIDED HERE, not by whoever reads the numbers. A measurement is complete only
     // when nothing in the window fell outside the scope AND every matched response reported its size.
@@ -153,6 +151,17 @@ export function observeAcquisitionNetwork(
     const completeness: MeasurementCompleteness = outOfScopeCount === 0 && !sizesOpaque
         ? 'complete'
         : 'partial';
+
+    // `false` IS A CLAIM ABOUT EVERY REQUEST, so only a COMPLETE observation may make it.
+    //
+    // Proof of the wire is local — one transferred byte anywhere proves the network was used, whatever
+    // else went unobserved — so `true` survives a partial measurement. Proof of the CACHE is not local:
+    // it means "nothing crossed the wire", and requests that fell outside the scope, or hid their size,
+    // could each have been a download. Reporting `false` there would let a partly-redirected acquisition
+    // be counted as a cache hit, which is the most flattering possible reading of an unknown.
+    const networkUsed = provenNetwork
+        ? true
+        : (completeness === 'complete' && provenCache ? false : null);
     const reasonCode: MeasurementReasonCode | null = completeness === 'complete'
         ? null
         : (outOfScopeCount > 0 ? 'requests_outside_scope' : 'sizes_opaque');
