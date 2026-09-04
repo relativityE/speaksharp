@@ -8,6 +8,7 @@ import {
 } from '@/services/telemetry/journeyIdentity';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 import { emitFillerMeasurement } from '@/services/telemetry/fillerMeasurement';
+import { noteEngineReady, noteEngineTeardown } from '@/services/telemetry/reinitObservation';
 import { resolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { countWords } from '@/lib/contentDigest';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
@@ -1789,11 +1790,16 @@ export class SpeechRuntimeController {
                     // Dates the user's wait. Production shows 113s and 126s between this moment and the
                     // start event; without the mark, that wait cannot be attached to the click.
                     markRuntimeReady();
+                    // #1259 F15 — and dates the NEXT acquisition, so a re-init one second after
+                    // readiness is distinguishable from an idle reclamation minutes later.
+                    noteEngineReady();
                 } else if (newState === 'TERMINATED' || newState === 'IDLE') {
                     // A torn-down engine's readiness must not date the NEXT intent as though the user
                     // had been waiting since before the teardown.
                     clearRuntimeReady();
                     endRecordingAttempt();
+                    // The reason the engine went away, carried into whatever initialises next.
+                    noteEngineTeardown(error?.name ?? newState);
                     // #1259 F05 — the PO watched a finalized transcript vanish. Whatever the authority
                     // holds AFTER teardown is the fact that distinguishes "purged" from "still there but
                     // not rendered", and the two have completely different fixes.

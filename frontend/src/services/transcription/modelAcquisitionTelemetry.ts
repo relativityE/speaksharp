@@ -23,6 +23,7 @@
  * to a bounded code.
  */
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import { nextInitContext } from '@/services/telemetry/reinitObservation';
 import type {
     MeasurementCompleteness, MeasurementReasonCode,
 } from './acquisitionNetworkObservation';
@@ -226,7 +227,15 @@ const subjectProps = (s: AcquisitionSubject) => ({
 });
 
 export function recordAcquisitionStart(subject: AcquisitionSubject, cacheResult: CacheResult): void {
-    emit('private_model_acquisition_start', { ...subjectProps(subject), cache_result: cacheResult });
+    // #1259 F15 — the acquisition's PLACE IN THE SEQUENCE, not just its measurements. Production shows
+    // three setups in one Open Mic take (134s, then 12ms, then 1ms); without an ordinal and an interval
+    // those are indistinguishable from three unrelated sessions, and a re-init one second after
+    // readiness is indistinguishable from one five minutes later.
+    emit('private_model_acquisition_start', {
+        ...subjectProps(subject),
+        cache_result: cacheResult,
+        ...nextInitContext(),
+    });
 }
 
 export function recordAcquisitionSuccess(subject: AcquisitionSubject, outcome: AcquisitionOutcome): void {

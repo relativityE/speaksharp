@@ -225,6 +225,11 @@ describe('#1259s the event body is content-free', () => {
             // exist so a measurement covering an unknown fraction is never published as a complete one.
             'measurement_completeness', 'measurement_reason_code', 'out_of_scope_count',
             'partial_network_bytes', 'partial_download_ms',
+            // #1259 F15: where this acquisition sits in the sequence. Production shows three setups in
+            // one take (134s, 12ms, 1ms) with nothing to tell them apart; an ordinal, the interval
+            // since the previous readiness, and the previous teardown cause are what make the
+            // repetition diagnosable. All bounded — a count, a duration, and a state name.
+            'init_sequence', 'ms_since_previous_ready', 'previous_teardown_cause',
         ]);
         for (const { name, props } of pushed) {
             for (const key of Object.keys(props)) {

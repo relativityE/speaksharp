@@ -26,6 +26,8 @@
  * forge them.
  */
 
+import { resetInitSequence } from './reinitObservation';
+
 /** Slug-safe, so the value satisfies the same shape rules every other bounded identifier does. */
 function mintId(): string {
     try {
@@ -63,6 +65,10 @@ export function beginJourney(): string {
     journeyId = mintId();
     attemptId = null;
     attemptSeq = 0;
+    // #1259 F15 — initialisation ordinals are per-journey. A tab-lifetime counter would report a
+    // second visit's first load as the fifth, which is exactly the kind of number that looks like a
+    // defect and is not.
+    resetInitSequence();
     return journeyId;
 }
 

@@ -66,6 +66,11 @@ export const PRIVATE_TELEMETRY_ALLOWED_PROPS = [
     'init_ms',
     'total_ms',
     'outcome',
+    // #1259 F15 — where this acquisition sits in the sequence, and what preceded it. Bounded numbers
+    // and a bounded cause; the repetition is already observable, its reason was not.
+    'init_sequence',
+    'ms_since_previous_ready',
+    'previous_teardown_cause',
 ] as const;
 
 export type PrivateTelemetryProp = typeof PRIVATE_TELEMETRY_ALLOWED_PROPS[number];
