@@ -18,6 +18,7 @@
 import { computeObjectiveCoverage, type TranscriptSegment } from '@/services/objective/objectiveCoverage';
 import type { CoverageStatus } from '@/services/rehearsal/outcomeScorecard';
 import { emitCoverageEvaluation } from '@/services/telemetry/coverageTelemetry';
+import { markCompletionStage } from '@/services/telemetry/completionStages';
 import { COVERED_RATIO, PARTIAL_RATIO, extractKeywords } from '@/services/rehearsal/outcomeScorecard';
 import { countWords } from '@/lib/contentDigest';
 
@@ -142,6 +143,10 @@ export function deriveFocusCoverage(
             latched: latched?.has(i) ?? false,
         })),
     });
+
+    // #1259 F16 — coverage has a verdict. Only meaningful in the completion chain; during a live
+    // session the evaluator runs continuously and the mark is taken once, by markCompletionStage.
+    markCompletionStage('evaluation_complete');
 
     const coveredCount = rows.filter((r) => r.covered).length;
     const nextIndex = rows.findIndex((r) => !r.covered);

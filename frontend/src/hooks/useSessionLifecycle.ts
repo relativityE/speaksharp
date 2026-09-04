@@ -24,6 +24,7 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { emitRecordingIntent } from '@/services/telemetry/journeyEvents';
+import { markCompletionStage } from '@/services/telemetry/completionStages';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 import { emitRetentionObservation } from '@/services/telemetry/retentionObservation';
 import { hasReadableTranscript } from '@/constants/transcriptState';
@@ -229,6 +230,9 @@ export const useSessionLifecycle = () => {
         isProcessingRef.current = true;
 
         if (shouldStop) {
+            // #1259 F16 — the chain starts at the USER'S Stop, not the runtime's. Everything
+            // experienced as "waiting after I finished" is measured from here.
+            markCompletionStage('stop_intent');
             // ✅ Master Invariant: stopRecording() is now handled 
             // by SpeechRuntimeController. It performs cleanup and DB ops.
 
@@ -266,6 +270,9 @@ export const useSessionLifecycle = () => {
                     streak_count: streakResult.currentStreak,
                     ...getSessionCoachingExperimentProperties(),
                 }, 'HIGH');
+                // #1259 F16 — persistence returned. Time spent reaching here is a DATABASE problem,
+                // and separating it from decode and render is the whole point of the chain.
+                markCompletionStage('session_saved');
                 // #1259 F05 — the count above and the transcript are two DIFFERENT facts, and only the
                 // count was ever recorded. `word_count: 88` beside an empty panel and `word_count: 88`
                 // beside 88 visible words were the same event. This records what the authority holds at

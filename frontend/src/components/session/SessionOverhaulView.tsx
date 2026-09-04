@@ -28,6 +28,8 @@ import type { PracticeSession } from '@/types/session';
 import type { SttStatus } from '@/types/transcription';
 import { emitJourneyStep } from '@/services/telemetry/journeyStep';
 import { emitPracticeLoop } from '@/services/telemetry/practiceLoopTelemetry';
+import { markCompletionStage } from '@/services/telemetry/completionStages';
+import { emitMicObservability } from '@/services/telemetry/micObservation';
 
 /**
  * #1222 S11 — the session-overhaul VIEW: maps the live session runtime onto the fixed shell + the three
@@ -217,6 +219,15 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             nextActionPersisted: Boolean(onRetryPoints || onNewSet),
             suppressionReason: aiSuggestions ? 'none' : 'no_suggestions',
         });
+        // #1259 F16 — the last two links. `practice_loop_ready` is when the review HAS its content;
+        // `review_rendered` is when the user can actually act on it. Time between them is a front-end
+        // problem, and time before them is not — which is exactly what one total could never say.
+        markCompletionStage('practice_loop_ready');
+        markCompletionStage('review_rendered');
+        // #1259 F02 — summarised HERE, from the envelope this view already keeps to draw the
+        // after-state waveform. No per-frame hook is needed and none is added: streaming levels is
+        // both forbidden and would drown every other signal.
+        emitMicObservability(levelsRef.current, stopControlRenderedRef.current);
     }, [inAfter, aiSuggestions, onRetryPoints, onNewSet]);
     const effObjectivePoints = objectivePoints ?? (inAfter ? completedObjectivePoints ?? null : null);
     const effObjectiveTopic = objectiveTopic ?? (inAfter ? completedObjectiveTopic ?? null : null);
@@ -296,6 +307,11 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // finalizing wrongly resolved to `before`, this branch wiped the envelope mid-finalize and the
     // after-state waveform rendered flat. Keep finalizing OUT of `before` or the bars go blank again.
     const levelsRef = React.useRef<number[]>([]);
+    // #1259 F02 — whether a stop affordance was ever on screen during this take. Recorded as it
+    // happens: by the time the review renders the control is gone, so asking afterwards always
+    // answers "no" and would report every session as missing its Stop button.
+    const stopControlRenderedRef = React.useRef(false);
+    if (isListening) stopControlRenderedRef.current = true;
     if (isListening) {
         // Keep the FULL recording envelope (capped generously) so the after-state waveform can peak-
         // downsample the WHOLE take to 72 bars — not just the last 72 samples (which showed only the tail).

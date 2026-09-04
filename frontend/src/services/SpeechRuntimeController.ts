@@ -10,6 +10,7 @@ import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthorit
 import { emitFillerMeasurement } from '@/services/telemetry/fillerMeasurement';
 import { noteEngineReady, noteEngineTeardown } from '@/services/telemetry/reinitObservation';
 import { resetTranscriptStability } from '@/services/telemetry/transcriptStability';
+import { markCompletionStage, resetCompletionChain } from '@/services/telemetry/completionStages';
 import { resolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { countWords } from '@/lib/contentDigest';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
@@ -1821,6 +1822,9 @@ export class SpeechRuntimeController {
                     // already reaches the telemetry layer, and importing it back would close a cycle
                     // through the envelope.
                     resetTranscriptStability();
+                    // A new take starts a new chain; without this the second take would measure from
+                    // the first take's Stop.
+                    resetCompletionChain();
                     // The two halves of the wait, kept apart. `ready_to_intent` is how long the user sat
                     // looking at a ready control; `intent_to_recording` is how long the click took to
                     // become a recording. One total cannot tell those apart, and they have different fixes.
@@ -1831,6 +1835,9 @@ export class SpeechRuntimeController {
                 } else if (newState === 'STOPPING' && previousState === 'RECORDING') {
                     const stopWait = msSinceIntent();
                     if (stopWait !== null) emitStageLatency('recording_to_stop_intent', stopWait);
+                    // #1259 F16 — recording has actually stopped. Distinct from the user's Stop
+                    // intent: the gap between the two is the part that feels unresponsive.
+                    markCompletionStage('recording_terminated');
                 }
                 emitRecordingState(previousState, newState, error?.name ?? null);
             } catch {

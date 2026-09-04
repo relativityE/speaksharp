@@ -223,8 +223,10 @@ export const EVENT_SCHEMAS = Object.freeze({
     /** One stage per row. A single stop-to-review total answers none of F16's six questions. */
     stage_latency: {
         stage: enumOf([
-            'model_acquisition', 'ready_to_intent', 'intent_to_recording',
-            'recording_to_stop_intent', 'stop_intent_to_termination',
+            'model_acquisition', 'ready_to_intent', 'intent_to_recording', 'recording_to_stop_intent',
+            // The completion chain. Seven stages, never one total — see LatencyStage.
+            'stop_intent', 'recording_terminated', 'final_transcript', 'evaluation_complete',
+            'session_saved', 'practice_loop_ready', 'review_rendered',
         ]),
         duration_ms: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
     },
@@ -380,6 +382,21 @@ export const EVENT_SCHEMAS = Object.freeze({
         ms_to_stable: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
         visible_final_words: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
         visible_provisional_words: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+    },
+
+    /**
+     * F02 — was the waveform real? Summarised once from the envelope the view already keeps, never
+     * streamed: per-frame waveform telemetry is forbidden and would be the loudest noise in the data.
+     * `partial` is the state that matters — samples that never rose above the noise floor cannot
+     * distinguish a quiet room from a meter that was never connected, and both render as a flat line.
+     */
+    mic_observability: {
+        samples_observed: { kind: 'int', min: 0, max: 10_000_000 } as FieldRule,
+        signal_available: { kind: 'bool' } as FieldRule,
+        speech_activity_ratio_band: enumOf(['0', '0-10', '10-30', '30-60', '60-90', '90-100']),
+        peak_level_band: enumOf(['0', 'below_floor', 'low', 'medium', 'high']),
+        waveform_observability: enumOf(['complete', 'partial', 'unobservable']),
+        stop_control_rendered: { kind: 'bool' } as FieldRule,
     },
 
     // ── conversion funnel ───────────────────────────────────────────────────

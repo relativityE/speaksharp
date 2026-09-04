@@ -33,6 +33,7 @@ interface TranscriptState {
 import { RuntimeState } from '@/services/SpeechRuntimeController';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 import { noteTranscriptUpdate, emitTranscriptStability } from '@/services/telemetry/transcriptStability';
+import { markCompletionStage } from '@/services/telemetry/completionStages';
 
 export type NativeFormattingUiStatus = 'idle' | 'pending' | 'complete' | 'failed';
 
@@ -603,6 +604,9 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         set({ isTranscriptFinalizing });
         if (wasFinalizing && !isTranscriptFinalizing) {
             const state = get();
+            // #1259 F16 — the decode has settled. Time spent here is a MODEL problem, and separating
+            // it from save and render is the whole point of the chain.
+            markCompletionStage('final_transcript');
             // #1259 F04 — the churn summary belongs at the same moment: finalization is when the
             // motion stops, and it is the only point where "how much did it move" has a final answer.
             emitTranscriptStability(state.transcript.transcript, state.transcript.partial);

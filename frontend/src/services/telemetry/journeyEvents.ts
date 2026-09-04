@@ -41,11 +41,22 @@ export type IntentKind = 'start' | 'stop';
 
 /** The completion stages, emitted as separate rows. F16 is unanswerable from one total. */
 export type LatencyStage =
+    // Pre-recording: how long the user waited, and where.
     | 'model_acquisition'
     | 'ready_to_intent'
     | 'intent_to_recording'
     | 'recording_to_stop_intent'
-    | 'stop_intent_to_termination';
+    // #1259 F16 — the completion chain. Production gives ONE number for everything after Stop (about
+    // 11 and 14 seconds), and the PO saw a banner for roughly seventeen. Eleven seconds of decode is a
+    // model problem, eleven seconds of save is a database problem, and eleven seconds before the
+    // review renders is a front-end problem. Each stage reports the interval since the previous one.
+    | 'stop_intent'
+    | 'recording_terminated'
+    | 'final_transcript'
+    | 'evaluation_complete'
+    | 'session_saved'
+    | 'practice_loop_ready'
+    | 'review_rendered';
 
 let readyAt: number | null = null;
 let lastIntentAt: number | null = null;
