@@ -1,6 +1,11 @@
+<!-- pm-currentization:2026-09-04 -->
+> [!CAUTION]
+> **Reviewed 4 Sep 2026 — historical evidence index.** This file is preserved for provenance and must not be executed as current product/release authority. Preview/internal-build model selection, PostHog-flag targeting, two-transcript retention, and prior closure claims are superseded by the canonical root documents and issues #1259/#1258/#1390/#1404/#1407/#1386/#1263/#1304. Use canonical Production only; do not infer that historical PASS evidence qualifies the current product.
+<!-- /pm-currentization:2026-09-04 -->
+
 # Release Evidence Index
 
-> **HISTORICAL EVIDENCE.** Dated artifacts here are point-in-time proofs; they are not current release truth. Commit SHAs recorded before **2026-07-15** predate the attribution history sanitation — map old→new via `retained/attribution-sanitation-crosswalk.md`. Historical PostHog `release_sha` values also retain the old SHAs by design.
+> **HISTORICAL EVIDENCE — all files reviewed 4 Sep 2026.** Dated artifacts here are point-in-time proofs; they are not current release truth. Commit SHAs recorded before **2026-07-15** predate the attribution history sanitation — map old→new via `retained/attribution-sanitation-crosswalk.md`. Historical PostHog `release_sha` values also retain the old SHAs by design.
 
 This directory stores dated release-proof artifacts. It is retained evidence, not the current coordination board and not the disposable `product_release/archive/` tree.
 
