@@ -1,13 +1,19 @@
 **Status:** Authoritative (SSOT for internal tester administration and evidence handling)
 **Owner:** Product Operations / Quality
-**Last Reviewed:** 2026-08-13
-**Last Verified:** 2026-08-13 — reconciled to the Private-only active-trial and paid-continuation launch contract; execution remains authorization-gated.
+**Last Reviewed:** 2026-09-04
+**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 **Applies To:** Internal release operators, invited testers, synthetic qualification accounts, and evidence handling.
 **Class:** Procedure.
 **Authority:** Tester preparation, scope verification, real-device execution, cleanup, and evidence recording.
 **Not Authoritative For:** product policy (→ `PRODUCT_REQUIREMENTS.md`); billing mechanics (→ `ENTITLEMENTS_AND_BILLING.md`); gate definitions (→ `RELEASE_PROCESS.md`); current release posture (→ `RELEASE_STATUS.md`).
 **Supersedes:** Earlier sample, Browser/Cloud tester-wave, accumulated-quota, and v4-exposure procedures in this file.
 **Evidence Sources:** `QUALITY.md`, `RELEASE_PROCESS.md`, `STT.md`, and dated artifacts indexed by `EVIDENCE_INDEX.md`.
+
+<!-- pm-currentization:2026-09-04 -->
+> [!CAUTION]
+> **Currentized 4 Sep 2026.** Human qualification is paused. Resume on https://speaksharp-public.vercel.app only after the accepted fixes and #1259 deploy. Before the PO speaks, prove PostHog event-level readback with positive/negative controls, confirm all three registered candidates can be switched through controlled CDP/runtime configuration, and run Open Mic plus Focus Points for each candidate. Record requested/observed identity and bracket user intent through review/reopen. A transport 200 or attached hook is not telemetry proof. Never ask the PO to choose Preview/local/internal testing.
+
+<!-- /pm-currentization:2026-09-04 -->
 
 # SpeakSharp Tester Operations
 
