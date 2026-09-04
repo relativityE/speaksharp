@@ -27,6 +27,15 @@ export const V4_TELEMETRY_ALLOWED_PROPS = [
     'webgpuAvailable',
     'fallbackAttempted',
     'fallbackReason',
+    // #1259 — the `private_stt_v4_attempt` fields. They existed in Production but had never passed
+    // through ANY allowlist: that event was captured directly with its raw payload, so these five rode
+    // to PostHog unreviewed. They are bounded engine identifiers, and they are enumerated here so that
+    // the event keeps its diagnostic value now that it goes through the governed boundary.
+    'selectionSource',
+    'selectedVariant',
+    'attemptedProvider',
+    'finalProvider',
+    'fallbackProvider',
     'loadMs',
     'decodeMs',
     'rtf',

@@ -37,7 +37,6 @@ import type { LiveResultKind } from '@/contracts/IPrivateSTTEngine';
 import { STTEngine, validateEngine, assertEngineCanDecode } from '@/contracts/STTEngine';
 import { PrivateSTTInitOptions } from '@/contracts/IPrivateSTT';
 import logger from '@/lib/logger';
-import posthog from 'posthog-js';
 import { ModelManager } from '@/services/transcription/ModelManager';
 import { MicStream } from '@/services/transcription/utils/types';
 import { getEngine } from '@/services/transcription/STTRegistry';
@@ -56,7 +55,7 @@ import { captureCapabilities } from '../capabilitySnapshot';
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
 import type { PrivateSttProvider } from '../providers/types';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
-import { buildV4LifecycleProps, emitV4Ready, emitV4Fallback, emitV4Error } from '../privateV4Telemetry';
+import { buildV4LifecycleProps, emitV4Ready, emitV4Fallback, emitV4Error, emitV4Telemetry, V4_TELEMETRY_EVENTS } from '../privateV4Telemetry';
 import { buildEngineVersion, type EngineVariant } from '../privateTelemetry';
 import {
     probeCache, recordAcquisitionStart, recordAcquisitionSuccess, recordAcquisitionFailure,
@@ -518,7 +517,13 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             // Internal log (always) + PostHog event (analytics) for flagged v4 attempts.
             // No user-facing engine internals; safe to capture for cohort validation.
             logger.info({ sId: this.serviceId, rId: this.runId, ...payload }, '[V4_FLAG_TELEMETRY]');
-            try { posthog?.capture?.('private_stt_v4_attempt', payload); } catch { /* posthog optional */ }
+            // #1259 — WAS A THIRD CAPTURE BOUNDARY, and the least governed of the three: `payload` went
+            // to PostHog RAW. Not merely bypassing the envelope — bypassing every allowlist, so
+            // `selectionSource`, `attemptedProvider`, `finalProvider` and `fallbackProvider` reached the
+            // vendor without ever having been reviewed. Production traffic confirms this event is live,
+            // which is why it is routed rather than deleted. `emitV4Telemetry` carries it to the one
+            // boundary, where the v4 allowlist now enumerates those fields.
+            emitV4Telemetry(V4_TELEMETRY_EVENTS.ATTEMPT, payload);
 
             // Stage-B structured lifecycle events (allowlisted, no PII): ready on success;
             // fallback + error when v4 init/load fell back to the v2-base floor.

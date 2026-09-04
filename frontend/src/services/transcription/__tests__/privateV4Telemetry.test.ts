@@ -50,6 +50,15 @@ describe('sanitizeV4TelemetryProps — privacy allowlist', () => {
             saved: true,
             historyOpened: false,
             errorClass: 'TimeoutError',
+            // #1259 — the `private_stt_v4_attempt` fields. That event was captured directly with its
+            // RAW payload, so these five reached PostHog without passing through any allowlist. They
+            // are enumerated now that the event goes through the governed boundary; this assertion
+            // fails if one is added to the allowlist without a stated reason, or dropped from it.
+            selectionSource: 'config',
+            selectedVariant: 'base_q4',
+            attemptedProvider: 'transformers-js-v4',
+            finalProvider: 'transformers-js-v4',
+            fallbackProvider: null,
         };
         const out = sanitizeV4TelemetryProps(input);
         expect(out).toEqual(input);
