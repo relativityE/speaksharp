@@ -1,8 +1,8 @@
 **Status:** Authoritative (SSOT for personal session-over-session Progress and the single next practice action)
 **Owner:** Product Owner (relativityE)
 
-**Last Reviewed:** 2026-08-29
-**Last Verified:** 2026-08-29 — the previous-comparable comparison, persisted evaluations, immutable recommendations, explicit acceptance attempts and server-derived directional outcomes are implemented and wired through the save journey and `ProgressPanel`. This proves mechanism, not customer retention or causal coaching efficacy.
+**Last Reviewed:** 2026-09-04
+**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 **Applies To:** Every surface that tells a user how their practice is changing over time and what to practise next — Progress, Session review, and history.
 **Class:** Product requirement / decision.
 **Authority:** The source for what Progress means, which sessions may influence it, how direction is derived and worded, the exactly-two-takeaway output contract (of which exactly one is an action), and what must never be claimed.
@@ -11,6 +11,12 @@
 
 **Supersedes:** the planned canonical destination formerly named `COACHING_SCORE.md` (never created) and the Personal-Progress direction in `SPEAKSHARP_SESSION_PROGRESS.operational.md` (interim source; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` extraction mapping; the code paths cited inline; #1045 Product-Owner decisions.
+
+<!-- pm-currentization:2026-09-04 -->
+> [!CAUTION]
+> **Currentized 4 Sep 2026 — visible Practice Loop is presently unqualified.** The 4 Sep Production test did not surface the expected AI review. For each eligible completed session, the approved Session-page output is exactly two concise **What went well** and two **What to improve** suggestions derived from the authoritative final transcript and valid metrics. Generation, rendering, selection, linked retry, and improvement verdict are distinct states. #1259 observes those states without coaching text; #1386 owns the user-visible loop and effectiveness proof.
+
+<!-- /pm-currentization:2026-09-04 -->
 
 # SpeakSharp Progress and Next Action (v1)
 
@@ -37,7 +43,7 @@ This document owns **the personal progress loop and the one next action**. It ro
 
 Progress is a **personal, session-over-session comparison**: this eligible session against the user's **previous comparable session** and against their **baseline**, with the observable evidence behind the movement, and **one measurable next action**.
 
-**The number is background; the two takeaways are the product (PO 2026-08-08).** The progress % is quiet supporting context — we never ask the user to stare at or optimise a number. What carries the value is the **two takeaways** ("What worked" ≤6 words / "Try next" ≤8 words, §7), intensely grounded in *that user's own session signals*. **Success is the user adjusting their next session based on that guidance** — not the number moving. Surfaces must present the % as secondary and the takeaways as primary. The v1 aggregate signal set + rollout live in **#1206**.
+**The number is background; the two takeaways are the product (PO 2026-08-08).** The progress % is quiet supporting context — we never ask the user to stare at or optimise a number. What carries the value is the **two takeaways** ("What went well" ≤6 words / "What to improve" ≤8 words, §7), intensely grounded in *that user's own session signals*. **Success is the user adjusting their next session based on that guidance** — not the number moving. Surfaces must present the % as secondary and the takeaways as primary. The v1 aggregate signal set + rollout live in **#1206**.
 
 **Prohibited, without exception:**
 
@@ -62,7 +68,7 @@ Current eligible session
 Direction: moved up / moved down / no meaningful change yet
     ↓  explain the observable supporting evidence
 Exactly two takeaways:
-    What worked          (≤ 6 words, not an action)
+    What went well          (≤ 6 words, not an action)
     Practice this next   (≤ 8 words, THE action -- structured, measurable target)
     ↓  measure it in the next comparable session
 ```
@@ -142,7 +148,7 @@ The minimum movement that counts as meaningful is a **product policy value**, se
 
 Each eligible session yields **exactly two takeaways**, and **exactly one of them is an action**. This is the same contract `#1047-A` (Session review) implements; the two authorities must not diverge.
 
-1. **What worked** — the strongest *valid* positive from the current session. **Maximum 6 words.** Not an action.
+1. **What went well** — the strongest *valid* positive from the current session. **Maximum 6 words.** Not an action.
    **Non-positive fallback (required).** A session can satisfy every §4 eligibility condition while having **no valid positive** — every measured metric declined or sat outside its healthy band. The three rules "exactly two takeaways", "strongest valid positive" and "never fabricate a positive" would otherwise be unsatisfiable together, so this case is resolved explicitly: the first takeaway falls back to a **neutral factual observation** about the current session (for example a steady measured value, or the honest evidence state), stated without praise and without implying improvement. **It is never omitted, and a positive is never invented.**
 2. **Practice this next** — the single next action. **Maximum 8 words.** Carries a **structured, measurable target** into the following session.
 
