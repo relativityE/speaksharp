@@ -351,6 +351,21 @@ export const EVENT_SCHEMAS = Object.freeze({
         unavailable_reason: enumOf(['no_filler_tokens_in_transcript', 'no_transcribed_speech']),
     },
 
+    /**
+     * F10 — the policy the database is believed to run, the claim the copy makes, and the count the
+     * client can actually SEE, all in one row. A mismatch between the first two is precisely the
+     * failure the PO hit: text promising one transcript beside a list holding two.
+     */
+    retention_observation: {
+        policy_version: slug(),
+        copy_version: slug(),
+        transcript_bearing_before: { kind: 'int', min: 0, max: 100_000 } as FieldRule,
+        transcript_bearing_after: { kind: 'int', min: 0, max: 100_000 } as FieldRule,
+        expired_count: { kind: 'int', min: 0, max: 100_000 } as FieldRule,
+        content_free_history_count: { kind: 'int', min: 0, max: 100_000 } as FieldRule,
+        saved_transcript_state: enumOf(['available', 'expired', 'not_captured']),
+    },
+
     // ── conversion funnel ───────────────────────────────────────────────────
     conversion_cta_viewed: CONVERSION_FIELDS,
     conversion_cta_clicked: CONVERSION_FIELDS,

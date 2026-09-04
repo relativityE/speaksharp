@@ -25,6 +25,8 @@ import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { emitRecordingIntent } from '@/services/telemetry/journeyEvents';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
+import { emitRetentionObservation } from '@/services/telemetry/retentionObservation';
+import { hasReadableTranscript } from '@/constants/transcriptState';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 
@@ -268,6 +270,29 @@ export const useSessionLifecycle = () => {
                 // count was ever recorded. `word_count: 88` beside an empty panel and `word_count: 88`
                 // beside 88 visible words were the same event. This records what the authority holds at
                 // the moment persistence returned, so the review stage has something to disagree with.
+                // #1259 F10 — the counts the client can actually SEE, observed rather than asserted.
+                // The PO found two readable transcripts under copy claiming otherwise; whether that is
+                // a policy not applied, a policy applied with stale copy, or a policy keeping two on
+                // purpose is unanswerable from `session_saved` alone. Reporting the INTENDED policy
+                // would agree with the copy and hide exactly that disagreement.
+                // Read from the store at SAVE time rather than closing over the render-time value:
+                // adding `history` to this callback's dependencies would change when the handler is
+                // recreated, and the count that matters is the one at the moment of the save anyway.
+                const historyAtSave = useSessionStore.getState().history;
+                const bearing = (rows: typeof historyAtSave) =>
+                    rows.filter((sn) => hasReadableTranscript(
+                        (sn as { transcript_state?: string | null }).transcript_state,
+                    )).length;
+                emitRetentionObservation({
+                    transcriptBearingBefore: bearing(historyAtSave),
+                    // The list refreshes asynchronously after invalidation, so the after-count is not
+                    // knowable here. Null says so; a copied before-count would read as "nothing
+                    // expired", which is the flattering answer and the one that hides the defect.
+                    transcriptBearingAfter: null,
+                    contentFreeHistoryCount: historyAtSave.length,
+                    savedTranscriptState: null,
+                });
+
                 emitTranscriptAuthority({
                     stage: 'save',
                     authoritative: useSessionStore.getState().transcript.transcript,
