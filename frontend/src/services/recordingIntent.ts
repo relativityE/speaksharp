@@ -35,6 +35,22 @@ export type IntentRetireReason =
     | 'replaced'
     | 'superseded';
 
+/**
+ * The ORIGINAL caller's promise, carried by the intent.
+ *
+ * #1415 P1 — `startRecording()` used to resolve as soon as the preparation branch returned, so the
+ * caller believed the start had succeeded while nothing was recording. `useSessionLifecycle` then
+ * pushed `session_started` immediately, and a resumed failure had no caller left to reject: it
+ * became an unhandled rejection inside a void'd promise.
+ *
+ * The settlement is attached to the INTENT so it survives preparation with the wish it belongs to,
+ * and so a superseded attempt cannot settle its successor's caller.
+ */
+export interface IntentSettlement {
+    resolve: () => void;
+    reject: (error: Error) => void;
+}
+
 export interface RecordingIntent {
     /** Identifies THIS intent. A stale token can never claim a newer intent. */
     readonly token: string;
@@ -51,6 +67,8 @@ export interface RecordingIntent {
      * refusal is a real failure and is shown as one.
      */
     readonly resumed: boolean;
+    /** Settles the caller that asked for this recording. Undefined for an intent nobody awaits. */
+    readonly settlement?: IntentSettlement;
 }
 
 export interface RetiredIntent {
@@ -80,8 +98,14 @@ export function mintRecordingIntent(input: {
     policy: TranscriptionPolicy | null;
     userWords: readonly string[];
     resumed?: boolean;
+    settlement?: IntentSettlement;
 }): RecordingIntent {
-    if (pending) lastRetired = { token: pending.token, reason: 'replaced' };
+    // A replaced intent must settle its own caller — otherwise the first click's awaited promise
+    // hangs forever when the user clicks again.
+    if (pending) {
+        lastRetired = { token: pending.token, reason: 'replaced' };
+        pending.settlement?.reject(new Error('RECORDING_INTENT_REPLACED'));
+    }
     pending = {
         token: mintToken(),
         recordingId: input.recordingId,
@@ -89,6 +113,7 @@ export function mintRecordingIntent(input: {
         userWords: [...input.userWords],
         mintedAt: Date.now(),
         resumed: input.resumed ?? false,
+        settlement: input.settlement,
     };
     return pending;
 }
@@ -114,11 +139,41 @@ export function claimRecordingIntent(token?: string): RecordingIntent | null {
     return claimed;
 }
 
-/** Discard the intent with a stated reason. Idempotent: retiring nothing is not an error. */
-export function retireRecordingIntent(reason: IntentRetireReason): RetiredIntent | null {
+/**
+ * Discard the intent with a stated reason, and settle its caller.
+ *
+ * #1415 P2 — TOKEN-SCOPED. A stale or superseded attempt reaches this code path too (its teardown,
+ * its failure, its late callback), and an unscoped retirement lets it delete the intent a NEWER click
+ * just created — silently cancelling a recording the user is currently asking for. Passing a token
+ * retires only that intent; omitting one is reserved for authorities that genuinely act on whatever
+ * is current, such as a global teardown.
+ *
+ * Idempotent: retiring nothing, or retiring a token that is no longer current, is not an error.
+ */
+export function retireRecordingIntent(
+    reason: IntentRetireReason,
+    token?: string,
+    /**
+     * The REAL cause, when there is one.
+     *
+     * A start that fails carries a diagnostic — `TRANSCRIPTION_START_DID_NOT_RECORD:FAILED`, a
+     * permission error, an engine-start leaf — and the caller reads it: `useSessionLifecycle` derives
+     * `error_name` and `start_leaf_name` from it. Rejecting with a synthesized retirement message
+     * instead would replace a specific diagnosis with a generic one at exactly the moment it matters.
+     */
+    cause?: Error,
+): RetiredIntent | null {
     if (!pending) return null;
-    lastRetired = { token: pending.token, reason };
+    if (token !== undefined && token !== pending.token) return null;
+    const retired = pending;
+    lastRetired = { token: retired.token, reason };
     pending = null;
+    // `started` is a SUCCESS, not a refusal — the recording authority resolves the caller separately.
+    // Rejecting here would win the race against that resolve (a promise settles once) and report a
+    // successful recording as a failed start.
+    if (reason !== 'started') {
+        retired.settlement?.reject(cause ?? new Error(`RECORDING_INTENT_RETIRED:${reason}`));
+    }
     return lastRetired;
 }
 

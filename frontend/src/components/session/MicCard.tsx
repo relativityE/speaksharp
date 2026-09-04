@@ -88,19 +88,35 @@ export const MicCard: React.FC<MicCardProps> = ({
     // #1258: a setup/retry action (download-required OR init-failed/error) is ALWAYS enabled and routes to the
     // Private setup entry point — a failed model setup must leave the user a clickable "Retry Private setup",
     // never a permanently-disabled control.
-    const isSetupAction = downloadRequired || modelError;
-    const primaryHandler = isSetupAction ? (onDownloadModel ?? onStart) : onStart;
-    const primaryDisabled = isSetupAction ? false : (!!disabled || loading);
+    // #1415 — THE COLD PATH IS ONE CLICK, AND IT SAYS SO.
+    //
+    // `downloadRequired` comes from the background availability pulse, which stops AT
+    // DOWNLOAD_REQUIRED and downloads nothing — so the label is decided before any bytes move.
+    //
+    // Two failures are being avoided at once, and they pull in opposite directions. A control reading
+    // "Press to start speaking" that silently pulls a one-time model download is an undisclosed
+    // download. A control that only downloads, and needs a SECOND press to record, is the two-click
+    // failure this issue exists to remove. So the cold control states both things it will do, and
+    // doing them is a single activation: this press consents, prepares, and records.
+    //
+    // A model that FAILED setup is different: it keeps its own retry action, because retrying a broken
+    // engine automatically would loop behind a spinner the user cannot escape.
+    const isRetryAction = modelError;
+    const isColdStart = downloadRequired && !modelError;
+    const primaryHandler = isRetryAction ? (onDownloadModel ?? onStart) : onStart;
+    const primaryDisabled = (isRetryAction || isColdStart) ? false : (!!disabled || loading);
     const primaryTitle = isBlockedFromStart
         ? 'Just a moment…'
-        : downloadRequired
-        ? 'Download to start speaking'
+        : isColdStart
+        ? 'Download & start recording'
         : modelError ? 'Retry Private setup'
-        : loading ? 'Downloading…' : 'Press to start speaking';
+        : loading ? 'Downloading…' : 'Start recording';
     const primarySub = isBlockedFromStart
         ? blockedReason
-        : downloadRequired
-        ? 'One-time · downloads to this device, then stays local'
+        : isColdStart
+        // The disclosure. It names the one-time download, says it stays on the device, AND says
+        // recording follows automatically — so no part of what the press does is a surprise.
+        ? 'One-time model download to this device, then recording starts automatically'
         : modelError ? 'Setup didn’t finish — retry. Your audio stays on your machine.'
         : loading ? (pct != null ? `${pct}% downloaded — the mic unlocks when it’s ready` : 'the mic unlocks when it’s ready') : 'Space bar works too · aim for 60 seconds';
 
@@ -130,8 +146,12 @@ export const MicCard: React.FC<MicCardProps> = ({
                 type="button"
                 onClick={primaryHandler}
                 disabled={primaryDisabled}
-                aria-label={downloadRequired ? 'Download to start speaking' : modelError ? 'Retry Private setup' : isBlockedFromStart ? 'Start speaking — unavailable while your last session finishes' : 'Start speaking'}
-                data-testid={downloadRequired ? 'mic-download' : modelError ? 'mic-retry' : 'mic-start'}
+                aria-label={isColdStart
+                    ? 'Download & start recording'
+                    : modelError ? 'Retry Private setup'
+                    : isBlockedFromStart ? 'Start recording — unavailable while your last session finishes'
+                    : 'Start recording'}
+                data-testid={isColdStart ? 'mic-download' : modelError ? 'mic-retry' : 'mic-start'}
                 className="mt-3 flex w-full items-center gap-4 rounded-lg text-left disabled:opacity-60"
             >
                 <span

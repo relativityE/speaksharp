@@ -71,6 +71,67 @@ describe('#1415 — supersession and retirement carry an explicit reason', () =>
     });
 });
 
+describe('#1415 P2 — retirement is token-scoped', () => {
+    it('a STALE attempt cannot retire its successor', () => {
+        const first = mint({ recordingId: 'rec-1' });
+        mint({ recordingId: 'rec-2' });   // the user clicked again
+
+        // The stale attempt reaches retirement too — its teardown, its failure, its late callback.
+        // Unscoped, it would delete the intent the newer click just created and silently cancel a
+        // recording the user is actively asking for.
+        expect(retireRecordingIntent('teardown', first.token)).toBeNull();
+        expect(pendingRecordingIntent()?.recordingId).toBe('rec-2');
+    });
+
+    it('an attempt CAN retire its own token', () => {
+        const only = mint();
+        expect(retireRecordingIntent('cancelled', only.token)).toEqual({
+            token: only.token, reason: 'cancelled',
+        });
+        expect(pendingRecordingIntent()).toBeNull();
+    });
+
+    it('an unscoped retirement still works, for authorities that act on whatever is current', () => {
+        mint();
+        expect(retireRecordingIntent('teardown')?.reason).toBe('teardown');
+    });
+});
+
+describe('#1415 P1 — the original caller is settled, once, at the right authority', () => {
+    it('a refusal REJECTS the caller rather than leaving it hanging', async () => {
+        const rejected: Error[] = [];
+        mintRecordingIntent({
+            recordingId: 'rec-1', policy: null, userWords: [],
+            settlement: { resolve: () => { /* not this path */ }, reject: (e) => rejected.push(e) },
+        });
+        retireRecordingIntent('permission_denied');
+        expect(rejected).toHaveLength(1);
+        expect(rejected[0].message).toBe('RECORDING_INTENT_RETIRED:permission_denied');
+    });
+
+    it('a SUCCESSFUL start does not reject — the recording authority resolves separately', () => {
+        const rejected: Error[] = [];
+        mintRecordingIntent({
+            recordingId: 'rec-1', policy: null, userWords: [],
+            settlement: { resolve: () => { /* resolved by the caller */ }, reject: (e) => rejected.push(e) },
+        });
+        // A promise settles once. Rejecting on `started` would win the race against the resolve and
+        // report a recording that is running as a failed start.
+        retireRecordingIntent('started');
+        expect(rejected).toHaveLength(0);
+    });
+
+    it('a REPLACED intent settles its own caller, so the first click never hangs', () => {
+        const rejected: Error[] = [];
+        mintRecordingIntent({
+            recordingId: 'rec-1', policy: null, userWords: [],
+            settlement: { resolve: () => { /* n/a */ }, reject: (e) => rejected.push(e) },
+        });
+        mint({ recordingId: 'rec-2' });
+        expect(rejected[0]?.message).toBe('RECORDING_INTENT_REPLACED');
+    });
+});
+
 describe('#1415 — the resumption is bounded', () => {
     it('a fresh click is not a resumption', () => {
         expect(mint().resumed).toBe(false);

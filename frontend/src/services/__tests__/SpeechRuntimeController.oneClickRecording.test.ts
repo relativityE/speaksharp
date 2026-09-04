@@ -164,7 +164,9 @@ describe('#1415 — one click, one recording', () => {
         it('PREPARATION IS NOT A START FAILURE — no error state, no discarded intent', async () => {
             // Before this change: TRANSCRIPTION_START_BLOCKED_STATE:DOWNLOAD_REQUIRED propagated as a
             // start failure, the runtime landed in FAILED_VISIBLE, and nothing remembered the click.
-            await controller.startRecording(POLICY as never, []);
+            // NOT awaited: the promise is the whole attempt and stays pending through preparation.
+            const started = controller.startRecording(POLICY as never, []);
+            started.catch(() => { /* settled by a later assertion */ });
             await settle();
 
             expect(useSessionStore.getState().runtimeState).not.toBe('FAILED_VISIBLE');
@@ -173,7 +175,8 @@ describe('#1415 — one click, one recording', () => {
         });
 
         it('the click SURVIVES preparation — it is never retired as a failure', async () => {
-            await controller.startRecording(POLICY as never, []);
+            const started = controller.startRecording(POLICY as never, []);
+            started.catch(() => { /* a refusal is asserted below, not here */ });
             await settle(60);
             // The intent either is still pending (preparation running) or was CLAIMED and started.
             // What it must never be is discarded as an acquisition failure, which is precisely what
@@ -187,7 +190,8 @@ describe('#1415 — one click, one recording', () => {
     describe('cold start', () => {
         it('reaches RECORDING exactly once, with no second click', async () => {
             const clickedAt = Date.now();
-            await controller.startRecording(POLICY as never, []);
+            // The caller's promise resolves ONLY when recording begins — see the assertion below.
+            const started = controller.startRecording(POLICY as never, []);
 
             // Preparation runs through Production's own path: the click drove the download, the model
             // landed, and readiness follows. Nothing here forces a controller state — forcing READY
@@ -205,10 +209,15 @@ describe('#1415 — one click, one recording', () => {
             // report a fast start for the session that felt like thirty seconds of silence.
             const intentToRecordingMs = Date.now() - clickedAt;
             expect(intentToRecordingMs).toBeGreaterThanOrEqual(0);
+
+            // #1415 P1 — the ORIGINAL promise resolves, and only now. Before this it resolved as soon
+            // as preparation began, so the caller pushed `session_started` with nothing recording.
+            await expect(started).resolves.toBeUndefined();
         });
 
         it('a DUPLICATE readiness signal does not produce a second recording', async () => {
-            await controller.startRecording(POLICY as never, []);
+            const started = controller.startRecording(POLICY as never, []);
+            started.catch(() => { /* not the subject of this test */ });
             await settle(60);
 
             // A duplicate readiness signal after the resume has already happened.
@@ -221,12 +230,76 @@ describe('#1415 — one click, one recording', () => {
         });
     });
 
+    describe('#1415 P1 — engine and policy stay locked through preparation', () => {
+        it('the lock is HELD while a click waits on a model download', async () => {
+            engine.downloadEnabled = false;   // preparation stays open
+            const started = controller.startRecording(POLICY as never, []);
+            started.catch(() => { /* asserted elsewhere */ });
+            await settle();
+
+            // `transition()` clears the synchronous start-intent lock on EVERY transition, and
+            // preparation is a transition. Without the pending intent holding it, a mode or policy
+            // change during the download would have the recording resume on an engine the user never
+            // asked for, under a policy the intent was not minted with.
+            expect(controller.isEngineSelectionLocked()).toBe(true);
+        });
+
+        it('the lock is RELEASED once that exact attempt is retired', async () => {
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            started.catch(() => { /* expected */ });
+            await settle();
+            expect(controller.isEngineSelectionLocked()).toBe(true);
+
+            await (controller as unknown as { transition: (s: string) => Promise<void> })
+                .transition('TERMINATED');
+            await settle();
+
+            // The lock lasts exactly as long as the wish — no longer.
+            expect(controller.isEngineSelectionLocked()).toBe(false);
+        });
+    });
+
+    describe('#1415 P1 — the original Start promise is the whole attempt', () => {
+        it('stays PENDING through preparation — it must not resolve before recording', async () => {
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            let settledEarly = false;
+            void started.then(() => { settledEarly = true; }, () => { settledEarly = true; });
+            await settle(20);
+
+            // Resolving here is what let `session_started` be pushed with nothing recording.
+            expect(settledEarly).toBe(false);
+            expect(pendingRecordingIntent()).not.toBeNull();
+
+            // Clean up the pending promise so the test does not leak an unhandled rejection.
+            await (controller as unknown as { transition: (s: string) => Promise<void> })
+                .transition('TERMINATED');
+            await settle();
+        });
+
+        it('REJECTS through the original caller when a resumed attempt cannot start', async () => {
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            const outcome = started.then(() => 'resolved', (e: Error) => e.message);
+            await settle();
+            await (controller as unknown as { transition: (s: string) => Promise<void> })
+                .transition('TERMINATED');
+            await settle();
+
+            // A resumed failure used to have no caller left to reject — it became an unhandled
+            // rejection inside a void'd promise, invisible to the click that caused it.
+            await expect(outcome).resolves.toBe('RECORDING_INTENT_RETIRED:teardown');
+        });
+    });
+
     describe('the intent is retired when it must be', () => {
         it('teardown retires it — a stale intent must never start a recording later', async () => {
             // The download never lands, so preparation stays open and there is a live intent to
             // retire. With a working auto-start the intent is otherwise consumed before teardown.
             engine.downloadEnabled = false;
-            await controller.startRecording(POLICY as never, []);
+            const started = controller.startRecording(POLICY as never, []);
+            const rejection = started.catch((e: Error) => e);
             await settle();
             expect(pendingRecordingIntent()).not.toBeNull();
 
@@ -236,11 +309,15 @@ describe('#1415 — one click, one recording', () => {
 
             expect(pendingRecordingIntent()).toBeNull();
             expect(lastRetiredIntent()?.reason).toBe('teardown');
+            // The original caller is REJECTED, not left hanging: a wish that cannot be honoured must
+            // surface where the click was made.
+            await expect(rejection).resolves.toMatchObject({ message: 'RECORDING_INTENT_RETIRED:teardown' });
         });
 
         it('a later READY after teardown starts nothing', async () => {
             engine.downloadEnabled = false;
-            await controller.startRecording(POLICY as never, []);
+            const started = controller.startRecording(POLICY as never, []);
+            started.catch(() => { /* expected: teardown retires the intent */ });
             await settle();
             const transition = (controller as unknown as { transition: (s: string) => Promise<void> }).transition
                 .bind(controller);

@@ -2,7 +2,7 @@ import logger from '@/lib/logger';
 import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
 import {
     mintRecordingIntent, claimRecordingIntent, retireRecordingIntent, isCurrentIntent,
-    pendingRecordingIntent,
+    pendingRecordingIntent, type IntentSettlement,
 } from '@/services/recordingIntent';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
@@ -663,6 +663,18 @@ export class SpeechRuntimeController {
      *  THE single authoritative predicate — consumed by the UI selector AND enforced in the controller. */
     public isEngineSelectionLocked(): boolean {
         return this.engineSelectionIntentLocked
+            // #1415 P1 — A PENDING INTENT HOLDS THE LOCK THROUGH PREPARATION.
+            //
+            // `transition()` clears `engineSelectionIntentLocked` on every transition, and preparation
+            // is a transition (to DOWNLOAD_REQUIRED, then to READY). So a click that parked for a model
+            // download released the lock for the whole download — and a mode or policy change during
+            // that window would have the recording resume on an engine the user never asked for, with
+            // the policy the intent was minted under silently replaced.
+            //
+            // The lock now lasts exactly as long as the wish: from mint until the attempt records,
+            // fails, or is cancelled. `RECORDING_LIFECYCLE_STATES` covers the recording itself; this
+            // covers the gap before it that preparation opened.
+            || pendingRecordingIntent() !== null
             || SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)
             || this.pendingAttributionRetry !== null
             || this.pendingFullSaveRetry !== null
@@ -1783,12 +1795,19 @@ export class SpeechRuntimeController {
         // Any terminal or torn-down state retires the wish. A stale intent must never start a
         // recording later, and these are precisely the moments after which it would be stale.
         if (newState === 'TERMINATED' || newState === 'FAILED' || newState === 'FAILED_VISIBLE') {
+            // Rejects the original caller through the intent's settlement, so a resumed permission,
+            // init or start failure surfaces where the click was made instead of vanishing.
             retireRecordingIntent(newState === 'TERMINATED' ? 'teardown' : 'acquisition_failed');
         } else if (newState === 'RECORDING') {
-            // The wish was honoured. Retiring it here covers the WARM path too, where the intent is
-            // minted and recording begins without ever passing through preparation — leaving it
-            // pending would let an unrelated later READY start a second recording.
-            retireRecordingIntent('started');
+            // THE RECORDING AUTHORITY. This is the only place the caller's promise resolves, so
+            // `session_started` cannot be pushed before a recording genuinely exists. Retiring here
+            // also covers the WARM path, where the intent is minted and recording begins without ever
+            // passing through preparation.
+            const honoured = pendingRecordingIntent();
+            if (honoured) {
+                retireRecordingIntent('started', honoured.token);
+                honoured.settlement?.resolve();
+            }
         }
 
         this.syncProvider(this.lifecycleVersion);
@@ -1891,7 +1910,7 @@ export class SpeechRuntimeController {
                 });
                 // Deliberately not awaited: `transition` is called from inside the lifecycle queue,
                 // and `startRecording` enqueues. Awaiting here would deadlock the queue behind itself.
-                void this.startRecording(resumed.policy ?? undefined, [...resumed.userWords], true);
+                void this.startRecording(resumed.policy ?? undefined, [...resumed.userWords], true, resumed.settlement);
             }
         }
 
@@ -2638,7 +2657,19 @@ export class SpeechRuntimeController {
         }
     }
 
-    public async startRecording(policy?: TranscriptionPolicy, userWords: string[] = [], resumedFromPreparation = false): Promise<void> {
+    public async startRecording(
+        policy?: TranscriptionPolicy,
+        userWords: string[] = [],
+        resumedFromPreparation = false,
+        /**
+         * #1415 — the ORIGINAL caller's settlement, carried into a resumed attempt.
+         *
+         * A resume is the SAME wish continuing, not a new one. Minting a fresh settlement here would
+         * leave the click that started it all waiting on a promise nothing ever settles — the caller
+         * hangs forever while a recording runs perfectly well in front of them.
+         */
+        carriedSettlement?: IntentSettlement,
+    ): Promise<void> {
         // #1033: do not start a new recording while a prior recording is unresolved — a pending attribution
         // retry, OR a recording that began and failed post-start without a durable save. Its identity must be
         // resolved (Retry Save) or explicitly discarded first. This bounds the system to AT MOST ONE
@@ -2684,7 +2715,29 @@ export class SpeechRuntimeController {
         // is exactly when the wish used to be lost: a cold visit threw
         // TRANSCRIPTION_START_BLOCKED_STATE and nothing remembered that a click had happened.
         // A second click replaces this intent rather than queueing a second recording.
-        const intent = mintRecordingIntent({ recordingId, policy: policy ?? null, userWords, resumed: resumedFromPreparation });
+        // #1415 P1 — THE CALLER'S PROMISE BELONGS TO THE WHOLE ATTEMPT, NOT TO THE FIRST LEG.
+        //
+        // This used to resolve the moment the preparation branch returned, so `useSessionLifecycle`
+        // believed the start had succeeded and pushed `session_started` while nothing was recording —
+        // and a resumed failure had no caller left to reject, becoming an unhandled rejection inside a
+        // void'd promise. The settlement rides the intent so it survives preparation, and so a
+        // superseded attempt cannot settle its successor's caller.
+        let settleStart: (() => void) | null = null;
+        let failStart: ((e: Error) => void) | null = null;
+        const started = carriedSettlement
+            ? Promise.resolve()          // the original caller is already awaiting; see below
+            : new Promise<void>((resolve, reject) => {
+                settleStart = resolve;
+                failStart = reject;
+            });
+        const settlement: IntentSettlement = carriedSettlement ?? {
+            resolve: () => settleStart?.(),
+            reject: (e: Error) => failStart?.(e),
+        };
+        const intent = mintRecordingIntent({
+            recordingId, policy: policy ?? null, userWords,
+            resumed: resumedFromPreparation, settlement,
+        });
         pushNativeRuntimeTrace('controller_start_requested', {
             recordingId,
             state: this.state,
@@ -2692,7 +2745,7 @@ export class SpeechRuntimeController {
             lifecycleVersion: this.lifecycleVersion,
         });
 
-        return this.enqueue(async (_token) => {
+        void this.enqueue(async (_token) => {
             pushNativeRuntimeTrace('controller_start_queue_enter', {
                 recordingId,
                 state: this.state,
@@ -2705,6 +2758,8 @@ export class SpeechRuntimeController {
                     recordingId,
                     currentRecordingId: this.currentRecordingId,
                 });
+                // #1415 — a superseded attempt still owes its caller an answer.
+                retireRecordingIntent('superseded', intent.token);
                 return;
             }
 
@@ -2719,6 +2774,13 @@ export class SpeechRuntimeController {
                 pushNativeRuntimeTrace('controller_start_skip_bad_state', {
                     state: this.state,
                 });
+                // #1415 — RESOLVED, not rejected. A Start refused because a recording is already
+                // running is a NO-OP, and it always has been: the caller returned normally and the
+                // active recording continued. Rejecting would surface an error toast for a double
+                // click that the product deliberately absorbs. The intent is still retired, so it can
+                // never auto-start later.
+                intent.settlement?.resolve();
+                retireRecordingIntent('superseded', intent.token);
                 // #1033 item 4: this Start is aborting before any transition (no INITIATING → no lifecycle-state
                 // lock yet). Release the synchronous Start-intent lock so it can't leak. If another recording is
                 // genuinely active it stays locked via RECORDING_LIFECYCLE_STATES; a stale/double Start does not.
@@ -2736,6 +2798,7 @@ export class SpeechRuntimeController {
                     version,
                     lifecycleVersion: this.lifecycleVersion,
                 });
+                retireRecordingIntent('superseded', intent.token);
                 // #1033 item 4: aborting before the INITIATING transition — release the Start-intent lock.
                 this.engineSelectionIntentLocked = false;
                 return;
@@ -2930,8 +2993,24 @@ export class SpeechRuntimeController {
                 }
 
                 if (service && service.fsm?.is('DOWNLOAD_REQUIRED')) {
+                    // #1415 — the same preparation path as the catch branch, reached when the service
+                    // reports DOWNLOAD_REQUIRED without throwing. Transitioning straight to READY here
+                    // would resume the intent against a model that is still absent; going through
+                    // DOWNLOAD_REQUIRED drives the download first, exactly as a click should.
                     this.setEngineReady(false);
                     this.service = null;
+                    if (isCurrentIntent(intent.token) && !intent.resumed) {
+                        await this.transition('DOWNLOAD_REQUIRED', undefined, _token);
+                        void Promise.resolve()
+                            .then(() => this.initiateModelDownload(this.policy?.preferredMode ?? 'private'))
+                            .catch((downloadErr: unknown) => {
+                                retireRecordingIntent('acquisition_failed', intent.token,
+                                    downloadErr instanceof Error ? downloadErr : undefined);
+                            });
+                        return;
+                    }
+                    retireRecordingIntent('acquisition_failed', intent.token,
+                        new Error('RECORDING_START_MODEL_UNAVAILABLE'));
                     await this.transition('READY', undefined, _token);
                     return;
                 }
@@ -3053,11 +3132,24 @@ export class SpeechRuntimeController {
                 }
                 // Any other start failure retires the intent: a wish the system could not honour must
                 // not be honoured later, silently, when something unrelated reaches READY.
-                retireRecordingIntent('acquisition_failed');
+                retireRecordingIntent('acquisition_failed', intent.token, err as Error);
                 await this.transition('FAILED', err as Error, _token);
                 throw err;
             }
+        }).catch((queueErr: unknown) => {
+            // BACKSTOP. The inner catch settles the failures it knows about, but a throw from the
+            // queue itself — or from anything before that catch is reached — would otherwise leave the
+            // caller awaiting a promise nothing ever settles. A hung Start is worse than a failed one:
+            // the user sees no error and no recording, which is the shape of the original defect.
+            //
+            // Retiring by TOKEN means this is a no-op once the attempt has already settled, so a
+            // successful start is never retroactively reported as a failure.
+            retireRecordingIntent('acquisition_failed', intent.token,
+                queueErr instanceof Error ? queueErr : new Error('RECORDING_START_FAILED'));
         });
+
+        // #1415 — the caller awaits the RECORDING authority, not the first leg of the attempt.
+        return started;
     }
 
     /**
