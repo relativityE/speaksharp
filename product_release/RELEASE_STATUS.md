@@ -1,9 +1,17 @@
+<!-- pm-currentization:2026-09-04 -->
+> [!CAUTION]
+> **Current Production disposition — 4 Sep 2026: HOLD for product recovery and observable retest.** Production/main were verified at `c4665156212dd03cd6d7b91c49bed90dea868b5a`. The human test ran Open Mic and Focus Points on v2 only; both failed. Accepted remedies are not yet shipped. #1259 is reopened and in local implementation; no accepted telemetry PR/head exists. No PO merge authorization is currently the blocker. Testing remains paused until the grouped fixes and complete Production observability deploy.
+>
+> Confirmed defects include cold intent not auto-starting, repeated setup, distracting provisional churn, completed transcript disappearance, false Focus Points negatives/miscount, missing Practice Loop, post-session navigation friction, blocked/lost Share feedback state, stale two-transcript copy, filler stripping behind flattering clarity, and no Production runtime access to v4/Moonshine. See #1259, #1407, #1386, #1404, #1263/#1304/#1390, and #1258.
+
+<!-- /pm-currentization:2026-09-04 -->
+
 # Release Status
 
 **Status:** Authoritative (SSOT for release/deployment posture)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-08-29
-**Last Verified:** 2026-08-31 (production `window.__APP_RELEASE__` READ from `https://speaksharp-public.vercel.app/` = `a19324610634b9e05a375fff8838f2bbbae3a4f1`; `origin/main` verified by `git rev-parse` at the same time. Production **==** `main` HEAD at this read. The deployed SHA is READ, never inferred from auto-deploy.)
+**Last Reviewed:** 2026-09-04
+**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 
 > **Currency correction (second).** #1358 corrected a 34-day drift; one day later this file was stale again — it named `5f378898` as both `main` and the deployed release, called #1304 Task 3 and Task 4 "not started" after both had merged, and still named the retention production proof as *the* release blocker after the stopping rule fired and that campaign moved off the critical path. A stale SSOT is worse than an absent one: `AGENTS.md` sends every agent here first, so wrong values here become wrong work. The values below are verified reads taken on 2026-08-28, not copied forward. The currency guard in `tests/config/documentationContract.test.ts` now fails when these task states contradict merged/open PR reality.
 **Applies To:** Current production deployment + release tracks for the SpeakSharp beta.
@@ -22,11 +30,11 @@
 # "retention". A guard that cannot tell a description of a defect from the defect is not a guard.
 #
 # So state lives here, in fixed fields, and prose stays prose.
-baseline: a19324610634b9e05a375fff8838f2bbbae3a4f1
-deployed-release: a19324610634b9e05a375fff8838f2bbbae3a4f1
-verified-on: 2026-08-29
-release-blocker: model-selection
-retention-campaign: off-critical-path
+baseline: c4665156212dd03cd6d7b91c49bed90dea868b5a
+deployed-release: c4665156212dd03cd6d7b91c49bed90dea868b5a
+verified-on: 2026-09-04
+release-blocker: production-journey-recovery
+retention-campaign: newest-one-approved-pending-implementation
 task-1304-1: merged
 task-1304-2: merged
 task-1304-3a: merged
@@ -34,10 +42,10 @@ task-1304-3b: merged
 task-1304-3c: merged
 task-1304-4: merged
 task-1360-recovery-copy: merged
-lane-stage-b: not-started
-lane-telemetry: not-started
-lane-billing: not-started
-lane-1258-journey: not-started
+lane-stage-b: superseded-by-production-biopsy
+lane-telemetry: in-progress
+lane-billing: held-behind-product-recovery
+lane-1258-journey: failed-retest-pending
 -->
 
 ## Current baseline & production posture
