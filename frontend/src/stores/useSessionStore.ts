@@ -32,6 +32,7 @@ interface TranscriptState {
 
 import { RuntimeState } from '@/services/SpeechRuntimeController';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
+import { noteTranscriptUpdate, emitTranscriptStability } from '@/services/telemetry/transcriptStability';
 
 export type NativeFormattingUiStatus = 'idle' | 'pending' | 'complete' | 'failed';
 
@@ -374,12 +375,13 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         }),
 
     updateTranscript: (transcriptText, partial = '') => {
-        set({
-            transcript: {
-                transcript: sentenceCaseStart(transcriptText),
-                partial: sentenceCaseStart(partial),
-            },
-        });
+        const committed = sentenceCaseStart(transcriptText);
+        const provisional = sentenceCaseStart(partial);
+        // #1259 F04 — counted here, on every update, and reported ONCE at finalization. This is the
+        // single place both halves of the transcript change, and an event per update would be the
+        // per-frame stream the contract forbids.
+        noteTranscriptUpdate(committed, provisional);
+        set({ transcript: { transcript: committed, partial: provisional } });
     },
 
     updateFillerData: (data) =>
@@ -601,6 +603,9 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         set({ isTranscriptFinalizing });
         if (wasFinalizing && !isTranscriptFinalizing) {
             const state = get();
+            // #1259 F04 — the churn summary belongs at the same moment: finalization is when the
+            // motion stops, and it is the only point where "how much did it move" has a final answer.
+            emitTranscriptStability(state.transcript.transcript, state.transcript.partial);
             emitTranscriptAuthority({
                 stage: 'finalize',
                 // The COMMITTED text, not the partial. A partial is still in flux by definition, and

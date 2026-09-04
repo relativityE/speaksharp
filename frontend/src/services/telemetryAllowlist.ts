@@ -366,6 +366,22 @@ export const EVENT_SCHEMAS = Object.freeze({
         saved_transcript_state: enumOf(['available', 'expired', 'not_captured']),
     },
 
+    /**
+     * F04 — churn is MOTION, and a finished transcript cannot show it. Counted per update, reported
+     * once at finalization: an event per update would be the per-frame stream this contract forbids.
+     * `revisions` counts changes to text the user had ALREADY READ, not provisional words being
+     * replaced — which is what provisional means and is not what anyone complained about.
+     */
+    transcript_stability: {
+        provisional_updates: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        final_updates: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        revisions: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        max_rewritten_prefix_words: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        ms_to_stable: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+        visible_final_words: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        visible_provisional_words: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+    },
+
     // ── conversion funnel ───────────────────────────────────────────────────
     conversion_cta_viewed: CONVERSION_FIELDS,
     conversion_cta_clicked: CONVERSION_FIELDS,

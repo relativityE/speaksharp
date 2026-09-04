@@ -9,6 +9,7 @@ import {
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 import { emitFillerMeasurement } from '@/services/telemetry/fillerMeasurement';
 import { noteEngineReady, noteEngineTeardown } from '@/services/telemetry/reinitObservation';
+import { resetTranscriptStability } from '@/services/telemetry/transcriptStability';
 import { resolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { countWords } from '@/lib/contentDigest';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
@@ -1815,6 +1816,11 @@ export class SpeechRuntimeController {
                     // The attempt opens where recording actually begins, not where it was requested —
                     // a refused or hung start must not consume an attempt ordinal.
                     beginRecordingAttempt();
+                    // #1259 F04 — churn is measured PER TAKE. Resetting here rather than inside the
+                    // identity module keeps the dependency one-way: the store's transcript setter
+                    // already reaches the telemetry layer, and importing it back would close a cycle
+                    // through the envelope.
+                    resetTranscriptStability();
                     // The two halves of the wait, kept apart. `ready_to_intent` is how long the user sat
                     // looking at a ready control; `intent_to_recording` is how long the click took to
                     // become a recording. One total cannot tell those apart, and they have different fixes.
