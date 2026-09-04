@@ -236,7 +236,12 @@ describe('Navigation', () => {
             fireEvent.click(screen.getByTestId('nav-report-issue-button'));
             fireEvent.click(screen.getByRole('button', { name: "What's included" }));
             expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/internal account reference/i);
-            expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/Never your email, name, credentials, transcript, or audio/i);
+            // #1416 item 4 — the PM-owned wording. "Never your email…" overstated the guarantee by
+            // omitting the one thing the user DOES send, so the disclosure now says both halves.
+            expect(screen.getByTestId('issue-report-disclosure'))
+                .toHaveTextContent(/don’t automatically attach your email, name, credentials, transcript, or audio/i);
+            expect(screen.getByTestId('issue-report-disclosure'))
+                .toHaveTextContent(/Anything you type in the feedback box is included in your report/i);
             // Raw DB field name must not leak into user-facing copy.
             expect(screen.getByTestId('issue-report-disclosure')).not.toHaveTextContent(/user_id/i);
             expect(screen.queryByText(/Anonymous report/i)).not.toBeInTheDocument();

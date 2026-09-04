@@ -171,10 +171,32 @@ describe('#1404 Share feedback redesign', () => {
   it('shows concise provenance first and details only on request', async () => {
     const user = await open('/session');
     const provenance = screen.getByTestId('issue-report-page-context');
-    expect(provenance).toHaveTextContent('Sent from Session · Speaking · no automatic transcript or audio.');
+    // #1416 item 4 — "no automatic transcript or audio" read as a promise that nothing the user
+    // contributes is sent. The collapsed line now scopes the claim to what is not attached
+    // AUTOMATICALLY.
+    expect(provenance).toHaveTextContent(
+      'Sent from Session · Speaking · transcript and audio aren’t attached automatically.',
+    );
     expect(screen.queryByTestId('issue-report-disclosure')).not.toBeInTheDocument();
+
     await user.click(screen.getByRole('button', { name: "What's included" }));
-    expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/do not automatically attach your email, name, credentials, transcript, or audio/i);
+    const disclosure = screen.getByTestId('issue-report-disclosure');
+    expect(disclosure).toHaveTextContent(
+      /We attach an internal account reference, this screen, the app version, and basic browser and operating-system details/i,
+    );
+    expect(disclosure).toHaveTextContent(
+      /don’t automatically attach your email, name, credentials, transcript, or audio/i,
+    );
+    // The half that was missing: what the user TYPES is submitted, said plainly.
+    expect(disclosure).toHaveTextContent(/Anything you type in the feedback box is included in your report/i);
+  });
+
+  it('does not restore the long privacy block or the audio checkbox', async () => {
+    await open('/session');
+    // The detail stays behind "What's included" so the default form remains short.
+    expect(screen.queryByTestId('issue-report-disclosure')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('issue-report-include-audio')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/attach audio/i)).not.toBeInTheDocument();
   });
 
   it('supports arrow-key selection in the type radiogroup', async () => {

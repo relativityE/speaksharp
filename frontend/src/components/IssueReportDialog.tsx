@@ -312,11 +312,22 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
           {error && <p role="alert" className="text-sm font-semibold text-destructive">{error}</p>}
 
           <div className="border-t border-[#eef1f6] pt-4 text-xs font-semibold text-[#8b95a5]" data-testid="issue-report-page-context">
-            Sent from <strong className="font-extrabold text-[#414b5c]">{pageContext.pageLabel}</strong> · no automatic transcript or audio.{' '}
+            {/*
+              #1416 item 4 — PM-owned wording, exact.
+
+              "no automatic transcript or audio" read as a promise that nothing the user contributes is
+              sent, which is not true: the feedback box itself is submitted. The collapsed line now says
+              what is NOT attached automatically, and the expanded text says plainly that whatever is
+              typed IS included — so the two halves cannot be read as contradicting each other.
+
+              The detail stays behind "What's included" so the default form remains short. The long
+              introductory privacy block and the audio checkbox are deliberately NOT restored.
+            */}
+            Sent from <strong className="font-extrabold text-[#414b5c]">{pageContext.pageLabel}</strong> · transcript and audio aren&rsquo;t attached automatically.{' '}
             <button type="button" onClick={() => setShowDisclosure((value) => !value)} className="font-bold underline underline-offset-2">What&apos;s included</button>
             {showDisclosure && (
               <p className="mt-2 leading-relaxed" data-testid="issue-report-disclosure">
-                We include an internal account reference for follow-up, this screen, the app version, and basic browser and operating-system details. We do not automatically attach your email, name, credentials, transcript, or audio.
+                We attach an internal account reference, this screen, the app version, and basic browser and operating-system details. We don&rsquo;t automatically attach your email, name, credentials, transcript, or audio. Anything you type in the feedback box is included in your report.
               </p>
             )}
           </div>
