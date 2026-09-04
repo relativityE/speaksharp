@@ -104,7 +104,17 @@ export const MicCard: React.FC<MicCardProps> = ({
     const isRetryAction = modelError;
     const isColdStart = downloadRequired && !modelError;
     const primaryHandler = isRetryAction ? (onDownloadModel ?? onStart) : onStart;
-    const primaryDisabled = (isRetryAction || isColdStart) ? false : (!!disabled || loading);
+    // #1415 — A COLD RECORDING REQUEST IS STILL A RECORDING REQUEST.
+    //
+    // Making every cold action unconditionally enabled bypassed the durable start gate that
+    // `SessionOverhaulView` passes down — an unresolved Progress evidence gate, a stale client, an
+    // active session in another tab. The old cold action only downloaded, so waving it through was
+    // harmless; now that the same press RECORDS, waving it through would start a recording the gate
+    // exists to prevent, and begin a large download on the way.
+    //
+    // The retry stays unconditionally enabled: a failed model setup must never be a dead end, and
+    // retrying setup starts no recording.
+    const primaryDisabled = isRetryAction ? false : (!!disabled || loading);
     const primaryTitle = isBlockedFromStart
         ? 'Just a moment…'
         : isColdStart
