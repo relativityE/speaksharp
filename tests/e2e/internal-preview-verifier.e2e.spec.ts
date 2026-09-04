@@ -38,6 +38,8 @@ const page = ({ install, release = SHA }) => `<!doctype html>
 <script>window.__APP_RELEASE__=${JSON.stringify(release)};</script>
 <script>/*${DECOY_CHUNK}*/</script>
 </head><body>
+<div id="root"><!-- the element the SPA mounts into; its presence is how a served page is told
+     apart from the platform's own 404, which answers 200 in some rewrite misconfigurations --></div>
 <script>
 ${install ? `
   window.__SS_SWITCH_CANDIDATE__ = async (id) => ({ ok: true, id });
@@ -48,11 +50,35 @@ ${install ? `
 </script>
 </body></html>`;
 
-/** Serve one fixture and return its origin. */
-function serve(html) {
+/**
+ * Serve one fixture and return its origin.
+ *
+ * THE FIXTURE MUST BE A TRUTHFUL STAND-IN FOR A DEPLOYMENT, not merely a page that satisfies the
+ * assertions of the day. It previously served bare HTML with no headers and 200'd every path with a
+ * shell containing no app root — so once the verifier began requiring cross-origin isolation and a
+ * working SPA fallback, the positive control was no longer a valid configured deployment and the
+ * verifier correctly rejected it. The fixture was wrong, not the verifier.
+ *
+ * `isolated` sends the COOP/COEP pair the product's vercel.json configures, which is what makes
+ * `crossOriginIsolated` true (127.0.0.1 is already a secure context). `spaFallback` decides whether an
+ * unknown path serves the app, as the rewrite does, or answers the platform's 404.
+ */
+function serve(html, { isolated = true, spaFallback = true } = {}) {
     return new Promise((res) => {
-        const server = createServer((_req, reply) => {
-            reply.writeHead(200, { 'content-type': 'text/html' });
+        const server = createServer((req, reply) => {
+            const isRoot = (req.url ?? '/') === '/';
+            const headers = { 'content-type': 'text/html' };
+            if (isolated) {
+                headers['cross-origin-opener-policy'] = 'same-origin';
+                headers['cross-origin-embedder-policy'] = 'credentialless';
+            }
+            if (!isRoot && !spaFallback) {
+                // What a deployment root WITHOUT the rewrite does to every deep link.
+                reply.writeHead(404, headers);
+                reply.end('<!doctype html><html><head><title>404: NOT_FOUND</title></head><body>DEPLOYMENT_NOT_FOUND</body></html>');
+                return;
+            }
+            reply.writeHead(200, headers);
             reply.end(html);
         });
         server.listen(0, '127.0.0.1', () => {
@@ -117,6 +143,32 @@ test.describe('#1390 verifier — runtime installation decides PASS, not served 
         const r = await runVerifier('http://127.0.0.1:1/');
         expect(r.code).not.toBe(0);
         expect(r.out).toMatch(/verification could not complete|verification FAILED/);
+    });
+
+    test('CASUALTY: a Preview WITHOUT COOP/COEP fails, however well the switch installs', async () => {
+        // This is a deploy root that excluded vercel.json. The switch surfaces are perfect and the page
+        // still cannot give the Private engine SharedArrayBuffer, so the operator could not record.
+        const unisolated = await serve(page({ install: true }), { isolated: false });
+        try {
+            const r = await runVerifier(unisolated.url);
+            expect(r.code).not.toBe(0);
+            expect(r.out).toMatch(/crossOriginIsolated is false|Cross-Origin-Opener-Policy is not/);
+        } finally {
+            await unisolated.close();
+        }
+    });
+
+    test('CASUALTY: a Preview whose deep links 404 fails, however well the root page works', async () => {
+        // The missing SPA fallback rewrite. The root URL verifies happily; every route the operator
+        // actually navigates to during a take is a platform 404.
+        const noFallback = await serve(page({ install: true }), { spaFallback: false });
+        try {
+            const r = await runVerifier(noFallback.url);
+            expect(r.code).not.toBe(0);
+            expect(r.out).toMatch(/did not serve the app|SPA\s+fallback/);
+        } finally {
+            await noFallback.close();
+        }
     });
 
     test('the verifier never prints the bypass secret', async () => {
