@@ -81,6 +81,7 @@ vi.mock('@/services/transcription/modes/PrivateWhisper', () => {
             getLastHeartbeatTimestamp?: () => number;
             getEngineType?: () => string;
             updateOptions?: (...args: unknown[]) => void;
+            setAcquisitionTrigger?: (t: 'warmup' | 'explicit-setup') => void;
         };
 
         constructor(_options?: unknown, privateSTT?: MockPrivateWhisper['privateSTT']) {
@@ -89,6 +90,15 @@ vi.mock('@/services/transcription/modes/PrivateWhisper', () => {
 
         public async init(timeoutMs?: number, isMock?: boolean) {
             return this.privateSTT?.init?.(timeoutMs, isMock) ?? { isOk: true };
+        }
+        /**
+         * #1259: the double must model the real strategy. `PrivateWhisper` forwards the acquisition
+         * trigger to the PrivateSTT facade that emits the telemetry; a double that silently drops it
+         * would let the service's optional call no-op in every unit test while production depended on
+         * it — which is exactly how the wiring gap went unnoticed.
+         */
+        public setAcquisitionTrigger(trigger: 'warmup' | 'explicit-setup') {
+            this.privateSTT?.setAcquisitionTrigger?.(trigger);
         }
         public async start(...args: unknown[]) { await this.privateSTT?.start?.(...args); }
         public async stop() { await this.privateSTT?.stop?.(); }

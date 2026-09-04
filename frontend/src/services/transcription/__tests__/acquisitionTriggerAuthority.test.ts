@@ -91,19 +91,16 @@ describe('#1259 the acquisition trigger names the real reason', () => {
         for (const e of events) expect(e.trigger).toBe('explicit-setup');
     });
 
-    it('CASUALTY: the SERVICE wires the trigger from its explicit-init authority', async () => {
-        // The setter existing is not the same as anything calling it. `initializeStrategy` already knows
-        // whether this is a user act or a background pulse; without passing that through, the setter is
-        // as inert as the field was.
-        const { readFileSync } = await import('node:fs');
-        const { resolve } = await import('node:path');
-        const src = readFileSync(
-            resolve(process.cwd(), 'frontend/src/services/transcription/TranscriptionService.ts'), 'utf8');
-        expect(src, 'the service must name the trigger before initialising the strategy')
-            .toMatch(/setAcquisitionTrigger\?\.\(isExplicitInit \? 'explicit-setup' : 'warmup'\)/);
-        const wireAt = src.indexOf('setAcquisitionTrigger');
-        const initAt = src.indexOf('this.strategy.init(STT_CONFIG.STRATEGY_INIT_TIMEOUT_MS', wireAt);
-        expect(initAt, 'and it must do so BEFORE init, or the load is already labelled wrong')
-            .toBeGreaterThan(wireAt);
-    });
+    // THE SOURCE-TEXT WIRING ASSERTION THAT USED TO LIVE HERE IS GONE.
+    //
+    // It read `TranscriptionService.ts` as a string and checked that a call site existed. That is the
+    // weak proof this branch has been correcting throughout: text shows a line is present, not that the
+    // value reaches the event, not that both branches are reachable, and not that it happens before the
+    // load. It would have passed while the service's optional call landed on a strategy that had no such
+    // method and silently no-opped — which is exactly what was happening.
+    //
+    // Replaced by execution through the real authority:
+    //   - `acquisitionTriggerService.test.ts`        — real TranscriptionService: cached warm-up,
+    //     user-driven setup, cache-miss warm-up that acquires nothing, and the before-init ordering.
+    //   - `privateWhisperTriggerForwarding.test.ts`  — the REAL PrivateWhisper hop to the facade.
 });

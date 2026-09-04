@@ -752,14 +752,24 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const requests = candidate ? assetRequestsFor(candidate) : { assets: [], unobservableReason: 'candidate could not be resolved' };
         this.acquisitionAssets = requests.assets;
 
+        // THE TOTAL CLOCK STARTS BEFORE THE CACHE IS INSPECTED.
+        //
+        // It used to start after `probeCache` resolved, so `total_ms` excluded the probe while its
+        // contract says it covers the whole acquisition. Inspecting the cache is real time the user
+        // spends waiting — for a candidate with a dozen pinned assets it is a dozen Cache Storage
+        // lookups — and leaving it out systematically understated setup, in the flattering direction.
+        const acquisitionStartedAt = performance.now();
         const cacheResult = await probeCache(this.acquisitionAssets);
-        const startedAt = performance.now();
+        // A SEPARATE clock for the DOWNLOAD window. `download_ms` is derived only from Resource Timing
+        // and must not absorb probe time: cache inspection is not a download, and folding it in would
+        // invent transfer duration out of a local lookup.
+        const loadStartedAt = performance.now();
         const prefixes = candidate ? acquisitionScopeFor(candidate) : [];
         recordAcquisitionStart(subject, cacheResult);
 
         try {
             const outcome = await this.initSelectedEngineInner(engineType, timeoutMs, isMock);
-            const totalMs = Math.round(performance.now() - startedAt);
+            const totalMs = Math.round(performance.now() - acquisitionStartedAt);
             if (outcome.isOk) {
                 this.publishResolvedIdentity();
                 // MEASURED, NOT PREDICTED, AND MEASURED WHERE THE BYTES ACTUALLY ARRIVE.
@@ -788,7 +798,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 // nothing downstream could tell it apart from a real one.
                 const observed = boundToThisLoad && workerReceipt
                     ? workerReceipt
-                    : observeAcquisitionNetwork(prefixes, startedAt);
+                    : observeAcquisitionNetwork(prefixes, loadStartedAt);
                 recordAcquisitionSuccess(subject, {
                     cacheResult,
                     // Carried through, not recomputed: only the observer knows how much of the download
@@ -811,7 +821,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             return outcome;
         } catch (err) {
             recordAcquisitionFailure(subject, cacheResult, classifyAcquisitionError(err),
-                Math.round(performance.now() - startedAt));
+                Math.round(performance.now() - acquisitionStartedAt));
             throw err;
         }
     }

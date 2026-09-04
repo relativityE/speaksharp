@@ -257,6 +257,10 @@ export function recordAcquisitionSuccess(subject: AcquisitionSubject, outcome: A
         download_ms: complete ? outcome.downloadMs : null,
         // Separated deliberately: a cached load still initialises, and conflating the two is what made
         // the original number unusable. Only derivable when the download figure is the whole download.
+        //
+        // `init_ms` is everything in the acquisition that was NOT the observed download — which includes
+        // the cache inspection, since `total_ms` now spans it. That is the honest reading: the probe is
+        // setup work the user waits through, and it is not transfer time.
         init_ms: complete && outcome.downloadMs !== null
             ? Math.max(0, outcome.totalMs - outcome.downloadMs)
             : null,
