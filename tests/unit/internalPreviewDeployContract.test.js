@@ -267,8 +267,15 @@ describe('#1390 RETURN — only reviewed code runs, and only main may dispatch',
         expect(stepNamed('Deploy to Vercel Preview').run).toMatch(/vercel@\d+\.\d+\.\d+/);
     });
 
-    it('only the explicit subject artifact path is deployed', () => {
-        expect(stepNamed('Deploy to Vercel Preview').run).toMatch(/subject\/frontend\/dist/);
+    it('only ONE explicit artifact path is deployed, and it is the assembled root', () => {
+        // This asserted the bare `subject/frontend/dist`, which is now the DEFECT: that path makes the
+        // built directory the deployment root and leaves `vercel.json` outside it. The assembled root is
+        // the artifact plus the derived config, and it is still a single explicit path — never the repo.
+        const run = stepNamed('Deploy to Vercel Preview').run;
+        expect(run).toMatch(/deploy preview-deploy-root/);
+        expect(run, 'deploying the whole checkout would upload the subject tree').not.toMatch(/deploy \.\s/);
+        expect(stepNamed('Assemble the deploy root (artifact + derived vercel.json)').run)
+            .toMatch(/subject\/frontend\/dist/);
     });
 
     it('a main-ancestor exact SHA is still accepted — the gate is not a blanket refusal', () => {
@@ -408,5 +415,141 @@ describe('#1390 RETURN — the workspace layout, reconstructed and executed', ()
             expect(declared, `"${s.name}" must not carry a secret before installation`)
                 .not.toMatch(/secrets\./);
         }
+    });
+});
+
+/**
+ * #1390 RETURN — DEPLOYMENT BINDING AND CONFIGURATION, EXECUTED.
+ *
+ * Two linked defects, both invisible to the previous verifier because it checked release identity and
+ * the switch surfaces, and neither of those depends on which project received the deployment or on
+ * whether the deployed root carried any configuration.
+ *
+ *   1. `.vercel/project.json` is gitignored, so nothing links the runner's checkout to a project.
+ *      Vercel's unlinked-CI contract needs BOTH org and project ids; with only one the command is not
+ *      reliably bound, and `--yes` accepts defaults rather than authenticating a project.
+ *   2. `vercel deploy subject/frontend/dist` makes `dist` the deployment root while `vercel.json` sits
+ *      at the repository root, outside it — so the Preview lost the SPA fallback, the /api rewrite,
+ *      COOP/COEP, and the sw.js cache header. A Preview that is not cross-origin isolated cannot give
+ *      the Private engine SharedArrayBuffer, and one without the SPA fallback 404s on every deep link.
+ *
+ * The projection and the predicates below are RUN, not read.
+ */
+describe('#1390 RETURN — the deployment is bound to one project in one organization', () => {
+    const deployStep = stepNamed('Deploy to Vercel Preview');
+    const receiptStep = stepNamed('Confirm the deployment belongs to the expected project and organization');
+
+    it('CASUALTY: BOTH the organization and the project identity are supplied', () => {
+        // The returned head supplied only the project id.
+        expect(deployStep.env, 'the deploy step must declare an environment').toBeTruthy();
+        expect(JSON.stringify(deployStep.env)).toMatch(/VERCEL_ORG_ID/);
+        expect(JSON.stringify(deployStep.env)).toMatch(/VERCEL_PROJECT_ID/);
+    });
+
+    it('CASUALTY: the deploy FAILS CLOSED when either identity is absent', () => {
+        // Deploying with one missing is the unbound state the ids exist to prevent.
+        expect(deployStep.run).toMatch(/VERCEL_ORG_ID:-.*refusing to deploy unbound/s);
+        expect(deployStep.run).toMatch(/VERCEL_PROJECT_ID:-.*refusing to deploy unbound/s);
+    });
+
+    it('CASUALTY: the deployment RECEIPT is checked, not just the request', () => {
+        // Passing the ids asks for a binding; only the receipt confirms Vercel applied it.
+        expect(receiptStep, 'a receipt step must exist').toBeTruthy();
+        expect(receiptStep.run).toMatch(/api\.vercel\.com/);
+        expect(receiptStep.run).toMatch(/DIFFERENT Vercel project/);
+        expect(receiptStep.run).toMatch(/DIFFERENT Vercel organization/);
+    });
+
+    it('the receipt step runs BEFORE the Preview is verified or summarised', () => {
+        const names = steps.map((s) => s.name);
+        expect(names.indexOf('Confirm the deployment belongs to the expected project and organization'))
+            .toBeLessThan(names.indexOf('Verify the running Preview'));
+    });
+
+    it('neither identifier is ever echoed', () => {
+        const shown = `${deployStep.run}\n${receiptStep.run}`;
+        expect(shown, 'comparison only, never disclosure').not.toMatch(/echo .*\$\{?VERCEL_(ORG|PROJECT)_ID/);
+    });
+});
+
+describe('#1390 RETURN — the deployed root carries the product configuration', () => {
+    const repoConfig = JSON.parse(readFileSync(resolve(root, 'vercel.json'), 'utf8'));
+
+    it('CASUALTY: the projection carries the rewrites and headers VERBATIM', async () => {
+        const { deploymentConfigFrom } = await import('../../scripts/ci/build-preview-deploy-root.mjs');
+        const out = deploymentConfigFrom(repoConfig);
+        expect(out.rewrites, 'the SPA fallback and /api rewrite must survive').toEqual(repoConfig.rewrites);
+        expect(out.headers, 'COOP/COEP and the sw.js cache header must survive').toEqual(repoConfig.headers);
+    });
+
+    it('CASUALTY: build-time keys are DROPPED — this is a prebuilt upload with no source in it', async () => {
+        const { deploymentConfigFrom } = await import('../../scripts/ci/build-preview-deploy-root.mjs');
+        const out = deploymentConfigFrom(repoConfig);
+        for (const key of ['buildCommand', 'installCommand', 'outputDirectory', 'ignoreCommand', 'framework']) {
+            expect(out, `${key} would ask Vercel to rebuild a directory with no source`).not.toHaveProperty(key);
+        }
+    });
+
+    it('CASUALTY: a config with no rewrites is REFUSED rather than deployed', async () => {
+        const { deploymentConfigFrom } = await import('../../scripts/ci/build-preview-deploy-root.mjs');
+        expect(() => deploymentConfigFrom({ ...repoConfig, rewrites: [] }))
+            .toThrow(/SPA fallback/);
+    });
+
+    it('CASUALTY: a config with no headers is REFUSED — an un-isolated Preview is not deployable', async () => {
+        const { deploymentConfigFrom } = await import('../../scripts/ci/build-preview-deploy-root.mjs');
+        expect(() => deploymentConfigFrom({ ...repoConfig, headers: [] }))
+            .toThrow(/cross-origin isolated/);
+    });
+
+    it("CASUALTY: the workflow deploys the ASSEMBLED root, never the bare dist", () => {
+        const deployStep = stepNamed('Deploy to Vercel Preview');
+        expect(deployStep.run).toMatch(/vercel@\d+\.\d+\.\d+ deploy preview-deploy-root/);
+        expect(deployStep.run, 'deploying dist directly is the defect').not.toMatch(/deploy subject\/frontend\/dist/);
+        expect(stepNamed('Assemble the deploy root (artifact + derived vercel.json)').run)
+            .toMatch(/build-preview-deploy-root\.mjs/);
+    });
+
+    it('the repository config still declares what the Preview depends on', () => {
+        // If the product drops COOP/COEP or the SPA fallback, the projection above would faithfully
+        // carry that away — so the source of truth is asserted too.
+        const all = JSON.stringify(repoConfig.headers);
+        expect(all).toMatch(/Cross-Origin-Opener-Policy/);
+        expect(all).toMatch(/Cross-Origin-Embedder-Policy/);
+        expect(JSON.stringify(repoConfig.rewrites)).toMatch(/"destination":\s*"\/"/);
+    });
+});
+
+describe('#1390 RETURN — the verifier proves isolation and routing', () => {
+    it('CASUALTY: COOP absent or wrong FAILS', async () => {
+        const { coopOk } = await import('../../scripts/ci/verify-internal-preview.mjs');
+        expect(coopOk({ 'cross-origin-opener-policy': 'same-origin' })).toBe(true);
+        expect(coopOk({}), 'absence is not isolation').toBe(false);
+        expect(coopOk({ 'cross-origin-opener-policy': 'unsafe-none' })).toBe(false);
+    });
+
+    it('CASUALTY: COEP absent or wrong FAILS', async () => {
+        const { coepOk } = await import('../../scripts/ci/verify-internal-preview.mjs');
+        expect(coepOk({ 'cross-origin-embedder-policy': 'credentialless' })).toBe(true);
+        expect(coepOk({ 'cross-origin-embedder-policy': 'require-corp' })).toBe(true);
+        expect(coepOk({}), 'absence is not isolation').toBe(false);
+        expect(coepOk({ 'cross-origin-embedder-policy': 'unsafe-none' })).toBe(false);
+    });
+
+    it('CASUALTY: a deep route returning a platform 404 FAILS', async () => {
+        const { deepRouteServesApp } = await import('../../scripts/ci/verify-internal-preview.mjs');
+        expect(deepRouteServesApp({ status: 200, bodyHasAppRoot: true, bodyLooksLikePlatform404: false })).toBe(true);
+        expect(deepRouteServesApp({ status: 404, bodyHasAppRoot: false, bodyLooksLikePlatform404: true })).toBe(false);
+        // A rewrite can also answer 200 with the platform's own page; status alone is not the check.
+        expect(deepRouteServesApp({ status: 200, bodyHasAppRoot: false, bodyLooksLikePlatform404: true })).toBe(false);
+        expect(deepRouteServesApp({ status: 200, bodyHasAppRoot: false, bodyLooksLikePlatform404: false })).toBe(false);
+    });
+
+    it('CASUALTY: the live verifier asserts isolation, both headers and a non-root route', () => {
+        expect(verifier).toMatch(/crossOriginIsolated/);
+        expect(verifier).toMatch(/coopOk\(headers\)/);
+        expect(verifier).toMatch(/coepOk\(headers\)/);
+        expect(verifier).toMatch(/deepRouteServesApp\(/);
+        expect(verifier, 'the deep route must be fetched, not assumed').toMatch(/page\.goto\(deepUrl/);
     });
 });

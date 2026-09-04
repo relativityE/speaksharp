@@ -169,19 +169,46 @@ jobs:
           test -f frontend/dist/index.html || { echo "::error::build produced no index.html"; exit 1; }
           echo "build complete for $BUILD_ID"
 
+      # THE DEPLOYED ROOT MUST CARRY THE PRODUCT'S VERCEL CONFIGURATION.
+      #
+      # `vercel deploy <path>` makes <path> the deployment root, and this previously passed the built
+      # `frontend/dist` while `vercel.json` sits at the repository root — outside it. Vercel saw no
+      # configuration, so the Preview lost the SPA fallback rewrite (every deep link 404s), the /api
+      # rewrite, the COOP/COEP headers that make the page cross-origin isolated, and the sw.js cache
+      # header. Without isolation the Private engine's threaded runtime has no SharedArrayBuffer, so a
+      # Preview could verify "release and switch present" while the speech engine could not run.
+      - name: Assemble the deploy root (artifact + derived vercel.json)
+        run: |
+          set -euo pipefail
+          node scripts/ci/build-preview-deploy-root.mjs subject subject/frontend/dist preview-deploy-root
+          test -f preview-deploy-root/vercel.json
+          test -f preview-deploy-root/index.html
+
       # PREVIEW ONLY. The production promotion flag appears nowhere in this file — not in a command and
       # not in a comment — and the contract test asserts that literally, so a future edit that adds one
       # fails before it can ship.
+      #
+      # BOUND TO ONE PROJECT, IN ONE ORGANIZATION. `.vercel/project.json` is gitignored, so nothing on
+      # the runner links this checkout to a project. Vercel's unlinked-CI contract needs BOTH
+      # VERCEL_ORG_ID and VERCEL_PROJECT_ID; with only the project id the command is not reliably bound
+      # and `--yes` is not authentication — it accepts defaults, which can infer a different project or
+      # create and link an unintended one. Both are read from the `preview` environment and neither is
+      # ever printed.
       - name: Deploy to Vercel Preview
         id: deploy
         env:
           VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
-          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           set -euo pipefail
+          # FAIL CLOSED ON EITHER IDENTITY. Deploying with one of the two absent is precisely the
+          # unbound state this step exists to prevent, so it stops here rather than finding out later.
+          [ -n "${VERCEL_ORG_ID:-}" ]     || { echo "::error::VERCEL_ORG_ID is not configured; refusing to deploy unbound"; exit 1; }
+          [ -n "${VERCEL_PROJECT_ID:-}" ] || { echo "::error::VERCEL_PROJECT_ID is not configured; refusing to deploy unbound"; exit 1; }
           # PINNED to an exact version. A floating tag would execute whatever it resolves to at run
-          # time, with the deploy token in scope. Only the explicit subject artifact path is uploaded.
-          URL="$(npx --yes vercel@48.2.0 deploy subject/frontend/dist \
+          # time, with the deploy token in scope. Only the assembled deploy root is uploaded.
+          URL="$(npx --yes vercel@48.2.0 deploy preview-deploy-root \
                    --token "$VERCEL_ACCESS_TOKEN" \
                    --yes --archive=tgz 2>/dev/null | tail -1)"
           case "$URL" in
@@ -190,6 +217,31 @@ jobs:
           esac
           echo "preview_url=$URL" >> "$GITHUB_OUTPUT"
           echo "deployment URL: $URL"
+
+      # THE RECEIPT, NOT THE REQUEST. Passing the ids asks for a binding; this confirms Vercel actually
+      # applied it. Compared as equality only — neither identifier is printed.
+      - name: Confirm the deployment belongs to the expected project and organization
+        env:
+          VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          PREVIEW_URL: ${{ steps.deploy.outputs.preview_url }}
+        run: |
+          set -euo pipefail
+          HOST="$(printf '%s' "$PREVIEW_URL" | sed -E 's#^https?://##; s#/.*$##')"
+          RECEIPT="$(curl -sS --fail-with-body \
+            -H "Authorization: Bearer $VERCEL_ACCESS_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$HOST?teamId=$VERCEL_ORG_ID")"
+          printf '%s' "$RECEIPT" | ORG="$VERCEL_ORG_ID" PROJ="$VERCEL_PROJECT_ID" python3 -c '
+          import json, os, sys
+          d = json.loads(sys.stdin.read())
+          project = d.get("projectId") or (d.get("project") or {}).get("id")
+          owner = d.get("ownerId") or (d.get("creator") or {}).get("teamId")
+          assert project == os.environ["PROJ"], "deployment belongs to a DIFFERENT Vercel project"
+          assert owner in (os.environ["ORG"], None) and owner is not None, "deployment belongs to a DIFFERENT Vercel organization"
+          # Content-safe: identifiers are compared, never echoed.
+          print("deployment receipt: project and organization match the configured binding")
+          '
 
       # A preview that answers on the customer origin is not a preview. Checked against the host, not the
       # whole URL, so a preview whose path merely mentions the domain is not mistaken for production.
