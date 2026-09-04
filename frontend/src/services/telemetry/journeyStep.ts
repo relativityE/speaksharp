@@ -21,7 +21,7 @@
  * and user content live. A pathname carrying a session id would be rejected by that rule rather than
  * quietly sent, so paths are normalised before they are offered.
  */
-import { analyticsBuffer } from '../AnalyticsBuffer';
+import { safeEmit } from './safeEmit';
 
 export type JourneyStepKind =
     | 'route_change'
@@ -67,7 +67,7 @@ export interface JourneyStepInput {
 }
 
 export function emitJourneyStep(input: JourneyStepInput): void {
-    analyticsBuffer.push('journey_step', {
+    safeEmit('journey_step', {
         step: input.step,
         from_route: normaliseRoute(input.fromRoute),
         to_route: normaliseRoute(input.toRoute),

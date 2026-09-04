@@ -27,6 +27,9 @@ import {
 import { resolvePageContext, issueAreasForContext, type PageContext } from '@/services/pageContext';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
+import {
+  emitFeedbackDialogOpened, emitFeedbackFieldState, emitFeedbackSubmit, submitBlockers, lengthBand,
+} from '@/services/telemetry/feedbackTelemetry';
 
 interface IssueReportDialogProps {
   /** The submitter's account id (Option B): attached for authenticated reports so support can
@@ -94,12 +97,69 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
 
   const canSubmit = feedbackKind !== '' && title.trim().length >= 4 && description.trim().length >= 10 && !isSubmitting;
 
+  // #1259 F09 — WHICH of the four conditions is unmet. Derived from the same inputs the expression
+  // above uses, so the recorded blockers cannot drift from the button's actual state. The dialog shows
+  // the user none of this; until now it showed us none of it either.
+  const blockers = submitBlockers({
+    kind: feedbackKind,
+    titleLength: title.trim().length,
+    descriptionLength: description.trim().length,
+    isSubmitting,
+  });
+
+  // A field that empties is reported. `handleOpenChange` clears `feedbackKind` on every open while
+  // leaving the typed text intact, so a remount silently drops the type selection and keeps the words
+  // — which is what "my entry disappeared" looks like from the user's side. Reported, not fixed.
+  const prevTitleLen = React.useRef(0);
+  const prevDescLen = React.useRef(0);
+  React.useEffect(() => {
+    if (!open) return;
+    const len = title.trim().length;
+    const was = prevTitleLen.current;
+    prevTitleLen.current = len;
+    if (len === was) return;
+    emitFeedbackFieldState({
+      field: 'title',
+      transition: len === 0 && was > 0 ? 'unexpected_clear' : len === 0 ? 'cleared' : 'entered',
+      lengthBand: lengthBand(len),
+      blockers,
+      submitEnabled: canSubmit,
+    });
+  }, [open, title, blockers, canSubmit]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const len = description.trim().length;
+    const was = prevDescLen.current;
+    prevDescLen.current = len;
+    if (len === was) return;
+    emitFeedbackFieldState({
+      field: 'description',
+      transition: len === 0 && was > 0 ? 'unexpected_clear' : len === 0 ? 'cleared' : 'entered',
+      lengthBand: lengthBand(len),
+      blockers,
+      submitEnabled: canSubmit,
+    });
+  }, [open, description, blockers, canSubmit]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    emitFeedbackFieldState({
+      field: 'kind',
+      transition: feedbackKind === '' ? 'cleared' : 'entered',
+      lengthBand: lengthBand(feedbackKind.length),
+      blockers,
+      submitEnabled: canSubmit,
+    });
+  }, [open, feedbackKind, blockers, canSubmit]);
+
   const issueAreaOptions = issueAreasForContext(pageContext);
 
   // Snapshot the page context (incl. the active /practice surface) at dialog-OPEN time (not submit), then
   // defer to Radix's open state.
   const handleOpenChange = (next: boolean) => {
     if (next) {
+      emitFeedbackDialogOpened();
       const ctx = resolvePageContext(location.pathname, surface);
       setPageContext(ctx);
       setSnapshotSessionId(deriveSessionIdFromPath(location.pathname));
@@ -120,7 +180,13 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({
   };
 
   const submit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit) {
+      // The gate refuses silently today. A refusal that records WHICH condition stopped it is the
+      // difference between "the user never tried" and "the user tried and we would not let them".
+      emitFeedbackSubmit({ outcome: 'refused_by_gate', blockers });
+      return;
+    }
+    emitFeedbackSubmit({ outcome: 'attempted', blockers: [] });
     setIsSubmitting(true);
     try {
       // Store the sanitized route TEMPLATE — never the full URL, query string, or hash.

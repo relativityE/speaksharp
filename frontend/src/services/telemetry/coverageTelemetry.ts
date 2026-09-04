@@ -22,7 +22,7 @@
  * returns an evidence quote and it is deliberately not accepted by this module. Points are identified
  * by POSITION only.
  */
-import { analyticsBuffer } from '../AnalyticsBuffer';
+import { safeEmit } from './safeEmit';
 
 /** Bumped when the matcher's behaviour changes, so verdicts stay comparable across releases. */
 export const EVALUATOR_VERSION = 'keyword-ratio-v1';
@@ -77,10 +77,10 @@ export function emitCoverageEvaluation(input: CoverageEvaluationInput): void {
     if (signature === lastSignature) return;
     lastSignature = signature;
 
-    analyticsBuffer.push('coverage_evaluation', base, 'HIGH');
+    safeEmit('coverage_evaluation', base, 'HIGH');
 
     for (const o of input.observations) {
-        analyticsBuffer.push('coverage_point', {
+        safeEmit('coverage_point', {
             evaluator_version: EVALUATOR_VERSION,
             point_position: o.position,
             match_ratio: Number(o.matchRatio.toFixed(3)),

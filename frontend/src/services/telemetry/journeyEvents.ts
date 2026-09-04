@@ -25,7 +25,7 @@
  * The envelope supplies `journey_id`, `attempt_id` and `attempt_seq`, so these events carry no
  * identity of their own.
  */
-import { analyticsBuffer } from '../AnalyticsBuffer';
+import { safeEmit } from './safeEmit';
 
 /** Why an intent did not become a recording. `accepted` is the only outcome that starts one. */
 export type IntentOutcome =
@@ -71,7 +71,7 @@ export function emitRecordingIntent(input: {
     modelReady: boolean;
 }): void {
     if (input.kind === 'start') lastIntentAt = Date.now();
-    analyticsBuffer.push('recording_intent', {
+    safeEmit('recording_intent', {
         intent_kind: input.kind,
         intent_outcome: input.outcome,
         runtime_state_at_intent: input.runtimeState,
@@ -85,7 +85,7 @@ export function emitRecordingIntent(input: {
 
 /** A runtime state transition. Transitions only — never a poll of unchanged state. */
 export function emitRecordingState(from: string, to: string, cause: string | null): void {
-    analyticsBuffer.push('recording_state', {
+    safeEmit('recording_state', {
         from_state: from,
         to_state: to,
         transition_cause: cause,
@@ -102,7 +102,7 @@ export function msSinceReady(): number | null { return since(readyAt); }
 /** One stage, one row. Never a collapsed total — see LatencyStage. */
 export function emitStageLatency(stage: LatencyStage, durationMs: number): void {
     if (!Number.isFinite(durationMs) || durationMs < 0) return;
-    analyticsBuffer.push('stage_latency', {
+    safeEmit('stage_latency', {
         stage,
         duration_ms: Math.round(durationMs),
     }, 'LOW');

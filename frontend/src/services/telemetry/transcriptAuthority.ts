@@ -19,7 +19,7 @@
  * NOTHING HERE CARRIES TEXT. Not the transcript, not an excerpt, not a first line. A digest, two
  * counts, and three booleans.
  */
-import { analyticsBuffer } from '../AnalyticsBuffer';
+import { safeEmit } from './safeEmit';
 import { contentDigest, countWords } from '@/lib/contentDigest';
 
 export type TranscriptStage = 'finalize' | 'save' | 'teardown' | 'review_rendered';
@@ -71,7 +71,7 @@ export function emitTranscriptAuthority(input: TranscriptAuthorityInput): void {
     if (signature === lastSignature) return;
     lastSignature = signature;
 
-    analyticsBuffer.push('transcript_authority', props, 'HIGH');
+    safeEmit('transcript_authority', props, 'HIGH');
 }
 
 /** Test seam, and the boundary between one session's stages and the next's. */

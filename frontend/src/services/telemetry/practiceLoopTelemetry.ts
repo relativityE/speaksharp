@@ -11,7 +11,7 @@
  *
  * NO GENERATED TEXT IS SENT. Only whether each half came from a generator or a fallback.
  */
-import { analyticsBuffer } from '../AnalyticsBuffer';
+import { safeEmit } from './safeEmit';
 
 export type ContentSource = 'generated' | 'fallback';
 export type SuppressionReason = 'none' | 'no_suggestions' | 'not_in_review_state';
@@ -40,7 +40,7 @@ export function emitPracticeLoop(input: PracticeLoopInput): void {
     const signature = JSON.stringify(props);
     if (signature === lastSignature) return;
     lastSignature = signature;
-    analyticsBuffer.push('practice_loop', props, 'HIGH');
+    safeEmit('practice_loop', props, 'HIGH');
 }
 
 export function __resetPracticeLoopTelemetryForTests(): void { lastSignature = ''; }

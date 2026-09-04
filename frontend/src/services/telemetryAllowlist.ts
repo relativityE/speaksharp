@@ -307,6 +307,33 @@ export const EVENT_SCHEMAS = Object.freeze({
         suppression_reason: enumOf(['none', 'no_suggestions', 'not_in_review_state']),
     },
 
+    /**
+     * F09 — WHICH condition kept Send grey. The dialog surfaces none of the four, so the user cannot
+     * tell and neither could we. `report_issue_submitted` fires only after a successful insert, so a
+     * blocked submit is invisible by construction. Length BANDS only; the prose stays in the row.
+     */
+    feedback_dialog_opened: {},
+    feedback_field: {
+        field: enumOf(['kind', 'title', 'description', 'category', 'severity', 'impact']),
+        transition: enumOf(['entered', 'cleared', 'unexpected_clear']),
+        length_band: enumOf(['0', '1-3', '4-9', '10-39', '40-199', '200+']),
+        submit_blockers: {
+            kind: 'enum[]',
+            values: ['kind_missing', 'title_too_short', 'description_too_short', 'already_submitting'],
+            maxLength: 4,
+        } as FieldRule,
+        submit_enabled: { kind: 'bool' } as FieldRule,
+    },
+    feedback_submit: {
+        outcome: enumOf(['attempted', 'refused_by_gate', 'storage_ok', 'storage_failed']),
+        submit_blockers: {
+            kind: 'enum[]',
+            values: ['kind_missing', 'title_too_short', 'description_too_short', 'already_submitting'],
+            maxLength: 4,
+        } as FieldRule,
+        acknowledgement_visible: { kind: 'bool' } as FieldRule,
+    },
+
     // ── conversion funnel ───────────────────────────────────────────────────
     conversion_cta_viewed: CONVERSION_FIELDS,
     conversion_cta_clicked: CONVERSION_FIELDS,
