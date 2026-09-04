@@ -9,12 +9,6 @@
 **Supersedes:** the external (tester-facing) content of `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` (interim source; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md` §3.H).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §3.H extraction mapping; the product surfaces the copy describes (verified in `PRODUCT_REQUIREMENTS.md` / `QUALITY.md`).
 
-<!-- pm-currentization:2026-09-04 -->
-> [!CAUTION]
-> **Currentized 4 Sep 2026 — do not invite or resume external testing yet.** The latest Production test failed both journeys and only v2 was runnable. The next guide is used only after recovery deploys and Dev completes the same corpus first. User-facing expectations: pressing the mic once may prepare the private model but must begin recording automatically when ready; completed text remains readable; Focus Points feedback is honest; Session review shows **What went well** and **What to improve**; products are directly navigable; and Share feedback asks for one type plus one message. This status note is internal and must not be pasted into an invitation.
-
-<!-- /pm-currentization:2026-09-04 -->
-
 # SpeakSharp Beta Tester Guide
 
 Canonical statement of the **external, tester-facing copy** for the controlled invite-only SpeakSharp beta: the plain-language intro, the send-ready invitation, the walkthrough, and the feedback prompts. It is written for someone who has never seen the code.
