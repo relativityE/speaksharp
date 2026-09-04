@@ -28,6 +28,7 @@ interface IssueReportDialogProps {
 type FeedbackSeverity = 'minor' | 'slowed' | 'blocked';
 
 interface FeedbackDraft {
+  ownerId: string | null;
   type: FeedbackType | null;
   body: string;
   severity: FeedbackSeverity | null;
@@ -64,16 +65,21 @@ const makeIdempotencyKey = (): string => {
   return `00000000-0000-4000-8000-${tail}`;
 };
 
-const readDraft = (): FeedbackDraft | null => {
+const readDraft = (ownerId: string | null): FeedbackDraft | null => {
   try {
     const raw = sessionStorage.getItem(DRAFT_KEY);
     if (!raw) return null;
     const value = JSON.parse(raw) as Partial<FeedbackDraft>;
+    if ((value.ownerId ?? null) !== ownerId) {
+      sessionStorage.removeItem(DRAFT_KEY);
+      return null;
+    }
     if (typeof value.savedAt !== 'number' || Date.now() - value.savedAt > DRAFT_MAX_AGE_MS) {
       sessionStorage.removeItem(DRAFT_KEY);
       return null;
     }
     return {
+      ownerId,
       type: TYPE_OPTIONS.some((item) => item.value === value.type) ? value.type as FeedbackType : null,
       body: typeof value.body === 'string' ? value.body : '',
       severity: SEVERITY_OPTIONS.some((item) => item.value === value.severity) ? value.severity as FeedbackSeverity : null,
@@ -124,6 +130,7 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
   const [error, setError] = React.useState<string | null>(null);
   const [showDisclosure, setShowDisclosure] = React.useState(false);
   const typeRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
+  const draftOwnerRef = React.useRef<string | null>(userId ?? null);
 
   const bodyCopy = type ? BODY_COPY[type] : null;
   const canSubmit = type !== null && body.trim().length > 0 && !isSubmitting;
@@ -131,18 +138,40 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
   React.useEffect(() => {
     if (!open || (type === null && body === '' && severity === null)) return;
     try {
-      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ type, body, severity, savedAt: Date.now(), idempotencyKey }));
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+        ownerId: draftOwnerRef.current,
+        type,
+        body,
+        severity,
+        savedAt: Date.now(),
+        idempotencyKey,
+      }));
     } catch { /* draft persistence degrades safely */ }
   }, [body, idempotencyKey, open, severity, type]);
 
   React.useEffect(() => {
-    if (userId == null) clearDraft();
+    const nextOwner = userId ?? null;
+    if (draftOwnerRef.current === nextOwner) {
+      if (nextOwner == null) clearDraft();
+      return;
+    }
+
+    // An auth transition retires the prior account's free-form draft even if the
+    // navigation shell stays mounted. The next account must never inherit its text.
+    clearDraft();
+    draftOwnerRef.current = nextOwner;
+    setType(null);
+    setBody('');
+    setSeverity(null);
+    setIdempotencyKey(makeIdempotencyKey());
+    setError(null);
+    setOpen(false);
   }, [userId]);
 
   const handleOpenChange = (next: boolean) => {
     if (next) {
       const context = resolvePageContext(location.pathname, surface);
-      const draft = readDraft();
+      const draft = readDraft(userId ?? null);
       setPageContext(context);
       setSnapshotSessionId(deriveSessionIdFromPath(location.pathname));
       setType(draft?.type ?? null);
@@ -283,11 +312,11 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
           {error && <p role="alert" className="text-sm font-semibold text-destructive">{error}</p>}
 
           <div className="border-t border-[#eef1f6] pt-4 text-xs font-semibold text-[#8b95a5]" data-testid="issue-report-page-context">
-            Sent from <strong className="font-extrabold text-[#414b5c]">{pageContext.pageLabel}</strong> · no transcript or audio.{' '}
+            Sent from <strong className="font-extrabold text-[#414b5c]">{pageContext.pageLabel}</strong> · no automatic transcript or audio.{' '}
             <button type="button" onClick={() => setShowDisclosure((value) => !value)} className="font-bold underline underline-offset-2">What&apos;s included</button>
             {showDisclosure && (
               <p className="mt-2 leading-relaxed" data-testid="issue-report-disclosure">
-                An internal account reference for follow-up, this screen, the app version, and basic browser and operating-system details. Never your email, name, credentials, transcript, or audio.
+                We include an internal account reference for follow-up, this screen, the app version, and basic browser and operating-system details. We do not automatically attach your email, name, credentials, transcript, or audio.
               </p>
             )}
           </div>

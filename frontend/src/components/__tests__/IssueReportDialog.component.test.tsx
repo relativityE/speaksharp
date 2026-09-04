@@ -17,9 +17,9 @@ vi.mock('@/services/issueReportService', async (importOriginal) => {
 const submit = vi.mocked(issueReportService.submit);
 const UUID = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
 
-const open = async (route = '/session') => {
+const open = async (route = '/session', userId = 'u1') => {
   const user = userEvent.setup();
-  render(<IssueReportDialog userId="u1" sttMode="private" plan="pro" />, { route });
+  render(<IssueReportDialog userId={userId} sttMode="private" plan="pro" />, { route });
   await user.click(screen.getByTestId('nav-report-issue-button'));
   await screen.findByRole('heading', { name: 'Share feedback' });
   return user;
@@ -129,6 +129,7 @@ describe('#1404 Share feedback redesign', () => {
 
   it('discards a draft older than 24 hours instead of retaining user-written text indefinitely', async () => {
     sessionStorage.setItem('feedback.draft', JSON.stringify({
+      ownerId: 'u1',
       type: 'idea',
       body: 'Expired draft',
       severity: null,
@@ -136,6 +137,22 @@ describe('#1404 Share feedback redesign', () => {
       idempotencyKey: UUID,
     }));
     await open();
+    expect(screen.getByTestId('issue-report-description')).toHaveValue('');
+    expect(sessionStorage.getItem('feedback.draft')).toBeNull();
+  });
+
+  it('never restores one account\'s draft for another account in the same tab', async () => {
+    sessionStorage.setItem('feedback.draft', JSON.stringify({
+      ownerId: 'u1',
+      type: 'confused',
+      body: 'Private draft from another account',
+      severity: null,
+      savedAt: Date.now(),
+      idempotencyKey: UUID,
+    }));
+
+    await open('/session', 'u2');
+
     expect(screen.getByTestId('issue-report-description')).toHaveValue('');
     expect(sessionStorage.getItem('feedback.draft')).toBeNull();
   });
@@ -154,10 +171,10 @@ describe('#1404 Share feedback redesign', () => {
   it('shows concise provenance first and details only on request', async () => {
     const user = await open('/session');
     const provenance = screen.getByTestId('issue-report-page-context');
-    expect(provenance).toHaveTextContent('Sent from Session · Speaking · no transcript or audio.');
+    expect(provenance).toHaveTextContent('Sent from Session · Speaking · no automatic transcript or audio.');
     expect(screen.queryByTestId('issue-report-disclosure')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: "What's included" }));
-    expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/Never your email, name, credentials, transcript, or audio/i);
+    expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/do not automatically attach your email, name, credentials, transcript, or audio/i);
   });
 
   it('supports arrow-key selection in the type radiogroup', async () => {

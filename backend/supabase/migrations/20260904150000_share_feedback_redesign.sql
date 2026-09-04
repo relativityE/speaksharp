@@ -11,8 +11,7 @@ ALTER TABLE public.user_issue_reports
   ADD COLUMN IF NOT EXISTS idempotency_key uuid;
 
 CREATE UNIQUE INDEX IF NOT EXISTS user_issue_reports_idempotency_key_unique
-  ON public.user_issue_reports (idempotency_key)
-  WHERE idempotency_key IS NOT NULL;
+  ON public.user_issue_reports (idempotency_key);
 
 ALTER TABLE public.user_issue_reports
   DROP CONSTRAINT IF EXISTS user_issue_reports_title_length,

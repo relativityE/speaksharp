@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildIssueReportMetadata, issueReportService } from '@/services/issueReportService';
 import { resolvePageContext } from '@/services/pageContext';
@@ -6,6 +8,21 @@ import type { AppRuntimeConfig } from '@/config/appRuntimeConfig';
 import { clearPrivateRecordingIdentity, setPrivateTelemetryContext } from '@/services/transcription/privateTelemetry';
 
 const UUID_META = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+
+describe('Share feedback idempotency migration', () => {
+  it('backs the PostgREST onConflict target with an unconditional unique index', () => {
+    const sql = readFileSync(resolve(
+      process.cwd(),
+      'backend/supabase/migrations/20260904150000_share_feedback_redesign.sql',
+    ), 'utf8');
+    const definition = sql.match(
+      /CREATE UNIQUE INDEX IF NOT EXISTS user_issue_reports_idempotency_key_unique[\s\S]*?;/i,
+    )?.[0] ?? '';
+
+    expect(definition).toContain('ON public.user_issue_reports (idempotency_key)');
+    expect(definition).not.toMatch(/\bWHERE\b/i);
+  });
+});
 
 // Build a full runtime config whose raw `url` embeds whatever sensitive segment a test wants to prove
 // never survives into persisted metadata.
