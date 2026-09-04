@@ -836,9 +836,29 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       });
       return;
     }
-    const visiblePartial = mergeLiveProvisionalTranscript(this.liveProvisionalTranscript, partial);
+    // #1405s — SNAPSHOT vs INCREMENTAL. A snapshot engine sends the complete transcript each time, so
+    // accumulating them duplicates text. Worse, a snapshot that REVISES an earlier word shares no
+    // boundary with the previous one, so overlap trimming finds nothing and the whole thing is appended:
+    // "hello word" + "hello world again" -> "hello word hello world again". A snapshot therefore
+    // replaces the visible draft outright. v2/v4 declare nothing and keep the incremental merge.
+    const liveResultKind = (this.privateSTT as { getLiveResultKind?: () => 'incremental' | 'snapshot' })
+        .getLiveResultKind?.() ?? 'incremental';
+    const visiblePartial = liveResultKind === 'snapshot'
+        ? partial
+        : mergeLiveProvisionalTranscript(this.liveProvisionalTranscript, partial);
     this.liveProvisionalTranscript = visiblePartial;
-    if (shouldPreferVisibleProvisional(visiblePartial, this.bestVisibleProvisionalTranscript)) {
+    if (liveResultKind === 'snapshot') {
+      // #1405s RETURN — SNAPSHOT SEMANTICS MUST REACH THE BEST-STATE TOO.
+      //
+      // Replacing only the live callback left `bestVisibleProvisionalTranscript` holding whichever
+      // snapshot was LONGEST. Finalization prefers that value over a shorter final candidate, so a
+      // snapshot the engine had retracted could come back and be SAVED: the user watches the correct
+      // text appear, then sees words they never said restored at the end.
+      //
+      // For a snapshot engine the latest accepted snapshot IS the whole truth, so it replaces the best
+      // state outright. "Longer" is not "better" when each result supersedes the last.
+      this.bestVisibleProvisionalTranscript = visiblePartial;
+    } else if (shouldPreferVisibleProvisional(visiblePartial, this.bestVisibleProvisionalTranscript)) {
       this.bestVisibleProvisionalTranscript = visiblePartial;
     } else if (!this.bestVisibleProvisionalTranscript.trim()) {
       this.bestVisibleProvisionalTranscript = visiblePartial;
