@@ -27,6 +27,7 @@ import { selectReviewFillerSnapshot } from '@/utils/sessionAnalysis';
 import type { PracticeSession } from '@/types/session';
 import type { SttStatus } from '@/types/transcription';
 import { emitJourneyStep } from '@/services/telemetry/journeyStep';
+import { emitPracticeLoop } from '@/services/telemetry/practiceLoopTelemetry';
 
 /**
  * #1222 S11 — the session-overhaul VIEW: maps the live session runtime onto the fixed shell + the three
@@ -190,6 +191,33 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         if (onSeeAllSessions) offered.push('view_analytics');
         emitJourneyStep({ step: 'post_session_options', optionsShown: offered });
     }, [inAfter, onSeeAllSessions]);
+
+    /**
+     * #1259 F07 — WHAT THE REVIEW ACTUALLY SHOWED, and where it came from.
+     *
+     * `verdictFromSuggestions` never returns nothing: with no AI suggestions it substitutes
+     * "Session saved — nice work." and a generic fix. The screen therefore looks the same whether a
+     * practice loop was generated or not, which is why "I did not see the improvement cycle" and "the
+     * loop was bland" are indistinguishable in every artifact we have. The SOURCE of each half is the
+     * fact that separates them, and it is only knowable here, where the suggestions are still in hand.
+     */
+    React.useEffect(() => {
+        if (!inAfter) {
+            return;
+        }
+        const wentWell = Boolean(aiSuggestions?.what_worked?.trim());
+        const toImprove = Boolean(aiSuggestions?.what_to_try_next?.trim());
+        emitPracticeLoop({
+            suggestionsPresent: Boolean(aiSuggestions),
+            whatWentWellSource: wentWell ? 'generated' : 'fallback',
+            whatToImproveSource: toImprove ? 'generated' : 'fallback',
+            rendered: true,
+            // The rail's retry/new-set handlers are the persisted next action on this screen; their
+            // absence is what "no prescribed next step" looks like in the product.
+            nextActionPersisted: Boolean(onRetryPoints || onNewSet),
+            suppressionReason: aiSuggestions ? 'none' : 'no_suggestions',
+        });
+    }, [inAfter, aiSuggestions, onRetryPoints, onNewSet]);
     const effObjectivePoints = objectivePoints ?? (inAfter ? completedObjectivePoints ?? null : null);
     const effObjectiveTopic = objectiveTopic ?? (inAfter ? completedObjectiveTopic ?? null : null);
     const effObjectivePaceGuideSecPerPoint = objectivePaceGuideSecPerPoint ?? (inAfter ? completedObjectivePaceGuideSecPerPoint ?? null : null);

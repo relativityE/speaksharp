@@ -264,6 +264,49 @@ export const EVENT_SCHEMAS = Object.freeze({
         points_entered: { kind: 'int', min: 0, max: 100 } as FieldRule,
     },
 
+    /**
+     * F06 / F14 / F18 — the evaluator's verdict beside the numbers that produced it. `session_saved`
+     * carries no coverage at all today, so the product's judgement and the transcript that
+     * contradicts it have never been comparable. No label, topic, or matched quote — positions only.
+     */
+    coverage_evaluation: {
+        evaluator_version: slug(),
+        points_supplied: { kind: 'int', min: 0, max: 100 } as FieldRule,
+        points_evaluated: { kind: 'int', min: 0, max: 100 } as FieldRule,
+        covered_threshold: { kind: 'number', min: 0, max: 1 } as FieldRule,
+        partial_threshold: { kind: 'number', min: 0, max: 1 } as FieldRule,
+        covered_count: { kind: 'int', min: 0, max: 100 } as FieldRule,
+        partial_count: { kind: 'int', min: 0, max: 100 } as FieldRule,
+        retry_target_count: { kind: 'int', min: 0, max: 100 } as FieldRule,
+        transcript_word_count: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+    },
+    /** One row per point, identified by POSITION. A label here would be user content. */
+    coverage_point: {
+        evaluator_version: slug(),
+        point_position: { kind: 'int', min: 0, max: 100 } as FieldRule,
+        match_ratio: { kind: 'number', min: 0, max: 1 } as FieldRule,
+        keyword_count: { kind: 'int', min: 0, max: 1_000 } as FieldRule,
+        verdict: enumOf(['covered', 'partial', 'missing']),
+        latched: { kind: 'bool' } as FieldRule,
+    },
+
+    /**
+     * F07 — GENERATED vs FALLBACK, which the rendered screen cannot distinguish.
+     *
+     * `verdictFromSuggestions` ALWAYS returns a verdict: with no AI suggestions it substitutes
+     * "Session saved — nice work." and a generic fix. So a session with no practice loop renders
+     * copy that looks like one, and "I did not see the practice loop" and "the loop said something
+     * bland" are the same screen. Recording the SOURCE of each half separates them.
+     */
+    practice_loop: {
+        suggestions_present: { kind: 'bool' } as FieldRule,
+        what_went_well_source: enumOf(['generated', 'fallback']),
+        what_to_improve_source: enumOf(['generated', 'fallback']),
+        rendered: { kind: 'bool' } as FieldRule,
+        next_action_persisted: { kind: 'bool' } as FieldRule,
+        suppression_reason: enumOf(['none', 'no_suggestions', 'not_in_review_state']),
+    },
+
     // ── conversion funnel ───────────────────────────────────────────────────
     conversion_cta_viewed: CONVERSION_FIELDS,
     conversion_cta_clicked: CONVERSION_FIELDS,
