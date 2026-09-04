@@ -1,13 +1,19 @@
 **Status:** Authoritative (SSOT for user-visible product requirements)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-08-29
-**Last Verified:** 2026-08-29 — reconciled to the current Private Practice implementation and the codebase-vs-strategy audit indexed by `EVIDENCE_INDEX.md`; implementation, customer validation and operational proof remain separately gated.
+**Last Reviewed:** 2026-09-04
+**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 **Applies To:** The SpeakSharp individual speaking-practice product. Enterprise expansion is future direction, not current scope.
 **Class:** Product requirement.
 **Authority:** User-visible product guarantees, failure behavior, non-goals, and the feature contract.
 **Not Authoritative For:** billing and entitlement implementation mechanics (→ `ENTITLEMENTS_AND_BILLING.md`); Progress calculations (→ `PROGRESS_AND_NEXT_ACTION.md`); STT implementation, baselines, and SLOs (→ `STT.md`); persisted schema and retention (→ `ARCHITECTURE.md`); release sequencing (→ `ROADMAP.md`); deployed status (→ `RELEASE_STATUS.md`).
 **Supersedes:** Earlier multi-product, multi-engine, Free/Pro tier, and accumulated-minute-quota statements in this file are retired.
 **Evidence Sources:** Product Owner launch-contract decisions recorded on #1290; canonical owning documents listed in §12; executable repository contract guard.
+
+<!-- pm-currentization:2026-09-04 -->
+> [!CAUTION]
+> **Currentized 4 Sep 2026 — approved recovery contract; not yet shipped.** The Production test failed both Open Mic and Focus Points. Required recovery: an explicit mic intent survives model preparation and starts recording exactly once when ready; real microphone data drives the waveform; recording uses the conventional red circle/white-square Stop control; provisional transcript churn is bounded; final transcript remains readable after save/teardown; Focus Points uses honest “not detected” language and preserves every entered point; the Session review renders exactly two **What went well** and two **What to improve** suggestions; Home/Open Mic/Focus Points are directly navigable; Share feedback follows #1404’s exact two-field design; and only the newest transcript remains available while content-free history survives. Every outcome has #1259 content-safe telemetry, but telemetry never substitutes for the behavior.
+
+<!-- /pm-currentization:2026-09-04 -->
 
 # SpeakSharp Product Requirements
 
@@ -141,7 +147,7 @@ server" and "the transcript is never stored" are different statements, and neith
 | Audio transcription runs on the user's device | **True** | Same-origin worker `services/transcription/engines/transformers-js.worker.ts`; no upload path exists on the Private route |
 | Raw audio leaves the device | **Never** | No audio upload path; `ARCHITECTURE.md` §"Retention boundary" |
 | Transcript text leaves the device | **Yes, on save** | `lib/storage.ts` sends `p_final_transcript` to `complete_session_v2`; a `failed`/discarded session sends `null` |
-| Transcript text is stored server-side | **Yes, bounded** | `sessions.transcript`, retained for the two newest saved sessions only |
+| Transcript text is stored server-side | **Yes, bounded** | `sessions.transcript`, retained for the newest saved session only |
 | Transcript text reaches a third party | **Yes, on user request** | `get-ai-suggestions` reads the saved transcript and sends it to Google Gemini; user-initiated, and refused unless `transcript_state = 'available'` |
 | Derived metrics are stored | **Yes** | Word counts, filler counts, clarity score, WPM, pause metrics |
 
