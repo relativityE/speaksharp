@@ -1,39 +1,11 @@
-**Status:** Authoritative (SSOT for unfinished and deferred product/release work)
-**Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-09-04
-**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
-**Applies To:** MVP sequencing and explicitly deferred SpeakSharp work.
-**Class:** Open gap / risk.
-**Authority:** The source for Now / Next / Later / Declined work and implementation order.
-**Not Authoritative For:** deployed posture and GO/HOLD (→ `RELEASE_STATUS.md`); product guarantees (→ `PRODUCT_REQUIREMENTS.md`); technical contracts (→ owning canonical document); dated evidence (→ `EVIDENCE_INDEX.md`).
-**Supersedes:** `ACTIVE_COORDINATION.md`, `BACKLOG.md`, and `ROADMAP.operational.md`.
-**Evidence Sources:** GitHub issue/PR state; `RELEASE_STATUS.md`; current code and tests; dated audits indexed by `EVIDENCE_INDEX.md`.
-
-<!-- pm-currentization:2026-09-04 -->
-> [!IMPORTANT]
-> **Currentized 4 Sep 2026 — methodical recovery sequence.** Active work is #1259 journey observability. Then land coherent grouped increments for (1) recording/transcript lifecycle, (2) Focus Points + Practice Loop, (3) navigation + exact Share feedback redesign, (4) newest-one retention + all user-facing copy, and (5) Production runtime access to all three STT candidates. Dev validates each deployed increment before the PO reruns the complete corpus. No Preview/internal-build work, unrelated dashboard/infrastructure, speculative feature, or extra URL enters this sequence.
->
-> **Verified shipped-source mismatch map (main@c4665156):**
->
-> | Surface | Current source mismatch | Owning issue |
-> |---|---|---|
-> | `MicCard.tsx` + recording controller | download/setup action does not preserve explicit start intent through READY | #1415 + #1259 |
-> | `RecorderBar.tsx`, `Waveform.tsx`, `SessionOverhaulView.tsx` | black Stop control; old bottom-aligned flex bars; accepted real-mic/red-control treatment unshipped | #1415 |
-> | `SessionPage.tsx` | completed transcript disappears at teardown despite successful save | #1415 |
-> | `ObjectiveSetupForm.tsx` | explanatory copy remains; navigation CTA says Start speaking | #1407 |
-> | `FocusPointsRail.tsx` | confident “Didn’t come up” language and retry count based on all rows | #1407 |
-> | `AISuggestions.tsx`, `faqSections.ts` | old coaching labels; missing 2+2 visible Practice Loop | #1386 |
-> | `IssueReportDialog.tsx` | old long form, hidden validation, title-state loss, audio-note field | #1404 |
-> | `AnalyticsDashboard.tsx` | two-transcript retention copy and expired-view wording | #1117 |
-> | `Navigation.tsx` | no direct Products → Open Mic / Focus Points route | #1404 |
-> | `SessionFocusPoints.tsx` / candidate authority | no controlled access to all registered Production candidates | #1263/#1304/#1390 |
-> | analytics emitters/buffer | incomplete journey correlation and missing real-boundary receipts | #1259 |
-
-<!-- /pm-currentization:2026-09-04 -->
+**Status:** Authoritative — unfinished and deferred work  
+**Owner:** Product Owner (relativityE)  
+**Last Reviewed:** 2026-09-04  
+**Last Verified:** 2026-09-04 — reconciled to the Production human-test biopsy, current source, and GitHub issue state.  
+**Applies To:** MVP recovery sequencing.  
+**Authority:** Current order, scope boundaries, and completion evidence. Runtime posture lives in `RELEASE_STATUS.md`.
 
 # SpeakSharp Roadmap
-
-This file contains unfinished work only. Completion belongs in git history and dated evidence; current deployment facts belong in `RELEASE_STATUS.md`.
 
 <!-- CURRENCY-BLOCK
 baseline: c4665156212dd03cd6d7b91c49bed90dea868b5a
@@ -54,51 +26,55 @@ lane-billing: held-behind-product-recovery
 lane-1258-journey: failed-retest-pending
 -->
 
-## Now — MVP critical path
+## Now — methodical MVP recovery
 
-| Order | Work | Closure evidence |
+One active implementation PR at a time unless the PO changes concurrency. A broad issue may use sequential reviewable increments; do not create one PR per finding or absorb unrelated work.
+
+| Order | Outcome | Authority | Closure |
+|---|---|---|---|
+| 1 | Complete Production journey observability | #1259 | Every confirmed finding maps to an authority event, positive/negative control, privacy classification, and real PostHog receipt. One governed boundary; full journey correlation. |
+| 2 | Make one-click recording and during/after session truthful | #1415 | Explicit cold intent auto-starts once; real mic waveform; red Stop; bounded provisional churn; completed transcript remains readable after teardown/reopen. |
+| 3 | Make Focus Points and Practice Loop truthful | #1407 + #1386 | Setup promise matches action; all input preserved; honest coverage; exactly two What went well + two What to improve outputs; linked retry evidence. |
+| 4 | Remove cross-page friction and replace Share feedback | #1404 | Products menu reaches Open Mic/Focus Points directly; exact accepted feedback spec; failure preserves draft; storage and acknowledgement proven. |
+| 5 | Enforce newest-one retention and matching copy | #1117 | Three Production saves leave exactly one transcript-bearing row; older content-free history survives; expired Open/PDF unavailable; no “two transcripts” copy remains. |
+| 6 | Expose all registered candidates for controlled Production comparison | #1263 + #1304 + #1390 | v2/v4/Moonshine switch between settled takes on canonical Production; full teardown; requested==observed; PO selects and then lock/retest. |
+| 7 | Final deployed qualification | #1258 | Dev passes both complete products first; PO repeats; every step reconstructible; explicit GO/HOLD. |
+
+Documentation-only currentization under #1318 may proceed independently because it does not touch Dev’s product branch.
+
+## Verified shipped-source mismatch map
+
+| Surface | Current mismatch on `main@c4665156` | Owner |
 |---|---|---|
-| 1 | **#1304 STT model selection — running.** Frozen selection set is **600 utterances / 10,894 normalized words**, never “600 words.” | Complete retained matrix and per-utterance artifacts; quiet performance reruns for contaminated v2 tiny/base with score-profile reconciliation; frozen policy applied; technical winner, activation readiness and failure-diverse fallback reported separately; Track B remains a finalist-only human-audio validation. |
-| 2 | **Stage-B privacy successor — fresh PR; never revive #1310.** Retire callable legacy `complete_session` v1 paths while replacing the two-transcript contract with the approved newest-one retention contract. | Real-migration function/grant inventory; client/mocks cannot fall back; anonymous and authenticated v1 calls fail closed; v2 finalize/retain/expire remains green; each load-bearing check falsified once. No production migration application in the implementation PR. |
-| 3 | **#1259 telemetry qualification.** The emitters largely exist; qualification, denominators and operator evidence are incomplete. | Content-free schema; bounded failure reasons; selected-model identity; synthetic/test traffic separated; funnel and SLO denominators defined; owner/action per alert; controlled-event dashboard proof. Production purge/dashboard mutations need separate PO authority. |
-| 4 | **#1302 billing successor — fresh PR; never revive #1303.** Billing follows model selection and telemetry. | Complete test-mode checkout→webhook→entitlement→portal qualification, fail-closed dual switches, exact price/identity checks, and no claim that a live-money transaction is required or authorized. |
-| 5 | **#1258 integrated Practice Loop and GO/HOLD — last.** | Exact release-build real-device journey, selected primary/fallback, save/reopen/Progress/export, telemetry and billing posture, all gate evidence current, explicit Product Owner GO/HOLD. |
+| `MicCard.tsx` + recording controller | preparation does not preserve explicit start intent through READY | #1415 / #1259 |
+| `RecorderBar.tsx`, `Waveform.tsx`, `SessionOverhaulView.tsx` | black Stop; old flex/bottom-aligned waveform; accepted real-signal presentation unshipped | #1415 |
+| `SessionPage.tsx` | completed transcript disappears at teardown despite successful save | #1415 |
+| `ObjectiveSetupForm.tsx` | redundant explanation; navigation CTA says Start speaking | #1407 |
+| `FocusPointsRail.tsx` | confident “Didn’t come up” copy; retry count uses all rows | #1407 |
+| `AISuggestions.tsx`, `faqSections.ts` | old labels; missing visible 2+2 Practice Loop | #1386 |
+| `IssueReportDialog.tsx` | old long form, hidden validation, lost Title state, audio-note field | #1404 |
+| `AnalyticsDashboard.tsx` | two-transcript policy/copy and expired-view wording | #1117 |
+| `Navigation.tsx` | no direct Products → Open Mic / Focus Points route | #1404 |
+| candidate authority / `SessionFocusPoints.tsx` | no controlled Production access to all three candidates | #1263/#1304/#1390 |
+| analytics emitters/buffer | incomplete correlation and missing user-journey receipts | #1259 |
 
-Parallel work must not contend with benchmark measurement. Documentation/ticket work and remote CI may proceed while a model arm runs; local builds, browser sessions, dependency work or other CPU-heavy commands on the measurement host invalidate timing for the overlapping arm.
+## Fixed decisions — do not reopen during implementation
 
-### STT measurement facts that must survive handoff
+- Canonical Production URL only; no Preview/internal/local comparison.
+- No `VITE_INTERNAL_BUILD` requirement or new deployment/config barrier.
+- Three candidates are operator-controlled between takes, not ordinary customer UI.
+- Navigation alone does not start recording; explicit mic intent does and survives preparation.
+- Real microphone data only; no generated waveform fallback.
+- Session labels are **What went well** and **What to improve**.
+- Share feedback exact Design-agent specification is #1404.
+- Newest one transcript only; older content-free history may remain.
+- Telemetry covers every finding but never replaces the product fix.
+- Out-of-scope work requires PO approval.
 
-- The 10-clip Harvard set has 85 normalized words and is smoke evidence only. Its ceiling effects forced the deterministic 23-clip / 459-word preflight before the frozen selection run.
-- Browser v4/Moonshine qualification uses stable `onnxruntime-web` 1.27.0. Earlier int8/q8 load failures on the 2026-04-16 development build were an ONNX Runtime QDQ regression, not a model rejection; the fix is tracked by upstream issue #28306 / PR #28326.
-- The selection run is 600 utterances / 10,894 normalized words. Contaminated latency is unmeasured until a quiet rerun reconciles the per-utterance score profiles; it is neither fast nor slow evidence.
-- The complete historical and current model matrix belongs under `product_release/evidence/stt/`, never under the disposable archive.
+## Later / held
 
-## Next — product evidence and bounded corrections
+Billing activation, broad tester invitations, enterprise/team features, dashboard expansion, unrelated telemetry cleanup, and noncritical refactors wait behind #1258 unless the PO explicitly changes priority.
 
-| Work | Current fact | Required outcome |
-|---|---|---|
-| **Strategy/value validation** | No repository evidence proves that privacy-constrained professionals exist at scale or will pay. | User research or reachable interest capture with a defined sample and decision rule. Backend-only `guided-waitlist` does not count until a frontend entry exists. |
-| **Recommendation outcome qualification** | Recommendation → explicit acceptance → next-session directional outcome is implemented. | Measure acceptance, comparable repeat, directional movement and retention without claiming causality. This is #1259/product analysis, not a new persistence feature. |
-| **Universal-score residue** | Live score card is orphaned, but legacy score/shadow machinery and a user-facing 0–100 Clarity presentation remain. | Code-derived consumer inventory, explicit keep/remove dispositions, no universal-grade wording, tests against live rendered surfaces. |
-| **Unsupported decode options** | Debug allow-list has accepted runtime-inert options. | One versioned capability authority; unsupported options fail before measurement with no row; supported options proven unchanged through the worker. |
-| **Guided/Pro interest entry** | Edge Function and migration exist; frontend caller does not. | Reachable, truthful CTA while payments are closed, content-free analytics, no `checkout_started`, explicit replacement behavior when payments activate. |
-| **Account-deletion FK integrity** | `session_delivery_measurements.session_id` cascades on session deletion, while its independent `user_id` reference has no `ON DELETE` action. Correct account erasure therefore depends on application ordering that the schema does not enforce; unfinished rows also have no defined reaper. | Choose and encode one deletion authority; exercise the real migrations in tests; prove account deletion cannot be blocked and cannot leave orphaned `in_progress` rows; define bounded cleanup ownership. Do not apply a production migration without separate authorization. |
-| **Retention-policy single authority** | Migration `20260803000000_transcript_retention_newest_two.sql` calls `transcript_sessions_to_expire` “THE shared” predicate, but the mutation and `has_more` check duplicate its rank/text predicate instead of calling it. The three copies can drift while tests still exercise only one. | Replace copied policy logic with one callable authority, or explicitly prove why one implementation cannot serve all scopes; test the shipped migration so changing the authority changes selection, mutation and remaining-work behavior together. |
+## Stop conditions
 
-## Later
-
-- The broader executive-rehearsal use case beyond the shipped Focus Points coverage slice. Focus Points is
-  the product capability; "Executive Rehearsal" is a canonical example of using it, never a second product.
-- Server-side recovery obligation to close the accepted client-only #1354 edge case.
-- Real-hardware WebGPU performance; SwiftShader proves compatibility only.
-- Track-B annotated disfluent-human-audio expansion beyond finalist validation.
-- Paid operations, MFA/auth hardening, dependency/bundle maintenance, and long-horizon B2B/compliance packaging.
-- Live meeting integrations (Zoom/Meet/Teams) only after the individual Practice Loop proves value.
-
-## Declined / not active
-
-- Any customer transcription engine other than Private. Private is the only customer engine; no second engine is offered, selectable, or used as a fallback.
-- A universal 0–10/0–100 speaking grade.
-- Accumulated minute quotas for active-trial or paid users.
-- Treating test infrastructure, a model choice or filler counting as an economic moat.
-- Reviving historical PRs #1303, #1310, #1317, #1319 or #1323 by rebase.
+Stop and return the active work if it adds a build/URL/environment, changes approved UX, captures content, cannot prove the real authority path, makes a user-facing claim without evidence, or requires new PO scope. Green tests do not cure those failures.
