@@ -123,13 +123,34 @@ describe('#1259 T1 — content is rejected', () => {
     });
 
     it('the two error events carry NO free text by schema', () => {
+        // GLOBAL_UNHANDLED_REJECTION's schema used to be literally `[]`, and this test asserted that.
+        // An empty schema does satisfy "no free text" — by shipping nothing at all, which made the
+        // event a counter rather than a diagnostic (#1259 F12). The requirement was never emptiness;
+        // it is that no field can carry prose. So assert THAT, against a schema that now has fields.
         expect(EVENT_ALLOWLIST.COMPONENT_CRASH).not.toContain('message');
-        expect(EVENT_ALLOWLIST.GLOBAL_UNHANDLED_REJECTION).toEqual([]);
+        expect(EVENT_ALLOWLIST.GLOBAL_UNHANDLED_REJECTION).not.toContain('message');
+        expect(EVENT_ALLOWLIST.GLOBAL_UNHANDLED_REJECTION).not.toContain('reason');
+        expect(EVENT_ALLOWLIST.GLOBAL_UNHANDLED_REJECTION).not.toContain('stack');
+
         const crash = projectEventProps('COMPONENT_CRASH', {
             component: 'SessionPage', isolationKey: 'k', message: 'boom: transcript=...',
         });
         expect(crash.props).toEqual({ component: 'SessionPage', isolationKey: 'k' });
+
+        // The raw message is still refused under its old name...
         expect(projectEventProps('GLOBAL_UNHANDLED_REJECTION', { reason: 'anything' }).props).toEqual({});
+        // ...and prose cannot ride in on an approved field either: `error_name` takes a class name,
+        // and the slug rule rejects anything with spaces.
+        const prose = projectEventProps('GLOBAL_UNHANDLED_REJECTION', {
+            reason_kind: 'error',
+            error_name: 'could not find the transcript you asked for',
+            error_fingerprint: '1f2e3d4c',
+            message_length_band: '1-64',
+        });
+        expect(prose.dropped).toContain('error_name');
+        expect(prose.props).toEqual({
+            reason_kind: 'error', error_fingerprint: '1f2e3d4c', message_length_band: '1-64',
+        });
     });
 });
 

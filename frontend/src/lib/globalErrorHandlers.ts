@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/react';
 import { toast } from '@/lib/toast';
 import logger from './logger';
 import { analyticsBuffer } from '../services/AnalyticsBuffer';
+import { fingerprintError } from './errorFingerprint';
 
 let lastToastTime = 0;
 const TOAST_COOLDOWN_MS = 5000;
@@ -41,13 +42,17 @@ export const setupGlobalErrorHandlers = () => {
 
         // Ensure background rejections are also sent to Sentry and Analytics
         Sentry.captureException(event.reason);
-        analyticsBuffer.push('GLOBAL_UNHANDLED_REJECTION', {
-            reason: message
-        }, 'CRITICAL');
+        // #1259 F12 — `reason` was the raw message, and the governed schema was `{}`, so this event
+        // reached PostHog carrying NOTHING. These fields are derived rather than copied: the class
+        // name, a digest that groups identical failures, and a length band. The message itself stays
+        // in the log and in Sentry, which are internal sinks with different handling.
+        analyticsBuffer.push('GLOBAL_UNHANDLED_REJECTION',
+            { ...fingerprintError(event.reason, message) }, 'CRITICAL');
 
         // Add debouncing to prevent UI flooding during network outages.
-        // The raw `message` is kept in logs/Sentry/analytics above (internal only); the
-        // user-facing toast stays generic so backend internals never leak (P2 hardening).
+        // The raw `message` is kept in logs and Sentry (internal only) — NOT in analytics, which now
+        // carries only the derived fingerprint; the user-facing toast stays generic so backend
+        // internals never leak (P2 hardening).
         const now = Date.now();
         if (now - lastToastTime > TOAST_COOLDOWN_MS) {
             toast.error("Something went wrong in the background", {

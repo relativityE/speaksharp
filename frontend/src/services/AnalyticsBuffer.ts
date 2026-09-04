@@ -8,6 +8,7 @@ import { projectEventProps, isGovernedEvent, type GovernedEvent } from './teleme
 import { buildEnvelope, stripEnvelopeKeys, type EnvelopeSources, type EventEnvelope } from './telemetry/envelope';
 import { buildTrafficSignals } from './telemetry/trafficType';
 import { resolvedEngine } from './telemetry/runtimeAttribution';
+import { recordDrop, recordFlush, setTelemetryHealthEmitter, isHealthEvent } from './telemetry/telemetryHealth';
 
 
 /**
@@ -117,6 +118,10 @@ class AnalyticsBuffer {
   /** @internal */
   public readonly MAX_QUEUE_SIZE = 1000;
   private readonly BATCH_SIZE = 10;
+  /** Backpressure drops since the last report. Counted in push(), reported on drain — see push(). */
+  private backpressureDropped = 0;
+  /** Whether this drain carried anything other than health events. Breaks the report/requeue loop. */
+  private sentNonHealthSinceDrain = false;
 
   // Non-PII identity observability probe (mirrored to window.__SS_ANALYTICS_IDENTITY__) so a deployed
   // proof can confirm EXACTLY which step of the identify path ran — without guessing from network
@@ -193,6 +198,12 @@ class AnalyticsBuffer {
     // Backpressure: Drop oldest if queue is full
     if (this.queue.length >= this.MAX_QUEUE_SIZE) {
       this.queue.shift(); // Drop oldest
+      // #1259 F12 — a silent backpressure drop is indistinguishable from an event that was never
+      // produced, so it must be reported. NOT from here: emitting inside the full-queue branch pushes
+      // an event into the queue that is already full, which drops another, which emits again — an
+      // unbounded recursion whose first symptom would be a hung tab. Counted here, reported once the
+      // queue actually drains.
+      this.backpressureDropped += 1;
     }
 
     this.queue.push(analyticsEvent);
@@ -255,6 +266,15 @@ class AnalyticsBuffer {
     } else {
       this.isFlushing = false;
       logger.debug('[AnalyticsBuffer] Background flush complete');
+      // Report a drain ONLY when this pass carried real traffic. A health event is itself queued, so
+      // reporting every drain means: drain -> emit health -> queue non-empty -> drain -> emit health,
+      // forever. The flag makes the loop close after one report.
+      if (this.sentNonHealthSinceDrain) {
+        this.sentNonHealthSinceDrain = false;
+        const dropped = this.backpressureDropped;
+        this.backpressureDropped = 0;
+        recordFlush(dropped > 0 ? 'backpressure_dropped' : 'drained', this.queue.length, dropped);
+      }
     }
   }
 
@@ -267,9 +287,26 @@ class AnalyticsBuffer {
   }
 
   /**
+   * #1259 F12 — the health emitter, injected rather than imported by the health module.
+   *
+   * The dependency runs one way: the boundary knows how to send, the health module knows what is worth
+   * saying. Wiring it the other way would make a telemetry module import the buffer that imports it.
+   */
+  public wireHealthEmitter(): void {
+    setTelemetryHealthEmitter((event, props, priority) => {
+      // A health event that reported its own drops would emit another health event, and a telemetry
+      // outage would become a telemetry flood. The health module already refuses to report on health
+      // events; this is the same guard at the boundary, where it cannot be bypassed.
+      if (!isHealthEvent(event)) return;
+      this.push(event as AnalyticsEventName, props, priority);
+    });
+  }
+
+  /**
    * Internal sender to PostHog and Sentry.
    */
   private send(event: AnalyticsEvent): void {
+    if (!isHealthEvent(event.event)) this.sentNonHealthSinceDrain = true;
     try {
       // #1259 P2 — SECOND redaction boundary for Private events. The first boundary is the emitter
       // allowlist (`sanitizePrivateTelemetryProps`). Here, at the send boundary,
@@ -307,6 +344,10 @@ class AnalyticsBuffer {
             { event: event.event, droppedKeys: projected.dropped, governed: isGovernedEvent(event.event) },
             '[AnalyticsBuffer] dropped non-allowlisted telemetry properties',
           );
+          // #1259 F12 — and EMIT it. A drop that exists only in a browser console is invisible in
+          // Production, which is how a silently empty event stays silently empty. The keys stay local;
+          // only the count and the source event travel.
+          recordDrop(event.event, projected.dropped.length, isGovernedEvent(event.event));
         }
       }
       // #1259 T2 — THE ENVELOPE IS APPLIED HERE, at the same single boundary, and LAST.

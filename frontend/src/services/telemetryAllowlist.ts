@@ -224,9 +224,44 @@ export const EVENT_SCHEMAS = Object.freeze({
 
     // ── error surfaces: bounded identifiers only, never messages ────────────
     COMPONENT_CRASH: { component: slug(), isolationKey: slug() },
-    GLOBAL_UNHANDLED_REJECTION: {},
+    /**
+     * #1259 F12 — this schema was `{}`. Every unhandled rejection in Production shipped with NO
+     * properties at all: the event could say something failed and nothing else. The producer was still
+     * passing the raw `reason` message and a comment claimed analytics kept it; the allowlist had been
+     * dropping it silently. Restoring the message is not the fix — error text is the worst carrier,
+     * since PostgREST and Postgres echo request material back through message/details/hint. These are
+     * DERIVED instead: class name, a digest that groups identical failures, and a length band.
+     */
+    GLOBAL_UNHANDLED_REJECTION: {
+        reason_kind: enumOf(['error', 'string', 'object', 'nullish', 'unknown']),
+        error_name: slug(),
+        error_fingerprint: slug(16),
+        message_length_band: enumOf(['0', '1-64', '65-256', '257-1024', '1024+']),
+    },
 
     account_identified: { source: slug() },
+
+    // ── F12: telemetry about telemetry ──────────────────────────────────────
+    /**
+     * The event that is DECODED AT THE WIRE. There is deliberately no `boundary_accepted` field:
+     * `posthog.capture` is fire-and-forget, so any client-side acceptance flag would be a guess
+     * wearing a measurement's clothes. The nonce is what makes external verification possible.
+     */
+    telemetry_positive_control: {
+        control_nonce: slug(48),
+        instrumentation_version: slug(),
+        transport_initialized: { kind: 'bool' } as FieldRule,
+    },
+    /** What the client genuinely knows about its own boundary. Never reports on a health event. */
+    telemetry_health: {
+        instrumentation_version: slug(),
+        source_event: slug(),
+        schema_validation_result: enumOf(['ok', 'dropped_fields', 'ungoverned']),
+        dropped_count: { kind: 'int', min: 0, max: 10_000 } as FieldRule,
+        flush_outcome: enumOf(['drained', 'backpressure_dropped', 'pagehide_drained']),
+        queue_depth_band: enumOf(['0', '1-10', '11-100', '101-500', '500+']),
+        suppressed_health_events: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+    },
 } as const satisfies Record<string, Record<string, FieldRule>>);
 
 /**
