@@ -2,7 +2,7 @@
 > [!CAUTION]
 > **Current Production disposition — 4 Sep 2026: HOLD for product recovery and observable retest.** Production/main were verified at `c4665156212dd03cd6d7b91c49bed90dea868b5a`. The human test ran Open Mic and Focus Points on v2 only; both failed. Accepted remedies are not yet shipped. #1259 is reopened and in local implementation; no accepted telemetry PR/head exists. No PO merge authorization is currently the blocker. Testing remains paused until the grouped fixes and complete Production observability deploy.
 >
-> Confirmed defects include cold intent not auto-starting, repeated setup, distracting provisional churn, completed transcript disappearance, false Focus Points negatives/miscount, missing Practice Loop, post-session navigation friction, blocked/lost Share feedback state, stale two-transcript copy, filler stripping behind flattering clarity, and no Production runtime access to v4/Moonshine. See #1259, #1407, #1386, #1404, #1263/#1304/#1390, and #1258.
+> Confirmed defects include cold intent not auto-starting, repeated setup, distracting provisional churn, completed transcript disappearance, false Focus Points negatives/miscount, missing Practice Loop, post-session navigation friction, blocked/lost Share feedback state, stale two-transcript copy, filler stripping behind flattering clarity, and no Production runtime access to v4/Moonshine. See #1259, #1415, #1407, #1386, #1404, #1117, #1263/#1304/#1390, and #1258.
 
 <!-- /pm-currentization:2026-09-04 -->
 
