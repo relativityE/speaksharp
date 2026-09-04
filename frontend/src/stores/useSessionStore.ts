@@ -31,6 +31,7 @@ interface TranscriptState {
 // SttStatus imported from '@/types/transcription'
 
 import { RuntimeState } from '@/services/SpeechRuntimeController';
+import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 
 export type NativeFormattingUiStatus = 'idle' | 'pending' | 'complete' | 'failed';
 
@@ -302,7 +303,7 @@ const sentenceCaseStart = (text: string): string => {
     return `${text.slice(0, firstLetterIndex)}${text.charAt(firstLetterIndex).toUpperCase()}${text.slice(firstLetterIndex + 1)}`;
 };
 
-export const useSessionStore = create<SessionStore>((set) => {
+export const useSessionStore = create<SessionStore>((set, get) => {
     const instanceId = Math.random().toString(36).substring(7);
     if (typeof window !== 'undefined') {
         (window as unknown as { __LAST_STORE_ID__: string }).__LAST_STORE_ID__ = instanceId;
@@ -592,10 +593,26 @@ export const useSessionStore = create<SessionStore>((set) => {
     setProgressGateResolvedFor: (progressGateResolvedFor) => set({ progressGateResolvedFor }),
     setObjectiveCoverageResult: (objectiveCoverageResult) => set({ objectiveCoverageResult }),
 
-    setTranscriptFinalizing: (isTranscriptFinalizing) =>
-        set({
-            isTranscriptFinalizing,
-        }),
+    setTranscriptFinalizing: (isTranscriptFinalizing) => {
+        // #1259 F05 — FINALIZATION ENDS HERE, and only here. The controller flips this flag false from
+        // nine different exit paths; instrumenting those would drift the moment a tenth appears, and
+        // would miss whichever one actually ran during the failure we are trying to see.
+        const wasFinalizing = get().isTranscriptFinalizing;
+        set({ isTranscriptFinalizing });
+        if (wasFinalizing && !isTranscriptFinalizing) {
+            const state = get();
+            emitTranscriptAuthority({
+                stage: 'finalize',
+                // The COMMITTED text, not the partial. A partial is still in flux by definition, and
+                // F05 asks what the authority settled on.
+                authoritative: state.transcript.transcript,
+                // `finalizedAnalysis` is published only after persistence, so its presence at
+                // finalization time is itself informative: absent here is the normal case.
+                sessionIdPresent: Boolean(state.finalizedAnalysis?.sessionId),
+                persisted: state.sessionSaved,
+            });
+        }
+    },
 
     setPauseMetrics: (pauseMetrics) =>
         set({

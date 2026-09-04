@@ -22,15 +22,7 @@
  * sensitive before anything is derived from them.
  */
 
-/** FNV-1a, 32-bit. Grouping only — never an identifier, never reversible to the text. */
-function digest(input: string): string {
-    let h = 0x811c9dc5;
-    for (let i = 0; i < input.length; i += 1) {
-        h ^= input.charCodeAt(i);
-        h = Math.imul(h, 0x01000193) >>> 0;
-    }
-    return h.toString(16).padStart(8, '0');
-}
+import { contentDigest as digest } from './contentDigest';
 
 /** Collapse the parts that vary per occurrence so the same failure yields the same fingerprint. */
 export function normalizeErrorMessage(message: string): string {

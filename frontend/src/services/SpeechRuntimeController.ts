@@ -6,6 +6,7 @@ import {
 import {
     beginRecordingAttempt, endRecordingAttempt,
 } from '@/services/telemetry/journeyIdentity';
+import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import { toSanitizedCause } from '@/lib/sanitizeStartError';
@@ -1790,6 +1791,17 @@ export class SpeechRuntimeController {
                     // had been waiting since before the teardown.
                     clearRuntimeReady();
                     endRecordingAttempt();
+                    // #1259 F05 — the PO watched a finalized transcript vanish. Whatever the authority
+                    // holds AFTER teardown is the fact that distinguishes "purged" from "still there but
+                    // not rendered", and the two have completely different fixes.
+                    const store = useSessionStore.getState();
+                    emitTranscriptAuthority({
+                        stage: 'teardown',
+                        authoritative: store.transcript.transcript,
+                        persisted: store.sessionSaved,
+                        sessionIdPresent: Boolean(store.finalizedAnalysis?.sessionId),
+                        teardownState: newState,
+                    });
                 } else if (newState === 'RECORDING') {
                     // The attempt opens where recording actually begins, not where it was requested —
                     // a refused or hung start must not consume an attempt ordinal.

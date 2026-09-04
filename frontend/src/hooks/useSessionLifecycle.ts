@@ -24,6 +24,7 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { emitRecordingIntent } from '@/services/telemetry/journeyEvents';
+import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 
@@ -263,6 +264,16 @@ export const useSessionLifecycle = () => {
                     streak_count: streakResult.currentStreak,
                     ...getSessionCoachingExperimentProperties(),
                 }, 'HIGH');
+                // #1259 F05 — the count above and the transcript are two DIFFERENT facts, and only the
+                // count was ever recorded. `word_count: 88` beside an empty panel and `word_count: 88`
+                // beside 88 visible words were the same event. This records what the authority holds at
+                // the moment persistence returned, so the review stage has something to disagree with.
+                emitTranscriptAuthority({
+                    stage: 'save',
+                    authoritative: useSessionStore.getState().transcript.transcript,
+                    persisted: true,
+                    sessionIdPresent: Boolean(useSessionStore.getState().finalizedAnalysis?.sessionId),
+                });
                 // P1: read the controller's current terminal status FIRST. If it left a warning/error (e.g.
                 // filler/metrics persistence failed → guardedStopStatus), preserve it — apply NEITHER the
                 // stopReason NOR the ordinary success/streak copy. This holds for auto-stops (which carry a

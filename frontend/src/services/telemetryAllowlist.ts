@@ -221,6 +221,23 @@ export const EVENT_SCHEMAS = Object.freeze({
         duration_ms: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
     },
 
+    /**
+     * F05 — a word count and a rendered surface are DIFFERENT FACTS. Production already carries
+     * `session_saved.word_count`; nothing records whether the user could see those words. This pairs
+     * them at each stage that can lose the transcript. No text, ever — a digest, two counts, booleans.
+     */
+    transcript_authority: {
+        stage: enumOf(['finalize', 'save', 'teardown', 'review_rendered']),
+        transcript_digest: slug(16),
+        authoritative_word_count: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        rendered_word_count: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        transcript_visibly_present: { kind: 'bool' } as FieldRule,
+        digests_match: { kind: 'bool' } as FieldRule,
+        persisted: { kind: 'bool' } as FieldRule,
+        session_id_present: { kind: 'bool' } as FieldRule,
+        teardown_state: enumOf(RUNTIME_STATES),
+    },
+
     // ── conversion funnel ───────────────────────────────────────────────────
     conversion_cta_viewed: CONVERSION_FIELDS,
     conversion_cta_clicked: CONVERSION_FIELDS,

@@ -7,6 +7,7 @@ import { splitSettledActiveTranscript, hasSevereRepetitionLoop, collapseRepeated
 import { parseTranscriptForHighlighting } from '@/utils/highlightUtils';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { estimateFinalizeSeconds } from '@/services/transcription/finalizeRateStore';
+import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 
 declare global {
     interface Window {
@@ -238,6 +239,28 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
         if (containerRef) return;
         node.scrollTop = node.scrollHeight;
     }, [visibleTranscript, history.length, uiState, transcriptContainerRef, containerRef]);
+
+    // #1259 F05 — THE RENDERED SIDE OF THE PAIR.
+    //
+    // Every other stage reports what an authority HOLDS. This one reports what the user can actually
+    // SEE, and the disagreement between them is the finding: a saved transcript that renders as an
+    // empty panel is indistinguishable, in today's telemetry, from one that renders correctly.
+    //
+    // Only the settled view is reported. While listening or finalizing the transcript is expected to
+    // be in flux, so a mid-stream mismatch is not a defect — and emitting then would produce the
+    // per-frame stream this contract forbids. `emitTranscriptAuthority` additionally suppresses
+    // repeats, so an unrelated re-render sends nothing.
+    React.useEffect(() => {
+        if (!isSettledView) return;
+        emitTranscriptAuthority({
+            stage: 'review_rendered',
+            // What the panel BELIEVES it was given, before display shaping.
+            authoritative: transcript,
+            // What it actually put on screen. The comparison is computed locally; only the verdict
+            // travels, so neither string ever leaves the browser.
+            rendered: committedForDisplay,
+        });
+    }, [isSettledView, transcript, committedForDisplay]);
 
     // #33 Native trust-disclaimer proof hooks: publish a timestamped trust-state
     // snapshot (+ append-only trace) so the harness can prove WHEN each trust state
