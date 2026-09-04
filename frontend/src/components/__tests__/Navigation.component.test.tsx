@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NAV_ITEM_ACTIVE_CLASS, NAV_ITEM_BASE_CLASS } from '@/config/navSections';
 import { render, screen, fireEvent, waitFor } from '../../../tests/support/test-utils';
+import userEvent from '@testing-library/user-event';
 import Navigation from '../Navigation';
 import * as AuthProvider from '../../contexts/AuthProvider';
 import { issueReportService } from '@/services/issueReportService';
@@ -105,8 +106,10 @@ describe('Navigation', () => {
 
             renderNavigation();
             expect(screen.getAllByText('Home')).toHaveLength(2); // Desktop + mobile
-            expect(screen.getAllByText('Session')).toHaveLength(2);
             expect(screen.getAllByText('Analytics')).toHaveLength(2);
+            expect(screen.getByTestId('nav-products-button')).toHaveTextContent('Products');
+            expect(screen.getByTestId('nav-mobile-open-mic-link')).toHaveTextContent('Open Mic');
+            expect(screen.getByTestId('nav-mobile-focus-points-link')).toHaveTextContent('Focus Points');
         });
 
         it('should render Sign Out button when authenticated', () => {
@@ -167,11 +170,7 @@ describe('Navigation', () => {
             renderNavigation('/session');
 
             fireEvent.click(screen.getByTestId('nav-report-issue-button'));
-            // #1404: Message is a required first choice; without it this form cannot submit.
-            fireEvent.change(screen.getByTestId('issue-report-feedback-kind'), { target: { value: 'issue' } });
-            fireEvent.change(screen.getByTestId('issue-report-title'), {
-                target: { value: 'Private mic failed' },
-            });
+            fireEvent.click(screen.getByTestId('feedback-type-broke'));
             fireEvent.change(screen.getByTestId('issue-report-description'), {
                 target: { value: 'Clicking the microphone did not start the recording.' },
             });
@@ -208,11 +207,7 @@ describe('Navigation', () => {
             renderNavigation('/session');
 
             fireEvent.click(screen.getByTestId('nav-report-issue-button'));
-            // #1404: Message is a required first choice; without it this form cannot submit.
-            fireEvent.change(screen.getByTestId('issue-report-feedback-kind'), { target: { value: 'issue' } });
-            fireEvent.change(screen.getByTestId('issue-report-title'), {
-                target: { value: 'Transcript issue' },
-            });
+            fireEvent.click(screen.getByTestId('feedback-type-broke'));
             fireEvent.change(screen.getByTestId('issue-report-description'), {
                 target: { value: 'The transcript changed after I clicked stop.' },
             });
@@ -239,22 +234,15 @@ describe('Navigation', () => {
             renderNavigation('/pricing');
 
             fireEvent.click(screen.getByTestId('nav-report-issue-button'));
-            // Single support-oriented disclosure — no anonymous/account-context branching anymore.
-            expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/Linked to your account using an internal ID/i);
-            expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/do not include your email, name, password, login credentials, transcript, or audio/i);
+            fireEvent.click(screen.getByRole('button', { name: "What's included" }));
+            expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/internal account reference/i);
+            expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/Never your email, name, credentials, transcript, or audio/i);
             // Raw DB field name must not leak into user-facing copy.
             expect(screen.getByTestId('issue-report-disclosure')).not.toHaveTextContent(/user_id/i);
             expect(screen.queryByText(/Anonymous report/i)).not.toBeInTheDocument();
             expect(screen.queryByText(/Account support report/i)).not.toBeInTheDocument();
 
-            fireEvent.change(screen.getByTestId('issue-report-category'), {
-                target: { value: 'billing_subscription' },
-            });
-            // #1404: Message is a required first choice; without it this form cannot submit.
-            fireEvent.change(screen.getByTestId('issue-report-feedback-kind'), { target: { value: 'issue' } });
-            fireEvent.change(screen.getByTestId('issue-report-title'), {
-                target: { value: 'Billing portal issue' },
-            });
+            fireEvent.click(screen.getByTestId('feedback-type-broke'));
             fireEvent.change(screen.getByTestId('issue-report-description'), {
                 target: { value: 'I need help managing my billing for paid early access.' },
             });
@@ -300,15 +288,17 @@ describe('Navigation', () => {
             expect(screen.getByRole('link', { name: 'SpeakSharp Home' })).toHaveAttribute('href', '/');
         });
 
-        it('should have correct href for Session link', () => {
+        it('Products gives direct access to both Open Mic and Focus Points', async () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
             } as unknown as AuthProvider.AuthContextType);
 
+            const user = userEvent.setup();
             renderNavigation();
-            const sessionLinks = screen.getAllByRole('link', { name: /session/i });
-            expect(sessionLinks[0]).toHaveAttribute('href', '/session');
+            await user.click(screen.getByTestId('nav-products-button'));
+            expect(await screen.findByTestId('nav-products-open-mic')).toHaveAttribute('href', '/session');
+            expect(screen.getByTestId('nav-products-focus-points')).toHaveAttribute('href', '/practice?product=focus-points');
         });
 
         it('should have correct href for Analytics link', () => {
@@ -331,9 +321,11 @@ describe('Navigation', () => {
             } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
-            // Mobile nav should have Home, Session, Analytics
+            // Mobile nav exposes Home, both products, and Analytics without a Home detour.
             const homeLinks = screen.getAllByText('Home');
             expect(homeLinks.length).toBeGreaterThan(1); // Desktop + mobile
+            expect(screen.getByTestId('nav-mobile-open-mic-link')).toHaveAttribute('href', '/session');
+            expect(screen.getByTestId('nav-mobile-focus-points-link')).toHaveAttribute('href', '/practice?product=focus-points');
         });
 
         it('should not render mobile navigation when not authenticated', () => {
@@ -382,8 +374,8 @@ describe('Navigation', () => {
             ['/practice', 'nav-home-link'],
             ['/Practice', 'nav-home-link'],
             ['/practice/', 'nav-home-link'],
-            ['/session', 'nav-session-link'],
-            ['/session/abc123', 'nav-session-link'],
+            ['/session', 'nav-products-button'],
+            ['/session/abc123', 'nav-products-button'],
             ['/analytics', 'nav-analytics-link'],
             ['/analytics/session-42', 'nav-analytics-link'],
             ['/ANALYTICS', 'nav-analytics-link'],
@@ -430,14 +422,14 @@ describe('Navigation', () => {
 
             // Boundary rule: /session-other must NOT activate Session.
             expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
-            expect(screen.getByTestId('nav-session-link').className).not.toContain(NAV_ITEM_ACTIVE_CLASS);
+            expect(screen.getByTestId('nav-products-button').className).not.toContain(NAV_ITEM_ACTIVE_CLASS);
         });
 
         it('gives active and inactive items identical geometry classes (no reflow on navigation)', () => {
             authed();
             renderNavigation('/session');
 
-            const active = screen.getByTestId('nav-session-link');
+            const active = screen.getByTestId('nav-products-button');
             const inactive = screen.getByTestId('nav-home-link');
 
             const activeClasses = active.className.split(/\s+/).filter(Boolean);
@@ -470,13 +462,13 @@ describe('Navigation', () => {
             authed();
             renderNavigation('/practice');
 
-            const sessionLink = screen.getByTestId('nav-session-link');
-            sessionLink.focus();
-            expect(document.activeElement).toBe(sessionLink);
+            const productsButton = screen.getByTestId('nav-products-button');
+            productsButton.focus();
+            expect(document.activeElement).toBe(productsButton);
 
             // jsdom applies no stylesheet, so the focus affordance is proven against the
             // stylesheet that ships with the class the element carries.
-            expect(sessionLink.className).toContain(NAV_ITEM_BASE_CLASS);
+            expect(productsButton.className).toContain(NAV_ITEM_BASE_CLASS);
             // Must be a REAL outline: `outline: none` would satisfy a bare /outline:/ match.
             const focusBlock = navCss.match(/\.nav-item:focus-visible\s*\{([^}]*)\}/);
             expect(focusBlock?.[1]).toMatch(/outline:\s*\d+px\s+solid\s+\S+/);
@@ -492,7 +484,7 @@ describe('Navigation', () => {
                 // react-router resolves all of these to the session page, so the raw
                 // `pathname !== '/session'` check used to let the bar cover live recording.
                 expect(mobileNav()).not.toBeInTheDocument();
-                expect(screen.getAllByText('Session')).toHaveLength(1);
+                expect(screen.getByTestId('nav-products-button')).toBeInTheDocument();
             },
         );
 
@@ -500,10 +492,10 @@ describe('Navigation', () => {
             authed();
             renderNavigation('/analytics');
             const icons = primaryNav().querySelectorAll('svg');
-            // Home, Session, Analytics — one decorative icon per primary section. FAQ is no
+            // Home, Analytics, Products mic, Products chevron. FAQ is no
             // longer a routed section; it is an inline dropdown in the header actions, outside
             // this Primary landmark.
-            expect(icons.length).toBe(3);
+            expect(icons.length).toBe(4);
             icons.forEach((icon) => expect(icon).toHaveAttribute('aria-hidden', 'true'));
         });
     });

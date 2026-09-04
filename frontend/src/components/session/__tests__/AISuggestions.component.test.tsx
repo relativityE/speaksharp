@@ -134,8 +134,8 @@ describe('AISuggestions Integration', () => {
             await user.click(screen.getByRole('button', { name: /get suggestions/i }));
 
             await waitFor(() => {
-                expect(screen.getByText('What worked')).toBeInTheDocument();
-                expect(screen.getByText('What to try next')).toBeInTheDocument();
+                expect(screen.getByText('What went well')).toBeInTheDocument();
+                expect(screen.getByText('What to improve')).toBeInTheDocument();
             });
         });
     });

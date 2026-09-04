@@ -62,7 +62,7 @@ Thank you again for helping us test SpeakSharp.
 
 SpeakSharp is a private speaking-practice coach. Open Mic is the simplest way to begin an unstructured take. Focus Points is optional guidance when you want to check that specific ideas came through. Every recording uses Private transcription on your device.
 
-Nothing begins recording automatically. You remain in control of when to start.
+Nothing records until you press the mic. If that press must prepare the Private model first, recording begins automatically as soon as preparation finishes; you do not press twice.
 
 How to test the Practice Loop
 
@@ -124,7 +124,7 @@ Akin
 ```text
 I'm opening a small controlled beta for SpeakSharp, a private speaking-practice coach. Start with Open Mic, record a 1–2 minute take using Private transcription on your device, save and review it, then repeat once using the suggested next action. You can also try Focus Points when specific ideas must land.
 
-Nothing records automatically. The complete product is free for 30 days, and no card is needed for this test. Use Share Feedback for anything confusing, inaccurate, slow, or broken — and for suggestions, questions, or things that worked well.
+Nothing records until you press the mic; that one press remains authoritative through any model preparation. The complete product is free for 30 days, and no card is needed for this test. Use Share Feedback for anything confusing, inaccurate, slow, or broken — and for suggestions, questions, or things that worked well.
 
 Beta link: https://speaksharp-public.vercel.app/
 ```

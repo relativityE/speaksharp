@@ -19,6 +19,8 @@ describe('#1046 ObjectiveSetupForm (capture UI)', () => {
         expect(screen.queryByTestId('objective-goal-input')).toBeNull(); // free text only under "Other"
         expect(screen.getAllByRole('listitem')).toHaveLength(3);
         expect(screen.getByTestId('objective-setup-submit')).toBeDisabled();
+        expect(screen.getByTestId('objective-setup-submit')).toHaveTextContent('Proceed to session');
+        expect(screen.queryByText(/Name what you.re rehearsing/i)).not.toBeInTheDocument();
     });
 
     it('picking a preset topic sets the goal; submit enables once a point is labelled', () => {

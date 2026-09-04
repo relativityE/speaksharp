@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { LogOut, Zap } from "lucide-react";
+import { ChevronDown, LogOut, Mic, Target, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TEST_IDS } from '@/constants/testIds';
 import { NAV_SECTIONS, navItemClassName, normalizeNavPath, resolveNavSectionId } from "@/config/navSections";
@@ -21,6 +21,12 @@ import { IssueReportDialog } from "@/components/IssueReportDialog";
 import { FaqMenu } from "@/components/faq/FaqMenu";
 import { toast } from '@/lib/toast';
 import { useSessionStore } from "@/stores/useSessionStore";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const Navigation = () => {
   const location = useLocation();
@@ -28,8 +34,8 @@ const Navigation = () => {
   const { session, signOut } = useAuthProvider();
   const { data: profile } = useUserProfile();
   const { data: usageLimit } = useUsageLimit();
-  // Issue reports are anonymous and never carry the auto transcript (Option C): the user types the
-  // exact snippet they want to share inside the dialog. We pass only non-PII session context.
+  // Feedback carries an opaque account reference for support follow-up and never carries transcript
+  // or audio. Product analytics receives only content-free feedback state through the governed boundary.
   const reportSttMode = useSessionStore(state => state.sttMode);
   const reportRuntimeState = useSessionStore(state => state.runtimeState);
   const [isUpgrading, setIsUpgrading] = useState(false);
@@ -90,7 +96,7 @@ const Navigation = () => {
       className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background/95 p-2 backdrop-blur-xl surface-shadow lg:hidden"
     >
       <div className="flex justify-around items-center">
-        {NAV_SECTIONS.map((item) => {
+        {NAV_SECTIONS.filter((item) => item.id !== 'session').map((item) => {
           const isActive = activeSectionId === item.id;
           return (
             <Button
@@ -108,6 +114,18 @@ const Navigation = () => {
             </Button>
           );
         })}
+        <Button variant="ghost" size="sm" asChild className="flex h-16 flex-col">
+          <Link to="/session" data-testid="nav-mobile-open-mic-link">
+            <Mic className="mb-1 h-5 w-5" aria-hidden="true" />
+            <span className="text-xs">Open Mic</span>
+          </Link>
+        </Button>
+        <Button variant="ghost" size="sm" asChild className="flex h-16 flex-col">
+          <Link to="/practice?product=focus-points" data-testid="nav-mobile-focus-points-link">
+            <Target className="mb-1 h-5 w-5" aria-hidden="true" />
+            <span className="text-xs">Focus Points</span>
+          </Link>
+        </Button>
       </div>
     </nav>
   );
@@ -154,7 +172,7 @@ const Navigation = () => {
             {/* Navigation Items */}
             {session && (
               <nav aria-label="Primary" className="hidden items-center space-x-1 lg:flex">
-                {NAV_SECTIONS.map((item) => {
+                {NAV_SECTIONS.filter((item) => item.id !== 'session').map((item) => {
                   const isActive = activeSectionId === item.id;
                   return (
                     <Link
@@ -173,6 +191,35 @@ const Navigation = () => {
                     </Link>
                   );
                 })}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className={navItemClassName(activeSectionId === 'session')}
+                      data-testid="nav-products-button"
+                      aria-label="Products"
+                      aria-current={activeSectionId === 'session' ? 'page' : undefined}
+                    >
+                      <Mic className="h-4 w-4" aria-hidden="true" />
+                      <span>Products</span>
+                      <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="center" className="min-w-48" opaque>
+                    <DropdownMenuItem asChild>
+                      <Link to="/session" data-testid="nav-products-open-mic">
+                        <Mic className="mr-2 h-4 w-4" aria-hidden="true" />
+                        Open Mic
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to="/practice?product=focus-points" data-testid="nav-products-focus-points">
+                        <Target className="mr-2 h-4 w-4" aria-hidden="true" />
+                        Focus Points
+                      </Link>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </nav>
             )}
 

@@ -109,7 +109,7 @@ from public.user_issue_reports
 order by created_at desc
 limit 5;
 ```
-**Acceptance:** row exists · id + timestamp captured · category/severity/title/description present · page_url present · metadata includes route, userAgent, viewport, timezone, plan, sttMode, runtimeState, Sentry last-event-id (if available) · `include_transcript = false` · `transcript_excerpt is null` · `include_audio = false` · `audio_attachment_note is null`.
+**Acceptance:** row exists · id + timestamp captured · derived category/severity/title plus the user's feedback body present · page route present · metadata includes route, coarse parsed browser/OS (never raw user agent), viewport, timezone, plan, sttMode, runtimeState, and Sentry last-event-id when available · no transcript or audio fields/content are submitted.
 
 **Opt-in report** (transcript excerpt explicitly opted in): excerpt appears **only** in this row · no audio unless explicitly opted in · UI opt-in copy clear.
 

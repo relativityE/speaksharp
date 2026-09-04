@@ -19,6 +19,14 @@ const setRuntimeConfig = (url: string) => {
 };
 
 describe('buildIssueReportMetadata — page context + sanitization', () => {
+  it('stores coarse client information without persisting the raw user agent', () => {
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBeTruthy();
+    expect(meta.os).toBeTruthy();
+    expect(meta).not.toHaveProperty('userAgent');
+    expect(JSON.stringify(meta)).not.toContain(navigator.userAgent);
+  });
+
   it('stores the sanitized canonical route TEMPLATE, never a concrete id/query/hash', () => {
     const context = resolvePageContext(`/analytics/${UUID_META}`);
     const meta = buildIssueReportMetadata({ context, issueArea: 'evidence', plan: 'pro', sttMode: 'private', runtimeState: 'idle' });
@@ -138,6 +146,7 @@ vi.mock('@/lib/logger', () => ({
 
 describe('issueReportService', () => {
   const insert = vi.fn();
+  const upsert = vi.fn();
   const select = vi.fn();
   const single = vi.fn();
 
@@ -146,11 +155,33 @@ describe('issueReportService', () => {
     single.mockResolvedValue({ data: { id: 'report-1' }, error: null });
     select.mockReturnValue({ single });
     insert.mockReturnValue({ select });
+    upsert.mockResolvedValue({ error: null });
     vi.mocked(getSupabaseClient).mockReturnValue({
-      from: vi.fn(() => ({ insert })),
+      from: vi.fn(() => ({ insert, upsert })),
     } as unknown as ReturnType<typeof getSupabaseClient>);
     (window as unknown as { __SS_PRIVATE_EVENTS__?: unknown[] }).__SS_PRIVATE_EVENTS__ = [];
     clearPrivateRecordingIdentity();
+  });
+
+  it('deduplicates a retried feedback draft at the database boundary', async () => {
+    const idempotencyKey = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+    await issueReportService.submit({
+      userId: 'user-1',
+      category: 'something_else',
+      severity: 'not_applicable',
+      title: 'Idea',
+      description: 'Add a clearer next step.',
+      pageUrl: '/practice',
+      metadata: { route: '/practice', feedback_kind: 'comment', feedback_type: 'idea' },
+      includeAudio: false,
+      idempotencyKey,
+    });
+
+    expect(insert).not.toHaveBeenCalled();
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotency_key: idempotencyKey }),
+      { onConflict: 'idempotency_key', ignoreDuplicates: true },
+    );
   });
 
   it('#1306: the persisted payload NEVER carries a transcript field, and the audio note is excluded unless opted in', async () => {

@@ -16,10 +16,12 @@ export type IssueReportCategory =
   | 'privacy_data'
   | 'speed_performance'
   | 'something_else';
-export type IssueReportSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type IssueReportSeverity = 'low' | 'medium' | 'high' | 'critical' | 'not_applicable';
 
 /** #1404 — Issue means something is broken; Comment is everything else a user wants to tell us. */
 export type FeedbackKind = 'issue' | 'comment';
+export type FeedbackType = 'broke' | 'confused' | 'idea' | 'praise';
+export type FeedbackSeverity = 'minor' | 'slowed' | 'blocked';
 
 /**
  * #1408 — the severity a COMMENT carries.
@@ -54,6 +56,8 @@ export interface IssueReportMetadata {
    * tooling reads `feedback_kind`. The local variable stays `feedbackKind`.
    */
   feedback_kind?: FeedbackKind | null;
+  feedback_type?: FeedbackType | null;
+  feedback_severity?: FeedbackSeverity | null;
   /** Build/release id (git SHA in production) so a report pins to a build, when available. */
   releaseId?: string | null;
   releaseProofEligible?: boolean;
@@ -62,7 +66,9 @@ export interface IssueReportMetadata {
    * that carries `url` (the full location.href with dynamic ids / query / fragment).
    */
   appRuntimeConfig?: PersistedRuntimeConfig;
-  userAgent?: string;
+  browser?: string;
+  browserVersion?: string;
+  os?: string;
   viewport?: { width: number; height: number };
   timezone?: string;
   plan?: string | null;
@@ -91,7 +97,27 @@ export interface SubmitIssueReportInput {
   // own typed title/description + an optional audio-debug note cross the boundary.
   includeAudio: boolean;
   audioAttachmentNote?: string | null;
+  /** Stable per-draft key. The database deduplicates repeated delivery of the same draft. */
+  idempotencyKey?: string | null;
 }
+
+const parseCoarseClientInfo = (): Pick<IssueReportMetadata, 'browser' | 'browserVersion' | 'os'> => {
+  if (typeof navigator === 'undefined') return {};
+  const ua = navigator.userAgent;
+  const browserMatch = ua.match(/(?:Edg|Chrome|CriOS|Firefox|FxiOS|Version)\/(\d+)/);
+  const browser = ua.includes('Edg/') ? 'Edge'
+    : ua.includes('Firefox/') || ua.includes('FxiOS/') ? 'Firefox'
+      : ua.includes('Chrome/') || ua.includes('CriOS/') ? 'Chrome'
+        : ua.includes('Safari/') ? 'Safari'
+          : 'Other';
+  const os = /iPhone|iPad|iPod/.test(ua) ? 'iOS'
+    : /Android/.test(ua) ? 'Android'
+      : /Windows/.test(ua) ? 'Windows'
+        : /Mac OS X/.test(ua) ? 'macOS'
+          : /Linux/.test(ua) ? 'Linux'
+            : 'Other';
+  return { browser, browserVersion: browserMatch?.[1], os };
+};
 
 const sanitizeOptionalText = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim() ?? '';
@@ -103,6 +129,8 @@ export const buildIssueReportMetadata = (input: {
   context: PageContext;
   issueArea?: string | null;
   feedbackKind?: FeedbackKind | null;
+  feedbackType?: FeedbackType | null;
+  feedbackSeverity?: FeedbackSeverity | null;
   plan?: string | null;
   sttMode?: TranscriptionMode | null;
   runtimeState?: string | null;
@@ -118,6 +146,7 @@ export const buildIssueReportMetadata = (input: {
   // trusted as the sole gate.
   const validAreas = issueAreasForContext(context).map((a) => a.value);
   const issueArea = input.issueArea && validAreas.includes(input.issueArea) ? input.issueArea : null;
+  const clientInfo = parseCoarseClientInfo();
 
   return {
     // The stored route is the sanitized template — no full URL, query string, or hash.
@@ -133,6 +162,8 @@ export const buildIssueReportMetadata = (input: {
     // absent value stores NULL rather than guessing 'issue' — the form now requires an explicit choice,
     // so a missing kind means something bypassed the form, and inventing one would hide that.
     feedback_kind: input.feedbackKind && FEEDBACK_KINDS.includes(input.feedbackKind) ? input.feedbackKind : null,
+    feedback_type: input.feedbackType ?? null,
+    feedback_severity: input.feedbackType === 'broke' ? (input.feedbackSeverity ?? null) : null,
     releaseId: runtimeConfig?.release ?? null,
     plan: input.plan ?? null,
     sttMode: input.sttMode ?? null,
@@ -141,7 +172,9 @@ export const buildIssueReportMetadata = (input: {
     // Allowlist ONLY — strips `url` (raw location.href), `port`, and `supabaseUrl` so no dynamic route
     // id / query / fragment (session UUIDs, emails, invite/reset tokens) is ever persisted here.
     appRuntimeConfig: pickPersistedRuntimeConfig(runtimeConfig),
-    userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
+    // Raw userAgent is a fingerprinting surface and never crosses this boundary. Support receives
+    // only coarse, parsed values that are useful for reproduction.
+    ...clientInfo,
     viewport: typeof window !== 'undefined' ? { width: window.innerWidth, height: window.innerHeight } : undefined,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     sentryLastEventId: sentry?.lastEventId?.() ?? null,
@@ -160,9 +193,7 @@ export const issueReportService = {
     // what let them disagree.
     const persistedSessionId = input.sessionId ?? null;
 
-    const { error } = await supabase
-      .from('user_issue_reports')
-      .insert({
+    const row = {
         user_id: input.userId ?? null,
         session_id: persistedSessionId,
         category: input.category,
@@ -173,7 +204,12 @@ export const issueReportService = {
         metadata: input.metadata,
         include_audio: input.includeAudio,
         audio_attachment_note: audioAttachmentNote,
-      });
+        idempotency_key: input.idempotencyKey ?? null,
+      };
+    const query = input.idempotencyKey
+      ? supabase.from('user_issue_reports').upsert(row, { onConflict: 'idempotency_key', ignoreDuplicates: true })
+      : supabase.from('user_issue_reports').insert(row);
+    const { error } = await query;
 
     if (error) {
       logger.error({ error, category: input.category, severity: input.severity }, '[issueReportService.submit]');

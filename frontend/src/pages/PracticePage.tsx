@@ -17,7 +17,7 @@
  */
 
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowRight, Check,
   LineChart, Target, AudioLines, ListChecks, Repeat,
@@ -144,6 +144,7 @@ function CompleteTrialStrip({ onStart }: { onStart: () => void }) {
 
 export default function PracticePage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuthProvider();
   const isAuthed = !!user;
   const { setSurface } = usePracticeSurface();
@@ -165,6 +166,14 @@ export default function PracticePage() {
     } catch { /* ignore storage errors */ }
     trackPracticeEntryViewed(returning.current);
   }, []);
+
+  React.useEffect(() => {
+    if (!isAuthed || searchParams.get('product') !== 'focus-points') return;
+    setObjectiveSetupOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('product');
+    setSearchParams(next, { replace: true });
+  }, [isAuthed, searchParams, setSearchParams]);
 
   React.useEffect(() => {
     // Focus Points is available: the objective surface is the points-setup modal being open, not an

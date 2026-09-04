@@ -65,7 +65,7 @@ Only `v2:base.en` was runnable. Open Mic and Focus Points both failed.
 
 ## Current execution
 
-- **#1259** is reopened and active: one governed boundary, journey/attempt correlation, complete event families, real PostHog receipts, and removal review. Dev reports local implementation in progress; no accepted remote head or PR exists yet.
+- **#1259** is reopened and active on remote head `92f0a02c198e5f4fc80d9e1a0d734ec31df30c6b`; exact-head CI `33902441631` is queued. Commits 1–5 of the 13-part implementation are present: correlation identity, observer integrity, retirement of the extra capture boundary, recording intent/stage latency, and transcript authority. This is a checkpoint under review, not an accepted or merge-authorized head; commits 6–13 and real Production PostHog readback remain required.
 - **#1415** owns cold one-click start, real waveform/red Stop, provisional stability, and retained completed transcript.
 - **#1407** owns the complete truthful Focus Points setup/evaluation/retry journey.
 - **#1386** owns the visible and measurable Practice Loop.
