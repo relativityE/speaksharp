@@ -873,7 +873,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                     const COPY: Record<'expired' | 'not_captured' | 'unavailable', string> = {
                                         // Position-neutral wording: the metrics are not necessarily "below" this
                                         // panel on every viewport or in every future layout.
-                                        expired: 'This transcript has expired. We keep only the 2 most recent transcripts — session metrics are unaffected.',
+                                        expired: 'This transcript is no longer available; session metrics are unaffected.',
                                         not_captured: 'No transcript was captured for this session. Session metrics are unaffected.',
                                         unavailable: 'This transcript could not be loaded. Session metrics are unaffected.',
                                     };
@@ -1196,7 +1196,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 <div className="mb-4 flex items-start justify-between gap-3">
                                     <div>
                                         <h2 className="text-xl font-bold text-foreground">Recent sessions</h2>
-                                        <p className="mt-1 text-sm font-medium text-foreground/70">We only keep the 2 most recent transcripts. Download the PDF while available.</p>
                                     </div>
                                     {selectedSessions.length === 2 && (
                                         <Button
@@ -1226,11 +1225,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         </div>
                                     )}
                                 </div>
-                                {sessionHistory && sessionHistory.length > 0 && (
-                                    <p className="mt-4 border-t border-[#eef1f6] pt-3 text-xs font-medium text-foreground/60">
-                                        Private to you. Transcripts are never stored beyond your two most recent sessions.
-                                    </p>
-                                )}
                             </Card>
                         </div>
                     </div>
