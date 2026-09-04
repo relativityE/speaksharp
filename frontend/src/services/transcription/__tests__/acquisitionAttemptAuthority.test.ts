@@ -16,6 +16,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mintAcquisitionAttempt, receiptMatches, type AcquisitionReceipt } from '../acquisitionAttempt';
 
 const observation = (over: Partial<AcquisitionReceipt> = {}): AcquisitionReceipt => ({
+    completeness: 'complete', reasonCode: null,
     assetCount: 12, networkBytes: 80_553_222, downloadMs: 2500, networkUsed: true, outOfScopeCount: 0,
     unobservableReason: null, attemptToken: 'acq-1-x', candidateId: 'v2:base.en', ...over,
 });

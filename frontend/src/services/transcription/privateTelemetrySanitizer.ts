@@ -49,6 +49,10 @@ export const PRIVATE_TELEMETRY_ALLOWED_PROPS = [
     // user id, no free-form error text.
     'candidate_id',
     'acquired_candidate_id', 'model_identity',
+    // #1259: bounded completeness signal. `measurement_reason_code` is a closed vocabulary; the
+    // free-form `unobservableReason` is deliberately NOT here and must never be emitted.
+    'measurement_completeness', 'measurement_reason_code', 'out_of_scope_count',
+    'partial_network_bytes', 'partial_download_ms',
     'asset_pin_digest',
     'release_id',
     'trigger',

@@ -37,6 +37,7 @@ vi.mock('../candidateSelection', async (orig) => {
 const V4 = CANDIDATES['v4:distil:q4'];
 
 const receipt = (over: Partial<AcquisitionReceipt> = {}): AcquisitionReceipt => ({
+    completeness: 'complete', reasonCode: null,
     assetCount: 7, networkBytes: 41_233_000, downloadMs: 3100, networkUsed: true,
     outOfScopeCount: 0, unobservableReason: null,
     attemptToken: 'acq-x', candidateId: 'v4:distil:q4', ...over,
@@ -108,6 +109,7 @@ describe('#1259 the v4 worker REQUEST carries what the worker needs', () => {
 
 describe('#1259 the worker composes a receipt only WITH an identity', () => {
     const observation = {
+        completeness: 'complete' as const, reasonCode: null,
         assetCount: 7, networkBytes: 41_233_000, downloadMs: 3100,
         networkUsed: true, outOfScopeCount: 0, unobservableReason: null,
     };

@@ -72,6 +72,7 @@ describe('#1259s download duration is separated from initialisation', () => {
     it('reports download and init separately, and they sum to the total', () => {
         markIdentitySettled();
         recordAcquisitionSuccess(SUBJECT, {
+            completeness: 'complete', reasonCode: null, outOfScopeCount: 0,
             cacheResult: 'miss', networkUsed: true, networkBytes: 1024, assetCount: 2,
             downloadMs: 300, totalMs: 800,
         });
@@ -84,6 +85,7 @@ describe('#1259s download duration is separated from initialisation', () => {
     it('CASUALTY: an unobservable download reports null init rather than inventing one', () => {
         markIdentitySettled();
         recordAcquisitionSuccess(SUBJECT, {
+            completeness: 'complete', reasonCode: null, outOfScopeCount: 0,
             cacheResult: 'unobservable', networkUsed: false, networkBytes: null, assetCount: null,
             downloadMs: null, totalMs: 800,
         });
@@ -97,6 +99,7 @@ describe('#1259s download duration is separated from initialisation', () => {
         // partial hits download. `network_used` is a separate fact from `cache_result`.
         markIdentitySettled();
         recordAcquisitionSuccess(SUBJECT, {
+            completeness: 'complete', reasonCode: null, outOfScopeCount: 0,
             cacheResult: 'partial', networkUsed: true, networkBytes: 512, assetCount: 2,
             downloadMs: 100, totalMs: 400,
         });
@@ -123,6 +126,7 @@ describe('#1259s identity must settle before an event is classified (#1401)', ()
     it('held events flush IN ORDER once identity settles', () => {
         recordAcquisitionStart(SUBJECT, 'miss');
         recordAcquisitionSuccess(SUBJECT, {
+            completeness: 'complete', reasonCode: null, outOfScopeCount: 0,
             cacheResult: 'miss', networkUsed: true, networkBytes: 1, assetCount: 1,
             downloadMs: 1, totalMs: 2,
         });
@@ -184,6 +188,7 @@ describe('#1259s the event body is content-free', () => {
         markIdentitySettled();
         recordAcquisitionStart(SUBJECT, 'miss');
         recordAcquisitionSuccess(SUBJECT, {
+            completeness: 'complete', reasonCode: null, outOfScopeCount: 0,
             cacheResult: 'miss', networkUsed: true, networkBytes: 2048, assetCount: 2,
             downloadMs: 100, totalMs: 300,
         });
@@ -202,6 +207,7 @@ describe('#1259s the event body is content-free', () => {
         markIdentitySettled();
         recordAcquisitionStart(SUBJECT, 'miss');
         recordAcquisitionSuccess(SUBJECT, {
+            completeness: 'complete', reasonCode: null, outOfScopeCount: 0,
             cacheResult: 'miss', networkUsed: true, networkBytes: 1, assetCount: 1,
             downloadMs: 1, totalMs: 2,
         });
@@ -214,6 +220,11 @@ describe('#1259s the event body is content-free', () => {
             'acquired_candidate_id', 'model_identity', 'asset_pin_digest', 'release_id', 'trigger',
             'cache_result', 'network_used', 'network_bytes', 'asset_count',
             'download_ms', 'init_ms', 'total_ms', 'outcome', 'error_code',
+            // #1259: the bounded completeness signal. `measurement_reason_code` is a CLOSED vocabulary;
+            // the free-form reason is deliberately absent and must never be emitted. The partial fields
+            // exist so a measurement covering an unknown fraction is never published as a complete one.
+            'measurement_completeness', 'measurement_reason_code', 'out_of_scope_count',
+            'partial_network_bytes', 'partial_download_ms',
         ]);
         for (const { name, props } of pushed) {
             for (const key of Object.keys(props)) {

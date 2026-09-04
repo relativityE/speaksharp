@@ -778,9 +778,17 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                     : observeAcquisitionNetwork(prefixes, startedAt);
                 recordAcquisitionSuccess(subject, {
                     cacheResult,
+                    // Carried through, not recomputed: only the observer knows how much of the download
+                    // it actually covered, and that judgement cannot be reconstructed downstream.
+                    completeness: observed.completeness,
+                    reasonCode: observed.reasonCode,
+                    outOfScopeCount: observed.outOfScopeCount,
                     networkUsed: observed.networkUsed,
                     networkBytes: observed.networkBytes,
-                    assetCount: observed.assetCount ?? candidate?.assets.componentCount ?? null,
+                    // OBSERVED OR NULL. This previously fell back to the registry's configured component
+                    // count, which is expected inventory rather than a request anyone watched happen —
+                    // so a load that observed nothing reported a full asset count and looked measured.
+                    assetCount: observed.assetCount,
                     downloadMs: observed.downloadMs,
                     totalMs,
                 });

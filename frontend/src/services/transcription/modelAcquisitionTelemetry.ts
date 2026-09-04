@@ -23,6 +23,9 @@
  * to a bounded code.
  */
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import type {
+    MeasurementCompleteness, MeasurementReasonCode,
+} from './acquisitionNetworkObservation';
 import logger from '@/lib/logger';
 
 /** What the cache boundary actually reported. `unobservable` is a real answer, never a stand-in for a guess. */
@@ -53,6 +56,19 @@ export interface AcquisitionSubject {
 }
 
 export interface AcquisitionOutcome {
+    /**
+     * HOW MUCH OF THE DOWNLOAD THESE NUMBERS COVER.
+     *
+     * Carried end to end, because the consumer cannot recover it. Without this a v4 load whose requests
+     * were partly redirected out of the declared scope published real bytes and a real duration that
+     * covered an unknown fraction — and PostHog had no way to tell that from a complete, fast download.
+     * A small number that looks complete is worse than no number: it argues for the wrong model.
+     */
+    completeness: MeasurementCompleteness;
+    /** Bounded code only. The free-form reason never leaves the process. */
+    reasonCode: MeasurementReasonCode | null;
+    /** Requests in the acquisition window that fell outside the declared scope. Content-free count. */
+    outOfScopeCount: number | null;
     cacheResult: CacheResult;
     /**
      * Did bytes cross the wire? MEASURED at the fetch boundary, never predicted from the cache probe.
@@ -214,16 +230,41 @@ export function recordAcquisitionStart(subject: AcquisitionSubject, cacheResult:
 }
 
 export function recordAcquisitionSuccess(subject: AcquisitionSubject, outcome: AcquisitionOutcome): void {
+    // THE COMPLETE FIELDS ARE NEVER OVERLOADED.
+    //
+    // `network_bytes` and `download_ms` mean "this is the whole download". A partial observation carries
+    // real numbers over an unknown fraction, so it is published under explicitly partial names instead —
+    // a consumer that only knows the complete fields sees null and correctly concludes it does not know,
+    // rather than averaging a redirected v4 load into the fleet as a fast one.
+    const complete = outcome.completeness === 'complete';
+    const partial = outcome.completeness === 'partial';
+
     emit('private_model_acquisition_success', {
         ...subjectProps(subject),
         cache_result: outcome.cacheResult,
-        network_used: outcome.networkUsed,
-        network_bytes: outcome.networkBytes,
+        measurement_completeness: outcome.completeness,
+        measurement_reason_code: outcome.reasonCode,
+        out_of_scope_count: outcome.outOfScopeCount,
+
+        // Observed, or null. Never the registry's configured component count: expected inventory is not
+        // an observation, and substituting it is how an unmeasured load looked measured.
         asset_count: outcome.assetCount,
+        // `network_used` is an observation in its own right — a non-zero transfer proves the wire
+        // whether or not every request was matched — so it survives a partial measurement.
+        network_used: outcome.networkUsed,
+
+        network_bytes: complete ? outcome.networkBytes : null,
+        download_ms: complete ? outcome.downloadMs : null,
         // Separated deliberately: a cached load still initialises, and conflating the two is what made
-        // the previous number unusable.
-        download_ms: outcome.downloadMs,
-        init_ms: outcome.downloadMs === null ? null : Math.max(0, outcome.totalMs - outcome.downloadMs),
+        // the original number unusable. Only derivable when the download figure is the whole download.
+        init_ms: complete && outcome.downloadMs !== null
+            ? Math.max(0, outcome.totalMs - outcome.downloadMs)
+            : null,
+
+        partial_network_bytes: partial ? outcome.networkBytes : null,
+        partial_download_ms: partial ? outcome.downloadMs : null,
+
+        // Always measurable: this is wall time around the whole acquisition, not a network figure.
         total_ms: outcome.totalMs,
         outcome: 'success',
     });

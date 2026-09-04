@@ -16,7 +16,36 @@
  * would invent a cache hit out of a missing header.
  */
 
+/**
+ * How much of the acquisition this observation actually covers.
+ *
+ * `complete`     — every request in the window was matched and sized. The measurement describes the
+ *                  whole download and may be published as such.
+ * `partial`      — requests were matched, but some were missed or hid their size. Real numbers, covering
+ *                  an unknown fraction. Publishing these as complete is the failure this exists to stop:
+ *                  a redirected v4 download would otherwise look like a small, fast, complete one.
+ * `unobservable` — nothing usable was observed. Every measurement field stays null.
+ */
+export type MeasurementCompleteness = 'complete' | 'partial' | 'unobservable';
+
+/**
+ * BOUNDED reason vocabulary. The free-form `unobservableReason` is for logs and tests only and must
+ * never reach analytics — a sentence is unbounded cardinality and can carry whatever a future edit
+ * puts in it.
+ */
+export type MeasurementReasonCode =
+    | 'timing_unavailable'
+    | 'no_scope_declared'
+    | 'no_entries_recorded'
+    | 'scope_matched_nothing'
+    | 'sizes_opaque'
+    | 'requests_outside_scope';
+
 export interface AcquisitionNetworkObservation {
+    /** How much of the acquisition these numbers cover. Never inferred by the consumer. */
+    completeness: MeasurementCompleteness;
+    /** Bounded code for why, when the measurement is not `complete`. */
+    reasonCode: MeasurementReasonCode | null;
     /** Requests the browser actually made for this candidate's assets. Null when Resource Timing is absent. */
     assetCount: number | null;
     /** Bytes over the wire. Null when every matching entry hid its sizes (cross-origin without TAO). */
@@ -39,6 +68,7 @@ export interface AcquisitionNetworkObservation {
 }
 
 const UNOBSERVED: AcquisitionNetworkObservation = {
+    completeness: 'unobservable', reasonCode: 'timing_unavailable',
     assetCount: null, networkBytes: null, downloadMs: null, networkUsed: null, outOfScopeCount: null,
     unobservableReason: 'Resource Timing is unavailable in this environment',
 };
@@ -58,7 +88,10 @@ export function observeAcquisitionNetwork(
 ): AcquisitionNetworkObservation {
     if (!perf || typeof perf.getEntriesByType !== 'function') return UNOBSERVED;
     if (prefixes.length === 0) {
-        return { ...UNOBSERVED, unobservableReason: 'no acquisition scope is known for this candidate' };
+        return {
+            ...UNOBSERVED, reasonCode: 'no_scope_declared',
+            unobservableReason: 'no acquisition scope is known for this candidate',
+        };
     }
 
     let entries: PerformanceResourceTiming[];
@@ -79,7 +112,10 @@ export function observeAcquisitionNetwork(
             // Requests HAPPENED and none matched. Reporting zero assets here would describe a load that
             // fetched nothing, when in fact the scope stopped matching what the loader asked for —
             // a redirect to another host, or a request shape this scope does not describe.
+            // Every measurement field stays null: the out-of-scope COUNT is retained, because knowing
+            // that requests happened is exactly what tells an operator the scope stopped matching.
             return {
+                completeness: 'unobservable', reasonCode: 'scope_matched_nothing',
                 assetCount: null, networkBytes: null, downloadMs: null, networkUsed: null,
                 outOfScopeCount,
                 unobservableReason: 'requests were observed in this window but none matched the declared '
@@ -90,7 +126,8 @@ export function observeAcquisitionNetwork(
         // all, for instance from a worker whose entries live on another timeline. Saying "nothing was
         // fetched" here would be the same invention this correction removes.
         return {
-            assetCount: 0, networkBytes: null, downloadMs: null, networkUsed: null, outOfScopeCount,
+            completeness: 'unobservable', reasonCode: 'no_entries_recorded',
+            assetCount: null, networkBytes: null, downloadMs: null, networkUsed: null, outOfScopeCount,
             unobservableReason: 'no matching resource entries were recorded for this acquisition window',
         };
     }
@@ -109,7 +146,20 @@ export function observeAcquisitionNetwork(
     const provenCache = sized.length > 0 && sized.every((e) => (e.transferSize ?? 0) === 0);
     const networkUsed = provenNetwork ? true : (provenCache ? false : null);
 
+    // COMPLETENESS IS DECIDED HERE, not by whoever reads the numbers. A measurement is complete only
+    // when nothing in the window fell outside the scope AND every matched response reported its size.
+    // Anything else is real data covering an unknown fraction of the download.
+    const sizesOpaque = sized.length === 0 || anyOpaque;
+    const completeness: MeasurementCompleteness = outOfScopeCount === 0 && !sizesOpaque
+        ? 'complete'
+        : 'partial';
+    const reasonCode: MeasurementReasonCode | null = completeness === 'complete'
+        ? null
+        : (outOfScopeCount > 0 ? 'requests_outside_scope' : 'sizes_opaque');
+
     return {
+        completeness,
+        reasonCode,
         assetCount: matched.length,
         outOfScopeCount,
         networkBytes: sized.length === 0 ? null : transferred,
