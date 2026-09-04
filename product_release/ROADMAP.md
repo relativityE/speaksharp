@@ -12,7 +12,7 @@ baseline: c4665156212dd03cd6d7b91c49bed90dea868b5a
 deployed-release: c4665156212dd03cd6d7b91c49bed90dea868b5a
 verified-on: 2026-09-04
 release-blocker: production-journey-recovery
-retention-campaign: newest-one-approved-pending-implementation
+retention-campaign: off-critical-path
 task-1304-1: merged
 task-1304-2: merged
 task-1304-3a: merged
@@ -20,10 +20,11 @@ task-1304-3b: merged
 task-1304-3c: merged
 task-1304-4: merged
 task-1360-recovery-copy: merged
-lane-stage-b: superseded-by-production-biopsy
-lane-telemetry: in-progress
-lane-billing: held-behind-product-recovery
-lane-1258-journey: failed-retest-pending
+lane-stage-b: off-critical-path
+lane-telemetry: returned
+lane-retention-copy: open
+lane-billing: off-critical-path
+lane-1258-journey: returned
 -->
 
 ## Now — methodical MVP recovery
@@ -36,11 +37,17 @@ One active implementation PR at a time unless the PO changes concurrency. A broa
 | 2 | Make one-click recording and during/after session truthful | #1415 | Explicit cold intent auto-starts once; real mic waveform; red Stop; bounded provisional churn; completed transcript remains readable after teardown/reopen. |
 | 3 | Make Focus Points and Practice Loop truthful | #1407 + #1386 | Setup promise matches action; all input preserved; honest coverage; exactly two What went well + two What to improve outputs; linked retry evidence. |
 | 4 | Remove cross-page friction and replace Share feedback | #1404 | Products menu reaches Open Mic/Focus Points directly; exact accepted feedback spec; failure preserves draft; storage and acknowledgement proven. |
-| 5 | Enforce newest-one retention and matching copy | #1117 | Three Production saves leave exactly one transcript-bearing row; older content-free history survives; expired Open/PDF unavailable; no “two transcripts” copy remains. |
+| 5 | Reconcile retention copy without changing retention behavior | #1416 + #1259 | Current newest-two behavior remains unchanged; customer-facing copy states availability/expiry without a numeric count; expired Open/PDF actions remain unavailable; telemetry reports the active policy truthfully. |
 | 6 | Expose all registered candidates for controlled Production comparison | #1263 + #1304 + #1390 | v2/v4/Moonshine switch between settled takes on canonical Production; full teardown; requested==observed; PO selects and then lock/retest. |
 | 7 | Final deployed qualification | #1258 | Dev passes both complete products first; PO repeats; every step reconstructible; explicit GO/HOLD. |
 
 Documentation-only currentization under #1318 may proceed independently because it does not touch Dev’s product branch.
+
+### STT evidence that remains binding
+
+- Browser v4/Moonshine qualification uses the corrected stable `onnxruntime-web` line. Earlier int8/q8 failures were the upstream QDQ regression tracked by ONNX Runtime #28306/#28326, not model rejection.
+- The deterministic preflight contained 459 normalized words and exposed an audio-decoder gap before the 600-utterance corpus. The selection run is 600 utterances, not 600 words.
+- A fallback is chosen for wider device dependability and failure diversity, not merely second-best WER.
 
 ## Verified shipped-source mismatch map
 
@@ -53,7 +60,7 @@ Documentation-only currentization under #1318 may proceed independently because 
 | `FocusPointsRail.tsx` | confident “Didn’t come up” copy; retry count uses all rows | #1407 |
 | `AISuggestions.tsx`, `faqSections.ts` | old labels; missing visible 2+2 Practice Loop | #1386 |
 | `IssueReportDialog.tsx` | old long form, hidden validation, lost Title state, audio-note field | #1404 |
-| `AnalyticsDashboard.tsx` | two-transcript policy/copy and expired-view wording | #1117 |
+| `AnalyticsDashboard.tsx` | customer copy exposes an implementation count instead of availability/expiry | #1416 |
 | `Navigation.tsx` | no direct Products → Open Mic / Focus Points route | #1404 |
 | candidate authority / `SessionFocusPoints.tsx` | no controlled Production access to all three candidates | #1263/#1304/#1390 |
 | analytics emitters/buffer | incomplete correlation and missing user-journey receipts | #1259 |
@@ -67,7 +74,7 @@ Documentation-only currentization under #1318 may proceed independently because 
 - Real microphone data only; no generated waveform fallback.
 - Session labels are **What went well** and **What to improve**.
 - Share feedback exact Design-agent specification is #1404.
-- Newest one transcript only; older content-free history may remain.
+- Current newest-two transcript retention remains unchanged; customer-facing copy is non-numeric.
 - Telemetry covers every finding but never replaces the product fix.
 - Out-of-scope work requires PO approval.
 

@@ -166,7 +166,7 @@ Stress/endurance artifacts should include: concurrency tested; success/failure c
 
 ### Production journey observability (#1259)
 
-#1259 is reopened. One governed content-safe boundary must reconstruct each Open Mic and Focus Points journey with a `journey_id`, ordered authority timestamps, release/schema identity, and attempt identity where relevant. Required families cover intent/preparation, recording control, Focus transition, interim stability, transcript authority, coverage, Practice Loop, completion/navigation, Share feedback, newest-one retention, runtime downselection, acquisition, and observer integrity.
+#1259 is reopened. One governed content-safe boundary must reconstruct each Open Mic and Focus Points journey with a `journey_id`, ordered authority timestamps, release/schema identity, and attempt identity where relevant. Required families cover intent/preparation, recording control, Focus transition, interim stability, transcript authority, coverage, Practice Loop, completion/navigation, Share feedback, current newest-two retention, runtime downselection, acquisition, and observer integrity.
 
 Real PostHog readback is required per family. Positive transport controls prove only transport; negative controls must show each failure reason is distinguishable. Direct PostHog side channels, content-bearing properties, raw identities, and inference from UI text are prohibited. Controlled PO/Dev test traffic must be distinguishable from ordinary customer traffic without a separate build or URL.
 
