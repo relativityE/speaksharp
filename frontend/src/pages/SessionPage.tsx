@@ -75,6 +75,44 @@ export const SessionPage: React.FC = () => {
      * rendered. `onRetry` had a `?? onStartStop` fallback, which is why only Retry worked.
      */
     const [pointsSetupMode, setPointsSetupMode] = React.useState<null | 'edit' | 'new'>(null);
+    /**
+     * #1409s — CANCELLATION IS AUTHORITATIVE.
+     *
+     * `startObjectiveBrief` is awaited inside the form, and `onReady` fires when it resolves — whether or
+     * not the dialog is still open. A user who pressed Save, changed their mind and closed the dialog
+     * could therefore have the completed request bind a brief, clear their completed review and reset the
+     * session afterwards: the app acting on an instruction the user had visibly withdrawn.
+     *
+     * Each opening gets a token. Closing the dialog retires it, so a late completion carrying a retired
+     * token changes nothing. A ref, not state, because the guard must read the value as it is when the
+     * promise settles — a closure over state would see whatever was current when the dialog rendered.
+     */
+    const setupTokenRef = React.useRef(0);
+    const openSetup = React.useCallback((mode: 'edit' | 'new') => {
+        // Deliberately does NOT mint a token: every path that ENDS an opening retires it, so a fresh
+        // mint here was unreachable. No mutation could kill it, which is how that was found.
+        setPointsSetupMode(mode);
+    }, []);
+    /**
+     * Ends an opening and retires whatever it started. Used by cancel AND by a successful save, so a
+     * second settlement from the same opening — a double-pressed Save — cannot act after the dialog has
+     * gone. Retiring happens first, because the ending is the user's decision and anything still running
+     * was begun before it.
+     */
+    const closeSetup = React.useCallback(() => {
+        setupTokenRef.current += 1;
+        setPointsSetupMode(null);
+    }, []);
+    /**
+     * #1409s RETURN — LEAVING THE PAGE ENDS THE OPENING TOO.
+     *
+     * Closing the dialog retires its token, but navigating away does not go through that path: the
+     * component simply unmounts. A save still in flight then settled against a page the user had left
+     * and mutated the GLOBAL session store — binding a brief, clearing a review, resetting the session
+     * — with no surface on screen to show it happening. Unmount is as final a withdrawal as pressing
+     * Escape, so it retires the opening the same way.
+     */
+    React.useEffect(() => () => { setupTokenRef.current += 1; }, []);
     // #891 — engine-specific finalize RTF (self-corrects from real decodes) for the "Finalizing… ~Ns"
     // countdown; the estimate itself is computed below once the recording duration is in scope.
     const activeEngineVersion = useSessionStore(state => state.activeEngineVersion);
@@ -411,13 +449,13 @@ export const SessionPage: React.FC = () => {
                     }}
                     // #1407 — neither of these starts recording and neither changes product. They open the
                     // EXISTING setup form; the user still presses Start when they are ready.
-                    onEditPoints={() => setPointsSetupMode('edit')}
-                    onNewSet={() => setPointsSetupMode('new')}
+                    onEditPoints={() => openSetup('edit')}
+                    onNewSet={() => openSetup('new')}
                 />
                 <ObjectiveSetupDialog
                     open={pointsSetupMode !== null}
                     // Cancel/Escape closes without touching the bound brief, so the existing points survive.
-                    onOpenChange={(next) => { if (!next) setPointsSetupMode(null); }}
+                    onOpenChange={(next) => { if (!next) closeSetup(); }}
                     // Edit seeds from the ACTIVE brief; 'new' passes nothing, so the form opens blank.
                     initial={pointsSetupMode === 'edit' && activeObjectiveBrief
                         ? {
@@ -426,7 +464,17 @@ export const SessionPage: React.FC = () => {
                             paceGuideSecPerPoint: activeObjectiveBrief.paceGuideSecPerPoint ?? null,
                         }
                         : undefined}
-                    onReady={({ briefId, projectId, points, topic, paceGuideSecPerPoint }) => {
+                    onReady={(() => {
+                        // Captured when the dialog is rendered for THIS opening; compared against the
+                        // live ref when the request finally settles.
+                        const token = setupTokenRef.current;
+                        return ({ briefId, projectId, points, topic, paceGuideSecPerPoint }: {
+                            briefId: string; projectId: string; points: string[]; topic: string;
+                            paceGuideSecPerPoint: number | null;
+                        }) => {
+                        // A retired token means the user closed the dialog while this was in flight.
+                        // Bind nothing, clear nothing, reset nothing, and leave the prompt untouched.
+                        if (token !== setupTokenRef.current) return;
                         const store = useSessionStore.getState();
                         if (pointsSetupMode === 'new') {
                             // A NEW set must inherit nothing from the take just reviewed — not the previous
@@ -445,10 +493,11 @@ export const SessionPage: React.FC = () => {
                             setShowAnalyticsPrompt(false);
                         }
                         useSessionStore.getState().setActiveObjectiveBrief({ projectId, briefId, points, topic, paceGuideSecPerPoint });
-                        setPointsSetupMode(null);
+                        closeSetup();
                         // Deliberately no handleStartStop() and no navigation: the user returns to Focus
                         // Points with the new brief bound and starts speaking when they choose.
-                    }}
+                        };
+                    })()}
                 />
             </div>
 
