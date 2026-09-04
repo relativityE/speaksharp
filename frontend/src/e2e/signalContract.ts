@@ -277,6 +277,18 @@ export const SIGNAL_CONTRACT = [
     replacement: null,
   },
   {
+    name: 'data-session-persist-status',
+    kind: 'dom-signal',
+    status: 'active',
+    audience: ['manual-proof', 'diagnostic'],
+    owner: 'frontend/src/lib/forensicAnchors.ts',
+    writers: ['syncSessionPersisted()'],
+    readers: ['scripts/human-test/observer.mjs'],
+    intent: 'What the save boundary can honestly say about the completed save: `saved` (row written and its engine attribution recorded terminally) or `saved-attribution-pending` (row exists, attribution write did not land). Set alongside data-session-persisted=true; cleared on the next recording.',
+    waitGuidance: 'Read together with data-session-persisted-id. A persistence flag with no status is unqualified and must not be treated as an attributed save.',
+    replacement: null,
+  },
+  {
     name: 'data-session-persisted-id',
     kind: 'dom-signal',
     status: 'active',

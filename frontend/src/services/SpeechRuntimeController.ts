@@ -1,5 +1,6 @@
 import logger from '@/lib/logger';
 import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
+import type { SessionPersistStatus } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import { toSanitizedCause } from '@/lib/sanitizeStartError';
 import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
@@ -698,6 +699,19 @@ export class SpeechRuntimeController {
             if (this.pendingAttributionRetry?.sessionId === targetSessionId) {
                 this.pendingAttributionRetry = null;
                 this.markRecordingResolved(); // Retry Save succeeded → recording fully resolved → unlock
+                // #1403 RETURN: REPUBLISH THE RECEIPT. Clearing the retry slot changed what the save marker
+                // is entitled to claim, and nothing was saying so. The DOM kept reporting
+                // `saved-attribution-pending` — the state at the moment of the original failure — while the
+                // database had since become terminally attributed, so a successfully RECOVERED take was
+                // indistinguishable from an unrecovered one and the observer HELD it.
+                //
+                // Published INSIDE the compare-and-clear, deliberately: if the slot moved to another session
+                // while the attestation was in flight, this settlement is stale and must not overwrite that
+                // newer session's marker. The clear happens first, so the status derives as `saved`.
+                this.updateSessionPersisted(true, {
+                    sessionId: targetSessionId,
+                    mode: pending.progressContext?.mode ?? null,
+                });
             }
             await this.completeProgressForRecording(
                 pending.progressContext ?? { mode: 'unknown' },
@@ -775,6 +789,16 @@ export class SpeechRuntimeController {
                     this.pendingFullSaveRetry = null;
                     if (this.pendingAttributionRetry?.sessionId === targetSessionId) this.pendingAttributionRetry = null;
                     this.markRecordingResolved();
+                    // #1403 RETURN: a recovered FULL-SAVE failure had no persistence marker at all, because
+                    // the original failure never published one — correctly, since nothing was durable then.
+                    // After recovery the row exists, the transcript is persisted and attribution is terminal,
+                    // so the marker is published here and only here: both the completion and the attestation
+                    // above have already succeeded, and both retry slots are cleared, so the status derives
+                    // as `saved`. Without this the observer never records `stop-save` for a recovered take.
+                    this.updateSessionPersisted(true, {
+                        sessionId: targetSessionId,
+                        mode: fullSave.progressContext?.mode ?? null,
+                    });
                     await this.completeProgressForRecording(
                         fullSave.progressContext ?? { mode: 'unknown' },
                         targetSessionId,
@@ -1617,7 +1641,21 @@ export class SpeechRuntimeController {
         if (useSessionStore.getState().sessionSaved !== persisted) {
             useSessionStore.setState({ sessionSaved: persisted });
         }
-        syncSessionPersisted(persisted, details);
+        // #1403: publish the STATUS of the save alongside the fact of it. The status is derived HERE, in
+        // the one method every save-boundary call site already goes through, rather than at each of the
+        // three call sites -- three chances to forget is three ways for the marker to say more than the
+        // database can support.
+        //
+        // A stashed attribution retry for THIS session is the controller's own record that the
+        // attribution write did not land: the row is real, the identity it was recorded under is not yet
+        // established. Anything else at a true save is a fully attributed save.
+        const sessionId = details?.sessionId ?? null;
+        const status: SessionPersistStatus | null = !persisted
+            ? null
+            : (sessionId !== null && this.pendingAttributionRetry?.sessionId === sessionId)
+                ? 'saved-attribution-pending'
+                : 'saved';
+        syncSessionPersisted(persisted, { ...(details ?? {}), status });
     }
 
     /**
