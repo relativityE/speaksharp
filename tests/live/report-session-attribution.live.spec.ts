@@ -97,16 +97,21 @@ test.describe('Live report→session attribution (free account)', () => {
     await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible({ timeout: 20000 });
   }
 
-  async function submitReport(page: Page, title: string) {
+  // #1416 — REWRITTEN FOR THE REDESIGNED FORM.
+  //
+  // No Title field and no audio checkbox exist any more. The marker leads the body because the title
+  // is DERIVED from its first sentence, which keeps this spec's server-side `ilike('title', …)`
+  // assertions and its cleanup working unchanged. Content-freedom is now structural rather than a
+  // checkbox left untoggled: there is no control that could attach a transcript or audio.
+  async function submitReport(page: Page, marker: string) {
     await page.getByTestId('nav-report-issue-button').click();
-    const titleInput = page.getByTestId('issue-report-title');
-    await expect(titleInput).toBeVisible({ timeout: 10000 });
-    await titleInput.fill(title);
-    // Transcript/audio inclusion default OFF — intentionally not toggled (content-free).
-    await page.getByTestId('issue-report-description').fill(`${title} — content-free synthetic smoke report`);
+    const body = page.getByTestId('issue-report-description');
+    await expect(body).toBeVisible({ timeout: 10000 });
+    await page.getByTestId('feedback-type-broke').click();
+    await body.fill(`${marker} content-free synthetic smoke report.`);
     await page.getByTestId('issue-report-submit').click();
     // Dialog closes on success; the trigger returns to the nav.
-    await expect(titleInput).toBeHidden({ timeout: 15000 });
+    await expect(body).toBeHidden({ timeout: 15000 });
   }
 
   test('owned-session route attaches the session; non-session route attaches NULL; both persist', async ({ page }) => {
