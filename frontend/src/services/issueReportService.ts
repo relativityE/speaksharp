@@ -20,6 +20,16 @@ export type IssueReportSeverity = 'low' | 'medium' | 'high' | 'critical';
 
 /** #1404 — Issue means something is broken; Comment is everything else a user wants to tell us. */
 export type FeedbackKind = 'issue' | 'comment';
+
+/**
+ * #1408 — the severity a COMMENT carries.
+ *
+ * A Comment has no impact rating. Storing 'low' or 'medium' would be a placeholder the database then
+ * vouches for, and every consumer that ranks by severity would rank praise beside defects. This value
+ * has no position in the defect ordering, so accidental ranking is impossible rather than merely
+ * discouraged.
+ */
+export const COMMENT_SEVERITY = 'not_applicable' as const;
 export const FEEDBACK_KINDS: FeedbackKind[] = ['issue', 'comment'];
 export const FEEDBACK_KIND_LABELS: Record<FeedbackKind, string> = { issue: 'Issue', comment: 'Comment' };
 

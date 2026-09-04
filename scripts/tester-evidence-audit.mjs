@@ -141,7 +141,7 @@ export async function runAudit({ createClient = defaultCreateClient, env = proce
   };
   const sessions = await pageAll('sessions', 'id,user_id,title,duration,transcript,total_words,filler_words,engine,created_at', 'sessions select');
   if (sessions === null) return { code: 1, report: null };
-  const reports = await pageAll('user_issue_reports', 'id,user_id,title,session_id,metadata,created_at', 'reports select');
+  const reports = await pageAll('user_issue_reports', 'id,user_id,title,session_id,severity,metadata,created_at', 'reports select');
   if (reports === null) return { code: 1, report: null };
 
   const candidateTesterSessions = sessions.filter((s) => candidateTesterIds.has(s.user_id) && !SYNTHETIC_TITLE.test(s.title ?? ''));
@@ -198,8 +198,93 @@ export async function runAudit({ createClient = defaultCreateClient, env = proce
     };
   };
   const tally = (list, f) => { const m = new Map(); for (const r of list) { const k = String(f(r) ?? 'unspecified'); m.set(k, (m.get(k) ?? 0) + 1); } return Object.fromEntries([...m].sort((a, b) => b[1] - a[1])); };
+  /**
+   * #1408s — ISSUES AND COMMENTS ARE DIFFERENT MESSAGES.
+   *
+   * Share Feedback asks the user whether their message is an Issue or a Comment and stores the answer as
+   * `metadata.feedback_kind`. Operational triage ignored it and counted every row as a defect report, so
+   * the promised routing was false: praise, questions and suggestions arrived ranked beside real defects,
+   * inflating the apparent defect count and burying the actual ones.
+   *
+   * A row with no kind is LEGACY -- submitted before the field existed -- and is reported as `unknown`
+   * rather than guessed into either bucket. Guessing would recreate the same lie in a quieter form.
+   */
+  /**
+   * #1408 RETURN — A MISSING KIND IS NOT ALWAYS UNKNOWN.
+   *
+   * Before Share Feedback existed the product exposed an Issue-only journey, so every row from that era
+   * IS an issue. Classifying them all as `unknown` removed genuine historical defects from issue totals
+   * and from severity triage — the same inflation this work fixes, running in the other direction.
+   *
+   * The boundary is the Share Feedback deployment moment, supplied explicitly. It is never guessed and
+   * never hard-coded: an invented timestamp would silently reclassify real rows, and being wrong in
+   * either direction is worse than refusing. When a missing-kind row exists and no boundary is
+   * configured, classification FAILS rather than picking a side.
+   */
+  const boundaryRaw = env.SHARE_FEEDBACK_DEPLOYED_AT ?? null;
+  const boundarySha = env.SHARE_FEEDBACK_DEPLOYED_SHA ?? null;
+  const boundaryMs = boundaryRaw ? Date.parse(boundaryRaw) : NaN;
+  // An explicit UTC instant. A bare local-looking string would place the boundary at an hour that
+  // depends on where the audit runs, silently moving which rows count as legacy.
+  const timestampValid = Number.isFinite(boundaryMs) && /(?:Z|[+-]\d{2}:?\d{2})$/.test(String(boundaryRaw));
+  const shaValid = typeof boundarySha === 'string' && /^[0-9a-f]{40}$/.test(boundarySha);
+  const boundaryUsable = timestampValid && shaValid;
+
+  // #1408 RETURN — TRACEABILITY MUST BE ENFORCED, NOT MERELY PRINTED.
+  //
+  // Printing the SHA while classifying regardless made the traceability optional: a valid timestamp with
+  // a missing or malformed release still classified every legacy row and exited successfully, so the
+  // boundary could not be checked against any real build. The pair is now required TOGETHER whenever a
+  // row lacks an explicit kind, and either one being supplied obliges the other to be valid.
+  const missingKindRows = candidateTesterReports.filter((r) => {
+    const k = r.metadata?.feedback_kind;
+    return k !== 'issue' && k !== 'comment';
+  });
+  const boundarySupplied = boundaryRaw !== null || boundarySha !== null;
+  if ((missingKindRows.length > 0 || boundarySupplied) && !boundaryUsable) {
+    const why = [];
+    if (!boundaryRaw) why.push('SHARE_FEEDBACK_DEPLOYED_AT is absent');
+    else if (!timestampValid) why.push('SHARE_FEEDBACK_DEPLOYED_AT is not a valid explicit UTC instant');
+    if (!boundarySha) why.push('SHARE_FEEDBACK_DEPLOYED_SHA is absent');
+    else if (!shaValid) why.push('SHARE_FEEDBACK_DEPLOYED_SHA is not a full 40-character hex SHA');
+    errlog(`boundary configuration invalid: ${why.join('; ')}`);
+    return { code: 1, report: null };
+  }
+
+  const kindOf = (r) => {
+    const k = r.metadata?.feedback_kind;
+    // An explicit answer always wins: a row that says what it is is never reclassified by its date.
+    if (k === 'issue' || k === 'comment') return k;
+    if (!boundaryUsable) return 'unclassifiable';
+    const created = Date.parse(r.created_at ?? '');
+    if (!Number.isFinite(created)) return 'unknown';
+    return created < boundaryMs ? 'legacy_issue' : 'unknown';
+  };
+  /** Everything that counts as a defect report: explicit Issues plus pre-boundary legacy rows. */
+  const isIssueLike = (r) => { const k = kindOf(r); return k === 'issue' || k === 'legacy_issue'; };
   const reportReport = (list) => ({
     candidate_tester_reports: list.length,
+    // The defect-bearing subset. Severity ranking applies to THIS, never to the whole list.
+    // Issues INCLUDING pre-boundary legacy rows, which came from an Issue-only journey.
+    issues: list.filter(isIssueLike).length,
+    issues_explicit: list.filter((r) => kindOf(r) === 'issue').length,
+    issues_legacy: list.filter((r) => kindOf(r) === 'legacy_issue').length,
+    comments: list.filter((r) => kindOf(r) === 'comment').length,
+    // Post-boundary and missing: an instrumentation defect, never guessed into a bucket.
+    unknown_kind: list.filter((r) => kindOf(r) === 'unknown').length,
+    // No boundary configured while missing-kind rows exist: we decline to classify rather than pick.
+    unclassifiable_no_boundary: list.filter((r) => kindOf(r) === 'unclassifiable').length,
+    share_feedback_boundary_configured: boundaryUsable,
+    // Printed so the classification is traceable: which instant separates legacy Issues from
+    // instrumentation defects. A timestamp is not a secret; the value it gates the reading of is.
+    share_feedback_boundary_utc: boundaryUsable ? new Date(boundaryMs).toISOString() : null,
+    // The deployment this boundary refers to, so the timestamp can be checked against a real build
+    // rather than taken on trust.
+    share_feedback_boundary_release: boundaryUsable ? boundarySha : null,
+    by_feedback_kind: tally(list, kindOf),
+    // Severity is meaningful only for defect reports. Ranking a compliment by "impact" is how a Comment
+    // came to be presented as a defect in the first place.
+    issue_severity: tally(list.filter(isIssueLike), (r) => r.severity ?? r.metadata?.severity),
     unique_reporters: new Set(list.map((r) => r.user_id)).size,
     by_issue_area: tally(list, (r) => r.metadata?.issueArea),
     by_page_key: tally(list, (r) => r.metadata?.pageKey),
