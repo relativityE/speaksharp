@@ -61,6 +61,9 @@ import {
     probeCache, recordAcquisitionStart, recordAcquisitionSuccess, recordAcquisitionFailure,
     classifyAcquisitionError, type AcquisitionSubject, type PinnedAssetRef,
 } from '../modelAcquisitionTelemetry';
+import type { Candidate } from '../candidateRegistry';
+import { assetRequestsFor, assetOriginPrefixes } from '../candidateAssetRequests';
+import { observeAcquisitionNetwork } from '../acquisitionNetworkObservation';
 // Stale import removed
 
 declare global {
@@ -724,9 +727,20 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // The mock engine is not an acquisition: nothing is fetched and nothing is cached.
         if (engineType === 'mock') return this.initSelectedEngineInner(engineType, timeoutMs, isMock);
 
-        const subject = this.acquisitionSubject();
+        // THE SUBJECT IS FROZEN BEFORE THE LOAD, FROM THE SELECTED CANDIDATE.
+        //
+        // It used to be read from `getMetadata()`, which derives from `_engineType` — a field the
+        // initialisation being measured is what SETS. So the start and failure events, the only two
+        // that describe a load that never completed, reported `candidate_id: unknown` for a candidate
+        // that was already named. The registry knows the answer before anything is fetched.
+        const candidate = this.resolveAcquisitionCandidate();
+        const subject = this.acquisitionSubject(candidate);
+        const requests = candidate ? assetRequestsFor(candidate) : { assets: [], unobservableReason: 'candidate could not be resolved' };
+        this.acquisitionAssets = requests.assets;
+
         const cacheResult = await probeCache(this.acquisitionAssets);
         const startedAt = performance.now();
+        const prefixes = candidate ? assetOriginPrefixes(candidate) : [];
         recordAcquisitionStart(subject, cacheResult);
 
         try {
@@ -734,13 +748,16 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             const totalMs = Math.round(performance.now() - startedAt);
             if (outcome.isOk) {
                 this.publishResolvedIdentity();
-                recordAcquisitionSuccess(this.acquisitionSubject(), {
+                // MEASURED, NOT PREDICTED. The previous version derived `network_used` from the cache
+                // classification taken BEFORE the load — a forecast, not an observation of what the
+                // browser actually fetched.
+                const observed = observeAcquisitionNetwork(prefixes, startedAt);
+                recordAcquisitionSuccess(subject, {
                     cacheResult,
-                    // A miss or partial means bytes crossed the network; a full hit means they did not.
-                    networkUsed: cacheResult === 'miss' || cacheResult === 'partial',
-                    networkBytes: this.acquisitionBytes,
-                    assetCount: this.acquisitionAssetCount,
-                    downloadMs: this.acquisitionDownloadMs,
+                    networkUsed: observed.networkUsed,
+                    networkBytes: observed.networkBytes,
+                    assetCount: observed.assetCount ?? candidate?.assets.componentCount ?? null,
+                    downloadMs: observed.downloadMs,
                     totalMs,
                 });
             } else {
@@ -754,24 +771,41 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         }
     }
 
-    /** Observed at the fetch boundary; null when the loader cannot report it. Never estimated. */
-    private acquisitionBytes: number | null = null;
-    private acquisitionAssetCount: number | null = null;
-    private acquisitionDownloadMs: number | null = null;
-    private acquisitionPinDigest: string | null = null;
     /** Explicit setup unless a background warm-up set it; the two are different populations. */
     private acquisitionTrigger: 'warmup' | 'explicit-setup' = 'explicit-setup';
-    /** Pinned assets for the selected candidate. Empty means the boundary is unobservable. */
+    /** Pinned assets for the selected candidate, filled from the registry before each load. */
     private acquisitionAssets: PinnedAssetRef[] = [];
 
+    /**
+     * The registry entry for the candidate about to load.
+     *
+     * Resolved from configuration, so it is available BEFORE initialisation and cannot report a model
+     * the session did not select. Null only when selection itself failed, which is a state the events
+     * are allowed to say plainly rather than paper over with a name.
+     */
+    private resolveAcquisitionCandidate(): Candidate | null {
+        try {
+            return effectiveCandidate().candidate;
+        } catch {
+            return null;
+        }
+    }
+
     /** Identity of what is being acquired, from the RESOLVED candidate — never a name guess. */
-    private acquisitionSubject(): AcquisitionSubject {
-        const meta = this.getMetadata() as { candidateId?: string | null; modelIdentity?: string | null };
+    private acquisitionSubject(candidate: Candidate | null): AcquisitionSubject {
         const runtimeConfig = typeof window !== 'undefined' ? window.__APP_RUNTIME_CONFIG__ : undefined;
+        if (!candidate) {
+            return {
+                candidateId: 'unresolved', modelIdentity: 'unresolved', assetPinDigest: null,
+                releaseId: runtimeConfig?.release ?? null, trigger: this.acquisitionTrigger,
+            };
+        }
         return {
-            candidateId: meta.candidateId ?? 'unknown',
-            modelIdentity: meta.modelIdentity ?? 'unknown',
-            assetPinDigest: this.acquisitionPinDigest,
+            candidateId: candidate.id,
+            // The IMMUTABLE identity: repository plus pinned revision. A bare repo id is a moving target,
+            // and two runs of "the same model" months apart would be indistinguishable.
+            modelIdentity: `${candidate.model.id}@${candidate.model.revision ?? 'no-revision'}`,
+            assetPinDigest: candidate.assets.pinDigest,
             releaseId: runtimeConfig?.release ?? null,
             trigger: this.acquisitionTrigger,
         };

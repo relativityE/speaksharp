@@ -88,6 +88,17 @@ The MVP-blocking lane is **#1304 (STT down-select)**. See `ROADMAP.md` for the w
 - **Merged since:** #1304 Task 3C certified harness (`054745d7`, #1365) and the inference-runtime pinning that followed it (`0e2fffd1`, #1368). Both are test/evidence infrastructure and change no deployed product behaviour.
 - **Open:** the frozen selection benchmark is RUNNING on `main@0e2fffd1`: **600 utterances / 10,894 normalized words**. It is not a 600-word test. No model has been selected and no ranking exists.
 - **RETENTION IS NO LONGER THE RELEASE BLOCKER.** Ten browser production-proof attempts failed, every one on the test harness and never on the product; the stopping rule fired and that campaign is **off the MVP critical path**. What replaced it: #1359 executed the shipped newest-two retention contract against the real migrations in-process (PGlite) — the first time that contract has been checked anywhere. A production run remains a future, separately authorized gate, not a blocker on this release.
+- **Acquisition telemetry: `unobservable` is accepted for Stage 1, and conditional after it.** Model
+  download and cache behaviour are measured at the browser's own fetch boundary. v2 (self-hosted) and
+  Moonshine (its own shipped pin file) are fully observable. v4 reports an honest `unobservable` cache
+  result because its asset pins are test material that is not shipped, and inventing URLs to fill the
+  gap would be a guess presented as a measurement. PM disposition: that is acceptable during the Stage-1
+  internal comparison and NOT sufficient for whichever candidate is ultimately selected for production.
+  If Stage 1 selects v4, its cache-versus-network acquisition and download duration become a **pre-MVP
+  blocker**; if v4 is not selected and remains internal-only, the limitation may remain documented. The
+  selected model must report candidate/model identity, total setup time, cache result, and either
+  download duration or a directly measured no-download outcome.
+
 - **THE RELEASE BLOCKER IS NOW MODEL SELECTION.** No Private STT model has been chosen. Shipping `v2 base.en` remains the default by absence of qualifying evidence, not by measurement.
 - **Accepted post-MVP debt:** the #1354 write-ahead obligation is client-only. If the Progress evaluation fails, the browser obligation write also fails, and the user reloads after storage recovers, the client cannot reconstruct that obligation. Eliminating it requires a server-side obligation record.
 - **#1006 is CLOSED** (draft, not activated) — long since not current work; retained here only because earlier revisions of this file presented it as the open item.

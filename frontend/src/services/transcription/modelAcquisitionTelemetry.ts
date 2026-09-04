@@ -54,8 +54,13 @@ export interface AcquisitionSubject {
 
 export interface AcquisitionOutcome {
     cacheResult: CacheResult;
-    /** Did bytes cross the network? Distinct from cacheResult: a partial hit still downloads. */
-    networkUsed: boolean;
+    /**
+     * Did bytes cross the wire? MEASURED at the fetch boundary, never predicted from the cache probe.
+     * `null` means the boundary could not say — a cross-origin response without Timing-Allow-Origin
+     * hides its size — and null is the honest answer there. Defaulting to false would report every
+     * unmeasurable download as a cache hit.
+     */
+    networkUsed: boolean | null;
     networkBytes: number | null;
     assetCount: number | null;
     /** Time spent fetching assets. Null when the boundary could not be observed. */
@@ -98,6 +103,8 @@ export async function probeCache(
 type Pending = { name: string; props: Record<string, unknown> };
 let pendingEvents: Pending[] = [];
 let identitySettled = false;
+let discardedOnTransition = 0;
+let settledIdentity: string | null = null;
 
 /**
  * Called once the authenticated identity is established (or definitively absent, for a signed-out
@@ -105,13 +112,29 @@ let identitySettled = false;
  * attributed to anonymous traffic, and a returning user's cold and warm loads land under different
  * identities — which is exactly the per-user question this telemetry exists to answer.
  */
-export function markIdentitySettled(): void {
-    if (identitySettled) return;
+export function markIdentitySettled(identity: string | null = null): void {
+    // THE EPOCH LIVES HERE, WITH THE QUEUE IT GOVERNS.
+    //
+    // It was previously tracked by a React ref in the provider, which a remount resets to null — so a
+    // queue accumulated under one account could be released under the next one as though it were a
+    // first authentication. The module that holds the events is the only thing that reliably knows
+    // which account they were waiting for.
+    if (identitySettled && settledIdentity === identity) return;
+    if (settledIdentity !== null && settledIdentity !== identity) {
+        // A DIFFERENT account is settling. Whatever is still queued was waiting for the previous one,
+        // and an event attributed to the wrong account is worse than a missing one: it looks like data.
+        discardedOnTransition += pendingEvents.length;
+        pendingEvents = [];
+    }
+    settledIdentity = identity;
     identitySettled = true;
     const queued = pendingEvents;
     pendingEvents = [];
     for (const e of queued) emitNow(e.name, e.props);
 }
+
+/** Which identity the queue was last released under. Test seam; never emitted. */
+export function __settledIdentity(): string | null { return settledIdentity; }
 
 /**
  * #1259s — an account transition retires the previous settlement.
@@ -121,15 +144,36 @@ export function markIdentitySettled(): void {
  */
 export function resetIdentitySettlement(): void {
     identitySettled = false;
+    settledIdentity = null;
+    // AND THE QUEUE GOES WITH IT. Clearing only the flag left account A's queued events in place to be
+    // flushed the moment account B settled, which is the misattribution this function exists to prevent
+    // rather than a smaller version of it. An event that cannot be attributed to the right account must
+    // not be attributed to the wrong one, so it is dropped and counted.
+    discardedOnTransition += pendingEvents.length;
+    pendingEvents = [];
 }
+
+/** How many queued events an account transition discarded. Test seam; never emitted. */
+export function __discardedCount(): number { return discardedOnTransition; }
 
 /** Test seam: reset the module between cases. */
 export function __resetAcquisitionTelemetry(): void {
     pendingEvents = [];
     identitySettled = false;
+    discardedOnTransition = 0;
+    settledIdentity = null;
 }
 
 export function __pendingCount(): number { return pendingEvents.length; }
+
+/**
+ * Test seam: re-open the queue under the CURRENT epoch, as a load still in flight when the account
+ * changes would be. Deliberately does not touch `settledIdentity` — the epoch is what is under test.
+ */
+export function __queueForCurrentEpoch(): void {
+    identitySettled = false;
+    pendingEvents.push({ name: 'private_model_acquisition_start', props: { outcome: 'queued' } });
+}
 
 function emitNow(name: string, props: Record<string, unknown>): void {
     try {
@@ -146,8 +190,19 @@ function emit(name: string, props: Record<string, unknown>): void {
     emitNow(name, props);
 }
 
+/**
+ * THE SUBJECT IS NAMED UNDER ITS OWN KEYS, not the envelope's.
+ *
+ * `candidate_id`, `engine`, `runtime_version` and `asset_digest` belong to the analytics ENVELOPE: the
+ * send boundary strips them from producer props and supplies what the engine actually RESOLVED, so a
+ * caller cannot claim a model it did not run. That rule is right, and it is fatal here — during a cold
+ * load nothing has resolved yet, so an acquisition event that named its subject `candidate_id` had that
+ * value replaced with the ambient one, which is null before the first load and STALE during a switch.
+ * The two facts are genuinely different: the envelope says what this tab is running, and these keys say
+ * what was being fetched. They are reported separately so neither can overwrite the other.
+ */
 const subjectProps = (s: AcquisitionSubject) => ({
-    candidate_id: s.candidateId,
+    acquired_candidate_id: s.candidateId,
     model_identity: s.modelIdentity,
     asset_pin_digest: s.assetPinDigest,
     release_id: s.releaseId,

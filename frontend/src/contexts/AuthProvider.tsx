@@ -88,6 +88,15 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   // flags can be targeted via an operator cohort on user.id; on sign-out we reset to a fresh
   // anonymous id so a shared device never inherits the prior account's identity/flags.
   useEffect(() => {
+    // NOT SETTLED WHILE AUTHENTICATION IS STILL LOADING.
+    //
+    // On an ordinary boot `sessionState` is undefined and `loading` is true, and the old code read that
+    // as "signed out": it released every queued acquisition event anonymously, and `getSession()` then
+    // resolved an authenticated user seconds later. The events the queue exists to protect were the
+    // exact ones it lost. "We do not know yet" and "there is definitively nobody" are different states,
+    // and only the second one settles anything.
+    if (loading) return;
+
     const userId = sessionState?.user?.id ?? null;
     if (!userId) {
       // No active session. Clear a persisted PostHog identity if EITHER this mount identified someone
@@ -97,26 +106,34 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       // keep events/flags attached to the previous user. We gate on isIdentified() so a genuinely
       // fresh anonymous visitor is left untouched (no needless anonymous-id churn).
       if (identifiedAnalyticsUserRef.current || analyticsBuffer.isIdentified()) {
+        // An account is LEAVING. Anything still queued was produced under it, so it must not be
+        // released under the anonymous identity that replaces it.
+        resetIdentitySettlement();
         analyticsBuffer.resetIdentity();
       }
       identifiedAnalyticsUserRef.current = null;
       // #1259s — a DEFINITIVELY signed-out visitor is a settled identity too. Model setup begins during
       // page initialisation, so acquisition events wait for this moment; without releasing them here a
       // signed-out visitor's events would queue forever and never be measured.
-      markIdentitySettled();
+      markIdentitySettled(null);
       return;
     }
     if (identifiedAnalyticsUserRef.current === userId) return;
-    // #1259s — SIGN-OUT / ACCOUNT TRANSITION. Retire the previous settlement first, so an acquisition
-    // that begins after a switch cannot be released under the account that just left.
-    resetIdentitySettlement();
+    // ACCOUNT TRANSITION ONLY. Retiring the settlement discards the queue, which is right when account
+    // A's events would otherwise land on account B — and wrong on a FIRST authentication, where the
+    // queue holds this user's own boot-time load and is precisely what we are waiting to attribute.
+    if (identifiedAnalyticsUserRef.current && identifiedAnalyticsUserRef.current !== userId) {
+      resetIdentitySettlement();
+    }
     analyticsBuffer.identify(userId); // user.id only — no email/PII to PostHog
     identifiedAnalyticsUserRef.current = userId;
     // IDENTIFY FIRST, THEN RELEASE. Flushing before identify would attribute a returning user's cold
     // load to anonymous traffic while their warm load landed under their own identity, so the two could
-    // never be compared — the exact question this telemetry exists to answer.
-    markIdentitySettled();
-  }, [sessionState?.user?.id]);
+    // never be compared — the exact question this telemetry exists to answer. The account is named, so
+    // the queue's own epoch check can retire events that were waiting for a DIFFERENT one — a check a
+    // remount cannot forget, unlike the ref above.
+    markIdentitySettled(userId);
+  }, [sessionState?.user?.id, loading]);
 
   useEffect(() => {
     const injectedSession = getInjectedSession();

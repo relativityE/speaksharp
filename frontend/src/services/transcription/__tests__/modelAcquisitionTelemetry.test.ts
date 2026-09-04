@@ -208,7 +208,10 @@ describe('#1259s the event body is content-free', () => {
         recordAcquisitionFailure(SUBJECT, 'miss', 'network', 3);
 
         const ALLOWED = new Set([
-            'candidate_id', 'model_identity', 'asset_pin_digest', 'release_id', 'trigger',
+            // `acquired_candidate_id`, NOT `candidate_id`: the latter belongs to the analytics envelope,
+            // which strips producer values and substitutes what the engine RESOLVED. During a cold load
+            // nothing has resolved, so naming the subject there had it overwritten with null.
+            'acquired_candidate_id', 'model_identity', 'asset_pin_digest', 'release_id', 'trigger',
             'cache_result', 'network_used', 'network_bytes', 'asset_count',
             'download_ms', 'init_ms', 'total_ms', 'outcome', 'error_code',
         ]);
@@ -223,7 +226,7 @@ describe('#1259s the event body is content-free', () => {
         markIdentitySettled();
         recordAcquisitionStart(SUBJECT, 'hit');
         const p = pushed[0].props;
-        expect(p.candidate_id).toBe('moonshine:streaming-medium');
+        expect(p.acquired_candidate_id).toBe('moonshine:streaming-medium');
         expect(p.model_identity).toBe('moonshine-medium@pinned');
         expect(p.asset_pin_digest).toBe('sha256-abc');
         expect(p.release_id).toBe('rel-1');
@@ -234,8 +237,8 @@ describe('#1259s the event body is content-free', () => {
         markIdentitySettled();
         recordAcquisitionStart(SUBJECT, 'hit');
         recordAcquisitionStart({ ...SUBJECT, candidateId: 'v2:base.en', modelIdentity: 'whisper-base.en' }, 'miss');
-        expect(pushed[0].props.candidate_id).toBe('moonshine:streaming-medium');
-        expect(pushed[1].props.candidate_id).toBe('v2:base.en');
+        expect(pushed[0].props.acquired_candidate_id).toBe('moonshine:streaming-medium');
+        expect(pushed[1].props.acquired_candidate_id).toBe('v2:base.en');
         expect(pushed[1].props.model_identity).toBe('whisper-base.en');
     });
 });

@@ -48,7 +48,7 @@ export const PRIVATE_TELEMETRY_ALLOWED_PROPS = [
     // Every field below is a measurement or an identity, never content. No URL, no asset path, no raw
     // user id, no free-form error text.
     'candidate_id',
-    'model_identity',
+    'acquired_candidate_id', 'model_identity',
     'asset_pin_digest',
     'release_id',
     'trigger',
