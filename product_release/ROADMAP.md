@@ -17,15 +17,15 @@
 >
 > | Surface | Current source mismatch | Owning issue |
 > |---|---|---|
-> | `MicCard.tsx` + recording controller | download/setup action does not preserve explicit start intent through READY | recording-lifecycle successor + #1259 |
-> | `RecorderBar.tsx`, `Waveform.tsx`, `SessionOverhaulView.tsx` | black Stop control; old bottom-aligned flex bars; accepted real-mic/red-control treatment unshipped | recording-lifecycle successor |
-> | `SessionPage.tsx` | completed transcript disappears at teardown despite successful save | recording-lifecycle successor |
+> | `MicCard.tsx` + recording controller | download/setup action does not preserve explicit start intent through READY | #1415 + #1259 |
+> | `RecorderBar.tsx`, `Waveform.tsx`, `SessionOverhaulView.tsx` | black Stop control; old bottom-aligned flex bars; accepted real-mic/red-control treatment unshipped | #1415 |
+> | `SessionPage.tsx` | completed transcript disappears at teardown despite successful save | #1415 |
 > | `ObjectiveSetupForm.tsx` | explanatory copy remains; navigation CTA says Start speaking | #1407 |
 > | `FocusPointsRail.tsx` | confident “Didn’t come up” language and retry count based on all rows | #1407 |
 > | `AISuggestions.tsx`, `faqSections.ts` | old coaching labels; missing 2+2 visible Practice Loop | #1386 |
 > | `IssueReportDialog.tsx` | old long form, hidden validation, title-state loss, audio-note field | #1404 |
-> | `AnalyticsDashboard.tsx` | two-transcript retention copy and expired-view wording | #1404 / newest-one increment |
-> | `Navigation.tsx` | no direct Products → Open Mic / Focus Points route | navigation + feedback increment |
+> | `AnalyticsDashboard.tsx` | two-transcript retention copy and expired-view wording | #1117 |
+> | `Navigation.tsx` | no direct Products → Open Mic / Focus Points route | #1404 |
 > | `SessionFocusPoints.tsx` / candidate authority | no controlled access to all registered Production candidates | #1263/#1304/#1390 |
 > | analytics emitters/buffer | incomplete journey correlation and missing real-boundary receipts | #1259 |
 
