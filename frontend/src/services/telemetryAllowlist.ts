@@ -57,6 +57,14 @@ const RUNTIME_STATES = [
 /** `ClientFreshness` in staleClientGuard.ts. 'unverified' and 'local' are real and were being dropped. */
 const FRESHNESS = ['fresh', 'stale', 'unverified', 'local'] as const;
 
+/**
+ * The post-session destinations. CLOSED, because F08 asks which options were OFFERED — and a free
+ * string would let a producer invent an option that no user could have seen.
+ */
+const NAVIGATION_OPTIONS = [
+    'practice_next', 'view_analytics', 'try_another_mode', 'home', 'products', 'none',
+] as const;
+
 const TIERS = ['free', 'pro', 'trial', 'unknown', 'anonymous'] as const;
 const TRIAL_STATES = ['active', 'expired', 'none', 'unknown'] as const;
 
@@ -236,6 +244,24 @@ export const EVENT_SCHEMAS = Object.freeze({
         persisted: { kind: 'bool' } as FieldRule,
         session_id_present: { kind: 'bool' } as FieldRule,
         teardown_state: enumOf(RUNTIME_STATES),
+    },
+
+    /**
+     * F03 / F08 — the control's IDENTITY beside what it actually did, and the options a finished
+     * session offered. `options_shown` is a bounded closed list so an empty offering is a recorded
+     * measurement rather than a missing event.
+     */
+    journey_step: {
+        step: enumOf(['route_change', 'cta_click', 'setup_submitted', 'post_session_options', 'option_selected']),
+        from_route: { kind: 'route', maxLength: 96 } as FieldRule,
+        to_route: { kind: 'route', maxLength: 96 } as FieldRule,
+        product_mode: enumOf([...PRACTICE_MODES, 'none']),
+        cta_id: slug(),
+        cta_action: enumOf(['navigate', 'start_recording', 'submit', 'none']),
+        runtime_state_on_arrival: enumOf(RUNTIME_STATES),
+        options_shown: { kind: 'enum[]', values: NAVIGATION_OPTIONS, maxLength: 8 } as FieldRule,
+        option_selected: enumOf(NAVIGATION_OPTIONS),
+        points_entered: { kind: 'int', min: 0, max: 100 } as FieldRule,
     },
 
     // ── conversion funnel ───────────────────────────────────────────────────

@@ -26,6 +26,7 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { selectReviewFillerSnapshot } from '@/utils/sessionAnalysis';
 import type { PracticeSession } from '@/types/session';
 import type { SttStatus } from '@/types/transcription';
+import { emitJourneyStep } from '@/services/telemetry/journeyStep';
 
 /**
  * #1222 S11 — the session-overhaul VIEW: maps the live session runtime onto the fixed shell + the three
@@ -168,6 +169,27 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // and during use ONLY the live brief, so a stale snapshot can never make a fresh Open Mic session look
     // like Focus Points (the isolation invariant that motivated clearing the live brief in the first place).
     const inAfter = sessionState === 'after';
+
+    /**
+     * #1259 F08 — WHAT THE FINISHED SESSION ACTUALLY OFFERED.
+     *
+     * The finding is that a user who finishes has nowhere obvious to go. That is a claim about
+     * ABSENCE, and absence cannot be evidenced by an event that does not fire — so this emits the
+     * offering with its real contents, including an EMPTY list when nothing is on offer. An empty
+     * list is a measurement; silence is indistinguishable from telemetry that was never wired.
+     *
+     * The options are derived from the handlers that genuinely exist on this screen, not from a list
+     * of what we intend to build: `onPracticeAgain` and `onSeeAllSessions` are wired into the verdict
+     * card below, and nothing else is. If a future change adds a destination without adding it here,
+     * the recorded offering understates what the user saw — which fails in the safe direction for a
+     * finding about there being too few.
+     */
+    React.useEffect(() => {
+        if (!inAfter) return;
+        const offered: string[] = ['practice_next'];
+        if (onSeeAllSessions) offered.push('view_analytics');
+        emitJourneyStep({ step: 'post_session_options', optionsShown: offered });
+    }, [inAfter, onSeeAllSessions]);
     const effObjectivePoints = objectivePoints ?? (inAfter ? completedObjectivePoints ?? null : null);
     const effObjectiveTopic = objectiveTopic ?? (inAfter ? completedObjectiveTopic ?? null : null);
     const effObjectivePaceGuideSecPerPoint = objectivePaceGuideSecPerPoint ?? (inAfter ? completedObjectivePaceGuideSecPerPoint ?? null : null);
