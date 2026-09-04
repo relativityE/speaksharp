@@ -1,13 +1,19 @@
 **Status:** Authoritative (SSOT for release-gate definitions, release workflow, freshness rules, and recovery)
 **Owner:** Engineering / Quality (relativityE)
-**Last Reviewed:** 2026-07-30
-**Last Verified:** 2026-08-11 — the conditional Private-only launch support, rollback, and GO/HOLD procedure was checked source-only against the cited code/workflows and exercised in `evidence/ISSUE_1267_PRIVATE_LAUNCH_REHEARSAL.md`. It is not the current release gate until the §7 prerequisites are satisfied. No current run IDs, SHAs, deployment baselines, or queue state are carried here — those live only in `RELEASE_STATUS.md`.
+**Last Reviewed:** 2026-09-04
+**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 **Applies To:** The SpeakSharp controlled-tester release process — the five RC gates, evidence freshness, the release workflow & commands, and emergency recovery/rollback.
 **Class:** Acceptance criterion / procedure.
 **Authority:** The source for the definition of each RC gate (what "green" means), the gate evidence rules, evidence freshness & same-SHA rules, the release workflow/commands and observability readback, and the forward-fix/rollback/recovery playbook.
 **Not Authoritative For:** current ship posture, blockers, run IDs & SHAs (→ `RELEASE_STATUS.md`); the test inventory that maps files into these gates, the quality targets & SLOs (→ `QUALITY.md`); STT accuracy/latency baselines & named STT proof detail (→ `STT.md`); env/secrets/security controls & SCA exceptions (→ `OPERATIONS_AND_SECURITY.md`); tier/entitlement mechanics (→ `ENTITLEMENTS_AND_BILLING.md`).
 **Supersedes:** `RC_GATES.md`, `RELEASE_RECOVERY.md`, and the release-workflow material of `RC_TEST_INVENTORY.md` (interim sources; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §3.F extraction mapping; the `.github/workflows/*` and `backend/supabase/*` paths cited inline; the release-identity mechanism (#1027); `tests/release/private-launch-playbook-contract.test.ts`; `evidence/ISSUE_1267_PRIVATE_LAUNCH_REHEARSAL.md`.
+
+<!-- pm-currentization:2026-09-04 -->
+> [!CAUTION]
+> **Currentized 4 Sep 2026.** Final MVP qualification happens on the canonical Production URL after the recovery increments deploy. Dev executes both complete product journeys across all three controlled runtime candidates first; the PO then repeats them. The explicit first mic intent must survive cold acquisition and auto-start exactly once. Every required #1259 family must be reconstructed from real PostHog readback. Missing receipts, user-visible false claims, unreadable completed transcripts, absent Practice Loop, or an unrunnable candidate row are HOLD even with green CI. Merge, deployment, migration, runtime activation, and Production testing remain separate PO authorizations.
+
+<!-- /pm-currentization:2026-09-04 -->
 
 # SpeakSharp Release Process (v1)
 
