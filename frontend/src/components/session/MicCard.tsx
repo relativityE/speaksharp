@@ -72,7 +72,18 @@ export const MicCard: React.FC<MicCardProps> = ({
     // Status line (top-left): ready / needs one-time download / DOWNLOADING (with %) / problem. While the
     // model downloads, this is the user's progress cue (it replaces the removed status-notification bar).
     // #1354: a setup action stays clickable, so a Progress block only applies to the ordinary start.
-    const isBlockedFromStart = !!blockedReason && !(downloadRequired || modelError);
+    // #1415 — A BLOCKED COLD START MUST SAY WHY.
+    //
+    // `downloadRequired` was excluded here, and that was correct while the cold control was a
+    // setup-only action that bypassed the recording gate: there was no gate reason to report. Now the
+    // cold press IS a recording request and IS gated — so the same exclusion left the user with a
+    // disabled `Download & start recording` button beside "One-time download needed", and no hint
+    // that an unresolved prior session is what actually stopped it. That is the unexplained-disabled
+    // control this work exists to remove, reintroduced by the fix for it.
+    //
+    // `modelError` stays excluded: a failed setup is not blocked, it is actionable, and its retry
+    // must keep its own copy.
+    const isBlockedFromStart = !!blockedReason && !modelError;
     const status = isBlockedFromStart
         ? { dot: '#d98a1f', text: '#a8571f', label: 'Finishing your last session' }
         : downloadRequired

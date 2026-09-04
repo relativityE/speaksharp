@@ -12,6 +12,14 @@ interface MobileActionBarProps {
     mode?: string | null;
     privateModelStatus?: string;
     onDownloadModel?: () => void;
+    /**
+     * #1415 — WHY the start gate is closed, in the user's words, or null when it is not.
+     *
+     * Mobile never received this at all, so a blocked cold press on a phone was a dead control with no
+     * explanation available even in principle. Desktop could at least render a reason; mobile could
+     * not.
+     */
+    blockedReason?: string | null;
 }
 
 /**
@@ -26,6 +34,7 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
     mode,
     privateModelStatus = 'idle',
     onDownloadModel,
+    blockedReason,
 }) => {
     // First-run Private: the primary control downloads the on-device model (never starts a model-less
     // engine). Mirrors the desktop mic. Every other state uses the durable isButtonDisabled gate.
@@ -33,6 +42,9 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
     // #1258: after a Private setup FAILURE the control becomes an actionable "Retry Private setup" — always
     // enabled and routed to the same setup entry point, so a failed model setup is never a dead end.
     const isPrivateRetry = mode === 'private' && (privateModelStatus === 'init-failed' || privateModelStatus === 'error') && !isListening;
+    // Same rule as the desktop card: a retry is actionable, everything else that is blocked explains
+    // itself rather than presenting a dead control.
+    const isBlockedFromStart = !!blockedReason && !isPrivateRetry && !isListening;
     // #1415 — MOBILE IS THE SAME ONE-CLICK PATH AS DESKTOP.
     //
     // `isPrivateSetupAction` previously bundled the cold start together with the retry, so a cold
@@ -62,6 +74,7 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
                 className="h-12 w-full max-w-sm text-base font-semibold shadow-sm"
                 disabled={isPrivateRetry ? false : (isButtonDisabled || (modelLoadingProgress !== null && modelLoadingProgress < 100))}
                 data-testid={`${TEST_IDS.SESSION_START_STOP_BUTTON}-mobile`}
+                aria-describedby={isBlockedFromStart ? 'mobile-start-blocked-reason' : undefined}
             >
                 {isPrivateRetry ? (
                     <>
@@ -92,6 +105,24 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
                     </>
                 )}
             </Button>
+            {isBlockedFromStart && (
+                /*
+                 * #1415 — the bounded reason, rendered where the press failed.
+                 *
+                 * `role="status"` rather than `alert`: a blocked start is a condition to read, not an
+                 * interruption. `aria-describedby` on the button ties the two together, so a screen
+                 * reader announces the reason with the control instead of leaving a disabled button
+                 * with no explanation anywhere near it.
+                 */
+                <p
+                    id="mobile-start-blocked-reason"
+                    role="status"
+                    data-testid="mobile-start-blocked-reason"
+                    className="max-w-sm text-center text-xs font-semibold text-muted-foreground"
+                >
+                    {blockedReason}
+                </p>
+            )}
         </div>
     );
 };
