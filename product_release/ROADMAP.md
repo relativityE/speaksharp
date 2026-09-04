@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for unfinished and deferred product/release work)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-08-29
-**Last Verified:** 2026-08-29 — consolidated from the live `ACTIVE_COORDINATION.md`, unfinished `BACKLOG.md` items, merged PR state through #1368, and the codebase-vs-strategy audit.
+**Last Reviewed:** 2026-09-04
+**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 **Applies To:** MVP sequencing and explicitly deferred SpeakSharp work.
 **Class:** Open gap / risk.
 **Authority:** The source for Now / Next / Later / Declined work and implementation order.
@@ -9,16 +9,22 @@
 **Supersedes:** `ACTIVE_COORDINATION.md`, `BACKLOG.md`, and `ROADMAP.operational.md`.
 **Evidence Sources:** GitHub issue/PR state; `RELEASE_STATUS.md`; current code and tests; dated audits indexed by `EVIDENCE_INDEX.md`.
 
+<!-- pm-currentization:2026-09-04 -->
+> [!IMPORTANT]
+> **Currentized 4 Sep 2026 — methodical recovery sequence.** Active work is #1259 journey observability. Then land coherent grouped increments for (1) recording/transcript lifecycle, (2) Focus Points + Practice Loop, (3) navigation + exact Share feedback redesign, (4) newest-one retention + all user-facing copy, and (5) Production runtime access to all three STT candidates. Dev validates each deployed increment before the PO reruns the complete corpus. No Preview/internal-build work, unrelated dashboard/infrastructure, speculative feature, or extra URL enters this sequence.
+
+<!-- /pm-currentization:2026-09-04 -->
+
 # SpeakSharp Roadmap
 
 This file contains unfinished work only. Completion belongs in git history and dated evidence; current deployment facts belong in `RELEASE_STATUS.md`.
 
 <!-- CURRENCY-BLOCK
-baseline: a19324610634b9e05a375fff8838f2bbbae3a4f1
-deployed-release: a19324610634b9e05a375fff8838f2bbbae3a4f1
-verified-on: 2026-08-29
-release-blocker: model-selection
-retention-campaign: off-critical-path
+baseline: c4665156212dd03cd6d7b91c49bed90dea868b5a
+deployed-release: c4665156212dd03cd6d7b91c49bed90dea868b5a
+verified-on: 2026-09-04
+release-blocker: production-journey-recovery
+retention-campaign: newest-one-approved-pending-implementation
 task-1304-1: merged
 task-1304-2: merged
 task-1304-3a: merged
@@ -26,10 +32,10 @@ task-1304-3b: merged
 task-1304-3c: merged
 task-1304-4: merged
 task-1360-recovery-copy: merged
-lane-stage-b: not-started
-lane-telemetry: not-started
-lane-billing: not-started
-lane-1258-journey: not-started
+lane-stage-b: superseded-by-production-biopsy
+lane-telemetry: in-progress
+lane-billing: held-behind-product-recovery
+lane-1258-journey: failed-retest-pending
 -->
 
 ## Now — MVP critical path
@@ -37,7 +43,7 @@ lane-1258-journey: not-started
 | Order | Work | Closure evidence |
 |---|---|---|
 | 1 | **#1304 STT model selection — running.** Frozen selection set is **600 utterances / 10,894 normalized words**, never “600 words.” | Complete retained matrix and per-utterance artifacts; quiet performance reruns for contaminated v2 tiny/base with score-profile reconciliation; frozen policy applied; technical winner, activation readiness and failure-diverse fallback reported separately; Track B remains a finalist-only human-audio validation. |
-| 2 | **Stage-B privacy successor — fresh PR; never revive #1310.** Retire callable legacy `complete_session` v1 paths while preserving the `complete_session_v2` newest-two retention contract. | Real-migration function/grant inventory; client/mocks cannot fall back; anonymous and authenticated v1 calls fail closed; v2 finalize/retain/expire remains green; each load-bearing check falsified once. No production migration application in the implementation PR. |
+| 2 | **Stage-B privacy successor — fresh PR; never revive #1310.** Retire callable legacy `complete_session` v1 paths while replacing the two-transcript contract with the approved newest-one retention contract. | Real-migration function/grant inventory; client/mocks cannot fall back; anonymous and authenticated v1 calls fail closed; v2 finalize/retain/expire remains green; each load-bearing check falsified once. No production migration application in the implementation PR. |
 | 3 | **#1259 telemetry qualification.** The emitters largely exist; qualification, denominators and operator evidence are incomplete. | Content-free schema; bounded failure reasons; selected-model identity; synthetic/test traffic separated; funnel and SLO denominators defined; owner/action per alert; controlled-event dashboard proof. Production purge/dashboard mutations need separate PO authority. |
 | 4 | **#1302 billing successor — fresh PR; never revive #1303.** Billing follows model selection and telemetry. | Complete test-mode checkout→webhook→entitlement→portal qualification, fail-closed dual switches, exact price/identity checks, and no claim that a live-money transaction is required or authorized. |
 | 5 | **#1258 integrated Practice Loop and GO/HOLD — last.** | Exact release-build real-device journey, selected primary/fallback, save/reopen/Progress/export, telemetry and billing posture, all gate evidence current, explicit Product Owner GO/HOLD. |
