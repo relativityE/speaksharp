@@ -55,6 +55,8 @@ Build gate: `env.required` (must be set) / `env.optional` (warn-only), read by `
 | `VITE_PAYMENTS_ENABLED` | optional | B (Vercel only) | Explicit frontend payments kill-switch (P0.1). Default OFF. `arePaymentsEnabled()` is true only when this === `"true"` AND the publishable key is live. Mirrors backend `PAYMENTS_ENABLED`; both must be deliberately enabled to sell Pro. |
 | `VITE_SENTRY_DSN` | optional | A | Absent → error monitoring disabled. |
 | `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` | optional | A | Analytics; absent → disabled. |
+| `VITE_CANARY_ACCOUNT_IDS` | optional | A | Comma-separated account ids belonging to the automated qualification canary. Classifies their telemetry as `canary`. Not a secret: an account id, never a credential. |
+| `VITE_INTERNAL_TEST_ACCOUNT_IDS` | optional | A | Comma-separated account ids belonging to people who test on canonical Production by hand. Classifies their telemetry as `internal_test` — deliberately distinct from `canary`, so a human dogfood session is never counted as automated qualification. Absent → nobody is classified; there is no default tester. Not a secret. |
 | `VITE_LOG_LEVEL` | optional | A | Client log level. |
 | `VITE_ENABLE_SENTRY_TRACING` / `_REPLAY` / `_CONSOLE_CAPTURE` | optional | A/B | Sentry feature flags. |
 | `VITE_AUTH_MODE` / `VITE_AUTH_TIMEOUT` | optional | A/B | Authentication configuration. |

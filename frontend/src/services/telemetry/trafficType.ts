@@ -9,17 +9,32 @@
  * the first harness that forgets to set the flag looks exactly like a user, which is the same silence
  * relocated. So:
  *
- *   internal  a BUILD a real user never receives.
- *   canary    WHO YOU ARE, not what you claim. The canary authenticates as a known account against
- *             production; a real user cannot produce this because they cannot sign in as that account.
- *             The harness sets nothing and therefore cannot forget to.
- *   user      the FAIL-TOWARD default, and only when neither of the above is affirmatively
- *             established. Failing toward `user` risks over-counting our own traffic as real, which is
- *             visible and correctable; failing toward `canary` would HIDE a real user, which is the
- *             error that cannot be detected after the fact.
+ *   internal       a BUILD a real user never receives.
+ *   canary         WHO YOU ARE, not what you claim. The canary authenticates as a known account
+ *                  against production; a real user cannot produce this because they cannot sign in as
+ *                  that account. The harness sets nothing and therefore cannot forget to.
+ *   internal_test  #1259 — a HUMAN dogfood session on canonical Production. Same authority as
+ *                  `canary` (a known account id), different meaning: the canary is automated
+ *                  qualification, and this is a person testing the product by hand.
+ *
+ *                  It exists because folding the two together corrupts both. The PO's Production
+ *                  session was classified `user` — indistinguishable from a real customer in every
+ *                  funnel — and the obvious fix, adding that account to the canary list, would have
+ *                  filed a human take under automation. A dashboard excluding `canary` would then
+ *                  silently absorb it, and "how did the automated canary do this week?" would be
+ *                  answered with hand-typed data.
+ *
+ *   user           the FAIL-TOWARD default, and only when none of the above is affirmatively
+ *                  established. Failing toward `user` risks over-counting our own traffic as real,
+ *                  which is visible and correctable; failing toward an internal class would HIDE a
+ *                  real user, which is the error that cannot be detected after the fact.
+ *
+ * PRECEDENCE: internal > canary > internal_test > user. An internal build running any account is our
+ * own traffic by the strongest signal available, and an account that is somehow on both lists is
+ * automation first — the stronger claim wins, and neither can be self-declared.
  */
 
-export const TRAFFIC_TYPES = Object.freeze(['user', 'canary', 'internal'] as const);
+export const TRAFFIC_TYPES = Object.freeze(['user', 'canary', 'internal_test', 'internal'] as const);
 export type TrafficType = typeof TRAFFIC_TYPES[number];
 
 export interface TrafficSignals {
@@ -27,6 +42,8 @@ export interface TrafficSignals {
     internalBuild?: boolean;
     /** Account ids known to belong to synthetic qualification accounts. */
     canaryAccountIds?: readonly string[];
+    /** Account ids belonging to people who test the product by hand on canonical Production. */
+    internalTestAccountIds?: readonly string[];
     /** The AUTHENTICATED account id for this session, or null when signed out. */
     accountId?: string | null;
 }
@@ -42,8 +59,10 @@ export function resolveTrafficType(signals: TrafficSignals = {}): TrafficType {
 
     const account = normalise(signals.accountId);
     if (account) {
-        const known = (signals.canaryAccountIds ?? []).map(normalise).filter(Boolean);
-        if (known.includes(account)) return 'canary';
+        const canary = (signals.canaryAccountIds ?? []).map(normalise).filter(Boolean);
+        if (canary.includes(account)) return 'canary';
+        const internalTest = (signals.internalTestAccountIds ?? []).map(normalise).filter(Boolean);
+        if (internalTest.includes(account)) return 'internal_test';
     }
     return 'user';
 }
@@ -65,6 +84,9 @@ export function buildTrafficSignals(
     return {
         internalBuild: env.VITE_INTERNAL_BUILD === 'true',
         canaryAccountIds: parseCanaryAccountIds(env.VITE_CANARY_ACCOUNT_IDS),
+        // Read from build-time env for the same reason the canary list is: a runtime value could be
+        // set by a visitor, and a self-declared class is the failure this whole field exists to avoid.
+        internalTestAccountIds: parseCanaryAccountIds(env.VITE_INTERNAL_TEST_ACCOUNT_IDS),
         accountId,
     };
 }
