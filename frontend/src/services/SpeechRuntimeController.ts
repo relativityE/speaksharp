@@ -699,6 +699,19 @@ export class SpeechRuntimeController {
             if (this.pendingAttributionRetry?.sessionId === targetSessionId) {
                 this.pendingAttributionRetry = null;
                 this.markRecordingResolved(); // Retry Save succeeded → recording fully resolved → unlock
+                // #1403 RETURN: REPUBLISH THE RECEIPT. Clearing the retry slot changed what the save marker
+                // is entitled to claim, and nothing was saying so. The DOM kept reporting
+                // `saved-attribution-pending` — the state at the moment of the original failure — while the
+                // database had since become terminally attributed, so a successfully RECOVERED take was
+                // indistinguishable from an unrecovered one and the observer HELD it.
+                //
+                // Published INSIDE the compare-and-clear, deliberately: if the slot moved to another session
+                // while the attestation was in flight, this settlement is stale and must not overwrite that
+                // newer session's marker. The clear happens first, so the status derives as `saved`.
+                this.updateSessionPersisted(true, {
+                    sessionId: targetSessionId,
+                    mode: pending.progressContext?.mode ?? null,
+                });
             }
             await this.completeProgressForRecording(
                 pending.progressContext ?? { mode: 'unknown' },
@@ -776,6 +789,16 @@ export class SpeechRuntimeController {
                     this.pendingFullSaveRetry = null;
                     if (this.pendingAttributionRetry?.sessionId === targetSessionId) this.pendingAttributionRetry = null;
                     this.markRecordingResolved();
+                    // #1403 RETURN: a recovered FULL-SAVE failure had no persistence marker at all, because
+                    // the original failure never published one — correctly, since nothing was durable then.
+                    // After recovery the row exists, the transcript is persisted and attribution is terminal,
+                    // so the marker is published here and only here: both the completion and the attestation
+                    // above have already succeeded, and both retry slots are cleared, so the status derives
+                    // as `saved`. Without this the observer never records `stop-save` for a recovered take.
+                    this.updateSessionPersisted(true, {
+                        sessionId: targetSessionId,
+                        mode: fullSave.progressContext?.mode ?? null,
+                    });
                     await this.completeProgressForRecording(
                         fullSave.progressContext ?? { mode: 'unknown' },
                         targetSessionId,
