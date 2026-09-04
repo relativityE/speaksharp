@@ -7,6 +7,9 @@ import {
     beginRecordingAttempt, endRecordingAttempt,
 } from '@/services/telemetry/journeyIdentity';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
+import { emitFillerMeasurement } from '@/services/telemetry/fillerMeasurement';
+import { resolvedEngine } from '@/services/telemetry/runtimeAttribution';
+import { countWords } from '@/lib/contentDigest';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import { toSanitizedCause } from '@/lib/sanitizeStartError';
@@ -3394,6 +3397,29 @@ export class SpeechRuntimeController {
                         // (snapshotted at stop-entry) vs the RECOUNT over the SAVE-SELECTED finalTranscript —
                         // the exact transcript + duration the save/scoring path uses — and CACHE it so the
                         // report survives shadow-engine disposal. Numbers only; no transcript text; no cutover.
+                        // #1259 F13 — emitted OUTSIDE the shadow-metrics flag on purpose. The
+                        // divergence block below is gated behind `isShadowMetricsEngineEnabled()`, so in
+                        // Production it may not run at all — and a measurement that exists only when a
+                        // diagnostic flag is on is unavailable exactly when it is needed. This carries
+                        // the detector's INPUT, which is the half Production has never had: it already
+                        // reports `filler_count: 0`, and cannot say whether the transcript could have
+                        // evidenced a filler at all.
+                        try {
+                            const recount = countFillerWords(finalTranscript, this.userWords);
+                            const recountTotal = Object.values(recount ?? {})
+                                .reduce((n, v) => n + (typeof v?.count === 'number' ? v.count : 0), 0);
+                            emitFillerMeasurement({
+                                candidateId: resolvedEngine()?.candidateId ?? null,
+                                detectorInputWords: countWords(finalTranscript),
+                                detectorInputFillers: recountTotal,
+                                reportedFillers: getFillerTotal(this.liveFillerDataAtStop) ?? null,
+                                clarityScore: null,
+                                durationSeconds: Math.round(duration),
+                            });
+                        } catch {
+                            /* telemetry must never affect the save path */
+                        }
+
                         if (isShadowMetricsEngineEnabled()) {
                             try {
                                 const fillerReport = measureFillerDivergence({

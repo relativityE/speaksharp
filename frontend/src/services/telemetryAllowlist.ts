@@ -334,6 +334,23 @@ export const EVENT_SCHEMAS = Object.freeze({
         acknowledgement_visible: { kind: 'bool' } as FieldRule,
     },
 
+    /**
+     * F13 — the DETECTOR'S INPUT, not just its output. Production already carries `filler_count: 0`
+     * against 82 spoken words; what it cannot say is whether the transcript could have evidenced a
+     * filler at all. `completeness` is that distinction, and it is deliberately not derived from the
+     * two counters agreeing — both read the same transcript and agree perfectly when it is stripped.
+     */
+    filler_measurement: {
+        candidate_id_observed: slug(),
+        detector_input_words: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        detector_input_fillers: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        reported_fillers: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        clarity_score: { kind: 'number', min: 0, max: 100 } as FieldRule,
+        duration_seconds: { kind: 'int', min: 0, max: 86_400 } as FieldRule,
+        completeness: enumOf(['complete', 'unobservable', 'no_speech']),
+        unavailable_reason: enumOf(['no_filler_tokens_in_transcript', 'no_transcribed_speech']),
+    },
+
     // ── conversion funnel ───────────────────────────────────────────────────
     conversion_cta_viewed: CONVERSION_FIELDS,
     conversion_cta_clicked: CONVERSION_FIELDS,
