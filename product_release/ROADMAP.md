@@ -12,6 +12,22 @@
 <!-- pm-currentization:2026-09-04 -->
 > [!IMPORTANT]
 > **Currentized 4 Sep 2026 — methodical recovery sequence.** Active work is #1259 journey observability. Then land coherent grouped increments for (1) recording/transcript lifecycle, (2) Focus Points + Practice Loop, (3) navigation + exact Share feedback redesign, (4) newest-one retention + all user-facing copy, and (5) Production runtime access to all three STT candidates. Dev validates each deployed increment before the PO reruns the complete corpus. No Preview/internal-build work, unrelated dashboard/infrastructure, speculative feature, or extra URL enters this sequence.
+>
+> **Verified shipped-source mismatch map (main@c4665156):**
+>
+> | Surface | Current source mismatch | Owning issue |
+> |---|---|---|
+> | `MicCard.tsx` + recording controller | download/setup action does not preserve explicit start intent through READY | recording-lifecycle successor + #1259 |
+> | `RecorderBar.tsx`, `Waveform.tsx`, `SessionOverhaulView.tsx` | black Stop control; old bottom-aligned flex bars; accepted real-mic/red-control treatment unshipped | recording-lifecycle successor |
+> | `SessionPage.tsx` | completed transcript disappears at teardown despite successful save | recording-lifecycle successor |
+> | `ObjectiveSetupForm.tsx` | explanatory copy remains; navigation CTA says Start speaking | #1407 |
+> | `FocusPointsRail.tsx` | confident “Didn’t come up” language and retry count based on all rows | #1407 |
+> | `AISuggestions.tsx`, `faqSections.ts` | old coaching labels; missing 2+2 visible Practice Loop | #1386 |
+> | `IssueReportDialog.tsx` | old long form, hidden validation, title-state loss, audio-note field | #1404 |
+> | `AnalyticsDashboard.tsx` | two-transcript retention copy and expired-view wording | #1404 / newest-one increment |
+> | `Navigation.tsx` | no direct Products → Open Mic / Focus Points route | navigation + feedback increment |
+> | `SessionFocusPoints.tsx` / candidate authority | no controlled access to all registered Production candidates | #1263/#1304/#1390 |
+> | analytics emitters/buffer | incomplete journey correlation and missing real-boundary receipts | #1259 |
 
 <!-- /pm-currentization:2026-09-04 -->
 
