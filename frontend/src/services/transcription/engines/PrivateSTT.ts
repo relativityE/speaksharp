@@ -62,7 +62,7 @@ import {
     classifyAcquisitionError, type AcquisitionSubject, type PinnedAssetRef,
 } from '../modelAcquisitionTelemetry';
 import type { Candidate } from '../candidateRegistry';
-import { assetRequestsFor, assetOriginPrefixes } from '../candidateAssetRequests';
+import { assetRequestsFor, acquisitionScopeFor } from '../candidateAssetRequests';
 import { observeAcquisitionNetwork } from '../acquisitionNetworkObservation';
 import { receiptMatches, type AcquisitionAttempt, type AcquisitionReceipt } from '../acquisitionAttempt';
 // Stale import removed
@@ -741,7 +741,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         const cacheResult = await probeCache(this.acquisitionAssets);
         const startedAt = performance.now();
-        const prefixes = candidate ? assetOriginPrefixes(candidate) : [];
+        const prefixes = candidate ? acquisitionScopeFor(candidate) : [];
         recordAcquisitionStart(subject, cacheResult);
 
         try {

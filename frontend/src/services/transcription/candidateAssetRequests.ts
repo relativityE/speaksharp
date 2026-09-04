@@ -64,12 +64,11 @@ function moonshineAssets(): PinnedAssetRef[] {
  * acquisition and download duration for v4 become a PRE-MVP BLOCKER. If v4 is not selected and stays
  * internal-only, this limitation may remain documented as it is.
  *
- * The sanctioned way to close it is to observe the loader's ACTUAL runtime boundary — not to write a
- * fixed URL list. `assetOriginPrefixes` already scopes Resource Timing, and the registry knows v4's
- * model repository id, so a prefix derived from that id would measure real requests without pinning
- * anything. That yields download duration, asset count and network use for v4; only the PRE-load cache
- * probe would remain unobservable, because nothing can be looked up before the load names it. Do not
- * substitute a hardcoded HuggingFace URL table for that work.
+ * THAT WORK IS NOW DONE for the download side: `acquisitionScopeFor` scopes v4 by the model REPOSITORY
+ * the runtime resolves against, taken from the registry, so its worker measures real request count,
+ * duration and bytes. What remains unobservable for v4 is only the PRE-load cache probe, because
+ * nothing can be looked up in a cache before the load names the files it wants. Do not substitute a
+ * hardcoded HuggingFace URL table for either.
  */
 export function assetRequestsFor(candidate: Candidate): CandidateAssetRequests {
     if (candidate.assets.provenance === 'self_hosted') {
@@ -85,18 +84,34 @@ export function assetRequestsFor(candidate: Candidate): CandidateAssetRequests {
 }
 
 /**
- * The URL prefixes that identify this candidate's traffic in Resource Timing.
+ * What identifies this candidate's traffic in Resource Timing.
  *
- * Matching by prefix rather than by exact URL on purpose: a loader may append a query string, request a
- * range, or resolve a file this product did not pin. Counting those is more honest than ignoring them,
- * because they are bytes the user really fetched.
+ * These are SUBSTRINGS, not exact URLs, and deliberately so: a loader may append a query string,
+ * request a range, or resolve a file this product did not pin, and those are bytes the user really
+ * fetched. Counting them is more honest than ignoring them.
+ *
+ * For a candidate whose assets this product serves or pins, the scope is the location they are served
+ * from. For a candidate loaded from a model repository — v4 — the scope is the REPOSITORY IDENTITY the
+ * registry already records, because that is the boundary the runtime actually requests against. That is
+ * derived from the runtime's own configuration rather than being a hand-written table of file names,
+ * which would go stale the moment the loader asked for one more file.
+ *
+ * A repository scope does not survive every redirect: a host that answers from a CDN under a different
+ * path will not contain the repository id. That is not silently dropped — the observation reports how
+ * many in-window requests fell OUTSIDE the scope, so a scope that stopped matching is visible as a
+ * discrepancy rather than as a smaller download.
  */
-export function assetOriginPrefixes(candidate: Candidate): string[] {
+export function acquisitionScopeFor(candidate: Candidate): string[] {
     const { assets } = assetRequestsFor(candidate);
-    const prefixes = new Set<string>();
-    for (const a of assets) {
-        const cut = a.url.lastIndexOf('/');
-        prefixes.add(cut === -1 ? a.url : a.url.slice(0, cut + 1));
+    if (assets.length > 0) {
+        const prefixes = new Set<string>();
+        for (const a of assets) {
+            const cut = a.url.lastIndexOf('/');
+            prefixes.add(cut === -1 ? a.url : a.url.slice(0, cut + 1));
+        }
+        return [...prefixes];
     }
-    return [...prefixes];
+    // No shipped pin table: scope by the repository the runtime resolves against.
+    return candidate.model.id ? [candidate.model.id] : [];
 }
+

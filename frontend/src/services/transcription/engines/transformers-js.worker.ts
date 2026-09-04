@@ -6,7 +6,7 @@ import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
 
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
 import { observeAcquisitionNetwork } from '../acquisitionNetworkObservation';
-import type { AcquisitionReceipt } from '../acquisitionAttempt';
+import { composeAcquisitionReceipt, type AcquisitionReceipt } from '../acquisitionAttempt';
 type WhisperDecodeOptions = Record<string, unknown>;
 
 type WorkerRequest =
@@ -198,13 +198,10 @@ async function init(
     try {
         // NO RECEIPT WITHOUT AN IDENTITY. An observation that cannot say which attempt it describes is
         // indistinguishable from a stale one, and the consumer would have to guess.
-        acquisition = attempt
-            ? {
-                ...observeAcquisitionNetwork(assetPrefixes, loadStart, self.performance),
-                attemptToken: attempt.token,
-                candidateId: attempt.candidateId,
-            }
-            : null;
+        acquisition = composeAcquisitionReceipt(
+            observeAcquisitionNetwork(assetPrefixes, loadStart, self.performance),
+            attempt,
+        );
     } catch {
         // A receipt we could not take is ABSENT, never a zero. Telemetry must not fail a model load.
         acquisition = null;

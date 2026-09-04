@@ -47,7 +47,7 @@ function engineWithReceipt(receipt: AcquisitionReceipt | null, attempt = mintAcq
 }
 
 const WORKER_RECEIPT: AcquisitionReceipt = {
-    assetCount: 12, networkBytes: 80_553_222, downloadMs: 4200, networkUsed: true,
+    assetCount: 12, networkBytes: 80_553_222, downloadMs: 4200, networkUsed: true, outOfScopeCount: 0,
     unobservableReason: null, attemptToken: 'replaced-per-engine', candidateId: 'v2:base.en',
 };
 

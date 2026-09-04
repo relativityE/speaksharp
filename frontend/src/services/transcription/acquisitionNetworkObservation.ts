@@ -27,10 +27,19 @@ export interface AcquisitionNetworkObservation {
     networkUsed: boolean | null;
     /** Why a field is null, when it is. */
     unobservableReason: string | null;
+    /**
+     * Requests the browser made in this window that fell OUTSIDE the declared scope.
+     *
+     * A repository-scoped candidate can be redirected to a CDN whose URL no longer contains the
+     * repository id, and a loader can request files this product never pinned. Reporting the residue
+     * makes a scope that stopped matching visible as a discrepancy, instead of quietly shrinking the
+     * measured download to whatever still matched.
+     */
+    outOfScopeCount: number | null;
 }
 
 const UNOBSERVED: AcquisitionNetworkObservation = {
-    assetCount: null, networkBytes: null, downloadMs: null, networkUsed: null,
+    assetCount: null, networkBytes: null, downloadMs: null, networkUsed: null, outOfScopeCount: null,
     unobservableReason: 'Resource Timing is unavailable in this environment',
 };
 
@@ -49,7 +58,7 @@ export function observeAcquisitionNetwork(
 ): AcquisitionNetworkObservation {
     if (!perf || typeof perf.getEntriesByType !== 'function') return UNOBSERVED;
     if (prefixes.length === 0) {
-        return { ...UNOBSERVED, unobservableReason: 'no pinned asset locations are known for this candidate' };
+        return { ...UNOBSERVED, unobservableReason: 'no acquisition scope is known for this candidate' };
     }
 
     let entries: PerformanceResourceTiming[];
@@ -59,13 +68,29 @@ export function observeAcquisitionNetwork(
         return UNOBSERVED;
     }
 
-    const matched = entries.filter((e) => e.startTime >= startedAt && prefixes.some((p) => e.name.startsWith(p)));
+    const inWindow = entries.filter((e) => e.startTime >= startedAt);
+    // `includes`, not `startsWith`: a scope may be a served location OR a repository identity that
+    // appears inside the request path.
+    const matched = inWindow.filter((e) => prefixes.some((p) => e.name.includes(p)));
+    const outOfScopeCount = inWindow.length - matched.length;
+
     if (matched.length === 0) {
+        if (inWindow.length > 0) {
+            // Requests HAPPENED and none matched. Reporting zero assets here would describe a load that
+            // fetched nothing, when in fact the scope stopped matching what the loader asked for —
+            // a redirect to another host, or a request shape this scope does not describe.
+            return {
+                assetCount: null, networkBytes: null, downloadMs: null, networkUsed: null,
+                outOfScopeCount,
+                unobservableReason: 'requests were observed in this window but none matched the declared '
+                    + 'scope; the scope no longer describes what the loader requested',
+            };
+        }
         // NOT a cache hit and NOT zero bytes: a load can complete without this observation existing at
         // all, for instance from a worker whose entries live on another timeline. Saying "nothing was
         // fetched" here would be the same invention this correction removes.
         return {
-            assetCount: 0, networkBytes: null, downloadMs: null, networkUsed: null,
+            assetCount: 0, networkBytes: null, downloadMs: null, networkUsed: null, outOfScopeCount,
             unobservableReason: 'no matching resource entries were recorded for this acquisition window',
         };
     }
@@ -86,6 +111,7 @@ export function observeAcquisitionNetwork(
 
     return {
         assetCount: matched.length,
+        outOfScopeCount,
         networkBytes: sized.length === 0 ? null : transferred,
         downloadMs: Math.max(0, Math.round(lastEnd - firstStart)),
         networkUsed,

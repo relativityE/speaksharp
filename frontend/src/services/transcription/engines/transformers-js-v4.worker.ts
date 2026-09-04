@@ -1,18 +1,34 @@
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_V4, samplesToSeconds } from '../sttConstants';
 import { detectWebGPUSupport } from '../utils/webgpuSupport';
 import { V4_ANTI_LOOP_DECODE_DEFAULTS } from './whisperDecodeOptions';
+import { observeAcquisitionNetwork } from '../acquisitionNetworkObservation';
+import { composeAcquisitionReceipt, type AcquisitionReceipt } from '../acquisitionAttempt';
 
 type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers')['pipeline']>>;
 
 type WorkerRequest =
-    | { id: number; type: 'init'; isE2E: boolean; model?: string; dtype?: unknown; device?: string }
+    | {
+        id: number; type: 'init'; isE2E: boolean; model?: string; dtype?: unknown; device?: string;
+        /** #1259: what identifies this candidate's requests on the WORKER timeline. */
+        assetPrefixes?: string[];
+        /** #1259: the attempt this load belongs to, echoed back so a superseded receipt is detectable. */
+        attempt?: { token: string; candidateId: string };
+      }
     | { id: number; type: 'transcribe'; audio: Float32Array; decodeOptions?: Record<string, unknown> }
     | { id: number; type: 'destroy' };
 
 type WorkerResponse =
     | { id: number; type: 'ready' }
     | { id: number; type: 'progress'; progress: number }
-    | { id: number; type: 'loaded'; loadTimeMs: number; model: string; device: string }
+    | {
+        id: number; type: 'loaded'; loadTimeMs: number; model: string; device: string;
+        /**
+         * #1259 — MEASURED WHERE THE BYTES ARRIVE. v4 fetches its model HERE, in the worker, so these
+         * requests are recorded on the worker's timeline and `window.performance` cannot see them at
+         * all. Content-free: counts, bytes, milliseconds and booleans, never a URL or an asset name.
+         */
+        acquisition: AcquisitionReceipt | null;
+      }
     | { id: number; type: 'warmed'; warmupMs: number }
     | { id: number; type: 'result'; transcript: string; latencyMs: number; audioLengthSeconds: number; resultShape: string }
     | { id: number; type: 'destroyed' }
@@ -126,7 +142,11 @@ async function warmUp(id: number): Promise<void> {
     post({ id, type: 'warmed', warmupMs: Math.round(performance.now() - start) });
 }
 
-async function init(id: number, isE2E: boolean, modelId: string, dtype: unknown, deviceOverride?: string): Promise<void> {
+async function init(
+    id: number, isE2E: boolean, modelId: string, dtype: unknown, deviceOverride?: string,
+    assetPrefixes: string[] = [],
+    attempt?: { token: string; candidateId: string },
+): Promise<void> {
     if (transcriber) {
         post({ id, type: 'ready' });
         return;
@@ -150,12 +170,28 @@ async function init(id: number, isE2E: boolean, modelId: string, dtype: unknown,
     const loaded = await createPipeline(progress_callback, modelId, dtype, deviceOverride);
     transcriber = loaded.pipe;
     loadedModelId = modelId;
+    // Taken AFTER the load has fully settled: a resource entry is recorded when the response BODY
+    // completes, not when its headers arrive, so a mid-load reading under-reports the transfer.
+    let acquisition: AcquisitionReceipt | null = null;
+    try {
+        // NO RECEIPT WITHOUT AN IDENTITY. An observation that cannot say which attempt it describes is
+        // indistinguishable from a stale one.
+        acquisition = composeAcquisitionReceipt(
+            observeAcquisitionNetwork(assetPrefixes, loadStart, self.performance),
+            attempt,
+        );
+    } catch {
+        // A receipt we could not take is ABSENT, never a zero. Telemetry must not fail a model load.
+        acquisition = null;
+    }
+
     post({
         id,
         type: 'loaded',
         loadTimeMs: Math.round(performance.now() - loadStart),
         model: modelId,
         device: loaded.device,
+        acquisition,
     });
     try {
         await warmUp(id);
@@ -198,7 +234,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         try {
             switch (request.type) {
                 case 'init':
-                    await init(request.id, request.isE2E, request.model ?? PRIV_STT_V4.MODEL_ID, request.dtype ?? PRIV_STT_V4.DTYPE, request.device);
+                    await init(request.id, request.isE2E, request.model ?? PRIV_STT_V4.MODEL_ID, request.dtype ?? PRIV_STT_V4.DTYPE, request.device, request.assetPrefixes ?? [], request.attempt);
                     break;
                 case 'transcribe':
                     await transcribe(request.id, request.audio, request.decodeOptions);

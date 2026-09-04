@@ -59,3 +59,22 @@ export function receiptMatches(
     if (!receipt || !attempt) return false;
     return receipt.attemptToken === attempt.token && receipt.candidateId === attempt.candidateId;
 }
+
+/**
+ * Compose the receipt a worker posts back.
+ *
+ * ONE implementation for both workers, and exported so it can be executed. Inlined in each worker it
+ * was unreachable by test: dropping the identity there produced a silently null receipt that every
+ * engine-side test still passed, because they supply their own well-formed messages.
+ *
+ * NO RECEIPT WITHOUT AN IDENTITY. An observation that cannot say which attempt it describes is
+ * indistinguishable from a stale one, and the consumer would have to guess — so it is withheld
+ * entirely rather than sent anonymously.
+ */
+export function composeAcquisitionReceipt(
+    observation: AcquisitionNetworkObservation,
+    attempt: { token: string; candidateId: string } | undefined,
+): AcquisitionReceipt | null {
+    if (!attempt || !attempt.token || !attempt.candidateId) return null;
+    return { ...observation, attemptToken: attempt.token, candidateId: attempt.candidateId };
+}

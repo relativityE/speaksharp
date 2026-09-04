@@ -26,7 +26,7 @@ import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_MODELS, samplesToSeconds } from '.
 import { resolvePrivateModel, publishPrivateModelTelemetry } from '../utils/privateModelFlag';
 import workerUrl from './transformers-js.worker.ts?worker&url';
 import { TRANSFORMERS_V2_WASM_PATH_PREFIX } from './transformersV2WasmAssets';
-import { assetOriginPrefixes } from '../candidateAssetRequests';
+import { acquisitionScopeFor } from '../candidateAssetRequests';
 import { effectiveCandidate } from '../candidateSelection';
 import {
     mintAcquisitionAttempt, receiptMatches,
@@ -732,7 +732,7 @@ export class TransformersJSEngine extends STTEngine {
                 // #1259: the worker measures its OWN acquisition, because the model is fetched there and
                 // the main window's Resource Timing cannot see a worker's requests. It needs to know
                 // which requests are the model's.
-                assetPrefixes: assetOriginPrefixes(candidateForAttempt),
+                assetPrefixes: acquisitionScopeFor(candidateForAttempt),
                 attempt,
             });
         } finally {
