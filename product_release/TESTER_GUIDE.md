@@ -1,13 +1,19 @@
 **Status:** Authoritative (SSOT for the external, tester-facing beta copy)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-08-14
-**Last Verified:** 2026-08-14 — reconciled to the Private-only Open Mic and Focus Points Practice Loop, the complete 30-day trial, the $10/month continuation contract, and the page-aware Share Feedback behavior. No volatile run IDs, SHAs, or current pass/fail posture are carried here.
+**Last Reviewed:** 2026-09-04
+**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 **Applies To:** The controlled invite-only SpeakSharp beta — the copy sent to human testers (intro, invitation, walkthrough, feedback prompts).
 **Class:** Product copy (external).
 **Authority:** The source for what testers are told and asked. This is the only place external tester copy is maintained; operators send from here verbatim.
 **Not Authoritative For:** operator setup, environment rules, entitlement checks, model variants, telemetry, or the first-time-tester proof (→ `TESTER_OPERATIONS.md`); acceptance criteria and the manual hardware protocol (→ `QUALITY.md`); current gate/run status, blockers, and go/no-go (→ `RELEASE_STATUS.md`); tier/quota/billing mechanics (→ `ENTITLEMENTS_AND_BILLING.md`); dated proof artifacts (→ `EVIDENCE_INDEX.md`).
 **Supersedes:** the external (tester-facing) content of `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` (interim source; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md` §3.H).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §3.H extraction mapping; the product surfaces the copy describes (verified in `PRODUCT_REQUIREMENTS.md` / `QUALITY.md`).
+
+<!-- pm-currentization:2026-09-04 -->
+> [!CAUTION]
+> **Currentized 4 Sep 2026 — do not invite or resume external testing yet.** The latest Production test failed both journeys and only v2 was runnable. The next guide is used only after recovery deploys and Dev completes the same corpus first. User-facing expectations: pressing the mic once may prepare the private model but must begin recording automatically when ready; completed text remains readable; Focus Points feedback is honest; Session review shows **What went well** and **What to improve**; products are directly navigable; and Share feedback asks for one type plus one message. This status note is internal and must not be pasted into an invitation.
+
+<!-- /pm-currentization:2026-09-04 -->
 
 # SpeakSharp Beta Tester Guide
 
@@ -41,7 +47,7 @@ Keep this file **free of technical detail** (flags, model variants, telemetry, e
 
 SpeakSharp is a private speaking-practice coach. **Open Mic** is the simplest way to start an unstructured take. **Focus Points** is optional guidance when specific ideas must land. Every customer practice session uses Private transcription on your device; speech audio is not uploaded to a transcription provider.
 
-The complete product is **free for 30 days**, then **$10/month** to continue with the same product. There is no permanent feature-limited Free tier, and Private transcription is not a paid add-on. Nothing starts recording automatically; the tester chooses when to begin.
+The complete product is **free for 30 days**, then **$10/month** to continue with the same product. There is no permanent feature-limited Free tier, and Private transcription is not a paid add-on. The tester chooses when to begin by pressing the mic. If that press must prepare the model first, recording begins automatically when preparation completes.
 
 ---
 
@@ -84,7 +90,7 @@ What to evaluate
 - Was anything confusing or difficult to navigate?
 - What one change would make you want to return tomorrow?
 
-Share Feedback first asks whether your message is an **Issue** (something is broken or wrong) or a **Comment** (anything else you want to tell us). Choose one — it is required, and it decides how your message is routed. Share Feedback automatically records the product page you sent it from. Tell us what you were doing and what you would like us to know — a problem, a suggestion, a question, or something that worked well. For an Issue, it also helps to say what you expected and what happened instead. Your transcript and audio are not included unless you explicitly choose to share optional details. Please do not include passwords, confidential material, or other sensitive personal information.
+Share feedback asks what kind of feedback you have—Something broke, Something confused me, I have an idea, or This worked well—and gives you one message box. If something broke, you may optionally say whether it stopped you. The page and technical context are attached automatically; transcript and audio are not. Your text is preserved if an accidental close interrupts the form.
 
 The complete product is free for 30 days. You will not need a card for this test. If any page asks you to pay during this beta test, stop and report it.
 
@@ -133,7 +139,7 @@ Beta link: https://speaksharp-public.vercel.app/
 4. Repeat using the suggested next action.
 5. Try **Focus Points** if you can identify two or three ideas that should be detected.
 6. Confirm Focus Points results remain separate from Open Mic Progress.
-7. Try Share Feedback from the page you are on — send one Issue and one Comment.
+7. Try Share Feedback from the page you are on — send one short item of feedback and confirm the acknowledgement.
 8. If anything asks for payment during this beta test, stop and report it.
 
 You do not need to be polished. Natural speech is more useful for testing.
