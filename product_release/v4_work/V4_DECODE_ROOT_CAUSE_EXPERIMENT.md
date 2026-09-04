@@ -1,3 +1,8 @@
+<!-- pm-currentization:2026-09-04 -->
+> [!CAUTION]
+> **Reviewed 4 Sep 2026 — historical exploratory v4 material.** This file is preserved for provenance and must not be executed as current product/release authority. Preview/internal-build model selection, PostHog-flag targeting, two-transcript retention, and prior closure claims are superseded by the canonical root documents and issues #1259/#1258/#1390/#1404/#1407/#1386/#1263/#1304. Use canonical Production only; do not infer that historical PASS evidence qualifies the current product.
+<!-- /pm-currentization:2026-09-04 -->
+
 # v4 base-q4 decode root-cause experiment (`invalid data location: undefined for input "a"`)
 
 Owner: Dev. Purpose: isolate the root cause of the v4 decode failure surfaced by the app-path
