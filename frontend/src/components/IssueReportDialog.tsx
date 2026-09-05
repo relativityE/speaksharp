@@ -15,6 +15,13 @@ import {
   type IssueReportSeverity,
 } from '@/services/issueReportService';
 import { resolvePageContext, type PageContext } from '@/services/pageContext';
+import {
+  clearFeedbackDraft,
+  isEmptyFeedbackDraft,
+  readFeedbackDraft,
+  writeFeedbackDraft,
+  type FeedbackSeverity,
+} from '@/services/feedbackDraft';
 import { usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 
@@ -24,20 +31,6 @@ interface IssueReportDialogProps {
   sttMode?: TranscriptionMode | null;
   runtimeState?: string | null;
 }
-
-type FeedbackSeverity = 'minor' | 'slowed' | 'blocked';
-
-interface FeedbackDraft {
-  ownerId: string | null;
-  type: FeedbackType | null;
-  body: string;
-  severity: FeedbackSeverity | null;
-  savedAt: number;
-  idempotencyKey: string;
-}
-
-const DRAFT_KEY = 'feedback.draft';
-const DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const TYPE_OPTIONS: Array<{ value: FeedbackType; label: string; selectedClass: string }> = [
   { value: 'broke', label: 'Something broke', selectedClass: 'border-[#d98a1f] bg-[#fdf3e2]' },
@@ -63,36 +56,6 @@ const makeIdempotencyKey = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   const tail = `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`.slice(0, 12).padEnd(12, '0');
   return `00000000-0000-4000-8000-${tail}`;
-};
-
-const readDraft = (ownerId: string | null): FeedbackDraft | null => {
-  try {
-    const raw = sessionStorage.getItem(DRAFT_KEY);
-    if (!raw) return null;
-    const value = JSON.parse(raw) as Partial<FeedbackDraft>;
-    if ((value.ownerId ?? null) !== ownerId) {
-      sessionStorage.removeItem(DRAFT_KEY);
-      return null;
-    }
-    if (typeof value.savedAt !== 'number' || Date.now() - value.savedAt > DRAFT_MAX_AGE_MS) {
-      sessionStorage.removeItem(DRAFT_KEY);
-      return null;
-    }
-    return {
-      ownerId,
-      type: TYPE_OPTIONS.some((item) => item.value === value.type) ? value.type as FeedbackType : null,
-      body: typeof value.body === 'string' ? value.body : '',
-      severity: SEVERITY_OPTIONS.some((item) => item.value === value.severity) ? value.severity as FeedbackSeverity : null,
-      savedAt: value.savedAt,
-      idempotencyKey: typeof value.idempotencyKey === 'string' && value.idempotencyKey !== '' ? value.idempotencyKey : makeIdempotencyKey(),
-    };
-  } catch {
-    return null;
-  }
-};
-
-const clearDraft = () => {
-  try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* storage is optional */ }
 };
 
 const deriveCategory = (context: PageContext): IssueReportCategory => {
@@ -126,44 +89,71 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
   const [body, setBody] = React.useState('');
   const [severity, setSeverity] = React.useState<FeedbackSeverity | null>(null);
   const [idempotencyKey, setIdempotencyKey] = React.useState(makeIdempotencyKey);
+  const [attempted, setAttempted] = React.useState<{ key: string; signature: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [showDisclosure, setShowDisclosure] = React.useState(false);
   const typeRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
   const draftOwnerRef = React.useRef<string | null>(userId ?? null);
 
+  // What an attempt was made with. An edit is a change to this; a retry is not.
+  const draftSignature = JSON.stringify([type, body, severity]);
   const bodyCopy = type ? BODY_COPY[type] : null;
   const canSubmit = type !== null && body.trim().length > 0 && !isSubmitting;
 
   React.useEffect(() => {
-    if (!open || (type === null && body === '' && severity === null)) return;
-    try {
-      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
-        ownerId: draftOwnerRef.current,
-        type,
-        body,
-        severity,
-        savedAt: Date.now(),
-        idempotencyKey,
-      }));
-    } catch { /* draft persistence degrades safely */ }
+    // #1416 — AN EDIT AFTER A FAILED ATTEMPT IS A NEW DELIVERY, NOT A RETRY.
+    //
+    // A submission whose insert commits but whose response is lost surfaces as an error while the
+    // dialog keeps its key. If the user then rewrites what they were reporting and sends again, the
+    // key is already committed, `ON CONFLICT DO NOTHING` drops the revised payload, and the dialog
+    // reports success and clears the draft. The user watches their correction be accepted and it is
+    // never stored — the worst possible outcome, because nothing looks wrong.
+    //
+    // Sending the SAME content again is a genuine retry and must keep deduplicating, so only an
+    // actual edit rotates the identity.
+    if (attempted === null || attempted.key !== idempotencyKey) return;
+    if (attempted.signature === draftSignature) return;
+    setIdempotencyKey(makeIdempotencyKey());
+    setAttempted(null);
+    setError(null);
+  }, [attempted, draftSignature, idempotencyKey]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    // #1416 — ERASING EVERY FIELD MUST ERASE THE STORED COPY.
+    //
+    // This branch used to return without touching storage, so a user who typed a body, changed
+    // their mind and deleted it left the deleted text behind: closing and reopening restored it,
+    // and it survived in this tab for up to 24 hours. The user did the one thing that unambiguously
+    // means "I don't want this saved", and the only path that honoured it was Cancel.
+    if (isEmptyFeedbackDraft(type, body, severity)) {
+      clearFeedbackDraft();
+      return;
+    }
+    writeFeedbackDraft({
+      ownerId: draftOwnerRef.current, type, body, severity, savedAt: Date.now(), idempotencyKey,
+    });
   }, [body, idempotencyKey, open, severity, type]);
 
   React.useEffect(() => {
     const nextOwner = userId ?? null;
     if (draftOwnerRef.current === nextOwner) {
-      if (nextOwner == null) clearDraft();
+      if (nextOwner == null) clearFeedbackDraft();
       return;
     }
 
     // An auth transition retires the prior account's free-form draft even if the
     // navigation shell stays mounted. The next account must never inherit its text.
-    clearDraft();
+    // This effect covers only transitions this component is alive to see; sign-out
+    // unmounts it, so `AuthProvider` owns that path.
+    clearFeedbackDraft();
     draftOwnerRef.current = nextOwner;
     setType(null);
     setBody('');
     setSeverity(null);
     setIdempotencyKey(makeIdempotencyKey());
+    setAttempted(null);
     setError(null);
     setOpen(false);
   }, [userId]);
@@ -171,13 +161,14 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
   const handleOpenChange = (next: boolean) => {
     if (next) {
       const context = resolvePageContext(location.pathname, surface);
-      const draft = readDraft(userId ?? null);
+      const draft = readFeedbackDraft(userId ?? null);
       setPageContext(context);
       setSnapshotSessionId(deriveSessionIdFromPath(location.pathname));
       setType(draft?.type ?? null);
       setBody(draft?.body ?? '');
       setSeverity(draft?.severity ?? null);
-      setIdempotencyKey(draft?.idempotencyKey ?? makeIdempotencyKey());
+      setIdempotencyKey(draft?.idempotencyKey || makeIdempotencyKey());
+      setAttempted(null);
       setError(null);
       setShowDisclosure(false);
     }
@@ -185,11 +176,12 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
   };
 
   const cancel = () => {
-    clearDraft();
+    clearFeedbackDraft();
     setType(null);
     setBody('');
     setSeverity(null);
     setIdempotencyKey(makeIdempotencyKey());
+    setAttempted(null);
     setOpen(false);
   };
 
@@ -234,14 +226,16 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
         audioAttachmentNote: null,
         idempotencyKey,
       });
-      clearDraft();
+      clearFeedbackDraft();
       setType(null);
       setBody('');
       setSeverity(null);
       setIdempotencyKey(makeIdempotencyKey());
+      setAttempted(null);
       setOpen(false);
       toast.success('Thanks — we’ve got it.');
     } catch {
+      setAttempted({ key: idempotencyKey, signature: draftSignature });
       setError('That didn’t go through. Try again?');
     } finally {
       setIsSubmitting(false);

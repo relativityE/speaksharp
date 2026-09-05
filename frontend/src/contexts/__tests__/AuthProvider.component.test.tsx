@@ -51,6 +51,7 @@ describe('AuthProvider', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        sessionStorage.clear();
         // clearAllMocks clears call history but not implementations — restore the default so a prior
         // test's mockReturnValue(true) cannot leak a persisted-identity signal into the next test.
         analyticsMock.isIdentified.mockReturnValue(false);
@@ -382,5 +383,71 @@ describe('AuthProvider', () => {
 
         // Should now show unauthenticated
         await waitFor(() => expect(screen.getByText('Unauthenticated')).toBeInTheDocument());
+    });
+    // #1416 — the feedback draft is erased where the dialog cannot erase it.
+    //
+    // `Navigation` renders Share Feedback only while a session exists, so a revoked session or a
+    // failed refresh unmounts the dialog in the same render that clears the session. Nothing inside
+    // the component can observe that transition; without this the previous account's free-form text
+    // stays in the tab for up to 24 hours. The explicit signOut() path already wipes storage — this
+    // covers the path that never calls it.
+    const seedDraft = (ownerId: string) => {
+        sessionStorage.setItem('feedback.draft', JSON.stringify({
+            ownerId, type: 'broke', body: 'private text', severity: 'minor',
+            savedAt: Date.now(), idempotencyKey: 'k1',
+        }));
+    };
+
+    const renderWithCapturedAuthCallback = (session: unknown) => {
+        mockSupabase.auth.getSession.mockResolvedValue({ data: { session }, error: null });
+        let authStateCallback!: (event: string, session: unknown) => void;
+        mockSupabase.auth.onAuthStateChange.mockImplementation((cb: (event: string, session: unknown) => void) => {
+            authStateCallback = cb;
+            return { data: { subscription: { unsubscribe: vi.fn() } } };
+        });
+        render(
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                    <TestConsumer />
+                </AuthProvider>
+            </QueryClientProvider>
+        );
+        return () => authStateCallback;
+    };
+
+    it('#1416 erases the feedback draft when the session is revoked without an explicit sign-out', async () => {
+        const getCallback = renderWithCapturedAuthCallback({ user: { id: 'user-123' } });
+        await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-123'));
+        seedDraft('user-123');
+
+        act(() => { getCallback()('SIGNED_OUT', null); });
+
+        await waitFor(() => expect(screen.getByText('Unauthenticated')).toBeInTheDocument());
+        expect(sessionStorage.getItem('feedback.draft')).toBeNull();
+    });
+
+    it('#1416 erases the feedback draft when the signed-in account changes in the same tab', async () => {
+        const getCallback = renderWithCapturedAuthCallback({ user: { id: 'user-123' } });
+        await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-123'));
+        seedDraft('user-123');
+
+        act(() => { getCallback()('TOKEN_REFRESHED', { user: { id: 'user-456' } }); });
+
+        await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-456'));
+        expect(sessionStorage.getItem('feedback.draft')).toBeNull();
+    });
+
+    it('#1416 keeps the draft when a page load hydrates the account that wrote it', async () => {
+        // A reload is null -> A, not an identity change. `sessionStateRef` is still null when
+        // INITIAL_SESSION arrives, so a purge keyed only on "prior differs from next" fires on every
+        // boot and deletes the draft — destroying the one thing outliving the page is for.
+        seedDraft('user-123');
+        const getCallback = renderWithCapturedAuthCallback(null);
+        await waitFor(() => expect(screen.getByText('Unauthenticated')).toBeInTheDocument());
+
+        act(() => { getCallback()('INITIAL_SESSION', { user: { id: 'user-123' } }); });
+
+        await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-123'));
+        expect(sessionStorage.getItem('feedback.draft')).toContain('private text');
     });
 });

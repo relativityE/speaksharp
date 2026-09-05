@@ -7,6 +7,7 @@ import logger from '../lib/logger';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import { clearFeedbackDraft } from '@/services/feedbackDraft';
 
 /**
  * AUTHENTICATION PROVIDER
@@ -167,6 +168,24 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       (event, newSession) => {
         const timestamp = new Date().toISOString();
         const assignSession = (nextSession: Session | null) => {
+          // #1416 — ERASE THE FEEDBACK DRAFT WHERE THE DIALOG CANNOT.
+          //
+          // `Navigation` renders Share Feedback only while a session exists, so SIGNED_OUT — an
+          // explicit sign-out, a revoked session, or a failed refresh — unmounts the dialog in the
+          // same render that clears the session. No effect inside it can ever observe that
+          // transition, which left one account's free-form text in this tab's sessionStorage for up
+          // to 24 hours. Refusing to restore a mismatched owner stops the next account from READING
+          // it; only this stops it from being KEPT.
+          //
+          // This runs on any change of signed-in identity, not just sign-out, because switching
+          // accounts in one tab is the same exposure with a shorter gap.
+          //
+          // A KNOWN prior identity is required. Hydrating a session on page load goes null -> A,
+          // which is not an identity change and must not discard the draft A left before reloading;
+          // that is the whole reason the draft outlives the page.
+          const priorUserId = sessionStateRef.current?.user?.id ?? null;
+          const nextUserId = nextSession?.user?.id ?? null;
+          if (priorUserId !== null && priorUserId !== nextUserId) clearFeedbackDraft();
           sessionStateRef.current = nextSession;
           setSessionState(nextSession);
         };
@@ -266,6 +285,9 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     loading,
     signOut,
     setSession: (s: Session | null) => {
+      // Same rule as the auth-event path: a changed known identity retires the feedback draft.
+      const priorUserId = sessionStateRef.current?.user?.id ?? null;
+      if (priorUserId !== null && priorUserId !== (s?.user?.id ?? null)) clearFeedbackDraft();
       sessionStateRef.current = s;
       setSessionState(s);
     },

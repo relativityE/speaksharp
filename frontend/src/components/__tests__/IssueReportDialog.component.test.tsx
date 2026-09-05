@@ -228,4 +228,55 @@ describe('#1404 Share feedback redesign', () => {
     expect(screen.getByTestId('feedback-type-confused')).toHaveFocus();
     expect(screen.getByTestId('feedback-type-confused')).toHaveAttribute('aria-checked', 'true');
   });
+  it('#1416 erasing every field erases the stored draft', async () => {
+    // The user typed, changed their mind, and deleted it. That is the clearest possible statement
+    // that they do not want it kept — but the old guard skipped both writing AND clearing, so the
+    // deleted text came back on reopen and sat in this tab for up to 24 hours.
+    const user = await open('/session');
+    const body = screen.getByTestId('issue-report-description');
+    await user.type(body, 'Something I regret typing');
+    await waitFor(() => expect(sessionStorage.getItem('feedback.draft')).toContain('regret'));
+
+    await user.clear(body);
+    await waitFor(() => expect(sessionStorage.getItem('feedback.draft')).toBeNull());
+
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByTestId('nav-report-issue-button'));
+    expect(await screen.findByTestId('issue-report-description')).toHaveValue('');
+  });
+
+  it('#1416 editing after a failed attempt sends under a new delivery identity', async () => {
+    // The insert may have committed with the response lost. Reusing the key would let
+    // ON CONFLICT DO NOTHING silently discard the correction while the UI reports success.
+    const user = await open('/session');
+    await user.click(screen.getByTestId('feedback-type-idea'));
+    await user.type(screen.getByTestId('issue-report-description'), 'First wording.');
+
+    submit.mockRejectedValueOnce(new Error('transport lost'));
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await screen.findByText(/didn.t go through/i);
+    const firstKey = submit.mock.calls[0][0].idempotencyKey;
+
+    await user.type(screen.getByTestId('issue-report-description'), ' Corrected wording.');
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(2));
+
+    const secondCall = submit.mock.calls[1][0];
+    expect(secondCall.description).toContain('Corrected wording.');
+    expect(secondCall.idempotencyKey).not.toBe(firstKey);
+  });
+
+  it('#1416 resending the same content after a failure keeps deduplicating', async () => {
+    const user = await open('/session');
+    await user.click(screen.getByTestId('feedback-type-idea'));
+    await user.type(screen.getByTestId('issue-report-description'), 'Unchanged wording.');
+
+    submit.mockRejectedValueOnce(new Error('transport lost'));
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await screen.findByText(/didn.t go through/i);
+
+    await user.click(screen.getByTestId('issue-report-submit'));
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(2));
+    expect(submit.mock.calls[1][0].idempotencyKey).toBe(submit.mock.calls[0][0].idempotencyKey);
+  });
 });
