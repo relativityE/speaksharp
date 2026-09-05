@@ -22,9 +22,9 @@
 # "retention". A guard that cannot tell a description of a defect from the defect is not a guard.
 #
 # So state lives here, in fixed fields, and prose stays prose.
-baseline: c4665156212dd03cd6d7b91c49bed90dea868b5a
+baseline: 97f1c0b5cf9fdc3c9a28ccd5a640de432c3b158c
 deployed-release: c4665156212dd03cd6d7b91c49bed90dea868b5a
-verified-on: 2026-08-29
+verified-on: 2026-09-05
 release-blocker: model-selection
 retention-campaign: off-critical-path
 task-1304-1: merged
@@ -46,7 +46,7 @@ Four distinct identities — do not conflate them:
 
 | Identity | Value | How to verify |
 |---|---|---|
-| **Repository `main` (moving branch pointer)** | `c4665156212dd03cd6d7b91c49bed90dea868b5a` (#1413 Stage-1 observer persistence; #1414 merged the same day) at 2026-09-04 | **Moving** — verify the live pointer directly (`git rev-parse origin/main`); do not treat this SHA as fixed. |
+| **Repository `main` (moving branch pointer)** | `97f1c0b5cf9fdc3c9a28ccd5a640de432c3b158c` (#1420 reviewed MVP financial planning model) at 2026-09-05 | **Moving** — verify the live pointer directly (`git rev-parse origin/main`); do not treat this SHA as fixed. |
 | **Last product-behavior release** | `0e2fffd1` (#1366, #1360) — truthful recovery copy. It changes `SessionPage` and `UnresolvedRecoveryBanner`, both shipped, so it IS a product-behavior release. The prior one was `781e8ad6` (#1355). | Apply the criterion below; do not eyeball the PR title. |
 | **Later test/evidence commits (NOT product-behavior deployments)** | `574422ed` (#1356 scorer), `5f378898` (#1357 specs), `7db695f4` (#1346 3A), `20f3ce85` (#1362 3B), `d702d8c5`/`2f1152c0` (#1363/#1364 corpus), `069dc9e2` (#1359 retention contract) — all under `tests/**` or `scripts/**` | These change **no** deployed product behavior. |
 | **Deployed product release (verified)** | `window.__APP_RELEASE__ = c4665156212dd03cd6d7b91c49bed90dea868b5a`, read from `https://speaksharp-public.vercel.app/` on **2026-09-04**. Production == `main` HEAD at this read, but that is **not** guaranteed by auto-deploy alone: a Vercel "Ignored Build Step" can leave production behind `main`, so the deployed SHA must be **read**, not inferred. | Re-read `window.__APP_RELEASE__` from the deployed page with a cache-busting query and `Cache-Control: no-cache`, then update the value + date here. |
