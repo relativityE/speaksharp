@@ -68,7 +68,7 @@ Only `v2:base.en` was runnable. Open Mic and Focus Points both failed.
 | Provisional transcript churn was distracting | User-visible; content-safe stability telemetry was absent. |
 | Finalized transcript disappeared after save/teardown | Runtime observer saw non-empty final text become empty; reproduced in both products. |
 | Focus Points reported false negatives and miscounted retry | Final transcript contained covered material while UI reported 1/4; evaluator receipts were absent. |
-| Practice Loop was missing | No two “What went well” / two “What to improve” result appeared; request-vs-render telemetry was absent. |
+| Practice Loop was missing | Neither required result appeared: one “What went well” suggestion and one “What to improve” suggestion; request-vs-render telemetry was absent. |
 | Cross-product navigation was a dead end | No direct Products → Open Mic / Focus Points path. |
 | Share feedback could not be sent | PO entered Title twice; state disappeared and Send remained disabled. No successful submission occurred. |
 | Retention copy advertises an implementation count | Current newest-two behavior remains unchanged; customer-facing copy must describe availability and expiry without promising a numeric count. |

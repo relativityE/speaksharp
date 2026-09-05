@@ -35,7 +35,7 @@ One active implementation PR at a time unless the PO changes concurrency. A broa
 |---|---|---|---|
 | 1 | Complete Production journey observability | #1259 | Every confirmed finding maps to an authority event, positive/negative control, privacy classification, and real PostHog receipt. One governed boundary; full journey correlation. |
 | 2 | Make one-click recording and during/after session truthful | #1415 | Explicit cold intent auto-starts once; real mic waveform; red Stop; bounded provisional churn; completed transcript remains readable after teardown/reopen. |
-| 3 | Make Focus Points and Practice Loop truthful | #1407 + #1386 | Setup promise matches action; all input preserved; honest coverage; exactly two What went well + two What to improve outputs; linked retry evidence. |
+| 3 | Make Focus Points and Practice Loop truthful | #1407 + #1386 | Setup promise matches action; all input preserved; honest coverage; exactly one What went well + one What to improve output; linked retry evidence. |
 | 4 | Remove cross-page friction and replace Share feedback | #1404 | Products menu reaches Open Mic/Focus Points directly; exact accepted feedback spec; failure preserves draft; storage and acknowledgement proven. |
 | 5 | Reconcile retention copy without changing retention behavior | #1416 + #1259 | Current newest-two behavior remains unchanged; customer-facing copy states availability/expiry without a numeric count; expired Open/PDF actions remain unavailable; telemetry reports the active policy truthfully. |
 | 6 | Expose all registered candidates for controlled Production comparison | #1263 + #1304 + #1390 | v2/v4/Moonshine switch between settled takes on canonical Production; full teardown; requested==observed; PO selects and then lock/retest. |
@@ -58,7 +58,7 @@ Documentation-only currentization under #1318 may proceed independently because 
 | `SessionPage.tsx` | completed transcript disappears at teardown despite successful save | #1415 |
 | `ObjectiveSetupForm.tsx` | redundant explanation; navigation CTA says Start speaking | #1407 |
 | `FocusPointsRail.tsx` | confident “Didn’t come up” copy; retry count uses all rows | #1407 |
-| `AISuggestions.tsx`, `faqSections.ts` | old labels; missing visible 2+2 Practice Loop | #1386 |
+| `AISuggestions.tsx`, `faqSections.ts` | old labels; missing visible 1+1 Practice Loop | #1386 |
 | `IssueReportDialog.tsx` | old long form, hidden validation, lost Title state, audio-note field | #1404 |
 | `AnalyticsDashboard.tsx` | customer copy exposes an implementation count instead of availability/expiry | #1416 |
 | `Navigation.tsx` | no direct Products → Open Mic / Focus Points route | #1404 |

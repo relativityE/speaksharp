@@ -5,7 +5,7 @@
 **Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 **Applies To:** Every surface that tells a user how their practice is changing over time and what to practise next — Progress, Session review, and history.
 **Class:** Product requirement / decision.
-**Authority:** The source for what Progress means, which sessions may influence it, how direction is derived and worded, the four-suggestion Session review, selection of one next practice action, and what must never be claimed.
+**Authority:** The source for what Progress means, which sessions may influence it, how direction is derived and worded, the two-suggestion Session review, selection of one next practice action, and what must never be claimed.
 **Not Authoritative For:** STT engine behaviour, accuracy, latency and attribution mechanics (→ `STT.md`); persisted schema and retention (→ `ARCHITECTURE.md`); tier / entitlement / quota gating (→ `ENTITLEMENTS_AND_BILLING.md`); general product guarantees and copy outside this loop (→ `PRODUCT_REQUIREMENTS.md`); evidence taxonomy and test protocol (→ `QUALITY.md`); current release posture, run IDs and SHAs (→ `RELEASE_STATUS.md`); dated proof artifacts and one-off audit runs (→ `EVIDENCE_INDEX.md`); open/deferred items (→ `ROADMAP.md`).
 **Not authoritative for:** current release posture, baselines or work sequencing (→ [`RELEASE_STATUS.md`](./RELEASE_STATUS.md), [`ROADMAP.md`](./ROADMAP.md)). This file defines the Progress contract; it deliberately carries no run IDs, so a reader must not infer current status from its review date.
 
@@ -14,7 +14,7 @@
 
 <!-- pm-currentization:2026-09-04 -->
 > [!CAUTION]
-> **Currentized 4 Sep 2026 — visible Practice Loop is presently unqualified.** The 4 Sep Production test did not surface the expected AI review. For each eligible completed session, the approved Session-page output is exactly two concise **What went well** and two **What to improve** suggestions derived from the authoritative final transcript and valid metrics. Generation, rendering, selection, linked retry, and improvement verdict are distinct states. #1259 observes those states without coaching text; #1386 owns the user-visible loop and effectiveness proof.
+> **Currentized 4 Sep 2026 — visible Practice Loop is presently unqualified.** The 4 Sep Production test did not surface the expected AI review. For each eligible completed session, the approved Session-page output is exactly one concise **What went well** suggestion and one **What to improve** suggestion — two suggestions total — derived from the authoritative final transcript and valid metrics. Generation, rendering, selection, linked retry, and improvement verdict are distinct states. #1259 observes those states without coaching text; #1386 owns the user-visible loop and effectiveness proof.
 
 <!-- /pm-currentization:2026-09-04 -->
 
@@ -43,7 +43,7 @@ This document owns **the personal progress loop and the one next action**. It ro
 
 Progress is a **personal, session-over-session comparison**: this eligible session against the user's **previous comparable session** and against their **baseline**, with the observable evidence behind the movement, and **one measurable next action**.
 
-**The number is background; the review is the product.** The progress % is quiet supporting context — we never ask the user to stare at or optimise a number. What carries the value is exactly two concise **What went well** suggestions and exactly two concise **What to improve** suggestions, grounded in the authoritative final transcript and valid session metrics (§7). One improvement may then become the separately identified next practice action. **Success is the user adjusting their next session based on that guidance** — not the number moving. Surfaces must present the percentage as secondary and the review as primary.
+**The number is background; the review is the product.** The progress % is quiet supporting context — we never ask the user to stare at or optimise a number. What carries the value is exactly one concise **What went well** suggestion and exactly one concise **What to improve** suggestion, grounded in the authoritative final transcript and valid session metrics (§7). The improvement may then become the separately identified next practice action. **Success is the user adjusting their next session based on that guidance** — not the number moving. Surfaces must present the percentage as secondary and the review as primary.
 
 **Prohibited, without exception:**
 
@@ -67,9 +67,9 @@ Current eligible session
     ↓  compare with the previous comparable session and with the baseline
 Direction: moved up / moved down / no meaningful change yet
     ↓  explain the observable supporting evidence
-Four Session-review suggestions:
-    What went well       (exactly two concise phrases)
-    What to improve      (exactly two concise phrases)
+Two Session-review suggestions total:
+    What went well       (exactly one concise phrase)
+    What to improve      (exactly one concise phrase)
     ↓ select one measurable next practice action
     Practice this next
     ↓  measure it in the next comparable session
@@ -146,12 +146,12 @@ The minimum movement that counts as meaningful is a **product policy value**, se
 
 ---
 
-## 7. Exactly two suggestions per heading, then one next action
+## 7. Exactly one suggestion per heading, then one next action
 
-Each eligible saved session yields **exactly four concise AI suggestions** derived from that session's authoritative final transcript and valid metrics:
+Each eligible saved session yields **exactly two concise AI suggestions total** derived from that session's authoritative final transcript and valid metrics:
 
-1. **What went well** — exactly two supported observations. If the evidence supports no positive, use neutral factual observations; never invent praise.
-2. **What to improve** — exactly two supported, actionable observations. Never diagnose from a missing, unobservable, or invalid metric.
+1. **What went well** — exactly one supported observation. If the evidence supports no positive, use one neutral factual observation; never invent praise.
+2. **What to improve** — exactly one supported, actionable observation. Never diagnose from a missing, unobservable, or invalid metric.
 
 The groups are tethered to the **current saved session**. They are not generic encouragement, an opening verdict, or a restatement of the numerical score. Generation, persistence, and rendering are separate states; a generated response that is absent from the Session page does not satisfy this contract.
 
@@ -239,7 +239,7 @@ These are **release guardrails**: a surface that violates one is wrong and must 
 ## 9. Generation, determinism, and cost
 
 - Numerical Progress, eligibility, comparison, and next-action outcome evaluation remain deterministic and versioned.
-- The four Session-review suggestions are AI-generated from the authoritative saved transcript and valid metrics through the approved coaching-provider boundary. The UI must render exactly two under each approved heading or show an honest failure state; a missing section is never treated as success.
+- The two Session-review suggestions are AI-generated from the authoritative saved transcript and valid metrics through the approved coaching-provider boundary. The UI must render exactly one under each approved heading or show an honest failure state; a missing section is never treated as success.
 - No additional transcription is performed. Suggestion generation reads the already-saved transcript; it does not invoke a speech-to-text engine.
 - #1259 records request/completion/failure/render states and content-free identities, never suggestion text or transcript content.
 
