@@ -54,6 +54,37 @@ const renderApp = (initial: string) => render(
   </QueryClientProvider>,
 );
 
+/**
+ * #1416 — asserting a status is PERCEIVABLE at a given breakpoint, in jsdom.
+ *
+ * `toBeInTheDocument` passed while the node carried `hidden sm:inline`, which is exactly how the
+ * mobile defect survived: the element existed, and on a phone nobody could read it.
+ *
+ * `toBeVisible` alone would not have caught it either. jsdom loads no stylesheet, so a Tailwind
+ * `hidden` class has no computed effect here and every element reports itself visible. Anything
+ * relying on computed display is measuring the absence of CSS, not the product.
+ *
+ * So the breakpoint is asserted as the class contract that decides it — honestly, and stated as
+ * such — alongside the accessibility exposure that carries the message. A responsive utility that
+ * hides the node at the tested width fails the first check; a node that is present but unnamed
+ * fails the second.
+ */
+const expectPerceivableAtMobileWidth = (element: HTMLElement, message: RegExp) => {
+  const classes = element.className.split(/\s+/).filter(Boolean);
+  // `hidden` with no unprefixed counterpart means "display:none until some breakpoint".
+  expect(classes, 'status must not be display:none at the base (mobile-first) breakpoint')
+    .not.toContain('hidden');
+  // And nothing may re-hide it below a breakpoint either.
+  expect(classes.filter((c) => /^(max-)?(sm|md|lg|xl|2xl):hidden$/.test(c)))
+    .toEqual([]);
+  // Exposed as a live region carrying the message. `status` is not a name-from-content role, so a
+  // screen reader announces this element's CONTENT when it appears — that is what must be asserted,
+  // not an accessible name it never has.
+  expect(element).toHaveAttribute('role', 'status');
+  expect(element).toHaveTextContent(message);
+  expect(element).toBeVisible();
+};
+
 describe('#1416 product switching from the session route', () => {
   beforeEach(() => {
     useSessionStore.getState().resetSession();
@@ -115,8 +146,12 @@ describe('#1416 product switching from the session route', () => {
       expect(brief?.points).toEqual(['Name the price', 'State the guarantee']);
       expect(brief?.topic).toBe('Pitch');
 
-      // The switch is pending, not silent: a control that appears to do nothing is its own defect.
-      expect(await screen.findByTestId('nav-open-mic-pending')).toBeInTheDocument();
+      // The switch is pending, not silent: a control that appears to do nothing is its own defect —
+      // and least forgivably so on the phone, where there is least room to work out what happened.
+      expectPerceivableAtMobileWidth(
+        await screen.findByTestId('nav-open-mic-pending'),
+        /Open Mic starts after this take/,
+      );
     });
 
     it('applies the switch once the take settles, without a second click', async () => {

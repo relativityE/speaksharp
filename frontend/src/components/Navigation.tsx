@@ -282,7 +282,19 @@ const Navigation = () => {
                     <span
                       role="status"
                       data-testid="nav-open-mic-pending"
-                      className="hidden text-xs font-semibold text-[#5b6472] sm:inline"
+                      /*
+                        #1416 — VISIBLE ON THE PHONE, WHICH IS WHERE THE SWITCH IS HARDEST TO READ.
+                        This carried `hidden sm:inline`, so below 640px the deferred switch was
+                        announced to nobody: the mobile user tapped Open Mic, the take correctly
+                        stayed Focus Points, and the control appeared to do nothing — the exact
+                        confusion deferring was meant to prevent, now silent on the surface with the
+                        least room for the user to work it out.
+                        It sits in the header actions row, which is the one strip that is always
+                        present on a session route and never overlaps the mic card, transcript or
+                        Stop control below it. It shrinks rather than hides, and `max-w` keeps it
+                        from crowding the actions beside it at 320px.
+                      */
+                      className="inline max-w-[9.5rem] truncate text-[11px] font-semibold leading-tight text-[#5b6472] sm:max-w-none sm:text-xs"
                     >
                       Open Mic starts after this take
                     </span>
