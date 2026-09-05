@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NAV_ITEM_ACTIVE_CLASS, NAV_ITEM_BASE_CLASS } from '@/config/navSections';
-import { render, screen, fireEvent, waitFor } from '../../../tests/support/test-utils';
+import { render, screen, fireEvent, waitFor, act } from '../../../tests/support/test-utils';
 import userEvent from '@testing-library/user-event';
 import Navigation from '../Navigation';
 import * as AuthProvider from '../../contexts/AuthProvider';
@@ -673,6 +673,60 @@ describe('Navigation', () => {
 
             expect(screen.getByRole('navigation', { name: 'Primary mobile' })).toBeInTheDocument();
             expect(screen.queryByTestId('nav-mobile-products-button')).not.toBeInTheDocument();
+        });
+    });
+    // #1416 — a motion preference that changes AFTER mount must take effect without a reload.
+    //
+    // The reveal lives in the Share Feedback dialog, which lives in `Navigation` — mounted for the
+    // whole session. Reading `prefers-reduced-motion` once at mount looked harmless because a dialog
+    // is short lived, but the subscription's owner is not: someone who turns reduce-motion on, in OS
+    // settings or because a vestibular symptom just started, would keep getting animation until they
+    // reloaded the page. That is the moment the setting matters most.
+    describe('#1416 reduced motion follows the current preference', () => {
+        const authedUser = () => mockUseAuthProvider.mockReturnValue({
+            session: { user: { id: 'test-user' } },
+            signOut: mockSignOut,
+        } as unknown as AuthProvider.AuthContextType);
+
+        it('a false -> true change gives a 0ms reveal, and Navigation is never remounted', async () => {
+            const listeners = new Set<() => void>();
+            let reduced = false;
+            const originalMatchMedia = window.matchMedia;
+            window.matchMedia = ((query: string) => ({
+                get matches() { return query.includes('prefers-reduced-motion') && reduced; },
+                media: query,
+                onchange: null,
+                addEventListener: (_: string, cb: () => void) => { listeners.add(cb); },
+                removeEventListener: (_: string, cb: () => void) => { listeners.delete(cb); },
+                addListener: (cb: () => void) => { listeners.add(cb); },
+                removeListener: (cb: () => void) => { listeners.delete(cb); },
+                dispatchEvent: () => true,
+            })) as unknown as typeof window.matchMedia;
+
+            try {
+                authedUser();
+                const user = userEvent.setup();
+                renderNavigation('/practice');
+                await user.click(screen.getByTestId('nav-report-issue-button'));
+
+                const reveal = await screen.findByTestId('issue-report-severity-reveal');
+                expect(reveal).toHaveAttribute('data-reveal-ms', '160');
+
+                // Identity of a node OUTSIDE the dialog. If Navigation remounted to pick the change
+                // up, this node would be replaced — and the user's open dialog and typed draft would
+                // go with it.
+                const navBefore = screen.getByTestId('nav-report-issue-button');
+
+                reduced = true;
+                await act(async () => { listeners.forEach((cb) => cb()); });
+
+                expect(screen.getByTestId('issue-report-severity-reveal')).toHaveAttribute('data-reveal-ms', '0');
+                expect(screen.getByTestId('nav-report-issue-button')).toBe(navBefore);
+                // The dialog is still open: the preference changed, the user's place did not.
+                expect(screen.getByTestId('issue-report-description')).toBeInTheDocument();
+            } finally {
+                window.matchMedia = originalMatchMedia;
+            }
         });
     });
 });

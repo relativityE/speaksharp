@@ -435,6 +435,40 @@ describe('#1404 Share feedback redesign', () => {
       expect(title.startsWith('a'.repeat(79))).toBe(true);
     });
 
+    it('never derives an EMPTY title from an oversized leading grapheme', async () => {
+      // A single cluster can be arbitrarily long. Keeping only whole clusters means a body that opens
+      // with one produces an empty title, and `length(btrim(title)) BETWEEN 1 AND 80` rejects the
+      // insert — the user is told it was sent and it never lands, triggered by the first character
+      // they typed.
+      const oversized = `A${'\u0301'.repeat(200)}`; // one grapheme, 201 code points
+      const user = await open('/session');
+      await user.click(screen.getByTestId('feedback-type-confused'));
+      await user.type(screen.getByTestId('issue-report-description'), `${oversized} tail`);
+      await user.click(screen.getByTestId('issue-report-submit'));
+      await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+
+      const title = submittedTitle();
+      expect(title.trim().length).toBeGreaterThan(0);
+      expect(Array.from(title).length).toBeLessThanOrEqual(80);
+      expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(title)).toBe(false);
+      expect(new TextDecoder().decode(new TextEncoder().encode(title))).toBe(title);
+    });
+
+    it('does not truncate mid-cluster when a WHOLE grapheme still fits', async () => {
+      // The oversized path is a floor, not the rule: as long as something was kept, the boundary unit
+      // is dropped rather than cut, so a combining mark is never separated from its base needlessly.
+      const body = `${'b'.repeat(78)}A\u0301\u0302\u0303 and more.`;
+      const user = await open('/session');
+      await user.click(screen.getByTestId('feedback-type-confused'));
+      await user.type(screen.getByTestId('issue-report-description'), body);
+      await user.click(screen.getByTestId('issue-report-submit'));
+      await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+
+      const title = submittedTitle();
+      expect(title).toBe('b'.repeat(78));
+      expect(Array.from(title).length).toBeLessThanOrEqual(80);
+    });
+
     it('keeps a whole emoji when it fits', async () => {
       const user = await open('/session');
       await user.click(screen.getByTestId('feedback-type-praise'));

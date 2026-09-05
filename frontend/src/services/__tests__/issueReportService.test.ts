@@ -55,6 +55,31 @@ describe('#1416 the browser version must belong to the classified browser', () =
     expect(meta.browserVersion).not.toBe('120');
   });
 
+  it('classifies Android Edge from EdgA/ and takes ITS version, not Chrome/', () => {
+    // Mobile Edge announces itself last and only after the engine it is compatible with. Recognising
+    // only `Edg/` reported Android Edge as Chrome, with Chrome's version — so the two platforms where
+    // a browser-specific defect is most likely to differ were the two the data could not tell apart.
+    withUserAgent('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) '
+      + 'Chrome/120.0.0.0 Mobile Safari/537.36 EdgA/121.0.2277.83');
+
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Edge');
+    expect(meta.browserVersion).toBe('121');
+    expect(meta.browserVersion).not.toBe('120');
+  });
+
+  it('classifies iOS Edge from EdgiOS/ ahead of the CriOS and Version tokens beside it', () => {
+    withUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 '
+      + '(KHTML, like Gecko) CriOS/120.0.6099.119 Version/17.0 EdgiOS/121.0.2277.83 Mobile/15E148 Safari/605.1.15');
+
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Edge');
+    // Three different versions are present on purpose: Edge's must win over both compatibility tokens.
+    expect(meta.browserVersion).toBe('121');
+    expect(meta.browserVersion).not.toBe('120');
+    expect(meta.browserVersion).not.toBe('17');
+  });
+
   it('reads Chrome from Chrome/ when no Edge token is present', () => {
     withUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
       + 'Chrome/120.0.0.0 Safari/537.36');

@@ -82,6 +82,29 @@ const deriveCategory = (context: PageContext): IssueReportCategory => {
  * the constraint counts: one family emoji is a single grapheme but several code points, and
  * truncating to 80 graphemes could exceed the column.
  */
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
+
+const getReducedMotion = (): boolean => (
+  typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia(REDUCED_MOTION_QUERY).matches
+);
+
+/** No motion preference exists before hydration; assume the animated default and correct on mount. */
+const getReducedMotionServer = (): boolean => false;
+
+const subscribeReducedMotion = (onChange: () => void): (() => void) => {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => { /* no media support */ };
+  const query = window.matchMedia(REDUCED_MOTION_QUERY);
+  if (typeof query.addEventListener === 'function') {
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }
+  // Safari before 14 only has the deprecated listener API.
+  query.addListener(onChange);
+  return () => query.removeListener(onChange);
+};
+
 /** The approved reveal duration for the conditional severity row. */
 export const SEVERITY_REVEAL_MS = 160;
 
@@ -103,7 +126,22 @@ const truncateToCodePoints = (value: string, max: number): string => {
   let codePoints = 0;
   for (const unit of units) {
     const size = Array.from(unit).length;
-    if (codePoints + size > max) break;
+    if (codePoints + size > max) {
+      // #1416 — A WHOLE GRAPHEME IS PREFERRED, NOT GUARANTEED.
+      //
+      // Keeping only whole clusters silently assumes every cluster fits. A single cluster can be
+      // arbitrarily long — a ZWJ sequence, or text with many combining marks — so a body that opens
+      // with one produces an EMPTY title, and `length(btrim(title)) BETWEEN 1 AND 80` rejects the
+      // insert. The user is told their report was sent and it never lands, and the trigger is the
+      // first character they typed.
+      //
+      // So when nothing has been kept yet, the oversized unit is cut by CODE POINT to fill the
+      // budget. That can split a cluster — a combining mark may be separated from its base — but it
+      // cannot split a surrogate pair, so the result is still valid Unicode and still submittable.
+      // A slightly malformed title beats a report that silently disappears.
+      if (out === '') out = Array.from(unit).slice(0, max).join('');
+      break;
+    }
     out += unit;
     codePoints += size;
   }
@@ -169,13 +207,15 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
   const severityRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
   const draftOwnerRef = React.useRef<string | null>(userId ?? null);
 
-  // #1416 — the reveal honours the user's motion preference. Read once per mount: a dialog is short
-  // lived, and re-reading it mid-interaction would change the animation under the user.
-  const prefersReducedMotion = React.useMemo(() => (
-    typeof window !== 'undefined'
-      && typeof window.matchMedia === 'function'
-      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  ), []);
+  // #1416 — the reveal follows the CURRENT motion preference, not the one that happened to be set
+  // when this component mounted. Reading it once looks harmless because a dialog is short lived, but
+  // the dialog lives inside `Navigation`, which is mounted for the whole session: someone who turns
+  // reduce-motion on — in OS settings, or because a vestibular symptom just started — would keep
+  // getting animation until they reloaded the page. Subscribing costs one listener and removes the
+  // reload.
+  const prefersReducedMotion = React.useSyncExternalStore(
+    subscribeReducedMotion, getReducedMotion, getReducedMotionServer,
+  );
   const revealMs = prefersReducedMotion ? 0 : SEVERITY_REVEAL_MS;
   const severityRevealed = type === 'broke';
   const severityIndex = SEVERITY_OPTIONS.findIndex((option) => option.value === severity);

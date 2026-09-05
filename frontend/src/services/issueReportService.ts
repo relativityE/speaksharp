@@ -119,16 +119,33 @@ export interface SubmitIssueReportInput {
  * Safari reads `Version/`, not `Safari/`: the latter is the WebKit build number, not the browser's.
  */
 const BROWSER_VERSION_TOKENS: Readonly<Record<string, readonly RegExp[]>> = Object.freeze({
-  Edge: [/\bEdg\/(\d+)/],
+  // Edge ships three names for the same browser: `Edg/` on desktop, `EdgA/` on Android, `EdgiOS/`
+  // on iOS. All three must be recognised, and all three must be tried BEFORE the compatibility
+  // tokens beside them — see EDGE_TOKEN below.
+  Edge: [/\bEdg(?:A|iOS)?\/(\d+)/],
   Firefox: [/\bFirefox\/(\d+)/, /\bFxiOS\/(\d+)/],
   Chrome: [/\bCriOS\/(\d+)/, /\bChrome\/(\d+)/],
   Safari: [/\bVersion\/(\d+)/],
 });
 
+/**
+ * Edge announces itself LAST and only after the engine it is compatible with, on every platform:
+ *
+ *   desktop  ...Chrome/120.0.0.0 Safari/537.36 Edg/121.0.2277.83
+ *   Android  ...Chrome/120.0.0.0 Mobile Safari/537.36 EdgA/121.0.2277.83
+ *   iOS      ...CriOS/120.0.0.0 Version/17.0 ... EdgiOS/121.0.2277.83 ... Safari/605.1.15
+ *
+ * So Edge has to be tested first in the classification chain as well as in version extraction. Only
+ * `Edg/` was recognised, which meant mobile Edge was reported as Chrome — with Chrome's version —
+ * and the two platforms where a browser-specific defect is most likely to differ were the two the
+ * data could not distinguish.
+ */
+const EDGE_TOKEN = /\bEdg(?:A|iOS)?\//;
+
 const parseCoarseClientInfo = (): Pick<IssueReportMetadata, 'browser' | 'browserVersion' | 'os'> => {
   if (typeof navigator === 'undefined') return {};
   const ua = navigator.userAgent;
-  const browser = ua.includes('Edg/') ? 'Edge'
+  const browser = EDGE_TOKEN.test(ua) ? 'Edge'
     : ua.includes('Firefox/') || ua.includes('FxiOS/') ? 'Firefox'
       : ua.includes('Chrome/') || ua.includes('CriOS/') ? 'Chrome'
         : ua.includes('Safari/') ? 'Safari'
