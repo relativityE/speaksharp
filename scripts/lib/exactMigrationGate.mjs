@@ -77,6 +77,18 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         classification: 'staged',
     }),
     Object.freeze({
+        // #1416 — Share Feedback storage contract. Placed BEFORE the held commercial-activation entry,
+        // which must remain last. Like #1306 its version is chronologically later than that entry's
+        // (20260812...), which the allowlist explicitly permits: this array encodes operational
+        // prerequisite order, not chronology. The frontend Share Feedback change cannot merge or deploy
+        // ahead of this schema, because the redesigned form's ON CONFLICT delivery has nowhere to land
+        // without the unconditional unique index this migration creates.
+        version: '20260904150000',
+        file: '20260904150000_share_feedback_redesign.sql',
+        sha256: '44057e35557e69109e702e0d75d8d5244567a77558bfebd60a5cacd98079398c',
+        classification: 'staged',
+    }),
+    Object.freeze({
         version: '20260812042000',
         file: '20260812042000_trial_activation_stamp_1282.sql',
         sha256: '41f10614d396769f49236cb355205e80122a969d1784f803d5b127ab8e5cb181',
@@ -465,6 +477,7 @@ export function assertNoNewLint(beforeOutput, afterOutput) {
 export const TARGET_POSTFLIGHT_GATES = Object.freeze([
     Object.freeze({ id: 'postflight_1314', targetFile: '20260819120000_complete_session_v2_atomic_retention_1314' }),
     Object.freeze({ id: 'postflight_1306', targetFile: '20260829120000_retire_complete_session_v1_1306' }),
+    Object.freeze({ id: 'postflight_1416', targetFile: '20260904150000_share_feedback_redesign' }),
 ]);
 
 /**

@@ -79,4 +79,106 @@ describe('#1404 Share feedback storage contract', () => {
       metadata: { feedback_kind: 'comment', feedback_type: 'confused', feedback_severity: null },
     })).rejects.toThrow();
   });
+  // #1416 findings 7 and 8 — the pairing is one contract, and the database is where it holds.
+  //
+  // The application boundary derives feedback_type, feedback_kind and severity together, so any
+  // other writer — a direct authenticated insert, a future client, a support tool — can produce a
+  // record the product could never have made. Previously only `severity` was validated, so a
+  // mismatched pair or a `broke` report routed as a comment was accepted and silently corrupted the
+  // issue/comment routing this migration exists to preserve.
+  const id = (n: number) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, '0')}`;
+
+  describe('#1416 exact severity pairs', () => {
+    it.each([
+      ['minor', 'low'],
+      ['slowed', 'medium'],
+      ['blocked', 'high'],
+    ])('accepts the exact pair %s -> %s', async (feedback_severity, severity) => {
+      await expect(insert({
+        id: id(100 + severity.length),
+        severity,
+        metadata: { feedback_kind: 'issue', feedback_type: 'broke', feedback_severity },
+      })).resolves.toBeDefined();
+    });
+
+    it.each([
+      ['minor', 'high'],
+      ['minor', 'medium'],
+      ['slowed', 'low'],
+      ['slowed', 'high'],
+      ['blocked', 'low'],
+      ['blocked', 'medium'],
+    ])('rejects the mismatched pair %s -> %s', async (feedback_severity, severity) => {
+      await expect(insert({
+        id: id(200 + feedback_severity.length * 10 + severity.length),
+        severity,
+        metadata: { feedback_kind: 'issue', feedback_type: 'broke', feedback_severity },
+      })).rejects.toThrow();
+    });
+
+    it('rejects an unrecognised plain-language severity rather than passing on a NULL comparison', async () => {
+      await expect(insert({
+        id: id(300),
+        severity: 'high',
+        metadata: { feedback_kind: 'issue', feedback_type: 'broke', feedback_severity: 'catastrophic' },
+      })).rejects.toThrow();
+    });
+
+    it('rejects a broke report whose plain-language severity key is absent entirely', async () => {
+      // An unsatisfiable CHECK expression evaluates to NULL, which Postgres ACCEPTS. Without the
+      // explicit coalesce this row is stored with a ranked severity nobody chose.
+      await expect(insert({
+        id: id(301),
+        severity: 'high',
+        metadata: { feedback_kind: 'issue', feedback_type: 'broke' },
+      })).rejects.toThrow();
+    });
+  });
+
+  describe('#1416 exact type/kind pairs', () => {
+    it.each(['confused', 'idea', 'praise'])('rejects %s stored as an issue', async (feedback_type) => {
+      await expect(insert({
+        id: id(400 + feedback_type.length),
+        metadata: { feedback_kind: 'issue', feedback_type, feedback_severity: null },
+      })).rejects.toThrow();
+    });
+
+    it('rejects a broke report stored as a comment', async () => {
+      await expect(insert({
+        id: id(500),
+        metadata: { feedback_kind: 'comment', feedback_type: 'broke', feedback_severity: null },
+      })).rejects.toThrow();
+    });
+
+    it('rejects the contradictory record the finding names exactly', async () => {
+      await expect(insert({
+        id: id(501),
+        metadata: { feedback_type: 'praise', feedback_kind: 'issue', feedback_severity: null },
+      })).rejects.toThrow();
+    });
+
+    it('rejects a claimed type outside the four the product offers', async () => {
+      await expect(insert({
+        id: id(502),
+        metadata: { feedback_kind: 'comment', feedback_type: 'rant', feedback_severity: null },
+      })).rejects.toThrow();
+    });
+
+    it('rejects a typed record with no kind at all', async () => {
+      await expect(insert({
+        id: id(503),
+        metadata: { feedback_type: 'idea', feedback_severity: null },
+      })).rejects.toThrow();
+    });
+
+    it('still accepts a pre-redesign record that carries no feedback_type', async () => {
+      // Adding the constraint validates the existing table. Legacy rows must keep their original
+      // rule or the migration fails on apply against real data.
+      await expect(insert({
+        id: id(600),
+        severity: 'medium',
+        metadata: { feedback_kind: 'issue' },
+      })).resolves.toBeDefined();
+    });
+  });
 });
