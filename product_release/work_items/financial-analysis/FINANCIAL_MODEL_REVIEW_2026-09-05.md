@@ -3,7 +3,7 @@
 **Status:** Unvalidated financial-planning artifact  
 **As of:** 2026-09-05  
 **Workbook:** `SpeakSharp_Updated_Financial_Model_2026-09-05.xlsx`  
-**SHA-256:** `40bad1b2082ddbaa41b4d4edb0c5041b038b2e1572c66c41bbcfc438a8f7454c`
+**SHA-256:** `290f9b05a4c6a1123a60ce70df427b2ed632043b886c59c7512e23614043fcce`
 
 This workbook is an unvalidated planning forecast, not retained evidence, a product promise,
 release-status authority, or authorization to activate billing. Trial volume, conversion,
