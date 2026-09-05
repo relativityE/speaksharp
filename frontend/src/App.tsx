@@ -12,7 +12,7 @@ import { ProfileGuard } from './components/ProfileGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { StaleChunkBootClear } from '@/components/StaleChunkBootClear';
 import SttIdentityBadge from '@/components/SttIdentityBadge';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { PageTransition } from './components/ui/PageTransition';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { useCriticalQueries } from './hooks/useCriticalQueries';
@@ -362,8 +362,44 @@ const App: React.FC = () => {
               {/* Inside Suspense: mounts only once a lazy route chunk resolves → clears the stale-chunk
                   recovery guard on a genuinely successful post-reload boot (not a frame-count heuristic). */}
               <StaleChunkBootClear />
-              <AnimatePresence mode="wait">
-                <Routes location={location} key={location.pathname}>
+              {/* #1416 — NO `mode="wait"` HERE.
+                  `mode="wait"` holds the outgoing route mounted until its exit animation completes
+                  before it will mount the incoming one. Every route below is `React.lazy`, so the
+                  incoming route SUSPENDS, and a suspension unmounts the subtree the exit animation
+                  was running in. The exit therefore never completes, the incoming route is never
+                  mounted, and the user is left looking at the page they navigated away from.
+                  It does not surface as an error: the URL changes, the destination's effects can even
+                  run before it is torn down, and nothing is logged. `/session` → Products → Focus
+                  Points reached `/practice`, stripped its own `?product=` parameter — proving
+                  PracticePage mounted — and still showed the Session page.
+                  `popLayout` rather than the plain default: the default keeps the OUTGOING route in
+                  normal layout flow while it animates out, so for ~300ms after a navigation two page
+                  subtrees stack in the same container. `session-shell-responsive`, which measures
+                  slot geometry immediately after navigating, caught that intermittently — passing
+                  twice and failing twice on this branch while `main` stayed green. `popLayout` pops
+                  the exiting subtree out of flow, so the incoming page lays out alone from its first
+                  frame, and it still does not gate mounting on an exit that suspension prevents. */}
+              {/* #1416 P2-2 — the immediate child must be able to RECEIVE A REF.
+                  `popLayout` works by cloning its immediate child with a composed ref, measuring
+                  that node, and taking it out of flow with absolute positioning. React Router's
+                  `<Routes>` is a plain function component and forwards no ref, so the measurement
+                  target was null and nothing was ever popped — the mode was declared and inert.
+                  My own test did not catch it because it asserted only that the destination mounts,
+                  which was true either way.
+                  A keyed `motion.div` owns the route subtree instead: it is a real DOM node, it
+                  carries the location key so presence tracks navigation, and it is what gets popped
+                  out of flow while the incoming route lays out alone. */}
+              <AnimatePresence mode="popLayout">
+                <motion.div
+                  key={location.pathname}
+                  data-testid="route-presence-child"
+                  className="w-full"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2, ease: 'easeInOut' }}
+                >
+                <Routes location={location}>
                   {/* #1061: ONE canonical auth-aware page. Authenticated → redirect to /practice; anonymous
                       → render the SAME PracticePage (marketing + product choices, no session history). */}
                   <Route path="/" element={<AuthAwareRoot><PageTransition><PracticePage /></PageTransition></AuthAwareRoot>} />
@@ -419,6 +455,7 @@ const App: React.FC = () => {
                   } />
                   <Route path="*" element={<PageTransition><NotFoundPage /></PageTransition>} />
                 </Routes>
+                </motion.div>
               </AnimatePresence>
             </Suspense>
           </ErrorBoundary>

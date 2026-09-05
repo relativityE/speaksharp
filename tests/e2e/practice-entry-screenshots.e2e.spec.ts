@@ -24,15 +24,6 @@ const DESKTOP = { width: 1280, height: 900 };
 const MOBILE = { width: 390, height: 844 };
 const TRACKING_HOSTS = ['posthog.com', 'i.posthog.com', 'sentry.io', 'google-analytics.com', 'googletagmanager.com', 'doubleclick.net'];
 
-// Surface-specific issue-area option values (mirrors services/pageContext). #1042 PR3 removed the
-// freeform_practice_overview surface, so /practice now has two surfaces.
-const AREAS = {
-  practice_home: ['understanding_choices', 'navigation', 'visual_layout', 'other'],
-  // #1294: Focus Points is activated — the setup surface has NO "availability" area.
-  objective_setup: ['product_clarity', 'navigation', 'visual_layout', 'other'],
-  session: ['session_mode', 'mic_start', 'recording', 'transcription', 'feedback', 'save', 'other'],
-};
-
 async function enterPractice(page: Page) {
   await navigateToRoute(page, '/practice'); // /practice is the plain authenticated landing (no gate)
   await expectOnChooser(page);
@@ -59,15 +50,73 @@ async function expectOnChooser(page: Page) {
 
 // Open the GLOBAL Report Issue dialog, assert the visible page label + surface issue areas, then close it
 // WITHOUT submitting (Escape).
-async function assertReport(page: Page, expectedLabel: string | RegExp, expectedAreas: readonly string[]) {
+// #1416 — the redesign removed the Title field and the issue-area selector, so the old locators
+// asserted controls a CORRECT product no longer renders. The page-awareness assertion is what these
+// specs exist to prove and is carried over unchanged; the area assertion is not, because the product
+// deliberately stopped asking the user to classify where they are.
+//
+// `shotName`, when given, captures the OPEN dialog. These are the visual artifacts for the
+// redesigned Share Feedback modal.
+async function assertReport(page: Page, expectedLabel: string | RegExp, shotName?: string) {
   await page.getByTestId('nav-report-issue-button').click();
-  await expect(page.getByTestId('issue-report-title')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('issue-report-description')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('issue-report-feedback-kind')).toBeVisible();
   await expect(page.getByTestId('issue-report-page-context')).toContainText(expectedLabel);
-  const areas = await page.getByTestId('issue-report-area').locator('option')
-    .evaluateAll((opts) => opts.map((o) => (o as HTMLOptionElement).value));
-  expect(areas).toEqual([...expectedAreas]);
+  // Two questions and nothing else: no Title, no area selector, no category, no audio checkbox.
+  for (const removed of ['issue-report-title', 'issue-report-area', 'issue-report-category', 'issue-report-include-audio']) {
+    await expect(page.getByTestId(removed)).toHaveCount(0);
+  }
+  if (shotName) {
+    // Start from an empty form. An earlier capture in this same spec leaves a draft behind on
+    // Escape — deliberately, that is the preserved-draft contract — and a restored draft legitimately
+    // enables Send. Asserting "disabled" without clearing tests the previous test's leftovers.
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByTestId('nav-report-issue-button').click();
+    await expect(page.getByTestId('issue-report-description')).toBeVisible();
+    await expect(page.getByTestId('issue-report-description')).toHaveValue('');
+    await expect(page.getByTestId('issue-report-submit')).toBeDisabled();
+    await page.screenshot({ path: `${DIR}/${shotName}-collapsed.png` });
+    await page.getByRole('button', { name: "What's included" }).click();
+    await expect(page.getByTestId('issue-report-disclosure')).toBeVisible();
+    await page.screenshot({ path: `${DIR}/${shotName}-disclosure.png` });
+    // Send becomes available on a type plus a non-empty body, and on nothing else.
+    await page.getByTestId('feedback-type-broke').click();
+    await expect(page.getByTestId('issue-report-submit')).toBeDisabled();
+    await page.getByTestId('issue-report-description').fill('The saved session did not open from History.');
+    await expect(page.getByTestId('issue-report-submit')).toBeEnabled();
+    await page.screenshot({ path: `${DIR}/${shotName}-ready-to-send.png` });
+    // Cancel, not Escape: leave no draft for the next capture to inherit.
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByTestId('issue-report-description')).toHaveCount(0);
+    return;
+  }
   await page.keyboard.press('Escape');
-  await expect(page.getByTestId('issue-report-title')).toHaveCount(0);
+  await expect(page.getByTestId('issue-report-description')).toHaveCount(0);
+}
+
+/**
+ * #1416 — the screenshot captures start from a CLEARED form on purpose. That isolation must not be
+ * mistaken for, or quietly become, a change to the product: closing with Escape or ✕ keeps the
+ * user's draft, and only Cancel discards it. This asserts the real contract in the same browser the
+ * captures run in, so the isolation cannot hide a regression in the behaviour it works around.
+ */
+async function assertDraftContract(page: Page) {
+  await page.getByTestId('nav-report-issue-button').click();
+  await page.getByTestId('feedback-type-idea').click();
+  await page.getByTestId('issue-report-description').fill('A half-written thought.');
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('issue-report-description')).toHaveCount(0);
+  await page.getByTestId('nav-report-issue-button').click();
+  // Escape PRESERVES. Losing a half-written report because the dialog closed is the failure this
+  // guards against.
+  await expect(page.getByTestId('issue-report-description')).toHaveValue('A half-written thought.');
+
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByTestId('nav-report-issue-button').click();
+  // Cancel DISCARDS — the one action that unambiguously says "throw this away".
+  await expect(page.getByTestId('issue-report-description')).toHaveValue('');
+  await page.getByRole('button', { name: 'Cancel' }).click();
 }
 
 test.describe('Practice landing — default entry, Objective unavailable, surface-aware Report Issue', () => {
@@ -99,7 +148,7 @@ test.describe('Practice landing — default entry, Objective unavailable, surfac
     // #1042 PR3: Freeform ("Open Mic") CTA is "Start your session"; the legacy overview CTAs are gone.
     await expect(page.getByTestId('practice-card-freeform')).toHaveAccessibleName(/start your session/i);
     await expect(page.getByRole('button', { name: /open practice session|start speaking/i })).toHaveCount(0);
-    await assertReport(page, 'SpeakSharp Practice', AREAS.practice_home);
+    await assertReport(page, 'SpeakSharp Practice', 'share-feedback-practice');
 
     // === FOCUS POINTS ACTIVATED (#1046 slice 5b) — the Objective card opens the real capture dialog ===
     const guidedCta = page.getByTestId('practice-card-objective');
@@ -119,7 +168,7 @@ test.describe('Practice landing — default entry, Objective unavailable, surfac
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('objective-setup-dialog')).toHaveCount(0);
     // Focus Points is no longer a separate reportable surface — a report on the chooser is the home surface.
-    await assertReport(page, 'SpeakSharp Practice', AREAS.practice_home);
+    await assertReport(page, 'SpeakSharp Practice');
 
     // Keyboard focus on the Freeform CTA.
     const freeformCta = page.getByTestId('practice-card-freeform');
@@ -148,7 +197,8 @@ test.describe('Practice landing — default entry, Objective unavailable, surfac
     // (#1222: start/stop split; recording state is on the shell, not a data-recording button attribute).
     await expect(page.getByTestId(TEST_IDS.MIC_START)).toBeVisible({ timeout: 20000 });
     await expect(page.getByTestId(TEST_IDS.SESSION_SHELL)).toHaveAttribute('data-session-state', 'before');
-    await assertReport(page, 'Session · Speaking', AREAS.session);
+    await assertReport(page, 'Session · Speaking', 'share-feedback-session');
+    await assertDraftContract(page);
 
     // CDP assertions: clean, self-contained page throughout.
     expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);

@@ -1,16 +1,22 @@
 **Status:** Authoritative (SSOT for personal session-over-session Progress and the single next practice action)
 **Owner:** Product Owner (relativityE)
 
-**Last Reviewed:** 2026-08-29
-**Last Verified:** 2026-08-29 — the previous-comparable comparison, persisted evaluations, immutable recommendations, explicit acceptance attempts and server-derived directional outcomes are implemented and wired through the save journey and `ProgressPanel`. This proves mechanism, not customer retention or causal coaching efficacy.
+**Last Reviewed:** 2026-09-04
+**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 **Applies To:** Every surface that tells a user how their practice is changing over time and what to practise next — Progress, Session review, and history.
 **Class:** Product requirement / decision.
-**Authority:** The source for what Progress means, which sessions may influence it, how direction is derived and worded, the exactly-two-takeaway output contract (of which exactly one is an action), and what must never be claimed.
+**Authority:** The source for what Progress means, which sessions may influence it, how direction is derived and worded, the two-suggestion Session review, selection of one next practice action, and what must never be claimed.
 **Not Authoritative For:** STT engine behaviour, accuracy, latency and attribution mechanics (→ `STT.md`); persisted schema and retention (→ `ARCHITECTURE.md`); tier / entitlement / quota gating (→ `ENTITLEMENTS_AND_BILLING.md`); general product guarantees and copy outside this loop (→ `PRODUCT_REQUIREMENTS.md`); evidence taxonomy and test protocol (→ `QUALITY.md`); current release posture, run IDs and SHAs (→ `RELEASE_STATUS.md`); dated proof artifacts and one-off audit runs (→ `EVIDENCE_INDEX.md`); open/deferred items (→ `ROADMAP.md`).
 **Not authoritative for:** current release posture, baselines or work sequencing (→ [`RELEASE_STATUS.md`](./RELEASE_STATUS.md), [`ROADMAP.md`](./ROADMAP.md)). This file defines the Progress contract; it deliberately carries no run IDs, so a reader must not infer current status from its review date.
 
 **Supersedes:** the planned canonical destination formerly named `COACHING_SCORE.md` (never created) and the Personal-Progress direction in `SPEAKSHARP_SESSION_PROGRESS.operational.md` (interim source; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` extraction mapping; the code paths cited inline; #1045 Product-Owner decisions.
+
+<!-- pm-currentization:2026-09-04 -->
+> [!CAUTION]
+> **Currentized 4 Sep 2026 — visible Practice Loop is presently unqualified.** The 4 Sep Production test did not surface the expected AI review. For each eligible completed session, the approved Session-page output is exactly one concise **What went well** suggestion and one **What to improve** suggestion — two suggestions total — derived from the authoritative final transcript and valid metrics. Generation, rendering, selection, linked retry, and improvement verdict are distinct states. #1259 observes those states without coaching text; #1386 owns the user-visible loop and effectiveness proof.
+
+<!-- /pm-currentization:2026-09-04 -->
 
 # SpeakSharp Progress and Next Action (v1)
 
@@ -37,7 +43,7 @@ This document owns **the personal progress loop and the one next action**. It ro
 
 Progress is a **personal, session-over-session comparison**: this eligible session against the user's **previous comparable session** and against their **baseline**, with the observable evidence behind the movement, and **one measurable next action**.
 
-**The number is background; the two takeaways are the product (PO 2026-08-08).** The progress % is quiet supporting context — we never ask the user to stare at or optimise a number. What carries the value is the **two takeaways** ("What worked" ≤6 words / "Try next" ≤8 words, §7), intensely grounded in *that user's own session signals*. **Success is the user adjusting their next session based on that guidance** — not the number moving. Surfaces must present the % as secondary and the takeaways as primary. The v1 aggregate signal set + rollout live in **#1206**.
+**The number is background; the review is the product.** The progress % is quiet supporting context — we never ask the user to stare at or optimise a number. What carries the value is exactly one concise **What went well** suggestion and exactly one concise **What to improve** suggestion, grounded in the authoritative final transcript and valid session metrics (§7). The improvement may then become the separately identified next practice action. **Success is the user adjusting their next session based on that guidance** — not the number moving. Surfaces must present the percentage as secondary and the review as primary.
 
 **Prohibited, without exception:**
 
@@ -61,9 +67,11 @@ Current eligible session
     ↓  compare with the previous comparable session and with the baseline
 Direction: moved up / moved down / no meaningful change yet
     ↓  explain the observable supporting evidence
-Exactly two takeaways:
-    What worked          (≤ 6 words, not an action)
-    Practice this next   (≤ 8 words, THE action -- structured, measurable target)
+Two Session-review suggestions total:
+    What went well       (exactly one concise phrase)
+    What to improve      (exactly one concise phrase)
+    ↓ select one measurable next practice action
+    Practice this next
     ↓  measure it in the next comparable session
 ```
 
@@ -138,22 +146,21 @@ The minimum movement that counts as meaningful is a **product policy value**, se
 
 ---
 
-## 7. Exactly two takeaways — one of which is the action
+## 7. Exactly one suggestion per heading, then one next action
 
-Each eligible session yields **exactly two takeaways**, and **exactly one of them is an action**. This is the same contract `#1047-A` (Session review) implements; the two authorities must not diverge.
+Each eligible saved session yields **exactly two concise AI suggestions total** derived from that session's authoritative final transcript and valid metrics:
 
-1. **What worked** — the strongest *valid* positive from the current session. **Maximum 6 words.** Not an action.
-   **Non-positive fallback (required).** A session can satisfy every §4 eligibility condition while having **no valid positive** — every measured metric declined or sat outside its healthy band. The three rules "exactly two takeaways", "strongest valid positive" and "never fabricate a positive" would otherwise be unsatisfiable together, so this case is resolved explicitly: the first takeaway falls back to a **neutral factual observation** about the current session (for example a steady measured value, or the honest evidence state), stated without praise and without implying improvement. **It is never omitted, and a positive is never invented.**
-2. **Practice this next** — the single next action. **Maximum 8 words.** Carries a **structured, measurable target** into the following session.
+1. **What went well** — exactly one supported observation. If the evidence supports no positive, use one neutral factual observation; never invent praise.
+2. **What to improve** — exactly one supported, actionable observation. Never diagnose from a missing, unobservable, or invalid metric.
 
-No third takeaway. No opening verdict sentence. Both are tethered to the **current** saved session; history supplies comparison context separately and never becomes a takeaway.
+The groups are tethered to the **current saved session**. They are not generic encouragement, an opening verdict, or a restatement of the numerical score. Generation, persistence, and rendering are separate states; a generated response that is absent from the Session page does not satisfy this contract.
 
-The action is selected **deterministically** and:
+One improvement is selected separately as **Practice this next**, carrying a structured, measurable target into the following comparable session. The action selection:
 
 - Selection weighs evidence validity, reliability, whether the difference is meaningful, and user actionability — **not** simply the largest raw gap.
 - The action is **measurable**: it names a metric, a direction, and a target value.
 - If evidence is insufficient, the honest evidence state plus one data-collection action is shown. **Never a fabricated positive.**
-- Wording is **deterministic** in v1. No AI generation participates in selection or phrasing (§9).
+- never treats generation, display, or a page view as proof that the user selected or attempted it.
 
 ---
 
@@ -229,10 +236,12 @@ The legacy 0–10 score is retired, but several of its **safeguards were sound a
 These are **release guardrails**: a surface that violates one is wrong and must be corrected, exactly as the precedence reminder above requires.
 
 
-## 9. Determinism and cost
+## 9. Generation, determinism, and cost
 
-- **Selection and wording are deterministic in v1.** **Zero AI-generation calls** are made for Progress or the next action. AI phrasing may be reconsidered later only behind an explicit user action, the appropriate entitlement and consent, and an atomic persisted request lock — an idempotency key alone does not prevent concurrent duplicate provider calls.
-- **Zero incremental Cloud transcription.** Progress reads persisted evidence and, where a value must be recomputed, uses only local text operations on the stored transcript. No transcription engine is invoked by Progress.
+- Numerical Progress, eligibility, comparison, and next-action outcome evaluation remain deterministic and versioned.
+- The two Session-review suggestions are AI-generated from the authoritative saved transcript and valid metrics through the approved coaching-provider boundary. The UI must render exactly one under each approved heading or show an honest failure state; a missing section is never treated as success.
+- No additional transcription is performed. Suggestion generation reads the already-saved transcript; it does not invoke a speech-to-text engine.
+- #1259 records request/completion/failure/render states and content-free identities, never suggestion text or transcript content.
 
 ---
 

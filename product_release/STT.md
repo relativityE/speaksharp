@@ -1,13 +1,19 @@
 **Status:** Authoritative (SSOT for STT runtime and data contracts, baselines, accuracy, and SLOs)
 **Owner:** Engineering / Product Owner (relativityE)
-**Last Reviewed:** 2026-08-29
-**Last Verified:** 2026-08-29 — contract reconciled to the certified benchmark pipeline merged through #1368. The frozen selection run is still in progress; this document defines the evidence that must exist before a down-select may be recorded.
+**Last Reviewed:** 2026-09-04
+**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 **Applies To:** Customer Private STT, the internal deterministic E2E hook, and the inactive Private v4 candidate.
 **Class:** Runtime and data contract.
 **Authority:** STT audio route, lifecycle, attribution, failure behavior, metric validity, and evidence requirements.
 **Not Authoritative For:** customer product copy (→ `PRODUCT_REQUIREMENTS.md`); commercial access mechanics (→ `ENTITLEMENTS_AND_BILLING.md`); persistence and retention (→ `ARCHITECTURE.md`); deployed status (→ `RELEASE_STATUS.md`).
 **Supersedes:** Earlier Browser/Cloud customer-engine maps, sample eligibility, and multi-engine selector requirements in this file.
 **Evidence Sources:** `tests/STT_BENCHMARKS.json`; permanent model-evaluation history at [`evidence/stt/README.md`](./evidence/stt/README.md); current `frontend/src/services/transcription/` implementation and tests; issue #1033 single-producer decision; #1044 v4 HOLD decision; qualification artifacts indexed by `EVIDENCE_INDEX.md`.
+
+<!-- pm-currentization:2026-09-04 -->
+> [!CAUTION]
+> **Currentized 4 Sep 2026 — v2 is deployed, not selected.** The Production test exercised only `v2:base.en` and failed both product journeys; it did not qualify a primary or fallback. v2, v4, and Moonshine must be comparable on the canonical Production app through controlled runtime configuration between settled takes—never a Preview or `VITE_INTERNAL_BUILD` variant. The explicit first mic intent survives cold acquisition and starts recording exactly once on ready; navigation alone never starts the mic. Model selection weights disfluency preservation and coaching truth, Focus Points usefulness, stability, latency, accuracy, and recovery—not WER alone. Every row requires immutable requested/observed identity and #1259 acquisition/journey receipts.
+
+<!-- /pm-currentization:2026-09-04 -->
 
 # SpeakSharp STT Contract
 
@@ -22,8 +28,9 @@ No numeric target in this document is a customer promise. Release claims require
 | Surface | Internal token | Product role | Customer availability |
 |---|---|---|---|
 | **Private** | `private`, persisted `private_v2[:model]` | On-device customer transcription | The only customer engine for active-trial and paid users |
-| **Native test hook** | `native` | Deterministic isolated E2E fixture | Never a customer choice, entitlement, or production fallback |
-| **Private v4** | `private_v4` | Internal WebGPU research candidate | OFF; never user-selectable |
+| **Native test hook** | `native` | Deterministic isolated E2E fixture | Never a customer choice, entitlement, Production comparison candidate, or fallback |
+| **Private v4** | `private_v4` | Registered comparison candidate | Operator-selectable between settled Production test takes; never customer UI |
+| **Moonshine** | registered candidate identity | Registered comparison candidate | Operator-selectable between settled Production test takes; never customer UI |
 
 Legacy Cloud/provider code and tokens confer no customer entitlement. Provider token endpoints must fail closed and must not call the provider for customer requests.
 

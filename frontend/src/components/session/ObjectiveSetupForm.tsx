@@ -165,12 +165,8 @@ export function ObjectiveSetupForm({
             <h2 className="text-2xl font-extrabold tracking-[-0.025em] text-foreground">
                 Set your {PRODUCT_NAMES.objective}
             </h2>
-            <p className="mt-1 text-[15px] leading-snug text-foreground/70">
-                Name what you’re rehearsing, then list the points you want to cover. After you record,
-                each one is marked covered or not detected.
-            </p>
 
-            <div className="mt-6">
+            <div className="mt-5">
                 <Label htmlFor="objective-goal" className="text-[13px] font-bold text-foreground">
                     What are you rehearsing?
                 </Label>
@@ -302,7 +298,7 @@ export function ObjectiveSetupForm({
             >
                 {submitting
                     ? <><Loader2 className="h-[18px] w-[18px] animate-spin" aria-hidden="true" /> Saving…</>
-                    : <>Start speaking <ArrowRight className="h-[18px] w-[18px]" aria-hidden="true" /></>}
+                    : <>Proceed to session <ArrowRight className="h-[18px] w-[18px]" aria-hidden="true" /></>}
             </Button>
         </form>
     );

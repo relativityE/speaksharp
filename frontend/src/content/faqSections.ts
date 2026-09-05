@@ -64,7 +64,7 @@ export const FAQ_SECTIONS: readonly FaqSection[] = [
                 answer: [
                     'Session progress is one percentage built — in the open — from four signals we measure in your own session: filler rate (filler words per minute), clarity, speaking pace (words per minute), and pause rhythm. Nothing hidden feeds it.',
                     'Combining these four levels out the natural swing of any single one, so the number is steadier and harder to game. It compares this session with your previous session — a personal, session-over-session read, never a grade or a comparison with other people.',
-                    'The number is deliberately in the background. What matters most is the two takeaways — what worked and what to try next — drawn straight from what you actually did this session. Acting on those next time is the real goal.',
+                    'The number stays in the background. What matters most is the review: what went well and what to improve, drawn from what you actually did this session. Acting on one improvement next time is the real goal.',
                 ],
             },
             {

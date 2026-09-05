@@ -21,6 +21,8 @@ describe('RecorderBar (#1222 slot A during)', () => {
         expect(screen.getByTestId('recorder-timer')).toHaveTextContent('01:12');
         expect(screen.getByTestId('recorder-waveform')).toBeInTheDocument();
         expect(screen.getByTestId('recorder-device')).toHaveTextContent('Built-in Mic');
+        expect(screen.getByTestId('recorder-stop')).toHaveAccessibleName('Stop recording');
+        expect(screen.getByTestId('recorder-stop')).toHaveClass('h-[58px]', 'w-[58px]', 'rounded-full', 'bg-[#d13c25]');
     });
 
     it('Stop fires the handler', () => {

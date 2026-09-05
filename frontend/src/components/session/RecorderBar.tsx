@@ -5,7 +5,7 @@ import { formatTimer } from '@/utils/sessionFormat';
 /**
  * #1222 slot A (during) — the mic card collapsed to a recorder bar (spec §4). Same slot as the `before`
  * mic card; it does not move, it resizes. Left→right: `● RECORDING` · timer (30px/800 tabular-nums) ·
- * waveform · device name · `■ Stop` on a `#241503` fill.
+ * waveform · device name · conventional red Stop control with a white rounded square.
  *
  * Presentational: `elapsedSeconds`, `amplitudes`/`recordedCount` and the stop handler come from the
  * container. Format the timer as mm:ss.
@@ -46,9 +46,10 @@ export const RecorderBar: React.FC<RecorderBarProps> = ({ elapsedSeconds, amplit
                 type="button"
                 onClick={onStop}
                 data-testid="recorder-stop"
-                className="flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-[#241503] px-3 py-2 text-[13px] font-bold text-white hover:opacity-90"
+                aria-label="Stop recording"
+                className="grid h-[58px] w-[58px] shrink-0 place-items-center rounded-full bg-[#d13c25] text-white shadow-sm transition-transform hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d13c25] focus-visible:ring-offset-2"
             >
-                <span aria-hidden="true">■</span> Stop
+                <span aria-hidden="true" className="h-[18px] w-[18px] rounded-[3px] bg-white" />
             </button>
         </div>
     );

@@ -1,13 +1,19 @@
 **Status:** Authoritative (SSOT for quality evidence taxonomy, engineering test protocol, general SLOs, and the RC test inventory)
 **Owner:** Engineering / Quality (relativityE)
-**Last Reviewed:** 2026-07-30
-**Last Verified:** 2026-07-30 — consolidated from approved interim sources (`SOFTWARE_QUALITY.operational.md`, `QUALITY_METRICS.md`, general parts of `SERVICE_LEVELS.operational.md`, `RC_TEST_INVENTORY.md`, and the engineering parts of `INTERNAL_TEST_PROTOCOL.md` / `MANUAL_HARDWARE_VALIDATION.md`). No volatile run IDs, SHAs, or current pass/fail posture are carried here — those live only in `RELEASE_STATUS.md`.
+**Last Reviewed:** 2026-09-04
+**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 **Applies To:** The SpeakSharp beta platform — how software quality is measured, what evidence closes it, and which tests count for a controlled tester release.
 **Class:** Procedure / SLO.
 **Authority:** The source for the evidence chain, quality evidence sources & targets, general (non-STT) service-level objectives, the RC test inventory and gate map, engineering acceptance criteria, the manual hardware-validation protocol, and interpretation/closure rules.
 **Not Authoritative For:** current release/go-no-go posture, run IDs & SHAs (→ `RELEASE_STATUS.md`); the gate *definitions* and release workflow (→ `RELEASE_PROCESS.md`); STT-specific baselines, accuracy, latency & STT SLOs (→ `STT.md`); env/secrets/security controls (→ `OPERATIONS_AND_SECURITY.md`); tester-facing copy (→ `TESTER_GUIDE.md`); internal tester administration & run logs (→ `TESTER_OPERATIONS.md`); dated proof artifacts (→ `EVIDENCE_INDEX.md`); tier/entitlement mechanics (→ `ENTITLEMENTS_AND_BILLING.md`).
 **Supersedes:** `SOFTWARE_QUALITY.operational.md`, `QUALITY_METRICS.md`, the general (non-STT) content of `SERVICE_LEVELS.operational.md`, and `RC_TEST_INVENTORY.md` (interim sources; archived at documentation closeout per `DOC_MIGRATION_LEDGER.md`).
 **Evidence Sources:** `DOC_MIGRATION_LEDGER.md` §3.E extraction mapping; the CI workflows and `frontend/`/`backend/`/`tests/` paths cited inline; CI-generated evidence under `product_release/evidence/` (indexed by `EVIDENCE_INDEX.md`).
+
+<!-- pm-currentization:2026-09-04 -->
+> [!CAUTION]
+> **Currentized 4 Sep 2026.** Green mechanism/unit suites did not protect the real user experience. Release evidence now requires real-model corpus boundaries, assertions on what the user can read and do after settlement, labelled Focus Points recall/precision evidence, double/concrete-class conformance, and real PostHog receipts correlated across each Production journey. Injected transcripts, store attributes, source assertions, HTTP 200s, and installed hooks are supporting evidence only; none proves that the model preserved the signal, the UI remained readable, or the event crossed the governed boundary.
+
+<!-- /pm-currentization:2026-09-04 -->
 
 # SpeakSharp Quality (v1)
 
@@ -158,31 +164,13 @@ Stress/endurance artifacts should include: concurrency tested; success/failure c
 
 **Request-failure classification.** `pass` = functional journey + memory + backend stress + required artifacts passed (known read-only teardown aborts may be recorded under `ignoredRequestFailures[]`). `fail` = a product/system target failed (auth, recording start, token issuance, quota, save/write path, unexpected 4xx/5xx, memory target, backend target, artifact parseability). `invalid` = environment/tooling prevented trustworthy measurement (EPERM bind, missing secrets, sandbox launch failure) — cannot close an RC gate. A request abort may be ignored **only** when `errorText` is `net::ERR_ABORTED` and one of: (a) it is an **allowlisted read/poll** endpoint (session-history / usage-poll / filler-words) aborted in any phase **except active recording before the functional proof** — an abort during active recording stays critical; or (b) it is a **dev-server module/asset fetch** on localhost (`/src/`, `/@vite/`, `/@id/`, `/@fs/`, `/assets/`, `/@react-refresh`, `.vite`), a harness artifact absent from production builds. Any non-abort error, any aborted write/non-read, and any abort of an unlisted endpoint remain critical; it is never auth/token/checkout/STT-critical/session-save/other write path.
 
-### Launch telemetry — Practice Loop funnel & Private signals (#1259)
+### Production journey observability (#1259)
 
-Launch decisions use clean, privacy-safe product signals, never stale test traffic or speech content. The funnel is measured with existing content-free events (mechanism counters/enums only) emitted through `AnalyticsBuffer`, never PostHog directly.
+#1259 is reopened. One governed content-safe boundary must reconstruct each Open Mic and Focus Points journey with a `journey_id`, ordered authority timestamps, release/schema identity, and attempt identity where relevant. Required families cover intent/preparation, recording control, Focus transition, interim stability, transcript authority, coverage, Practice Loop, completion/navigation, Share feedback, current newest-two retention, runtime downselection, acquisition, and observer integrity.
 
-**Practice Loop funnel:** `practice_entry_viewed` → `practice_mode_selected` (`quick`/`objective`) → `freeform_practice_started` / `session_started` → `session_saved` (the finalize/save success signal). There is no dedicated `session_save_failed` event today; save failure is the `session_started`-without-`session_saved` drop-off (surfaced to the user as an actionable retry). A content-free `session_save_failed` (bounded `error_code`) is a recommended follow-on if a direct save-failure SLO is required.
+Real PostHog readback is required per family. Positive transport controls prove only transport; negative controls must show each failure reason is distinguishable. Direct PostHog side channels, content-bearing properties, raw identities, and inference from UI text are prohibited. Controlled PO/Dev test traffic must be distinguishable from ordinary customer traffic without a separate build or URL.
 
-**Private engineering signals** (`privateTelemetry.ts`, allowlisted): `private_setup_started` → `private_setup_succeeded` / `private_setup_failed`, plus bounded `private_error` and `report_issue_submitted`. Recording completion remains represented by the content-free Practice/session funnel rather than sample-specific lifecycle events.
-
-**Launch SLOs & alert thresholds** (internal launch-health signals on the sanitized baseline; distinct from the reliability SLOs above and from STT WER/latency in `STT.md`; alerts page on two consecutive breached windows):
-
-| Signal | SLO target | Alert threshold |
-|---|---|---|
-| Practice-start → save conversion | ≥ 70% of `session_started` reach `session_saved` | < 55% |
-| Private setup success | ≥ 95% of `_setup_started` reach `_setup_succeeded` | < 90% |
-| Private start/save success | ≥ 98% of entitled recording starts reach `session_saved` | < 95% |
-| Private error rate | ≤ 2% of Private sessions emit `private_error` | > 5% |
-| Funnel-entry health | `practice_entry_viewed` non-zero per active day | zero for a full active day |
-
-**Content-free contract (privacy).** Redaction is layered, and each channel re-projects at its actual send boundary: (1) emitter allowlists (`practiceTelemetry.ts`, `privateTelemetry.ts`) project payloads to enumerated non-PII primitives; transcript, audio, email, free-form title/agenda, and arbitrary fields are dropped; (2) Private events are re-projected through `sanitizePrivateTelemetryProps` immediately before `posthog.capture`, while general events are redacted again by `AnalyticsBuffer`. A caller cannot smuggle non-allowlisted content by assembling props outside the emitter.
-
-**Identity (accurate two-path reality).** The **client** identifies the person to PostHog by their Supabase **auth UUID** — a random, non-PII account identifier, never an email or name. The **server-side analytics worker** additionally uses a keyed HMAC pseudonym (`usr_v1_<HMAC(user_id)>`, `tst_v1_` for automated traffic) so no raw id appears in server-emitted events; a browser bundle cannot hold that HMAC secret, so the client does not (and cannot) reproduce the server pseudonym. No event property carries an email, name, transcript, or audio. Enforced by `tests/release/launch-telemetry-content-free.contract.test.ts` (the #1259 falsification evidence).
-
-**Authorization-gated (NOT part of the telemetry-definition change).** These need separate Product Owner authorization and PostHog operations: purge/segment synthetic-tester & legacy-Basic production data out of the measurement baseline (a production data mutation); record the fresh post-cleanup baseline timestamp/SHA; capture PostHog dashboard/alert screenshots on sanitized data. Until that authorized cleanup runs, the baseline is contaminated by test traffic and must not back launch-readiness claims.
-
----
+The 4 Sep session proved some legacy events existed—setup timing, session start/save, model arm, filler/clarity values—but could not explain transcript disappearance, coverage, Practice Loop, navigation, provisional churn, or form validity. Those are mandatory gaps, not optional analytics.
 
 ## 6. Test inventory & gate map (engineering test protocol)
 
