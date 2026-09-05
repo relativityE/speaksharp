@@ -89,10 +89,10 @@ def main() -> int:
         "cases": cases,
     }
     goldens_out.parent.mkdir(parents=True, exist_ok=True)
-    goldens_out.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"wrote {len(cases)} goldens from {ORACLE_CLASS} @ {upstream_sha[:12]}")
+    with goldens_out.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
