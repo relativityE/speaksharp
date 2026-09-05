@@ -9,6 +9,9 @@ import Navigation from '../Navigation';
 import * as AuthProvider from '../../contexts/AuthProvider';
 import { issueReportService } from '@/services/issueReportService';
 import { useSessionStore } from '@/stores/useSessionStore';
+import { PracticeSurfaceProvider, usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
+import type { PracticeSurface } from '@/services/pageContext';
+import React from 'react';
 
 // Mock modules
 vi.mock('../../contexts/AuthProvider');
@@ -590,6 +593,86 @@ describe('Navigation', () => {
             renderNavigation('/');
 
             expect(screen.getByTestId('nav-upgrade-button')).toBeInTheDocument();
+        });
+    });
+    // #1416 — Products, the brief, and the phone.
+    //
+    // Open Mic and Focus Points are two products on one route. `SessionPage` distinguishes them by
+    // `Boolean(activeObjectiveBrief)`, so navigation that only changes the URL changes nothing, and
+    // navigation state derived only from the URL describes the wrong product.
+    describe('#1416 product navigation', () => {
+        const authedUser = () => mockUseAuthProvider.mockReturnValue({
+            session: { user: { id: 'test-user' } },
+            signOut: mockSignOut,
+        } as unknown as AuthProvider.AuthContextType);
+
+        const BRIEF = { projectId: 'p1', briefId: 'b1', points: ['one', 'two'], topic: 'Demo' };
+
+        const WithSurface: React.FC<{ surface: PracticeSurface | null }> = ({ surface }) => {
+            const { setSurface } = usePracticeSurface();
+            React.useEffect(() => { setSurface(surface); }, [setSurface, surface]);
+            return <Navigation />;
+        };
+
+        const renderWithSurface = (route: string, surface: PracticeSurface | null) => render(
+            <PracticeSurfaceProvider><WithSurface surface={surface} /></PracticeSurfaceProvider>,
+            { route },
+        );
+
+        it('selecting Open Mic retires the active Focus Points brief', async () => {
+            authedUser();
+            useSessionStore.getState().setActiveObjectiveBrief(BRIEF);
+            const user = userEvent.setup();
+            renderNavigation('/session');
+
+            await user.click(screen.getByTestId('nav-products-button'));
+            await user.click(await screen.findByTestId('nav-products-open-mic'));
+
+            // Without this the link navigates to the route the user is already on, the brief
+            // survives, and SessionPage keeps rendering Focus Points.
+            expect(useSessionStore.getState().activeObjectiveBrief).toBeNull();
+        });
+
+        it('marks Products current for Focus Points and stops Home claiming the page', () => {
+            authedUser();
+            // PracticePage opens the setup modal and immediately strips its own ?product= parameter,
+            // so the route is plain /practice for the whole Focus Points flow.
+            renderWithSurface('/practice', 'objective_setup');
+
+            expect(screen.getByTestId('nav-products-button')).toHaveAttribute('aria-current', 'page');
+            expect(screen.getByTestId('nav-home-link')).not.toHaveAttribute('aria-current');
+        });
+
+        it('keeps Home current on the practice home surface', () => {
+            authedUser();
+            renderWithSurface('/practice', 'practice_home');
+
+            expect(screen.getByTestId('nav-home-link')).toHaveAttribute('aria-current', 'page');
+            expect(screen.getByTestId('nav-products-button')).not.toHaveAttribute('aria-current');
+        });
+
+        it('offers a mobile product switch on session routes, where the bottom bar is suppressed', async () => {
+            authedUser();
+            const user = userEvent.setup();
+            renderNavigation('/session');
+
+            // The bottom bar is removed on /session so it cannot cover the recording UI, and the
+            // desktop Products menu is hidden below lg. Without this control a phone user who
+            // entered Open Mic could only reach Focus Points by going back through Home.
+            expect(screen.queryByRole('navigation', { name: 'Primary mobile' })).not.toBeInTheDocument();
+
+            await user.click(screen.getByTestId('nav-mobile-products-button'));
+            expect(await screen.findByTestId('nav-mobile-products-focus-points'))
+                .toHaveAttribute('href', '/practice?product=focus-points');
+            expect(screen.getByTestId('nav-mobile-products-open-mic')).toHaveAttribute('href', '/session');
+        });
+
+        it('does not duplicate the product switch where the bottom bar already carries it', () => {
+            authedUser();
+            renderNavigation('/practice');
+
+            expect(screen.getByRole('navigation', { name: 'Primary mobile' })).toBeInTheDocument();
+            expect(screen.queryByTestId('nav-mobile-products-button')).not.toBeInTheDocument();
         });
     });
 });

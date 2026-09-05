@@ -21,6 +21,7 @@ import { IssueReportDialog } from "@/components/IssueReportDialog";
 import { FaqMenu } from "@/components/faq/FaqMenu";
 import { toast } from '@/lib/toast';
 import { useSessionStore } from "@/stores/useSessionStore";
+import { usePracticeSurface } from "@/components/practice/PracticeSurfaceContext";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +39,16 @@ const Navigation = () => {
   // or audio. Product analytics receives only content-free feedback state through the governed boundary.
   const reportSttMode = useSessionStore(state => state.sttMode);
   const reportRuntimeState = useSessionStore(state => state.runtimeState);
+  // #1416 — WHICH PRODUCT IS OPEN IS NOT THE SAME QUESTION AS WHICH ROUTE IS OPEN.
+  //
+  // Open Mic and Focus Points share `/session`; `SessionPage` tells them apart by
+  // `Boolean(activeObjectiveBrief)`, and `/practice` runs Focus Points setup in a modal after
+  // stripping its own `?product=` parameter. So route alone answers neither "is a product current"
+  // (Products stayed unhighlighted through the whole Focus Points flow, with Home lit instead) nor
+  // "did selecting Open Mic change anything" (it navigated to the route the user was already on).
+  const activeObjectiveBrief = useSessionStore(state => state.activeObjectiveBrief);
+  const setActiveObjectiveBrief = useSessionStore(state => state.setActiveObjectiveBrief);
+  const { surface: practiceSurface } = usePracticeSurface();
   const [isUpgrading, setIsUpgrading] = useState(false);
   const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
   // A confirmed paid Pro (profile says 'pro' AND carries Stripe/subscription evidence) must never be
@@ -97,7 +108,7 @@ const Navigation = () => {
     >
       <div className="flex justify-around items-center">
         {NAV_SECTIONS.filter((item) => item.id !== 'session').map((item) => {
-          const isActive = activeSectionId === item.id;
+          const isActive = activeSectionId === item.id && !isFocusPointsActive;
           return (
             <Button
               key={item.id}
@@ -115,13 +126,13 @@ const Navigation = () => {
           );
         })}
         <Button variant="ghost" size="sm" asChild className="flex h-16 flex-col">
-          <Link to="/session" data-testid="nav-mobile-open-mic-link">
+          <Link to="/session" data-testid="nav-mobile-open-mic-link" onClick={selectOpenMic} aria-current={isOpenMicActive ? 'page' : undefined}>
             <Mic className="mb-1 h-5 w-5" aria-hidden="true" />
             <span className="text-xs">Open Mic</span>
           </Link>
         </Button>
         <Button variant="ghost" size="sm" asChild className="flex h-16 flex-col">
-          <Link to="/practice?product=focus-points" data-testid="nav-mobile-focus-points-link">
+          <Link to="/practice?product=focus-points" data-testid="nav-mobile-focus-points-link" aria-current={isFocusPointsActive ? 'page' : undefined}>
             <Target className="mb-1 h-5 w-5" aria-hidden="true" />
             <span className="text-xs">Focus Points</span>
           </Link>
@@ -130,6 +141,17 @@ const Navigation = () => {
     </nav>
   );
 
+
+  const isOnSessionRoute = activeSectionId === 'session';
+  const isFocusPointsActive = practiceSurface === 'objective_setup'
+    || (isOnSessionRoute && Boolean(activeObjectiveBrief));
+  const isOpenMicActive = isOnSessionRoute && !activeObjectiveBrief;
+  const isProductActive = isFocusPointsActive || isOpenMicActive;
+
+  // Choosing Open Mic must actually leave Focus Points. The brief outlives both same-route
+  // navigation and remounts, so without retiring it the user lands back in the product they just
+  // asked to leave — and nothing on screen explains why.
+  const selectOpenMic = () => { setActiveObjectiveBrief(null); };
 
   const isFreeUser = Boolean(session && !hasActiveProductAccess);
   // These route checks used raw pathname comparisons, which disagreed with the router:
@@ -173,7 +195,7 @@ const Navigation = () => {
             {session && (
               <nav aria-label="Primary" className="hidden items-center space-x-1 lg:flex">
                 {NAV_SECTIONS.filter((item) => item.id !== 'session').map((item) => {
-                  const isActive = activeSectionId === item.id;
+                  const isActive = activeSectionId === item.id && !isFocusPointsActive;
                   return (
                     <Link
                       key={item.id}
@@ -195,10 +217,10 @@ const Navigation = () => {
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className={navItemClassName(activeSectionId === 'session')}
+                      className={navItemClassName(isProductActive)}
                       data-testid="nav-products-button"
                       aria-label="Products"
-                      aria-current={activeSectionId === 'session' ? 'page' : undefined}
+                      aria-current={isProductActive ? 'page' : undefined}
                     >
                       <Mic className="h-4 w-4" aria-hidden="true" />
                       <span>Products</span>
@@ -207,7 +229,7 @@ const Navigation = () => {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="center" className="min-w-48" opaque>
                     <DropdownMenuItem asChild>
-                      <Link to="/session" data-testid="nav-products-open-mic">
+                      <Link to="/session" data-testid="nav-products-open-mic" onClick={selectOpenMic}>
                         <Mic className="mr-2 h-4 w-4" aria-hidden="true" />
                         Open Mic
                       </Link>
@@ -236,6 +258,43 @@ const Navigation = () => {
                     sttMode={reportSttMode}
                     runtimeState={reportRuntimeState}
                   />
+                  {/* #1416 — the product switch must survive the session route on a phone.
+                      The bottom bar is removed on /session so it cannot cover the recording UI, and
+                      the desktop Products menu is `hidden lg:flex`. That left a phone user who
+                      entered Open Mic with no way to reach Focus Points except by going back
+                      through Home. This control lives in the always-visible header actions, so it
+                      overlaps neither the recording surface nor the bottom bar, and it appears only
+                      where the bottom bar is absent. */}
+                  {isOnSessionRoute && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-sm font-semibold text-foreground lg:hidden"
+                          data-testid="nav-mobile-products-button"
+                          aria-label="Products"
+                          aria-current={isProductActive ? 'page' : undefined}
+                        >
+                          <Mic className="h-4 w-4" aria-hidden="true" />
+                          <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="center" className="min-w-48" opaque>
+                        <DropdownMenuItem asChild>
+                          <Link to="/session" data-testid="nav-mobile-products-open-mic" onClick={selectOpenMic}>
+                            <Mic className="mr-2 h-4 w-4" aria-hidden="true" />
+                            Open Mic
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link to="/practice?product=focus-points" data-testid="nav-mobile-products-focus-points">
+                            <Target className="mr-2 h-4 w-4" aria-hidden="true" />
+                            Focus Points
+                          </Link>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                   {/* FAQ is an INLINE dropdown, not a page — it opens on whatever page the user is on
                       (including /session) and never navigates away. It lives in the always-visible
                       header actions so it is reachable on every viewport, unlike the desktop-only
