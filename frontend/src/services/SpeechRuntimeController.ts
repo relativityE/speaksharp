@@ -1,5 +1,9 @@
 import logger from '@/lib/logger';
 import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
+import {
+    mintRecordingIntent, claimRecordingIntent, retireRecordingIntent, isCurrentIntent,
+    pendingRecordingIntent, type IntentSettlement,
+} from '@/services/recordingIntent';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import { toSanitizedCause } from '@/lib/sanitizeStartError';
@@ -659,6 +663,18 @@ export class SpeechRuntimeController {
      *  THE single authoritative predicate — consumed by the UI selector AND enforced in the controller. */
     public isEngineSelectionLocked(): boolean {
         return this.engineSelectionIntentLocked
+            // #1415 P1 — A PENDING INTENT HOLDS THE LOCK THROUGH PREPARATION.
+            //
+            // `transition()` clears `engineSelectionIntentLocked` on every transition, and preparation
+            // is a transition (to DOWNLOAD_REQUIRED, then to READY). So a click that parked for a model
+            // download released the lock for the whole download — and a mode or policy change during
+            // that window would have the recording resume on an engine the user never asked for, with
+            // the policy the intent was minted under silently replaced.
+            //
+            // The lock now lasts exactly as long as the wish: from mint until the attempt records,
+            // fails, or is cancelled. `RECORDING_LIFECYCLE_STATES` covers the recording itself; this
+            // covers the gap before it that preparation opened.
+            || pendingRecordingIntent() !== null
             || SpeechRuntimeController.RECORDING_LIFECYCLE_STATES.has(this.state)
             || this.pendingAttributionRetry !== null
             || this.pendingFullSaveRetry !== null
@@ -1762,6 +1778,38 @@ export class SpeechRuntimeController {
 
         const previousState = this.state;
         this.state = newState;
+
+        // #1415 — READY AFTER PREPARATION RESUMES THE CLICK.
+        //
+        // The intent is CLAIMED, not read: claiming removes it, so a duplicate READY transition, a
+        // late callback from a superseded attempt, or a retry that re-reaches READY all find nothing
+        // and start nothing. Exactly-once is a property of the claim, not of this call site's care.
+        //
+        // Only a transition OUT OF PREPARATION resumes. Reaching READY from IDLE is an ordinary warm
+        // runtime settling, and auto-starting there would make page navigation begin a recording —
+        // which the contract forbids outright.
+        const resumingFromPreparation = newState === 'READY' && previousState !== newState && (
+            previousState === 'DOWNLOAD_REQUIRED' || previousState === 'ENGINE_INITIALIZING'
+        );
+
+        // Any terminal or torn-down state retires the wish. A stale intent must never start a
+        // recording later, and these are precisely the moments after which it would be stale.
+        if (newState === 'TERMINATED' || newState === 'FAILED' || newState === 'FAILED_VISIBLE') {
+            // Rejects the original caller through the intent's settlement, so a resumed permission,
+            // init or start failure surfaces where the click was made instead of vanishing.
+            retireRecordingIntent(newState === 'TERMINATED' ? 'teardown' : 'acquisition_failed');
+        } else if (newState === 'RECORDING') {
+            // THE RECORDING AUTHORITY. This is the only place the caller's promise resolves, so
+            // `session_started` cannot be pushed before a recording genuinely exists. Retiring here
+            // also covers the WARM path, where the intent is minted and recording begins without ever
+            // passing through preparation.
+            const honoured = pendingRecordingIntent();
+            if (honoured) {
+                retireRecordingIntent('started', honoured.token);
+                honoured.settlement?.resolve();
+            }
+        }
+
         this.syncProvider(this.lifecycleVersion);
 
         // #1033 (B): a terminal failure of a recording that BEGAN must never leave the user locked with no
@@ -1853,6 +1901,18 @@ export class SpeechRuntimeController {
         }
 
         store.setRuntimeState(newState);
+
+        if (resumingFromPreparation) {
+            const resumed = claimRecordingIntent();
+            if (resumed) {
+                pushNativeRuntimeTrace('controller_start_resumed_after_preparation', {
+                    recordingId: resumed.recordingId, intentToken: resumed.token,
+                });
+                // Deliberately not awaited: `transition` is called from inside the lifecycle queue,
+                // and `startRecording` enqueues. Awaiting here would deadlock the queue behind itself.
+                void this.startRecording(resumed.policy ?? undefined, [...resumed.userWords], true, resumed.settlement);
+            }
+        }
 
         if (newState === 'FAILED') {
             this.commandQueue = Promise.resolve();
@@ -2125,6 +2185,20 @@ export class SpeechRuntimeController {
         }
         if (status.type === 'ready') {
             this.setEngineReady(true);
+            // #1415 — PREPARATION HAS COMPLETED, AND NOTHING USED TO SAY SO.
+            //
+            // The controller parks itself in DOWNLOAD_REQUIRED while the model downloads. The engine
+            // reporting `ready` is the completion authority Production already uses — but this handler
+            // only ever set a FLAG, so the controller's own state never left DOWNLOAD_REQUIRED and the
+            // retained intent waited on a transition that never came. That is the second half of the
+            // same defect: the intent survived, and nothing ever resumed it.
+            //
+            // Gated on a pending intent so a user who merely downloaded the model — the existing
+            // download button, with no recording asked for — is unaffected. Readiness on its own must
+            // never begin a recording.
+            if (this.state === 'DOWNLOAD_REQUIRED' && pendingRecordingIntent()) {
+                void this.transition('READY');
+            }
         }
         this.emitPrivateSetupStatus(status.type);
         // P0.2: surface engine-originated local finalization status to the store so
@@ -2583,7 +2657,19 @@ export class SpeechRuntimeController {
         }
     }
 
-    public async startRecording(policy?: TranscriptionPolicy, userWords: string[] = []): Promise<void> {
+    public async startRecording(
+        policy?: TranscriptionPolicy,
+        userWords: string[] = [],
+        resumedFromPreparation = false,
+        /**
+         * #1415 — the ORIGINAL caller's settlement, carried into a resumed attempt.
+         *
+         * A resume is the SAME wish continuing, not a new one. Minting a fresh settlement here would
+         * leave the click that started it all waiting on a promise nothing ever settles — the caller
+         * hangs forever while a recording runs perfectly well in front of them.
+         */
+        carriedSettlement?: IntentSettlement,
+    ): Promise<void> {
         // #1033: do not start a new recording while a prior recording is unresolved — a pending attribution
         // retry, OR a recording that began and failed post-start without a durable save. Its identity must be
         // resolved (Retry Save) or explicitly discarded first. This bounds the system to AT MOST ONE
@@ -2625,6 +2711,33 @@ export class SpeechRuntimeController {
         useSessionStore.getState().setObjectiveCoverageResult(null);
         const recordingId = crypto.randomUUID();
         this.currentRecordingId = recordingId;
+        // #1415 — THE USER ASKED TO RECORD. Minted here, before any model work, because preparation
+        // is exactly when the wish used to be lost: a cold visit threw
+        // TRANSCRIPTION_START_BLOCKED_STATE and nothing remembered that a click had happened.
+        // A second click replaces this intent rather than queueing a second recording.
+        // #1415 P1 — THE CALLER'S PROMISE BELONGS TO THE WHOLE ATTEMPT, NOT TO THE FIRST LEG.
+        //
+        // This used to resolve the moment the preparation branch returned, so `useSessionLifecycle`
+        // believed the start had succeeded and pushed `session_started` while nothing was recording —
+        // and a resumed failure had no caller left to reject, becoming an unhandled rejection inside a
+        // void'd promise. The settlement rides the intent so it survives preparation, and so a
+        // superseded attempt cannot settle its successor's caller.
+        let settleStart: (() => void) | null = null;
+        let failStart: ((e: Error) => void) | null = null;
+        const started = carriedSettlement
+            ? Promise.resolve()          // the original caller is already awaiting; see below
+            : new Promise<void>((resolve, reject) => {
+                settleStart = resolve;
+                failStart = reject;
+            });
+        const settlement: IntentSettlement = carriedSettlement ?? {
+            resolve: () => settleStart?.(),
+            reject: (e: Error) => failStart?.(e),
+        };
+        const intent = mintRecordingIntent({
+            recordingId, policy: policy ?? null, userWords,
+            resumed: resumedFromPreparation, settlement,
+        });
         pushNativeRuntimeTrace('controller_start_requested', {
             recordingId,
             state: this.state,
@@ -2632,7 +2745,7 @@ export class SpeechRuntimeController {
             lifecycleVersion: this.lifecycleVersion,
         });
 
-        return this.enqueue(async (_token) => {
+        void this.enqueue(async (_token) => {
             pushNativeRuntimeTrace('controller_start_queue_enter', {
                 recordingId,
                 state: this.state,
@@ -2645,6 +2758,8 @@ export class SpeechRuntimeController {
                     recordingId,
                     currentRecordingId: this.currentRecordingId,
                 });
+                // #1415 — a superseded attempt still owes its caller an answer.
+                retireRecordingIntent('superseded', intent.token);
                 return;
             }
 
@@ -2659,6 +2774,13 @@ export class SpeechRuntimeController {
                 pushNativeRuntimeTrace('controller_start_skip_bad_state', {
                     state: this.state,
                 });
+                // #1415 — RESOLVED, not rejected. A Start refused because a recording is already
+                // running is a NO-OP, and it always has been: the caller returned normally and the
+                // active recording continued. Rejecting would surface an error toast for a double
+                // click that the product deliberately absorbs. The intent is still retired, so it can
+                // never auto-start later.
+                intent.settlement?.resolve();
+                retireRecordingIntent('superseded', intent.token);
                 // #1033 item 4: this Start is aborting before any transition (no INITIATING → no lifecycle-state
                 // lock yet). Release the synchronous Start-intent lock so it can't leak. If another recording is
                 // genuinely active it stays locked via RECORDING_LIFECYCLE_STATES; a stale/double Start does not.
@@ -2676,6 +2798,7 @@ export class SpeechRuntimeController {
                     version,
                     lifecycleVersion: this.lifecycleVersion,
                 });
+                retireRecordingIntent('superseded', intent.token);
                 // #1033 item 4: aborting before the INITIATING transition — release the Start-intent lock.
                 this.engineSelectionIntentLocked = false;
                 return;
@@ -2870,8 +2993,24 @@ export class SpeechRuntimeController {
                 }
 
                 if (service && service.fsm?.is('DOWNLOAD_REQUIRED')) {
+                    // #1415 — the same preparation path as the catch branch, reached when the service
+                    // reports DOWNLOAD_REQUIRED without throwing. Transitioning straight to READY here
+                    // would resume the intent against a model that is still absent; going through
+                    // DOWNLOAD_REQUIRED drives the download first, exactly as a click should.
                     this.setEngineReady(false);
                     this.service = null;
+                    if (isCurrentIntent(intent.token) && !intent.resumed) {
+                        await this.transition('DOWNLOAD_REQUIRED', undefined, _token);
+                        void Promise.resolve()
+                            .then(() => this.initiateModelDownload(this.policy?.preferredMode ?? 'private'))
+                            .catch((downloadErr: unknown) => {
+                                retireRecordingIntent('acquisition_failed', intent.token,
+                                    downloadErr instanceof Error ? downloadErr : undefined);
+                            });
+                        return;
+                    }
+                    retireRecordingIntent('acquisition_failed', intent.token,
+                        new Error('RECORDING_START_MODEL_UNAVAILABLE'));
                     await this.transition('READY', undefined, _token);
                     return;
                 }
@@ -2955,10 +3094,89 @@ export class SpeechRuntimeController {
                 }
             } catch (err: unknown) {
                 this.isEmissionsSafe = false;
+                // #1415 — PREPARATION IS NOT FAILURE.
+                //
+                // `executeStrategy` refuses to start from any state but READY and throws
+                // TRANSCRIPTION_START_BLOCKED_STATE. On a cold first visit that state is
+                // DOWNLOAD_REQUIRED — the expected first-visit path, not a fault — and treating it as
+                // one is what put the runtime in FAILED_VISIBLE with the user's intent discarded.
+                //
+                // The intent is KEPT, preparation is shown, and the download is driven. When the
+                // runtime reaches READY the intent is claimed exactly once and the recording starts,
+                // with no second click.
+                if (this.isPreparationRequiredError(err) && isCurrentIntent(intent.token) && !intent.resumed) {
+                    pushNativeRuntimeTrace('controller_start_awaiting_preparation', {
+                        recordingId, intentToken: intent.token,
+                    });
+                    // Drop the service that just refused. Its FSM is parked in DOWNLOAD_REQUIRED, and
+                    // reusing it means the resumed start is refused for the SAME reason without the
+                    // engine ever being re-initialised — the resume fires, fails identically, and the
+                    // user is back in FAILED_VISIBLE having gained nothing. This mirrors what the
+                    // existing DOWNLOAD_REQUIRED branch on the success path already does.
+                    this.setEngineReady(false);
+                    this.service = null;
+                    await this.transition('DOWNLOAD_REQUIRED', undefined, _token);
+                    // Drive the preparation the user's click implicitly asked for. Failure to even
+                    // begin it retires the intent, so a click can never wait forever on nothing.
+                    // Wrapped rather than called bare: a SYNCHRONOUS throw from the download entry
+                    // would otherwise escape this catch and leave the intent pending with no
+                    // preparation running — a click waiting forever on nothing, which is the failure
+                    // mode this whole branch exists to remove.
+                    void Promise.resolve()
+                        .then(() => this.initiateModelDownload(this.policy?.preferredMode ?? 'private'))
+                        .catch((downloadErr: unknown) => {
+                            // TOKEN-SCOPED. This handler is asynchronous and can fire long after its
+                            // attempt stopped being current: the user clicks again, a newer intent is
+                            // minted, and THEN the old download rejects. Unscoped, that stale failure
+                            // retires the newer intent and silently cancels a recording the user is
+                            // actively asking for — the precise scenario `recordingIntent`'s token
+                            // scoping exists to prevent, defeated by its own caller.
+                            //
+                            // The real cause travels too, so the caller is rejected with the failure
+                            // that happened rather than a generic retirement message.
+                            retireRecordingIntent('acquisition_failed', intent.token,
+                                downloadErr instanceof Error ? downloadErr : undefined);
+                            logger.warn({ downloadErr }, '[controller] #1415 preparation could not start; intent retired');
+                        });
+                    return;
+                }
+                // Any other start failure retires the intent: a wish the system could not honour must
+                // not be honoured later, silently, when something unrelated reaches READY.
+                retireRecordingIntent('acquisition_failed', intent.token, err as Error);
                 await this.transition('FAILED', err as Error, _token);
                 throw err;
             }
+        }).catch((queueErr: unknown) => {
+            // BACKSTOP. The inner catch settles the failures it knows about, but a throw from the
+            // queue itself — or from anything before that catch is reached — would otherwise leave the
+            // caller awaiting a promise nothing ever settles. A hung Start is worse than a failed one:
+            // the user sees no error and no recording, which is the shape of the original defect.
+            //
+            // Retiring by TOKEN means this is a no-op once the attempt has already settled, so a
+            // successful start is never retroactively reported as a failure.
+            retireRecordingIntent('acquisition_failed', intent.token,
+                queueErr instanceof Error ? queueErr : new Error('RECORDING_START_FAILED'));
         });
+
+        // #1415 — the caller awaits the RECORDING authority, not the first leg of the attempt.
+        return started;
+    }
+
+    /**
+     * #1415 — is this start refusal "the model is not ready yet" rather than "the start failed"?
+     *
+     * Matched on the service's own blocked-state contract and the PREPARATION states only. A refusal
+     * from INIT_FAILED or FAILED is a genuine failure and must keep its visible error: retrying it
+     * automatically would loop a broken engine forever while the user watches a preparing spinner.
+     */
+    private isPreparationRequiredError(err: unknown): boolean {
+        const message = (err as { message?: string } | null)?.message ?? '';
+        if (!message.startsWith('TRANSCRIPTION_START_BLOCKED_STATE:')) return false;
+        const blockedState = message.slice('TRANSCRIPTION_START_BLOCKED_STATE:'.length);
+        return blockedState === 'DOWNLOAD_REQUIRED'
+            || blockedState === 'DOWNLOADING'
+            || blockedState === 'DOWNLOAD_COMPLETE'
+            || blockedState === 'ENGINE_INITIALIZING';
     }
 
     /**
