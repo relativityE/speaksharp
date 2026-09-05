@@ -49,6 +49,10 @@ const STT_MODES = ['private', 'browser', 'cloud', 'native', 'unknown'] as const;
 const PRACTICE_MODES = ['quick', 'objective'] as const;
 /** `PracticeEntrySource` — closed at the producer, and closed again here. */
 const ENTRY_SOURCES = ['landing_card', 'freeform_overview'] as const;
+const PRACTICE_LOOP_REVIEW_FAILURE_REASONS = [
+    'access_denied', 'invalid_response', 'network', 'not_found', 'rate_limited',
+    'transcript_unavailable', 'unavailable',
+] as const;
 /** `RuntimeState` in SpeechRuntimeController.ts — UPPERCASE. A lowercase set dropped every real value. */
 const RUNTIME_STATES = [
     'IDLE', 'INITIATING', 'ENGINE_INITIALIZING', 'DOWNLOAD_REQUIRED', 'READY',
@@ -210,6 +214,25 @@ export const EVENT_SCHEMAS = Object.freeze({
     // Was entirely UNGOVERNED: a real producer whose properties were all dropped.
     freeform_practice_started: {
         mode: enumOf(PRACTICE_MODES), entry_source: enumOf(ENTRY_SOURCES), release_sha: slug(),
+    },
+    // Practice Loop review. No session id, transcript, generated prose or provider error crosses the
+    // analytics boundary: success is represented only by field-presence booleans and failure by a
+    // closed reason code.
+    practice_loop_review_requested: { review_ready: { kind: 'bool' } as FieldRule },
+    practice_loop_review_completed: {
+        has_what_went_well: { kind: 'bool' } as FieldRule,
+        has_what_to_improve: { kind: 'bool' } as FieldRule,
+    },
+    practice_loop_review_persisted: {
+        has_what_went_well: { kind: 'bool' } as FieldRule,
+        has_what_to_improve: { kind: 'bool' } as FieldRule,
+    },
+    practice_loop_review_rendered: {
+        has_what_went_well: { kind: 'bool' } as FieldRule,
+        has_what_to_improve: { kind: 'bool' } as FieldRule,
+    },
+    practice_loop_review_failed: {
+        reason: enumOf(PRACTICE_LOOP_REVIEW_FAILURE_REASONS),
     },
 
     // ── live-coaching experiment ────────────────────────────────────────────

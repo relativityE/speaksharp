@@ -18,6 +18,7 @@ import { useSessionStore } from '@/stores/useSessionStore';
 import { estimateFinalizeSeconds } from '@/services/transcription/finalizeRateStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
 import { useNavigate } from 'react-router-dom';
+import AISuggestions from '@/components/session/AISuggestions';
 
 /**
  * ARCHITECTURE:
@@ -424,7 +425,17 @@ export const SessionPage: React.FC = () => {
                     isButtonDisabled={isButtonDisabled}
                     fillerData={metrics.fillerData}
                     wpm={metrics.wpm}
-                    aiSuggestions={undefined} /* #1306: coaching prose retired; next action replaces it */
+                    practiceLoopReview={(
+                        <AISuggestions
+                            sessionId={finalizedAnalysis?.sessionId}
+                            canReview={Boolean(
+                                postSaveReady
+                                && finalizedAnalysis?.sessionId
+                                && typeof finalizedWordCount === 'number'
+                                && finalizedWordCount > 0
+                            )}
+                        />
+                    )}
                     onSeeAllSessions={() => navigate('/analytics')}
                     interimTranscript={interimTranscript}
                     isFinalizing={isTranscriptFinalizing}

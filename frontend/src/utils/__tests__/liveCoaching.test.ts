@@ -41,7 +41,7 @@ describe('verdictFromSuggestions (#1222 S12b)', () => {
     it('falls back honestly to the dominant filler when it is genuinely overused', () => {
         // um ×5 over 60s = 5/min, well past the true-filler coaching threshold.
         const v = verdictFromSuggestions(null, fillers({ um: 5, so: 2 }), 60);
-        expect(v.verdictLine).toMatch(/saved/i);
+        expect(v.verdictLine).toMatch(/not requested/i);
         expect(v.fix).toMatch(/um/);
     });
 

@@ -89,12 +89,11 @@ export interface TwoTakeaways {
     what_to_try_next?: string;
 }
 
-/** The after-state verdict: reuse the saved two-takeaways when present; honest deterministic fallback
- *  otherwise. The filler fallback uses the SAME coaching guard as the live tip, so a couple of legitimate
- *  discourse markers never become the session's "fix". */
+/** Legacy after-state adapter. The live SessionPage supplies the persisted Practice Loop review instead.
+ *  When older/direct callers have no review, remain neutral: a save is not evidence that anything went well. */
 export function verdictFromSuggestions(ai: TwoTakeaways | null | undefined, fillerData?: FillerCounts | null, elapsedSeconds = 0): { verdictLine: string; fix: string } {
     const top = guardedTopFiller(fillerData, elapsedSeconds);
-    const verdictLine = ai?.what_worked?.trim() || 'Session saved — nice work.';
+    const verdictLine = ai?.what_worked?.trim() || 'Session review not requested.';
     const fix = ai?.what_to_try_next?.trim()
         || (top ? `Pause instead of “${top.word}” — it was your most-used filler.` : 'Keep practicing to build your baseline.');
     return { verdictLine, fix };
