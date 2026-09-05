@@ -73,6 +73,18 @@ class AnalyticsBuffer {
   private static currentAccountId: string | null = null;
 
   /**
+   * #1259 — the SERVER'S claim that this account is an internal tester.
+   *
+   * Held beside the account id because it arrives with the same session and has the same lifetime. It
+   * is never read from a build-time list: a `VITE_*` allowlist would compile the tester account ids
+   * into the public bundle, which is how the first attempt at this failed review.
+   */
+  private static currentInternalTesterClaim = false;
+
+  /** The server's claim that this account is the automated qualification canary. Same rules. */
+  private static currentCanaryClaim = false;
+
+  /**
    * THE PRODUCTION SOURCES — the default, not an opt-in.
    *
    * This used to default to `() => ({})`, so every field was null and every session read as `user`
@@ -93,6 +105,8 @@ class AnalyticsBuffer {
       trafficSignals: buildTrafficSignals(
         import.meta.env as unknown as Record<string, string | undefined>,
         AnalyticsBuffer.currentAccountId,
+        AnalyticsBuffer.currentInternalTesterClaim,
+        AnalyticsBuffer.currentCanaryClaim,
       ),
     };
   }
@@ -385,6 +399,23 @@ class AnalyticsBuffer {
    * Every caller passes only `user.id` (AuthProvider.tsx:105 is the sole one), so the parameter carried
    * no traffic and only carried risk. Removing it makes the leak unavailable rather than unused.
    */
+  /**
+   * Record the server's internal-tester claim for the signed-in account.
+   *
+   * Separate from `identify` so the claim cannot be supplied by a caller that merely knows a user id:
+   * it must come from the session the server issued.
+   */
+  public setCanaryClaim(claim: boolean): void {
+    AnalyticsBuffer.currentCanaryClaim = claim === true;
+  }
+
+  public setInternalTesterClaim(claim: boolean): void {
+    // Strict `=== true`: a truthy string or a stray object from a malformed session must not grant
+    // an internal classification. Anything that is not exactly the boolean the server issued is
+    // treated as no claim at all.
+    AnalyticsBuffer.currentInternalTesterClaim = claim === true;
+  }
+
   public identify(userId: string): void {
 
     // Record BEFORE the capture below: `account_identified` is itself a governed event, and an

@@ -46,7 +46,7 @@ describe('the envelope carries what a launch cannot be measured without', () => 
         // uninterpretable — the exact failure that wasted the last release.
         const e = buildEnvelope({
             engineMetadata: engineRan('v2:base.en'),
-            trafficSignals: { accountId: CANARY, canaryAccountIds: [CANARY] },
+            trafficSignals: { accountId: CANARY, canaryClaim: true },
         });
         expect(e.traffic_type).toBe('canary');
         expect(e.traffic_type).not.toBe('user');
@@ -84,7 +84,7 @@ describe('a producer cannot forge or override the envelope', () => {
         const producer = { traffic_type: 'user', candidate_id: 'v2:base.en', mode: 'freeform' };
         const envelope = buildEnvelope({
             engineMetadata: engineRan('v4:base:int8'),
-            trafficSignals: { accountId: CANARY, canaryAccountIds: [CANARY] },
+            trafficSignals: { accountId: CANARY, canaryClaim: true },
         });
         const final: Record<string, unknown> = { ...stripEnvelopeKeys(producer), ...envelope };
         expect(final.candidate_id).toBe('v4:base:int8');   // what ran, not what was claimed

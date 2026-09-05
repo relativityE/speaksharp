@@ -87,6 +87,23 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   // telemetry sanitizer that drops email). This gives PostHog an account-linked person so feature
   // flags can be targeted via an operator cohort on user.id; on sign-out we reset to a fresh
   // anonymous id so a shared device never inherits the prior account's identity/flags.
+  // #1259 — the SERVER'S internal-tester claim, derived here so the effect below depends on a stable
+  // BOOLEAN. Depending on `sessionState?.user` would re-run the identity effect whenever that object's
+  // identity changed, which is a behaviour change to the identity path this fix has no business making.
+  //
+  // `app_metadata` is assigned SERVER-SIDE with the service role and travels inside the signed JWT, so
+  // a visitor cannot set it through the normal client authentication APIs. That is a narrowing, NOT a
+  // guarantee — this is client-emitted telemetry, and nothing in it is unforgeable by someone who
+  // controls the browser. What it buys is that ordinary sign-up and profile editing cannot produce the
+  // classification. `user_metadata` would be the wrong field and a real hazard:
+  // it IS user-writable, so reading it would let anyone label their own traffic internal and vanish
+  // from the customer funnel. This replaces a `VITE_*` account allowlist, which would have compiled
+  // the tester account ids into the public browser bundle.
+  const internalTesterClaim = (sessionState?.user as { app_metadata?: Record<string, unknown> } | undefined)
+    ?.app_metadata?.internal_tester === true;
+  const canaryClaim = (sessionState?.user as { app_metadata?: Record<string, unknown> } | undefined)
+    ?.app_metadata?.canary === true;
+
   useEffect(() => {
     // NOT SETTLED WHILE AUTHENTICATION IS STILL LOADING.
     //
@@ -109,6 +126,10 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         // An account is LEAVING. Anything still queued was produced under it, so it must not be
         // released under the anonymous identity that replaces it.
         resetIdentitySettlement();
+        // The claim belongs to the account that is leaving. Carrying it into the anonymous session
+        // would classify a real visitor on a shared device as internal.
+        analyticsBuffer.setInternalTesterClaim(false);
+        analyticsBuffer.setCanaryClaim(false);
         analyticsBuffer.resetIdentity();
       }
       identifiedAnalyticsUserRef.current = null;
@@ -125,6 +146,17 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     if (identifiedAnalyticsUserRef.current && identifiedAnalyticsUserRef.current !== userId) {
       resetIdentitySettlement();
     }
+    // #1259 — the SERVER'S internal-tester claim, recorded before identify so the very first event
+    // under this account is already classified.
+    //
+    // `app_metadata` is assigned SERVER-SIDE with the service role. A visitor cannot set it through
+    // the normal client authentication APIs — a narrowing, not a guarantee, since this is
+    // client-emitted telemetry. `user_metadata` would be the wrong field and a real
+    // hazard: it IS user-writable, so reading it would let anyone label their own traffic internal and
+    // vanish from the customer funnel. This replaces a `VITE_*` account allowlist, which would have
+    // compiled the tester account ids into the public browser bundle.
+    analyticsBuffer.setInternalTesterClaim(internalTesterClaim);
+    analyticsBuffer.setCanaryClaim(canaryClaim);
     analyticsBuffer.identify(userId); // user.id only — no email/PII to PostHog
     identifiedAnalyticsUserRef.current = userId;
     // IDENTIFY FIRST, THEN RELEASE. Flushing before identify would attribute a returning user's cold
@@ -133,7 +165,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     // the queue's own epoch check can retire events that were waiting for a DIFFERENT one — a check a
     // remount cannot forget, unlike the ref above.
     markIdentitySettled(userId);
-  }, [sessionState?.user?.id, loading]);
+  }, [sessionState?.user?.id, loading, internalTesterClaim, canaryClaim]);
 
   useEffect(() => {
     const injectedSession = getInjectedSession();

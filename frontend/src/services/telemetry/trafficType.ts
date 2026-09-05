@@ -11,11 +11,10 @@
  *
  *   internal       a BUILD a real user never receives.
  *   canary         WHO YOU ARE, not what you claim. The canary authenticates as a known account
- *                  against production; a real user cannot produce this because they cannot sign in as
- *                  that account. The harness sets nothing and therefore cannot forget to.
- *   internal_test  #1259 — a HUMAN dogfood session on canonical Production. Same authority as
- *                  `canary` (a known account id), different meaning: the canary is automated
- *                  qualification, and this is a person testing the product by hand.
+ *                  against production, and the account carries a SERVER-ASSIGNED claim. The harness
+ *                  sets nothing and therefore cannot forget to.
+ *   internal_test  #1259 — a HUMAN dogfood session on canonical Production. The canary is automated
+ *                  qualification; this is a person testing the product by hand.
  *
  *                  It exists because folding the two together corrupts both. The PO's Production
  *                  session was classified `user` — indistinguishable from a real customer in every
@@ -40,10 +39,34 @@ export type TrafficType = typeof TRAFFIC_TYPES[number];
 export interface TrafficSignals {
     /** True only for a build produced for internal use. Never a runtime toggle. */
     internalBuild?: boolean;
-    /** Account ids known to belong to synthetic qualification accounts. */
-    canaryAccountIds?: readonly string[];
-    /** Account ids belonging to people who test the product by hand on canonical Production. */
-    internalTestAccountIds?: readonly string[];
+    /**
+     * A SERVER-ISSUED claim that this account is the automated qualification canary.
+     *
+     * This replaced `VITE_CANARY_ACCOUNT_IDS` for the same reason the internal-tester list went: every
+     * `VITE_*` value is compiled into the public browser bundle, so configuring it would publish the
+     * canary's account id to every visitor. Fixing one public account allowlist while keeping another
+     * would leave the identical defect in place under a different name.
+     */
+    canaryClaim?: boolean;
+    /**
+     * A SERVER-ISSUED claim that this account is an internal tester.
+     *
+     * NOT a client allowlist. The first version of this shipped `VITE_INTERNAL_TEST_ACCOUNT_IDS`, and
+     * every `VITE_*` value is compiled into the public browser bundle — so the configured tester
+     * account ids would have been published to every visitor. That is the opposite of an
+     * observability contract that forbids identifiers, and it was found in review rather than by me.
+     *
+     * This comes from Supabase `app_metadata`, which is ASSIGNED SERVER-SIDE with the service role and
+     * travels inside the signed JWT. A visitor cannot set it through the normal client authentication
+     * APIs, and nothing about who the testers are reaches the bundle.
+     *
+     * That is a narrowing, not a guarantee. This is client-emitted telemetry: anyone who controls the
+     * browser can send whatever they like, and no field here is unforgeable. What the server-side
+     * assignment buys is that ordinary sign-up and profile editing cannot produce the classification —
+     * which is exactly what `user_metadata` WOULD allow, since it is user-writable, letting any visitor
+     * label their own traffic internal and disappear from the customer funnel.
+     */
+    internalTesterClaim?: boolean;
     /** The AUTHENTICATED account id for this session, or null when signed out. */
     accountId?: string | null;
 }
@@ -57,21 +80,16 @@ const normalise = (v: string | null | undefined): string => (v ?? '').trim().toL
 export function resolveTrafficType(signals: TrafficSignals = {}): TrafficType {
     if (signals.internalBuild === true) return 'internal';
 
+    // Both claims are honoured only for an AUTHENTICATED account: they arrive with the session, and a
+    // claim without a signed-in account has no issuer.
     const account = normalise(signals.accountId);
     if (account) {
-        const canary = (signals.canaryAccountIds ?? []).map(normalise).filter(Boolean);
-        if (canary.includes(account)) return 'canary';
-        const internalTest = (signals.internalTestAccountIds ?? []).map(normalise).filter(Boolean);
-        if (internalTest.includes(account)) return 'internal_test';
+        if (signals.canaryClaim === true) return 'canary';
+        if (signals.internalTesterClaim === true) return 'internal_test';
     }
     return 'user';
 }
 
-/** Parse the build-time canary account list. Malformed input yields NO known accounts, never a guess. */
-export function parseCanaryAccountIds(raw: string | undefined | null): string[] {
-    if (typeof raw !== 'string') return [];
-    return raw.split(',').map((s) => s.trim()).filter(Boolean);
-}
 
 /**
  * The signals this build actually has. Read from build-time env so a runtime value cannot change what
@@ -80,13 +98,13 @@ export function parseCanaryAccountIds(raw: string | undefined | null): string[] 
 export function buildTrafficSignals(
     env: Record<string, string | undefined> = import.meta.env as unknown as Record<string, string | undefined>,
     accountId: string | null = null,
+    internalTesterClaim = false,
+    canaryClaim = false,
 ): TrafficSignals {
     return {
         internalBuild: env.VITE_INTERNAL_BUILD === 'true',
-        canaryAccountIds: parseCanaryAccountIds(env.VITE_CANARY_ACCOUNT_IDS),
-        // Read from build-time env for the same reason the canary list is: a runtime value could be
-        // set by a visitor, and a self-declared class is the failure this whole field exists to avoid.
-        internalTestAccountIds: parseCanaryAccountIds(env.VITE_INTERNAL_TEST_ACCOUNT_IDS),
         accountId,
+        canaryClaim,
+        internalTesterClaim,
     };
 }
