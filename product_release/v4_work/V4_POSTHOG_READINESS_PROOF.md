@@ -1,3 +1,8 @@
+<!-- pm-currentization:2026-09-04 -->
+> [!CAUTION]
+> **Reviewed 4 Sep 2026 — historical exploratory v4 material.** This file is preserved for provenance and must not be executed as current product/release authority. Preview/internal-build model selection, PostHog-flag targeting, two-transcript retention, and prior closure claims are superseded by the canonical root documents and issues #1259/#1258/#1390/#1404/#1407/#1386/#1263/#1304. Use canonical Production only; do not infer that historical PASS evidence qualifies the current product.
+<!-- /pm-currentization:2026-09-04 -->
+
 # v4 PostHog Readiness Proof (Dev → Test handoff)
 
 **Status (updated 2026-06-14):** v4 has since **CONVERGED onto `main`** (flag-OFF, dormant) via #780/#781; anti-loop decode defaults via #789; benchmark harness + per-variant|device floors via #790/#792. The dead candidate-branch SHAs this doc originally referenced are replaced by `main`. The contract→proof map below is current; the **authoritative, current validation procedure is `V4_COMPLETE_TEST_RUNBOOK.md` (same dir)** — the 3 gates that must pass before any A/B.

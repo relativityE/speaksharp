@@ -42,7 +42,7 @@ describe('FocusPointsRail — topic line + rename (#1046 G6/G7)', () => {
         ];
         render(<FocusPointsRail rows={afterRows} topic="Micro-Decisions" sessionState="after" />);
         const missed = screen.getByTestId('focus-point-2-not-detected');
-        expect(missed).toHaveTextContent('Didn’t come up this time. Point 2 ran to 1:04 — leading with this one next attempt is the easy fix.');
+        expect(missed).toHaveTextContent('We couldn’t detect this point in the transcript. You may have covered it in different words.');
         // Honest: no "waste"/"behind"/"seconds off-point" phrasing.
         for (const b of ['wasted', 'behind', 'off-point', 'seconds off']) expect(missed.textContent!.toLowerCase()).not.toContain(b);
     });
@@ -54,5 +54,15 @@ describe('FocusPointsRail — topic line + rename (#1046 G6/G7)', () => {
         expect(screen.queryByTestId('focus-points-topic')).not.toBeInTheDocument();
         // The points still render — a missing topic never hides the list.
         expect(screen.getAllByTestId(/^focus-point-\d+$/)).toHaveLength(3);
+    });
+
+    it('offers an honest retry without claiming every point was undetected', () => {
+        const mixed: FocusCoverageRow[] = [
+            { label: 'Detected', status: 'covered', covered: true, coveredAtSec: 10, quote: null },
+            { label: 'Not detected', status: 'missing', covered: false, coveredAtSec: null, quote: null },
+        ];
+        render(<FocusPointsRail rows={mixed} sessionState="after" onRetry={() => {}} />);
+        expect(screen.getByTestId('focus-points-retry')).toHaveTextContent('Retry this set');
+        expect(screen.getByTestId('focus-points-retry')).not.toHaveTextContent('2 points');
     });
 });

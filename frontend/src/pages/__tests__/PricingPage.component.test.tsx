@@ -130,6 +130,16 @@ describe('PricingPage', () => {
             expect(screen.getByText(/Refund or cancellation questions/i)).toBeInTheDocument();
             expect(screen.getAllByText(/Pro continues only after Stripe confirmation/i)).not.toHaveLength(0);
         });
+
+        it('#1416 does not instruct the reader to pick a Share Feedback field the form no longer has', () => {
+            renderPricingPage();
+
+            // The redesigned Share Feedback form asks for a feedback type and a body. There is no
+            // Billing option to select, so an instruction to select one sends the reader looking for
+            // a control that is not there and makes them doubt they found the right form.
+            expect(screen.queryByText(/Billing selected/i)).not.toBeInTheDocument();
+            expect(screen.queryByText(/Share Feedback with .* selected/i)).not.toBeInTheDocument();
+        });
     });
 
     describe('Button States', () => {

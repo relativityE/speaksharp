@@ -165,11 +165,11 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
         {suggestions && (
           <div className="space-y-4">
             <div className="p-3 bg-muted/60 rounded-lg border border-[hsl(var(--border))]">
-              <h4 className="font-semibold">What worked</h4>
+              <h4 className="font-semibold">What went well</h4>
               <p className="text-sm font-medium text-foreground/70">{suggestions.what_worked}</p>
             </div>
             <div className="p-3 bg-muted/60 rounded-lg border border-[hsl(var(--border))]">
-              <h4 className="font-semibold">What to try next</h4>
+              <h4 className="font-semibold">What to improve</h4>
               <p className="text-sm font-medium text-foreground/70">{suggestions.what_to_try_next}</p>
             </div>
           </div>

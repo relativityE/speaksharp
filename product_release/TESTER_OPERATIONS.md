@@ -1,13 +1,28 @@
 **Status:** Authoritative (SSOT for internal tester administration and evidence handling)
 **Owner:** Product Operations / Quality
-**Last Reviewed:** 2026-08-13
-**Last Verified:** 2026-08-13 — reconciled to the Private-only active-trial and paid-continuation launch contract; execution remains authorization-gated.
+**Last Reviewed:** 2026-09-04
+**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 **Applies To:** Internal release operators, invited testers, synthetic qualification accounts, and evidence handling.
 **Class:** Procedure.
 **Authority:** Tester preparation, scope verification, real-device execution, cleanup, and evidence recording.
 **Not Authoritative For:** product policy (→ `PRODUCT_REQUIREMENTS.md`); billing mechanics (→ `ENTITLEMENTS_AND_BILLING.md`); gate definitions (→ `RELEASE_PROCESS.md`); current release posture (→ `RELEASE_STATUS.md`).
 **Supersedes:** Earlier sample, Browser/Cloud tester-wave, accumulated-quota, and v4-exposure procedures in this file.
 **Evidence Sources:** `QUALITY.md`, `RELEASE_PROCESS.md`, `STT.md`, and dated artifacts indexed by `EVIDENCE_INDEX.md`.
+
+> [!IMPORTANT]
+> **Whether human qualification is currently open, paused, or resuming is not recorded here.**
+> `RELEASE_STATUS.md` is the sole source for that, and a copy of it in this document is a copy that
+> goes stale silently — a tester who reads a resumed posture here after it was lifted there has no
+> way to tell which one is current. This document holds the procedure that is true in every posture:
+>
+> - **A transport 200 or an attached hook is not telemetry proof.** Evidence is event-level readback
+>   with a positive AND a negative control; an accepted request only shows something was sent.
+> - **Record requested identity and observed identity separately**, and bracket the user's intent
+>   through review and reopen. Where they diverge is the finding.
+> - **Exercise every registered runtime candidate through controlled configuration**, across Open Mic
+>   and Focus Points, rather than whichever one happens to be resolved.
+> - **Never ask the Product Owner to choose Preview, local, or internal testing.** The customer
+>   surface is the only one their judgment is being asked about.
 
 # SpeakSharp Tester Operations
 

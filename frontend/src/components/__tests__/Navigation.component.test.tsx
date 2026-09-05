@@ -3,11 +3,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NAV_ITEM_ACTIVE_CLASS, NAV_ITEM_BASE_CLASS } from '@/config/navSections';
-import { render, screen, fireEvent, waitFor } from '../../../tests/support/test-utils';
+import { render, screen, fireEvent, waitFor, act } from '../../../tests/support/test-utils';
+import userEvent from '@testing-library/user-event';
 import Navigation from '../Navigation';
 import * as AuthProvider from '../../contexts/AuthProvider';
 import { issueReportService } from '@/services/issueReportService';
 import { useSessionStore } from '@/stores/useSessionStore';
+import { PracticeSurfaceProvider, usePracticeSurface } from '@/components/practice/PracticeSurfaceContext';
+import type { PracticeSurface } from '@/services/pageContext';
+import React from 'react';
 
 // Mock modules
 vi.mock('../../contexts/AuthProvider');
@@ -105,8 +109,10 @@ describe('Navigation', () => {
 
             renderNavigation();
             expect(screen.getAllByText('Home')).toHaveLength(2); // Desktop + mobile
-            expect(screen.getAllByText('Session')).toHaveLength(2);
             expect(screen.getAllByText('Analytics')).toHaveLength(2);
+            expect(screen.getByTestId('nav-products-button')).toHaveTextContent('Products');
+            expect(screen.getByTestId('nav-mobile-open-mic-link')).toHaveTextContent('Open Mic');
+            expect(screen.getByTestId('nav-mobile-focus-points-link')).toHaveTextContent('Focus Points');
         });
 
         it('should render Sign Out button when authenticated', () => {
@@ -167,11 +173,7 @@ describe('Navigation', () => {
             renderNavigation('/session');
 
             fireEvent.click(screen.getByTestId('nav-report-issue-button'));
-            // #1404: Message is a required first choice; without it this form cannot submit.
-            fireEvent.change(screen.getByTestId('issue-report-feedback-kind'), { target: { value: 'issue' } });
-            fireEvent.change(screen.getByTestId('issue-report-title'), {
-                target: { value: 'Private mic failed' },
-            });
+            fireEvent.click(screen.getByTestId('feedback-type-broke'));
             fireEvent.change(screen.getByTestId('issue-report-description'), {
                 target: { value: 'Clicking the microphone did not start the recording.' },
             });
@@ -208,11 +210,7 @@ describe('Navigation', () => {
             renderNavigation('/session');
 
             fireEvent.click(screen.getByTestId('nav-report-issue-button'));
-            // #1404: Message is a required first choice; without it this form cannot submit.
-            fireEvent.change(screen.getByTestId('issue-report-feedback-kind'), { target: { value: 'issue' } });
-            fireEvent.change(screen.getByTestId('issue-report-title'), {
-                target: { value: 'Transcript issue' },
-            });
+            fireEvent.click(screen.getByTestId('feedback-type-broke'));
             fireEvent.change(screen.getByTestId('issue-report-description'), {
                 target: { value: 'The transcript changed after I clicked stop.' },
             });
@@ -239,22 +237,20 @@ describe('Navigation', () => {
             renderNavigation('/pricing');
 
             fireEvent.click(screen.getByTestId('nav-report-issue-button'));
-            // Single support-oriented disclosure — no anonymous/account-context branching anymore.
-            expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/Linked to your account using an internal ID/i);
-            expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/do not include your email, name, password, login credentials, transcript, or audio/i);
+            fireEvent.click(screen.getByRole('button', { name: "What's included" }));
+            expect(screen.getByTestId('issue-report-disclosure')).toHaveTextContent(/internal account reference/i);
+            // #1416 item 4 — the PM-owned wording. "Never your email…" overstated the guarantee by
+            // omitting the one thing the user DOES send, so the disclosure now says both halves.
+            expect(screen.getByTestId('issue-report-disclosure'))
+                .toHaveTextContent(/don’t automatically attach your email, name, credentials, transcript, or audio/i);
+            expect(screen.getByTestId('issue-report-disclosure'))
+                .toHaveTextContent(/Anything you type in the feedback box is included in your report/i);
             // Raw DB field name must not leak into user-facing copy.
             expect(screen.getByTestId('issue-report-disclosure')).not.toHaveTextContent(/user_id/i);
             expect(screen.queryByText(/Anonymous report/i)).not.toBeInTheDocument();
             expect(screen.queryByText(/Account support report/i)).not.toBeInTheDocument();
 
-            fireEvent.change(screen.getByTestId('issue-report-category'), {
-                target: { value: 'billing_subscription' },
-            });
-            // #1404: Message is a required first choice; without it this form cannot submit.
-            fireEvent.change(screen.getByTestId('issue-report-feedback-kind'), { target: { value: 'issue' } });
-            fireEvent.change(screen.getByTestId('issue-report-title'), {
-                target: { value: 'Billing portal issue' },
-            });
+            fireEvent.click(screen.getByTestId('feedback-type-broke'));
             fireEvent.change(screen.getByTestId('issue-report-description'), {
                 target: { value: 'I need help managing my billing for paid early access.' },
             });
@@ -300,15 +296,17 @@ describe('Navigation', () => {
             expect(screen.getByRole('link', { name: 'SpeakSharp Home' })).toHaveAttribute('href', '/');
         });
 
-        it('should have correct href for Session link', () => {
+        it('Products gives direct access to both Open Mic and Focus Points', async () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
             } as unknown as AuthProvider.AuthContextType);
 
+            const user = userEvent.setup();
             renderNavigation();
-            const sessionLinks = screen.getAllByRole('link', { name: /session/i });
-            expect(sessionLinks[0]).toHaveAttribute('href', '/session');
+            await user.click(screen.getByTestId('nav-products-button'));
+            expect(await screen.findByTestId('nav-products-open-mic')).toHaveAttribute('href', '/session');
+            expect(screen.getByTestId('nav-products-focus-points')).toHaveAttribute('href', '/practice?product=focus-points');
         });
 
         it('should have correct href for Analytics link', () => {
@@ -331,9 +329,11 @@ describe('Navigation', () => {
             } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation();
-            // Mobile nav should have Home, Session, Analytics
+            // Mobile nav exposes Home, both products, and Analytics without a Home detour.
             const homeLinks = screen.getAllByText('Home');
             expect(homeLinks.length).toBeGreaterThan(1); // Desktop + mobile
+            expect(screen.getByTestId('nav-mobile-open-mic-link')).toHaveAttribute('href', '/session');
+            expect(screen.getByTestId('nav-mobile-focus-points-link')).toHaveAttribute('href', '/practice?product=focus-points');
         });
 
         it('should not render mobile navigation when not authenticated', () => {
@@ -382,8 +382,8 @@ describe('Navigation', () => {
             ['/practice', 'nav-home-link'],
             ['/Practice', 'nav-home-link'],
             ['/practice/', 'nav-home-link'],
-            ['/session', 'nav-session-link'],
-            ['/session/abc123', 'nav-session-link'],
+            ['/session', 'nav-products-button'],
+            ['/session/abc123', 'nav-products-button'],
             ['/analytics', 'nav-analytics-link'],
             ['/analytics/session-42', 'nav-analytics-link'],
             ['/ANALYTICS', 'nav-analytics-link'],
@@ -430,14 +430,14 @@ describe('Navigation', () => {
 
             // Boundary rule: /session-other must NOT activate Session.
             expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
-            expect(screen.getByTestId('nav-session-link').className).not.toContain(NAV_ITEM_ACTIVE_CLASS);
+            expect(screen.getByTestId('nav-products-button').className).not.toContain(NAV_ITEM_ACTIVE_CLASS);
         });
 
         it('gives active and inactive items identical geometry classes (no reflow on navigation)', () => {
             authed();
             renderNavigation('/session');
 
-            const active = screen.getByTestId('nav-session-link');
+            const active = screen.getByTestId('nav-products-button');
             const inactive = screen.getByTestId('nav-home-link');
 
             const activeClasses = active.className.split(/\s+/).filter(Boolean);
@@ -470,13 +470,13 @@ describe('Navigation', () => {
             authed();
             renderNavigation('/practice');
 
-            const sessionLink = screen.getByTestId('nav-session-link');
-            sessionLink.focus();
-            expect(document.activeElement).toBe(sessionLink);
+            const productsButton = screen.getByTestId('nav-products-button');
+            productsButton.focus();
+            expect(document.activeElement).toBe(productsButton);
 
             // jsdom applies no stylesheet, so the focus affordance is proven against the
             // stylesheet that ships with the class the element carries.
-            expect(sessionLink.className).toContain(NAV_ITEM_BASE_CLASS);
+            expect(productsButton.className).toContain(NAV_ITEM_BASE_CLASS);
             // Must be a REAL outline: `outline: none` would satisfy a bare /outline:/ match.
             const focusBlock = navCss.match(/\.nav-item:focus-visible\s*\{([^}]*)\}/);
             expect(focusBlock?.[1]).toMatch(/outline:\s*\d+px\s+solid\s+\S+/);
@@ -492,7 +492,7 @@ describe('Navigation', () => {
                 // react-router resolves all of these to the session page, so the raw
                 // `pathname !== '/session'` check used to let the bar cover live recording.
                 expect(mobileNav()).not.toBeInTheDocument();
-                expect(screen.getAllByText('Session')).toHaveLength(1);
+                expect(screen.getByTestId('nav-products-button')).toBeInTheDocument();
             },
         );
 
@@ -500,10 +500,10 @@ describe('Navigation', () => {
             authed();
             renderNavigation('/analytics');
             const icons = primaryNav().querySelectorAll('svg');
-            // Home, Session, Analytics — one decorative icon per primary section. FAQ is no
+            // Home, Analytics, Products mic, Products chevron. FAQ is no
             // longer a routed section; it is an inline dropdown in the header actions, outside
             // this Primary landmark.
-            expect(icons.length).toBe(3);
+            expect(icons.length).toBe(4);
             icons.forEach((icon) => expect(icon).toHaveAttribute('aria-hidden', 'true'));
         });
     });
@@ -593,6 +593,140 @@ describe('Navigation', () => {
             renderNavigation('/');
 
             expect(screen.getByTestId('nav-upgrade-button')).toBeInTheDocument();
+        });
+    });
+    // #1416 — Products, the brief, and the phone.
+    //
+    // Open Mic and Focus Points are two products on one route. `SessionPage` distinguishes them by
+    // `Boolean(activeObjectiveBrief)`, so navigation that only changes the URL changes nothing, and
+    // navigation state derived only from the URL describes the wrong product.
+    describe('#1416 product navigation', () => {
+        const authedUser = () => mockUseAuthProvider.mockReturnValue({
+            session: { user: { id: 'test-user' } },
+            signOut: mockSignOut,
+        } as unknown as AuthProvider.AuthContextType);
+
+        const BRIEF = { projectId: 'p1', briefId: 'b1', points: ['one', 'two'], topic: 'Demo' };
+
+        const WithSurface: React.FC<{ surface: PracticeSurface | null }> = ({ surface }) => {
+            const { setSurface } = usePracticeSurface();
+            React.useEffect(() => { setSurface(surface); }, [setSurface, surface]);
+            return <Navigation />;
+        };
+
+        const renderWithSurface = (route: string, surface: PracticeSurface | null) => render(
+            <PracticeSurfaceProvider><WithSurface surface={surface} /></PracticeSurfaceProvider>,
+            { route },
+        );
+
+        it('selecting Open Mic retires the active Focus Points brief', async () => {
+            authedUser();
+            useSessionStore.getState().setActiveObjectiveBrief(BRIEF);
+            const user = userEvent.setup();
+            renderNavigation('/session');
+
+            await user.click(screen.getByTestId('nav-products-button'));
+            await user.click(await screen.findByTestId('nav-products-open-mic'));
+
+            // Without this the link navigates to the route the user is already on, the brief
+            // survives, and SessionPage keeps rendering Focus Points.
+            expect(useSessionStore.getState().activeObjectiveBrief).toBeNull();
+        });
+
+        it('marks Products current for Focus Points and stops Home claiming the page', () => {
+            authedUser();
+            // PracticePage opens the setup modal and immediately strips its own ?product= parameter,
+            // so the route is plain /practice for the whole Focus Points flow.
+            renderWithSurface('/practice', 'objective_setup');
+
+            expect(screen.getByTestId('nav-products-button')).toHaveAttribute('aria-current', 'page');
+            expect(screen.getByTestId('nav-home-link')).not.toHaveAttribute('aria-current');
+        });
+
+        it('keeps Home current on the practice home surface', () => {
+            authedUser();
+            renderWithSurface('/practice', 'practice_home');
+
+            expect(screen.getByTestId('nav-home-link')).toHaveAttribute('aria-current', 'page');
+            expect(screen.getByTestId('nav-products-button')).not.toHaveAttribute('aria-current');
+        });
+
+        it('offers a mobile product switch on session routes, where the bottom bar is suppressed', async () => {
+            authedUser();
+            const user = userEvent.setup();
+            renderNavigation('/session');
+
+            // The bottom bar is removed on /session so it cannot cover the recording UI, and the
+            // desktop Products menu is hidden below lg. Without this control a phone user who
+            // entered Open Mic could only reach Focus Points by going back through Home.
+            expect(screen.queryByRole('navigation', { name: 'Primary mobile' })).not.toBeInTheDocument();
+
+            await user.click(screen.getByTestId('nav-mobile-products-button'));
+            expect(await screen.findByTestId('nav-mobile-products-focus-points'))
+                .toHaveAttribute('href', '/practice?product=focus-points');
+            expect(screen.getByTestId('nav-mobile-products-open-mic')).toHaveAttribute('href', '/session');
+        });
+
+        it('does not duplicate the product switch where the bottom bar already carries it', () => {
+            authedUser();
+            renderNavigation('/practice');
+
+            expect(screen.getByRole('navigation', { name: 'Primary mobile' })).toBeInTheDocument();
+            expect(screen.queryByTestId('nav-mobile-products-button')).not.toBeInTheDocument();
+        });
+    });
+    // #1416 — a motion preference that changes AFTER mount must take effect without a reload.
+    //
+    // The reveal lives in the Share Feedback dialog, which lives in `Navigation` — mounted for the
+    // whole session. Reading `prefers-reduced-motion` once at mount looked harmless because a dialog
+    // is short lived, but the subscription's owner is not: someone who turns reduce-motion on, in OS
+    // settings or because a vestibular symptom just started, would keep getting animation until they
+    // reloaded the page. That is the moment the setting matters most.
+    describe('#1416 reduced motion follows the current preference', () => {
+        const authedUser = () => mockUseAuthProvider.mockReturnValue({
+            session: { user: { id: 'test-user' } },
+            signOut: mockSignOut,
+        } as unknown as AuthProvider.AuthContextType);
+
+        it('a false -> true change gives a 0ms reveal, and Navigation is never remounted', async () => {
+            const listeners = new Set<() => void>();
+            let reduced = false;
+            const originalMatchMedia = window.matchMedia;
+            window.matchMedia = ((query: string) => ({
+                get matches() { return query.includes('prefers-reduced-motion') && reduced; },
+                media: query,
+                onchange: null,
+                addEventListener: (_: string, cb: () => void) => { listeners.add(cb); },
+                removeEventListener: (_: string, cb: () => void) => { listeners.delete(cb); },
+                addListener: (cb: () => void) => { listeners.add(cb); },
+                removeListener: (cb: () => void) => { listeners.delete(cb); },
+                dispatchEvent: () => true,
+            })) as unknown as typeof window.matchMedia;
+
+            try {
+                authedUser();
+                const user = userEvent.setup();
+                renderNavigation('/practice');
+                await user.click(screen.getByTestId('nav-report-issue-button'));
+
+                const reveal = await screen.findByTestId('issue-report-severity-reveal');
+                expect(reveal).toHaveAttribute('data-reveal-ms', '160');
+
+                // Identity of a node OUTSIDE the dialog. If Navigation remounted to pick the change
+                // up, this node would be replaced — and the user's open dialog and typed draft would
+                // go with it.
+                const navBefore = screen.getByTestId('nav-report-issue-button');
+
+                reduced = true;
+                await act(async () => { listeners.forEach((cb) => cb()); });
+
+                expect(screen.getByTestId('issue-report-severity-reveal')).toHaveAttribute('data-reveal-ms', '0');
+                expect(screen.getByTestId('nav-report-issue-button')).toBe(navBefore);
+                // The dialog is still open: the preference changed, the user's place did not.
+                expect(screen.getByTestId('issue-report-description')).toBeInTheDocument();
+            } finally {
+                window.matchMedia = originalMatchMedia;
+            }
         });
     });
 });
