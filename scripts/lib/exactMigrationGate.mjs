@@ -85,7 +85,7 @@ export const EXACT_MIGRATION_ALLOWLIST = Object.freeze([
         // without the unconditional unique index this migration creates.
         version: '20260904150000',
         file: '20260904150000_share_feedback_redesign.sql',
-        sha256: '44057e35557e69109e702e0d75d8d5244567a77558bfebd60a5cacd98079398c',
+        sha256: '024a5424770e60000dd58a2bb05f1b0ab28901bb56f407230959eb961e6d49e6',
         classification: 'staged',
     }),
     Object.freeze({

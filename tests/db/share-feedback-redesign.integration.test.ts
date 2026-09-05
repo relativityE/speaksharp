@@ -36,6 +36,80 @@ const insert = (args: { id: string; title?: string; body?: string; severity?: st
     [args.id, USER, args.severity ?? 'not_applicable', args.title ?? 'x', args.body ?? 'x', JSON.stringify(args.metadata), args.key ?? null],
   );
 
+/**
+ * #1416 P1 — the migration must survive a POPULATED table.
+ *
+ * The original schema allowed `title` 4..160; the redesign narrows it to 1..80. `ADD CONSTRAINT`
+ * validates the whole table by default, so a report already stored with an 81..160-character title —
+ * which the previous UI accepted — aborts the apply on Production. It cannot fail on an empty test
+ * database, which is exactly why every check before the apply would have passed.
+ *
+ * This bootstraps the ORIGINAL schema, seeds a legacy row the old rules allowed, and then applies
+ * the exact migration file that will run in production.
+ */
+describe('#1416 applying the migration to a populated legacy table', () => {
+  const LEGACY = '99999999-9999-4999-8999-999999999999';
+  let legacyDb: PGlite;
+  const legacyTitle = 'L'.repeat(120); // legal under 4..160, illegal under 1..80
+
+  beforeEach(async () => {
+    legacyDb = new PGlite();
+    await legacyDb.exec(`
+      CREATE SCHEMA auth;
+      CREATE TABLE auth.users (id uuid PRIMARY KEY);
+      INSERT INTO auth.users VALUES ('${USER}');
+      CREATE TABLE public.sessions (id uuid PRIMARY KEY, user_id uuid REFERENCES auth.users(id));
+      CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT '${USER}'::uuid $$;
+      CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$ SELECT 'authenticated'::text $$;
+    `);
+    await legacyDb.exec(read('20260605080000_user_issue_reports.sql'));
+    await legacyDb.exec(read('20260710000000_user_issue_reports_category_slugs.sql'));
+    await legacyDb.exec(read('20260903140000_feedback_kind_severity_contract.sql'));
+    // The legacy row, written under the rules in force at the time.
+    await legacyDb.query(
+      `INSERT INTO public.user_issue_reports
+        (id, user_id, category, severity, title, description, page_url, metadata)
+       VALUES ($1,$2,'something_else','medium',$3,$4,'/practice','{}'::jsonb)`,
+      [LEGACY, USER, legacyTitle, 'A report written before the limit changed.'],
+    );
+  });
+
+  it('applies without aborting, and does not touch the legacy content', async () => {
+    await expect(legacyDb.exec(read('20260904150000_share_feedback_redesign.sql'))).resolves.toBeDefined();
+
+    const rows = await legacyDb.query<{ title: string }>(
+      'SELECT title FROM public.user_issue_reports WHERE id = $1', [LEGACY],
+    );
+    // Preserved verbatim. Truncating it to fit would destroy support content someone wrote, to meet
+    // a limit that did not exist when they wrote it.
+    expect(rows.rows[0].title).toBe(legacyTitle);
+    expect(rows.rows[0].title.length).toBe(120);
+  });
+
+  it('still rejects a NEW title over the new limit', async () => {
+    await legacyDb.exec(read('20260904150000_share_feedback_redesign.sql'));
+    await expect(legacyDb.query(
+      `INSERT INTO public.user_issue_reports
+        (id, user_id, category, severity, title, description, page_url, metadata, idempotency_key)
+       VALUES ($1,$2,'something_else','not_applicable',$3,'x','/practice',$4,NULL)`,
+      ['12121212-1212-4212-8212-121212121212', USER, 'N'.repeat(81),
+        JSON.stringify({ feedback_kind: 'comment', feedback_type: 'idea', feedback_severity: null })],
+    )).rejects.toThrow();
+  });
+
+  it('leaves the narrowed limits explicitly NOT VALID, so no whole-table validation ran', async () => {
+    await legacyDb.exec(read('20260904150000_share_feedback_redesign.sql'));
+    const rows = await legacyDb.query<{ conname: string; convalidated: boolean }>(
+      `SELECT conname, convalidated FROM pg_constraint
+       WHERE conrelid = 'public.user_issue_reports'::regclass AND contype = 'c'
+         AND conname IN ('user_issue_reports_title_length', 'user_issue_reports_description_length',
+                         'user_issue_reports_severity_safe')`,
+    );
+    expect(rows.rows.length).toBe(3);
+    for (const row of rows.rows) expect(row.convalidated).toBe(false);
+  });
+});
+
 describe('#1404 Share feedback storage contract', () => {
   it('accepts the two-field minimum and a non-defect type', async () => {
     await expect(insert({

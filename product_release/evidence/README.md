@@ -9,6 +9,17 @@
 
 This directory stores dated release-proof artifacts. It is retained evidence, not the current coordination board and not the disposable `product_release/archive/` tree.
 
+### Supersessions — recorded here, never written into the dated record
+
+A dated artifact states what was proved on its date, in the words of the contract in force then.
+When later work changes that contract, the change is recorded in this index. The artifact itself is
+not edited: a proof rewritten to match current behavior no longer evidences anything, because it can
+no longer disagree with the present — and disagreeing with the present is the only reason to keep it.
+
+| Artifact | What it proved then | Superseded by |
+|---|---|---|
+| `BETA_50_RELEASE_EVIDENCE_2026-07-09.md` — Share Feedback acceptance | A report row carrying `include_transcript`, `transcript_excerpt`, `include_audio` and `audio_attachment_note` opt-in columns, a user-entered title, and a raw `userAgent` in metadata | #1404 / #1416 — the redesigned two-field form derives the title, stores coarse parsed browser/OS instead of the raw user agent, and submits no transcript or audio fields at all |
+
 ## Current truth sources
 
 - Current release verdict: `product_release/RELEASE_STATUS.md`.

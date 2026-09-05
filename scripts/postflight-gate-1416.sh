@@ -61,6 +61,13 @@ idem_index_partial="$(q "SELECT count(*)::text FROM pg_index i
 constraint_def="$(q "SELECT coalesce(max(pg_get_constraintdef(oid)),'-') FROM pg_constraint
   WHERE conrelid = '${TABLE}'::regclass AND conname = 'user_issue_reports_severity_safe'")"
 
+# The narrowed limits are added NOT VALID so an existing 81..160-character title cannot abort the
+# apply. `convalidated = false` is therefore the EXPECTED state, and asserting it keeps a future
+# edit from quietly turning this into a whole-table validation on Production.
+title_not_validated="$(q "SELECT count(*)::text FROM pg_constraint
+  WHERE conrelid = '${TABLE}'::regclass AND conname = 'user_issue_reports_title_length'
+    AND contype = 'c' AND NOT convalidated")"
+
 has_pair() { case "$constraint_def" in *"$1"*) echo present;; *) echo absent;; esac; }
 
 # Normalised text of each exact pairing the contract requires.
@@ -85,6 +92,7 @@ else
   check 'unique index on idempotency_key present'       1        "$idem_index_total"
   check 'unique index is NOT partial'                   0        "$idem_index_partial"
   check 'severity_safe constraint present'              present  "$(if [ "$constraint_def" = '-' ]; then echo absent; else echo present; fi)"
+  check 'title limit added NOT VALID (legacy safe)'     1        "$title_not_validated"
   check 'exact pair minor is named'                     present  "$minor_low"
   check 'exact pair target low is named'                present  "$pair_low"
   check 'exact pair target medium is named'             present  "$pair_medium"

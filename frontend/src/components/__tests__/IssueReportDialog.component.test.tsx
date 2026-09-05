@@ -348,6 +348,42 @@ describe('#1404 Share feedback redesign', () => {
     });
   });
 
+  describe('#1416 focus follows the restored selection', () => {
+    it('focuses the restored checked option, not the first one', async () => {
+      // The checked option is the group's single tab stop. Focusing `broke` while `idea` was checked
+      // put the focus ring on an option the user had not chosen, started arrow keys from the wrong
+      // place, and announced an unchecked radio as the group's entry point — telling someone
+      // returning to their own draft that they had picked something else.
+      sessionStorage.setItem('feedback.draft', JSON.stringify({
+        ownerId: 'u1', type: 'idea', body: 'A restored draft.', severity: null,
+        savedAt: Date.now(), idempotencyKey: UUID,
+      }));
+
+      const user = await open('/session', 'u1');
+      expect(screen.getByTestId('issue-report-description')).toHaveValue('A restored draft.');
+      expect(screen.getByTestId('feedback-type-idea')).toHaveFocus();
+      expect(screen.getByTestId('feedback-type-broke')).not.toHaveFocus();
+
+      // One tab stop, and it is the restored option.
+      const stops = ['feedback-type-broke', 'feedback-type-confused', 'feedback-type-idea', 'feedback-type-praise']
+        .filter((id) => screen.getByTestId(id).getAttribute('tabindex') === '0');
+      expect(stops).toEqual(['feedback-type-idea']);
+
+      // Tab LEAVES from the restored option — checked before any arrow moves the selection, since
+      // moving it legitimately moves the tab stop with it.
+      await user.tab();
+      for (const id of ['feedback-type-broke', 'feedback-type-confused', 'feedback-type-idea', 'feedback-type-praise']) {
+        expect(screen.getByTestId(id)).not.toHaveFocus();
+      }
+
+      // Arrows originate at the restored option, not at the top of the group.
+      screen.getByTestId('feedback-type-idea').focus();
+      await user.keyboard('{ArrowRight}');
+      expect(screen.getByTestId('feedback-type-praise')).toHaveFocus();
+      expect(screen.getByTestId('feedback-type-praise')).toHaveAttribute('aria-checked', 'true');
+    });
+  });
+
   describe('#1416 the conditional severity reveal', () => {
     it('reveals downward only when the report is about something breaking', async () => {
       const user = await open();

@@ -47,6 +47,7 @@ const Navigation = () => {
   // (Products stayed unhighlighted through the whole Focus Points flow, with Home lit instead) nor
   // "did selecting Open Mic change anything" (it navigated to the route the user was already on).
   const activeObjectiveBrief = useSessionStore(state => state.activeObjectiveBrief);
+  const isListening = useSessionStore(state => state.isListening);
   const setActiveObjectiveBrief = useSessionStore(state => state.setActiveObjectiveBrief);
   const { surface: practiceSurface } = usePracticeSurface();
   const [isUpgrading, setIsUpgrading] = useState(false);
@@ -151,7 +152,26 @@ const Navigation = () => {
   // Choosing Open Mic must actually leave Focus Points. The brief outlives both same-route
   // navigation and remounts, so without retiring it the user lands back in the product they just
   // asked to leave — and nothing on screen explains why.
-  const selectOpenMic = () => { setActiveObjectiveBrief(null); };
+  //
+  // #1416 — BUT NOT IN THE MIDDLE OF A TAKE.
+  //
+  // Retiring the brief while Focus Points is recording relabels the take that is already running:
+  // the heading, the points rail and the coverage card all switch to Open Mic while the microphone
+  // keeps capturing a session that was started as Focus Points, and will be saved and evaluated as
+  // one. The user would be told they are in a product they are not in, and the recording's own
+  // start-boundary attribution would disagree with what they can see.
+  //
+  // So the switch DEFERS. The take stays coherently Focus Points to its end, and the stop seam —
+  // which already retires the brief once coverage is finalized — is where the change lands. The
+  // pending switch is announced rather than left silent, because a control that appears to do
+  // nothing is its own defect.
+  const switchDeferred = isListening && Boolean(activeObjectiveBrief);
+  const [openMicPending, setOpenMicPending] = useState(false);
+  const selectOpenMic = () => {
+    if (switchDeferred) { setOpenMicPending(true); return; }
+    setActiveObjectiveBrief(null);
+  };
+  useEffect(() => { if (!isListening) setOpenMicPending(false); }, [isListening]);
 
   const isFreeUser = Boolean(session && !hasActiveProductAccess);
   // These route checks used raw pathname comparisons, which disagreed with the router:
@@ -258,6 +278,15 @@ const Navigation = () => {
                     sttMode={reportSttMode}
                     runtimeState={reportRuntimeState}
                   />
+                  {openMicPending && (
+                    <span
+                      role="status"
+                      data-testid="nav-open-mic-pending"
+                      className="hidden text-xs font-semibold text-[#5b6472] sm:inline"
+                    >
+                      Open Mic starts after this take
+                    </span>
+                  )}
                   {/* #1416 — the product switch must survive the session route on a phone.
                       The bottom bar is removed on /session so it cannot cover the recording UI, and
                       the desktop Products menu is `hidden lg:flex`. That left a phone user who

@@ -393,7 +393,17 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
           under the cursor, and nothing above the new row moves at all.
         */
         className="top-[6vh] max-h-[88vh] translate-y-0 overflow-y-auto sm:max-w-xl"
-        onOpenAutoFocus={(event) => { event.preventDefault(); typeRefs.current[0]?.focus(); }}
+        onOpenAutoFocus={(event) => {
+          // #1416 — focus the RESTORED selection, not the first option.
+          //
+          // A radio group has one tab stop, and it is the checked option. Reopening onto a restored
+          // draft focused `broke` while `idea` was the checked one carrying `tabIndex=0`: the focus
+          // ring sat on an option the user had not chosen, arrow keys started from the wrong place,
+          // and a screen reader announced an unchecked radio as the group's entry point. Someone
+          // returning to their own draft was told, by the focus, that they had picked something else.
+          event.preventDefault();
+          typeRefs.current[typeIndex >= 0 ? typeIndex : 0]?.focus();
+        }}
       >
         <DialogHeader><DialogTitle>Share feedback</DialogTitle></DialogHeader>
 

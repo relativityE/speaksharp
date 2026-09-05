@@ -18,11 +18,34 @@ ALTER TABLE public.user_issue_reports
   DROP CONSTRAINT IF EXISTS user_issue_reports_description_length,
   DROP CONSTRAINT IF EXISTS user_issue_reports_severity_safe;
 
+-- #1416 — NOT VALID, BECAUSE THE OLD LIMITS WERE WIDER THAN THE NEW ONES.
+--
+-- The original table allowed `title` 4..160 and `description` 10..5000. The redesign narrows both
+-- (1..80 and 1..5000), and `ADD CONSTRAINT` validates the WHOLE POPULATED TABLE by default. Any
+-- report already stored with an 81..160-character title — which the previous UI accepted — aborts
+-- this migration on Production. It cannot fail on an empty test database, so nothing before the
+-- apply would have shown it.
+--
+-- `NOT VALID` governs every new and updated row immediately while leaving existing rows untouched.
+-- The alternative is worse in both directions: validating immediately risks a failed apply, and
+-- truncating legacy titles to fit would destroy support content that people wrote, to satisfy a
+-- limit that did not exist when they wrote it.
+--
+-- RECONCILIATION: legacy rows stay readable and are NOT rewritten here. Bringing them under the
+-- constraint requires a separately authorized backfill decision — what a >80-character legacy title
+-- should become is a product question, not a migration detail — after which
+-- `VALIDATE CONSTRAINT user_issue_reports_title_length` can run without holding a write lock.
+--
+-- ROLLBACK/RECOVERY: both constraints can be dropped with
+-- `ALTER TABLE public.user_issue_reports DROP CONSTRAINT <name>;` with no data change, because
+-- NOT VALID never rewrote a row.
 ALTER TABLE public.user_issue_reports
   ADD CONSTRAINT user_issue_reports_title_length
-    CHECK (length(btrim(title)) BETWEEN 1 AND 80),
+    CHECK (length(btrim(title)) BETWEEN 1 AND 80) NOT VALID,
   ADD CONSTRAINT user_issue_reports_description_length
-    CHECK (length(btrim(description)) BETWEEN 1 AND 5000),
+    CHECK (length(btrim(description)) BETWEEN 1 AND 5000) NOT VALID,
+  -- Also NOT VALID: legacy rows predate the feedback_type/kind vocabulary entirely, and their
+  -- severity was written under the original `low|medium|high|critical` rule.
   ADD CONSTRAINT user_issue_reports_severity_safe CHECK (
     -- #1416 — THE FEEDBACK CONTRACT IS ONE CONTRACT, ENFORCED HERE.
     --
@@ -67,7 +90,7 @@ ALTER TABLE public.user_issue_reports
         false
       )
     END
-  );
+  ) NOT VALID;
 
 COMMENT ON COLUMN public.user_issue_reports.idempotency_key IS
   'Per-draft delivery key. Repeating the same Share feedback submission creates at most one row.';
