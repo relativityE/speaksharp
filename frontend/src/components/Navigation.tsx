@@ -171,7 +171,21 @@ const Navigation = () => {
     if (switchDeferred) { setOpenMicPending(true); return; }
     setActiveObjectiveBrief(null);
   };
-  useEffect(() => { if (!isListening) setOpenMicPending(false); }, [isListening]);
+  // #1416 P2-1 — APPLY the deferred switch when the take ends; do not just forget it.
+  //
+  // This used to clear the pending flag on \`!isListening\` and nothing else, which was only correct
+  // because the stop seam happens to retire the brief on the CLEAN path. A take that ends any other
+  // way — failed finalization, an unresolved recording, a cancelled attempt — leaves the brief bound,
+  // so the confirmation the user was given ("Open Mic starts after this take") vanished and Focus
+  // Points silently continued. The user asked once, was told it would happen, and it did not.
+  //
+  // The switch is now applied here, at the moment the take ends, whatever ended it.
+  useEffect(() => {
+    if (isListening) return;
+    if (!openMicPending) return;
+    setActiveObjectiveBrief(null);
+    setOpenMicPending(false);
+  }, [isListening, openMicPending, setActiveObjectiveBrief]);
 
   const isFreeUser = Boolean(session && !hasActiveProductAccess);
   // These route checks used raw pathname comparisons, which disagreed with the router:

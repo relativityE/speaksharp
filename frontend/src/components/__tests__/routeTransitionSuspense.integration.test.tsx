@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import React, { Suspense } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { MemoryRouter, Routes, Route, Link, useLocation, useSearchParams } from 'react-router-dom';
 import { PageTransition } from '@/components/ui/PageTransition';
 
@@ -112,10 +114,14 @@ const PopLayoutShape: React.FC = () => {
   return (
     <Suspense fallback={<div data-testid="loader">LOADING</div>}>
       <AnimatePresence mode="popLayout">
-        <Routes location={location} key={location.pathname}>
-          <Route path="/origin" element={<PageTransition><Origin /></PageTransition>} />
-          <Route path="/destination" element={<PageTransition><LazyDestination /></PageTransition>} />
-        </Routes>
+        {/* Mirrors `App`: a KEYED DOM child owns the route subtree, so popLayout has something it
+            can compose a ref onto and actually take out of flow. */}
+        <motion.div key={location.pathname} data-testid="route-presence-child" className="w-full">
+          <Routes location={location}>
+            <Route path="/origin" element={<PageTransition><Origin /></PageTransition>} />
+            <Route path="/destination" element={<PageTransition><LazyDestination /></PageTransition>} />
+          </Routes>
+        </motion.div>
       </AnimatePresence>
     </Suspense>
   );
@@ -169,6 +175,61 @@ describe('#1416 route transition must mount the destination', () => {
     await drive(PopLayoutShape);
     await waitFor(() => expect(screen.getByTestId('destination')).toBeInTheDocument(), { timeout: 3000 });
     expect(screen.getByTestId('setup-dialog')).toBeInTheDocument();
+  });
+
+  it('CASUALTY — App gives popLayout a ref-forwarding immediate child, not <Routes>', () => {
+    // `popLayout` works by cloning its IMMEDIATE child with a composed ref, measuring that node, and
+    // taking it out of flow. React Router's `<Routes>` is a plain function component and forwards no
+    // ref, so the measurement target is null: the mode is declared and inert, and nothing is popped.
+    //
+    // This is asserted against `App.tsx` itself, not against a shape this file defines, because a
+    // test that checks its own composition proves only that it agrees with itself. And it is a
+    // SOURCE assertion on purpose: jsdom runs no layout, so `getBoundingClientRect` is all zeros and
+    // "was it positioned out of flow" is unanswerable there. React 19 no longer warns about refs on
+    // function components either — I tried that first, and the mutant survived it silently.
+    const app = readFileSync(resolve(import.meta.dirname, '..', '..', 'App.tsx'), 'utf8');
+    const presence = app.slice(app.indexOf('<AnimatePresence mode="popLayout">'));
+    const immediateChild = presence.slice(0, presence.indexOf('<Routes'));
+
+    // The child between AnimatePresence and Routes must be a motion element carrying the location key.
+    expect(immediateChild).toMatch(/<motion\.[a-z]+\b/);
+    expect(immediateChild).toMatch(/key=\{location\.pathname\}/);
+    // And `Routes` must NOT be the keyed immediate child any more.
+    expect(presence).not.toMatch(/<AnimatePresence mode="popLayout">\s*<Routes/);
+  });
+
+  it('moving Suspense inside the presence tree is NOT sufficient — mode="wait" is the blocker', async () => {
+    // Worth pinning: the nesting looks like the culprit, and correcting it alone leaves the journey
+    // just as broken. Whoever revisits this should not spend the afternoon I spent on it.
+    await drive(SuspenseInside);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(screen.queryByTestId('destination')).not.toBeInTheDocument();
+  });
+
+  it('popLayout also mounts the suspending destination', async () => {
+    await drive(PopLayoutShape);
+    await waitFor(() => expect(screen.getByTestId('destination')).toBeInTheDocument(), { timeout: 3000 });
+    expect(screen.getByTestId('setup-dialog')).toBeInTheDocument();
+  });
+
+  it('CASUALTY — popLayout\'s immediate child must be able to RECEIVE A REF', async () => {
+    // `popLayout` clones its immediate child with a composed ref, measures that node, and takes it
+    // out of flow. Give it a plain function component — React Router's `<Routes>` is one — and the
+    // ref is null, nothing is measured, nothing is popped, and the mode is declared but inert.
+    //
+    // Asserting "the destination mounted" cannot see this: that is true whether or not the exiting
+    // subtree was ever popped. React's own warning is the signal, so it is the assertion.
+    const errors: string[] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+    try {
+      await drive(PopLayoutShape);
+      await waitFor(() => expect(screen.getByTestId('destination')).toBeInTheDocument(), { timeout: 3000 });
+    } finally {
+      console.error = originalError;
+    }
+    const refWarnings = errors.filter((line) => /Function components cannot be given refs|cannot be given refs/i.test(line));
+    expect(refWarnings, `popLayout child rejected the ref:\n${refWarnings.join('\n')}`).toEqual([]);
   });
 
   it('reaches the destination and renders what the query asked for', async () => {

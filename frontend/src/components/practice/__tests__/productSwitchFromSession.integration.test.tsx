@@ -173,6 +173,27 @@ describe('#1416 product switching from the session route', () => {
       await waitFor(() => expect(screen.queryByTestId('nav-open-mic-pending')).not.toBeInTheDocument());
     });
 
+    it('applies the pending switch when the take ends WITHOUT the stop seam clearing the brief', async () => {
+      // The previous test set `isListening:false` and cleared the brief in the same act, so it
+      // manufactured the outcome it was checking: it passed whether or not anything applied the
+      // switch. Only the CLEAN stop path retires the brief; a take that ends through failed
+      // finalization, an unresolved recording or a cancelled attempt leaves it bound — and the
+      // confirmation the user was given then vanished while Focus Points silently continued.
+      startFocusPointsTake();
+      const user = userEvent.setup();
+      renderApp('/session');
+
+      await user.click(screen.getByTestId('nav-products-button'));
+      await user.click(await screen.findByTestId('nav-products-open-mic'));
+      expect(await screen.findByTestId('nav-open-mic-pending')).toBeInTheDocument();
+
+      // ONLY the take ends. The brief stays bound, as it does on every non-clean path.
+      act(() => { useSessionStore.setState({ isListening: false }); });
+
+      await waitFor(() => expect(useSessionStore.getState().activeObjectiveBrief).toBeNull());
+      await waitFor(() => expect(screen.queryByTestId('nav-open-mic-pending')).not.toBeInTheDocument());
+    });
+
     it('still switches immediately when no take is running', async () => {
       useSessionStore.getState().setActiveObjectiveBrief({ projectId: 'p1', briefId: 'b1', points: ['a'] });
       const user = userEvent.setup();
