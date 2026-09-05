@@ -67,6 +67,13 @@ async function assertReport(page: Page, expectedLabel: string | RegExp, shotName
     await expect(page.getByTestId(removed)).toHaveCount(0);
   }
   if (shotName) {
+    // Start from an empty form. An earlier capture in this same spec leaves a draft behind on
+    // Escape — deliberately, that is the preserved-draft contract — and a restored draft legitimately
+    // enables Send. Asserting "disabled" without clearing tests the previous test's leftovers.
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByTestId('nav-report-issue-button').click();
+    await expect(page.getByTestId('issue-report-description')).toBeVisible();
+    await expect(page.getByTestId('issue-report-description')).toHaveValue('');
     await expect(page.getByTestId('issue-report-submit')).toBeDisabled();
     await page.screenshot({ path: `${DIR}/${shotName}-collapsed.png` });
     await page.getByRole('button', { name: "What's included" }).click();
@@ -78,6 +85,10 @@ async function assertReport(page: Page, expectedLabel: string | RegExp, shotName
     await page.getByTestId('issue-report-description').fill('The saved session did not open from History.');
     await expect(page.getByTestId('issue-report-submit')).toBeEnabled();
     await page.screenshot({ path: `${DIR}/${shotName}-ready-to-send.png` });
+    // Cancel, not Escape: leave no draft for the next capture to inherit.
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByTestId('issue-report-description')).toHaveCount(0);
+    return;
   }
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('issue-report-description')).toHaveCount(0);

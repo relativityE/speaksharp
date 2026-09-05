@@ -362,7 +362,18 @@ const App: React.FC = () => {
               {/* Inside Suspense: mounts only once a lazy route chunk resolves → clears the stale-chunk
                   recovery guard on a genuinely successful post-reload boot (not a frame-count heuristic). */}
               <StaleChunkBootClear />
-              <AnimatePresence mode="wait">
+              {/* #1416 — NO `mode="wait"` HERE.
+                  `mode="wait"` holds the outgoing route mounted until its exit animation completes
+                  before it will mount the incoming one. Every route below is `React.lazy`, so the
+                  incoming route SUSPENDS, and a suspension unmounts the subtree the exit animation
+                  was running in. The exit therefore never completes, the incoming route is never
+                  mounted, and the user is left looking at the page they navigated away from.
+                  It does not surface as an error: the URL changes, the destination's effects can even
+                  run before it is torn down, and nothing is logged. `/session` → Products → Focus
+                  Points reached `/practice`, stripped its own `?product=` parameter — proving
+                  PracticePage mounted — and still showed the Session page.
+                  Cross-fading is the cost; a navigation that silently does nothing is not. */}
+              <AnimatePresence>
                 <Routes location={location} key={location.pathname}>
                   {/* #1061: ONE canonical auth-aware page. Authenticated → redirect to /practice; anonymous
                       → render the SAME PracticePage (marketing + product choices, no session history). */}
