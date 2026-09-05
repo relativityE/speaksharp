@@ -230,6 +230,124 @@ describe('#1415 — one click, one recording', () => {
         });
     });
 
+    describe('#1419 — a settled attempt cannot act on its successor', () => {
+        type Priv = {
+            transition: (s: string, e?: Error, t?: unknown, intentToken?: string) => Promise<void>;
+            engineSelectionIntentLocked: boolean;
+        };
+
+        /** A prepares and is superseded by B, with the runtime returned to IDLE as a real teardown does. */
+        const prepareAThenSupersedeWithB = async () => {
+            engine.downloadEnabled = false;
+            const a = controller.startRecording(POLICY as never, []);
+            a.catch(() => { /* A is expected to lose */ });
+            await settle();
+            const aToken = pendingRecordingIntent()?.token;
+            expect(aToken).toBeTruthy();
+
+            // Teardown to IDLE — without this the bad-state guard retires B on arrival and the race
+            // under test never exists. That is the mistake an earlier version of this suite made.
+            await (controller as unknown as Priv).transition('TERMINATED');
+            await (controller as unknown as Priv).transition('IDLE');
+            await settle();
+
+            const b = controller.startRecording(POLICY as never, []);
+            b.catch(() => { /* not asserted here */ });
+            await settle();
+            const bToken = pendingRecordingIntent()?.token;
+            expect(bToken).toBeTruthy();
+            expect(bToken).not.toBe(aToken);
+            return { aToken: aToken as string, bToken: bToken as string };
+        };
+
+        it('A late TERMINAL FAILURE from A does not retire B', async () => {
+            // The user clicked again. B is what they are waiting on. A's failure arriving afterwards
+            // must be A's business alone — unscoped, it cancelled the recording the user had just
+            // asked for, with nothing on screen to explain why.
+            const { aToken, bToken } = await prepareAThenSupersedeWithB();
+
+            await (controller as unknown as Priv).transition('FAILED', new Error('A failed late'), undefined, aToken);
+            await settle();
+
+            expect(pendingRecordingIntent()?.token).toBe(bToken);
+        });
+
+        it('A reaching RECORDING does not settle B', async () => {
+            // A finally succeeding after being superseded must not resolve B's promise or claim B's
+            // attempt: the caller told "your recording started" has to be the caller whose click
+            // started it, and B's audio must not carry A's attribution.
+            const { aToken, bToken } = await prepareAThenSupersedeWithB();
+
+            // `transition('RECORDING')` returns early unless the engine is ready and emissions are
+            // safe. Without satisfying that guard the settle branch is never reached and this test
+            // passes against the defect — which is exactly what it did on the first attempt.
+            const priv = controller as unknown as Priv & { isEngineReady: boolean; isEmissionsSafe: boolean };
+            priv.isEngineReady = true;
+            priv.isEmissionsSafe = true;
+
+            await (controller as unknown as Priv).transition('RECORDING', undefined, undefined, aToken);
+            await settle();
+
+            // B is still waiting on its own recording; A's late success is not B's success.
+            expect(pendingRecordingIntent()?.token).toBe(bToken);
+            expect(lastRetiredIntent()?.reason).not.toBe('started');
+        });
+
+        it('the engine stays locked for the WHOLE preparation interval, not just its first transition', async () => {
+            // Asserted on the intent lock itself. `isEngineSelectionLocked()` ORs several unrelated
+            // conditions, so it reports true during preparation even when this flag has been cleared —
+            // which is why the existing behavioural test passes against the defect and this one does not.
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            started.catch(() => { /* asserted elsewhere */ });
+            await settle();
+
+            expect(pendingRecordingIntent()).not.toBeNull();
+            expect((controller as unknown as Priv).engineSelectionIntentLocked).toBe(true);
+        });
+
+        it('and releases the moment that attempt settles', async () => {
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            started.catch(() => { /* expected */ });
+            await settle();
+            expect((controller as unknown as Priv).engineSelectionIntentLocked).toBe(true);
+
+            await (controller as unknown as Priv).transition('TERMINATED');
+            await settle();
+
+            expect(pendingRecordingIntent()).toBeNull();
+            expect((controller as unknown as Priv).engineSelectionIntentLocked).toBe(false);
+        });
+    });
+
+    describe('#1419 — a gate that closes during preparation settles the waiting caller', () => {
+        it('rejects the ORIGINAL promise instead of leaving the click waiting forever', async () => {
+            // The gates are re-evaluated on the RESUMED start, which is right: a download takes
+            // minutes and a gate open at click time can be shut by the time readiness arrives. But a
+            // bare `return` there abandoned the promise the click is awaiting — the caller waits on a
+            // start already decided against, and the user gets a status line they cannot act on.
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            const outcome: string[] = [];
+            started.then(() => outcome.push('resolved'), (e: Error) => outcome.push(`rejected:${e.message}`));
+            await settle();
+            expect(pendingRecordingIntent()).not.toBeNull();
+
+            // The gate closes WHILE preparation is in flight — a prior recording became unresolved.
+            (controller as unknown as { recordingStartedUnresolved: boolean }).recordingStartedUnresolved = true;
+
+            // Readiness arrives and the click resumes into the now-closed gate.
+            engine.downloadEnabled = true;
+            await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('READY');
+            await settle();
+
+            expect(outcome.length, 'the original caller must be settled, not abandoned').toBe(1);
+            expect(outcome[0]).toMatch(/^rejected:/);
+            expect(outcome[0]).toContain('RECORDING_START_GATE_CLOSED');
+        });
+    });
+
     describe('#1415 P1 — engine and policy stay locked through preparation', () => {
         it('the lock is HELD while a click waits on a model download', async () => {
             engine.downloadEnabled = false;   // preparation stays open

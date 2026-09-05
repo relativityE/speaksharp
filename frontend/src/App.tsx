@@ -24,6 +24,7 @@ import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { areInternalRoutesEnabled } from '@/config/internalRoutes';
 import logger from '@/lib/logger';
+import { useRouteExitIntentRetirement } from '@/hooks/useRouteExitIntentRetirement';
 
 const showTestModeBadge =
   !import.meta.env.PROD &&
@@ -290,6 +291,10 @@ const App: React.FC = () => {
 
   // ✅ STRUCTURAL FIX: Hard Termination Boundary (Step 4)
   // Ensure the engine is definitively destroyed ONLY on route exit.
+  // #1419 — the departing click is retired by the route-exit authority, extracted so a casualty can
+  // drive the real hook rather than a copy of it in a test file.
+  useRouteExitIntentRetirement(location.pathname);
+
   const prevPathRef = React.useRef(location.pathname);
   const routeExitVersionRef = React.useRef(0);
   useEffect(() => {
@@ -299,6 +304,7 @@ const App: React.FC = () => {
     // Logic: If leaving /session -> Hard Termination
     if (prevPath === '/session' && currentPath !== '/session') {
       const routeExitVersion = ++routeExitVersionRef.current;
+
       logger.debug(`[DIAGNOSTIC] 🏁 Route Exit Detected: ${prevPath} -> ${currentPath}`);
       void import('@/services/transcription/SessionManager').then(({ sessionManager }) => {
         const activeService = sessionManager.getActiveService();

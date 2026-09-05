@@ -1761,12 +1761,29 @@ export class SpeechRuntimeController {
         return /microphone|mic|permission|recording could not start/i.test(status.message);
     }
 
-    private async transition(newState: RuntimeState, error?: Error, token?: LifecycleToken): Promise<void> {
+    /**
+     * #1419 — `intentToken` names the ATTEMPT this transition belongs to.
+     *
+     * Without it, a transition reaching here from a stale attempt acts on whatever intent happens to
+     * be pending — which is how attempt A's late failure retired successor B, and how A reaching
+     * RECORDING settled B's promise. Every start-path call site passes the token it owns; call sites
+     * that are genuinely attempt-agnostic (a hard teardown, a heartbeat failure) pass nothing and
+     * keep the unscoped behaviour, because there a pending intent SHOULD be retired whoever owns it.
+     */
+    private async transition(newState: RuntimeState, error?: Error, token?: LifecycleToken, intentToken?: string): Promise<void> {
         // #1033: release the Start-intent BRIDGE once a real state is reached — the lifecycle-state set,
         // the pending-retry, and recordingStartedUnresolved now govern isEngineSelectionLocked(). Once a
         // recording has actually begun, mark it unresolved so a POST-start failure (which lands in a
         // non-locked state) keeps engine selection locked until durable save/retry/approved-discard.
-        this.engineSelectionIntentLocked = false;
+        //
+        // #1419 — the release is DEFERRED to the end of this method, not done here.
+        //
+        // Clearing it up front released the lock on the FIRST transition of a cold start, so the whole
+        // preparation interval — INITIATING, ENGINE_INITIALIZING, DOWNLOAD_REQUIRED — ran unlocked. The
+        // user could switch engines while a download they had already consented to was still running
+        // and a start intent was still pending, and the attempt would then complete against an engine
+        // the user never agreed to download. The lock now follows the attempt: it is held while an
+        // intent is pending and released when that intent settles.
         if (newState === 'RECORDING') {
             if (!this.canTransitionToRecording()) {
                 return;
@@ -1792,19 +1809,45 @@ export class SpeechRuntimeController {
             previousState === 'DOWNLOAD_REQUIRED' || previousState === 'ENGINE_INITIALIZING'
         );
 
-        // Any terminal or torn-down state retires the wish. A stale intent must never start a
-        // recording later, and these are precisely the moments after which it would be stale.
+        // A terminal state retires the wish — but WHOSE wish depends on who got here.
+        //
+        // #1419: this comment used to read "any terminal or torn-down state retires the wish", and
+        // the code matched it. That is exactly what correction 4 forbids for a failure: attempt A
+        // failing must not retire successor B. The distinction is carried by `intentToken`:
+        //
+        //   token present  → an ATTEMPT ended. Retire that attempt only; a newer one is untouched.
+        //   token absent   → a genuine RUNTIME teardown (hard reset, route exit, logout). Retiring
+        //                    whatever is pending is correct there, because the engine is going away
+        //                    and no attempt can survive it.
+        //
+        // So `TERMINATED` and the failure states can keep sharing this expression: the semantics are
+        // not carried by the state name, they are carried by whether a caller claimed ownership.
         if (newState === 'TERMINATED' || newState === 'FAILED' || newState === 'FAILED_VISIBLE') {
             // Rejects the original caller through the intent's settlement, so a resumed permission,
             // init or start failure surfaces where the click was made instead of vanishing.
-            retireRecordingIntent(newState === 'TERMINATED' ? 'teardown' : 'acquisition_failed');
+            //
+            // #1419 — SCOPED TO THE FAILING ATTEMPT. Unscoped, a FAILED arriving late from attempt A
+            // retired whichever intent was current — cancelling successor B, which the user had just
+            // asked for, with no visible cause. `retireRecordingIntent` already refuses a token that
+            // is not the pending one; the defect was this call site declining to name one.
+            retireRecordingIntent(
+                newState === 'TERMINATED' ? 'teardown' : 'acquisition_failed',
+                intentToken,
+            );
         } else if (newState === 'RECORDING') {
             // THE RECORDING AUTHORITY. This is the only place the caller's promise resolves, so
             // `session_started` cannot be pushed before a recording genuinely exists. Retiring here
             // also covers the WARM path, where the intent is minted and recording begins without ever
             // passing through preparation.
+            //
+            // #1419 — A SUCCESS SETTLES ITS OWN ATTEMPT AND NO OTHER. This read `pendingRecordingIntent()`
+            // — whatever was pending — so if A finally reached RECORDING after B had superseded it,
+            // A's success resolved B's promise and stamped B's attribution onto A's audio. The caller
+            // that gets told "your recording started" must be the caller whose click started it.
             const honoured = pendingRecordingIntent();
-            if (honoured) {
+            const ownsThisTransition = honoured !== null
+                && (intentToken === undefined || honoured.token === intentToken);
+            if (honoured && ownsThisTransition) {
                 retireRecordingIntent('started', honoured.token);
                 honoured.settlement?.resolve();
             }
@@ -1819,6 +1862,16 @@ export class SpeechRuntimeController {
         if (newState === 'FAILED' || newState === 'FAILED_VISIBLE' || newState === 'TERMINATED') {
             this.ensurePostStartFailureIsActionable();
         }
+
+        // #1419 — THE ENGINE STAYS LOCKED FOR AS LONG AS AN ATTEMPT OWNS IT.
+        //
+        // Evaluated here, AFTER the retire/claim above, so it reads the settled truth: an intent still
+        // pending means an attempt is mid-flight — including the whole cold preparation interval,
+        // which is exactly when the old unconditional release opened the window. Once the attempt
+        // settles (claimed into RECORDING, or retired for any reason) nothing owns the engine and the
+        // lock lifts on its own. No separate unlock path can now drift from the lock path, because
+        // there is only one expression.
+        this.engineSelectionIntentLocked = pendingRecordingIntent() !== null;
 
         logger.info({ from: previousState, to: newState }, '[SpeechRuntimeController] ⚡ Transition');
         const store = useSessionStore.getState();
@@ -1938,14 +1991,23 @@ export class SpeechRuntimeController {
                     }, '[SpeechRuntimeController] Failed to mark session failed after FAILED transition');
                 });
             }
-            await this.transition('FAILED_VISIBLE', error, token);
+            // #1419 — THE ESCALATION BELONGS TO THE SAME ATTEMPT.
+            //
+            // `transition()` re-enters itself here, and this call forwarded no intent token. So a
+            // correctly-scoped FAILED for attempt A immediately escalated to FAILED_VISIBLE as an
+            // ANONYMOUS transition, which then retired whichever intent was pending — successor B.
+            // Scoping the first hop and not the second scopes nothing: the second hop is where the
+            // damage landed, and it looked like a defect on an unnamed path.
+            await this.transition('FAILED_VISIBLE', error, token, intentToken);
         }
 
         if (newState === 'FAILED_VISIBLE') {
             setTimeout(() => {
                 void this.enqueue(async (t) => {
                     if (this.state === 'FAILED_VISIBLE' || this.state === 'FAILED') {
-                        await this.transition('TERMINATED', undefined, t);
+                        // Same reasoning: this teardown is the tail of ONE attempt's failure, not a
+                        // runtime-wide teardown, so it retires that attempt and no other.
+                        await this.transition('TERMINATED', undefined, t, intentToken);
                     }
                 });
             }, this.VISIBLE_HOLD_DURATION_MS);
@@ -2681,15 +2743,39 @@ export class SpeechRuntimeController {
         // The DURABLE QUEUE is read FRESH on every attempt. The store gate is per-tab and can be stale:
         // a second already-open tab never sees debt another tab queued, because browser `storage` events
         // notify other tabs and never the writer. Enforcement must not depend on event delivery.
+        //
+        // #1419 — A GATE THAT CLOSES DURING PREPARATION MUST SETTLE THE WAITING CALLER.
+        //
+        // These gates are re-evaluated on the RESUMED start, which is the correct place: a model
+        // download can take minutes, and a gate that was open at the click may be shut by the time
+        // readiness arrives — another tab queued Progress debt, or a prior recording became
+        // unresolved. But a bare `return` here abandons the promise the original click is awaiting.
+        // The caller waits forever on a start that has already been decided against, the processing
+        // guard is never released, and the user sees a status message with no way to act on it.
+        //
+        // Rejecting through the carried settlement puts the refusal where the click was made. The
+        // reason is the gate's own message, so the caller is told what actually stopped it rather
+        // than a generic failure.
+        const refuseStart = (reason: string): void => {
+            useSessionStore.getState().setSTTStatus({ type: 'error', message: reason });
+            // Only a RESUMED start carries someone else's promise; a fresh click's own promise is
+            // settled by its normal path below.
+            carriedSettlement?.reject(new Error(`RECORDING_START_GATE_CLOSED:${reason}`));
+            // There is no separate processing guard to release: start attempts are serialised through
+            // `enqueue`, which releases on return. I looked for one before writing this, because the
+            // directive names releasing it — the guard it refers to is the intent itself, and that is
+            // retired by the terminal transition this refusal produces.
+        };
+
         const startGate = evaluateStartGate(this.capturedUserId, useSessionStore.getState().progressGate);
         if (!startGate.allowed) {
             logger.warn({ reason: startGate.reason }, '[controller] startRecording blocked on Progress evidence (#1354)');
-            useSessionStore.getState().setSTTStatus({ type: 'error', message: startGateMessage(startGate) ?? '' });
+            refuseStart(startGateMessage(startGate) ?? 'Recording is unavailable right now.');
             return;
         }
         if (this.pendingAttributionRetry || this.pendingFullSaveRetry || this.recordingStartedUnresolved) {
             logger.warn({ pendingSession: (this.pendingFullSaveRetry ?? this.pendingAttributionRetry)?.sessionId ?? null, kind: this.pendingResolutionKind(), unresolved: this.recordingStartedUnresolved }, '[controller] startRecording blocked: prior recording unresolved (#1033)');
-            useSessionStore.getState().setSTTStatus({ type: 'error', message: 'Finish saving your previous recording before starting a new one.' });
+            refuseStart('Finish saving your previous recording before starting a new one.');
             return;
         }
         // #1033: lock engine selection SYNCHRONOUSLY at Start intent — before any async enqueue reaches
@@ -3143,7 +3229,7 @@ export class SpeechRuntimeController {
                 // Any other start failure retires the intent: a wish the system could not honour must
                 // not be honoured later, silently, when something unrelated reaches READY.
                 retireRecordingIntent('acquisition_failed', intent.token, err as Error);
-                await this.transition('FAILED', err as Error, _token);
+                await this.transition('FAILED', err as Error, _token, intent?.token);
                 throw err;
             }
         }).catch((queueErr: unknown) => {

@@ -193,3 +193,58 @@ describe('#1415 — the resumption is bounded', () => {
         expect(mint({ resumed: true }).resumed).toBe(true);
     });
 });
+
+/**
+ * #1419 — the frozen invariant, stated at the module that owns it:
+ *
+ *   One explicit Start activation owns one token-scoped attempt. It either starts exactly one
+ *   recording or settles with a visible/closed reason. A stale, failed, cancelled, superseded or
+ *   navigated-away attempt can never start, reset, settle, unlock or relabel a newer attempt.
+ *
+ * The module already refuses a token that is not the pending one. Every defect in this stream was a
+ * CALL SITE declining to name a token, so these pin the module's half of the contract — the
+ * controller-level casualties pin the call sites.
+ */
+describe('#1419 a settled attempt cannot act on its successor', () => {
+    beforeEach(() => { __resetRecordingIntentForTests(); });
+
+    it('a success belonging to A cannot settle B', () => {
+        const a = mint();
+        retireRecordingIntent('superseded', a.token);
+        const b = mint();
+
+        // A reaching RECORDING late, naming its own token, must find nothing to claim.
+        expect(claimRecordingIntent(a.token)).toBeNull();
+        // B is untouched and still claimable by its own owner.
+        expect(pendingRecordingIntent()?.token).toBe(b.token);
+        expect(claimRecordingIntent(b.token)?.token).toBe(b.token);
+    });
+
+    it('a navigated-away attempt cannot retire the attempt made after returning', () => {
+        const departing = mint();
+        retireRecordingIntent('navigated', departing.token);
+        const afterReturn = mint();
+
+        // The route-exit handler firing late names the departing token and must not touch the new one.
+        expect(retireRecordingIntent('navigated', departing.token)).toBeNull();
+        expect(pendingRecordingIntent()?.token).toBe(afterReturn.token);
+    });
+
+    it('a stale terminal failure cannot retire a newer attempt', () => {
+        const a = mint();
+        retireRecordingIntent('superseded', a.token);
+        const b = mint();
+
+        expect(retireRecordingIntent('acquisition_failed', a.token)).toBeNull();
+        expect(pendingRecordingIntent()?.token).toBe(b.token);
+    });
+
+    it('an UNSCOPED retirement still retires whatever is pending — which is why call sites must name a token', () => {
+        // Not a defect in this module: a genuine teardown legitimately retires whoever is pending.
+        // It is recorded here so the danger of omitting the token at a call site is visible at the
+        // authority, rather than only in the controller tests that caught it.
+        const b = mint();
+        expect(retireRecordingIntent('teardown')?.token).toBe(b.token);
+        expect(pendingRecordingIntent()).toBeNull();
+    });
+});
