@@ -3,7 +3,7 @@
 **Status:** Unvalidated financial-planning artifact  
 **As of:** 2026-09-05  
 **Workbook:** `SpeakSharp_Updated_Financial_Model_2026-09-05.xlsx`  
-**SHA-256:** `2b40469897a28618a0f5498ed147fa957452051b6b2987185b328d2fdce8a440`
+**SHA-256:** `40bad1b2082ddbaa41b4d4edb0c5041b038b2e1572c66c41bbcfc438a8f7454c`
 
 This workbook is an unvalidated planning forecast, not retained evidence, a product promise,
 release-status authority, or authorization to activate billing. Trial volume, conversion,
@@ -62,6 +62,9 @@ The review also:
   paid-CAC case to Month 7;
 - corrected the shifted `Stack Comparison` formulas so Stripe and 2026/2027 Gemini costs
   reconcile to `Unit Economics`, with explicit checks for both periods;
+- converted `Assumptions!B7` from an unused yellow input into a blue formula derived from
+  the actual `Forecast 12M` month columns, and added a visible check tying the displayed
+  12-month horizon to that fixed layout;
 - reclassified and moved the package out of retained evidence because its commercial inputs
   are unvalidated planning hypotheses;
 - confirmed all workbook checks report `OK` and `MODEL STATUS: PASS`;
