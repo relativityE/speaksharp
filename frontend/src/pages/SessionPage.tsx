@@ -18,6 +18,7 @@ import { useSessionStore } from '@/stores/useSessionStore';
 import { estimateFinalizeSeconds } from '@/services/transcription/finalizeRateStore';
 import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
 import { useNavigate } from 'react-router-dom';
+import { progressGateNotice } from '@/services/progress/progressStartGate';
 
 /**
  * ARCHITECTURE:
@@ -34,6 +35,15 @@ export const SessionPage: React.FC = () => {
     // #1033 A5/A6: the resolved authenticated owner. Recovery reads/rehydration are scoped to it and
     // fail closed while it is unresolved — never an unscoped read.
     const authUserId = authSession?.user?.id ?? null;
+    // #1415 — the SAME gate reason the desktop mic card renders, derived from the same authority.
+    // Mobile previously had no access to it at all, so a blocked cold press on a phone was a dead
+    // control with no explanation available even in principle.
+    const progressGate = useSessionStore((st) => st.progressGate);
+    const progressGateResolvedFor = useSessionStore((st) => st.progressGateResolvedFor);
+    const mobileStartBlockedReason = progressGateNotice(
+        progressGate,
+        progressGateResolvedFor === (authUserId ?? ''),
+    );
     const { runtimeState } = useTranscriptionContext();
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
     const previousTranscriptScrollHeightRef = useRef(0);
@@ -510,6 +520,7 @@ export const SessionPage: React.FC = () => {
                 mode={mode}
                 privateModelStatus={privateModelStatus}
                 onDownloadModel={() => { void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private')); }}
+                blockedReason={mobileStartBlockedReason}
             />
 
         </main>

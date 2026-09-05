@@ -42,7 +42,10 @@ const renderIn = (privateModelStatus: string) => {
 
 describe('MicCard — rendered state to control mapping', () => {
     it.each([
-        ['download-required', 'mic-download', 'onDownloadModel'],
+        // #1415 — the cold control is still `mic-download` (it DOES download), but the press is now
+        // one activation that consents, prepares and records, so it invokes the recording intent.
+        // It previously invoked `onDownloadModel` and stopped there, which is the two-click failure.
+        ['download-required', 'mic-download', 'onStart'],
         ['init-failed', 'mic-retry', 'onDownloadModel'],
         ['error', 'mic-retry', 'onDownloadModel'],
         ['ready', 'mic-start', 'onStart'],
