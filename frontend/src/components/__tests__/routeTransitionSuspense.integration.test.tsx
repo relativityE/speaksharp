@@ -105,6 +105,22 @@ const ProductionShape: React.FC = () => {
   );
 };
 
+
+/** `popLayout` keeps the exiting route out of LAYOUT FLOW while still mounting the incoming one. */
+const PopLayoutShape: React.FC = () => {
+  const location = useLocation();
+  return (
+    <Suspense fallback={<div data-testid="loader">LOADING</div>}>
+      <AnimatePresence mode="popLayout">
+        <Routes location={location} key={location.pathname}>
+          <Route path="/origin" element={<PageTransition><Origin /></PageTransition>} />
+          <Route path="/destination" element={<PageTransition><LazyDestination /></PageTransition>} />
+        </Routes>
+      </AnimatePresence>
+    </Suspense>
+  );
+};
+
 const drive = async (Shell: React.FC) => {
   const user = userEvent.setup();
   render(<MemoryRouter initialEntries={['/origin']}><Shell /></MemoryRouter>);
@@ -147,6 +163,12 @@ describe('#1416 route transition must mount the destination', () => {
     await drive(SuspenseInside);
     await new Promise((r) => setTimeout(r, 300));
     expect(screen.queryByTestId('destination')).not.toBeInTheDocument();
+  });
+
+  it('popLayout also mounts the suspending destination', async () => {
+    await drive(PopLayoutShape);
+    await waitFor(() => expect(screen.getByTestId('destination')).toBeInTheDocument(), { timeout: 3000 });
+    expect(screen.getByTestId('setup-dialog')).toBeInTheDocument();
   });
 
   it('reaches the destination and renders what the query asked for', async () => {

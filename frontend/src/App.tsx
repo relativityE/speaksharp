@@ -372,8 +372,14 @@ const App: React.FC = () => {
                   run before it is torn down, and nothing is logged. `/session` → Products → Focus
                   Points reached `/practice`, stripped its own `?product=` parameter — proving
                   PracticePage mounted — and still showed the Session page.
-                  Cross-fading is the cost; a navigation that silently does nothing is not. */}
-              <AnimatePresence>
+                  `popLayout` rather than the plain default: the default keeps the OUTGOING route in
+                  normal layout flow while it animates out, so for ~300ms after a navigation two page
+                  subtrees stack in the same container. `session-shell-responsive`, which measures
+                  slot geometry immediately after navigating, caught that intermittently — passing
+                  twice and failing twice on this branch while `main` stayed green. `popLayout` pops
+                  the exiting subtree out of flow, so the incoming page lays out alone from its first
+                  frame, and it still does not gate mounting on an exit that suspension prevents. */}
+              <AnimatePresence mode="popLayout">
                 <Routes location={location} key={location.pathname}>
                   {/* #1061: ONE canonical auth-aware page. Authenticated → redirect to /practice; anonymous
                       → render the SAME PracticePage (marketing + product choices, no session history). */}
