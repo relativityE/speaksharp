@@ -1,7 +1,7 @@
 **Status:** Authoritative (SSOT for unfinished and deferred product/release work)
 **Owner:** Product Owner (relativityE)
-**Last Reviewed:** 2026-08-29
-**Last Verified:** 2026-08-29 — consolidated from the live `ACTIVE_COORDINATION.md`, unfinished `BACKLOG.md` items, merged PR state through #1368, and the codebase-vs-strategy audit.
+**Last Reviewed:** 2026-09-05
+**Last Verified:** 2026-09-05 — financial-planning hypotheses registered; other roadmap state remains verified through its cited evidence.
 **Applies To:** MVP sequencing and explicitly deferred SpeakSharp work.
 **Class:** Open gap / risk.
 **Authority:** The source for Now / Next / Later / Declined work and implementation order.
@@ -55,6 +55,7 @@ Parallel work must not contend with benchmark measurement. Documentation/ticket 
 
 | Work | Current fact | Required outcome |
 |---|---|---|
+| **Financial-planning hypotheses** | The 2026-09-05 workbook models 500 new trials/month, 2% conversion, six-month paid lifetime, 10 coaching calls per active trial or paid user, and a 3:1 CAC ceiling. These are unvalidated planning assumptions—not retained evidence, revenue proof, release status, or billing authorization. | Validate volume, conversion, retention, usage, willingness to pay, CAC and revenue with observed product/business data before promoting any forecast conclusion. The transient calculation package remains scoped to PR #1420 under `product_release/work_items/financial-analysis/`. |
 | **Strategy/value validation** | No repository evidence proves that privacy-constrained professionals exist at scale or will pay. | User research or reachable interest capture with a defined sample and decision rule. Backend-only `guided-waitlist` does not count until a frontend entry exists. |
 | **Recommendation outcome qualification** | Recommendation → explicit acceptance → next-session directional outcome is implemented. | Measure acceptance, comparable repeat, directional movement and retention without claiming causality. This is #1259/product analysis, not a new persistence feature. |
 | **Universal-score residue** | Live score card is orphaned, but legacy score/shadow machinery and a user-facing 0–100 Clarity presentation remain. | Code-derived consumer inventory, explicit keep/remove dispositions, no universal-grade wording, tests against live rendered surfaces. |
