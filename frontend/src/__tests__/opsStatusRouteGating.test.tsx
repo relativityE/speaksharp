@@ -31,6 +31,14 @@ vi.mock('@/hooks/useCheckoutNotifications', () => ({ useCheckoutNotifications: v
 vi.mock('../hooks/useCriticalQueries', () => ({ useCriticalQueries: () => ({ isResolved: true }) }));
 vi.mock('framer-motion', () => ({
   AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  // #1416 — `App` now gives `AnimatePresence` a keyed `motion.div` so `popLayout` has an immediate
+  // child it can compose a ref onto. A mock that returns only `AnimatePresence` fails the moment the
+  // source uses anything else, and reports it as seven unrelated routing failures.
+  motion: new Proxy({}, {
+    get: () => ({ children, ...rest }: { children?: React.ReactNode } & Record<string, unknown>) => (
+      <div {...(rest as React.HTMLAttributes<HTMLDivElement>)}>{children}</div>
+    ),
+  }),
 }));
 vi.mock('../pages/Index', () => ({ default: () => <div data-testid="index-page" /> }));
 vi.mock('../pages/SignInPage', () => ({ default: () => <div data-testid="signin-page" /> }));

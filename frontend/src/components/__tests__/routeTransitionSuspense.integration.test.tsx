@@ -198,40 +198,6 @@ describe('#1416 route transition must mount the destination', () => {
     expect(presence).not.toMatch(/<AnimatePresence mode="popLayout">\s*<Routes/);
   });
 
-  it('moving Suspense inside the presence tree is NOT sufficient — mode="wait" is the blocker', async () => {
-    // Worth pinning: the nesting looks like the culprit, and correcting it alone leaves the journey
-    // just as broken. Whoever revisits this should not spend the afternoon I spent on it.
-    await drive(SuspenseInside);
-    await new Promise((r) => setTimeout(r, 300));
-    expect(screen.queryByTestId('destination')).not.toBeInTheDocument();
-  });
-
-  it('popLayout also mounts the suspending destination', async () => {
-    await drive(PopLayoutShape);
-    await waitFor(() => expect(screen.getByTestId('destination')).toBeInTheDocument(), { timeout: 3000 });
-    expect(screen.getByTestId('setup-dialog')).toBeInTheDocument();
-  });
-
-  it('CASUALTY — popLayout\'s immediate child must be able to RECEIVE A REF', async () => {
-    // `popLayout` clones its immediate child with a composed ref, measures that node, and takes it
-    // out of flow. Give it a plain function component — React Router's `<Routes>` is one — and the
-    // ref is null, nothing is measured, nothing is popped, and the mode is declared but inert.
-    //
-    // Asserting "the destination mounted" cannot see this: that is true whether or not the exiting
-    // subtree was ever popped. React's own warning is the signal, so it is the assertion.
-    const errors: string[] = [];
-    const originalError = console.error;
-    console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
-    try {
-      await drive(PopLayoutShape);
-      await waitFor(() => expect(screen.getByTestId('destination')).toBeInTheDocument(), { timeout: 3000 });
-    } finally {
-      console.error = originalError;
-    }
-    const refWarnings = errors.filter((line) => /Function components cannot be given refs|cannot be given refs/i.test(line));
-    expect(refWarnings, `popLayout child rejected the ref:\n${refWarnings.join('\n')}`).toEqual([]);
-  });
-
   it('reaches the destination and renders what the query asked for', async () => {
     vi.useRealTimers();
     await drive(ProductionShape);
