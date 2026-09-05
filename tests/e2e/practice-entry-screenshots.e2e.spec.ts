@@ -94,6 +94,31 @@ async function assertReport(page: Page, expectedLabel: string | RegExp, shotName
   await expect(page.getByTestId('issue-report-description')).toHaveCount(0);
 }
 
+/**
+ * #1416 — the screenshot captures start from a CLEARED form on purpose. That isolation must not be
+ * mistaken for, or quietly become, a change to the product: closing with Escape or ✕ keeps the
+ * user's draft, and only Cancel discards it. This asserts the real contract in the same browser the
+ * captures run in, so the isolation cannot hide a regression in the behaviour it works around.
+ */
+async function assertDraftContract(page: Page) {
+  await page.getByTestId('nav-report-issue-button').click();
+  await page.getByTestId('feedback-type-idea').click();
+  await page.getByTestId('issue-report-description').fill('A half-written thought.');
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('issue-report-description')).toHaveCount(0);
+  await page.getByTestId('nav-report-issue-button').click();
+  // Escape PRESERVES. Losing a half-written report because the dialog closed is the failure this
+  // guards against.
+  await expect(page.getByTestId('issue-report-description')).toHaveValue('A half-written thought.');
+
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByTestId('nav-report-issue-button').click();
+  // Cancel DISCARDS — the one action that unambiguously says "throw this away".
+  await expect(page.getByTestId('issue-report-description')).toHaveValue('');
+  await page.getByRole('button', { name: 'Cancel' }).click();
+}
+
 test.describe('Practice landing — default entry, Objective unavailable, surface-aware Report Issue', () => {
   test('Freeform card → direct /session (no auto-record); Objective → contextual notice + disabled; Report Issue per surface', async ({ page }) => {
     const consoleErrors: string[] = [];
@@ -173,6 +198,7 @@ test.describe('Practice landing — default entry, Objective unavailable, surfac
     await expect(page.getByTestId(TEST_IDS.MIC_START)).toBeVisible({ timeout: 20000 });
     await expect(page.getByTestId(TEST_IDS.SESSION_SHELL)).toHaveAttribute('data-session-state', 'before');
     await assertReport(page, 'Session · Speaking', 'share-feedback-session');
+    await assertDraftContract(page);
 
     // CDP assertions: clean, self-contained page throughout.
     expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
