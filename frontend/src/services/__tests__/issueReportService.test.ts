@@ -35,6 +35,59 @@ const setRuntimeConfig = (url: string) => {
   (window as unknown as { __APP_RUNTIME_CONFIG__?: AppRuntimeConfig }).__APP_RUNTIME_CONFIG__ = runtimeConfigWithUrl(url);
 };
 
+describe('#1416 the browser version must belong to the classified browser', () => {
+  const withUserAgent = (ua: string) => {
+    Object.defineProperty(window.navigator, 'userAgent', { value: ua, configurable: true });
+  };
+  const original = navigator.userAgent;
+  afterEach(() => { withUserAgent(original); });
+
+  it('reads Edge from Edg/, not the Chrome token that precedes it', () => {
+    // A real Edge user agent carries BOTH, Chrome first, with DIFFERENT versions. Taking the first
+    // match labelled the row Edge and stamped it 120 — a plausible browser and a plausible version,
+    // so nothing looks wrong and a support query for Edge 121 quietly finds nothing.
+    withUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+      + 'Chrome/120.0.0.0 Safari/537.36 Edg/121.0.2277.83');
+
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Edge');
+    expect(meta.browserVersion).toBe('121');
+    expect(meta.browserVersion).not.toBe('120');
+  });
+
+  it('reads Chrome from Chrome/ when no Edge token is present', () => {
+    withUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+      + 'Chrome/120.0.0.0 Safari/537.36');
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Chrome');
+    expect(meta.browserVersion).toBe('120');
+  });
+
+  it('reads Safari from Version/, not the WebKit build in Safari/', () => {
+    withUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 '
+      + '(KHTML, like Gecko) Version/17.4 Safari/605.1.15');
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Safari');
+    expect(meta.browserVersion).toBe('17');
+  });
+
+  it('reads Chrome on iOS from CriOS, not the Version token Safari also emits', () => {
+    withUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 '
+      + '(KHTML, like Gecko) CriOS/122.0.6261.89 Version/17.0 Mobile/15E148 Safari/604.1');
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Chrome');
+    expect(meta.browserVersion).toBe('122');
+  });
+
+  it('reports no version at all for an unclassified browser', () => {
+    // Better an absent field than a number lifted from whichever token happened to appear first.
+    withUserAgent('SomeCrawler/9.9 (compatible)');
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Other');
+    expect(meta.browserVersion).toBeUndefined();
+  });
+});
+
 describe('buildIssueReportMetadata — page context + sanitization', () => {
   it('stores coarse client information without persisting the raw user agent', () => {
     const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });

@@ -82,24 +82,26 @@ const SuspenseInside: React.FC = () => {
   );
 };
 
-/** The correction: drop `mode="wait"`, so a suspending route is not gated on an exit that the
- *  suspension itself prevents from ever completing. */
-const SyncPresence: React.FC = () => {
+/**
+ * THE PRODUCTION SHAPE, as `App` renders it: one `Suspense` OUTSIDE `AnimatePresence`, location-keyed
+ * `Routes` inside, lazy route elements — and no `mode="wait"`.
+ *
+ * The nesting is deliberately identical to `SuspenseOutside` above. The ONLY difference between the
+ * broken composition and the working one is `mode="wait"`, so this pair isolates exactly one
+ * variable. A "fixed" shape that also rearranged the boundaries would leave it unclear which change
+ * mattered, and would stop mirroring the file it is supposed to protect.
+ */
+const ProductionShape: React.FC = () => {
   const location = useLocation();
   return (
-    <AnimatePresence>
-      <Routes location={location} key={location.pathname}>
-        <Route path="/origin" element={<PageTransition><Origin /></PageTransition>} />
-        <Route
-          path="/destination"
-          element={
-            <PageTransition>
-              <Suspense fallback={<div data-testid="loader">LOADING</div>}><LazyDestination /></Suspense>
-            </PageTransition>
-          }
-        />
-      </Routes>
-    </AnimatePresence>
+    <Suspense fallback={<div data-testid="loader">LOADING</div>}>
+      <AnimatePresence>
+        <Routes location={location} key={location.pathname}>
+          <Route path="/origin" element={<PageTransition><Origin /></PageTransition>} />
+          <Route path="/destination" element={<PageTransition><LazyDestination /></PageTransition>} />
+        </Routes>
+      </AnimatePresence>
+    </Suspense>
   );
 };
 
@@ -130,7 +132,7 @@ describe('#1416 route transition must mount the destination', () => {
     await waitFor(() => expect(screen.getByTestId('destination')).toBeInTheDocument(), { timeout: 3000 });
   });
 
-  it('a suspending destination NEVER mounts under mode="wait" — the origin stays on screen', async () => {
+  it('CASUALTY — restoring mode="wait" on the production shape stops the lazy destination mounting', async () => {
     // This is the defect, reproduced. The control above proves the harness is not simply measuring
     // jsdom's animation behaviour: identical machinery, non-lazy destination, mounts fine.
     await drive(SuspenseOutside);
@@ -149,7 +151,7 @@ describe('#1416 route transition must mount the destination', () => {
 
   it('reaches the destination and renders what the query asked for', async () => {
     vi.useRealTimers();
-    await drive(SyncPresence);
+    await drive(ProductionShape);
 
     await waitFor(() => expect(screen.getByTestId('destination')).toBeInTheDocument(), { timeout: 3000 });
     // The destination is mounted AND it acted on the query the link carried — which is the whole

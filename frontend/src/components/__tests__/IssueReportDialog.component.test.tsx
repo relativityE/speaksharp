@@ -279,4 +279,169 @@ describe('#1404 Share feedback redesign', () => {
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(2));
     expect(submit.mock.calls[1][0].idempotencyKey).toBe(submit.mock.calls[0][0].idempotencyKey);
   });
+  // #1416 — the two custom radio groups must behave like native ones.
+  describe('#1416 keyboard behaviour of the custom radio groups', () => {
+    const typeIds = ['feedback-type-broke', 'feedback-type-confused', 'feedback-type-idea', 'feedback-type-praise'];
+    const severityIds = ['feedback-severity-minor', 'feedback-severity-slowed', 'feedback-severity-blocked'];
+
+    const tabStops = (ids: string[]) => ids.filter((id) => screen.getByTestId(id).getAttribute('tabindex') === '0');
+
+    it('feedback type is ONE tab stop, not four', async () => {
+      await open();
+      // Roving tabIndex. Without it a keyboard user tabs through every option to reach the message
+      // field, while the ARIA roles promise arrows will do it.
+      expect(tabStops(typeIds)).toEqual(['feedback-type-broke']);
+    });
+
+    it('the tab stop follows the selection', async () => {
+      const user = await open();
+      await user.click(screen.getByTestId('feedback-type-idea'));
+      expect(tabStops(typeIds)).toEqual(['feedback-type-idea']);
+    });
+
+    it('Tab LEAVES the type group rather than visiting every option', async () => {
+      const user = await open();
+      expect(screen.getByTestId('feedback-type-broke')).toHaveFocus();
+      await user.tab();
+      expect(screen.getByTestId('feedback-type-confused')).not.toHaveFocus();
+      expect(screen.getByTestId('feedback-type-praise')).not.toHaveFocus();
+    });
+
+    it('arrows move, select, and WRAP in the type group', async () => {
+      const user = await open();
+      await user.keyboard('{ArrowLeft}');
+      // Backwards from the first option wraps to the last.
+      expect(screen.getByTestId('feedback-type-praise')).toHaveFocus();
+      expect(screen.getByTestId('feedback-type-praise')).toHaveAttribute('aria-checked', 'true');
+      await user.keyboard('{ArrowRight}');
+      expect(screen.getByTestId('feedback-type-broke')).toHaveFocus();
+      await user.keyboard('{ArrowDown}');
+      expect(screen.getByTestId('feedback-type-confused')).toHaveFocus();
+      await user.keyboard('{ArrowUp}');
+      expect(screen.getByTestId('feedback-type-broke')).toHaveFocus();
+    });
+
+    it('severity is ONE tab stop and its arrows move, select and wrap', async () => {
+      const user = await open();
+      await user.click(screen.getByTestId('feedback-type-broke'));
+      expect(await screen.findByTestId('feedback-severity-minor')).toBeInTheDocument();
+      expect(tabStops(severityIds)).toEqual(['feedback-severity-minor']);
+
+      screen.getByTestId('feedback-severity-minor').focus();
+      await user.keyboard('{ArrowLeft}');
+      expect(screen.getByTestId('feedback-severity-blocked')).toHaveFocus();
+      expect(screen.getByTestId('feedback-severity-blocked')).toHaveAttribute('aria-checked', 'true');
+      expect(tabStops(severityIds)).toEqual(['feedback-severity-blocked']);
+
+      await user.keyboard('{ArrowRight}');
+      expect(screen.getByTestId('feedback-severity-minor')).toHaveFocus();
+      await user.keyboard('{ArrowDown}');
+      expect(screen.getByTestId('feedback-severity-slowed')).toHaveFocus();
+    });
+
+    it('Tab leaves the severity group too', async () => {
+      const user = await open();
+      await user.click(screen.getByTestId('feedback-type-broke'));
+      screen.getByTestId('feedback-severity-minor').focus();
+      await user.tab();
+      for (const id of severityIds) expect(screen.getByTestId(id)).not.toHaveFocus();
+    });
+  });
+
+  describe('#1416 the conditional severity reveal', () => {
+    it('reveals downward only when the report is about something breaking', async () => {
+      const user = await open();
+      const reveal = screen.getByTestId('issue-report-severity-reveal');
+      // Always mounted, so the transition has something to run on; collapsed to zero height with
+      // nothing focusable inside.
+      expect(reveal).toHaveAttribute('data-open', 'false');
+      expect(screen.queryByTestId('issue-report-severity-group')).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId('feedback-type-broke'));
+      expect(reveal).toHaveAttribute('data-open', 'true');
+      expect(screen.getByTestId('issue-report-severity-group')).toBeInTheDocument();
+
+      await user.click(screen.getByTestId('feedback-type-idea'));
+      expect(reveal).toHaveAttribute('data-open', 'false');
+      expect(screen.queryByTestId('issue-report-severity-group')).not.toBeInTheDocument();
+    });
+
+    it('uses the approved 160ms duration', async () => {
+      await open();
+      expect(screen.getByTestId('issue-report-severity-reveal')).toHaveAttribute('data-reveal-ms', '160');
+    });
+
+    it('honours prefers-reduced-motion by removing the travel, not the row', async () => {
+      const originalMatchMedia = window.matchMedia;
+      window.matchMedia = ((query: string) => ({
+        matches: query.includes('prefers-reduced-motion'),
+        media: query, onchange: null,
+        addListener: vi.fn(), removeListener: vi.fn(),
+        addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn(),
+      })) as unknown as typeof window.matchMedia;
+      try {
+        const user = await open();
+        expect(screen.getByTestId('issue-report-severity-reveal')).toHaveAttribute('data-reveal-ms', '0');
+        await user.click(screen.getByTestId('feedback-type-broke'));
+        // The question still appears — reduced motion suppresses the animation, not the content.
+        expect(screen.getByTestId('issue-report-severity-group')).toBeInTheDocument();
+      } finally {
+        window.matchMedia = originalMatchMedia;
+      }
+    });
+
+    it('grows downward from a fixed top so the reveal cannot move Send under the pointer', async () => {
+      await open();
+      // A vertically centred dialog grows in BOTH directions: the type button the user just clicked
+      // slides up out from under the pointer and a different one takes its place. Anchoring the top
+      // means the new row only ever adds space below itself. jsdom computes no layout, so the
+      // anchoring is asserted where it is decided rather than by measuring boxes.
+      const content = screen.getByRole('dialog');
+      expect(content.className).toContain('top-[6vh]');
+      expect(content.className).toContain('translate-y-0');
+      expect(content.className).not.toContain('top-[50%]');
+    });
+
+    it('keeps Send after the reveal in document order, so it never jumps above the new question', async () => {
+      const user = await open();
+      await user.click(screen.getByTestId('feedback-type-broke'));
+      const reveal = screen.getByTestId('issue-report-severity-reveal');
+      const send = screen.getByTestId('issue-report-submit');
+      expect(reveal.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+  });
+
+  describe('#1416 the derived title is Unicode-safe', () => {
+    const submittedTitle = () => submit.mock.calls[0][0].title;
+
+    it('does not split an emoji at the 80-character boundary', async () => {
+      // 79 ASCII then an emoji: a UTF-16 slice(0, 80) keeps the HIGH surrogate and drops its partner.
+      // A lone surrogate has no UTF-8 encoding, so the row is either mangled or rejected — after the
+      // user was told it was sent.
+      const body = `${'a'.repeat(79)}\u{1F600} and then more text that will not fit in the title.`;
+      const user = await open('/session');
+      await user.click(screen.getByTestId('feedback-type-idea'));
+      await user.type(screen.getByTestId('issue-report-description'), body);
+      await user.click(screen.getByTestId('issue-report-submit'));
+      await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+
+      const title = submittedTitle();
+      // No unpaired surrogate anywhere.
+      expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(title)).toBe(false);
+      // Round-trips through UTF-8 unchanged, which is what actually crosses the wire.
+      expect(new TextDecoder().decode(new TextEncoder().encode(title))).toBe(title);
+      // Within what the column accepts, counted the way Postgres counts it.
+      expect(Array.from(title).length).toBeLessThanOrEqual(80);
+      expect(title.startsWith('a'.repeat(79))).toBe(true);
+    });
+
+    it('keeps a whole emoji when it fits', async () => {
+      const user = await open('/session');
+      await user.click(screen.getByTestId('feedback-type-praise'));
+      await user.type(screen.getByTestId('issue-report-description'), 'Loved this \u{1F600}');
+      await user.click(screen.getByTestId('issue-report-submit'));
+      await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+      expect(submittedTitle()).toContain('\u{1F600}');
+    });
+  });
 });

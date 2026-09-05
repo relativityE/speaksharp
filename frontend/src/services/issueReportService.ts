@@ -101,22 +101,50 @@ export interface SubmitIssueReportInput {
   idempotencyKey?: string | null;
 }
 
+/**
+ * The version token that belongs to each classified browser, in the order it should be trusted.
+ *
+ * #1416 — WHY CLASSIFICATION MUST COME FIRST. This used to run one alternation
+ * `/(?:Edg|Chrome|CriOS|Firefox|FxiOS|Version)\/(\d+)/` over the whole string and take the FIRST
+ * match, independently of which browser was identified. Chromium-family user agents deliberately
+ * carry several such tokens for compatibility, and the browser's OWN token comes LAST:
+ *
+ *   ...AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/121.0.0.0
+ *
+ * So every Edge report was labelled Edge and stamped with Chrome's version. Nothing looks wrong in
+ * the row — it is a plausible browser and a plausible version — which is what makes it dangerous:
+ * a support query for "Edge 121" finds nothing, and a version-specific defect looks like it spans
+ * browsers it never touched.
+ *
+ * Safari reads `Version/`, not `Safari/`: the latter is the WebKit build number, not the browser's.
+ */
+const BROWSER_VERSION_TOKENS: Readonly<Record<string, readonly RegExp[]>> = Object.freeze({
+  Edge: [/\bEdg\/(\d+)/],
+  Firefox: [/\bFirefox\/(\d+)/, /\bFxiOS\/(\d+)/],
+  Chrome: [/\bCriOS\/(\d+)/, /\bChrome\/(\d+)/],
+  Safari: [/\bVersion\/(\d+)/],
+});
+
 const parseCoarseClientInfo = (): Pick<IssueReportMetadata, 'browser' | 'browserVersion' | 'os'> => {
   if (typeof navigator === 'undefined') return {};
   const ua = navigator.userAgent;
-  const browserMatch = ua.match(/(?:Edg|Chrome|CriOS|Firefox|FxiOS|Version)\/(\d+)/);
   const browser = ua.includes('Edg/') ? 'Edge'
     : ua.includes('Firefox/') || ua.includes('FxiOS/') ? 'Firefox'
       : ua.includes('Chrome/') || ua.includes('CriOS/') ? 'Chrome'
         : ua.includes('Safari/') ? 'Safari'
           : 'Other';
+  // An unclassified browser reports NO version. A number lifted from whichever token happened to
+  // appear first would be indistinguishable from a real one.
+  const browserVersion = (BROWSER_VERSION_TOKENS[browser] ?? [])
+    .map((token) => ua.match(token)?.[1])
+    .find((version) => version !== undefined);
   const os = /iPhone|iPad|iPod/.test(ua) ? 'iOS'
     : /Android/.test(ua) ? 'Android'
       : /Windows/.test(ua) ? 'Windows'
         : /Mac OS X/.test(ua) ? 'macOS'
           : /Linux/.test(ua) ? 'Linux'
             : 'Other';
-  return { browser, browserVersion: browserMatch?.[1], os };
+  return { browser, browserVersion, os };
 };
 
 const sanitizeOptionalText = (value: string | null | undefined): string | null => {

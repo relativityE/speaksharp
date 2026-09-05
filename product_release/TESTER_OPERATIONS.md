@@ -9,11 +9,20 @@
 **Supersedes:** Earlier sample, Browser/Cloud tester-wave, accumulated-quota, and v4-exposure procedures in this file.
 **Evidence Sources:** `QUALITY.md`, `RELEASE_PROCESS.md`, `STT.md`, and dated artifacts indexed by `EVIDENCE_INDEX.md`.
 
-<!-- pm-currentization:2026-09-04 -->
-> [!CAUTION]
-> **Currentized 4 Sep 2026.** Human qualification is paused. Resume on https://speaksharp-public.vercel.app only after the accepted fixes and #1259 deploy. Before the PO speaks, prove PostHog event-level readback with positive/negative controls, confirm all three registered candidates can be switched through controlled CDP/runtime configuration, and run Open Mic plus Focus Points for each candidate. Record requested/observed identity and bracket user intent through review/reopen. A transport 200 or attached hook is not telemetry proof. Never ask the PO to choose Preview/local/internal testing.
-
-<!-- /pm-currentization:2026-09-04 -->
+> [!IMPORTANT]
+> **Whether human qualification is currently open, paused, or resuming is not recorded here.**
+> `RELEASE_STATUS.md` is the sole source for that, and a copy of it in this document is a copy that
+> goes stale silently — a tester who reads a resumed posture here after it was lifted there has no
+> way to tell which one is current. This document holds the procedure that is true in every posture:
+>
+> - **A transport 200 or an attached hook is not telemetry proof.** Evidence is event-level readback
+>   with a positive AND a negative control; an accepted request only shows something was sent.
+> - **Record requested identity and observed identity separately**, and bracket the user's intent
+>   through review and reopen. Where they diverge is the finding.
+> - **Exercise every registered runtime candidate through controlled configuration**, across Open Mic
+>   and Focus Points, rather than whichever one happens to be resolved.
+> - **Never ask the Product Owner to choose Preview, local, or internal testing.** The customer
+>   surface is the only one their judgment is being asked about.
 
 # SpeakSharp Tester Operations
 
