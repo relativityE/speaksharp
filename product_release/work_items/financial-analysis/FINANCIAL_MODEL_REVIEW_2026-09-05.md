@@ -8,7 +8,7 @@
 This workbook is an unvalidated planning forecast, not retained evidence, a product promise,
 release-status authority, or authorization to activate billing. Trial volume, conversion,
 paid lifetime, usage, CAC, willingness to pay, and revenue are hypotheses that have not been
-measured. Product requirements and current release posture remain in their canonical files.
+measured. The unvalidated hypotheses are registered in `product_release/ROADMAP.md`. Product requirements and current release posture remain in their canonical files.
 
 ## Current source inputs checked
 
