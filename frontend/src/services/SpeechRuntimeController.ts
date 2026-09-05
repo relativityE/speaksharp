@@ -1,5 +1,18 @@
 import logger from '@/lib/logger';
 import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
+import {
+    emitRecordingState, emitStageLatency, markRuntimeReady, clearRuntimeReady, msSinceIntent, msSinceReady,
+} from '@/services/telemetry/journeyEvents';
+import {
+    beginRecordingAttempt, endRecordingAttempt,
+} from '@/services/telemetry/journeyIdentity';
+import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
+import { emitFillerMeasurement } from '@/services/telemetry/fillerMeasurement';
+import { noteEngineReady, noteEngineTeardown } from '@/services/telemetry/reinitObservation';
+import { resetTranscriptStability } from '@/services/telemetry/transcriptStability';
+import { markCompletionStage, resetCompletionChain } from '@/services/telemetry/completionStages';
+import { resolvedEngine } from '@/services/telemetry/runtimeAttribution';
+import { countWords } from '@/lib/contentDigest';
 import type { SessionPersistStatus } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import { toSanitizedCause } from '@/lib/sanitizeStartError';
@@ -1762,6 +1775,76 @@ export class SpeechRuntimeController {
 
         const previousState = this.state;
         this.state = newState;
+
+        // #1259 F01/F16 — THE TRANSITION IS THE EVENT. Emitted here, at the one place the state
+        // actually changes, so no caller can report a state the machine did not reach. A transition to
+        // the SAME state is not reported: repeated identical state is the polling noise this replaces.
+        if (previousState !== newState) {
+            try {
+                if (newState === 'READY') {
+                    // How long acquisition took, as its OWN stage. `private_setup_succeeded` already
+                    // carries a setup duration, but only for the Private path; this covers the state
+                    // machine's own view and survives an engine that reports nothing.
+                    if (previousState === 'ENGINE_INITIALIZING' || previousState === 'DOWNLOAD_REQUIRED') {
+                        const acquisition = msSinceIntent();
+                        if (acquisition !== null) emitStageLatency('model_acquisition', acquisition);
+                    }
+                    // Dates the user's wait. Production shows 113s and 126s between this moment and the
+                    // start event; without the mark, that wait cannot be attached to the click.
+                    markRuntimeReady();
+                    // #1259 F15 — and dates the NEXT acquisition, so a re-init one second after
+                    // readiness is distinguishable from an idle reclamation minutes later.
+                    noteEngineReady();
+                } else if (newState === 'TERMINATED' || newState === 'IDLE') {
+                    // A torn-down engine's readiness must not date the NEXT intent as though the user
+                    // had been waiting since before the teardown.
+                    clearRuntimeReady();
+                    endRecordingAttempt();
+                    // The reason the engine went away, carried into whatever initialises next.
+                    noteEngineTeardown(error?.name ?? newState);
+                    // #1259 F05 — the PO watched a finalized transcript vanish. Whatever the authority
+                    // holds AFTER teardown is the fact that distinguishes "purged" from "still there but
+                    // not rendered", and the two have completely different fixes.
+                    const store = useSessionStore.getState();
+                    emitTranscriptAuthority({
+                        stage: 'teardown',
+                        authoritative: store.transcript.transcript,
+                        persisted: store.sessionSaved,
+                        sessionIdPresent: Boolean(store.finalizedAnalysis?.sessionId),
+                        teardownState: newState,
+                    });
+                } else if (newState === 'RECORDING') {
+                    // The attempt opens where recording actually begins, not where it was requested —
+                    // a refused or hung start must not consume an attempt ordinal.
+                    beginRecordingAttempt();
+                    // #1259 F04 — churn is measured PER TAKE. Resetting here rather than inside the
+                    // identity module keeps the dependency one-way: the store's transcript setter
+                    // already reaches the telemetry layer, and importing it back would close a cycle
+                    // through the envelope.
+                    resetTranscriptStability();
+                    // A new take starts a new chain; without this the second take would measure from
+                    // the first take's Stop.
+                    resetCompletionChain();
+                    // The two halves of the wait, kept apart. `ready_to_intent` is how long the user sat
+                    // looking at a ready control; `intent_to_recording` is how long the click took to
+                    // become a recording. One total cannot tell those apart, and they have different fixes.
+                    const readyWait = msSinceReady();
+                    if (readyWait !== null) emitStageLatency('ready_to_intent', readyWait);
+                    const startWait = msSinceIntent();
+                    if (startWait !== null) emitStageLatency('intent_to_recording', startWait);
+                } else if (newState === 'STOPPING' && previousState === 'RECORDING') {
+                    const stopWait = msSinceIntent();
+                    if (stopWait !== null) emitStageLatency('recording_to_stop_intent', stopWait);
+                    // #1259 F16 — recording has actually stopped. Distinct from the user's Stop
+                    // intent: the gap between the two is the part that feels unresponsive.
+                    markCompletionStage('recording_terminated');
+                }
+                emitRecordingState(previousState, newState, error?.name ?? null);
+            } catch {
+                /* telemetry must never affect the state machine */
+            }
+        }
+
         this.syncProvider(this.lifecycleVersion);
 
         // #1033 (B): a terminal failure of a recording that BEGAN must never leave the user locked with no
@@ -3333,6 +3416,29 @@ export class SpeechRuntimeController {
                         // (snapshotted at stop-entry) vs the RECOUNT over the SAVE-SELECTED finalTranscript —
                         // the exact transcript + duration the save/scoring path uses — and CACHE it so the
                         // report survives shadow-engine disposal. Numbers only; no transcript text; no cutover.
+                        // #1259 F13 — emitted OUTSIDE the shadow-metrics flag on purpose. The
+                        // divergence block below is gated behind `isShadowMetricsEngineEnabled()`, so in
+                        // Production it may not run at all — and a measurement that exists only when a
+                        // diagnostic flag is on is unavailable exactly when it is needed. This carries
+                        // the detector's INPUT, which is the half Production has never had: it already
+                        // reports `filler_count: 0`, and cannot say whether the transcript could have
+                        // evidenced a filler at all.
+                        try {
+                            const recount = countFillerWords(finalTranscript, this.userWords);
+                            const recountTotal = Object.values(recount ?? {})
+                                .reduce((n, v) => n + (typeof v?.count === 'number' ? v.count : 0), 0);
+                            emitFillerMeasurement({
+                                candidateId: resolvedEngine()?.candidateId ?? null,
+                                detectorInputWords: countWords(finalTranscript),
+                                detectorInputFillers: recountTotal,
+                                reportedFillers: getFillerTotal(this.liveFillerDataAtStop) ?? null,
+                                clarityScore: null,
+                                durationSeconds: Math.round(duration),
+                            });
+                        } catch {
+                            /* telemetry must never affect the save path */
+                        }
+
                         if (isShadowMetricsEngineEnabled()) {
                             try {
                                 const fillerReport = measureFillerDivergence({

@@ -37,7 +37,6 @@ import type { LiveResultKind } from '@/contracts/IPrivateSTTEngine';
 import { STTEngine, validateEngine, assertEngineCanDecode } from '@/contracts/STTEngine';
 import { PrivateSTTInitOptions } from '@/contracts/IPrivateSTT';
 import logger from '@/lib/logger';
-import posthog from 'posthog-js';
 import { ModelManager } from '@/services/transcription/ModelManager';
 import { MicStream } from '@/services/transcription/utils/types';
 import { getEngine } from '@/services/transcription/STTRegistry';
@@ -56,8 +55,17 @@ import { captureCapabilities } from '../capabilitySnapshot';
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
 import type { PrivateSttProvider } from '../providers/types';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
-import { buildV4LifecycleProps, emitV4Ready, emitV4Fallback, emitV4Error } from '../privateV4Telemetry';
+import { buildV4LifecycleProps, emitV4Ready, emitV4Fallback, emitV4Error, emitV4Telemetry, V4_TELEMETRY_EVENTS } from '../privateV4Telemetry';
 import { buildEngineVersion, type EngineVariant } from '../privateTelemetry';
+import {
+    probeCache, recordAcquisitionStart, recordAcquisitionSuccess, recordAcquisitionFailure,
+    classifyAcquisitionError, type AcquisitionSubject, type PinnedAssetRef,
+} from '../modelAcquisitionTelemetry';
+import type { Candidate } from '../candidateRegistry';
+import { assetRequestsFor, acquisitionScopeFor } from '../candidateAssetRequests';
+import { observeAcquisitionNetwork } from '../acquisitionNetworkObservation';
+import { receiptMatches, type AcquisitionAttempt, type AcquisitionReceipt } from '../acquisitionAttempt';
+import type { AcquisitionTrigger } from '../modelAcquisitionTelemetry';
 // Stale import removed
 
 declare global {
@@ -509,7 +517,13 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             // Internal log (always) + PostHog event (analytics) for flagged v4 attempts.
             // No user-facing engine internals; safe to capture for cohort validation.
             logger.info({ sId: this.serviceId, rId: this.runId, ...payload }, '[V4_FLAG_TELEMETRY]');
-            try { posthog?.capture?.('private_stt_v4_attempt', payload); } catch { /* posthog optional */ }
+            // #1259 — WAS A THIRD CAPTURE BOUNDARY, and the least governed of the three: `payload` went
+            // to PostHog RAW. Not merely bypassing the envelope — bypassing every allowlist, so
+            // `selectionSource`, `attemptedProvider`, `finalProvider` and `fallbackProvider` reached the
+            // vendor without ever having been reviewed. Production traffic confirms this event is live,
+            // which is why it is routed rather than deleted. `emitV4Telemetry` carries it to the one
+            // boundary, where the v4 allowlist now enumerates those fields.
+            emitV4Telemetry(V4_TELEMETRY_EVENTS.ATTEMPT, payload);
 
             // Stage-B structured lifecycle events (allowlisted, no PII): ready on success;
             // fallback + error when v4 init/load fell back to the v2-base floor.
@@ -718,10 +732,162 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * model or nothing at all. `observed` must mean "this is running", so it is written here, after a
      * successful init, and stays null until then.
      */
+    /**
+     * #1259s — THE ONE PLACE MODEL ACQUISITION IS MEASURED.
+     *
+     * Both the override and auto paths funnel through here, and every approved candidate — v2, v4 distil
+     * and Moonshine — initialises inside it. Instrumenting the real routine rather than building a
+     * parallel path is the point: a simulated one would only ever measure itself.
+     *
+     * The cache is probed BEFORE the load, from real Cache Storage, so `cache_result` is an observation
+     * rather than an inference. A load that turns out fast is not evidence of a hit.
+     */
     private async initSelectedEngine(engineType: SelectedPrivateEngine, timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
-        const outcome = await this.initSelectedEngineInner(engineType, timeoutMs, isMock);
-        if (outcome.isOk) this.publishResolvedIdentity();
-        return outcome;
+        // The mock engine is not an acquisition: nothing is fetched and nothing is cached.
+        if (engineType === 'mock') return this.initSelectedEngineInner(engineType, timeoutMs, isMock);
+
+        // THE SUBJECT IS FROZEN BEFORE THE LOAD, FROM THE SELECTED CANDIDATE.
+        //
+        // It used to be read from `getMetadata()`, which derives from `_engineType` — a field the
+        // initialisation being measured is what SETS. So the start and failure events, the only two
+        // that describe a load that never completed, reported `candidate_id: unknown` for a candidate
+        // that was already named. The registry knows the answer before anything is fetched.
+        const candidate = this.resolveAcquisitionCandidate();
+        const subject = this.acquisitionSubject(candidate);
+        const requests = candidate ? assetRequestsFor(candidate) : { assets: [], unobservableReason: 'candidate could not be resolved' };
+        this.acquisitionAssets = requests.assets;
+
+        // THE TOTAL CLOCK STARTS BEFORE THE CACHE IS INSPECTED.
+        //
+        // It used to start after `probeCache` resolved, so `total_ms` excluded the probe while its
+        // contract says it covers the whole acquisition. Inspecting the cache is real time the user
+        // spends waiting — for a candidate with a dozen pinned assets it is a dozen Cache Storage
+        // lookups — and leaving it out systematically understated setup, in the flattering direction.
+        const acquisitionStartedAt = performance.now();
+        const cacheResult = await probeCache(this.acquisitionAssets);
+        // A SEPARATE clock for the DOWNLOAD window. `download_ms` is derived only from Resource Timing
+        // and must not absorb probe time: cache inspection is not a download, and folding it in would
+        // invent transfer duration out of a local lookup.
+        const loadStartedAt = performance.now();
+        const prefixes = candidate ? acquisitionScopeFor(candidate) : [];
+        recordAcquisitionStart(subject, cacheResult);
+
+        try {
+            const outcome = await this.initSelectedEngineInner(engineType, timeoutMs, isMock);
+            const totalMs = Math.round(performance.now() - acquisitionStartedAt);
+            if (outcome.isOk) {
+                this.publishResolvedIdentity();
+                // MEASURED, NOT PREDICTED, AND MEASURED WHERE THE BYTES ACTUALLY ARRIVE.
+                //
+                // v2 and v4 fetch their models inside a Web Worker, so those requests are recorded on
+                // the WORKER's performance timeline. Reading `window.performance` here finds nothing
+                // for them — it would honestly report an absent observation for the two candidates
+                // that matter most, which is no measurement at all. The engine therefore hands back
+                // the receipt its worker took, and that is preferred whenever it exists.
+                //
+                // The main-window read remains the fallback for an engine that loads on this thread.
+                // The two are never merged: a receipt is one observation or the other, never a blend.
+                // AND IT MUST BE THIS LOAD'S RECEIPT. The engine already refuses one that does not match
+                // its own in-flight attempt; this second check catches the case the engine cannot see —
+                // a receipt from an engine instance this acquisition has already replaced.
+                const acquiring = this.engine as {
+                    getAcquisitionReceipt?: () => AcquisitionReceipt | null;
+                    getAcquisitionAttempt?: () => AcquisitionAttempt | null;
+                };
+                const workerReceipt = acquiring.getAcquisitionReceipt?.() ?? null;
+                const boundToThisLoad = receiptMatches(workerReceipt, acquiring.getAcquisitionAttempt?.() ?? null)
+                    && workerReceipt?.candidateId === candidate?.id;
+
+                // NEVER BLENDED. A receipt is one observation or the other. Merging a worker's byte count
+                // with a main-window duration would produce a row that describes no single load, and
+                // nothing downstream could tell it apart from a real one.
+                const observed = boundToThisLoad && workerReceipt
+                    ? workerReceipt
+                    : observeAcquisitionNetwork(prefixes, loadStartedAt);
+                recordAcquisitionSuccess(subject, {
+                    cacheResult,
+                    // Carried through, not recomputed: only the observer knows how much of the download
+                    // it actually covered, and that judgement cannot be reconstructed downstream.
+                    completeness: observed.completeness,
+                    reasonCode: observed.reasonCode,
+                    outOfScopeCount: observed.outOfScopeCount,
+                    networkUsed: observed.networkUsed,
+                    networkBytes: observed.networkBytes,
+                    // OBSERVED OR NULL. This previously fell back to the registry's configured component
+                    // count, which is expected inventory rather than a request anyone watched happen —
+                    // so a load that observed nothing reported a full asset count and looked measured.
+                    assetCount: observed.assetCount,
+                    downloadMs: observed.downloadMs,
+                    totalMs,
+                });
+            } else {
+                recordAcquisitionFailure(subject, cacheResult, classifyAcquisitionError(outcome.error), totalMs);
+            }
+            return outcome;
+        } catch (err) {
+            recordAcquisitionFailure(subject, cacheResult, classifyAcquisitionError(err),
+                Math.round(performance.now() - acquisitionStartedAt));
+            throw err;
+        }
+    }
+
+    /**
+     * Why this load began. The two are different populations, and the field was previously a constant.
+     *
+     * It was declared and never assigned, so every acquisition — including a background warm-up that
+     * found the model already cached and initialised it — reported `explicit-setup`. Warm-up loads are
+     * exactly the cheap warm ones, so folding them into the explicit population made setup look faster
+     * than the experience a user who presses "Set up Private" actually gets.
+     */
+    private acquisitionTrigger: AcquisitionTrigger = 'explicit-setup';
+
+    /**
+     * Set by the caller that knows WHY initialisation is happening.
+     *
+     * `TranscriptionService.initializeStrategy` holds that authority: an explicit init is a user act,
+     * a background pulse is a warm-up. On a cache MISS the warm-up stops at DOWNLOAD_REQUIRED and never
+     * acquires — but on a cache HIT it proceeds and initialises the model, which is a real acquisition
+     * and the case this exists to label.
+     */
+    public setAcquisitionTrigger(trigger: AcquisitionTrigger): void {
+        this.acquisitionTrigger = trigger;
+    }
+    /** Pinned assets for the selected candidate, filled from the registry before each load. */
+    private acquisitionAssets: PinnedAssetRef[] = [];
+
+    /**
+     * The registry entry for the candidate about to load.
+     *
+     * Resolved from configuration, so it is available BEFORE initialisation and cannot report a model
+     * the session did not select. Null only when selection itself failed, which is a state the events
+     * are allowed to say plainly rather than paper over with a name.
+     */
+    private resolveAcquisitionCandidate(): Candidate | null {
+        try {
+            return effectiveCandidate().candidate;
+        } catch {
+            return null;
+        }
+    }
+
+    /** Identity of what is being acquired, from the RESOLVED candidate — never a name guess. */
+    private acquisitionSubject(candidate: Candidate | null): AcquisitionSubject {
+        const runtimeConfig = typeof window !== 'undefined' ? window.__APP_RUNTIME_CONFIG__ : undefined;
+        if (!candidate) {
+            return {
+                candidateId: 'unresolved', modelIdentity: 'unresolved', assetPinDigest: null,
+                releaseId: runtimeConfig?.release ?? null, trigger: this.acquisitionTrigger,
+            };
+        }
+        return {
+            candidateId: candidate.id,
+            // The IMMUTABLE identity: repository plus pinned revision. A bare repo id is a moving target,
+            // and two runs of "the same model" months apart would be indistinguishable.
+            modelIdentity: `${candidate.model.id}@${candidate.model.revision ?? 'no-revision'}`,
+            assetPinDigest: candidate.assets.pinDigest,
+            releaseId: runtimeConfig?.release ?? null,
+            trigger: this.acquisitionTrigger,
+        };
     }
 
     private async initSelectedEngineInner(engineType: SelectedPrivateEngine, timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {

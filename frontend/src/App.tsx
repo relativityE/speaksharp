@@ -10,6 +10,7 @@ import { AuthAwareRoot } from './components/AuthAwareRoot';
 import { PracticeSurfaceProvider } from './components/practice/PracticeSurfaceContext';
 import { ProfileGuard } from './components/ProfileGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { JourneyRouteTelemetry } from '@/components/JourneyRouteTelemetry';
 import { StaleChunkBootClear } from '@/components/StaleChunkBootClear';
 import SttIdentityBadge from '@/components/SttIdentityBadge';
 import { AnimatePresence } from 'framer-motion';
@@ -362,6 +363,9 @@ const App: React.FC = () => {
               {/* Inside Suspense: mounts only once a lazy route chunk resolves → clears the stale-chunk
                   recovery guard on a genuinely successful post-reload boot (not a frame-count heuristic). */}
               <StaleChunkBootClear />
+              {/* #1259 F08: route transitions, emitted beside the routes so no page owns — or misses —
+                  the wandering a dead end produces. */}
+              <JourneyRouteTelemetry />
               <AnimatePresence mode="wait">
                 <Routes location={location} key={location.pathname}>
                   {/* #1061: ONE canonical auth-aware page. Authenticated → redirect to /practice; anonymous

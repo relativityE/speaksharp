@@ -4,6 +4,7 @@ import type { TranscriptionMode } from '@/services/transcription/TranscriptionPo
 import { emitPrivateTelemetry, getLastPrivateIdentity, PRIVATE_TELEMETRY_EVENTS } from '@/services/transcription/privateTelemetry';
 import { issueAreasForContext, type PageContext } from '@/services/pageContext';
 import { pickPersistedRuntimeConfig, type PersistedRuntimeConfig } from '@/config/appRuntimeConfig';
+import { emitFeedbackSubmit } from '@/services/telemetry/feedbackTelemetry';
 
 // Stable slugs stored in the DB (never the display labels). The visible, user-facing labels
 // are mapped in IssueReportDialog. Kept in sync with the user_issue_reports_category_safe
@@ -177,6 +178,11 @@ export const issueReportService = {
 
     if (error) {
       logger.error({ error, category: input.category, severity: input.severity }, '[issueReportService.submit]');
+      // #1259 F09 — a storage failure currently reaches analytics as SILENCE, because
+      // `report_issue_submitted` is emitted only on the success path below. Silence is also what a
+      // user who never opened the dialog produces, so the two are indistinguishable — which is
+      // exactly the ambiguity the live session left us with.
+      emitFeedbackSubmit({ outcome: 'storage_failed', acknowledgementVisible: false });
       throw error;
     }
 
@@ -210,6 +216,7 @@ export const issueReportService = {
     const linked = persistedSessionId !== null;
     // Verified only when the report is linked AND the identity we hold belongs to that same session.
     const attributionVerified = linked && arm.session_id === persistedSessionId;
+    emitFeedbackSubmit({ outcome: 'storage_ok', acknowledgementVisible: true });
     emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.REPORT_ISSUE_SUBMITTED, {
       issue_category: input.category,
       issue_severity: input.severity,

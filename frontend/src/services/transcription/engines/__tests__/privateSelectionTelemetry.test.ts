@@ -12,6 +12,12 @@ import type { PrivateSTT as PrivateSTTType } from '../PrivateSTT';
 import { STTEngine } from '../../../../contracts/STTEngine';
 
 // Spy the ACTUAL posthog.capture payloads PrivateSTT emits (not just the sanitizer in isolation).
+//
+// #1259 — the route changed and this test got STRONGER for it. PrivateSTT used to call
+// `posthog?.capture?.()` directly with a RAW payload; it now goes through the one governed boundary,
+// so what lands here has passed the v4 allowlist and carries the envelope. Asserting at
+// `posthog.capture` therefore still asserts at the real transport, and now also proves the
+// projection did not strip the provenance the artifact depends on.
 const posthogCapture = vi.fn();
 vi.mock('posthog-js', () => ({
     default: { capture: (...a: unknown[]) => posthogCapture(...a), isFeatureEnabled: () => false },
@@ -108,10 +114,16 @@ describe('config-selected v4 telemetry is content-free and honestly attributed',
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
         await pstt.init();
 
-        expect(posthogCapture, 'PrivateSTT must emit v4 telemetry').toHaveBeenCalled();
+        // v4 events are LOW priority, so they sit in the buffer until it drains. `pagehide` is the
+        // buffer's own synchronous drain — production's last-chance flush, and the one drain trigger
+        // that reaches whichever buffer instance PrivateSTT's dynamic import actually bound to.
+        window.dispatchEvent(new Event('pagehide'));
+
+        const v4Calls = (posthogCapture.mock.calls as Array<[string, Record<string, unknown>]>)
+            .filter(([event]) => String(event).startsWith('private_stt_v4_'));
+        expect(v4Calls.length, 'PrivateSTT must emit v4 telemetry').toBeGreaterThan(0);
         let attempt: Record<string, unknown> | undefined;
-        for (const [event, payload] of posthogCapture.mock.calls as Array<[string, Record<string, unknown>]>) {
-            expect(String(event)).toMatch(/^private_stt_v4_/);
+        for (const [event, payload] of v4Calls) {
             const blob = JSON.stringify(payload ?? {}).toLowerCase();
             for (const bad of PII_KEYS) {
                 expect(blob, `posthog "${event}" payload must not contain "${bad}"`).not.toContain(bad);

@@ -23,6 +23,11 @@ import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcrip
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import { emitRecordingIntent } from '@/services/telemetry/journeyEvents';
+import { markCompletionStage } from '@/services/telemetry/completionStages';
+import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
+import { emitRetentionObservation } from '@/services/telemetry/retentionObservation';
+import { hasReadableTranscript } from '@/constants/transcriptState';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 
@@ -193,7 +198,25 @@ export const useSessionLifecycle = () => {
         const latestRuntimeState = latestSessionState.runtimeState;
         const shouldStop = latestSessionState.isListening || latestRuntimeState === 'RECORDING' || latestRuntimeState === 'STOPPING';
 
-        if (isProcessingRef.current && !shouldStop) return;
+        // #1259 F01 — the intent is the fact. Every path below returns before recording begins, and
+        // until now every one of them was silent to analytics: a refused click and a click never made
+        // produced identical telemetry (none).
+        const modelReadyAtIntent = latestRuntimeState === 'READY' || latestRuntimeState === 'RECORDING';
+        const reportIntent = (outcome: Parameters<typeof emitRecordingIntent>[0]['outcome']) =>
+            emitRecordingIntent({
+                kind: shouldStop ? 'stop' : 'start',
+                outcome,
+                runtimeState: latestRuntimeState ?? null,
+                modelReady: modelReadyAtIntent,
+            });
+
+        if (isProcessingRef.current && !shouldStop) {
+            // A SECOND CLICK WHILE THE FIRST IS IN FLIGHT. This returned with no log and no event, so
+            // "two clicks required" and "one click, silent wait" were indistinguishable in the data —
+            // which is exactly the distinction F01 asks for.
+            reportIntent('suppressed_in_flight');
+            return;
+        }
         // #1089 STRAY RECORDING: after an automatic stop the runtime FSM returns to READY while the
         // whole-utterance decode is still running, so the record control was briefly live and labelled
         // "Start". A user reaching for Stop then began a SECOND recording (the observed stray 9-second
@@ -201,11 +224,15 @@ export const useSessionLifecycle = () => {
         // completes. This is a guard, not UI polish — never rely on the disabled button alone.
         if (!shouldStop && useSessionStore.getState().isTranscriptFinalizing) {
             logger.warn('[useSessionLifecycle] ⛔ Start ignored: previous recording is still finalizing');
+            reportIntent('suppressed_finalizing');
             return;
         }
         isProcessingRef.current = true;
 
         if (shouldStop) {
+            // #1259 F16 — the chain starts at the USER'S Stop, not the runtime's. Everything
+            // experienced as "waiting after I finished" is measured from here.
+            markCompletionStage('stop_intent');
             // ✅ Master Invariant: stopRecording() is now handled 
             // by SpeechRuntimeController. It performs cleanup and DB ops.
 
@@ -243,6 +270,42 @@ export const useSessionLifecycle = () => {
                     streak_count: streakResult.currentStreak,
                     ...getSessionCoachingExperimentProperties(),
                 }, 'HIGH');
+                // #1259 F16 — persistence returned. Time spent reaching here is a DATABASE problem,
+                // and separating it from decode and render is the whole point of the chain.
+                markCompletionStage('session_saved');
+                // #1259 F05 — the count above and the transcript are two DIFFERENT facts, and only the
+                // count was ever recorded. `word_count: 88` beside an empty panel and `word_count: 88`
+                // beside 88 visible words were the same event. This records what the authority holds at
+                // the moment persistence returned, so the review stage has something to disagree with.
+                // #1259 F10 — the counts the client can actually SEE, observed rather than asserted.
+                // The PO found two readable transcripts under copy claiming otherwise; whether that is
+                // a policy not applied, a policy applied with stale copy, or a policy keeping two on
+                // purpose is unanswerable from `session_saved` alone. Reporting the INTENDED policy
+                // would agree with the copy and hide exactly that disagreement.
+                // Read from the store at SAVE time rather than closing over the render-time value:
+                // adding `history` to this callback's dependencies would change when the handler is
+                // recreated, and the count that matters is the one at the moment of the save anyway.
+                const historyAtSave = useSessionStore.getState().history;
+                const bearing = (rows: typeof historyAtSave) =>
+                    rows.filter((sn) => hasReadableTranscript(
+                        (sn as { transcript_state?: string | null }).transcript_state,
+                    )).length;
+                emitRetentionObservation({
+                    transcriptBearingBefore: bearing(historyAtSave),
+                    // The list refreshes asynchronously after invalidation, so the after-count is not
+                    // knowable here. Null says so; a copied before-count would read as "nothing
+                    // expired", which is the flattering answer and the one that hides the defect.
+                    transcriptBearingAfter: null,
+                    contentFreeHistoryCount: historyAtSave.length,
+                    savedTranscriptState: null,
+                });
+
+                emitTranscriptAuthority({
+                    stage: 'save',
+                    authoritative: useSessionStore.getState().transcript.transcript,
+                    persisted: true,
+                    sessionIdPresent: Boolean(useSessionStore.getState().finalizedAnalysis?.sessionId),
+                });
                 // P1: read the controller's current terminal status FIRST. If it left a warning/error (e.g.
                 // filler/metrics persistence failed → guardedStopStatus), preserve it — apply NEITHER the
                 // stopReason NOR the ordinary success/streak copy. This holds for auto-stops (which carry a
@@ -302,6 +365,7 @@ export const useSessionLifecycle = () => {
                     : rawError;
                 const prefix = errorMsg.startsWith('⚠️') || errorMsg.startsWith('⛔') ? '' : '⛔ ';
                 setSTTStatus({ type: 'error', message: `${prefix}${errorMsg}` });
+                reportIntent('blocked_usage_limit');
                 isProcessingRef.current = false;
                 return;
             }
@@ -315,6 +379,7 @@ export const useSessionLifecycle = () => {
                         type: 'error',
                         message: '⛔ Active session in another tab. Switch to that tab to continue.'
                     });
+                    reportIntent('blocked_lock_held');
                     return;
                 }
 
@@ -352,6 +417,7 @@ export const useSessionLifecycle = () => {
                         attempts: freshness.attempts,
                     });
                     setSTTStatus({ type: 'error', message: blockedMessage(freshness.status) ?? '' });
+                    reportIntent('blocked_stale_client');
                     return;
                 }
 
@@ -364,6 +430,10 @@ export const useSessionLifecycle = () => {
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
                 const latestMode = requestedMode;
                 const selectedPolicy = buildPolicyForUser(canUsePrivateStt, latestMode);
+                // Emitted BEFORE the await. `session_started` is pushed only after startRecording
+                // RESOLVES — so a start that hangs (the 113s and 126s waits Production already shows)
+                // records nothing at all today. The accepted intent is what makes the hang visible.
+                reportIntent('accepted');
                 await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                 analyticsBuffer.push('session_started', {
                     mode: latestMode,
@@ -414,6 +484,7 @@ export const useSessionLifecycle = () => {
                     });
                     Sentry.captureException(err);
                 });
+                reportIntent('failed');
                 analyticsBuffer.push('recording_start_failed', {
                     mode: latestMode,
                     requested_mode: requestedMode,

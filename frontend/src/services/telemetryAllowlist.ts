@@ -57,6 +57,14 @@ const RUNTIME_STATES = [
 /** `ClientFreshness` in staleClientGuard.ts. 'unverified' and 'local' are real and were being dropped. */
 const FRESHNESS = ['fresh', 'stale', 'unverified', 'local'] as const;
 
+/**
+ * The post-session destinations. CLOSED, because F08 asks which options were OFFERED — and a free
+ * string would let a producer invent an option that no user could have seen.
+ */
+const NAVIGATION_OPTIONS = [
+    'practice_next', 'view_analytics', 'try_another_mode', 'home', 'products', 'none',
+] as const;
+
 const TIERS = ['free', 'pro', 'trial', 'unknown', 'anonymous'] as const;
 const TRIAL_STATES = ['active', 'expired', 'none', 'unknown'] as const;
 
@@ -189,6 +197,208 @@ export const EVENT_SCHEMAS = Object.freeze({
         attempts: { kind: 'int', min: 0, max: 10_000 } as FieldRule,
     },
 
+    // ── F01 / F16: recording intent, state, and per-stage latency ───────────
+    /**
+     * THE CLICK, not the success. `session_started` is pushed only after `startRecording()` resolves,
+     * so a refused click emits nothing and is indistinguishable from a click never made. Every path in
+     * `handleStartStop` that returns early now reports its reason here.
+     */
+    recording_intent: {
+        intent_kind: enumOf(['start', 'stop']),
+        intent_outcome: enumOf([
+            'accepted', 'suppressed_in_flight', 'suppressed_finalizing',
+            'blocked_usage_limit', 'blocked_stale_client', 'blocked_lock_held', 'failed',
+        ]),
+        runtime_state_at_intent: enumOf(RUNTIME_STATES),
+        model_ready: { kind: 'bool' } as FieldRule,
+        ms_since_ready: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+    },
+    /** Transitions only. A poll of unchanged state is the noise this deliberately does not emit. */
+    recording_state: {
+        from_state: enumOf(RUNTIME_STATES),
+        to_state: enumOf(RUNTIME_STATES),
+        transition_cause: slug(),
+        ms_since_intent: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+    },
+    /** One stage per row. A single stop-to-review total answers none of F16's six questions. */
+    stage_latency: {
+        stage: enumOf([
+            'model_acquisition', 'ready_to_intent', 'intent_to_recording', 'recording_to_stop_intent',
+            // The completion chain. Seven stages, never one total — see LatencyStage.
+            'stop_intent', 'recording_terminated', 'final_transcript', 'evaluation_complete',
+            'session_saved', 'practice_loop_ready', 'review_rendered',
+        ]),
+        duration_ms: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+    },
+
+    /**
+     * F05 — a word count and a rendered surface are DIFFERENT FACTS. Production already carries
+     * `session_saved.word_count`; nothing records whether the user could see those words. This pairs
+     * them at each stage that can lose the transcript. No text, ever — a digest, two counts, booleans.
+     */
+    transcript_authority: {
+        stage: enumOf(['finalize', 'save', 'teardown', 'review_rendered']),
+        transcript_digest: slug(16),
+        authoritative_word_count: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        rendered_word_count: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        transcript_visibly_present: { kind: 'bool' } as FieldRule,
+        digests_match: { kind: 'bool' } as FieldRule,
+        persisted: { kind: 'bool' } as FieldRule,
+        session_id_present: { kind: 'bool' } as FieldRule,
+        teardown_state: enumOf(RUNTIME_STATES),
+    },
+
+    /**
+     * F03 / F08 — the control's IDENTITY beside what it actually did, and the options a finished
+     * session offered. `options_shown` is a bounded closed list so an empty offering is a recorded
+     * measurement rather than a missing event.
+     */
+    journey_step: {
+        step: enumOf(['route_change', 'cta_click', 'setup_submitted', 'post_session_options', 'option_selected']),
+        from_route: { kind: 'route', maxLength: 96 } as FieldRule,
+        to_route: { kind: 'route', maxLength: 96 } as FieldRule,
+        product_mode: enumOf([...PRACTICE_MODES, 'none']),
+        cta_id: slug(),
+        cta_action: enumOf(['navigate', 'start_recording', 'submit', 'none']),
+        runtime_state_on_arrival: enumOf(RUNTIME_STATES),
+        options_shown: { kind: 'enum[]', values: NAVIGATION_OPTIONS, maxLength: 8 } as FieldRule,
+        option_selected: enumOf(NAVIGATION_OPTIONS),
+        points_entered: { kind: 'int', min: 0, max: 100 } as FieldRule,
+    },
+
+    /**
+     * F06 / F14 / F18 — the evaluator's verdict beside the numbers that produced it. `session_saved`
+     * carries no coverage at all today, so the product's judgement and the transcript that
+     * contradicts it have never been comparable. No label, topic, or matched quote — positions only.
+     */
+    coverage_evaluation: {
+        evaluator_version: slug(),
+        points_supplied: { kind: 'int', min: 0, max: 100 } as FieldRule,
+        points_evaluated: { kind: 'int', min: 0, max: 100 } as FieldRule,
+        covered_threshold: { kind: 'number', min: 0, max: 1 } as FieldRule,
+        partial_threshold: { kind: 'number', min: 0, max: 1 } as FieldRule,
+        covered_count: { kind: 'int', min: 0, max: 100 } as FieldRule,
+        partial_count: { kind: 'int', min: 0, max: 100 } as FieldRule,
+        retry_target_count: { kind: 'int', min: 0, max: 100 } as FieldRule,
+        transcript_word_count: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+    },
+    /** One row per point, identified by POSITION. A label here would be user content. */
+    coverage_point: {
+        evaluator_version: slug(),
+        point_position: { kind: 'int', min: 0, max: 100 } as FieldRule,
+        match_ratio: { kind: 'number', min: 0, max: 1 } as FieldRule,
+        keyword_count: { kind: 'int', min: 0, max: 1_000 } as FieldRule,
+        verdict: enumOf(['covered', 'partial', 'missing']),
+        latched: { kind: 'bool' } as FieldRule,
+    },
+
+    /**
+     * F07 — GENERATED vs FALLBACK, which the rendered screen cannot distinguish.
+     *
+     * `verdictFromSuggestions` ALWAYS returns a verdict: with no AI suggestions it substitutes
+     * "Session saved — nice work." and a generic fix. So a session with no practice loop renders
+     * copy that looks like one, and "I did not see the practice loop" and "the loop said something
+     * bland" are the same screen. Recording the SOURCE of each half separates them.
+     */
+    practice_loop: {
+        suggestions_present: { kind: 'bool' } as FieldRule,
+        what_went_well_source: enumOf(['generated', 'fallback']),
+        what_to_improve_source: enumOf(['generated', 'fallback']),
+        rendered: { kind: 'bool' } as FieldRule,
+        next_action_persisted: { kind: 'bool' } as FieldRule,
+        suppression_reason: enumOf(['none', 'no_suggestions', 'not_in_review_state']),
+    },
+
+    /**
+     * F09 — WHICH condition kept Send grey. The dialog surfaces none of the four, so the user cannot
+     * tell and neither could we. `report_issue_submitted` fires only after a successful insert, so a
+     * blocked submit is invisible by construction. Length BANDS only; the prose stays in the row.
+     */
+    feedback_dialog_opened: {},
+    feedback_field: {
+        field: enumOf(['kind', 'title', 'description', 'category', 'severity', 'impact']),
+        transition: enumOf(['entered', 'cleared', 'unexpected_clear']),
+        length_band: enumOf(['0', '1-3', '4-9', '10-39', '40-199', '200+']),
+        submit_blockers: {
+            kind: 'enum[]',
+            values: ['kind_missing', 'title_too_short', 'description_too_short', 'already_submitting'],
+            maxLength: 4,
+        } as FieldRule,
+        submit_enabled: { kind: 'bool' } as FieldRule,
+    },
+    feedback_submit: {
+        outcome: enumOf(['attempted', 'refused_by_gate', 'storage_ok', 'storage_failed']),
+        submit_blockers: {
+            kind: 'enum[]',
+            values: ['kind_missing', 'title_too_short', 'description_too_short', 'already_submitting'],
+            maxLength: 4,
+        } as FieldRule,
+        acknowledgement_visible: { kind: 'bool' } as FieldRule,
+    },
+
+    /**
+     * F13 — the DETECTOR'S INPUT, not just its output. Production already carries `filler_count: 0`
+     * against 82 spoken words; what it cannot say is whether the transcript could have evidenced a
+     * filler at all. `completeness` is that distinction, and it is deliberately not derived from the
+     * two counters agreeing — both read the same transcript and agree perfectly when it is stripped.
+     */
+    filler_measurement: {
+        candidate_id_observed: slug(),
+        detector_input_words: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        detector_input_fillers: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        reported_fillers: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        clarity_score: { kind: 'number', min: 0, max: 100 } as FieldRule,
+        duration_seconds: { kind: 'int', min: 0, max: 86_400 } as FieldRule,
+        completeness: enumOf(['complete', 'unobservable', 'no_speech']),
+        unavailable_reason: enumOf(['no_filler_tokens_in_transcript', 'no_transcribed_speech']),
+    },
+
+    /**
+     * F10 — the policy the database is believed to run, the claim the copy makes, and the count the
+     * client can actually SEE, all in one row. A mismatch between the first two is precisely the
+     * failure the PO hit: text promising one transcript beside a list holding two.
+     */
+    retention_observation: {
+        policy_version: slug(),
+        copy_version: slug(),
+        transcript_bearing_before: { kind: 'int', min: 0, max: 100_000 } as FieldRule,
+        transcript_bearing_after: { kind: 'int', min: 0, max: 100_000 } as FieldRule,
+        expired_count: { kind: 'int', min: 0, max: 100_000 } as FieldRule,
+        content_free_history_count: { kind: 'int', min: 0, max: 100_000 } as FieldRule,
+        saved_transcript_state: enumOf(['available', 'expired', 'not_captured']),
+    },
+
+    /**
+     * F04 — churn is MOTION, and a finished transcript cannot show it. Counted per update, reported
+     * once at finalization: an event per update would be the per-frame stream this contract forbids.
+     * `revisions` counts changes to text the user had ALREADY READ, not provisional words being
+     * replaced — which is what provisional means and is not what anyone complained about.
+     */
+    transcript_stability: {
+        provisional_updates: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        final_updates: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        revisions: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        max_rewritten_prefix_words: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        ms_to_stable: { kind: 'int', min: 0, max: 86_400_000 } as FieldRule,
+        visible_final_words: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+        visible_provisional_words: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+    },
+
+    /**
+     * F02 — was the waveform real? Summarised once from the envelope the view already keeps, never
+     * streamed: per-frame waveform telemetry is forbidden and would be the loudest noise in the data.
+     * `partial` is the state that matters — samples that never rose above the noise floor cannot
+     * distinguish a quiet room from a meter that was never connected, and both render as a flat line.
+     */
+    mic_observability: {
+        samples_observed: { kind: 'int', min: 0, max: 10_000_000 } as FieldRule,
+        signal_available: { kind: 'bool' } as FieldRule,
+        speech_activity_ratio_band: enumOf(['0', '0-10', '10-30', '30-60', '60-90', '90-100']),
+        peak_level_band: enumOf(['0', 'below_floor', 'low', 'medium', 'high']),
+        waveform_observability: enumOf(['complete', 'partial', 'unobservable']),
+        stop_control_rendered: { kind: 'bool' } as FieldRule,
+    },
+
     // ── conversion funnel ───────────────────────────────────────────────────
     conversion_cta_viewed: CONVERSION_FIELDS,
     conversion_cta_clicked: CONVERSION_FIELDS,
@@ -224,9 +434,44 @@ export const EVENT_SCHEMAS = Object.freeze({
 
     // ── error surfaces: bounded identifiers only, never messages ────────────
     COMPONENT_CRASH: { component: slug(), isolationKey: slug() },
-    GLOBAL_UNHANDLED_REJECTION: {},
+    /**
+     * #1259 F12 — this schema was `{}`. Every unhandled rejection in Production shipped with NO
+     * properties at all: the event could say something failed and nothing else. The producer was still
+     * passing the raw `reason` message and a comment claimed analytics kept it; the allowlist had been
+     * dropping it silently. Restoring the message is not the fix — error text is the worst carrier,
+     * since PostgREST and Postgres echo request material back through message/details/hint. These are
+     * DERIVED instead: class name, a digest that groups identical failures, and a length band.
+     */
+    GLOBAL_UNHANDLED_REJECTION: {
+        reason_kind: enumOf(['error', 'string', 'object', 'nullish', 'unknown']),
+        error_name: slug(),
+        error_fingerprint: slug(16),
+        message_length_band: enumOf(['0', '1-64', '65-256', '257-1024', '1024+']),
+    },
 
     account_identified: { source: slug() },
+
+    // ── F12: telemetry about telemetry ──────────────────────────────────────
+    /**
+     * The event that is DECODED AT THE WIRE. There is deliberately no `boundary_accepted` field:
+     * `posthog.capture` is fire-and-forget, so any client-side acceptance flag would be a guess
+     * wearing a measurement's clothes. The nonce is what makes external verification possible.
+     */
+    telemetry_positive_control: {
+        control_nonce: slug(48),
+        instrumentation_version: slug(),
+        transport_initialized: { kind: 'bool' } as FieldRule,
+    },
+    /** What the client genuinely knows about its own boundary. Never reports on a health event. */
+    telemetry_health: {
+        instrumentation_version: slug(),
+        source_event: slug(),
+        schema_validation_result: enumOf(['ok', 'dropped_fields', 'ungoverned']),
+        dropped_count: { kind: 'int', min: 0, max: 10_000 } as FieldRule,
+        flush_outcome: enumOf(['drained', 'backpressure_dropped', 'pagehide_drained']),
+        queue_depth_band: enumOf(['0', '1-10', '11-100', '101-500', '500+']),
+        suppressed_health_events: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
+    },
 } as const satisfies Record<string, Record<string, FieldRule>>);
 
 /**

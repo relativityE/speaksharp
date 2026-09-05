@@ -3,7 +3,7 @@
 **Status:** Authoritative (SSOT for release/deployment posture)
 **Owner:** Product Owner (relativityE)
 **Last Reviewed:** 2026-08-29
-**Last Verified:** 2026-08-31 (production `window.__APP_RELEASE__` READ from `https://speaksharp-public.vercel.app/` = `a19324610634b9e05a375fff8838f2bbbae3a4f1`; `origin/main` verified by `git rev-parse` at the same time. Production **==** `main` HEAD at this read. The deployed SHA is READ, never inferred from auto-deploy.)
+**Last Verified:** 2026-09-04 (production `window.__APP_RELEASE__` READ from `https://speaksharp-public.vercel.app/` = `c4665156212dd03cd6d7b91c49bed90dea868b5a`; `origin/main` verified by `git ls-remote` at the same time. Production **==** `main` HEAD at this read. The deployed SHA is READ, never inferred from auto-deploy.)
 
 > **Currency correction (second).** #1358 corrected a 34-day drift; one day later this file was stale again — it named `5f378898` as both `main` and the deployed release, called #1304 Task 3 and Task 4 "not started" after both had merged, and still named the retention production proof as *the* release blocker after the stopping rule fired and that campaign moved off the critical path. A stale SSOT is worse than an absent one: `AGENTS.md` sends every agent here first, so wrong values here become wrong work. The values below are verified reads taken on 2026-08-28, not copied forward. The currency guard in `tests/config/documentationContract.test.ts` now fails when these task states contradict merged/open PR reality.
 **Applies To:** Current production deployment + release tracks for the SpeakSharp beta.
@@ -22,9 +22,9 @@
 # "retention". A guard that cannot tell a description of a defect from the defect is not a guard.
 #
 # So state lives here, in fixed fields, and prose stays prose.
-baseline: a19324610634b9e05a375fff8838f2bbbae3a4f1
-deployed-release: a19324610634b9e05a375fff8838f2bbbae3a4f1
-verified-on: 2026-08-29
+baseline: 97f1c0b5cf9fdc3c9a28ccd5a640de432c3b158c
+deployed-release: c4665156212dd03cd6d7b91c49bed90dea868b5a
+verified-on: 2026-09-05
 release-blocker: model-selection
 retention-campaign: off-critical-path
 task-1304-1: merged
@@ -46,10 +46,10 @@ Four distinct identities — do not conflate them:
 
 | Identity | Value | How to verify |
 |---|---|---|
-| **Repository `main` (moving branch pointer)** | `a19324610634b9e05a375fff8838f2bbbae3a4f1` (#1388 host interlock; #1376, #1379 merged the same day) at 2026-08-31 | **Moving** — verify the live pointer directly (`git rev-parse origin/main`); do not treat this SHA as fixed. |
+| **Repository `main` (moving branch pointer)** | `97f1c0b5cf9fdc3c9a28ccd5a640de432c3b158c` (#1420 reviewed MVP financial planning model) at 2026-09-05 | **Moving** — verify the live pointer directly (`git rev-parse origin/main`); do not treat this SHA as fixed. |
 | **Last product-behavior release** | `0e2fffd1` (#1366, #1360) — truthful recovery copy. It changes `SessionPage` and `UnresolvedRecoveryBanner`, both shipped, so it IS a product-behavior release. The prior one was `781e8ad6` (#1355). | Apply the criterion below; do not eyeball the PR title. |
 | **Later test/evidence commits (NOT product-behavior deployments)** | `574422ed` (#1356 scorer), `5f378898` (#1357 specs), `7db695f4` (#1346 3A), `20f3ce85` (#1362 3B), `d702d8c5`/`2f1152c0` (#1363/#1364 corpus), `069dc9e2` (#1359 retention contract) — all under `tests/**` or `scripts/**` | These change **no** deployed product behavior. |
-| **Deployed product release (verified)** | `window.__APP_RELEASE__ = a19324610634b9e05a375fff8838f2bbbae3a4f1`, read from `https://speaksharp-public.vercel.app/` on **2026-08-31**. Production == `main` HEAD at this read, but that is **not** guaranteed by auto-deploy alone: a Vercel "Ignored Build Step" can leave production behind `main`, so the deployed SHA must be **read**, not inferred. | Re-read `window.__APP_RELEASE__` from the deployed page with a cache-busting query and `Cache-Control: no-cache`, then update the value + date here. |
+| **Deployed product release (verified)** | `window.__APP_RELEASE__ = c4665156212dd03cd6d7b91c49bed90dea868b5a`, read from `https://speaksharp-public.vercel.app/` on **2026-09-04**. Production == `main` HEAD at this read, but that is **not** guaranteed by auto-deploy alone: a Vercel "Ignored Build Step" can leave production behind `main`, so the deployed SHA must be **read**, not inferred. | Re-read `window.__APP_RELEASE__` from the deployed page with a cache-busting query and `Cache-Control: no-cache`, then update the value + date here. |
 
 **Release-identity mechanism (per #1027):** the deployed `index.html` injects an inline `window.__APP_RELEASE__ = <VERCEL_GIT_COMMIT_SHA>`, surfaced at runtime as `window.__APP_RUNTIME_CONFIG__.release`. The old `__BUILD_ID__` JS `define` was **removed** in #1027 (it rotated chunk hashes every deploy → stale-chunk crashes); Sentry release is set at **runtime** (`release.inject:false`). Verify SHA-equality by reading `window.__APP_RELEASE__` from the deployed `index.html` — see [frontend/vite.config.mjs](../frontend/vite.config.mjs) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -88,6 +88,17 @@ The MVP-blocking lane is **#1304 (STT down-select)**. See `ROADMAP.md` for the w
 - **Merged since:** #1304 Task 3C certified harness (`054745d7`, #1365) and the inference-runtime pinning that followed it (`0e2fffd1`, #1368). Both are test/evidence infrastructure and change no deployed product behaviour.
 - **Open:** the frozen selection benchmark is RUNNING on `main@0e2fffd1`: **600 utterances / 10,894 normalized words**. It is not a 600-word test. No model has been selected and no ranking exists.
 - **RETENTION IS NO LONGER THE RELEASE BLOCKER.** Ten browser production-proof attempts failed, every one on the test harness and never on the product; the stopping rule fired and that campaign is **off the MVP critical path**. What replaced it: #1359 executed the shipped newest-two retention contract against the real migrations in-process (PGlite) — the first time that contract has been checked anywhere. A production run remains a future, separately authorized gate, not a blocker on this release.
+- **Acquisition telemetry: `unobservable` is accepted for Stage 1, and conditional after it.** Model
+  download and cache behaviour are measured at the browser's own fetch boundary. v2 (self-hosted) and
+  Moonshine (its own shipped pin file) are fully observable. v4 reports an honest `unobservable` cache
+  result because its asset pins are test material that is not shipped, and inventing URLs to fill the
+  gap would be a guess presented as a measurement. PM disposition: that is acceptable during the Stage-1
+  internal comparison and NOT sufficient for whichever candidate is ultimately selected for production.
+  If Stage 1 selects v4, its cache-versus-network acquisition and download duration become a **pre-MVP
+  blocker**; if v4 is not selected and remains internal-only, the limitation may remain documented. The
+  selected model must report candidate/model identity, total setup time, cache result, and either
+  download duration or a directly measured no-download outcome.
+
 - **THE RELEASE BLOCKER IS NOW MODEL SELECTION.** No Private STT model has been chosen. Shipping `v2 base.en` remains the default by absence of qualifying evidence, not by measurement.
 - **Accepted post-MVP debt:** the #1354 write-ahead obligation is client-only. If the Progress evaluation fails, the browser obligation write also fails, and the user reloads after storage recovers, the client cannot reconstruct that obligation. Eliminating it requires a server-side obligation record.
 - **#1006 is CLOSED** (draft, not activated) — long since not current work; retained here only because earlier revisions of this file presented it as the open item.

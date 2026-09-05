@@ -1,4 +1,5 @@
 import React from 'react';
+import { emitJourneyStep } from '@/services/telemetry/journeyStep';
 
 /**
  * #1222 slot A (before) — the mic card. Sizes to content (~150px). STT is **Private only** (#1184/#1229):
@@ -89,7 +90,27 @@ export const MicCard: React.FC<MicCardProps> = ({
     // Private setup entry point — a failed model setup must leave the user a clickable "Retry Private setup",
     // never a permanently-disabled control.
     const isSetupAction = downloadRequired || modelError;
-    const primaryHandler = isSetupAction ? (onDownloadModel ?? onStart) : onStart;
+    const rawPrimaryHandler = isSetupAction ? (onDownloadModel ?? onStart) : onStart;
+    /**
+     * #1259 F03 — the OTHER "start speaking".
+     *
+     * This control and the Focus Points setup CTA read almost identically to a user, and do entirely
+     * different things: that one navigates, this one starts a recording (or, in the setup branch,
+     * downloads a model). Recording the control's identity next to the action it actually performs is
+     * what turns the collision into a measurement.
+     *
+     * The identity is a checked-in slug, not the visible label, because the label is exactly what is
+     * expected to change once the naming is fixed — and the two controls must stay comparable across
+     * that change.
+     */
+    const primaryHandler = () => {
+        emitJourneyStep({
+            step: 'cta_click',
+            ctaId: isSetupAction ? 'mic_card_setup' : 'mic_card_primary',
+            ctaAction: isSetupAction ? 'submit' : 'start_recording',
+        });
+        rawPrimaryHandler?.();
+    };
     const primaryDisabled = isSetupAction ? false : (!!disabled || loading);
     const primaryTitle = isBlockedFromStart
         ? 'Just a moment…'

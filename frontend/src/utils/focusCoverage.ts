@@ -17,6 +17,10 @@
  */
 import { computeObjectiveCoverage, type TranscriptSegment } from '@/services/objective/objectiveCoverage';
 import type { CoverageStatus } from '@/services/rehearsal/outcomeScorecard';
+import { emitCoverageEvaluation } from '@/services/telemetry/coverageTelemetry';
+import { markCompletionStage } from '@/services/telemetry/completionStages';
+import { COVERED_RATIO, PARTIAL_RATIO, extractKeywords } from '@/services/rehearsal/outcomeScorecard';
+import { countWords } from '@/lib/contentDigest';
 
 export interface FocusCoverageRow {
     label: string;
@@ -121,6 +125,28 @@ export function deriveFocusCoverage(
             quote: covered ? (c.evidence?.quote ?? null) : null,
         };
     });
+
+    // #1259 F06/F14/F18 — emitted HERE, where the ratio, the thresholds and the keyword count are all
+    // in scope. Downstream only the verdict survives, and the verdict is precisely what is disputed.
+    emitCoverageEvaluation({
+        pointsSupplied: (points ?? []).length,
+        pointsEvaluated: total,
+        coveredThreshold: COVERED_RATIO,
+        partialThreshold: PARTIAL_RATIO,
+        transcriptWordCount: countWords(transcript),
+        observations: coverage.map((c, i) => ({
+            position: i,
+            matchRatio: typeof c.matchRatio === 'number' ? c.matchRatio : 0,
+            // Zero keywords means this point could never match anything the user said.
+            keywordCount: extractKeywords(briefPoints[i].label).length,
+            verdict: rows[i].status,
+            latched: latched?.has(i) ?? false,
+        })),
+    });
+
+    // #1259 F16 — coverage has a verdict. Only meaningful in the completion chain; during a live
+    // session the evaluator runs continuously and the mark is taken once, by markCompletionStage.
+    markCompletionStage('evaluation_complete');
 
     const coveredCount = rows.filter((r) => r.covered).length;
     const nextIndex = rows.findIndex((r) => !r.covered);

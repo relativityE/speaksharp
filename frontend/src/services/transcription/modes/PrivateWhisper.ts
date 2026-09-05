@@ -693,6 +693,20 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private micReadinessGate: MicReadinessGate | null = null;
   private status: Status;
   private privateSTT: IPrivateSTT;
+
+  /**
+   * #1259: FORWARD THE ACQUISITION TRIGGER TO THE FACADE THAT EMITS IT.
+   *
+   * `TranscriptionService` names the trigger on the STRATEGY — that is the object it holds. The
+   * telemetry lives on `PrivateSTT`, which this strategy owns, so without this hop the service's
+   * optional call landed on a method that did not exist and silently no-opped. Every acquisition
+   * would have gone on reporting `explicit-setup`, including the cached warm-ups the distinction
+   * exists to separate, and nothing would have failed to say so.
+   */
+  public setAcquisitionTrigger(trigger: 'warmup' | 'explicit-setup'): void {
+    (this.privateSTT as { setAcquisitionTrigger?: (t: 'warmup' | 'explicit-setup') => void })
+      .setAcquisitionTrigger?.(trigger);
+  }
   private engineType: EngineType | null = null;
   private mic: MicStream | null = null;
   private audioChunks: Float32Array[] = [];

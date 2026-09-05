@@ -3,10 +3,12 @@ import posthog from 'posthog-js';
 import * as Sentry from "@sentry/react";
 import logger from '../lib/logger';
 import { sanitizePrivateTelemetryProps } from './transcription/privateTelemetrySanitizer';
+import { sanitizeV4TelemetryProps, isV4TelemetryEvent } from './transcription/privateV4TelemetrySanitizer';
 import { projectEventProps, isGovernedEvent, type GovernedEvent } from './telemetryAllowlist';
 import { buildEnvelope, stripEnvelopeKeys, type EnvelopeSources, type EventEnvelope } from './telemetry/envelope';
 import { buildTrafficSignals } from './telemetry/trafficType';
 import { resolvedEngine } from './telemetry/runtimeAttribution';
+import { recordDrop, recordFlush, setTelemetryHealthEmitter, isHealthEvent } from './telemetry/telemetryHealth';
 
 
 /**
@@ -71,6 +73,18 @@ class AnalyticsBuffer {
   private static currentAccountId: string | null = null;
 
   /**
+   * #1259 — the SERVER'S claim that this account is an internal tester.
+   *
+   * Held beside the account id because it arrives with the same session and has the same lifetime. It
+   * is never read from a build-time list: a `VITE_*` allowlist would compile the tester account ids
+   * into the public bundle, which is how the first attempt at this failed review.
+   */
+  private static currentInternalTesterClaim = false;
+
+  /** The server's claim that this account is the automated qualification canary. Same rules. */
+  private static currentCanaryClaim = false;
+
+  /**
    * THE PRODUCTION SOURCES — the default, not an opt-in.
    *
    * This used to default to `() => ({})`, so every field was null and every session read as `user`
@@ -91,6 +105,8 @@ class AnalyticsBuffer {
       trafficSignals: buildTrafficSignals(
         import.meta.env as unknown as Record<string, string | undefined>,
         AnalyticsBuffer.currentAccountId,
+        AnalyticsBuffer.currentInternalTesterClaim,
+        AnalyticsBuffer.currentCanaryClaim,
       ),
     };
   }
@@ -116,6 +132,10 @@ class AnalyticsBuffer {
   /** @internal */
   public readonly MAX_QUEUE_SIZE = 1000;
   private readonly BATCH_SIZE = 10;
+  /** Backpressure drops since the last report. Counted in push(), reported on drain — see push(). */
+  private backpressureDropped = 0;
+  /** Whether this drain carried anything other than health events. Breaks the report/requeue loop. */
+  private sentNonHealthSinceDrain = false;
 
   // Non-PII identity observability probe (mirrored to window.__SS_ANALYTICS_IDENTITY__) so a deployed
   // proof can confirm EXACTLY which step of the identify path ran — without guessing from network
@@ -192,6 +212,12 @@ class AnalyticsBuffer {
     // Backpressure: Drop oldest if queue is full
     if (this.queue.length >= this.MAX_QUEUE_SIZE) {
       this.queue.shift(); // Drop oldest
+      // #1259 F12 — a silent backpressure drop is indistinguishable from an event that was never
+      // produced, so it must be reported. NOT from here: emitting inside the full-queue branch pushes
+      // an event into the queue that is already full, which drops another, which emits again — an
+      // unbounded recursion whose first symptom would be a hung tab. Counted here, reported once the
+      // queue actually drains.
+      this.backpressureDropped += 1;
     }
 
     this.queue.push(analyticsEvent);
@@ -254,6 +280,15 @@ class AnalyticsBuffer {
     } else {
       this.isFlushing = false;
       logger.debug('[AnalyticsBuffer] Background flush complete');
+      // Report a drain ONLY when this pass carried real traffic. A health event is itself queued, so
+      // reporting every drain means: drain -> emit health -> queue non-empty -> drain -> emit health,
+      // forever. The flag makes the loop close after one report.
+      if (this.sentNonHealthSinceDrain) {
+        this.sentNonHealthSinceDrain = false;
+        const dropped = this.backpressureDropped;
+        this.backpressureDropped = 0;
+        recordFlush(dropped > 0 ? 'backpressure_dropped' : 'drained', this.queue.length, dropped);
+      }
     }
   }
 
@@ -266,9 +301,26 @@ class AnalyticsBuffer {
   }
 
   /**
+   * #1259 F12 — the health emitter, injected rather than imported by the health module.
+   *
+   * The dependency runs one way: the boundary knows how to send, the health module knows what is worth
+   * saying. Wiring it the other way would make a telemetry module import the buffer that imports it.
+   */
+  public wireHealthEmitter(): void {
+    setTelemetryHealthEmitter((event, props, priority) => {
+      // A health event that reported its own drops would emit another health event, and a telemetry
+      // outage would become a telemetry flood. The health module already refuses to report on health
+      // events; this is the same guard at the boundary, where it cannot be bypassed.
+      if (!isHealthEvent(event)) return;
+      this.push(event as AnalyticsEventName, props, priority);
+    });
+  }
+
+  /**
    * Internal sender to PostHog and Sentry.
    */
   private send(event: AnalyticsEvent): void {
+    if (!isHealthEvent(event.event)) this.sentNonHealthSinceDrain = true;
     try {
       // #1259 P2 — SECOND redaction boundary for Private events. The first boundary is the emitter
       // allowlist (`sanitizePrivateTelemetryProps`). Here, at the send boundary,
@@ -286,7 +338,17 @@ class AnalyticsBuffer {
       const isPrivateEvent = event.event.startsWith('private_');
       let sanitized: Record<string, unknown> | undefined;
       if (isPrivateEvent) {
-        sanitized = sanitizePrivateTelemetryProps(event.properties);
+        // #1259 — TWO ALLOWLISTS SHARE THE `private_*` NAMESPACE, so the namespace alone cannot pick one.
+        //
+        // `private_stt_v4_*` events used to leave through their own `posthog.capture` in
+        // privateV4Telemetry, which is why they had a separate projection at all. Routing them here
+        // without this branch would have applied the Private allowlist to them and dropped EVERY v4
+        // field — `engine`, `dtype`, `resolvedDevice`, `loadMs`, `fallbackReason` — turning a
+        // side-channel leak into three silently empty events, which is the worse failure: it looks
+        // like working telemetry.
+        sanitized = isV4TelemetryEvent(event.event)
+          ? sanitizeV4TelemetryProps(event.properties)
+          : sanitizePrivateTelemetryProps(event.properties);
       } else {
         const projected = projectEventProps(event.event, event.properties);
         sanitized = projected.props;
@@ -296,6 +358,10 @@ class AnalyticsBuffer {
             { event: event.event, droppedKeys: projected.dropped, governed: isGovernedEvent(event.event) },
             '[AnalyticsBuffer] dropped non-allowlisted telemetry properties',
           );
+          // #1259 F12 — and EMIT it. A drop that exists only in a browser console is invisible in
+          // Production, which is how a silently empty event stays silently empty. The keys stay local;
+          // only the count and the source event travel.
+          recordDrop(event.event, projected.dropped.length, isGovernedEvent(event.event));
         }
       }
       // #1259 T2 — THE ENVELOPE IS APPLIED HERE, at the same single boundary, and LAST.
@@ -333,6 +399,23 @@ class AnalyticsBuffer {
    * Every caller passes only `user.id` (AuthProvider.tsx:105 is the sole one), so the parameter carried
    * no traffic and only carried risk. Removing it makes the leak unavailable rather than unused.
    */
+  /**
+   * Record the server's internal-tester claim for the signed-in account.
+   *
+   * Separate from `identify` so the claim cannot be supplied by a caller that merely knows a user id:
+   * it must come from the session the server issued.
+   */
+  public setCanaryClaim(claim: boolean): void {
+    AnalyticsBuffer.currentCanaryClaim = claim === true;
+  }
+
+  public setInternalTesterClaim(claim: boolean): void {
+    // Strict `=== true`: a truthy string or a stray object from a malformed session must not grant
+    // an internal classification. Anything that is not exactly the boolean the server issued is
+    // treated as no claim at all.
+    AnalyticsBuffer.currentInternalTesterClaim = claim === true;
+  }
+
   public identify(userId: string): void {
 
     // Record BEFORE the capture below: `account_identified` is itself a governed event, and an
