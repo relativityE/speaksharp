@@ -32,15 +32,15 @@ describe('AISuggestions Integration', () => {
         it('renders with call-to-action when no suggestions', () => {
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            expect(screen.getByText(/AI Coaching Suggestions/i)).toBeInTheDocument();
-            expect(screen.getByRole('button', { name: /get suggestions/i })).toHaveClass('w-full', 'sm:w-auto');
-            expect(screen.getByText(/click the button to request ai coaching/i)).toBeInTheDocument();
+            expect(screen.getByText(/Practice Loop review/i)).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /get my review/i })).toHaveClass('w-full', 'sm:w-auto');
+            expect(screen.getByText(/one session-specific strength and one improvement/i)).toBeInTheDocument();
         });
 
         it('disables button when no transcript provided', () => {
             render(<AISuggestions transcript="" sessionId="session-test" />);
 
-            const button = screen.getByRole('button', { name: /get suggestions/i });
+            const button = screen.getByRole('button', { name: /get my review/i });
             expect(button).toBeDisabled();
         });
     });
@@ -56,12 +56,12 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world this is a test" sessionId="session-test" />);
 
-            const button = screen.getByRole('button', { name: /get suggestions/i });
+            const button = screen.getByRole('button', { name: /get my review/i });
             await user.click(button);
 
             // Should show loading state
-            expect(screen.getByRole('button', { name: /analyzing/i })).toBeInTheDocument();
-            expect(await screen.findByText(/analyzing your speech/i)).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /creating review/i })).toBeInTheDocument();
+            expect(await screen.findByText(/creating your session review/i)).toBeInTheDocument();
         });
 
         it('calls the edge function with only the saved session id', async () => {
@@ -81,7 +81,7 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript={mockTranscript} sessionId="session-test" />);
 
-            const button = screen.getByRole('button', { name: /get suggestions/i });
+            const button = screen.getByRole('button', { name: /get my review/i });
             await user.click(button);
 
             await waitFor(() => {
@@ -108,7 +108,7 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            await user.click(screen.getByRole('button', { name: /get suggestions/i }));
+            await user.click(screen.getByRole('button', { name: /get my review/i }));
 
             await waitFor(() => {
                 expect(screen.getByText(/your risk example made the decision concrete/i)).toBeInTheDocument();
@@ -131,12 +131,34 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world um uh" sessionId="session-test" />);
 
-            await user.click(screen.getByRole('button', { name: /get suggestions/i }));
+            await user.click(screen.getByRole('button', { name: /get my review/i }));
 
             await waitFor(() => {
-                expect(screen.getByText('What worked')).toBeInTheDocument();
-                expect(screen.getByText('What to try next')).toBeInTheDocument();
+                expect(screen.getByText('What went well')).toBeInTheDocument();
+                expect(screen.getByText('What to improve')).toBeInTheDocument();
             });
+        });
+
+        it('rejects a malformed or expanded response instead of rendering partial coaching', async () => {
+            const user = userEvent.setup();
+            mockSupabaseClient.functions.invoke.mockResolvedValue({
+                data: {
+                    suggestions: {
+                        version: 'gemini_coaching_v1',
+                        what_worked: 'A strength.',
+                        what_to_try_next: 'An improvement.',
+                        extra_generated_field: 'must not enter the review contract',
+                    },
+                },
+                error: null,
+            });
+
+            render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
+            await user.click(screen.getByRole('button', { name: /get my review/i }));
+
+            expect(await screen.findByRole('heading', { name: /review unavailable/i })).toBeInTheDocument();
+            expect(screen.queryByText('A strength.')).not.toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /retry review/i })).toBeInTheDocument();
         });
     });
 
@@ -151,11 +173,11 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            await user.click(screen.getByRole('button', { name: /get suggestions/i }));
+            await user.click(screen.getByRole('button', { name: /get my review/i }));
 
             await waitFor(() => {
-                expect(screen.getByRole('heading', { name: /ai coaching unavailable/i })).toBeInTheDocument();
-                expect(screen.getByText(/ai coaching could not connect/i)).toBeInTheDocument();
+                expect(screen.getByRole('heading', { name: /review unavailable/i })).toBeInTheDocument();
+                expect(screen.getByText(/review could not connect/i)).toBeInTheDocument();
                 expect(screen.queryByText(/network error/i)).not.toBeInTheDocument();
             });
         });
@@ -170,10 +192,10 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            await user.click(screen.getByRole('button', { name: /get suggestions/i }));
+            await user.click(screen.getByRole('button', { name: /get my review/i }));
 
             await waitFor(() => {
-                expect(screen.getByText(/ai coaching is temporarily rate limited/i)).toBeInTheDocument();
+                expect(screen.getByText(/review requests are temporarily limited/i)).toBeInTheDocument();
                 expect(screen.queryByText(/rate limit exceeded/i)).not.toBeInTheDocument();
             });
         });
@@ -184,10 +206,10 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            await user.click(screen.getByRole('button', { name: /get suggestions/i }));
+            await user.click(screen.getByRole('button', { name: /get my review/i }));
 
             await waitFor(() => {
-                expect(screen.getByText(/ai coaching is unavailable right now/i)).toBeInTheDocument();
+                expect(screen.getByText(/review is unavailable right now/i)).toBeInTheDocument();
                 expect(screen.queryByText(/supabase client not available/i)).not.toBeInTheDocument();
             });
         });
@@ -204,7 +226,7 @@ describe('AISuggestions Integration', () => {
 
             expect(screen.getByText('Initial session-specific strength.')).toBeInTheDocument();
             expect(screen.getByText('Initial session-specific next step.')).toBeInTheDocument();
-            expect(screen.queryByText(/click the button to request ai coaching/i)).not.toBeInTheDocument();
+            expect(screen.queryByText(/one session-specific strength and one improvement/i)).not.toBeInTheDocument();
         });
 
         it('replaces session A coaching immediately when navigation switches to session B', () => {
@@ -246,7 +268,7 @@ describe('AISuggestions Integration', () => {
             const { rerender } = render(
                 <AISuggestions transcript="Session A transcript" sessionId="session-a" />,
             );
-            await user.click(screen.getByRole('button', { name: /get suggestions/i }));
+            await user.click(screen.getByRole('button', { name: /get my review/i }));
 
             rerender(
                 <AISuggestions transcript="Session B transcript" sessionId="session-b" initialSuggestions={sessionB} />,
@@ -310,7 +332,7 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            await user.click(screen.getByRole('button', { name: /get suggestions/i }));
+            await user.click(screen.getByRole('button', { name: /get my review/i }));
 
             await waitFor(() => {
                 expect(screen.getByText('The launch example made the decision concrete.')).toBeInTheDocument();
@@ -335,7 +357,7 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            const button = screen.getByRole('button', { name: /get suggestions/i });
+            const button = screen.getByRole('button', { name: /get my review/i });
             await user.click(button);
 
             // Button should be disabled while loading
@@ -358,7 +380,7 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            const button = screen.getByRole('button', { name: /get suggestions/i });
+            const button = screen.getByRole('button', { name: /get my review/i });
 
             // First fetch
             await user.click(button);

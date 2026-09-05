@@ -75,6 +75,8 @@ export interface SessionOverhaulViewProps {
     wpm?: number | null;
     /** The saved session's two takeaways (after-state verdict); null → honest deterministic fallback. */
     aiSuggestions?: TwoTakeaways | null;
+    /** Completed-session Practice Loop review. SessionPage owns its persistence-ready/session-id gate. */
+    practiceLoopReview?: React.ReactNode;
     onSeeAllSessions?: () => void;
     /** #1231 R1 — live-updating tail (rendered muted/settling) + post-Stop finalizing banner. */
     interimTranscript?: string;
@@ -136,6 +138,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     fillerData,
     wpm,
     aiSuggestions,
+    practiceLoopReview,
     onSeeAllSessions,
     interimTranscript,
     isFinalizing,
@@ -468,14 +471,21 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
                     : <FillerBreakdown fillerData={reviewFillerData} stats={fillerStatsLine} />}
                 verdict={{ ...verdictFromSuggestions(aiSuggestions, reviewFillerData, elapsedTime), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
-                slotDContent={objectiveAfterSlotD}
+                slotDContent={isObjective ? objectiveAfterSlotD : practiceLoopReview}
             />
             {isObjective && (
-                <FocusDeliveryStrip
-                    fillerCount={reviewFillerCount ?? 0}
-                    fillerData={reviewFillerData}
-                    hasMissedPoint={Boolean(coverage && coverage.coveredCount < coverage.total)}
-                />
+                <>
+                    <FocusDeliveryStrip
+                        fillerCount={reviewFillerCount ?? 0}
+                        fillerData={reviewFillerData}
+                        hasMissedPoint={Boolean(coverage && coverage.coveredCount < coverage.total)}
+                    />
+                    {practiceLoopReview && (
+                        <div className="mt-[14px]" data-testid="focus-practice-loop-review">
+                            {practiceLoopReview}
+                        </div>
+                    )}
+                </>
             )}
         </>
     );
