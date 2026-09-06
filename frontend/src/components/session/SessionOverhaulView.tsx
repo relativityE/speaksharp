@@ -377,9 +377,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const objectiveDuringSlotC = coverage
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={elapsedTime} guideSecPerPoint={guideSecPerPoint} sessionState="during" nudge={nudge} />
         : undefined;
+    const coverageMayBecomeAvailable = effectiveReview.kind === 'unavailable';
     const objectiveAfterSlotC = coverage
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={effElapsed} guideSecPerPoint={guideSecPerPoint} sessionState="after" />
-        : isObjective
+        : isObjective && coverageMayBecomeAvailable
             ? <section data-testid="coverage-awaiting-transcript" role="status" className="rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5 text-[14px] font-semibold text-[#4b5563]">Coverage will appear when your transcript is available.</section>
             : undefined;
     const objectivePlanSlotD = coverage
@@ -391,7 +392,14 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const objectiveAfterSlotD = coverage
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="after" onRetry={onRetryPoints ?? onStartStop} onNewSet={onNewSet} />
         : isObjective
-            ? <FocusPointsRail rows={pendingObjectiveRows} topic={effObjectiveTopic ?? null} sessionState="during" />
+            ? <FocusPointsRail
+                rows={pendingObjectiveRows}
+                topic={effObjectiveTopic ?? null}
+                sessionState="after"
+                coveragePending
+                onRetry={onRetryPoints ?? onStartStop}
+                onNewSet={onNewSet}
+            />
             : undefined;
 
     // #1354 CASE 4/6 — the rendered gate. Open Mic and Focus Points render through THIS component and
@@ -532,7 +540,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 fillerFooter={isObjective
                     ? (coverage
                         ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
-                        : <span data-testid="coverage-pending-footer">Coverage is waiting for the transcript.</span>)
+                        : null)
                     : <FillerBreakdown fillerData={reviewFillerData} stats={fillerStatsLine} />}
                 verdict={{ ...verdictFromSuggestions(aiSuggestions, reviewFillerData, elapsedTime), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
                 slotDContent={objectiveAfterSlotD}
