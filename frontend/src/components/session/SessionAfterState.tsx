@@ -30,6 +30,12 @@ export interface SessionAfterStateProps {
     /** #1206 — 'aggregate' shows the composite session-progress card; defaults to the single-signal card. */
     progressMode?: 'filler' | 'aggregate';
     verdict: SessionVerdictProps;
+    /**
+     * #1416 F-05 — shown in slot B instead of a transcript when the retained authority says there is
+     * nothing readable yet. It sits WITH the transcript rather than replacing the slot, so the reason
+     * appears where the words would have been.
+     */
+    slotBNotice?: React.ReactNode;
     /** #1222 S8 — Focus Points swaps slot D (verdict → resolved coverage rail); defaults to the verdict. */
     slotDContent?: React.ReactNode;
     /** #1046 — Focus Points swaps slot C (progress-vs-baseline → Coverage & pace). */
@@ -42,7 +48,7 @@ export interface SessionAfterStateProps {
     fillerFooter?: React.ReactNode;
 }
 
-export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, transcript, progress, progressMode, verdict, slotDContent, slotCContent, finalizing, finalizeEstimateSeconds, fillerFooter }) => {
+export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, transcript, progress, progressMode, verdict, slotDContent, slotCContent, slotBNotice, finalizing, finalizeEstimateSeconds, fillerFooter }) => {
     return (
         <SessionShell
             sessionState="after"
@@ -67,7 +73,10 @@ export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, 
                         </span>
                     )}
                 >
-                    <LiveTranscript tokens={transcript.tokens} onFillerSeek={transcript.onFillerSeek} coverageMode={transcript.coverageMode} />
+                    {slotBNotice}
+                    {!slotBNotice && (
+                        <LiveTranscript tokens={transcript.tokens} onFillerSeek={transcript.onFillerSeek} coverageMode={transcript.coverageMode} />
+                    )}
                 </TranscriptCard>
             }
             slotC={slotCContent ?? <ProgressVsBaseline result={progress} sessionState="after" mode={progressMode} />}

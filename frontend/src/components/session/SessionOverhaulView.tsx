@@ -26,6 +26,8 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { selectReviewFillerSnapshot } from '@/utils/sessionAnalysis';
 import type { PracticeSession } from '@/types/session';
 import type { SttStatus } from '@/types/transcription';
+import type { ReviewTranscriptOutcome } from '@/services/transcriptAuthority/reviewTranscript';
+import { ReviewTranscriptNotice } from './ReviewTranscriptNotice';
 
 /**
  * #1222 S11 — the session-overhaul VIEW: maps the live session runtime onto the fixed shell + the three
@@ -56,6 +58,16 @@ export interface SessionOverhaulViewProps {
     scoringElapsedSeconds?: number;
     micLevel: number;
     transcriptContent: string;
+    /**
+     * #1416 F-05 — the AFTER-state transcript, resolved from the retained authority.
+     *
+     * `transcriptContent` is working memory, and `purgeTranscriptWorkingMemory` empties it at
+     * finalization by contract. Rendering the review from it shows the user an empty transcript at
+     * the moment they are told the session was saved. #1306's own purge docstring says clearing the
+     * raw text "never affects the save, a Retry Save, or the review reader" — this is that reader.
+     */
+    reviewTranscript?: ReviewTranscriptOutcome;
+    onRetryReviewTranscript?: (() => void) | null;
     /** #1306 Option A: FINAL metric snapshot for the terminal review (the transcript/chunks are purged there,
      *  and the live fillerData is zeroed by the useFillerWords sync — so the review reads these instead). */
     finalizedWordCount?: number | null;
@@ -124,6 +136,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     scoringElapsedSeconds,
     micLevel,
     transcriptContent,
+    reviewTranscript,
+    onRetryReviewTranscript = null,
     finalizedWordCount,
     finalizedFillerData,
     showAnalyticsPrompt,
@@ -255,7 +269,18 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     }
     const { amplitudes, recordedCount } = waveformFromLevels(levelsRef.current);
 
-    const tokens = tokensFromTranscript(transcriptContent);
+    // In the AFTER state the retained authority decides what is readable; working memory has been
+    // purged and is not a fallback. Falling back to it would reintroduce exactly the empty review
+    // this fixes, only intermittently — which is worse, because it would look like flakiness.
+    // An absent authority is PENDING, not permission to read working memory. Without this, a parent
+    // that has not been migrated silently keeps the old behaviour — and since finalization empties
+    // the buffer, "the old behaviour" is the blank review this fixes. Defaulting to pending makes an
+    // unwired parent visible instead of quietly wrong.
+    const effectiveReview: ReviewTranscriptOutcome = inAfter
+        ? (reviewTranscript ?? { status: 'pending' })
+        : { status: 'pending' };
+    const reviewText = inAfter && effectiveReview.status === 'available' ? effectiveReview.text : null;
+    const tokens = tokensFromTranscript(inAfter ? (reviewText ?? '') : transcriptContent);
     // during: append the live-updating tail as muted "interim" tokens so re-writes read as intentional.
     const duringTokens = interimTranscript && interimTranscript.trim()
         ? [...tokens, ...tokensFromTranscript(interimTranscript).map((t) => ({ ...t, interim: true }))]
@@ -464,6 +489,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 finalizeEstimateSeconds={finalizeEstimateSeconds}
                 // #1046 Focus Points: highlights mean coverage here, not fillers — the footer says so, and
                 // the filler breakdown is deferred to the delivery strip below (spec §4/§5).
+                slotBNotice={inAfter && effectiveReview.status !== 'available'
+                    ? <ReviewTranscriptNotice outcome={effectiveReview} onRetry={onRetryReviewTranscript} />
+                    : undefined}
                 fillerFooter={isObjective
                     ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
                     : <FillerBreakdown fillerData={reviewFillerData} stats={fillerStatsLine} />}

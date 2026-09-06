@@ -37,7 +37,17 @@ describe('SessionOverhaulView (#1222 S11)', () => {
     });
 
     it('stopped runtime → after state, transcript-only (no audio play/time)', () => {
-        render(<SessionOverhaulView {...base} showAnalyticsPrompt transcriptContent="so um hello" />);
+        // #1416 F-05 — the after-state transcript now comes from the RETAINED authority, because
+        // finalization purges working memory by contract. Passing `transcriptContent` alone described
+        // a parent that no longer exists; a real one supplies what the server retained.
+        render(
+            <SessionOverhaulView
+                {...base}
+                showAnalyticsPrompt
+                transcriptContent="so um hello"
+                reviewTranscript={{ status: 'available', text: 'so um hello' }}
+            />,
+        );
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         expect(screen.getByTestId('playback-scrubber')).toBeInTheDocument();
         // Transcript-only: no audio playback affordances.
