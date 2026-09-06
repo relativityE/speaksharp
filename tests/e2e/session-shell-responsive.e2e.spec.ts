@@ -37,6 +37,27 @@ const DIR = 'test-results/session-shell-responsive';
 
 const heightFor = (w: number) => (w < MD_BREAKPOINT ? 844 : 900);
 
+/**
+ * Wait until the page has actually RELAID OUT at the requested width before measuring.
+ *
+ * `setViewportSize` resolves when the viewport is resized, not when the document has responded to it.
+ * Measuring straight afterwards can read the PREVIOUS layout: the captured failures show
+ * `div#practice-root w=375` and `button#nav-sign-out-button right=430` while the viewport is 320 — a nav
+ * still positioned for the wider layout. That is not a product overflow, it is a stale frame, and it
+ * produced failures on branches containing no frontend files at all while passing on same-commit reruns.
+ *
+ * Two conditions, because either alone is insufficient: the layout viewport must report the new width, and
+ * a frame must have been produced after it did.
+ */
+async function settleViewport(page: Page, width: number) {
+  await page.setViewportSize({ width, height: heightFor(width) });
+  await page.waitForFunction((w) => window.innerWidth === w, width, { timeout: 5_000 });
+  // Two rAFs: the first runs before style/layout for this frame, the second after it has been committed.
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+}
+
 /** No horizontal overflow: the document never scrolls wider than the viewport (±1px rounding). */
 async function assertNoHorizontalOverflow(page: Page, label: string) {
   const { overflow, culprits } = await page.evaluate(() => {
@@ -66,7 +87,7 @@ async function assertNoHorizontalOverflow(page: Page, label: string) {
 /** Sweep every supported width in the current state and assert no width overflows. */
 async function sweepNoOverflow(page: Page, state: string) {
   for (const w of ALL_WIDTHS) {
-    await page.setViewportSize({ width: w, height: heightFor(w) });
+    await settleViewport(page, w);
     await assertNoHorizontalOverflow(page, `${state}@${w}`);
   }
 }
@@ -76,7 +97,7 @@ async function sweepNoOverflow(page: Page, state: string) {
  * Phones: stacked in reading order, transcript full-width. Desktop: rail beside the left column.
  */
 async function assertLayout(page: Page, w: number) {
-  await page.setViewportSize({ width: w, height: heightFor(w) });
+  await settleViewport(page, w);
   await assertNoHorizontalOverflow(page, `before@${w}`);
 
   const a = await page.getByTestId('session-slot-a').boundingBox(); // mic
@@ -107,7 +128,7 @@ test.describe('#1255 — SessionShell is responsive across phone and desktop wid
     mkdirSync(DIR, { recursive: true });
 
     await programmaticLoginWithRoutes(page, { userType: 'free' });
-    await page.setViewportSize({ width: 375, height: 844 });
+    await settleViewport(page, 375);
     await navigateToRoute(page, '/session');
 
     // ---- BEFORE ---- full layout contract at every width (all four slots present + stable).
@@ -116,20 +137,20 @@ test.describe('#1255 — SessionShell is responsive across phone and desktop wid
     for (const w of ALL_WIDTHS) {
       await assertLayout(page, w);
     }
-    await page.setViewportSize({ width: 375, height: 844 });
+    await settleViewport(page, 375);
     await page.screenshot({ path: `${DIR}/before-phone-375.png`, fullPage: true });
-    await page.setViewportSize({ width: 1280, height: 900 });
+    await settleViewport(page, 1280);
     await page.screenshot({ path: `${DIR}/before-desktop-1280.png`, fullPage: true });
 
     // ---- DURING ---- no width may overflow while live.
-    await page.setViewportSize({ width: 375, height: 844 });
+    await settleViewport(page, 375);
     await startRecording(page);
     await simulateTranscription(page, 'mobile session transcript stays readable while stacked on a phone', true);
     await expect(page.locator('[data-testid="session-shell"][data-session-state="during"]')).toBeVisible({ timeout: 15_000 });
     await sweepNoOverflow(page, 'during');
 
     // ---- AFTER ---- save, settle, then re-sweep every width.
-    await page.setViewportSize({ width: 375, height: 844 });
+    await settleViewport(page, 375);
     await page.waitForTimeout(5_200); // clear the sub-5s no-persist guard
     await stopRecording(page);
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 20_000 });
@@ -139,7 +160,7 @@ test.describe('#1255 — SessionShell is responsive across phone and desktop wid
     // #1255 RETURN — the waveform must not be CLIPPED at 320px (the earlier overflow:hidden fix hid the
     // rightmost bars, which can carry a late filler marker). At the narrowest phone, assert the whole
     // recording is represented: the FIRST and LAST bars sit inside the visible track (no clipping).
-    await page.setViewportSize({ width: 320, height: 844 });
+    await settleViewport(page, 320);
     const track = await page.getByTestId('scrubber-waveform').boundingBox();
     const bars = page.getByTestId('scrubber-waveform-bar');
     const count = await bars.count();
@@ -161,7 +182,7 @@ test.describe('#1255 — SessionShell is responsive across phone and desktop wid
     mkdirSync(DIR, { recursive: true });
 
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
-    await page.setViewportSize({ width: 375, height: 844 });
+    await settleViewport(page, 375);
     await navigateToRoute(page, '/practice');
 
     // Enter a genuine Focus Points before-state (the plan rail proves it is objective, not Open Mic).
@@ -190,9 +211,9 @@ test.describe('#1255 — SessionShell is responsive across phone and desktop wid
     }
 
     // Sanitized proof screenshots at one phone (390) and one desktop (1440) width, vs the G5 mockup.
-    await page.setViewportSize({ width: 390, height: 844 });
+    await settleViewport(page, 390);
     await page.screenshot({ path: `${DIR}/focus-before-phone-390.png`, fullPage: true });
-    await page.setViewportSize({ width: 1440, height: 900 });
+    await settleViewport(page, 1440);
     await page.screenshot({ path: `${DIR}/focus-before-desktop-1440.png`, fullPage: true });
   });
 });
