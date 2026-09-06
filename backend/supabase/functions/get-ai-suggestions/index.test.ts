@@ -399,6 +399,29 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(body.limit, AI_SUGGESTION_DAILY_LIMIT);
   });
 
+  await t.step('coaching a user ALREADY received stays readable after the budget lands', async () => {
+    // Codex P1. Every review generated before today is 22-36 words - exactly what the old prompt produced.
+    // Enforcing the budget on stored rows would not merely hide them: it would spend quota regenerating
+    // coaching that was already fine, and 409/403 the users who cannot regenerate. A rule introduced today
+    // must not retroactively invalidate what the product said yesterday.
+    resetProvider();
+    const preBudget = {
+      version: 'gemini_coaching_v1',
+      what_worked: 'You clearly identified the problem and proposed a direct solution in under twenty seconds',
+      what_to_try_next: 'Replace tentative phrasing and filler words with a strong dated commitment your audience can act on',
+    };
+    assertEquals(countWords(preBudget.what_worked) > COACHING_WORD_BUDGET.what_worked, true, 'fixture must be over budget');
+
+    const mock = mockSupabase({ session: savedSession({ ai_suggestions: preBudget }) });
+    const response = await handler(request(), mock.create);
+    assertEquals(response.status, 200);
+    // Served from cache, so no provider call and no quota spent.
+    assertEquals(fetchCount, 0);
+    assertEquals(mock.state.rpcCount, 0);
+    const body = JSON.parse(await response.text());
+    assertEquals(body.suggestions.what_worked, preBudget.what_worked);
+  });
+
   await t.step('the budget boundary is exact: at the limit passes, one word over is refused', async () => {
     const atLimit = 'One two three four five six';          // exactly 6
     const overBy1 = 'One two three four five six seven';    // exactly 7

@@ -48,6 +48,9 @@ jobs:
           PROOF_SHA: ${{ steps.proven.outputs.sha }}
           # One call for the gate; ten when the sampling label fires.
           SAMPLE_N: ${{ github.event.label.name == 'gemini-sample' && '10' || '1' }}
+          # A hard ceiling on PAID provider requests, retries included. Ten samples with four attempts each
+          # would otherwise be forty billed calls; this bounds what the job can spend regardless.
+          MAX_PROVIDER_REQUESTS: ${{ github.event.label.name == 'gemini-sample' && '14' || '4' }}
         run: node scripts/gemini-model-currency-proof.mjs
 
       - name: Retain the raw response as evidence

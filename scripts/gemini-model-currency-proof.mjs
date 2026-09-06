@@ -109,11 +109,20 @@ console.log(`G4: calling model=${MODEL} via the URL exported by the edge functio
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 const ATTEMPTS = 4;
 
+// Codex P2: `callModel` may make up to ATTEMPTS provider requests. Ten SAMPLES therefore meant up to
+// forty PAID requests, because the 8s spacing bounds logical samples and not actual calls. The budget below
+// is counted in requests - the unit that is billed - and is shared across the gate and every sample.
+let requestBudget = Number(process.env.MAX_PROVIDER_REQUESTS ?? '14');
 async function callModel() {
     let res;
     let bodyText = '';
     let attempt = 0;
     for (attempt = 1; attempt <= ATTEMPTS; attempt++) {
+        if (requestBudget <= 0) {
+            console.log('  provider-request budget exhausted; stopping rather than spending more');
+            break;
+        }
+        requestBudget -= 1;
         res = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -186,10 +195,20 @@ if (!budgetMatch) fail('could not read COACHING_WORD_BUDGET from the edge functi
 const BUDGET = Object.fromEntries([...budgetMatch[1].matchAll(/(\w+)\s*:\s*(\d+)/g)].map((m) => [m[1], Number(m[2])]));
 const words = (v) => v.trim().split(/\s+/).filter(Boolean).length;
 const COACHING_BUDGET_MAX = Math.max(...Object.values(BUDGET));
+// In SAMPLING mode an over-budget first result is the observation, not a reason to stop: aborting here
+// would abandon the run in exactly the case it exists to characterise (Codex P2). The gate keeps its
+// fail-fast behaviour; sampling records and continues, and the refusal rate below carries the verdict.
+const SAMPLING = Number(process.env.SAMPLE_N ?? '1') > 1;
+let gateOverBudget = null;
 for (const [field, max] of Object.entries(BUDGET)) {
     const n = words(parsed[field]);
     console.log(`G4: ${field} = ${n} words (budget ${max})`);
-    if (n > max) fail(`${field} came back at ${n} words against a ${max}-word budget, so parseSuggestions would REFUSE it and the user would get a 502. Text: ${JSON.stringify(parsed[field])}`);
+    if (n > max) {
+        const msg = `${field} came back at ${n} words against a ${max}-word budget, so parseSuggestions would REFUSE it and the user would get a 502. Text: ${JSON.stringify(parsed[field])}`;
+        if (!SAMPLING) fail(msg);
+        gateOverBudget ??= msg;
+        console.log(`  OVER BUDGET (recorded; sampling continues): ${msg}`);
+    }
 }
 
 console.log(`G4 PASS: ${MODEL} responded and its answer satisfies parseSuggestions exactly (keys=${JSON.stringify(gotKeys)}).`);
@@ -203,7 +222,7 @@ console.log(`G4 PASS: ${MODEL} responded and its answer satisfies parseSuggestio
 // Pacing is deliberate: the project is on the Gemini free tier at 10 requests per minute, so samples are
 // spaced to stay under it rather than manufacturing the 429s we are trying to characterise.
 const SAMPLE_N = Number(process.env.SAMPLE_N ?? '1');
-if (Number.isFinite(SAMPLE_N) && SAMPLE_N > 1) {
+if (SAMPLING && Number.isFinite(SAMPLE_N)) {
     const SPACING_MS = 8000; // 10 RPM ceiling => >=6s apart; 8s leaves headroom for the call itself.
     const samples = [{ what_worked: words(parsed.what_worked), what_to_try_next: words(parsed.what_to_try_next), text: parsed }];
     const failures = [];
@@ -235,4 +254,7 @@ if (Number.isFinite(SAMPLE_N) && SAMPLE_N > 1) {
     }
     writeFileSync(resolve(process.cwd(), out.replace(/\.json$/, '-samples.json')), JSON.stringify({ model: MODEL, proven_sha: process.env.PROOF_SHA ?? null, samples, failures }, null, 2));
     console.log(`\nsample evidence written alongside ${out}`);
+    console.log(`provider requests remaining in budget: ${requestBudget}`);
+    // Sampling deferred the gate's own verdict so the distribution could be measured; deliver it now.
+    if (gateOverBudget !== null) fail(`the gate sample was over budget (sampling continued to measure the rate): ${gateOverBudget}`);
 }

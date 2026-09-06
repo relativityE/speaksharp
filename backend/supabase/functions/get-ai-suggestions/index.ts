@@ -95,7 +95,20 @@ interface SessionEvidence {
   ai_suggestions: unknown;
 }
 
-function parseSuggestions(rawText: string): AISuggestions | null {
+/**
+ * `enforceWordBudget` separates two jobs this parser does, which are not the same contract (Codex P1).
+ *
+ * GENERATING: the model's fresh answer must obey the budget, or the user reads an essay where the product
+ * promises a phrase.
+ *
+ * READING WHAT IS ALREADY STORED: every review generated before the budget existed is 22-36 words - that is
+ * precisely what the old prompt produced. Applying the budget to a stored row would make coaching a user
+ * already received suddenly unreadable, and it would not merely hide it: an expired transcript would 409, an
+ * expired account 403, and an active user would silently regenerate and spend quota to replace coaching that
+ * was already fine. A rule introduced today must not retroactively invalidate what the product said
+ * yesterday.
+ */
+function parseSuggestions(rawText: string, { enforceWordBudget = false } = {}): AISuggestions | null {
   try {
     const parsed = JSON.parse(rawText.trim()) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
@@ -105,11 +118,13 @@ function parseSuggestions(rawText: string): AISuggestions | null {
     if (candidate.version !== 'gemini_coaching_v1') return null;
     if (typeof candidate.what_worked !== 'string' || !candidate.what_worked.trim()) return null;
     if (typeof candidate.what_to_try_next !== 'string' || !candidate.what_to_try_next.trim()) return null;
-    // #1424 A2: the word budget is REFUSED here, not truncated. Cutting a coaching phrase mid-sentence
-    // produces something the coach never said, and presenting that as advice is worse than an honest
-    // failure the user can retry.
-    if (countWords(candidate.what_worked) > COACHING_WORD_BUDGET.what_worked) return null;
-    if (countWords(candidate.what_to_try_next) > COACHING_WORD_BUDGET.what_to_try_next) return null;
+    // #1424 A2: the word budget is REFUSED, not truncated. Cutting a coaching phrase mid-sentence produces
+    // something the coach never said, and presenting that as advice is worse than an honest failure the user
+    // can retry. Applied to GENERATION only — see the note on `enforceWordBudget`.
+    if (enforceWordBudget) {
+      if (countWords(candidate.what_worked) > COACHING_WORD_BUDGET.what_worked) return null;
+      if (countWords(candidate.what_to_try_next) > COACHING_WORD_BUDGET.what_to_try_next) return null;
+    }
 
     return {
       version: 'gemini_coaching_v1',
@@ -320,7 +335,8 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
         const responseData = await geminiResponse.json();
         const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
         suggestions = typeof rawText === 'string'
-          ? parseSuggestions(rawText)
+          // The model's FRESH answer — the one place the budget is enforced.
+          ? parseSuggestions(rawText, { enforceWordBudget: true })
           : null;
       }
     } catch (error) {
