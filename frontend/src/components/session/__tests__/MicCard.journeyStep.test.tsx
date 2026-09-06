@@ -39,13 +39,34 @@ describe('#1259 F03 — the mic control reports its identity and its real action
         expect(onStart).toHaveBeenCalledTimes(1);
     });
 
-    it('the SETUP branch reports a submit, and still runs the download handler', () => {
+    it('a COLD start reports a recording start, because that is what the press now does', () => {
+        // This asserted `mic_card_setup` / `submit` / `onDownloadModel`, which was the truth when the
+        // cold control ONLY downloaded and a second press was needed to record. #1416 made the cold
+        // press one activation that consents, prepares AND records, routing through `onStart`.
+        // Telemetry that still called it a setup submit would report a two-click journey that no
+        // longer exists — and F-01 is precisely a question about how many presses a start takes.
         const onStart = vi.fn();
         const onDownloadModel = vi.fn();
         render(
             <MicCard onStart={onStart} onDownloadModel={onDownloadModel} privateModelStatus="download-required" />,
         );
         fireEvent.click(screen.getByTestId('mic-download'));
+
+        expect(steps()[0].cta_id).toBe('mic_card_primary');
+        expect(steps()[0].cta_action).toBe('start_recording');
+        expect(onStart).toHaveBeenCalledTimes(1);
+        expect(onDownloadModel).not.toHaveBeenCalled();
+    });
+
+    it('the RETRY branch is the one that still reports a setup submit', () => {
+        // A failed setup keeps its own action: retrying a broken engine records nothing, so it is
+        // genuinely a submit and must stay distinguishable from a start in the journey.
+        const onStart = vi.fn();
+        const onDownloadModel = vi.fn();
+        render(
+            <MicCard onStart={onStart} onDownloadModel={onDownloadModel} privateModelStatus="init-failed" />,
+        );
+        fireEvent.click(screen.getByTestId('mic-retry'));
 
         expect(steps()[0].cta_id).toBe('mic_card_setup');
         expect(steps()[0].cta_action).toBe('submit');

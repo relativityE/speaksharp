@@ -1880,6 +1880,9 @@ export class SpeechRuntimeController {
                 emitRecordingState(previousState, newState, error?.name ?? null);
             } catch {
                 /* telemetry must never affect the state machine */
+            }
+        }
+
         // #1415 — READY AFTER PREPARATION RESUMES THE CLICK.
         //
         // The intent is CLAIMED, not read: claiming removes it, so a duplicate READY transition, a
