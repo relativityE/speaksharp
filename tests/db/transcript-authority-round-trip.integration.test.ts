@@ -39,9 +39,28 @@ function readerDetailColumns(): string[] {
     const analysis = /const SESSION_ANALYSIS_COLUMNS\s*=\s*\[([\s\S]*?)\];/.exec(src);
     const detail = /const SESSION_DETAIL_COLUMNS\s*=\s*\[([\s\S]*?)\];/.exec(src);
     if (!analysis || !detail) throw new Error('could not locate the reader column lists in storage.ts — coupling broken');
-    const literals = (s: string) => [...s.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
-    const inherited = /\.\.\.SESSION_ANALYSIS_COLUMNS/.test(detail[1]) ? literals(analysis[1]) : [];
-    return [...inherited, ...literals(detail[1])];
+    // Consume the array STRICTLY (Codex finding). A regex that harvests only the literals it recognises
+    // silently drops the rest: switch one entry from single to double quotes and this returned a SUBSET,
+    // the two explicit authority assertions still passed, and the reduced SELECT still succeeded — so the
+    // suite would have gone on green while production selected a column it never exercised.
+    const literals = (body: string, where: string): string[] => {
+        const out: string[] = [];
+        for (const raw of body.split(',')) {
+            // Strip line comments and whitespace; a trailing empty segment is the trailing comma.
+            const entry = raw.replace(/\/\/.*$/gm, '').trim();
+            if (entry === '') continue;
+            if (/^\.\.\.[A-Z_]+$/.test(entry)) continue;    // a spread, handled by the caller
+            const quoted = /^'([a-z_]+)'$/.exec(entry);
+            if (!quoted) {
+                throw new Error(`unparsed column entry in ${where}: ${JSON.stringify(entry)} — this parser would have silently dropped it, so the test would exercise fewer columns than production selects`);
+            }
+            out.push(quoted[1]);
+        }
+        return out;
+    };
+    const inherited = /\.\.\.SESSION_ANALYSIS_COLUMNS/.test(detail[1])
+        ? literals(analysis[1], 'SESSION_ANALYSIS_COLUMNS') : [];
+    return [...inherited, ...literals(detail[1], 'SESSION_DETAIL_COLUMNS')];
 }
 
 /** Read the row back through the columns the PRODUCTION reader asks for — not a convenient subset. */
@@ -109,7 +128,7 @@ describe('#1423 T6 — the length the client sent is the length the database hol
         expect((await row(db, s)).transcript).toBe(sent);
     });
 
-    it('the ONLY transformation between row and reader is the documented trim', async () => {
+    it('between the row and the RESOLVED VIEW, the documented trim is the only transformation', async () => {
         const db = await db0();
         const s = await newSession(db);
         const core = 'synthetic body text';
@@ -118,11 +137,19 @@ describe('#1423 T6 — the length the client sent is the length the database hol
         expect((await complete(db, s, { transcript: sent })).success).toBe(true);
         // The row keeps every character the client sent...
         expect((await row(db, s)).transcript).toBe(sent);
-        // ...and the reader differs from it by exactly the trim, never by a truncation.
+        // ...and the RESOLVED VIEW differs from it by exactly the trim, never by a truncation.
+        //
+        // Scope, stated precisely because the earlier wording overclaimed (Codex finding): this covers the
+        // row through `resolveTranscriptView`. It does NOT cover rendering. `tokensFromTranscript` drops
+        // whitespace tokens and the transcript component rejoins them with single spaces, so interior runs
+        // of whitespace are normalised downstream of here. That is a presentation choice, not a truncation,
+        // and the assertion below is deliberately about the authority rather than the pixels.
         const view = resolveTranscriptView(await readAsReaderDoes(db, s));
         if (view.kind !== 'available') throw new Error(`expected available, got ${view.kind}`);
         expect(view.text).toBe(sent.trim());
         expect(view.text).toBe(core);
+        // The words survive intact — which is the property a reader actually depends on.
+        expect(view.text.split(/\s+/)).toEqual(sent.trim().split(/\s+/));
     });
 });
 

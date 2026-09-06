@@ -213,7 +213,10 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
     });
 
     it('objective after → coverage count, missed-point reason, retry + delivery strip', () => {
-        render(<SessionOverhaulView {...base} objectivePoints={POINTS} showAnalyticsPrompt transcriptContent="I will name the price now." elapsedTime={84} />);
+        // Production shape after #1423: finalization PURGES working memory, and the retained transcript
+        // arrives from the server as the review authority. A fixture that leaves words in the buffer models
+        // a state the app can no longer be in, and would let coverage pass by reading the wrong source.
+        render(<SessionOverhaulView {...base} objectivePoints={POINTS} showAnalyticsPrompt transcriptContent="" reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }} elapsedTime={84} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
         // §Duplication acceptance check: the coverage fraction appears EXACTLY ONCE (Slot C). The transcript
@@ -246,7 +249,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
                 objectivePoints={null}
                 completedObjectivePoints={POINTS}
                 showAnalyticsPrompt
-                transcriptContent="I will name the price now."
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
                 elapsedTime={84}
             />,
         );

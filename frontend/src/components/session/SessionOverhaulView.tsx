@@ -196,10 +196,32 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // #1256 P1 — the after-state scores the FINISHED take, whose duration lives in `scoringElapsedSeconds`
     // (live `elapsedTime` has already normalized to 0). Before/during keep the live timer.
     const effElapsed = inAfter ? (scoringElapsedSeconds ?? elapsedTime) : elapsedTime;
+    // In the AFTER state the retained authority decides what is readable; working memory has been
+    // purged and is not a fallback. Falling back to it would reintroduce exactly the empty review
+    // this fixes, only intermittently — which is worse, because it would look like flakiness.
+    // An absent authority is PENDING, not permission to read working memory. Without this, a parent
+    // that has not been migrated silently keeps the old behaviour — and since finalization empties
+    // the buffer, "the old behaviour" is the blank review this fixes. Defaulting to pending makes an
+    // unwired parent visible instead of quietly wrong.
+    const effectiveReview: TranscriptView = inAfter
+        ? (reviewTranscript ?? { kind: 'unavailable' })
+        : { kind: 'unavailable' };
+    const reviewText = inAfter && effectiveReview.kind === 'available' ? effectiveReview.text : null;
+    /**
+     * ONE source of transcript truth for the whole state, and every derivation reads it.
+     *
+     * The after state must never consult `transcriptContent`: finalization purges that buffer, so anything
+     * computed from it after terminal is computed from an empty string. Routing only the RENDERED tokens
+     * through the retained authority — and leaving coverage on the purged buffer — produced a review that
+     * showed the user's saved words while reporting every focus point as missed, with no highlights. That is
+     * the same defect as F-05 one layer down: a confident, wrong answer about what someone said.
+     */
+    const transcriptSource = inAfter ? (reviewText ?? '') : transcriptContent;
+
     // #1306 Option A: in the terminal review the transcript/chunks have been purged (and the live fillerData
     // zeroed by the useFillerWords sync), so the review's word count + filler breakdown + headline come from the
     // FINAL snapshot captured at the terminal transition; before/during still read the live values.
-    const reviewWordCount = inAfter && typeof finalizedWordCount === 'number' ? finalizedWordCount : wordCount(transcriptContent);
+    const reviewWordCount = inAfter && typeof finalizedWordCount === 'number' ? finalizedWordCount : wordCount(transcriptSource);
     // #1314 C3: ONE validated snapshot feeds every filler element. The displayed total is derived from the
     // SAME chip map the breakdown renders, so the sentence total and the chips can never disagree. An
     // unavailable snapshot (SQL NULL) makes no numeric claim; `{}` is a measured zero (0, no chips).
@@ -277,18 +299,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     }
     const { amplitudes, recordedCount } = waveformFromLevels(levelsRef.current);
 
-    // In the AFTER state the retained authority decides what is readable; working memory has been
-    // purged and is not a fallback. Falling back to it would reintroduce exactly the empty review
-    // this fixes, only intermittently — which is worse, because it would look like flakiness.
-    // An absent authority is PENDING, not permission to read working memory. Without this, a parent
-    // that has not been migrated silently keeps the old behaviour — and since finalization empties
-    // the buffer, "the old behaviour" is the blank review this fixes. Defaulting to pending makes an
-    // unwired parent visible instead of quietly wrong.
-    const effectiveReview: TranscriptView = inAfter
-        ? (reviewTranscript ?? { kind: 'unavailable' })
-        : { kind: 'unavailable' };
-    const reviewText = inAfter && effectiveReview.kind === 'available' ? effectiveReview.text : null;
-    const tokens = tokensFromTranscript(inAfter ? (reviewText ?? '') : transcriptContent);
+    const tokens = tokensFromTranscript(transcriptSource);
     // during: append the live-updating tail as muted "interim" tokens so re-writes read as intentional.
     const duringTokens = interimTranscript && interimTranscript.trim()
         ? [...tokens, ...tokensFromTranscript(interimTranscript).map((t) => ({ ...t, interim: true }))]
@@ -321,7 +332,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     if (isObjective && sessionState === 'before') coveredLatch.current = new Set();
     let coverage: FocusCoverage | null = null;
     if (isObjective) {
-        coverage = deriveFocusCoverage(effObjectivePoints ?? [], transcriptContent, effElapsed, coveredLatch.current);
+        coverage = deriveFocusCoverage(effObjectivePoints ?? [], transcriptSource, effElapsed, coveredLatch.current);
         coverage.rows.forEach((r, i) => { if (r.covered) coveredLatch.current.add(i); });
     }
 

@@ -78,6 +78,28 @@ describe('#1416 F-05 the review transcript comes from the retained authority', (
         expect(screen.getByTestId('review-transcript-notice')).toHaveTextContent(/no speech was captured/i);
     });
 
+    it('Focus Points COVERAGE is derived from the retained words, not the purged buffer', () => {
+        // The review can show the user's saved words and still be confidently wrong about them. Routing only
+        // the rendered tokens through the retained authority, while coverage kept reading `transcriptContent`,
+        // produced a review that displayed the speech and reported every point as MISSED with no highlights.
+        // That is F-05 one layer down: not a blank review, a false one.
+        render(
+            <SessionOverhaulView
+                {...after}
+                completedObjectivePoints={['renewal risk', 'pricing objection']}
+                reviewTranscript={{
+                    kind: 'available',
+                    text: 'I opened with the renewal risk and then handled the pricing objection directly.',
+                }}
+            />,
+        );
+        const shell = screen.getByTestId('session-shell');
+        // The words render...
+        expect(shell.textContent).toContain('renewal');
+        // ...and the points they cover are marked. With coverage on the purged buffer there are no spans.
+        expect(screen.getAllByTestId('coverage-span').length).toBeGreaterThan(0);
+    });
+
     it('CASUALTY: an UNWIRED parent shows no transcript, not working memory', () => {
         // No `reviewTranscript` prop at all — a parent that has not been migrated. It must not
         // silently keep reading the purged buffer, because that is the defect wearing a default.

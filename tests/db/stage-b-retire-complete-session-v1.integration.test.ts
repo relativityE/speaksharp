@@ -10,7 +10,7 @@
 // Content-free: synthetic strings only.
 import { describe, it, expect, beforeAll } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const M = resolve(process.cwd(), 'backend', 'supabase', 'migrations');
@@ -393,6 +393,19 @@ describe('#1306 M4 — the handwritten-substitute population cannot grow', () =>
     it('only the four pre-existing files define complete_session by hand', () => {
         const offenders = substituteFiles(resolve(process.cwd(), 'tests', 'db')).sort();
         expect(offenders, 'a NEW handwritten complete_session substitute was added').toEqual(KNOWN_SUBSTITUTES);
+    });
+
+    // Rooting the scan at tests/db bounds only where the guard LOOKS, not where a substitute can LIVE
+    // (Codex finding). A DB test can readFileSync a shared fixture from anywhere in the tree and execute it,
+    // so a definition parked in tests/fixtures/ would be loadable by the suite and invisible here. The scan
+    // therefore covers every tracked test/fixture root, not just its own directory.
+    it('a substitute cannot hide in a fixture root outside tests/db', () => {
+        const OTHER_ROOTS = ['fixtures', 'support', 'helpers', 'setup', 'config'];
+        const strays = OTHER_ROOTS.flatMap((dir) => {
+            const root = resolve(process.cwd(), 'tests', dir);
+            return existsSync(root) ? substituteFiles(root).map((f) => `${dir}/${f}`) : [];
+        }).sort();
+        expect(strays, 'a handwritten complete_session substitute lives outside the scanned root').toEqual([]);
     });
 
     it('this suite never hand-creates complete_session in SETUP — only inside the bounded mutation block', () => {
