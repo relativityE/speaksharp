@@ -2,7 +2,15 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
+// #1416 — `gemini-3-flash-preview` is a PREVIEW endpoint and Google lists `gemini-3.6-flash` as its
+// successor. Preview shutdowns have run 14 days from announcement, so this is an availability risk in
+// production rather than a version-number preference: the endpoint can disappear inside a sprint.
+//
+// The prompt below was tuned against the preview model, so the risk of this change is a SHAPE shift,
+// not a quality one — `parseSuggestions` already rejects any object whose keys are not exactly
+// {version, what_worked, what_to_try_next}, and that rejection is what must reach the user as an
+// error rather than as an empty review.
+export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent';
 const MAX_TRANSCRIPT_CHARS = 8000;
 const AI_SUGGESTION_DAILY_LIMIT = 20;
 

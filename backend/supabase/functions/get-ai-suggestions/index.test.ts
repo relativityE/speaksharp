@@ -1,4 +1,4 @@
-import { handler } from './index.ts';
+import { handler, GEMINI_API_URL } from './index.ts';
 import { assertEquals, assertNotEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 
 const suggestionA = {
@@ -267,6 +267,47 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
       geminiText = value;
       const mock = mockSupabase();
       assertEquals((await handler(request(), mock.create)).status, 502);
+    }
+  });
+
+  await t.step('#1416 the model endpoint is not a preview channel', () => {
+    // The reason for the change, pinned. `gemini-3-flash-preview` is a preview endpoint, and preview
+    // shutdowns have run 14 days from announcement — the URL can stop resolving inside a sprint, and
+    // the failure would look like a provider outage rather than a deprecation we were told about.
+    // Asserted on the exported constant rather than by reading the file: the edge suite runs without
+    // `--allow-read`, and widening the sandbox for every edge test to satisfy one assertion trades a
+    // real safety property for a convenience.
+    assertStringIncludes(GEMINI_API_URL, 'gemini-3.6-flash');
+    assertEquals(GEMINI_API_URL.includes('-preview'), false);
+  });
+
+  await t.step('#1416 a SHAPE SHIFT from the new model is an error, never an empty review', async () => {
+    // The prompt was tuned against the preview model, so the risk of swapping models is that the
+    // response shape moves, not that quality drops. Each of these is a shape a different model
+    // plausibly returns, and every one must reach the user as a failure rather than as a review with
+    // nothing in it — an empty review reads as "the product looked at your session and had nothing to
+    // say", which is a false statement about their speaking.
+    const shifts = [
+      // Markdown-fenced JSON — the single most common cross-model difference.
+      '```json\n' + JSON.stringify(suggestionA) + '\n```',
+      // Renamed to the labels the UI now shows.
+      JSON.stringify({ version: 'gemini_coaching_v1', what_went_well: 'a', what_to_improve: 'b' }),
+      // Wrapped in an envelope.
+      JSON.stringify({ suggestions: suggestionA }),
+      // Arrays instead of strings — a 1+1 contract returned as a list.
+      JSON.stringify({ version: 'gemini_coaching_v1', what_worked: ['a'], what_to_try_next: ['b'] }),
+      // Prose preamble before the JSON.
+      'Here is your coaching:\n' + JSON.stringify(suggestionA),
+    ];
+    for (const value of shifts) {
+      resetProvider();
+      geminiText = value;
+      const mock = mockSupabase();
+      const response = await handler(request(), mock.create);
+      assertEquals(response.status, 502);
+      // And nothing partially-formed leaks through as if it were a review.
+      const body = await response.text();
+      assertEquals(body.includes('what_worked'), false);
     }
   });
 
