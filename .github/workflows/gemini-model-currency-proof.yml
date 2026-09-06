@@ -4,6 +4,11 @@ name: Gemini Model Currency Proof
 # on push would bill every commit for evidence that only changes when the model or the prompt changes.
 on:
   workflow_dispatch:
+  # A dispatch can only be issued against the DEFAULT branch, so on its own it cannot run before this PR
+  # merges - and this proof IS the merge gate. Firing on a label lets it run once, on the exact PR head,
+  # without putting a billed call on every push.
+  pull_request:
+    types: [labeled]
 
 permissions:
   contents: read
@@ -14,6 +19,7 @@ concurrency:
 
 jobs:
   proof:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'gemini-proof'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
