@@ -399,6 +399,29 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(body.limit, AI_SUGGESTION_DAILY_LIMIT);
   });
 
+  await t.step('the budget boundary is exact: at the limit passes, one word over is refused', async () => {
+    const atLimit = 'One two three four five six seven';          // exactly 7
+    const overBy1 = 'One two three four five six seven eight';    // exactly 8
+    assertEquals(countWords(atLimit), COACHING_WORD_BUDGET.what_worked);
+    assertEquals(countWords(overBy1), COACHING_WORD_BUDGET.what_worked + 1);
+
+    resetProvider();
+    geminiText = JSON.stringify({ version: 'gemini_coaching_v1', what_worked: atLimit, what_to_try_next: atLimit });
+    assertEquals((await handler(request(), mockSupabase({ session: savedSession() }).create)).status, 200);
+
+    // One word over on EITHER field is refused. A budget that only rejects egregious overruns is a
+    // suggestion, and the whole point of moving this out of the prompt was to stop suggesting.
+    for (const field of ['what_worked', 'what_to_try_next']) {
+      resetProvider();
+      geminiText = JSON.stringify({
+        version: 'gemini_coaching_v1',
+        what_worked: field === 'what_worked' ? overBy1 : atLimit,
+        what_to_try_next: field === 'what_to_try_next' ? overBy1 : atLimit,
+      });
+      assertEquals((await handler(request(), mockSupabase({ session: savedSession() }).create)).status, 502, `${field} one over must refuse`);
+    }
+  });
+
   // Each field is broken ALONE. An over-budget fixture that breaks both at once passes even when one of the
   // two checks is deleted, which is precisely what my first version of this casualty did.
   await t.step('REFUSES an over-budget what_worked, with what_to_try_next left legal', async () => {
