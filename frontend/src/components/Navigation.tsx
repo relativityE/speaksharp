@@ -165,7 +165,8 @@ const Navigation = () => {
   // which already retires the brief once coverage is finalized — is where the change lands. The
   // pending switch is announced rather than left silent, because a control that appears to do
   // nothing is its own defect.
-  const switchDeferred = isListening && Boolean(activeObjectiveBrief);
+  const takeInFlight = isListening || ['INITIATING', 'ENGINE_INITIALIZING', 'RECORDING', 'STOPPING'].includes(reportRuntimeState);
+  const switchDeferred = takeInFlight && Boolean(activeObjectiveBrief);
   const [openMicPending, setOpenMicPending] = useState(false);
   const selectOpenMic = () => {
     if (switchDeferred) { setOpenMicPending(true); return; }
@@ -179,13 +180,16 @@ const Navigation = () => {
   // so the confirmation the user was given ("Open Mic starts after this take") vanished and Focus
   // Points silently continued. The user asked once, was told it would happen, and it did not.
   //
-  // The switch is now applied here, at the moment the take ends, whatever ended it.
+  // The switch is now applied here, at terminal settlement, whatever ended the take. `isListening`
+  // falls false as soon as STOPPING begins, before the controller publishes the completed brief; using
+  // that flag alone briefly relabelled the still-finalizing Focus Points take as Open Mic and hid its
+  // points. Runtime lifecycle ownership keeps the brief intact through the whole STOPPING window.
   useEffect(() => {
-    if (isListening) return;
+    if (takeInFlight) return;
     if (!openMicPending) return;
     setActiveObjectiveBrief(null);
     setOpenMicPending(false);
-  }, [isListening, openMicPending, setActiveObjectiveBrief]);
+  }, [takeInFlight, openMicPending, setActiveObjectiveBrief]);
 
   const isFreeUser = Boolean(session && !hasActiveProductAccess);
   // These route checks used raw pathname comparisons, which disagreed with the router:
