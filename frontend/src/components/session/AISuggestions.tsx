@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
@@ -115,7 +115,23 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
     trackPracticeLoopReviewRendered();
   }, [sessionId, suggestions]);
 
-  const fetchSuggestions = async () => {
+  // #1416 P2-4 — THE FIRST REQUEST FIRES ITSELF.
+  //
+  // PO ruling: a click is friction and no contract requires one. `LegalPage` conditions provider
+  // processing on a coaching feature being USED, not on a press, and the Gemini line beside the
+  // button is a disclosure rather than a consent gate.
+  //
+  // Gated on `reviewReady`, which is P2-2's authority — retained/finalized transcript truth, not
+  // render readiness. That composition is the whole point: an auto-fire on render would send the
+  // doomed request P2-2 forbids, automatically, with no click left to stop it. Automating a request
+  // that was already wrong makes it worse, not faster.
+  //
+  // Scoped by `sessionId` exactly as the rendered receipt below already is, so re-renders cannot
+  // fire a second time. Nothing re-fires after a failure either — that is what the button is for
+  // now, and a self-retrying request against a failing provider is a loop the user cannot escape.
+  const autoRequestedRef = useRef<string | null>(null);
+
+  const fetchSuggestions = useCallback(async () => {
     if (!reviewReady || !sessionId) return;
     const requestSessionId = sessionId;
     const requestGeneration = requestGenerationRef.current + 1;
@@ -178,7 +194,17 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
           : current);
       }
     }
-  };
+  }, [reviewReady, sessionId]);
+
+  useEffect(() => {
+    if (!reviewReady || !sessionId) return;
+    if (autoRequestedRef.current === sessionId) return;
+    // A session that already carries a stored review needs no request at all.
+    if (suggestions) { autoRequestedRef.current = sessionId; return; }
+    if (isLoading || error) return;
+    autoRequestedRef.current = sessionId;
+    void fetchSuggestions();
+  }, [reviewReady, sessionId, suggestions, isLoading, error, fetchSuggestions]);
 
   return (
     <Card data-testid="ai-suggestions-card">
@@ -194,7 +220,13 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
           className="w-full sm:w-auto"
         >
           {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {isLoading ? 'Creating review...' : error ? 'Retry review' : 'Get my review'}
+          {/*
+            #1416 P2-4 — the control is a RETRY, not a request. The first review now arrives on its
+            own, so "Get my review" would offer the user something they have already been given, and
+            pressing it would spend another provider call to reproduce what is on screen. It reads as
+            retry after a failure and as refresh once a review exists.
+          */}
+          {isLoading ? 'Creating review...' : error ? 'Retry review' : suggestions ? 'Refresh review' : 'Retry review'}
         </Button>
       </CardHeader>
       <CardContent>
@@ -243,9 +275,17 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
         )}
 
         {/*
-          Persistent provider disclosure: it must stay visible before AND after
-          generation (including when suggestions are prefilled), so the user can
-          always see where this session's transcript goes.
+          Persistent provider disclosure: it must stay visible before AND after generation (including
+          when suggestions are prefilled), so the user can always see where this session's transcript
+          goes.
+
+          #1416 P2-4 — THIS MATTERS MORE NOW THAT THE SEND IS AUTOMATIC. When the request required a
+          press, copy sitting beside the button was read at the moment of the decision. With the
+          first request firing on its own, a user must not learn their transcript went to Google from
+          text attached to a button they never touched. So it is rendered in the card BODY, in the
+          same region as the review and the loading state — present wherever the send is happening,
+          not only where a press used to be. It is a statement, not a gate: the ruling is that no
+          click is required, and adding friction here would reintroduce the thing that was removed.
         */}
         <p
           className="mt-4 text-xs font-medium text-foreground/70"

@@ -1,6 +1,5 @@
 /** F-07 casualty: the real completed-session parent must expose the saved-session 1+1 review. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import userEvent from '@testing-library/user-event';
 import { render, screen, waitFor } from '../../../tests/support/test-utils';
 import SessionPage from '../SessionPage';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -83,11 +82,11 @@ describe('F-07 completed-session Practice Loop review', () => {
             } },
             error: null,
         });
-        const user = userEvent.setup();
-
         render(<SessionPage />);
-        await user.click(screen.getByRole('button', { name: 'Get my review' }));
 
+        // #1416 P2-4 — NO CLICK. The completed session reaches post-save readiness and the review
+        // requests itself. This is the parent-level proof of the PO ruling: the whole journey, from a
+        // finished session to a request, with nobody pressing anything.
         await waitFor(() => expect(invoke).toHaveBeenCalledWith('get-ai-suggestions', {
             body: { sessionId: 'session-complete-1' },
         }));
@@ -99,13 +98,14 @@ describe('F-07 completed-session Practice Loop review', () => {
 
     it('fails closed when completion has no finalized transcript words', async () => {
         publishCompletedSession(0);
-        const user = userEvent.setup();
 
         render(<SessionPage />);
-        const button = screen.getByRole('button', { name: 'Get my review' });
-        expect(button).toBeDisabled();
+
+        // Fails closed WITHOUT a click, which matters more now than it did: an auto-fire gated on
+        // render readiness instead of transcript truth would send this doomed request automatically,
+        // with no press left to withhold. The gate is the authority, not the user's restraint.
         expect(screen.getByTestId('practice-loop-review-not-ready')).toHaveTextContent(/needs a completed session with a saved transcript/i);
-        await user.click(button);
+        await new Promise((resolve) => setTimeout(resolve, 50));
         expect(invoke).not.toHaveBeenCalled();
     });
 });

@@ -29,25 +29,130 @@ describe('AISuggestions Integration', () => {
     });
 
     describe('Initial State', () => {
-        it('renders with call-to-action when no suggestions', () => {
+        it('#1416 P2-4 — a reviewable session is already requesting, not waiting to be asked', () => {
+            // There is no call-to-action state any more: the request fires on readiness. Asserting a
+            // "Get my review" button here would be asserting the click-first product that P2-4
+            // removed.
+            mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise(() => { /* in flight */ }));
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
             expect(screen.getByText(/Practice Loop review/i)).toBeInTheDocument();
-            expect(screen.getByRole('button', { name: /get my review/i })).toHaveClass('w-full', 'sm:w-auto');
-            expect(screen.getByText(/one session-specific strength and one improvement/i)).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /creating review/i })).toBeInTheDocument();
         });
 
-        it('disables button when no transcript provided', () => {
+        it('an unreviewable session neither fires nor offers the control', () => {
             render(<AISuggestions transcript="" sessionId="session-test" />);
 
-            const button = screen.getByRole('button', { name: /get my review/i });
-            expect(button).toBeDisabled();
+            expect(mockSupabaseClient.functions.invoke).not.toHaveBeenCalled();
+            expect(screen.getByRole('button', { name: /retry review|refresh review/i })).toBeDisabled();
+        });
+    });
+
+    describe('#1416 P2-4 — the first review fires itself', () => {
+        const ok = {
+            data: { suggestions: { version: 'gemini_coaching_v1', what_worked: 'a strength', what_to_try_next: 'an improvement' } },
+            error: null,
+        };
+
+        it('fires exactly one request on reaching readiness, with no click', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(ok);
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-auto" />);
+
+            await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
+            expect(await screen.findByText(/a strength/)).toBeInTheDocument();
+        });
+
+        it('does NOT auto-fire when the transcript authority says the session is not reviewable', async () => {
+            // Composes with P2-2. An auto-fire on render readiness would send the doomed request
+            // automatically, with no click left to stop it — strictly worse than the click it replaced.
+            mockSupabaseClient.functions.invoke.mockResolvedValue(ok);
+            render(<AISuggestions transcript="Hello world" canReview={false} sessionId="s-blocked" />);
+
+            await new Promise((r) => setTimeout(r, 50));
+            expect(mockSupabaseClient.functions.invoke).not.toHaveBeenCalled();
+        });
+
+        it('fires when readiness ARRIVES, not only when it is true at mount', async () => {
+            // The real production sequence: the component mounts while finalization is still running
+            // and becomes reviewable afterwards. If the guard latches before the session is
+            // reviewable, the request is marked as already made and NEVER fires — the user waits
+            // forever on a review nobody asked for. That is the failure the effect-level readiness
+            // check prevents, and it is invisible if readiness is true at mount in every test.
+            mockSupabaseClient.functions.invoke.mockResolvedValue(ok);
+            const { rerender } = render(<AISuggestions transcript="Hello world" canReview={false} sessionId="s-later" />);
+            await new Promise((r) => setTimeout(r, 30));
+            expect(mockSupabaseClient.functions.invoke).not.toHaveBeenCalled();
+
+            rerender(<AISuggestions transcript="Hello world" canReview sessionId="s-later" />);
+            await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
+        });
+
+        it('does not fire twice while the first request is still in flight', async () => {
+            // The window the per-session guard exists for: between the effect firing and `isLoading`
+            // reaching the next render, a re-render would otherwise start a second provider call —
+            // billed, and racing the first.
+            mockSupabaseClient.functions.invoke.mockImplementation(() => new Promise(() => { /* in flight */ }));
+            const { rerender } = render(<AISuggestions transcript="Hello world" canReview sessionId="s-inflight" />);
+            rerender(<AISuggestions transcript="Hello world" canReview sessionId="s-inflight" />);
+            rerender(<AISuggestions transcript="Hello world more" canReview sessionId="s-inflight" />);
+            await new Promise((r) => setTimeout(r, 40));
+
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
+        });
+
+        it('does not fire twice across re-renders of the same session', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(ok);
+            const { rerender } = render(<AISuggestions transcript="Hello world" canReview sessionId="s-once" />);
+            await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
+
+            rerender(<AISuggestions transcript="Hello world" canReview sessionId="s-once" />);
+            rerender(<AISuggestions transcript="Hello world different" canReview sessionId="s-once" />);
+            await new Promise((r) => setTimeout(r, 50));
+
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
+        });
+
+        it('does not auto-retry after a failure — the button owns retry', async () => {
+            // A self-retrying request against a failing provider is a loop the user cannot escape,
+            // and it bills on every pass.
+            mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error: { message: 'boom' } });
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-fail" />);
+
+            await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
+            await new Promise((r) => setTimeout(r, 80));
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
+        });
+
+        it('does not re-request a session that already carries a stored review', async () => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(ok);
+            render(
+                <AISuggestions
+                    transcript="Hello world"
+                    canReview
+                    sessionId="s-persisted"
+                    initialSuggestions={{ version: 'gemini_coaching_v1', what_worked: 'stored', what_to_try_next: 'stored next' }}
+                />,
+            );
+            await new Promise((r) => setTimeout(r, 50));
+            expect(mockSupabaseClient.functions.invoke).not.toHaveBeenCalled();
+        });
+
+        it('the Gemini disclosure is present in the AUTOMATIC path, not only beside the button', async () => {
+            // With a press, copy beside the button was read at the moment of the decision. With an
+            // automatic send, a user must not learn their transcript went to Google from text
+            // attached to a control they never touched.
+            mockSupabaseClient.functions.invoke.mockResolvedValue(ok);
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-disclosure" />);
+
+            await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
+            const disclosure = screen.getByTestId('ai-suggestions-disclosure');
+            expect(disclosure).toHaveTextContent(/Google Gemini/i);
+            expect(disclosure).toHaveTextContent(/Audio is never sent/i);
         });
     });
 
     describe('Fetching Suggestions', () => {
         it('shows loading state while fetching', async () => {
-            const user = userEvent.setup();
 
             // Mock a delayed response
             mockSupabaseClient.functions.invoke.mockImplementation(() =>
@@ -56,16 +161,13 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world this is a test" sessionId="session-test" />);
 
-            const button = screen.getByRole('button', { name: /get my review/i });
-            await user.click(button);
-
+            // No click: the request is already in flight because the session is reviewable.
             // Should show loading state
             expect(screen.getByRole('button', { name: /creating review/i })).toBeInTheDocument();
             expect(await screen.findByText(/creating your session review/i)).toBeInTheDocument();
         });
 
         it('calls the edge function with only the saved session id', async () => {
-            const user = userEvent.setup();
             const mockTranscript = "This is a test transcript with some filler words like um and uh";
 
             mockSupabaseClient.functions.invoke.mockResolvedValue({
@@ -81,8 +183,7 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript={mockTranscript} sessionId="session-test" />);
 
-            const button = screen.getByRole('button', { name: /get my review/i });
-            await user.click(button);
+            // No click: a reviewable session requests on its own (#1416 P2-4).
 
             await waitFor(() => {
                 expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledWith('get-ai-suggestions', {
@@ -94,7 +195,6 @@ describe('AISuggestions Integration', () => {
 
     describe('Displaying Suggestions', () => {
         it('displays the persisted two-phrase coaching result', async () => {
-            const user = userEvent.setup();
             const mockSuggestions = {
                 version: 'gemini_coaching_v1' as const,
                 what_worked: 'Your risk example made the decision concrete.',
@@ -108,7 +208,6 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            await user.click(screen.getByRole('button', { name: /get my review/i }));
 
             await waitFor(() => {
                 expect(screen.getByText(/your risk example made the decision concrete/i)).toBeInTheDocument();
@@ -117,7 +216,6 @@ describe('AISuggestions Integration', () => {
         });
 
         it('labels the two persisted coaching phrases', async () => {
-            const user = userEvent.setup();
             const mockSuggestions = {
                 version: 'gemini_coaching_v1' as const,
                 what_worked: 'Your contrast between risk and speed clarified the tradeoff.',
@@ -131,7 +229,6 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world um uh" sessionId="session-test" />);
 
-            await user.click(screen.getByRole('button', { name: /get my review/i }));
 
             await waitFor(() => {
                 expect(screen.getByText('What went well')).toBeInTheDocument();
@@ -140,7 +237,6 @@ describe('AISuggestions Integration', () => {
         });
 
         it('rejects a malformed or expanded response instead of rendering partial coaching', async () => {
-            const user = userEvent.setup();
             mockSupabaseClient.functions.invoke.mockResolvedValue({
                 data: {
                     suggestions: {
@@ -154,7 +250,6 @@ describe('AISuggestions Integration', () => {
             });
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
-            await user.click(screen.getByRole('button', { name: /get my review/i }));
 
             expect(await screen.findByRole('heading', { name: /review unavailable/i })).toBeInTheDocument();
             expect(screen.queryByText('A strength.')).not.toBeInTheDocument();
@@ -164,7 +259,6 @@ describe('AISuggestions Integration', () => {
 
     describe('Error Handling', () => {
         it('displays error when Supabase function fails', async () => {
-            const user = userEvent.setup();
 
             mockSupabaseClient.functions.invoke.mockResolvedValue({
                 data: null,
@@ -173,7 +267,6 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            await user.click(screen.getByRole('button', { name: /get my review/i }));
 
             await waitFor(() => {
                 expect(screen.getByRole('heading', { name: /review unavailable/i })).toBeInTheDocument();
@@ -183,7 +276,6 @@ describe('AISuggestions Integration', () => {
         });
 
         it('displays error when function returns error in body', async () => {
-            const user = userEvent.setup();
 
             mockSupabaseClient.functions.invoke.mockResolvedValue({
                 data: { error: 'Rate limit exceeded' },
@@ -192,7 +284,6 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            await user.click(screen.getByRole('button', { name: /get my review/i }));
 
             await waitFor(() => {
                 expect(screen.getByText(/review requests are temporarily limited/i)).toBeInTheDocument();
@@ -202,11 +293,9 @@ describe('AISuggestions Integration', () => {
 
         it('handles missing Supabase client gracefully', async () => {
             vi.mocked(getSupabaseClient).mockReturnValue(null as unknown as ReturnType<typeof getSupabaseClient>);
-            const user = userEvent.setup();
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            await user.click(screen.getByRole('button', { name: /get my review/i }));
 
             await waitFor(() => {
                 expect(screen.getByText(/review is unavailable right now/i)).toBeInTheDocument();
@@ -255,7 +344,6 @@ describe('AISuggestions Integration', () => {
         });
 
         it('ignores a late session A response after navigation to session B', async () => {
-            const user = userEvent.setup();
             let resolveSessionA!: (value: { data: unknown; error: null }) => void;
             mockSupabaseClient.functions.invoke.mockImplementationOnce(() => new Promise((resolve) => {
                 resolveSessionA = resolve;
@@ -268,7 +356,6 @@ describe('AISuggestions Integration', () => {
             const { rerender } = render(
                 <AISuggestions transcript="Session A transcript" sessionId="session-a" />,
             );
-            await user.click(screen.getByRole('button', { name: /get my review/i }));
 
             rerender(
                 <AISuggestions transcript="Session B transcript" sessionId="session-b" initialSuggestions={sessionB} />,
@@ -317,7 +404,6 @@ describe('AISuggestions Integration', () => {
         });
 
         it('keeps the Gemini disclosure visible after suggestions are generated', async () => {
-            const user = userEvent.setup();
 
             mockSupabaseClient.functions.invoke.mockResolvedValue({
                 data: {
@@ -332,7 +418,6 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            await user.click(screen.getByRole('button', { name: /get my review/i }));
 
             await waitFor(() => {
                 expect(screen.getByText('The launch example made the decision concrete.')).toBeInTheDocument();
@@ -340,16 +425,24 @@ describe('AISuggestions Integration', () => {
             expect(screen.getByTestId('ai-suggestions-disclosure')).toHaveTextContent(DISCLOSURE);
         });
 
-        it('does not generate suggestions without an explicit click', () => {
+        it('#1416 P2-4 — generation no longer waits for a click, and the disclosure is still shown', async () => {
+            // This asserted the click-first contract directly. The PO ruling withdrew it: `LegalPage`
+            // conditions provider processing on a coaching feature being USED, not on a press, and
+            // the Gemini line is a disclosure rather than a consent gate. Inverted rather than
+            // deleted, because the disclosure half of what it protected still matters — MORE so now
+            // that nobody presses anything.
+            mockSupabaseClient.functions.invoke.mockResolvedValue({ data: { suggestions: null }, error: null });
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            expect(mockSupabaseClient.functions.invoke).not.toHaveBeenCalled();
+            await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1));
+            const disclosure = screen.getByTestId('ai-suggestions-disclosure');
+            expect(disclosure).toHaveTextContent(/Google Gemini/i);
+            expect(disclosure).toHaveTextContent(/Audio is never sent/i);
         });
     });
 
     describe('Button State Management', () => {
         it('disables button while loading', async () => {
-            const user = userEvent.setup();
 
             mockSupabaseClient.functions.invoke.mockImplementation(() =>
                 new Promise(resolve => setTimeout(() => resolve({ data: { suggestions: null }, error: null }), 100))
@@ -357,11 +450,9 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            const button = screen.getByRole('button', { name: /get my review/i });
-            await user.click(button);
-
-            // Button should be disabled while loading
-            expect(button).toBeDisabled();
+            // No click: a reviewable session requests on its own (#1416 P2-4), so the control is
+            // already disabled by the automatic request rather than by a press.
+            expect(screen.getByRole('button', { name: /creating review/i })).toBeDisabled();
         });
 
         it('allows fetching suggestions multiple times', async () => {
@@ -380,15 +471,14 @@ describe('AISuggestions Integration', () => {
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
-            const button = screen.getByRole('button', { name: /get my review/i });
-
-            // First fetch
-            await user.click(button);
+            // The FIRST review arrives on its own.
             await waitFor(() => expect(screen.getByText(/concise opening established the decision/i)).toBeInTheDocument());
+            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
 
-            // Second fetch should work
-            await user.click(button);
-            expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(2);
+            // The control is now a refresh, and it still works — the automatic first request must not
+            // consume the user's ability to ask again.
+            await user.click(screen.getByRole('button', { name: /refresh review/i }));
+            await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(2));
         });
     });
 });
