@@ -75,7 +75,7 @@ export const SessionAfterState: React.FC<SessionAfterStateProps> = ({ scrubber, 
                 >
                     {slotBNotice}
                     {!slotBNotice && (
-                        <LiveTranscript tokens={transcript.tokens} onFillerSeek={transcript.onFillerSeek} coverageMode={transcript.coverageMode} />
+                        <LiveTranscript testId="review-transcript" tokens={transcript.tokens} onFillerSeek={transcript.onFillerSeek} coverageMode={transcript.coverageMode} />
                     )}
                 </TranscriptCard>
             }

@@ -86,6 +86,16 @@ describe('#1416 F-05 the review transcript comes from the retained authority', (
         expect(screen.getByTestId('session-shell').textContent).not.toContain('stale residue');
     });
 
+    it('the live surface and the review surface are DIFFERENT surfaces, and say so', () => {
+        // #1306 purges ephemeral working memory at terminal; #1258/#1314 retains the transcript server-side
+        // and the review renders it from that authority. Both are promises to the user. While both rendered
+        // under `live-transcript`, a leak of working memory and a correctly restored review were
+        // indistinguishable to every test in the suite — the purge simply stopped being observable.
+        render(<SessionOverhaulView {...after} reviewTranscript={{ kind: 'available', text: 'saved words from the server' }} />);
+        expect(screen.getByTestId('review-transcript')).toHaveTextContent('saved words from the server');
+        expect(screen.queryByTestId('live-transcript')).toBeNull();
+    });
+
     it('CASUALTY: the review never falls back to working memory', () => {
         // If the parent fell back to `transcriptContent` when the authority says nothing is readable,
         // a stale buffer would be presented as the saved session — and the fix would look like it

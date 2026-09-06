@@ -163,10 +163,18 @@ test.describe('Post-save consolidation', () => {
     // Let finalization reach terminal (metrics captured, session persisted).
     await expect(page.getByTestId('post-save-review-session-link')).toBeVisible({ timeout: 15000 });
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
-    // #1306 Option A: the session-page transcript is ephemeral working memory — PURGED after terminal
-    // finalization. The metrics-only review retains no transcript text.
+    // Two DISTINCT promises, and the after state must keep both. #1306 purges the LIVE surface — ephemeral
+    // working memory — at terminal finalization. #1258/#1314 retains the transcript server-side and the review
+    // renders it from that authority. Rendering both under one test id made the pair unobservable: a leak of
+    // working memory and a correctly restored review looked identical, which is why the after state now names
+    // itself `review-transcript`.
     const sessionText = norm(await page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT).innerText().catch(() => ''));
     expect(sessionText.length).toBe(0);
+
+    // ...and the SAVED review is present, from the server's authority. Asserting only the absence above would
+    // pass just as happily on the F-05 defect, where the review showed the user nothing at all.
+    const reviewText = norm(await page.getByTestId('review-transcript').innerText().catch(() => ''));
+    expect(reviewText.length).toBeGreaterThan(0);
 
     await navigateToRoute(page, '/analytics');
     const latest = page.getByTestId(/session-history-item-/).first();
