@@ -554,8 +554,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertStringIncludes(built, `"${transcript}"`);
     assertStringIncludes(built, metrics);
     assertEquals(built.includes('{{TRANSCRIPT}}'), false);
-    // The transcript placeholder is replaced before caller content is inserted, so a placeholder-looking
-    // utterance cannot consume or move the separate metrics substitution.
+    // One pass over the template means placeholder-looking caller content is inserted as inert data and
+    // cannot consume or move the separate metrics substitution.
     assertEquals(built.match(/Metrics:/g)?.length, 1);
   });
 

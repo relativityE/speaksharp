@@ -133,9 +133,10 @@ export function parseSuggestions(rawText: string, { enforceWordBudget = false } 
  * placeholder cannot alter the metrics boundary.
  */
 export function buildCoachingPrompt(transcriptForPrompt: string, metricsText: string): string {
-  return coachingContract.promptTemplate
-    .replace('{{TRANSCRIPT}}', transcriptForPrompt)
-    .replace('{{METRICS}}', metricsText);
+  return coachingContract.promptTemplate.replace(
+    /\{\{(TRANSCRIPT|METRICS)\}\}/g,
+    (_marker, name: string) => name === 'TRANSCRIPT' ? transcriptForPrompt : metricsText,
+  );
 }
 
 // Define the handler with dependency injection for testability
