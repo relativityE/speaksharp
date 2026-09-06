@@ -173,8 +173,12 @@ test.describe('Post-save consolidation', () => {
 
     // ...and the SAVED review is present, from the server's authority. Asserting only the absence above would
     // pass just as happily on the F-05 defect, where the review showed the user nothing at all.
-    const reviewText = norm(await page.getByTestId('review-transcript').innerText().catch(() => ''));
-    expect(reviewText.length).toBeGreaterThan(0);
+    //
+    // This has to be a RETRYING assertion. The review text arrives from a read of the saved row, so a bare
+    // innerText() samples whichever frame it lands on - usually the pending notice - and would report the
+    // restored review as missing. Asserting the actual words also beats a length check, which a stray
+    // placeholder would satisfy.
+    await expect(page.getByTestId('review-transcript')).toContainText(/welcome everyone/i, { timeout: 15000 });
 
     await navigateToRoute(page, '/analytics');
     const latest = page.getByTestId(/session-history-item-/).first();
