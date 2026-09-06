@@ -1,0 +1,71 @@
+name: Gemini Model Currency Proof
+
+# This workflow exists on and executes from the trusted default branch. It never checks out or runs code
+# from the target PR. The only candidate input is an inert JSON contract read with `git show`.
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Full candidate commit SHA whose contract is being proven
+        required: true
+        type: string
+      sample_count:
+        description: One merge-gate call or ten distribution samples
+        required: true
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '10'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gemini-model-currency-proof-${{ inputs.target_sha }}
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out the trusted harness only
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Read candidate contract as inert data
+        env:
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          if ! [[ "$TARGET_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "target_sha must be a full 40-character commit"
+            exit 1
+          fi
+          git fetch --no-tags --depth=1 origin "$TARGET_SHA"
+          git show "$TARGET_SHA:backend/supabase/functions/get-ai-suggestions/contract.json" > /tmp/gemini-coaching-contract.json
+          echo "Trusted harness: $(git rev-parse HEAD)"
+          echo "Candidate data: $TARGET_SHA"
+
+      - name: Call Gemini with fabricated evidence
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_CONTRACT_PATH: /tmp/gemini-coaching-contract.json
+          TARGET_SHA: ${{ inputs.target_sha }}
+          SAMPLE_N: ${{ inputs.sample_count }}
+          PROOF_OUT: artifacts/gemini-model-currency-proof.json
+        run: node scripts/gemini-model-currency-proof.mjs
+
+      - name: Retain the fabricated proof response
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-model-currency-proof-${{ inputs.target_sha }}
+          path: artifacts/gemini-model-currency-proof.json
+          if-no-files-found: error
+          retention-days: 14
