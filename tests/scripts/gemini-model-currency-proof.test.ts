@@ -87,6 +87,16 @@ describe('trusted Gemini model proof', () => {
 
   it('applies the exact production key, version, nonblank, and six-word checks to every response', () => {
     expect(validateProviderBody(providerBody(validSuggestions), contract).valid).toBe(true);
+    expect(validateProviderBody(providerBody(validSuggestions, 'gemini-other-model'), contract)).toMatchObject({
+      valid: false,
+      reason: 'provider model version mismatch: "gemini-other-model"',
+    });
+    expect(validateProviderBody(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: JSON.stringify(validSuggestions) }] } }],
+    }), contract)).toMatchObject({
+      valid: false,
+      reason: 'provider model version mismatch: null',
+    });
     const invalid = [
       { ...validSuggestions, extra: true },
       { ...validSuggestions, version: 'wrong' },

@@ -80,6 +80,9 @@ export function buildProofPrompt(contract, transcript, metrics) {
 export function validateProviderBody(bodyText, contract) {
   let envelope;
   try { envelope = JSON.parse(bodyText); } catch { return { valid: false, reason: 'provider response body was not JSON' }; }
+  if (envelope?.modelVersion !== EXPECTED_MODEL) {
+    return { valid: false, reason: `provider model version mismatch: ${JSON.stringify(envelope?.modelVersion ?? null)}` };
+  }
   const rawText = envelope?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (typeof rawText !== 'string') return { valid: false, reason: 'missing candidates[0].content.parts[0].text' };
   let parsed;
@@ -96,7 +99,7 @@ export function validateProviderBody(bodyText, contract) {
       return { valid: false, reason: `${field} exceeded ${contract.wordBudget[field]} words`, word_counts: wordCounts };
     }
   }
-  return { valid: true, word_counts: wordCounts, parsed, model_version: envelope.modelVersion ?? null };
+  return { valid: true, word_counts: wordCounts, parsed, model_version: envelope.modelVersion };
 }
 
 export async function runProof({
