@@ -1,0 +1,39 @@
+name: Gemini Model Currency Proof
+
+# #1424 G4. workflow_dispatch ONLY, and deliberately so: this job spends a real paid Gemini call. Running it
+# on push would bill every commit for evidence that only changes when the model or the prompt changes.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gemini-model-currency-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # ONE call, with a FABRICATED transcript. No user data, no production database, no deploy.
+      - name: Call the model the edge function names
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PROOF_OUT: artifacts/gemini-model-currency-proof.json
+        run: node scripts/gemini-model-currency-proof.mjs
+
+      - name: Retain the raw response as evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-model-currency-proof
+          path: artifacts/gemini-model-currency-proof.json
+          if-no-files-found: warn
