@@ -315,23 +315,30 @@ export const EVENT_SCHEMAS = Object.freeze({
      * blocked submit is invisible by construction. Length BANDS only; the prose stays in the row.
      */
     feedback_dialog_opened: {},
+    // #1259 item 5: these named the fields of a form #1416 replaced. `title` and `description` do not
+    // exist on the shipped dialog, so `title_too_short` was unreachable and the allowlist was governing
+    // a vocabulary the product had stopped speaking.
     feedback_field: {
-        field: enumOf(['kind', 'title', 'description', 'category', 'severity', 'impact']),
+        field: enumOf(['type', 'body', 'severity']),
         transition: enumOf(['entered', 'cleared', 'unexpected_clear']),
         length_band: enumOf(['0', '1-3', '4-9', '10-39', '40-199', '200+']),
         submit_blockers: {
             kind: 'enum[]',
-            values: ['kind_missing', 'title_too_short', 'description_too_short', 'already_submitting'],
-            maxLength: 4,
+            values: ['type_missing', 'body_empty', 'already_submitting'],
+            maxLength: 3,
         } as FieldRule,
         submit_enabled: { kind: 'bool' } as FieldRule,
+        // The chosen answer, from the product's own four labels, plus an explicit 'none' for "not yet
+        // chosen". A sentinel rather than null because FieldRule has no nullable enum, and inventing one
+        // would widen a validator whose whole value is that every permitted value is in a closed set.
+        feedback_type: enumOf(['broke', 'confused', 'idea', 'praise', 'none']),
     },
     feedback_submit: {
         outcome: enumOf(['attempted', 'refused_by_gate', 'storage_ok', 'storage_failed']),
         submit_blockers: {
             kind: 'enum[]',
-            values: ['kind_missing', 'title_too_short', 'description_too_short', 'already_submitting'],
-            maxLength: 4,
+            values: ['type_missing', 'body_empty', 'already_submitting'],
+            maxLength: 3,
         } as FieldRule,
         acknowledgement_visible: { kind: 'bool' } as FieldRule,
     },

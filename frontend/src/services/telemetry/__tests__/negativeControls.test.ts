@@ -137,8 +137,8 @@ describe('NEGATIVE CONTROL — DUPLICATED: a repeat is suppressed, a change neve
                 rendered: true, nextActionPersisted: true, suppressionReason: 'none',
             });
             emitFeedbackFieldState({
-                field: 'title', transition: 'entered', lengthBand: '10-39',
-                blockers: [], submitEnabled: true,
+                field: 'body', transition: 'entered', lengthBand: '10-39',
+                blockers: [], submitEnabled: true, feedbackType: 'broke',
             });
         }
         drain();
@@ -198,8 +198,8 @@ describe('NEGATIVE CONTROL — CONTENT: real session material cannot reach the w
             reportedFillers: 2, clarityScore: 80, durationSeconds: 30,
         });
         emitFeedbackFieldState({
-            field: 'description', transition: 'entered', lengthBand: '40-199',
-            blockers: [], submitEnabled: true,
+            field: 'body', transition: 'entered', lengthBand: '40-199',
+            blockers: [], submitEnabled: true, feedbackType: 'idea',
         });
         emitJourneyStep({ step: 'route_change', fromRoute: '/practice', toRoute: '/analytics/9f2c4b1e8a7d' });
         drain();

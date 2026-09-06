@@ -26,36 +26,38 @@ beforeEach(() => {
     beginJourney();
 });
 
-describe('F09 — which of the four conditions kept Send grey', () => {
+describe('F09 — which condition kept Send grey, on the form that ships', () => {
     it('names EVERY unmet condition, not just the first', () => {
         // The button is a single boolean, so the user learns nothing from it. A list is the only shape
         // that answers "no matter what I type, it stays grey".
-        expect(submitBlockers({ kind: '', titleLength: 0, descriptionLength: 0, isSubmitting: false }))
-            .toEqual(['kind_missing', 'title_too_short', 'description_too_short']);
+        expect(submitBlockers({ type: null, bodyLength: 0, isSubmitting: false }))
+            .toEqual(['type_missing', 'body_empty']);
     });
 
     it('a nearly-complete form reports only what is still missing', () => {
-        expect(submitBlockers({ kind: 'bug', titleLength: 12, descriptionLength: 9, isSubmitting: false }))
-            .toEqual(['description_too_short']);
+        expect(submitBlockers({ type: 'broke', bodyLength: 0, isSubmitting: false }))
+            .toEqual(['body_empty']);
+        expect(submitBlockers({ type: null, bodyLength: 12, isSubmitting: false }))
+            .toEqual(['type_missing']);
     });
 
-    it('the exact boundaries match the gate — 4 and 10, not 3 and 9', () => {
-        expect(submitBlockers({ kind: 'bug', titleLength: 3, descriptionLength: 10, isSubmitting: false }))
-            .toEqual(['title_too_short']);
-        expect(submitBlockers({ kind: 'bug', titleLength: 4, descriptionLength: 10, isSubmitting: false }))
-            .toEqual([]);
+    it('the boundary matches the gate — ONE character is enough, and zero is not', () => {
+        // The shipped gate is `body.trim().length > 0`. The old 4-and-10 thresholds belonged to a title
+        // and description that no longer exist, so asserting them proved a screen nobody sees.
+        expect(submitBlockers({ type: 'broke', bodyLength: 0, isSubmitting: false })).toEqual(['body_empty']);
+        expect(submitBlockers({ type: 'broke', bodyLength: 1, isSubmitting: false })).toEqual([]);
     });
 
     it('an in-flight submit is a blocker in its own right', () => {
-        expect(submitBlockers({ kind: 'bug', titleLength: 9, descriptionLength: 20, isSubmitting: true }))
+        expect(submitBlockers({ type: 'broke', bodyLength: 20, isSubmitting: true }))
             .toEqual(['already_submitting']);
     });
 
     it('a refused submit is recorded WITH its reason — silence is what we had before', () => {
-        emitFeedbackSubmit({ outcome: 'refused_by_gate', blockers: ['description_too_short'] });
+        emitFeedbackSubmit({ outcome: 'refused_by_gate', blockers: ['body_empty'] });
         drain();
         expect(rows('feedback_submit')[0]).toMatchObject({
-            outcome: 'refused_by_gate', submit_blockers: ['description_too_short'],
+            outcome: 'refused_by_gate', submit_blockers: ['body_empty'],
         });
     });
 
@@ -72,12 +74,12 @@ describe('F09 — which of the four conditions kept Send grey', () => {
 describe('F09 — a field that empties itself', () => {
     it('distinguishes an UNEXPECTED clear from a field that was always empty', () => {
         emitFeedbackFieldState({
-            field: 'title', transition: 'entered', lengthBand: lengthBand(12),
-            blockers: [], submitEnabled: true,
+            field: 'body', transition: 'entered', lengthBand: lengthBand(12),
+            blockers: [], submitEnabled: true, feedbackType: 'broke',
         });
         emitFeedbackFieldState({
-            field: 'title', transition: 'unexpected_clear', lengthBand: lengthBand(0),
-            blockers: ['title_too_short'], submitEnabled: false,
+            field: 'body', transition: 'unexpected_clear', lengthBand: lengthBand(0),
+            blockers: ['body_empty'], submitEnabled: false, feedbackType: 'broke',
         });
         drain();
         expect(rows('feedback_field').map((r) => r.transition)).toEqual(['entered', 'unexpected_clear']);
@@ -86,8 +88,8 @@ describe('F09 — a field that empties itself', () => {
     it('typing is not an event — only a CHANGE of state is', () => {
         for (let i = 0; i < 5; i += 1) {
             emitFeedbackFieldState({
-                field: 'description', transition: 'entered', lengthBand: lengthBand(50),
-                blockers: [], submitEnabled: true,
+                field: 'body', transition: 'entered', lengthBand: lengthBand(50),
+                blockers: [], submitEnabled: true, feedbackType: 'idea',
             });
         }
         drain();
@@ -108,8 +110,8 @@ describe('F09 — the text never travels', () => {
     it('the PO’s actual words could not ride any approved field', () => {
         const real = 'I clicked on the mic to start. It downloaded but never auto-started.';
         const { props, dropped } = projectEventProps('feedback_field', {
-            field: 'description', transition: 'entered', length_band: real.length.toString(),
-            submit_blockers: ['description_too_short'], submit_enabled: false,
+            field: 'body', transition: 'entered', length_band: real.length.toString(),
+            submit_blockers: ['body_empty'], submit_enabled: false, feedback_type: 'broke',
         });
         // A raw length is not a band, so the enum refuses it — the shape rule is what stops a caller
         // sending a precise count that narrows a short field's content.
@@ -119,15 +121,20 @@ describe('F09 — the text never travels', () => {
 
     it('an invented blocker is rejected by the schema', () => {
         const { dropped } = projectEventProps('feedback_submit', {
-            outcome: 'refused_by_gate', submit_blockers: ['title_too_short', 'made_up_reason'],
+            outcome: 'refused_by_gate', submit_blockers: ['body_empty', 'made_up_reason'],
         });
         expect(dropped).toContain('submit_blockers');
     });
 
     it('every emitted field survives its schema', () => {
         expect(projectEventProps('feedback_field', {
-            field: 'title', transition: 'unexpected_clear', length_band: '0',
-            submit_blockers: ['title_too_short'], submit_enabled: false,
+            field: 'body', transition: 'unexpected_clear', length_band: '0',
+            submit_blockers: ['body_empty'], submit_enabled: false, feedback_type: 'broke',
+        }).dropped).toEqual([]);
+        // 'none' is the not-yet-chosen sentinel, and it has to survive the schema like any other member.
+        expect(projectEventProps('feedback_field', {
+            field: 'type', transition: 'cleared', length_band: '0',
+            submit_blockers: ['type_missing', 'body_empty'], submit_enabled: false, feedback_type: 'none',
         }).dropped).toEqual([]);
         expect(projectEventProps('feedback_submit', {
             outcome: 'storage_ok', submit_blockers: [], acknowledgement_visible: true,
@@ -169,5 +176,39 @@ describe('#1259 — an observer that can break the product is worse than no obse
 
         expect(boom).toHaveBeenCalled();   // the transport really was throwing
         boom.mockRestore();
+    });
+});
+
+describe('#1259 item 5 — the instrument matches the form that shipped', () => {
+    it('no part of the retired form survives in the contract', () => {
+        // The module described `kind`/`title`/`description` and blocked on `title_too_short`. #1416
+        // replaced that form with one question, four answers and a message box. An instrument aimed at a
+        // screen nobody sees reports nothing, and feedback is the only channel that would tell us the
+        // product is failing - so the retired vocabulary must not come back by copy-paste.
+        const retired = ['title_too_short', 'description_too_short', 'kind_missing'];
+        for (const name of retired) {
+            const { dropped } = projectEventProps('feedback_submit', {
+                outcome: 'refused_by_gate', submit_blockers: [name],
+            });
+            expect(dropped, `${name} must no longer be an accepted blocker`).toContain('submit_blockers');
+        }
+        for (const field of ['title', 'description', 'kind', 'category', 'impact']) {
+            const { dropped } = projectEventProps('feedback_field', {
+                field, transition: 'entered', length_band: '0',
+                submit_blockers: [], submit_enabled: false, feedback_type: 'none',
+            });
+            expect(dropped, `${field} must no longer be an accepted field`).toContain('field');
+        }
+    });
+
+    it('every answer the dialog offers is reportable', () => {
+        // If a type the user can pick is not in the schema, that type's feedback is silently unattributed.
+        for (const t of ['broke', 'confused', 'idea', 'praise']) {
+            const { dropped } = projectEventProps('feedback_field', {
+                field: 'type', transition: 'entered', length_band: '0',
+                submit_blockers: ['body_empty'], submit_enabled: false, feedback_type: t,
+            });
+            expect(dropped, `${t} must be reportable`).toEqual([]);
+        }
     });
 });
