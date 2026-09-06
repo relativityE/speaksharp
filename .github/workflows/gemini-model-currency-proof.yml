@@ -23,7 +23,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # A labeled `pull_request` run checks out the event's synthetic MERGE commit by default, not the PR
+      # head (Codex finding). Claiming a proof ran at an exact head while the runner built a different tree
+      # is exactly the kind of evidence that is worse than none, so pin the head explicitly.
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Record the commit this proof actually runs against
+        id: proven
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-node@v4
         with:
@@ -34,6 +43,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PROOF_OUT: artifacts/gemini-model-currency-proof.json
+          PROOF_SHA: ${{ steps.proven.outputs.sha }}
         run: node scripts/gemini-model-currency-proof.mjs
 
       - name: Retain the raw response as evidence

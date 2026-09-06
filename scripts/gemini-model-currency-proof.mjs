@@ -58,10 +58,21 @@ const schemaKeys = Object.keys(GENERATION_CONFIG?.responseSchema?.properties ?? 
 if (JSON.stringify(schemaKeys) !== JSON.stringify(REQUIRED_KEYS)) {
     fail(`the response schema asks for ${JSON.stringify(schemaKeys)} but parseSuggestions requires ${JSON.stringify(REQUIRED_KEYS)}`);
 }
+// Key sets agreeing is not enough. A bare STRING `version` lets the model return any version the schema
+// considers valid and the parser then rejects, so the permitted VALUES must match the parser's literal too.
+const schemaVersions = GENERATION_CONFIG?.responseSchema?.properties?.version?.enum;
+if (!Array.isArray(schemaVersions) || schemaVersions.length !== 1 || schemaVersions[0] !== REQUIRED_VERSION) {
+    fail(`the schema permits version values ${JSON.stringify(schemaVersions)} but parseSuggestions accepts only ${JSON.stringify(REQUIRED_VERSION)}`);
+}
 
 // ---- 3. The prompt, taken from the product ---------------------------------------------------------------
 const promptMatch = /const prompt = `([\s\S]*?)`;/.exec(src);
 if (!promptMatch) fail('could not read the prompt template from the edge function — coupling broken');
+// The capture must be ONE template literal (Codex finding). Rewritten as `A ${x}` + `B ${y}`, the regex
+// still matches - the first "`;" is at the very end - both substitutions still succeed, no ${ survives, and
+// the proof would send literal backticks and a "+" that production never sends. A backtick inside the
+// captured body is the tell, so refuse rather than proceed on a prompt we did not really read.
+if (promptMatch[1].includes('`')) fail('the prompt is no longer a single template literal; this proof would send text the edge function never sends');
 
 // A FABRICATED session. Deliberately mundane and short: the point is the response SHAPE, not its quality.
 const FABRICATED_TRANSCRIPT =
@@ -122,9 +133,13 @@ const elapsedMs = Date.now() - started;
 mkdirSync(dirname(resolve(process.cwd(), out)), { recursive: true });
 writeFileSync(resolve(process.cwd(), out), JSON.stringify({
     model: MODEL, url: GEMINI_API_URL, http_status: res.status, elapsed_ms: elapsedMs,
+    // The SHA this proof actually ran against. Claiming an exact head is worthless unless the evidence says
+    // which commit produced it (Codex finding: a labeled pull_request run checks out the MERGE commit by
+    // default, not the head, so the claim and the run can silently disagree).
+    proven_sha: process.env.PROOF_SHA ?? null,
     attempts: attempt, fabricated_transcript: FABRICATED_TRANSCRIPT, raw_response: bodyText,
 }, null, 2));
-console.log(`G4: http_status=${res.status} attempts=${attempt} elapsed_ms=${elapsedMs} evidence=${out}`);
+console.log(`G4: proven_sha=${process.env.PROOF_SHA ?? '(unset)'} http_status=${res.status} attempts=${attempt} elapsed_ms=${elapsedMs} evidence=${out}`);
 
 if (res.status === 404) fail(`the model ${MODEL} does not exist at the URL the product calls — this is the endpoint being retired, not a spike`);
 if (!res.ok && RETRYABLE.has(res.status)) {

@@ -20,12 +20,16 @@ export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/
 // Declaring the MIME type and schema moves the contract into the API, where the provider enforces it. The
 // literal is written as valid JSON on purpose: the G4 proof parses this exact object out of this file and
 // sends it, so the proof cannot drift from what production requests.
+//
+// `version` carries an `enum`, not a bare STRING (Codex finding). Typing it as STRING alone lets the model
+// return any version string the schema considers valid, which `parseSuggestions` then rejects - a 502 we
+// asked for. The values the parser demands and the values the schema permits have to be the same set.
 export const GEMINI_GENERATION_CONFIG = {
   "responseMimeType": "application/json",
   "responseSchema": {
     "type": "OBJECT",
     "properties": {
-      "version": { "type": "STRING" },
+      "version": { "type": "STRING", "enum": ["gemini_coaching_v1"] },
       "what_worked": { "type": "STRING" },
       "what_to_try_next": { "type": "STRING" }
     },

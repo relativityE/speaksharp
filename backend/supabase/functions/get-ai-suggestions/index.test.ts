@@ -375,6 +375,10 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const schema = (config as { responseSchema?: { properties?: Record<string, unknown>; required?: string[] } }).responseSchema;
     const schemaKeys = Object.keys(schema?.properties ?? {}).sort();
     assertEquals(schemaKeys, ['version', 'what_to_try_next', 'what_worked']);
+    // Key sets agreeing is not enough (Codex finding). A bare STRING `version` lets the model return any
+    // version the schema calls valid and parseSuggestions then rejects — a 502 we asked for ourselves. The
+    // values the schema PERMITS must be the values the parser ACCEPTS.
+    assertEquals((schema?.properties?.version as { enum?: string[] } | undefined)?.enum, ['gemini_coaching_v1']);
     assertEquals((schema?.required ?? []).slice().sort(), ['version', 'what_to_try_next', 'what_worked']);
     // And the exported constant is the one actually sent, not a second copy that can drift from it.
     assertEquals(config, GEMINI_GENERATION_CONFIG);
