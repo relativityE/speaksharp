@@ -157,6 +157,12 @@ test.describe('Post-save consolidation', () => {
   });
 
   test('SessionPage purges the live transcript after terminal; the saved review RETAINS it', async ({ page }) => {
+    // This test now asserts BOTH halves of the contract - the live surface purged AND the review populated
+    // from the saved row - and the second half waits on a read that only starts after persistence. Record,
+    // stop, persist and the post-save link already consume most of the default 60s, so the added assertion
+    // was being cut off by the test budget rather than by the product. Same allowance the metric-parity
+    // test in this file already takes.
+    test.setTimeout(90_000);
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
     await recordAndStop(page);
