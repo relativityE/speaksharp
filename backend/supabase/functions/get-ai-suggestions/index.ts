@@ -24,21 +24,41 @@ export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/
 // `version` carries an `enum`, not a bare STRING (Codex finding). Typing it as STRING alone lets the model
 // return any version string the schema considers valid, which `parseSuggestions` then rejects - a 502 we
 // asked for. The values the parser demands and the values the schema permits have to be the same set.
+/**
+ * #1424 A2 - the two-phrase coaching format, as ONE definition.
+ *
+ * The product format is two phrases: what worked in at most 6 words, what to try next in at most 8. The
+ * shipped prompt never said so - its only length instruction was "concise enough to display in the app" -
+ * so the model returned 22-36 words per field and nothing truncated it in the UI. The user read whatever
+ * arrived.
+ *
+ * The budget is enforced in all three places a violation can enter: asked for in the PROMPT, capped in the
+ * SCHEMA, and refused by the PARSER. Prompt wording alone is a request; only the parser is a guarantee.
+ */
+export const COACHING_WORD_BUDGET = Object.freeze({ what_worked: 6, what_to_try_next: 8 });
+
+/** Words, counted the way a reader would: runs of non-whitespace. */
+export const countWords = (value: string): number => value.trim().split(/\s+/).filter(Boolean).length;
+
 export const GEMINI_GENERATION_CONFIG = {
   "responseMimeType": "application/json",
   "responseSchema": {
     "type": "OBJECT",
     "properties": {
       "version": { "type": "STRING", "enum": ["gemini_coaching_v1"] },
-      "what_worked": { "type": "STRING" },
-      "what_to_try_next": { "type": "STRING" }
+      "what_worked": { "type": "STRING", "maxLength": 90 },
+      "what_to_try_next": { "type": "STRING", "maxLength": 120 }
     },
     "required": ["version", "what_worked", "what_to_try_next"]
   }
 };
 
 const MAX_TRANSCRIPT_CHARS = 8000;
-const AI_SUGGESTION_DAILY_LIMIT = 20;
+// #1424 A1. Lowered from 20 with #1422's P2-4 in view: the review now fires automatically at post-save
+// readiness rather than on a click, so the ceiling is reached by ordinary use rather than by deliberate
+// retries. Note this is a DAILY cap and the binding provider constraint is per-MINUTE (see the operating
+// note in the PR body) - a daily number cannot prevent a burst.
+export const AI_SUGGESTION_DAILY_LIMIT = 10;
 
 type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
 
@@ -78,6 +98,11 @@ function parseSuggestions(rawText: string): AISuggestions | null {
     if (candidate.version !== 'gemini_coaching_v1') return null;
     if (typeof candidate.what_worked !== 'string' || !candidate.what_worked.trim()) return null;
     if (typeof candidate.what_to_try_next !== 'string' || !candidate.what_to_try_next.trim()) return null;
+    // #1424 A2: the word budget is REFUSED here, not truncated. Cutting a coaching phrase mid-sentence
+    // produces something the coach never said, and presenting that as advice is worse than an honest
+    // failure the user can retry.
+    if (countWords(candidate.what_worked) > COACHING_WORD_BUDGET.what_worked) return null;
+    if (countWords(candidate.what_to_try_next) > COACHING_WORD_BUDGET.what_to_try_next) return null;
 
     return {
       version: 'gemini_coaching_v1',
@@ -252,7 +277,9 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       - Do not invent facts, audience context, or performance details not present in the transcript or metrics.
       - Prefer concrete rewrites, next-step drills, or "try saying..." examples over generic encouragement.
       - If the transcript is too short for a category, say what additional evidence would make that category measurable.
-      - Keep every description concise enough to display in the app.
+      - HARD LIMIT: "what_worked" must be AT MOST 6 words. "what_to_try_next" must be AT MOST 8 words.
+        These are the product's two coaching phrases, not summaries. Count the words before answering.
+        An answer over budget is discarded and the user sees an error instead of coaching.
 
       Transcript:
       "${transcriptForPrompt}"
@@ -261,8 +288,8 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       Return exactly one JSON object and no surrounding prose or markdown:
       {
         "version": "gemini_coaching_v1",
-        "what_worked": "One concise, session-specific interpretation of what worked and why it mattered.",
-        "what_to_try_next": "One concrete, session-specific change for the next attempt."
+        "what_worked": "<=6 words: what worked, session-specific.",
+        "what_to_try_next": "<=8 words: one concrete change for the next attempt."
       }
       Do not add keys. Metric recital or reusable generic advice is invalid.
     `;

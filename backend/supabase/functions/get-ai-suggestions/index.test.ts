@@ -1,15 +1,15 @@
-import { handler, GEMINI_API_URL, GEMINI_GENERATION_CONFIG } from './index.ts';
+import { handler, GEMINI_API_URL, GEMINI_GENERATION_CONFIG, COACHING_WORD_BUDGET, countWords, AI_SUGGESTION_DAILY_LIMIT } from './index.ts';
 import { assertEquals, assertNotEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 
 const suggestionA = {
   version: 'gemini_coaching_v1',
-  what_worked: 'Your risk-first opening made the launch decision clear.',
+  what_worked: 'Risk-first opening clarified the launch decision.',
   what_to_try_next: 'Move the support bottleneck after the recommendation.',
 } as const;
 const suggestionB = {
   version: 'gemini_coaching_v1',
-  what_worked: 'The customer story made the renewal risk concrete.',
-  what_to_try_next: 'Replace the vague final sentence with a dated owner commitment.',
+  what_worked: 'Customer story made renewal risk concrete.',
+  what_to_try_next: 'End with a dated owner commitment.',
 } as const;
 
 interface MockOptions {
@@ -68,6 +68,7 @@ function mockSupabase(options: MockOptions = {}) {
     updated: null as unknown,
     filters: [] as Array<[string, unknown]>,
     rpcCount: 0,
+    quotaArgs: null as Record<string, unknown> | null,
   };
   const profile = options.profile ?? 'pro';
   const userId = options.userId === undefined ? 'pro-user' : options.userId;
@@ -79,7 +80,7 @@ function mockSupabase(options: MockOptions = {}) {
         ? { data: { user: { id: userId } }, error: null }
         : { data: { user: null }, error: { message: 'Unauthorized' } }),
     },
-    rpc: (name: string) => {
+    rpc: (name: string, args?: Record<string, unknown>) => {
       if (name === 'check_usage_limit') {
         return Promise.resolve({
           data: options.entitlement ?? (profile === 'free'
@@ -89,6 +90,7 @@ function mockSupabase(options: MockOptions = {}) {
         });
       }
       state.rpcCount++;
+      if (name === 'consume_ai_suggestion_quota') state.quotaArgs = args ?? {};
       return Promise.resolve({
         data: options.quota ?? { allowed: true, remaining: 19, limit: 20 },
         error: options.quotaError ?? null,
@@ -361,6 +363,77 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   // #1424 (Codex finding): the JSON contract must be REQUESTED of the provider, not merely hoped for in prose.
   // Without this the model is free to fence its answer or add a key, and every such answer is a 502 for every
   // user. A single executed call that happened to comply is evidence about that call, not about the next one.
+  // #1424 A2. The two-phrase format was specified by the product and requested by nothing: the prompt's only
+  // length instruction was "concise enough to display in the app", the model returned 22-36 words per field,
+  // and nothing truncated it in the UI. These steps hold the budget at each layer it can be broken.
+  await t.step('the fixtures this suite trusts are themselves within the coaching budget', () => {
+    // A suite whose own happy-path fixtures break the contract proves the contract is not enforced.
+    for (const s of [suggestionA, suggestionB]) {
+      assertEquals(countWords(s.what_worked) <= COACHING_WORD_BUDGET.what_worked, true, `what_worked over budget: ${s.what_worked}`);
+      assertEquals(countWords(s.what_to_try_next) <= COACHING_WORD_BUDGET.what_to_try_next, true, `what_to_try_next over budget: ${s.what_to_try_next}`);
+    }
+  });
+
+  await t.step('spends the daily quota the product actually configures', async () => {
+    resetProvider();
+    const mock = mockSupabase({ session: savedSession() });
+    await handler(request(), mock.create);
+    // Read the limit the handler SENDS, not a restated number: the cap only means something if the value
+    // reaching consume_ai_suggestion_quota is the configured one.
+    assertEquals(mock.state.quotaArgs?.p_limit, AI_SUGGESTION_DAILY_LIMIT);
+    assertEquals(AI_SUGGESTION_DAILY_LIMIT, 10);
+  });
+
+  // Each field is broken ALONE. An over-budget fixture that breaks both at once passes even when one of the
+  // two checks is deleted, which is precisely what my first version of this casualty did.
+  await t.step('REFUSES an over-budget what_worked, with what_to_try_next left legal', async () => {
+    resetProvider();
+    geminiText = JSON.stringify({
+      version: 'gemini_coaching_v1',
+      what_worked: 'You clearly identified the problem and proposed a direct solution in twenty seconds',
+      what_to_try_next: 'End with a dated owner commitment.',
+    });
+    const mock = mockSupabase({ session: savedSession() });
+    assertEquals((await handler(request(), mock.create)).status, 502);
+  });
+
+  await t.step('REFUSES an over-budget what_to_try_next, with what_worked left legal', async () => {
+    resetProvider();
+    geminiText = JSON.stringify({
+      version: 'gemini_coaching_v1',
+      what_worked: 'Risk-first opening clarified the launch decision.',
+      what_to_try_next: 'Replace tentative phrasing and filler words with a strong dated commitment your audience can act on',
+    });
+    const mock = mockSupabase({ session: savedSession() });
+    assertEquals((await handler(request(), mock.create)).status, 502);
+  });
+
+  await t.step('REFUSES an over-budget answer rather than truncating it into something never said', async () => {
+    resetProvider();
+    geminiText = JSON.stringify({
+      version: 'gemini_coaching_v1',
+      // Exactly the shape 3.6 actually returned before the budget existed: valid JSON, right keys, far too long.
+      what_worked: 'You clearly identified the problem and proposed a direct solution in under twenty seconds',
+      what_to_try_next: 'Replace tentative phrasing and filler words with a strong dated commitment your audience can act on',
+    });
+    const mock = mockSupabase({ session: savedSession() });
+    const response = await handler(request(), mock.create);
+    assertEquals(response.status, 502);
+    // And no partial coaching leaks into the error body.
+    const body = await response.text();
+    assertEquals(body.includes('what_worked'), false);
+    assertEquals(body.includes('tentative phrasing'), false);
+  });
+
+  await t.step('the prompt ASKS for the budget it will enforce', async () => {
+    resetProvider();
+    const mock = mockSupabase({ session: savedSession() });
+    await handler(request(), mock.create);
+    // Asking and enforcing must not drift: a parser stricter than the prompt is a 502 we cause ourselves.
+    assertStringIncludes(lastPrompt, `AT MOST ${COACHING_WORD_BUDGET.what_worked} words`);
+    assertStringIncludes(lastPrompt, `AT MOST ${COACHING_WORD_BUDGET.what_to_try_next} words`);
+  });
+
   await t.step('asks the provider for the JSON contract it will be judged against', async () => {
     resetProvider();
     const mock = mockSupabase({ session: savedSession() });
@@ -379,6 +452,17 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     // version the schema calls valid and parseSuggestions then rejects — a 502 we asked for ourselves. The
     // values the schema PERMITS must be the values the parser ACCEPTS.
     assertEquals((schema?.properties?.version as { enum?: string[] } | undefined)?.enum, ['gemini_coaching_v1']);
+
+    // The schema also has to carry a length ceiling for the two coaching fields. It cannot express "at most
+    // six words", so the exact rule lives in the parser - but a schema with no bound at all leaves the model
+    // free to write an essay that the parser then refuses, which is a 502 the provider could have prevented.
+    // The ceiling must be GENEROUS enough that a legal in-budget phrase is never rejected upstream.
+    for (const [field, budget] of Object.entries(COACHING_WORD_BUDGET)) {
+      const max = (schema?.properties?.[field] as { maxLength?: number } | undefined)?.maxLength;
+      assertEquals(typeof max, 'number', `${field} must declare a maxLength ceiling`);
+      // A word averages well under 15 characters; anything tighter could refuse a valid in-budget phrase.
+      assertEquals((max as number) >= budget * 15, true, `${field} ceiling ${max} is tighter than its ${budget}-word budget`);
+    }
     assertEquals((schema?.required ?? []).slice().sort(), ['version', 'what_to_try_next', 'what_worked']);
     // And the exported constant is the one actually sent, not a second copy that can drift from it.
     assertEquals(config, GEMINI_GENERATION_CONFIG);

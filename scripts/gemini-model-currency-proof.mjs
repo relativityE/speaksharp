@@ -171,4 +171,18 @@ for (const k of ['what_worked', 'what_to_try_next']) {
     if (typeof parsed[k] !== 'string' || parsed[k].trim() === '') fail(`${k} is not a non-empty string`);
 }
 
+// #1424 A2. The parser now REFUSES an over-budget answer, so "the model responds" is no longer enough: if
+// 3.6 will not write to a six-word budget, every review 502s and the honest verdict is that the budget is
+// unachievable with this prompt, not that the model is fine. Read the budget from the edge function so this
+// cannot drift from what production enforces.
+const budgetMatch = /export const COACHING_WORD_BUDGET = Object\.freeze\(\{([^}]*)\}\)/.exec(src);
+if (!budgetMatch) fail('could not read COACHING_WORD_BUDGET from the edge function — coupling broken');
+const BUDGET = Object.fromEntries([...budgetMatch[1].matchAll(/(\w+)\s*:\s*(\d+)/g)].map((m) => [m[1], Number(m[2])]));
+const words = (v) => v.trim().split(/\s+/).filter(Boolean).length;
+for (const [field, max] of Object.entries(BUDGET)) {
+    const n = words(parsed[field]);
+    console.log(`G4: ${field} = ${n} words (budget ${max})`);
+    if (n > max) fail(`${field} came back at ${n} words against a ${max}-word budget, so parseSuggestions would REFUSE it and the user would get a 502. Text: ${JSON.stringify(parsed[field])}`);
+}
+
 console.log(`G4 PASS: ${MODEL} responded and its answer satisfies parseSuggestions exactly (keys=${JSON.stringify(gotKeys)}).`);
