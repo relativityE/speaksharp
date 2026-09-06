@@ -54,6 +54,22 @@ describe('trusted Gemini model proof', () => {
         responseSchema: {
           ...contract.generationConfig.responseSchema,
           properties: {
+            ...contract.generationConfig.responseSchema.properties,
+            what_worked: {
+              ...contract.generationConfig.responseSchema.properties.what_worked,
+              maxLength: 1e12,
+            },
+          },
+        },
+      },
+    })).toThrow();
+    expect(() => validateContract({
+      ...contract,
+      generationConfig: {
+        ...contract.generationConfig,
+        responseSchema: {
+          ...contract.generationConfig.responseSchema,
+          properties: {
             version: contract.generationConfig.responseSchema.properties.version,
             what_worked: contract.generationConfig.responseSchema.properties.what_worked,
           },

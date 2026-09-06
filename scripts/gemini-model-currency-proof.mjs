@@ -17,6 +17,7 @@ const EXPECTED_MODEL = 'gemini-3.6-flash';
 const EXPECTED_VERSION = 'gemini_coaching_v1';
 const EXPECTED_REQUEST_CAP = 10;
 const EXPECTED_WORD_BUDGET = 6;
+const EXPECTED_SCHEMA_MAX_LENGTH = 90;
 const MAX_PROVIDER_REQUESTS = 10;
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
@@ -56,8 +57,8 @@ export function validateContract(contract) {
     if (fieldSchema?.type !== 'STRING' || fieldSchema.minLength !== 1 || fieldSchema.pattern !== '.*\\S.*') {
       throw new Error(`${field} schema must reject empty and whitespace-only strings`);
     }
-    if (typeof fieldSchema.maxLength !== 'number' || fieldSchema.maxLength < EXPECTED_WORD_BUDGET * 15) {
-      throw new Error(`${field} schema maxLength is missing or too tight for six words`);
+    if (fieldSchema.maxLength !== EXPECTED_SCHEMA_MAX_LENGTH) {
+      throw new Error(`${field} schema maxLength must be ${EXPECTED_SCHEMA_MAX_LENGTH}`);
     }
   }
 
