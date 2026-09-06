@@ -228,6 +228,18 @@ describe('#1423 T6 — the reader’s select carries the authority it depends on
         expect(() => readerDetailColumns(source)).toThrow(/unknown reader column spread SESSION_UNRESOLVED_COLUMNS/);
     });
 
+    it('refuses a CYCLIC spread rather than recursing forever', () => {
+        // The resolver carries a stack and throws on a repeat, but that branch had no test — and an
+        // untested error path is one that can be deleted or inverted without anything noticing. A cycle is
+        // reachable by ordinary refactoring: two column arrays that spread each other typecheck in
+        // TypeScript and only fail here.
+        const source = readFileSync(STORAGE, 'utf8')
+            .replace('...SESSION_ANALYSIS_COLUMNS,', '...SESSION_CYCLE_COLUMNS,')
+            + '\nconst SESSION_CYCLE_COLUMNS = [...SESSION_DETAIL_COLUMNS];\n';
+        expect(() => readerDetailColumns(source))
+            .toThrow(/cyclic reader column spread: SESSION_DETAIL_COLUMNS -> SESSION_CYCLE_COLUMNS -> SESSION_DETAIL_COLUMNS/);
+    });
+
     it('the DETAIL columns name BOTH the text and the server state', async () => {
         const cols = readerDetailColumns();
         expect(cols).toContain('transcript');
