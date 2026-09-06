@@ -168,14 +168,16 @@ test.describe('Post-save consolidation', () => {
     await recordAndStop(page);
     // Let finalization reach terminal (metrics captured, session persisted).
     await expect(page.getByTestId('post-save-review-session-link')).toBeVisible({ timeout: 15000 });
-    const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
     // Two DISTINCT promises, and the after state must keep both. #1306 purges the LIVE surface — ephemeral
     // working memory — at terminal finalization. #1258/#1314 retains the transcript server-side and the review
     // renders it from that authority. Rendering both under one test id made the pair unobservable: a leak of
     // working memory and a correctly restored review looked identical, which is why the after state now names
     // itself `review-transcript`.
-    const sessionText = norm(await page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT).innerText().catch(() => ''));
-    expect(sessionText.length).toBe(0);
+    // Assert ABSENCE as absence. Reading innerText() off a locator that does not resolve makes Playwright
+    // auto-wait the full actionability timeout before throwing, and .catch() then hides that it waited at
+    // all - roughly 30s of the test's budget spent proving nothing. It was instant only while the after
+    // state still rendered `live-transcript`, which is exactly what this branch stopped doing.
+    await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toHaveCount(0, { timeout: 10000 });
 
     // ...and the SAVED review is present, from the server's authority. Asserting only the absence above would
     // pass just as happily on the F-05 defect, where the review showed the user nothing at all.
