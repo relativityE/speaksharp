@@ -89,8 +89,22 @@ describe('#1267 Private-only launch support contract', () => {
   });
 
   it('preserves truthful human-review metadata while recording source verification separately', () => {
-    expect(processDoc).toContain('**Last Reviewed:** 2026-07-30');
-    expect(processDoc).toMatch(/\*\*Last Verified:\*\* 2026-08-11/);
+    // #1416 — the DATES are not the contract.
+    //
+    // This pinned `Last Reviewed: 2026-07-30` and `Last Verified: 2026-08-11`, so every legitimate
+    // review of the document broke it — which is exactly what the currentization did. A test that
+    // fails when a doc is reviewed on schedule is testing the calendar, and it trains people to edit
+    // the assertion rather than read it.
+    //
+    // What this contract is actually for is that the two facts stay SEPARATE and both stay dated:
+    // human review and source verification are different claims, and collapsing them lets a document
+    // that nobody has read inherit the credibility of one that was merely re-verified.
+    const reviewed = processDoc.match(/\*\*Last Reviewed:\*\* (\d{4}-\d{2}-\d{2})/);
+    const verified = processDoc.match(/\*\*Last Verified:\*\* (\d{4}-\d{2}-\d{2})/);
+    expect(reviewed?.[1], 'RELEASE_PROCESS.md must record a dated human review').toBeTruthy();
+    expect(verified?.[1], 'RELEASE_PROCESS.md must record a dated source verification').toBeTruthy();
+    // Both fields present as distinct lines — not one standing in for the other.
+    expect(processDoc).toMatch(/\*\*Last Reviewed:\*\*[^\n]*\n[\s\S]*\*\*Last Verified:\*\*/);
     expect(rehearsal).toMatch(/exact-head re-review required/i);
   });
 });

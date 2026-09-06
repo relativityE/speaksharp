@@ -1,13 +1,19 @@
 **Status:** Authoritative (SSOT for the index of dated proof artifacts — an index, not the proofs themselves)
 **Owner:** Product-Ops / Quality (relativityE)
-**Last Reviewed:** 2026-08-29
-**Last Verified:** 2026-08-29 — artifact locations enumerated after consolidation; retained root-level ledgers/audits moved under `evidence/retained/`. This file indexes historical evidence; it carries no current release posture.
+**Last Reviewed:** 2026-09-04
+**Last Verified:** 2026-09-04 — reconciled to the 4 Sep Production human-test findings and current PO decisions; shipped behavior and approved-not-shipped remedies are distinguished below.
 **Applies To:** All dated release-proof artifacts for the SpeakSharp beta — where each lives, when it was captured, and what it proved at that moment.
 **Class:** Evidence index.
 **Authority:** The source for **where** dated proof artifacts live and **what date/point-in-time** they represent. It is a map to evidence, not a verdict.
 **Not Authoritative For:** current release/deployment status, go/no-go, blockers, run IDs, or signoff SHA (→ `RELEASE_STATUS.md`); quality targets and the evidence taxonomy (→ `QUALITY.md`); STT baselines/accuracy/latency (→ `STT.md`); tier/entitlement mechanics (→ `ENTITLEMENTS_AND_BILLING.md`); open gaps and broad-launch gates (→ `ROADMAP.md`); tester copy (→ `TESTER_GUIDE.md`); tester run/audit procedures (→ `TESTER_OPERATIONS.md`).
 **Supersedes:** the ad-hoc "current truth source" framing of `evidence/README.md`; dated closeout, public-launch and entitlement records are retained below as evidence, not current posture.
 **Evidence Sources:** the `product_release/evidence/` tree itself; `evidence/retained/attribution-sanitation-crosswalk.md` for pre-2026-07-15 SHA provenance.
+
+<!-- pm-currentization:2026-09-04 -->
+> [!IMPORTANT]
+> **Currentized 4 Sep 2026.** The 4 Sep Production human test is current decision evidence in #1390/#1258 and the reopened #1259, not yet a frozen retained artifact. It established two failed v2 journeys and exposed missing observability; it did not qualify any model or release. Existing dated files below remain immutable evidence of what was known when captured and must not override these newer authorities.
+
+<!-- /pm-currentization:2026-09-04 -->
 
 # SpeakSharp Evidence Index
 

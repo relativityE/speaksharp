@@ -1,8 +1,24 @@
+<!-- pm-currentization:2026-09-04 -->
+> [!CAUTION]
+> **Reviewed 4 Sep 2026 — historical evidence index.** This file is preserved for provenance and must not be executed as current product/release authority. Preview/internal-build model selection, PostHog-flag targeting, two-transcript retention, and prior closure claims are superseded by the canonical root documents and issues #1259/#1258/#1390/#1404/#1407/#1386/#1263/#1304. Use canonical Production only; do not infer that historical PASS evidence qualifies the current product.
+<!-- /pm-currentization:2026-09-04 -->
+
 # Release Evidence Index
 
-> **HISTORICAL EVIDENCE.** Dated artifacts here are point-in-time proofs; they are not current release truth. Commit SHAs recorded before **2026-07-15** predate the attribution history sanitation — map old→new via `retained/attribution-sanitation-crosswalk.md`. Historical PostHog `release_sha` values also retain the old SHAs by design.
+> **HISTORICAL EVIDENCE — all files reviewed 4 Sep 2026.** Dated artifacts here are point-in-time proofs; they are not current release truth. Commit SHAs recorded before **2026-07-15** predate the attribution history sanitation — map old→new via `retained/attribution-sanitation-crosswalk.md`. Historical PostHog `release_sha` values also retain the old SHAs by design.
 
 This directory stores dated release-proof artifacts. It is retained evidence, not the current coordination board and not the disposable `product_release/archive/` tree.
+
+### Supersessions — recorded here, never written into the dated record
+
+A dated artifact states what was proved on its date, in the words of the contract in force then.
+When later work changes that contract, the change is recorded in this index. The artifact itself is
+not edited: a proof rewritten to match current behavior no longer evidences anything, because it can
+no longer disagree with the present — and disagreeing with the present is the only reason to keep it.
+
+| Artifact | What it proved then | Superseded by |
+|---|---|---|
+| `BETA_50_RELEASE_EVIDENCE_2026-07-09.md` — Share Feedback acceptance | A report row carrying `include_transcript`, `transcript_excerpt`, `include_audio` and `audio_attachment_note` opt-in columns, a user-entered title, and a raw `userAgent` in metadata | #1404 / #1416 — the redesigned two-field form derives the title, stores coarse parsed browser/OS instead of the raw user agent, and submits no transcript or audio fields at all |
 
 ## Current truth sources
 

@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { LogOut, Zap } from "lucide-react";
+import { ChevronDown, LogOut, Mic, Target, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TEST_IDS } from '@/constants/testIds';
 import { NAV_SECTIONS, navItemClassName, normalizeNavPath, resolveNavSectionId } from "@/config/navSections";
@@ -21,6 +21,13 @@ import { IssueReportDialog } from "@/components/IssueReportDialog";
 import { FaqMenu } from "@/components/faq/FaqMenu";
 import { toast } from '@/lib/toast';
 import { useSessionStore } from "@/stores/useSessionStore";
+import { usePracticeSurface } from "@/components/practice/PracticeSurfaceContext";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const Navigation = () => {
   const location = useLocation();
@@ -28,10 +35,21 @@ const Navigation = () => {
   const { session, signOut } = useAuthProvider();
   const { data: profile } = useUserProfile();
   const { data: usageLimit } = useUsageLimit();
-  // Issue reports are anonymous and never carry the auto transcript (Option C): the user types the
-  // exact snippet they want to share inside the dialog. We pass only non-PII session context.
+  // Feedback carries an opaque account reference for support follow-up and never carries transcript
+  // or audio. Product analytics receives only content-free feedback state through the governed boundary.
   const reportSttMode = useSessionStore(state => state.sttMode);
   const reportRuntimeState = useSessionStore(state => state.runtimeState);
+  // #1416 — WHICH PRODUCT IS OPEN IS NOT THE SAME QUESTION AS WHICH ROUTE IS OPEN.
+  //
+  // Open Mic and Focus Points share `/session`; `SessionPage` tells them apart by
+  // `Boolean(activeObjectiveBrief)`, and `/practice` runs Focus Points setup in a modal after
+  // stripping its own `?product=` parameter. So route alone answers neither "is a product current"
+  // (Products stayed unhighlighted through the whole Focus Points flow, with Home lit instead) nor
+  // "did selecting Open Mic change anything" (it navigated to the route the user was already on).
+  const activeObjectiveBrief = useSessionStore(state => state.activeObjectiveBrief);
+  const isListening = useSessionStore(state => state.isListening);
+  const setActiveObjectiveBrief = useSessionStore(state => state.setActiveObjectiveBrief);
+  const { surface: practiceSurface } = usePracticeSurface();
   const [isUpgrading, setIsUpgrading] = useState(false);
   const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
   // A confirmed paid Pro (profile says 'pro' AND carries Stripe/subscription evidence) must never be
@@ -90,8 +108,8 @@ const Navigation = () => {
       className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background/95 p-2 backdrop-blur-xl surface-shadow lg:hidden"
     >
       <div className="flex justify-around items-center">
-        {NAV_SECTIONS.map((item) => {
-          const isActive = activeSectionId === item.id;
+        {NAV_SECTIONS.filter((item) => item.id !== 'session').map((item) => {
+          const isActive = activeSectionId === item.id && !isFocusPointsActive;
           return (
             <Button
               key={item.id}
@@ -108,10 +126,66 @@ const Navigation = () => {
             </Button>
           );
         })}
+        <Button variant="ghost" size="sm" asChild className="flex h-16 flex-col">
+          <Link to="/session" data-testid="nav-mobile-open-mic-link" onClick={selectOpenMic} aria-current={isOpenMicActive ? 'page' : undefined}>
+            <Mic className="mb-1 h-5 w-5" aria-hidden="true" />
+            <span className="text-xs">Open Mic</span>
+          </Link>
+        </Button>
+        <Button variant="ghost" size="sm" asChild className="flex h-16 flex-col">
+          <Link to="/practice?product=focus-points" data-testid="nav-mobile-focus-points-link" aria-current={isFocusPointsActive ? 'page' : undefined}>
+            <Target className="mb-1 h-5 w-5" aria-hidden="true" />
+            <span className="text-xs">Focus Points</span>
+          </Link>
+        </Button>
       </div>
     </nav>
   );
 
+
+  const isOnSessionRoute = activeSectionId === 'session';
+  const isFocusPointsActive = practiceSurface === 'objective_setup'
+    || (isOnSessionRoute && Boolean(activeObjectiveBrief));
+  const isOpenMicActive = isOnSessionRoute && !activeObjectiveBrief;
+  const isProductActive = isFocusPointsActive || isOpenMicActive;
+
+  // Choosing Open Mic must actually leave Focus Points. The brief outlives both same-route
+  // navigation and remounts, so without retiring it the user lands back in the product they just
+  // asked to leave — and nothing on screen explains why.
+  //
+  // #1416 — BUT NOT IN THE MIDDLE OF A TAKE.
+  //
+  // Retiring the brief while Focus Points is recording relabels the take that is already running:
+  // the heading, the points rail and the coverage card all switch to Open Mic while the microphone
+  // keeps capturing a session that was started as Focus Points, and will be saved and evaluated as
+  // one. The user would be told they are in a product they are not in, and the recording's own
+  // start-boundary attribution would disagree with what they can see.
+  //
+  // So the switch DEFERS. The take stays coherently Focus Points to its end, and the stop seam —
+  // which already retires the brief once coverage is finalized — is where the change lands. The
+  // pending switch is announced rather than left silent, because a control that appears to do
+  // nothing is its own defect.
+  const switchDeferred = isListening && Boolean(activeObjectiveBrief);
+  const [openMicPending, setOpenMicPending] = useState(false);
+  const selectOpenMic = () => {
+    if (switchDeferred) { setOpenMicPending(true); return; }
+    setActiveObjectiveBrief(null);
+  };
+  // #1416 P2-1 — APPLY the deferred switch when the take ends; do not just forget it.
+  //
+  // This used to clear the pending flag on \`!isListening\` and nothing else, which was only correct
+  // because the stop seam happens to retire the brief on the CLEAN path. A take that ends any other
+  // way — failed finalization, an unresolved recording, a cancelled attempt — leaves the brief bound,
+  // so the confirmation the user was given ("Open Mic starts after this take") vanished and Focus
+  // Points silently continued. The user asked once, was told it would happen, and it did not.
+  //
+  // The switch is now applied here, at the moment the take ends, whatever ended it.
+  useEffect(() => {
+    if (isListening) return;
+    if (!openMicPending) return;
+    setActiveObjectiveBrief(null);
+    setOpenMicPending(false);
+  }, [isListening, openMicPending, setActiveObjectiveBrief]);
 
   const isFreeUser = Boolean(session && !hasActiveProductAccess);
   // These route checks used raw pathname comparisons, which disagreed with the router:
@@ -154,8 +228,8 @@ const Navigation = () => {
             {/* Navigation Items */}
             {session && (
               <nav aria-label="Primary" className="hidden items-center space-x-1 lg:flex">
-                {NAV_SECTIONS.map((item) => {
-                  const isActive = activeSectionId === item.id;
+                {NAV_SECTIONS.filter((item) => item.id !== 'session').map((item) => {
+                  const isActive = activeSectionId === item.id && !isFocusPointsActive;
                   return (
                     <Link
                       key={item.id}
@@ -173,6 +247,35 @@ const Navigation = () => {
                     </Link>
                   );
                 })}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className={navItemClassName(isProductActive)}
+                      data-testid="nav-products-button"
+                      aria-label="Products"
+                      aria-current={isProductActive ? 'page' : undefined}
+                    >
+                      <Mic className="h-4 w-4" aria-hidden="true" />
+                      <span>Products</span>
+                      <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="center" className="min-w-48" opaque>
+                    <DropdownMenuItem asChild>
+                      <Link to="/session" data-testid="nav-products-open-mic" onClick={selectOpenMic}>
+                        <Mic className="mr-2 h-4 w-4" aria-hidden="true" />
+                        Open Mic
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to="/practice?product=focus-points" data-testid="nav-products-focus-points">
+                        <Target className="mr-2 h-4 w-4" aria-hidden="true" />
+                        Focus Points
+                      </Link>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </nav>
             )}
 
@@ -189,6 +292,64 @@ const Navigation = () => {
                     sttMode={reportSttMode}
                     runtimeState={reportRuntimeState}
                   />
+                  {openMicPending && (
+                    <span
+                      role="status"
+                      data-testid="nav-open-mic-pending"
+                      /*
+                        #1416 — VISIBLE ON THE PHONE, WHICH IS WHERE THE SWITCH IS HARDEST TO READ.
+                        This carried `hidden sm:inline`, so below 640px the deferred switch was
+                        announced to nobody: the mobile user tapped Open Mic, the take correctly
+                        stayed Focus Points, and the control appeared to do nothing — the exact
+                        confusion deferring was meant to prevent, now silent on the surface with the
+                        least room for the user to work it out.
+                        It sits in the header actions row, which is the one strip that is always
+                        present on a session route and never overlaps the mic card, transcript or
+                        Stop control below it. It shrinks rather than hides, and `max-w` keeps it
+                        from crowding the actions beside it at 320px.
+                      */
+                      className="inline max-w-[9.5rem] truncate text-[11px] font-semibold leading-tight text-[#5b6472] sm:max-w-none sm:text-xs"
+                    >
+                      Open Mic starts after this take
+                    </span>
+                  )}
+                  {/* #1416 — the product switch must survive the session route on a phone.
+                      The bottom bar is removed on /session so it cannot cover the recording UI, and
+                      the desktop Products menu is `hidden lg:flex`. That left a phone user who
+                      entered Open Mic with no way to reach Focus Points except by going back
+                      through Home. This control lives in the always-visible header actions, so it
+                      overlaps neither the recording surface nor the bottom bar, and it appears only
+                      where the bottom bar is absent. */}
+                  {isOnSessionRoute && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-sm font-semibold text-foreground lg:hidden"
+                          data-testid="nav-mobile-products-button"
+                          aria-label="Products"
+                          aria-current={isProductActive ? 'page' : undefined}
+                        >
+                          <Mic className="h-4 w-4" aria-hidden="true" />
+                          <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="center" className="min-w-48" opaque>
+                        <DropdownMenuItem asChild>
+                          <Link to="/session" data-testid="nav-mobile-products-open-mic" onClick={selectOpenMic}>
+                            <Mic className="mr-2 h-4 w-4" aria-hidden="true" />
+                            Open Mic
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link to="/practice?product=focus-points" data-testid="nav-mobile-products-focus-points">
+                            <Target className="mr-2 h-4 w-4" aria-hidden="true" />
+                            Focus Points
+                          </Link>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                   {/* FAQ is an INLINE dropdown, not a page — it opens on whatever page the user is on
                       (including /session) and never navigates away. It lives in the always-visible
                       header actions so it is reachable on every viewport, unlike the desktop-only

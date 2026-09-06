@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import PracticePage from '@/pages/PracticePage';
 import { IssueReportDialog } from '@/components/IssueReportDialog';
@@ -55,28 +55,23 @@ function renderApp(initial = '/practice') {
 }
 
 const banner = () => screen.getByTestId('issue-report-page-context');
-const areaValues = () =>
-  within(screen.getByTestId('issue-report-area')).getAllByRole('option').map((o) => (o as HTMLOptionElement).value);
 
 async function openReport() {
   fireEvent.click(screen.getByTestId('nav-report-issue-button'));
-  await screen.findByTestId('issue-report-title');
+  await screen.findByTestId('issue-report-description');
 }
 
 // Open → assert visible label + areas → fill → submit; returns the captured metadata.
-async function reportAndCapture(expectedLabel: RegExp, expectedAreas: string[]) {
+async function reportAndCapture(expectedLabel: RegExp, _expectedAreas: string[]) {
   await openReport();
   expect(banner()).toHaveTextContent(expectedLabel);
-  expect(areaValues()).toEqual(expectedAreas);
-  // #1404: Message is required before this form can submit.
-  fireEvent.change(screen.getByTestId('issue-report-feedback-kind'), { target: { value: 'issue' } });
-  fireEvent.change(screen.getByTestId('issue-report-title'), { target: { value: 'A clear title' } });
+  fireEvent.click(screen.getByTestId('feedback-type-broke'));
   fireEvent.change(screen.getByTestId('issue-report-description'), { target: { value: 'A description with enough length.' } });
   fireEvent.click(screen.getByTestId('issue-report-submit'));
   await waitFor(() => expect(submit).toHaveBeenCalled());
   const calls = submit.mock.calls;
   const meta = calls[calls.length - 1][0].metadata;
-  await waitFor(() => expect(screen.queryByTestId('issue-report-title')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByTestId('issue-report-description')).not.toBeInTheDocument());
   return meta;
 }
 
@@ -98,7 +93,6 @@ describe('Report Issue — /practice surface attribution (chooser surface)', () 
     expect(await screen.findByTestId('session-marker')).toBeInTheDocument();
     await openReport();
     expect(banner()).toHaveTextContent(/Session · Speaking/);
-    expect(areaValues()).toContain('transcription');
   });
 
   it('report persistence succeeds even when the analytics transport throws (persistence ⟂ telemetry)', async () => {
@@ -126,11 +120,10 @@ describe('#1404 Share Feedback — user journey across both products', () => {
     vi.mocked(toast.error).mockClear();
   });
 
-  async function shareFeedback(kind: 'issue' | 'comment', title: string, body: string) {
+  async function shareFeedback(kind: 'issue' | 'comment', _title: string, body: string) {
     fireEvent.click(screen.getByTestId('nav-report-issue-button'));
-    await screen.findByTestId('issue-report-title');
-    fireEvent.change(screen.getByTestId('issue-report-feedback-kind'), { target: { value: kind } });
-    fireEvent.change(screen.getByTestId('issue-report-title'), { target: { value: title } });
+    await screen.findByTestId('issue-report-description');
+    fireEvent.click(screen.getByTestId(kind === 'issue' ? 'feedback-type-broke' : 'feedback-type-praise'));
     fireEvent.change(screen.getByTestId('issue-report-description'), { target: { value: body } });
     fireEvent.click(screen.getByTestId('issue-report-submit'));
     await waitFor(() => expect(submit).toHaveBeenCalled());
@@ -149,7 +142,7 @@ describe('#1404 Share Feedback — user journey across both products', () => {
     expect(arg.metadata.pageKey).toBe('session');
     expect(arg.metadata.canonicalRoute).toBe('/session');
     // The user gets confirmation, and it does not misname their message.
-    expect(toast.success).toHaveBeenCalledWith('Feedback submitted');
+    expect(toast.success).toHaveBeenCalledWith('Thanks — we’ve got it.');
     expect(toast.error).not.toHaveBeenCalled();
   });
 
@@ -163,7 +156,7 @@ describe('#1404 Share Feedback — user journey across both products', () => {
     // Focus Points is its own surface: a comment from here must not be attributed to Open Mic.
     expect(arg.metadata.practiceSurface).toBe('objective_setup');
     expect(arg.metadata.productMode).not.toBe('freeform');
-    expect(toast.success).toHaveBeenCalledWith('Feedback submitted');
+    expect(toast.success).toHaveBeenCalledWith('Thanks — we’ve got it.');
     expect(toast.error).not.toHaveBeenCalled();
   });
 
@@ -187,7 +180,6 @@ describe('#1404 Share Feedback — user journey across both products', () => {
     fireEvent.click(screen.getByTestId('practice-card-objective'));
     submit.mockRejectedValueOnce(new Error('network'));
     await shareFeedback('comment', 'Focus Points note', 'A comment that will fail to send.');
-    await waitFor(() => expect(toast.error).toHaveBeenCalled());
-    expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/could not be submitted/i));
+    expect(await screen.findByRole('alert')).toHaveTextContent('That didn’t go through. Try again?');
   });
 });

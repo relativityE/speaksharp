@@ -22,10 +22,10 @@
 # "retention". A guard that cannot tell a description of a defect from the defect is not a guard.
 #
 # So state lives here, in fixed fields, and prose stays prose.
-baseline: 97f1c0b5cf9fdc3c9a28ccd5a640de432c3b158c
+baseline: 55912522ebf4aa11672cdc42413e557b408f3f25
 deployed-release: c4665156212dd03cd6d7b91c49bed90dea868b5a
 verified-on: 2026-09-05
-release-blocker: model-selection
+release-blocker: production-journey-recovery
 retention-campaign: off-critical-path
 task-1304-1: merged
 task-1304-2: merged
@@ -34,33 +34,37 @@ task-1304-3b: merged
 task-1304-3c: merged
 task-1304-4: merged
 task-1360-recovery-copy: merged
-lane-stage-b: not-started
-lane-telemetry: not-started
-lane-billing: not-started
-lane-1258-journey: not-started
+lane-stage-b: off-critical-path
+lane-telemetry: returned
+lane-retention-copy: open
+lane-billing: off-critical-path
+lane-1258-journey: returned
 -->
 
-## Current baseline & production posture
+## Disposition
 
-Four distinct identities — do not conflate them:
+**HOLD — the real Production journeys failed and are not ready for another PO test.**
 
 | Identity | Value | How to verify |
 |---|---|---|
-| **Repository `main` (moving branch pointer)** | `97f1c0b5cf9fdc3c9a28ccd5a640de432c3b158c` (#1420 reviewed MVP financial planning model) at 2026-09-05 | **Moving** — verify the live pointer directly (`git rev-parse origin/main`); do not treat this SHA as fixed. |
+| **Repository `main` (moving branch pointer)** | `55912522ebf4aa11672cdc42413e557b408f3f25` (#1419 attempt ownership; #1416 and #1420 merged the same day) at 2026-09-05 | **Moving** — verify the live pointer directly (`git rev-parse origin/main`); do not treat this SHA as fixed. |
 | **Last product-behavior release** | `0e2fffd1` (#1366, #1360) — truthful recovery copy. It changes `SessionPage` and `UnresolvedRecoveryBanner`, both shipped, so it IS a product-behavior release. The prior one was `781e8ad6` (#1355). | Apply the criterion below; do not eyeball the PR title. |
 | **Later test/evidence commits (NOT product-behavior deployments)** | `574422ed` (#1356 scorer), `5f378898` (#1357 specs), `7db695f4` (#1346 3A), `20f3ce85` (#1362 3B), `d702d8c5`/`2f1152c0` (#1363/#1364 corpus), `069dc9e2` (#1359 retention contract) — all under `tests/**` or `scripts/**` | These change **no** deployed product behavior. |
 | **Deployed product release (verified)** | `window.__APP_RELEASE__ = c4665156212dd03cd6d7b91c49bed90dea868b5a`, read from `https://speaksharp-public.vercel.app/` on **2026-09-04**. Production == `main` HEAD at this read, but that is **not** guaranteed by auto-deploy alone: a Vercel "Ignored Build Step" can leave production behind `main`, so the deployed SHA must be **read**, not inferred. | Re-read `window.__APP_RELEASE__` from the deployed page with a cache-busting query and `Cache-Control: no-cache`, then update the value + date here. |
 
-**Release-identity mechanism (per #1027):** the deployed `index.html` injects an inline `window.__APP_RELEASE__ = <VERCEL_GIT_COMMIT_SHA>`, surfaced at runtime as `window.__APP_RUNTIME_CONFIG__.release`. The old `__BUILD_ID__` JS `define` was **removed** in #1027 (it rotated chunk hashes every deploy → stale-chunk crashes); Sentry release is set at **runtime** (`release.inject:false`). Verify SHA-equality by reading `window.__APP_RELEASE__` from the deployed `index.html` — see [frontend/vite.config.mjs](../frontend/vite.config.mjs) and [ARCHITECTURE.md](ARCHITECTURE.md).
+The accepted fixes are not yet shipped. Green automated tests and prior exact-head CI do not override the human result.
 
-**Historical frozen tag:** `v0.9.0-rc4` (annotated) peels to `df909805…` — a **historical, frozen** release point, **NOT** the current `main`/product baseline.
+The repository currency guard verifies committed-file consistency and ancestry only; it cannot read a moving GitHub branch or Production deployment. Those two facts must be re-read externally and recorded here.
 
-| Item | Value |
+**No Product Owner merge authorization is currently holding up a completed PR.** The blocker is implementation and independent review. When a PR becomes complete and safe, PM must say explicitly if PO authorization is the only remaining step.
+
+## What is merged
+
+| Item | Status |
 |---|---|
-| Deployment | Auto-deploy on push to `main`. Live gate posture is read from the required workflows on `main` (**CI - Test Audit**, **RC Gates** incl. live Gate 3 DAST, **OSV SCA — Gate 4**, **Production Canary**, **Ops Health**, **Billing Freeze**, **DB grant**) — see [RELEASE_PROCESS.md](RELEASE_PROCESS.md); do not copy run IDs here. |
-| Payments | **Closed.** Billing is independently fail-closed in frontend AND backend — **either switch OFF keeps checkout closed**; the billing-freeze check proves CLOSED. Opening paid enrollment requires ALL of: `VITE_PAYMENTS_ENABLED=true`, `PAYMENTS_ENABLED=true`, aligned live Stripe keys, and webhook/price/entitlement verification. A separate future sequence, not a pending test. |
-| CORS | Exact-origin CORS deployed and live-DAST proven (rc-gates Gate 3; allowlist in [backend/supabase/functions/_shared/cors.ts](../backend/supabase/functions/_shared/cors.ts)). |
-| Private v4 | **OFF.** The `VITE_PRIVATE_STT_V4_DISABLED` build-time hard kill is **authoritative** — when set it disables v4 unconditionally. PostHog flags are a **secondary** rollout control and **cannot override** the hard kill. |
+| #1414 / #1390 Preview mechanics | Merged historically. The custom Preview workflow is not the active test path and must not be dispatched. No revert is authorized merely to remove dormant code. |
+| #1413 / #1403 human observer proof | Merged historically. It did not provide complete event-level evidence for the 4 Sep session; reopened #1259 supersedes it as the observer contract. |
+| Combined-main CI | `33865704786` completed successfully at `c4665156`: 18 substantive jobs succeeded; only `draft-checks` skipped as expected for dispatch. |
 
 ## Current merged product posture
 - **`/practice` default entry (#1022):** authenticated home is `/practice` (#1025 hotfix; #1026 canary asserts it); Guided is surfaced-but-unavailable; the rollout flag is retired.
@@ -178,37 +182,56 @@ Everything else — `tests/**`, `scripts/**`, `backend/supabase/migrations/**` (
 
 | Track | Status |
 |---|---|
-| Controlled paid Early Access (enrollment currently disabled for this cohort) | **Underway** — invite-only; paid enrollment disabled (both switches OFF), no Cloud for Free, v4 off. Re-enabling requires the full activation contract + Prod Owner authorization. Any confirmed P0/P1 pauses expansion. |
-| Paid public launch (live checkout) | **NO-GO** — requires ALL of `VITE_PAYMENTS_ENABLED=true` + `PAYMENTS_ENABLED=true` + aligned live Stripe keys + webhook/price/entitlement verification. Either switch OFF keeps checkout closed. |
-| Broad public launch | **NO-GO** — separately gated. |
+| Repository `main` | `c4665156212dd03cd6d7b91c49bed90dea868b5a`, read from GitHub on 2026-09-04 |
+| Production | `window.__APP_RELEASE__ = c4665156212dd03cd6d7b91c49bed90dea868b5a`, read from the canonical Production app on 2026-09-04 |
 
-## Historical evidence (pointers, not current status)
-- **Attribution history sanitation** (2026-07-15): historical SHA crosswalk + provenance in [the retained attribution crosswalk](evidence/retained/attribution-sanitation-crosswalk.md). Historical PostHog `release_sha` values retain OLD SHAs (immutable telemetry) — correlate via the crosswalk.
+## What the Production test established
 
-## Evidence contract + named STT gate artifacts
-The stable **Evidence Freshness Contract** (latest complete passing run; a newer failing run returns the parent gate to red; `Last updated by: [initials] [date] [artifact path]`) and the named STT gate artifacts live in **[RELEASE_PROCESS.md](RELEASE_PROCESS.md)**. This file keeps only current run/status posture.
+Only `v2:base.en` was runnable. Open Mic and Focus Points both failed.
 
-## Update rule
-Only this file receives changing release/deployment status, latest run IDs, blocker state, or go/no-go decisions. Other Markdown files should be stable contracts, procedures, tester copy, or archived evidence.
+| Finding | Production evidence |
+|---|---|
+| Cold mic intent did not auto-start after model preparation | User experienced it; runtime/PostHog showed long READY→RECORDING gaps. |
+| Model initialized repeatedly | PostHog and runtime timeline showed multiple setup cycles per journey. |
+| Stop control and waveform were not the accepted interaction | User-visible; source confirms black Stop and old waveform geometry. |
+| Provisional transcript churn was distracting | User-visible; content-safe stability telemetry was absent. |
+| Finalized transcript disappeared after save/teardown | Runtime observer saw non-empty final text become empty; reproduced in both products. |
+| Focus Points reported false negatives and miscounted retry | Final transcript contained covered material while UI reported 1/4; evaluator receipts were absent. |
+| Practice Loop was missing | Neither required result appeared: one “What went well” suggestion and one “What to improve” suggestion; request-vs-render telemetry was absent. |
+| Cross-product navigation was a dead end | No direct Products → Open Mic / Focus Points path. |
+| Share feedback could not be sent | PO entered Title twice; state disappeared and Send remained disabled. No successful submission occurred. |
+| Retention copy advertises an implementation count | Current newest-two behavior remains unchanged; customer-facing copy must describe availability and expiry without promising a numeric count. |
+| Filler/clarity claim was untrustworthy | PostHog saved filler count 0 with high clarity after spoken fillers were stripped upstream. |
+| Model comparison could not run | Production had no controlled access to v4 or Moonshine. |
 
----
+## Current execution
 
-## #1367 documentation reconciliation (2026-08-29)
+- **#1259** reached remote head `604a89ae7b13f633fb71be0bb7b20f6d867b0c68` with exact-head CI `33912405700` dispatched. Independent PM review returned that head: journey/attempt authority, URL privacy, transcript digest privacy, several event families, stage truth, mic-summary lifecycle, and public-bundle test-account configuration remain blockers. It is not accepted or merge-authorized; real Production PostHog readback remains required after correction.
+- **#1415** owns cold one-click start, real waveform/red Stop, provisional stability, and retained completed transcript.
+- **#1407** owns the complete truthful Focus Points setup/evaluation/retry journey.
+- **#1386** owns the visible and measurable Practice Loop.
+- **#1404** owns Products navigation and the exact approved Share feedback redesign.
+- **#1117** is closed not planned; its single-transcript proposal is superseded. **#1416** owns the non-numeric retention-copy reconciliation while current newest-two behavior remains unchanged.
+- **#1417** owns truthful filler/clarity coaching at the real STT boundary.
+- **#1263 / #1304 / #1390** own all-three candidate access and real Production downselection.
+- **#1258** remains the final deployed two-product qualification.
 
-Docs-only; no change to release posture, gates, or the approved MVP sequence.
+## Testing posture
 
-The pre-consolidation non-archive Markdown surface was classified in the dated [`DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md`](./evidence/retained/DOCUMENTATION_RECONCILIATION_LEDGER_2026-08-29.md); the current active root is enforced as exactly the approved 14 documents by
-`tests/config/documentationLedger.test.ts`.
+Human testing is paused. Dev must first:
 
-Product-status corrections that affect what we may claim:
+1. complete and independently review the grouped fixes;
+2. deploy them to the canonical Production URL under separate PO authorization;
+3. prove #1259 event-level readback end to end;
+4. run both corpora against each requested/observed candidate;
+5. report user-visible results and PostHog receipts.
 
-- **Personal Progress and Focus Points coverage ship** and are user-reachable; the broader executive-rehearsal use case (a canonical use case of Focus Points, not a separate product)
-  experience does not, and Pro-interest capture does not.
-- **The universal score is fully retired from the rendered UI** (0 live consumers); still computed in 3
-  shadow-telemetry paths.
-- **Transcript text leaves the device and is stored** (bounded to the two newest saved sessions), and reaches
-  Google Gemini on an explicit user coaching request. Only **audio** is device-local.
-- **No moat is proven**, and there is **no user research** — no willingness-to-pay, conversion, retention or CAC
-  evidence. Billing is implemented but not activated; revenue is zero.
-- **GAP-1:** canonical #3 `ROADMAP.md` does not exist. Its deferral named #1272, which **closed without producing
-  it**; the live successor is **#1257**. **13 of 14** canonical documents exist.
+The PO then repeats the same Production journeys. Missing event families, unavailable candidates, false coaching claims, or unreadable saved work are HOLD.
+
+Model qualification must preserve the earlier runtime lesson: v4 int8/q8 failures on the pre-fix `onnxruntime-web` build were an ONNX Runtime defect tracked by upstream #28306/#28326, not a candidate verdict. The 459-word preflight protected the 600-utterance run from an audio-decoder failure. A fallback is not "second-lowest WER"; it must be dependable across more devices and fail differently from the primary.
+
+## Non-active paths
+
+- No Preview, local/internal build, test branch, `VITE_INTERNAL_BUILD`, `VERCEL_ORG_ID`, or alternate URL is required or approved for the downselection.
+- No unrelated dashboard, deployment system, speculative feature, or broad refactor belongs in the recovery work.
+- Billing and broad tester activity remain behind the product recovery and final #1258 decision.

@@ -461,9 +461,17 @@ describe('#1258 currency guard — release status and roadmap must not contradic
     // Trading a false failure for a false pass is strictly worse than the defect being fixed.
     try {
       execFileSync('git', ['cat-file', '-e', `${status.baseline}^{commit}`], { stdio: 'pipe' });
+      // From `main`'s independent fix for this same defect, kept: the baseline must be a real
+      // ANCESTOR, not merely a commit that exists somewhere in the repository.
+      //
+      // Its distance half is deliberately NOT kept. That version proves ancestry and stops, which
+      // passes the superseded `5f378898` — an ancestor by definition — and so removes the staleness
+      // detection this guard is named for. Ancestry plus mainline distance keeps both properties:
+      // a long-lived branch is not misclassified, and a genuinely stale board still fails.
+      execFileSync('git', ['merge-base', '--is-ancestor', status.baseline, 'HEAD'], { stdio: 'pipe' });
     } catch (error) {
       throw new Error(
-        `recorded baseline ${status.baseline} is not a commit in this repository: `
+        `recorded baseline ${status.baseline} is not an ancestor of this checkout: `
         + `${(error as Error).message.split('\n')[0]}`,
       );
     }
@@ -492,6 +500,9 @@ describe('#1258 currency guard — release status and roadmap must not contradic
     // to catch.
     expect(distance, `baseline is ${distance} commits behind origin/main — currentize the SSOTs`)
       .toBeLessThanOrEqual(25);
+    // From `main`: the file must SAY that it cannot read the moving authorities, so a reader is
+    // not misled into thinking this local guard verified GitHub or Production.
+    expect(STATUS).toMatch(/cannot read a moving GitHub branch or Production deployment/i);
   });
 
   it('the block agrees with the CURRENT-baseline table row a reader actually consults', () => {
@@ -533,7 +544,7 @@ describe('#1258 currency guard — release status and roadmap must not contradic
   it('retention is off the critical path, and is NOT the stated release blocker', () => {
     expect(status['retention-campaign']).toBe('off-critical-path');
     expect(status['release-blocker']).not.toMatch(/retention/);
-    expect(status['release-blocker']).toBe('model-selection');
+    expect(status['release-blocker']).toBe('production-journey-recovery');
   });
 
   it('records the STT chain actually executing, including the ORT requalification', () => {

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildIssueReportMetadata, issueReportService } from '@/services/issueReportService';
 import { resolvePageContext } from '@/services/pageContext';
@@ -6,6 +8,21 @@ import type { AppRuntimeConfig } from '@/config/appRuntimeConfig';
 import { clearPrivateRecordingIdentity, setPrivateTelemetryContext } from '@/services/transcription/privateTelemetry';
 
 const UUID_META = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+
+describe('Share feedback idempotency migration', () => {
+  it('backs the PostgREST onConflict target with an unconditional unique index', () => {
+    const sql = readFileSync(resolve(
+      process.cwd(),
+      'backend/supabase/migrations/20260904150000_share_feedback_redesign.sql',
+    ), 'utf8');
+    const definition = sql.match(
+      /CREATE UNIQUE INDEX IF NOT EXISTS user_issue_reports_idempotency_key_unique[\s\S]*?;/i,
+    )?.[0] ?? '';
+
+    expect(definition).toContain('ON public.user_issue_reports (idempotency_key)');
+    expect(definition).not.toMatch(/\bWHERE\b/i);
+  });
+});
 
 // Build a full runtime config whose raw `url` embeds whatever sensitive segment a test wants to prove
 // never survives into persisted metadata.
@@ -18,7 +35,93 @@ const setRuntimeConfig = (url: string) => {
   (window as unknown as { __APP_RUNTIME_CONFIG__?: AppRuntimeConfig }).__APP_RUNTIME_CONFIG__ = runtimeConfigWithUrl(url);
 };
 
+describe('#1416 the browser version must belong to the classified browser', () => {
+  const withUserAgent = (ua: string) => {
+    Object.defineProperty(window.navigator, 'userAgent', { value: ua, configurable: true });
+  };
+  const original = navigator.userAgent;
+  afterEach(() => { withUserAgent(original); });
+
+  it('reads Edge from Edg/, not the Chrome token that precedes it', () => {
+    // A real Edge user agent carries BOTH, Chrome first, with DIFFERENT versions. Taking the first
+    // match labelled the row Edge and stamped it 120 — a plausible browser and a plausible version,
+    // so nothing looks wrong and a support query for Edge 121 quietly finds nothing.
+    withUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+      + 'Chrome/120.0.0.0 Safari/537.36 Edg/121.0.2277.83');
+
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Edge');
+    expect(meta.browserVersion).toBe('121');
+    expect(meta.browserVersion).not.toBe('120');
+  });
+
+  it('classifies Android Edge from EdgA/ and takes ITS version, not Chrome/', () => {
+    // Mobile Edge announces itself last and only after the engine it is compatible with. Recognising
+    // only `Edg/` reported Android Edge as Chrome, with Chrome's version — so the two platforms where
+    // a browser-specific defect is most likely to differ were the two the data could not tell apart.
+    withUserAgent('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) '
+      + 'Chrome/120.0.0.0 Mobile Safari/537.36 EdgA/121.0.2277.83');
+
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Edge');
+    expect(meta.browserVersion).toBe('121');
+    expect(meta.browserVersion).not.toBe('120');
+  });
+
+  it('classifies iOS Edge from EdgiOS/ ahead of the CriOS and Version tokens beside it', () => {
+    withUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 '
+      + '(KHTML, like Gecko) CriOS/120.0.6099.119 Version/17.0 EdgiOS/121.0.2277.83 Mobile/15E148 Safari/605.1.15');
+
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Edge');
+    // Three different versions are present on purpose: Edge's must win over both compatibility tokens.
+    expect(meta.browserVersion).toBe('121');
+    expect(meta.browserVersion).not.toBe('120');
+    expect(meta.browserVersion).not.toBe('17');
+  });
+
+  it('reads Chrome from Chrome/ when no Edge token is present', () => {
+    withUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+      + 'Chrome/120.0.0.0 Safari/537.36');
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Chrome');
+    expect(meta.browserVersion).toBe('120');
+  });
+
+  it('reads Safari from Version/, not the WebKit build in Safari/', () => {
+    withUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 '
+      + '(KHTML, like Gecko) Version/17.4 Safari/605.1.15');
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Safari');
+    expect(meta.browserVersion).toBe('17');
+  });
+
+  it('reads Chrome on iOS from CriOS, not the Version token Safari also emits', () => {
+    withUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 '
+      + '(KHTML, like Gecko) CriOS/122.0.6261.89 Version/17.0 Mobile/15E148 Safari/604.1');
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Chrome');
+    expect(meta.browserVersion).toBe('122');
+  });
+
+  it('reports no version at all for an unclassified browser', () => {
+    // Better an absent field than a number lifted from whichever token happened to appear first.
+    withUserAgent('SomeCrawler/9.9 (compatible)');
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBe('Other');
+    expect(meta.browserVersion).toBeUndefined();
+  });
+});
+
 describe('buildIssueReportMetadata — page context + sanitization', () => {
+  it('stores coarse client information without persisting the raw user agent', () => {
+    const meta = buildIssueReportMetadata({ context: resolvePageContext('/session') });
+    expect(meta.browser).toBeTruthy();
+    expect(meta.os).toBeTruthy();
+    expect(meta).not.toHaveProperty('userAgent');
+    expect(JSON.stringify(meta)).not.toContain(navigator.userAgent);
+  });
+
   it('stores the sanitized canonical route TEMPLATE, never a concrete id/query/hash', () => {
     const context = resolvePageContext(`/analytics/${UUID_META}`);
     const meta = buildIssueReportMetadata({ context, issueArea: 'evidence', plan: 'pro', sttMode: 'private', runtimeState: 'idle' });
@@ -138,6 +241,7 @@ vi.mock('@/lib/logger', () => ({
 
 describe('issueReportService', () => {
   const insert = vi.fn();
+  const upsert = vi.fn();
   const select = vi.fn();
   const single = vi.fn();
 
@@ -146,11 +250,33 @@ describe('issueReportService', () => {
     single.mockResolvedValue({ data: { id: 'report-1' }, error: null });
     select.mockReturnValue({ single });
     insert.mockReturnValue({ select });
+    upsert.mockResolvedValue({ error: null });
     vi.mocked(getSupabaseClient).mockReturnValue({
-      from: vi.fn(() => ({ insert })),
+      from: vi.fn(() => ({ insert, upsert })),
     } as unknown as ReturnType<typeof getSupabaseClient>);
     (window as unknown as { __SS_PRIVATE_EVENTS__?: unknown[] }).__SS_PRIVATE_EVENTS__ = [];
     clearPrivateRecordingIdentity();
+  });
+
+  it('deduplicates a retried feedback draft at the database boundary', async () => {
+    const idempotencyKey = '130bbc6c-5d89-465d-91e6-51f5a5951e34';
+    await issueReportService.submit({
+      userId: 'user-1',
+      category: 'something_else',
+      severity: 'not_applicable',
+      title: 'Idea',
+      description: 'Add a clearer next step.',
+      pageUrl: '/practice',
+      metadata: { route: '/practice', feedback_kind: 'comment', feedback_type: 'idea' },
+      includeAudio: false,
+      idempotencyKey,
+    });
+
+    expect(insert).not.toHaveBeenCalled();
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotency_key: idempotencyKey }),
+      { onConflict: 'idempotency_key', ignoreDuplicates: true },
+    );
   });
 
   it('#1306: the persisted payload NEVER carries a transcript field, and the audio note is excluded unless opted in', async () => {

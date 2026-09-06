@@ -71,19 +71,6 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
     const title = isAfter ? 'What we detected' : 'Points to cover';
     const topicLabel = (topic ?? '').trim();
 
-    // §3 missed-point cause: derived from REAL coverage timestamps (the elapsed between coverage events),
-    // never a fabricated "you wasted N seconds". The last-covered point's landing time explains why the run
-    // reached the missed one late — then a forward action. Honest because both the point number and the
-    // timestamp are facts the coverage engine actually produced.
-    const coveredWithTime = rows.filter((r) => r.covered && r.coveredAtSec != null);
-    const lastCovered = coveredWithTime.length
-        ? coveredWithTime.reduce((a, b) => (a.coveredAtSec! >= b.coveredAtSec! ? a : b))
-        : null;
-    const lastCoveredNumber = lastCovered ? rows.indexOf(lastCovered) + 1 : null;
-    const missedCause = lastCovered
-        ? `Didn’t come up this time. Point ${lastCoveredNumber} ran to ${fmtClock(lastCovered.coveredAtSec!)} — leading with this one next attempt is the easy fix.`
-        : 'Didn’t come up this time — leading with this one next attempt is the easy fix.';
-
     return (
         <section
             data-testid="focus-points-rail"
@@ -146,7 +133,7 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                                     accusation — and the feedback is an ACTION for the retry, not a made-up cause. */}
                                 {isMissed && (
                                     <p className="mt-1 text-[13px] leading-snug text-[#8a5510]" data-testid={`focus-point-${i}-not-detected`}>
-                                        {missedCause}
+                                        We couldn’t detect this point in the transcript. You may have covered it in different words.
                                     </p>
                                 )}
                             </div>
@@ -165,7 +152,7 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
                             data-testid="focus-points-retry"
                             className="w-full rounded-lg bg-[#0a5f58] px-4 py-3 text-[15px] font-bold text-white hover:bg-[#094f49]"
                         >
-                            Retry these {rows.length} points
+                            Retry this set
                         </button>
                     )}
                     {onNewSet && (
