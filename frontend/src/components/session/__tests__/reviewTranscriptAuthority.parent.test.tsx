@@ -109,6 +109,8 @@ describe('#1416 F-05 the review transcript comes from the retained authority', (
                 {...after}
                 completedObjectivePoints={['renewal risk', 'pricing objection']}
                 reviewTranscript={{ kind: 'unavailable' }}
+                onRetryPoints={vi.fn()}
+                onNewSet={vi.fn()}
             />,
         );
 
@@ -121,8 +123,42 @@ describe('#1416 F-05 the review transcript comes from the retained authority', (
             expect(row).toHaveAttribute('data-status', 'pending');
         }
         expect(screen.queryByTestId('coverage-footer')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('coverage-pending-footer')).not.toBeInTheDocument();
         expect(screen.queryByTestId('focus-delivery-strip')).not.toBeInTheDocument();
+        expect(screen.getByTestId('focus-points-retry')).toBeInTheDocument();
+        expect(screen.getByTestId('focus-points-new-set')).toBeInTheDocument();
     });
+
+    it.each([
+        ['expired', /no longer stored/i],
+        ['not_captured', /no speech was captured/i],
+    ] as const)(
+        'CASUALTY: terminal %s transcript state makes no future-coverage promise and preserves actions',
+        (kind, noticeCopy) => {
+            render(
+                <SessionOverhaulView
+                    {...after}
+                    completedObjectivePoints={['renewal risk', 'pricing objection']}
+                    reviewTranscript={{ kind }}
+                    onRetryPoints={vi.fn()}
+                    onNewSet={vi.fn()}
+                />,
+            );
+
+            expect(screen.getByTestId('review-transcript-notice')).toHaveTextContent(noticeCopy);
+            expect(screen.queryByTestId('coverage-awaiting-transcript')).not.toBeInTheDocument();
+            expect(screen.queryByText(/coverage will appear/i)).not.toBeInTheDocument();
+            expect(screen.queryByTestId('coverage-pace')).not.toBeInTheDocument();
+            expect(screen.queryByText(/not detected/i)).not.toBeInTheDocument();
+            expect(screen.queryByTestId('coverage-footer')).not.toBeInTheDocument();
+            expect(screen.queryByTestId('coverage-pending-footer')).not.toBeInTheDocument();
+            expect(screen.getByTestId('focus-points-retry')).toBeInTheDocument();
+            expect(screen.getByTestId('focus-points-new-set')).toBeInTheDocument();
+            for (const row of screen.getAllByTestId(/^focus-point-\d+$/)) {
+                expect(row).toHaveAttribute('data-status', 'pending');
+            }
+        },
+    );
 
     it('CASUALTY: an UNWIRED parent shows no transcript, not working memory', () => {
         // No `reviewTranscript` prop at all — a parent that has not been migrated. It must not
