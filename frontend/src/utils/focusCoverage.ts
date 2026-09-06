@@ -103,6 +103,19 @@ export function deriveFocusCoverage(
     transcript: string,
     elapsedSeconds: number,
     latched?: Set<number>,
+    /**
+     * Whether this evaluation is the SETTLED one — the review verdict — rather than a live interim read.
+     *
+     * The evaluator runs on every render of a growing transcript. Emitting from all of them produced
+     * O(updates x points) rows that were shape-identical to the final verdict, so readback could not tell
+     * an interim read from the result; and it marked `evaluation_complete` on the FIRST during-state
+     * render, before `stop_intent`, which `markCompletionStage` then deduplicated permanently — leaving
+     * every completion receipt out of order with recording time attributed to evaluation.
+     *
+     * Defaults to false so a caller that has not thought about it emits nothing, rather than emitting a
+     * claim it did not mean to make.
+     */
+    settled = false,
 ): FocusCoverage {
     const cleanPoints = (points ?? []).filter((p) => (p ?? '').trim() !== '');
     const total = cleanPoints.length;
@@ -128,7 +141,8 @@ export function deriveFocusCoverage(
 
     // #1259 F06/F14/F18 — emitted HERE, where the ratio, the thresholds and the keyword count are all
     // in scope. Downstream only the verdict survives, and the verdict is precisely what is disputed.
-    emitCoverageEvaluation({
+    // Only for the SETTLED evaluation: see `settled`.
+    if (settled) emitCoverageEvaluation({
         pointsSupplied: (points ?? []).length,
         pointsEvaluated: total,
         coveredThreshold: COVERED_RATIO,
@@ -144,9 +158,10 @@ export function deriveFocusCoverage(
         })),
     });
 
-    // #1259 F16 — coverage has a verdict. Only meaningful in the completion chain; during a live
-    // session the evaluator runs continuously and the mark is taken once, by markCompletionStage.
-    markCompletionStage('evaluation_complete');
+    // #1259 F16 — coverage has a verdict, and the stage is the moment it SETTLES. Relying on
+    // `markCompletionStage` to take the mark once was the defect: the once it took was the first live
+    // render, which lands before the user has even pressed Stop.
+    if (settled) markCompletionStage('evaluation_complete');
 
     const coveredCount = rows.filter((r) => r.covered).length;
     const nextIndex = rows.findIndex((r) => !r.covered);

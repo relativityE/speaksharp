@@ -234,11 +234,15 @@ export const EVENT_SCHEMAS = Object.freeze({
     /**
      * F05 — a word count and a rendered surface are DIFFERENT FACTS. Production already carries
      * `session_saved.word_count`; nothing records whether the user could see those words. This pairs
-     * them at each stage that can lose the transcript. No text, ever — a digest, two counts, booleans.
+     * them at each stage that can lose the transcript. No text and no content digest, ever — two counts
+     * and booleans, one of which is the locally computed equality verdict.
      */
     transcript_authority: {
         stage: enumOf(['finalize', 'save', 'teardown', 'review_rendered']),
-        transcript_digest: slug(16),
+        // `transcript_digest` is deliberately ABSENT. It was a 32-bit unsalted content digest — enumerable
+        // for a short utterance and stable across accounts, so a fingerprint of what someone said. The
+        // allowlist fails closed, so removing it here means a caller that re-adds the field has it DROPPED
+        // rather than exported: the governance layer refuses the leak even if the emitter regresses.
         authoritative_word_count: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
         rendered_word_count: { kind: 'int', min: 0, max: 1_000_000 } as FieldRule,
         transcript_visibly_present: { kind: 'bool' } as FieldRule,
@@ -301,6 +305,15 @@ export const EVENT_SCHEMAS = Object.freeze({
      * bland" are the same screen. Recording the SOURCE of each half separates them.
      */
     practice_loop: {
+        // #1259 item 5 — WHICH PHASE this receipt describes. `rendered: bool` alone could not distinguish
+        // "the review was never requested" from "it was requested and failed" from "it succeeded and the
+        // user never saw it", and those have completely different fixes.
+        phase: enumOf(['requested', 'completed', 'failed', 'persisted', 'rendered']),
+        // Counts, not text. The product contract is exactly one What went well and one What to improve;
+        // a count proves the shape without carrying a single coaching word. -1 means "not applicable to
+        // this phase" (nothing has been produced yet at `requested`).
+        what_went_well_count: { kind: 'int', min: -1, max: 32 } as FieldRule,
+        what_to_improve_count: { kind: 'int', min: -1, max: 32 } as FieldRule,
         suggestions_present: { kind: 'bool' } as FieldRule,
         what_went_well_source: enumOf(['generated', 'fallback']),
         what_to_improve_source: enumOf(['generated', 'fallback']),

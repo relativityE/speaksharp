@@ -41,15 +41,33 @@ export type CtaAction = 'navigate' | 'start_recording' | 'submit' | 'none';
  * normalisation happens here, where the reason for it is visible, rather than showing up downstream
  * as an inexplicably dropped field.
  */
+/**
+ * A segment is kept ONLY if it looks like a route word. Everything else becomes `id`.
+ *
+ * This is deliberately an allowlist rather than a list of identifier shapes to catch. The previous
+ * version tested `/^[0-9a-f]{8,}$/i`, which requires hex ONLY — so a standard hyphenated UUID such as
+ * `9f2c4b1e-8a7d-4c3b-9e1f-2a3b4c5d6e7f` did not match, and `/analytics/:sessionId` exported the
+ * persisted session identifier into `journey_step.from_route` / `to_route`. The route rule permits
+ * hyphens, so nothing downstream caught it either.
+ *
+ * Enumerating the shapes an identifier can take is a losing game; the shapes a ROUTE WORD can take is
+ * a short, closed list. A lowercase word, optionally hyphenated. Anything else — digits, mixed case,
+ * hyphenated UUIDs, base64ish tokens, anything unforeseen — is redacted.
+ *
+ * The cost is that a legitimate segment containing a digit (`/v2/`) is redacted too. That is the right
+ * side to be wrong on: the loss is a little reporting fidelity, and the alternative is exporting an
+ * identifier we promised never to send.
+ */
+const ROUTE_WORD = /^[a-z][a-z-]*$/;
+
 export function normaliseRoute(pathname: string | null | undefined): string | null {
     if (!pathname || !pathname.startsWith('/')) return null;
     return pathname
         .split('?')[0]
         .split('#')[0]
         .split('/')
-        .map((seg) => (/^[0-9a-f]{8,}$/i.test(seg) || /^\d+$/.test(seg) ? ':id' : seg))
-        .join('/')
-        .replace(/:id/g, 'id');
+        .map((seg) => (seg === '' || ROUTE_WORD.test(seg) ? seg : 'id'))
+        .join('/');
 }
 
 export interface JourneyStepInput {

@@ -26,6 +26,7 @@ import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { areInternalRoutesEnabled } from '@/config/internalRoutes';
 import logger from '@/lib/logger';
 import { useRouteExitIntentRetirement } from '@/hooks/useRouteExitIntentRetirement';
+import { useJourneyBoundary } from '@/hooks/useJourneyBoundary';
 
 const showTestModeBadge =
   !import.meta.env.PROD &&
@@ -295,6 +296,10 @@ const App: React.FC = () => {
   // #1419 — the departing click is retired by the route-exit authority, extracted so a casualty can
   // drive the real hook rather than a copy of it in a test file.
   useRouteExitIntentRetirement(location.pathname);
+
+  // #1259 — a journey begins where the user enters a product. Without this, `beginJourney` had no
+  // production caller and one lazily minted journey covered every visit for the life of the tab.
+  useJourneyBoundary(location.pathname);
 
   const prevPathRef = React.useRef(location.pathname);
   const routeExitVersionRef = React.useRef(0);

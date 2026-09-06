@@ -24,6 +24,7 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { emitRecordingIntent } from '@/services/telemetry/journeyEvents';
+import { ensureRecordingAttempt, endRecordingAttempt } from '@/services/telemetry/journeyIdentity';
 import { markCompletionStage } from '@/services/telemetry/completionStages';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 import { emitRetentionObservation } from '@/services/telemetry/retentionObservation';
@@ -233,6 +234,11 @@ export const useSessionLifecycle = () => {
             // #1259 F16 — the chain starts at the USER'S Stop, not the runtime's. Everything
             // experienced as "waiting after I finished" is measured from here.
             markCompletionStage('stop_intent');
+            // The accepted STOP, emitted BEFORE the await for the same reason the start path does it:
+            // a stop that hangs must still be visible. Only starts reported `accepted`, so the schema
+            // supported `intent_kind: 'stop'` while Production never produced one — and the user action
+            // that anchors the whole post-Stop latency chain was absent from every decoded receipt.
+            reportIntent('accepted');
             // ✅ Master Invariant: stopRecording() is now handled 
             // by SpeechRuntimeController. It performs cleanup and DB ops.
 
@@ -285,20 +291,40 @@ export const useSessionLifecycle = () => {
                 // Read from the store at SAVE time rather than closing over the render-time value:
                 // adding `history` to this callback's dependencies would change when the handler is
                 // recreated, and the count that matters is the one at the moment of the save anyway.
-                const historyAtSave = useSessionStore.getState().history;
-                const bearing = (rows: typeof historyAtSave) =>
-                    rows.filter((sn) => hasReadableTranscript(
-                        (sn as { transcript_state?: string | null }).transcript_state,
-                    )).length;
-                emitRetentionObservation({
-                    transcriptBearingBefore: bearing(historyAtSave),
-                    // The list refreshes asynchronously after invalidation, so the after-count is not
-                    // knowable here. Null says so; a copied before-count would read as "nothing
-                    // expired", which is the flattering answer and the one that hides the defect.
-                    transcriptBearingAfter: null,
-                    contentFreeHistoryCount: historyAtSave.length,
-                    savedTranscriptState: null,
-                });
+                // #1259 F-retention — count SAVED SESSIONS, not transcript chunks.
+                //
+                // This read `useSessionStore.getState().history`, which is `HistorySegment[]` — the
+                // transcript segments of the recording just finished, `{ mode, text, timestamp }`. Those
+                // carry no `transcript_state`, so `hasReadableTranscript(undefined)` was false for every
+                // element and `transcript_bearing_before` was **always 0**, for every user, on every
+                // receipt. With `after` hard-coded null, `expired_count` was always null too. The event
+                // could not answer the one question it exists for: did retention remove anything?
+                //
+                // The saved sessions live in the `['sessionHistory']` query cache. Read generically so a
+                // keyed variant (user id, page) still resolves, and report null — never 0 — when the cache
+                // holds nothing, because "we did not observe" must not read as "nothing expired".
+                //
+                // Wrapped, because READING FOR TELEMETRY MUST NOT BE ABLE TO BREAK A STOP. This calls into
+                // the query cache, and a client that does not implement the accessor throws synchronously —
+                // which unwinds the rest of the stop handling, so the user's saved-session copy and the
+                // analytics prompt never appear and their session looks like it failed. An existing
+                // auto-stop test caught precisely that. Unknown is null; it is never an exception.
+                const readSavedSessions = (): Array<{ transcript_state?: string | null }> | null => {
+                    try {
+                        const entries = queryClient.getQueriesData?.<unknown>({ queryKey: ['sessionHistory'] });
+                        for (const [, data] of entries ?? []) {
+                            if (Array.isArray(data)) return data as Array<{ transcript_state?: string | null }>;
+                        }
+                    } catch {
+                        return null;
+                    }
+                    return null;
+                };
+                const bearing = (rows: Array<{ transcript_state?: string | null }> | null) =>
+                    rows === null ? null : rows.filter((row) => hasReadableTranscript(row.transcript_state)).length;
+
+                const savedBefore = readSavedSessions();
+                const bearingBefore = bearing(savedBefore);
 
                 emitTranscriptAuthority({
                     stage: 'save',
@@ -306,6 +332,11 @@ export const useSessionLifecycle = () => {
                     persisted: true,
                     sessionIdPresent: Boolean(useSessionStore.getState().finalizedAnalysis?.sessionId),
                 });
+                // The take is over. Closing here — AFTER the post-stop events that belong to it — is what
+                // stops the NEXT accepted Start being attributed to this recording: the controller only
+                // closed on TERMINATED/IDLE, so a normal stop back to READY left the attempt open and the
+                // following take inherited this one's id.
+                endRecordingAttempt();
                 // P1: read the controller's current terminal status FIRST. If it left a warning/error (e.g.
                 // filler/metrics persistence failed → guardedStopStatus), preserve it — apply NEITHER the
                 // stopReason NOR the ordinary success/streak copy. This holds for auto-stops (which carry a
@@ -324,7 +355,30 @@ export const useSessionLifecycle = () => {
                 }
 
                 void queryClient.invalidateQueries({ queryKey: ['usageLimit'] });
-                void queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
+                // Observe retention AFTER the refresh resolves — that is the only moment the post-sweep
+                // state is knowable. Emitting at save time could only ever report the before-count twice.
+                // Promise.resolve + catch, because an OBSERVER MUST NOT BE ABLE TO BREAK THE STOP.
+                // Chaining directly off `invalidateQueries` assumes it returns a thenable; where it does
+                // not, the throw unwinds the remaining stop handling — the saved-status copy, the analytics
+                // prompt — and the user's session appears to fail because a telemetry event wanted a
+                // number. An existing auto-stop test caught exactly that.
+                void Promise.resolve(queryClient.invalidateQueries({ queryKey: ['sessionHistory'] })).then(() => {
+                    const savedAfter = readSavedSessions();
+                    const savedRow = savedAfter?.find(
+                        (row) => (row as { id?: string }).id === useSessionStore.getState().finalizedAnalysis?.sessionId,
+                    );
+                    emitRetentionObservation({
+                        transcriptBearingBefore: bearingBefore,
+                        transcriptBearingAfter: bearing(savedAfter),
+                        contentFreeHistoryCount: savedAfter?.length ?? 0,
+                        // The server's state for the row just written, or null when the refreshed list does
+                        // not contain it. A guess here would be a claim about someone's transcript.
+                        savedTranscriptState: savedRow?.transcript_state ?? null,
+                    });
+                }).catch(() => {
+                    // Observation is best-effort. A refresh that never resolves means we do not know what
+                    // retention did — and saying nothing is the honest outcome, not a guessed receipt.
+                });
                 // Single-session detail cache: useSession(sessionId) keys on ['session', id]
                 // with a 5-min staleTime and is read by the analytics detail view. Without
                 // this invalidation it keeps serving the record-start placeholder transcript
@@ -433,6 +487,10 @@ export const useSessionLifecycle = () => {
                 // Emitted BEFORE the await. `session_started` is pushed only after startRecording
                 // RESOLVES — so a start that hangs (the 113s and 126s waits Production already shows)
                 // records nothing at all today. The accepted intent is what makes the hang visible.
+                // Open the attempt FIRST so the accepted intent carries the id of the take it starts.
+                // Emitted after `beginRecordingAttempt` but still before the await, so a hung start is
+                // both visible AND attributable.
+                ensureRecordingAttempt();
                 reportIntent('accepted');
                 await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                 analyticsBuffer.push('session_started', {

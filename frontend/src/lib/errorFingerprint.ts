@@ -24,14 +24,49 @@
 
 import { contentDigest as digest } from './contentDigest';
 
-/** Collapse the parts that vary per occurrence so the same failure yields the same fingerprint. */
+/**
+ * How much of an authored error skeleton is worth grouping on, counted in WORDS.
+ *
+ * A character bound was the first attempt and it was not enough: with a 120-character cap, a 66-character
+ * authored opening still left ~54 characters of unquoted prose inside the digest, so two failures that
+ * differed only in what the speaker said fingerprinted differently. A word bound matches the thing being
+ * bounded — authored error text is a short phrase, echoed material is everything after it.
+ *
+ * Eight words is a heuristic, not a proof. It is deliberately tight: over-grouping two distinct failures
+ * costs diagnostic precision, while under-grouping costs someone's words.
+ */
+const FINGERPRINT_PREFIX_WORDS = 8;
+
+/**
+ * Collapse the parts that vary per occurrence so the same failure yields the same fingerprint — and drop
+ * the parts that can carry what a user said.
+ *
+ * Stripping digits and hex was never enough. PostgREST and Postgres echo request material back through
+ * `message`/`details`/`hint`, and a completion request carries the full transcript, so a failing save can
+ * put someone's speech into this string. Digesting that produces a 32-bit unsalted value derived from
+ * their words — enumerable for a short utterance and identical across accounts, which is precisely the
+ * property that made `transcript_digest` unacceptable.
+ *
+ * So quoted runs go first: quotes are how both engines delimit echoed values, and they are where prose
+ * usually arrives. Then the message is bounded to its opening WORDS, because unquoted prose arrives at
+ * the end — after an authored opening — and grouping needs the shape of the failure, not its tail.
+ *
+ * This REDUCES exposure; it does not prove prose can never appear. The fingerprint therefore stays a
+ * grouping key and must never be treated as opaque or as an identifier.
+ */
 export function normalizeErrorMessage(message: string): string {
     return message
         .toLowerCase()
+        // Quoted material is echoed input, not authored text. Both quote styles, non-greedy.
+        .replace(/'[^']*'/g, "'#'")
+        .replace(/"[^"]*"/g, '"#"')
         .replace(/[0-9a-f]{8,}/g, '#')   // uuids, hashes, tokens
         .replace(/\d+/g, '#')            // ids, counts, offsets, ports
         .replace(/\s+/g, ' ')
-        .trim();
+        .trim()
+        .split(' ')
+        .slice(0, FINGERPRINT_PREFIX_WORDS)
+        .join(' ');
 }
 
 export function messageLengthBand(length: number): string {

@@ -84,13 +84,40 @@ describe('F05 — a count and a rendered surface are different facts', () => {
 
     it('every field survives the schema — an event that ships nothing proves nothing', () => {
         const { props, dropped } = projectEventProps('transcript_authority', {
-            stage: 'review_rendered', transcript_digest: contentDigest(SPOKEN),
+            stage: 'review_rendered',
             authoritative_word_count: 16, rendered_word_count: 0,
             transcript_visibly_present: false, digests_match: false,
             persisted: true, session_id_present: true, teardown_state: 'TERMINATED',
         });
         expect(dropped).toEqual([]);
-        expect(Object.keys(props)).toHaveLength(9);
+        expect(Object.keys(props)).toHaveLength(8);
+    });
+
+    it('CASUALTY: a content digest cannot be exported, even by a caller that tries', () => {
+        // A 32-bit unsalted digest is not opaque: a short utterance can be enumerated and matched, and the
+        // same words produce the same value for every account forever. The comparison belongs on the device;
+        // only its verdict may travel. The allowlist fails closed, so a regressed emitter is refused here
+        // rather than trusted.
+        const { props, dropped } = projectEventProps('transcript_authority', {
+            stage: 'review_rendered', transcript_digest: contentDigest(SPOKEN),
+            authoritative_word_count: 16, rendered_word_count: 0,
+            transcript_visibly_present: false, digests_match: false,
+            persisted: true, session_id_present: true, teardown_state: 'TERMINATED',
+        });
+        expect(dropped).toContain('transcript_digest');
+        expect(Object.keys(props)).not.toContain('transcript_digest');
+        expect(JSON.stringify(props)).not.toContain(contentDigest(SPOKEN));
+    });
+
+    it('CASUALTY: the emitted event itself carries no digest', () => {
+        // Not just the schema — the producer must not compute one into its payload either.
+        emitTranscriptAuthority({ stage: 'review_rendered', authoritative: SPOKEN, rendered: SPOKEN });
+        drain();
+        const row = rows()[0];
+        expect(Object.keys(row)).not.toContain('transcript_digest');
+        expect(JSON.stringify(row)).not.toContain(contentDigest(SPOKEN));
+        // The verdict still travels — removing the leak must not remove the signal.
+        expect(row.digests_match).toBe(true);
     });
 });
 

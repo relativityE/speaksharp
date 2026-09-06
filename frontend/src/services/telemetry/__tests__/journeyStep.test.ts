@@ -65,6 +65,18 @@ describe('routes carry no identifiers', () => {
     it('replaces id-shaped segments so a session id cannot ride in a pathname', () => {
         expect(normaliseRoute('/analytics/9f2c4b1e8a7d6f5c')).toBe('/analytics/id');
         expect(normaliseRoute('/session/12345')).toBe('/session/id');
+
+        // CASUALTY: the real shape. `/analytics/:sessionId` carries a standard HYPHENATED uuid, which the
+        // previous hex-only test did not match — so the persisted session id was exported in
+        // `journey_step.from_route`/`to_route`, and the route rule permits hyphens so nothing downstream
+        // rejected it either.
+        expect(normaliseRoute('/analytics/9f2c4b1e-8a7d-4c3b-9e1f-2a3b4c5d6e7f')).toBe('/analytics/id');
+        expect(normaliseRoute('/analytics/9F2C4B1E-8A7D-4C3B-9E1F-2A3B4C5D6E7F')).toBe('/analytics/id');
+        // Anything that is not a plain route word is redacted, including shapes nobody has thought of.
+        expect(normaliseRoute('/session/aGVsbG8gd29ybGQ')).toBe('/session/id');
+        expect(normaliseRoute('/u/user_42/detail')).toBe('/u/id/detail');
+        // ...while ordinary route words survive, so the telemetry stays useful.
+        expect(normaliseRoute('/focus-points/review')).toBe('/focus-points/review');
     });
 
     it('strips query and fragment, which is where content lives', () => {

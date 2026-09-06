@@ -99,7 +99,7 @@ describe('NEGATIVE CONTROL — CONTRADICTORY: both sides are recorded, neither i
     });
 
     it('a practice loop that rendered fallback copy is not reported as generated', () => {
-        emitPracticeLoop({
+        emitPracticeLoop({ phase: 'rendered', whatWentWellCount: 0, whatToImproveCount: 0,
             suggestionsPresent: false, whatWentWellSource: 'fallback', whatToImproveSource: 'fallback',
             rendered: true, nextActionPersisted: false, suppressionReason: 'no_suggestions',
         });
@@ -132,7 +132,7 @@ describe('NEGATIVE CONTROL — DUPLICATED: a repeat is suppressed, a change neve
     it('identical observations collapse to one row', () => {
         for (let i = 0; i < 4; i += 1) {
             emitTranscriptAuthority({ stage: 'review_rendered', authoritative: 'a b c', rendered: 'a b c' });
-            emitPracticeLoop({
+            emitPracticeLoop({ phase: 'rendered', whatWentWellCount: 1, whatToImproveCount: 1,
                 suggestionsPresent: true, whatWentWellSource: 'generated', whatToImproveSource: 'generated',
                 rendered: true, nextActionPersisted: true, suppressionReason: 'none',
             });

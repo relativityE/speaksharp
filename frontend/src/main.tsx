@@ -21,6 +21,7 @@ import { publishAppRuntimeConfig } from './config/appRuntimeConfig';
 import { installStaleChunkRecovery } from './lib/staleChunkRecovery';
 import { analyticsBuffer } from './services/AnalyticsBuffer';
 import { emitPositiveControl } from './services/telemetry/telemetryHealth';
+import { whenIdentitySettled } from '@/services/transcription/modelAcquisitionTelemetry';
 
 declare global {
   interface Window {
@@ -220,7 +221,16 @@ const renderApp = async (initialSession: Session | null = null) => {
         // the wire: finding this nonce proves the transport works end to end for an event whose expected
         // contents were known in advance. `transportInitialized` records whether posthog.init actually
         // ran — a false value with no nonce on the wire distinguishes "never sent" from "sent and lost".
-        emitPositiveControl(transportInitialized);
+        // DEFERRED UNTIL IDENTITY SETTLES. Emitted here directly, this CRITICAL event went out before
+        // `root.render()` mounted AuthProvider — so the buffer still held a null account and false claims,
+        // the envelope was classified as `user`, and PostHog received the control under the anonymous
+        // identity. A controlled run's transport proof was therefore unjoinable to the controlled account,
+        // and known test traffic was added to the customer population.
+        //
+        // A signed-out visitor settles too, as `null`, so this waits for the answer rather than for a
+        // sign-in. If identity never settles the control never fires — losing a proof is the acceptable
+        // failure here; publishing a misattributed one is not.
+        whenIdentitySettled(() => emitPositiveControl(transportInitialized));
       } else {
         logger.warn('[E2E MODE] Analytics disabled entirely.');
       }

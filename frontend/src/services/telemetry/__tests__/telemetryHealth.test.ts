@@ -158,6 +158,47 @@ describe('F12 — the error fingerprint replaces an empty schema', () => {
         expect(serialized).not.toContain('duplicate key');
     });
 
+    it('CASUALTY: a transcript echoed into an error message never reaches the fingerprint', () => {
+        // PostgREST and Postgres echo request material through message/details/hint, and a completion
+        // request carries the full transcript — so a failing save can put someone's speech into this
+        // string. Digesting it would produce a 32-bit unsalted value derived from their words: enumerable
+        // for a short utterance and identical across accounts, exactly what made `transcript_digest`
+        // unacceptable. Two failures that differ ONLY by the echoed prose must fingerprint the same.
+        const spoken = 'I want to talk about leaving my job and whether I can afford it';
+        const withProse = `new row for relation "sessions" violates check constraint: transcript '${spoken}'`;
+        const withOther = 'new row for relation "sessions" violates check constraint: transcript \'entirely different words here\'';
+
+        const a = fingerprintError(new Error('PostgrestError'), withProse);
+        const b = fingerprintError(new Error('PostgrestError'), withOther);
+        expect(a.error_fingerprint).toBe(b.error_fingerprint);
+
+        // And nothing derived from the message carries the words themselves.
+        const serialized = JSON.stringify(a);
+        for (const word of ['leaving', 'afford', 'job']) expect(serialized).not.toContain(word);
+    });
+
+    it('CASUALTY: quoted prose is stripped even when it falls INSIDE the word bound', () => {
+        // The previous casualty passed for the wrong reason: its quoted prose sat beyond the eight-word
+        // bound, so removing quote-stripping entirely left it green. Here the quote arrives immediately,
+        // where only the quote rule can remove it — two identical failures whose echoed values differ must
+        // still fingerprint the same.
+        const a = fingerprintError(new Error('PostgrestError'), "transcript 'i want to talk about leaving my job' rejected");
+        const b = fingerprintError(new Error('PostgrestError'), "transcript 'entirely different words spoken here today' rejected");
+        expect(a.error_fingerprint).toBe(b.error_fingerprint);
+        expect(JSON.stringify(a)).not.toContain('leaving');
+    });
+
+    it('CASUALTY: an unquoted wall of echoed text cannot lengthen the fingerprint input', () => {
+        // Not all echoes are quoted. A bounded prefix means a long tail cannot contribute, so two errors
+        // sharing an authored opening group together however different their tails are.
+        const head = 'could not complete session: upstream rejected the request because ';
+        const a = fingerprintError(new Error('Error'), head + 'the speaker discussed their medical results');
+        const b = fingerprintError(new Error('Error'), head + 'the speaker discussed their divorce settlement');
+        expect(a.error_fingerprint).toBe(b.error_fingerprint);
+        // The SIZE difference is still reportable, without the content.
+        expect(a.message_length_band).toBeDefined();
+    });
+
     it('GROUPS the same failure across occurrences that differ only by identifiers', () => {
         // Without normalization a failure carrying a fresh id each time produces a new fingerprint every
         // occurrence, and the grouping this exists to provide never happens.

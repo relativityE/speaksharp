@@ -13,7 +13,7 @@
  *   teardown        — buffers were purged. Was anything still authoritative afterwards?
  *   review_rendered — the user is looking at it. Does the screen agree?
  *
- * `digests_match` is what makes the disagreement legible without sending a single word: both sides
+ * `digests_match` is what makes the disagreement legible without sending a single word or digest: both sides
  * are digested locally and only the comparison travels.
  *
  * NOTHING HERE CARRIES TEXT. Not the transcript, not an excerpt, not a first line. A digest, two
@@ -53,7 +53,14 @@ export function emitTranscriptAuthority(input: TranscriptAuthorityInput): void {
 
     const props = {
         stage: input.stage,
-        transcript_digest: digest,
+        // NO `transcript_digest`. The comparison happens HERE and only its VERDICT travels.
+        //
+        // A 32-bit unsalted FNV digest is not an opaque token: for a short or predictable utterance a
+        // recipient can enumerate candidate strings and match it, and identical speech produces the same
+        // value for every account forever — a stable cross-account fingerprint of what someone said. This
+        // module's purpose is to answer "is the rendered transcript the SAME one that was saved?", and
+        // `digests_match` answers exactly that. The digest itself adds no analytical value and carries the
+        // entire disclosure risk, so it stays on the device.
         authoritative_word_count: authoritativeWords,
         rendered_word_count: renderedWords,
         // The claim F05 exists to test. `true` requires visible words, not a mounted container: a

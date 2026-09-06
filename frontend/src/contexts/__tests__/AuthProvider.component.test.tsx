@@ -387,6 +387,54 @@ describe('AuthProvider', () => {
         expect(analyticsMock.resetIdentity).not.toHaveBeenCalled();
     });
 
+    it('#1259 a claim CHANGE on the same account is applied on token refresh', async () => {
+        // The operations contract says a claim takes effect on the next token refresh. The effect already
+        // reran (the claims are dependencies) but the same-user early return exited before either setter,
+        // so a classification assigned — or REMOVED — server-side stayed stale until a remount, and a
+        // controlled run was counted as customer traffic in the meantime.
+        const plain = { user: { id: 'user-123', app_metadata: {} } };
+        mockSupabase.auth.getSession.mockResolvedValue({ data: { session: plain }, error: null });
+
+        let authStateCallback: (event: string, session: unknown) => void;
+        mockSupabase.auth.onAuthStateChange.mockImplementation((callback: (event: string, session: unknown) => void) => {
+            authStateCallback = callback;
+            return { data: { subscription: { unsubscribe: vi.fn() } } };
+        });
+
+        render(
+            <QueryClientProvider client={queryClient}>
+                <AuthProvider><TestConsumer /></AuthProvider>
+            </QueryClientProvider>
+        );
+
+        await waitFor(() => expect(analyticsMock.setInternalTesterClaim).toHaveBeenCalledWith(false));
+        analyticsMock.setInternalTesterClaim.mockClear();
+        analyticsMock.setCanaryClaim.mockClear();
+
+        // Same account, newly GRANTED tester claim.
+        act(() => {
+            authStateCallback('TOKEN_REFRESHED', { user: { id: 'user-123', app_metadata: { internal_tester: true } } });
+        });
+        await waitFor(() => expect(analyticsMock.setInternalTesterClaim).toHaveBeenCalledWith(true));
+        // ...and identity is not re-established: the account did not change.
+        expect(analyticsMock.identify).toHaveBeenCalledTimes(1);
+
+        analyticsMock.setInternalTesterClaim.mockClear();
+        // Same account, claim REVOKED. Removal matters as much as assignment.
+        act(() => {
+            authStateCallback('TOKEN_REFRESHED', { user: { id: 'user-123', app_metadata: {} } });
+        });
+        await waitFor(() => expect(analyticsMock.setInternalTesterClaim).toHaveBeenCalledWith(false));
+
+        analyticsMock.setInternalTesterClaim.mockClear();
+        // An UNCHANGED refresh must stay silent — otherwise this becomes per-refresh noise.
+        act(() => {
+            authStateCallback('TOKEN_REFRESHED', { user: { id: 'user-123', app_metadata: {} } });
+        });
+        await waitFor(() => expect(screen.getByTestId('user-id')).toHaveTextContent('user-123'));
+        expect(analyticsMock.setInternalTesterClaim).not.toHaveBeenCalled();
+    });
+
     it('handles getSession error gracefully', async () => {
         mockSupabase.auth.getSession.mockResolvedValue({
             data: { session: null },

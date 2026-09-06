@@ -47,6 +47,8 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   const queryClient = useQueryClient();
   const initialCheckRef = useRef(false);
   const identifiedAnalyticsUserRef = useRef<string | null>(null);
+  /** The claims last handed to the buffer, so a same-account refresh can tell changed from unchanged. */
+  const appliedClaimSignatureRef = useRef<string | null>(null);
 
   const getInjectedSession = useCallback(() => {
     if (initialSession) return initialSession;
@@ -140,7 +142,20 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       markIdentitySettled(null);
       return;
     }
-    if (identifiedAnalyticsUserRef.current === userId) return;
+    // SAME ACCOUNT, NEW CLAIMS. `TOKEN_REFRESHED` and `USER_UPDATED` deliver fresh `app_metadata` for
+    // the user already identified, and the effect reruns because the claims are dependencies — but this
+    // return used to exit before either setter, so a tester or canary classification assigned or REMOVED
+    // server-side stayed stale until a remount. The operations contract says a claim takes effect on the
+    // next token refresh, and controlled runs were being counted as customer traffic in the meantime.
+    const claimSignature = JSON.stringify([internalTesterClaim, canaryClaim]);
+    if (identifiedAnalyticsUserRef.current === userId) {
+      if (appliedClaimSignatureRef.current !== claimSignature) {
+        analyticsBuffer.setInternalTesterClaim(internalTesterClaim);
+        analyticsBuffer.setCanaryClaim(canaryClaim);
+        appliedClaimSignatureRef.current = claimSignature;
+      }
+      return;
+    }
     // ACCOUNT TRANSITION ONLY. Retiring the settlement discards the queue, which is right when account
     // A's events would otherwise land on account B — and wrong on a FIRST authentication, where the
     // queue holds this user's own boot-time load and is precisely what we are waiting to attribute.
@@ -158,6 +173,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     // compiled the tester account ids into the public browser bundle.
     analyticsBuffer.setInternalTesterClaim(internalTesterClaim);
     analyticsBuffer.setCanaryClaim(canaryClaim);
+    appliedClaimSignatureRef.current = claimSignature;
     analyticsBuffer.identify(userId); // user.id only — no email/PII to PostHog
     identifiedAnalyticsUserRef.current = userId;
     // IDENTIFY FIRST, THEN RELEASE. Flushing before identify would attribute a returning user's cold

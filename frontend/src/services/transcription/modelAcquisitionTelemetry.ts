@@ -122,6 +122,25 @@ let pendingEvents: Pending[] = [];
 let identitySettled = false;
 let discardedOnTransition = 0;
 let settledIdentity: string | null = null;
+/** Work that must not run under a provisional identity. Survives a reset: it is waiting for ANY settlement. */
+let settlementCallbacks: Array<(identity: string | null) => void> = [];
+
+/**
+ * Run `callback` once the identity has settled — immediately if it already has.
+ *
+ * The acquisition queue holds EVENTS; this holds WORK. The boot-time positive control is the case that
+ * needed it: it was emitted during page initialisation, before `AuthProvider` mounts, so the buffer still
+ * held a null account and false claims. Its envelope was classified as `user` and PostHog received it
+ * under the anonymous identity, which made a controlled run's transport proof unjoinable to the
+ * controlled account and put known test traffic into the customer population.
+ *
+ * A signed-out visitor settles too (as `null`), so this is not a sign-in requirement — it is a
+ * requirement that the answer be known.
+ */
+export function whenIdentitySettled(callback: (identity: string | null) => void): void {
+    if (identitySettled) { callback(settledIdentity); return; }
+    settlementCallbacks.push(callback);
+}
 
 /**
  * Called once the authenticated identity is established (or definitively absent, for a signed-out
@@ -148,6 +167,10 @@ export function markIdentitySettled(identity: string | null = null): void {
     const queued = pendingEvents;
     pendingEvents = [];
     for (const e of queued) emitNow(e.name, e.props);
+    // Deferred work runs AFTER the queue, so anything it emits lands behind the events it was waiting on.
+    const callbacks = settlementCallbacks;
+    settlementCallbacks = [];
+    for (const cb of callbacks) cb(identity);
 }
 
 /** Which identity the queue was last released under. Test seam; never emitted. */

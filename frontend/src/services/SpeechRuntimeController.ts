@@ -8,7 +8,7 @@ import {
     pendingRecordingIntent, type IntentSettlement,
 } from '@/services/recordingIntent';
 import {
-    beginRecordingAttempt, endRecordingAttempt,
+    ensureRecordingAttempt, endRecordingAttempt,
 } from '@/services/telemetry/journeyIdentity';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 import { emitFillerMeasurement } from '@/services/telemetry/fillerMeasurement';
@@ -1852,9 +1852,10 @@ export class SpeechRuntimeController {
                         teardownState: newState,
                     });
                 } else if (newState === 'RECORDING') {
-                    // The attempt opens where recording actually begins, not where it was requested —
-                    // a refused or hung start must not consume an attempt ordinal.
-                    beginRecordingAttempt();
+                    // ENSURE, not begin. The accepted Start intent already opened this attempt so that it
+                    // could carry the id it initiated; minting a second one here would give the recording a
+                    // different id from the intent that caused it, which is the join this exists to make.
+                    ensureRecordingAttempt();
                     // #1259 F04 — churn is measured PER TAKE. Resetting here rather than inside the
                     // identity module keeps the dependency one-way: the store's transcript setter
                     // already reaches the telemetry layer, and importing it back would close a cycle

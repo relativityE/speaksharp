@@ -386,6 +386,10 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
     }
     setIsSubmitting(true);
     setError(null);
+    // The ATTEMPT, recorded before anything can fail. Without it a submit that throws before reaching
+    // storage is indistinguishable from a user who never pressed Send — and "I reported it and nothing
+    // happened" is precisely the report this instrumentation exists to make legible.
+    emitFeedbackSubmit({ outcome: 'attempted' });
     try {
       const feedbackKind: FeedbackKind = type === 'broke' ? 'issue' : 'comment';
       // #1416 — NULL, NOT A GUESS.
@@ -417,9 +421,17 @@ export const IssueReportDialog: React.FC<IssueReportDialogProps> = ({ userId, pl
       setAttempted(null);
       setOpen(false);
       toast.success('Thanks — we’ve got it.');
+      // ACKNOWLEDGEMENT, reported by the only layer that renders one. The service used to send
+      // `acknowledgementVisible: true` from the storage path, which asserted the user had been told
+      // something by code that cannot see the screen. Emitted after the toast call, so the fact follows
+      // the render rather than predicting it.
+      emitFeedbackSubmit({ outcome: 'storage_ok', acknowledgementVisible: true });
     } catch {
       setAttempted({ key: idempotencyKey, signature: draftSignature });
       setError('That didn’t go through. Try again?');
+      // The user was told it failed, and the draft was kept for the retry. Both are facts about what they
+      // can now see and do, and neither is knowable from the storage layer.
+      emitFeedbackSubmit({ outcome: 'storage_failed', acknowledgementVisible: true });
     } finally {
       setIsSubmitting(false);
     }

@@ -95,6 +95,23 @@ export function beginRecordingAttempt(): string {
     return attemptId;
 }
 
+/**
+ * Open an attempt only if none is open.
+ *
+ * The attempt used to open at `RECORDING` and close only at `TERMINATED`/`IDLE`. A normal Stop returns
+ * the controller to `READY` WITHOUT closing it, so the next accepted Start was attributed to the
+ * previous take — and on the very first Start the accepted intent carried `attempt_id: null` because
+ * the attempt did not exist yet. Neither could be joined to the recording it initiated.
+ *
+ * Ownership therefore moves to the accepted intent, which is the user action that becomes a take, and
+ * the controller now only ENSURES one rather than minting a second. A start that hangs does consume an
+ * ordinal, which is correct: the user did attempt a take, and a hang is exactly what F01 must show.
+ * Refused starts never reach `accepted`, so they still consume nothing.
+ */
+export function ensureRecordingAttempt(): string {
+    return attemptId ?? beginRecordingAttempt();
+}
+
 /** Close the attempt. Later events in the journey correctly report no open attempt. */
 export function endRecordingAttempt(): void {
     attemptId = null;

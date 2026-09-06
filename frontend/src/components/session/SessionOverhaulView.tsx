@@ -203,13 +203,50 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      * loop was bland" are indistinguishable in every artifact we have. The SOURCE of each half is the
      * fact that separates them, and it is only knowable here, where the suggestions are still in hand.
      */
+    /**
+     * SETTLED, not merely `after`.
+     *
+     * `resolveSessionState` returns `after` as soon as Stop flips the view to `isFinalizing && !isListening`,
+     * which is BEFORE the transcript, the evaluation and the save complete. Marking the review stages then
+     * dated them to the start of finalization — and `markCompletionStage` deduplicates permanently, so the
+     * real review could never correct them. Every decoded receipt carried finalization time attributed to
+     * stages the user had not reached, and `practice_loop` reported a review that was still being made.
+     */
+    const reviewSettled = inAfter && !isFinalizing;
+
+    /**
+     * #1259 — WHICH option the user chose, not only which were offered.
+     *
+     * `post_session_options` recorded the menu and nothing recorded the pick: `option_selected` existed in
+     * the schema and the helper and was emitted by no production caller at all. Practice again need not
+     * change route, so in decoded receipts choosing it and abandoning the review were the same thing —
+     * a review that no one acted on and a review someone acted on immediately looked identical.
+     *
+     * Emitted BEFORE delegating, so a handler that navigates or throws cannot swallow the fact.
+     */
+    const choosePracticeAgain = React.useCallback(() => {
+        emitJourneyStep({ step: 'option_selected', optionSelected: 'practice_next' });
+        onStartStop();
+    }, [onStartStop]);
+
+    const chooseSeeAllSessions = React.useCallback(() => {
+        emitJourneyStep({ step: 'option_selected', optionSelected: 'view_analytics' });
+        onSeeAllSessions?.();
+    }, [onSeeAllSessions]);
+
     React.useEffect(() => {
-        if (!inAfter) {
+        if (!reviewSettled) {
             return;
         }
         const wentWell = Boolean(aiSuggestions?.what_worked?.trim());
         const toImprove = Boolean(aiSuggestions?.what_to_try_next?.trim());
         emitPracticeLoop({
+            // The user is looking at it. This is the only phase that can claim that.
+            phase: 'rendered',
+            // The contract is exactly one of each. A count proves the shape without carrying a word of
+            // coaching text — and 2 or 0 here is the defect, reported as a number rather than as prose.
+            whatWentWellCount: wentWell ? 1 : 0,
+            whatToImproveCount: toImprove ? 1 : 0,
             suggestionsPresent: Boolean(aiSuggestions),
             whatWentWellSource: wentWell ? 'generated' : 'fallback',
             whatToImproveSource: toImprove ? 'generated' : 'fallback',
@@ -228,7 +265,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         // after-state waveform. No per-frame hook is needed and none is added: streaming levels is
         // both forbidden and would drown every other signal.
         emitMicObservability(levelsRef.current, stopControlRenderedRef.current);
-    }, [inAfter, aiSuggestions, onRetryPoints, onNewSet]);
+    }, [reviewSettled, aiSuggestions, onRetryPoints, onNewSet]);
     const effObjectivePoints = objectivePoints ?? (inAfter ? completedObjectivePoints ?? null : null);
     const effObjectiveTopic = objectiveTopic ?? (inAfter ? completedObjectiveTopic ?? null : null);
     const effObjectivePaceGuideSecPerPoint = objectivePaceGuideSecPerPoint ?? (inAfter ? completedObjectivePaceGuideSecPerPoint ?? null : null);
@@ -354,7 +391,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     if (isObjective && sessionState === 'before') coveredLatch.current = new Set();
     let coverage: FocusCoverage | null = null;
     if (isObjective) {
-        coverage = deriveFocusCoverage(effObjectivePoints ?? [], transcriptContent, effElapsed, coveredLatch.current);
+        // `inAfter` is the settled boundary: the verdict will not change again. Live renders still compute
+        // coverage for the rail; they just no longer CLAIM it as the evaluation result.
+        coverage = deriveFocusCoverage(effObjectivePoints ?? [], transcriptContent, effElapsed, coveredLatch.current, inAfter);
         coverage.rows.forEach((r, i) => { if (r.covered) coveredLatch.current.add(i); });
     }
 
@@ -533,7 +572,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 fillerFooter={isObjective
                     ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
                     : <FillerBreakdown fillerData={reviewFillerData} stats={fillerStatsLine} />}
-                verdict={{ ...verdictFromSuggestions(aiSuggestions, reviewFillerData, elapsedTime), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
+                verdict={{ ...verdictFromSuggestions(aiSuggestions, reviewFillerData, elapsedTime), onPracticeAgain: choosePracticeAgain, onSeeAllSessions: chooseSeeAllSessions }}
                 slotDContent={objectiveAfterSlotD}
             />
             {isObjective && (

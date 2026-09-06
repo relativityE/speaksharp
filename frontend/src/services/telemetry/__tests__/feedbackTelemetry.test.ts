@@ -168,7 +168,7 @@ describe('#1259 — an observer that can break the product is worse than no obse
             transcriptWordCount: 3,
             observations: [{ position: 0, matchRatio: 1, keywordCount: 1, verdict: 'covered', latched: false }],
         })).not.toThrow();
-        expect(() => emitPracticeLoop({
+        expect(() => emitPracticeLoop({ phase: 'rendered', whatWentWellCount: 0, whatToImproveCount: 0,
             suggestionsPresent: false, whatWentWellSource: 'fallback', whatToImproveSource: 'fallback',
             rendered: true, nextActionPersisted: false, suppressionReason: 'no_suggestions',
         })).not.toThrow();
@@ -176,6 +176,32 @@ describe('#1259 — an observer that can break the product is worse than no obse
 
         expect(boom).toHaveBeenCalled();   // the transport really was throwing
         boom.mockRestore();
+    });
+});
+
+describe('#1259 item 8 — the Share Feedback lifecycle is observable end to end', () => {
+    it('every outcome the schema declares is reportable', () => {
+        // An outcome the schema accepts but no layer can produce is a lifecycle with a hole in it.
+        for (const outcome of ['attempted', 'refused_by_gate', 'storage_ok', 'storage_failed'] as const) {
+            const { dropped } = projectEventProps('feedback_submit', {
+                outcome, submit_blockers: [], acknowledgement_visible: true,
+            });
+            expect({ outcome, dropped }).toEqual({ outcome, dropped: [] });
+        }
+    });
+
+    it('CASUALTY: acknowledgement is a THREE-state fact, and unknown is one of them', () => {
+        // The storage layer used to send `true` on success and `false` on failure, asserting what the user
+        // had been told by code that never renders anything. Null is what a layer that cannot see the
+        // screen is entitled to say, and it must survive the schema — otherwise the honest answer is the
+        // one that gets dropped.
+        for (const value of [true, false, null]) {
+            const { props, dropped } = projectEventProps('feedback_submit', {
+                outcome: 'storage_ok', submit_blockers: [], acknowledgement_visible: value,
+            });
+            expect(dropped).toEqual([]);
+            expect(props.acknowledgement_visible).toBe(value);
+        }
     });
 });
 
@@ -190,14 +216,14 @@ describe('#1259 item 5 — the instrument matches the form that shipped', () => 
             const { dropped } = projectEventProps('feedback_submit', {
                 outcome: 'refused_by_gate', submit_blockers: [name],
             });
-            expect(dropped, `${name} must no longer be an accepted blocker`).toContain('submit_blockers');
+            expect(dropped).toContain('submit_blockers');
         }
         for (const field of ['title', 'description', 'kind', 'category', 'impact']) {
             const { dropped } = projectEventProps('feedback_field', {
                 field, transition: 'entered', length_band: '0',
                 submit_blockers: [], submit_enabled: false, feedback_type: 'none',
             });
-            expect(dropped, `${field} must no longer be an accepted field`).toContain('field');
+            expect(dropped).toContain('field');
         }
     });
 
@@ -208,7 +234,7 @@ describe('#1259 item 5 — the instrument matches the form that shipped', () => 
                 field: 'type', transition: 'entered', length_band: '0',
                 submit_blockers: ['body_empty'], submit_enabled: false, feedback_type: t,
             });
-            expect(dropped, `${t} must be reportable`).toEqual([]);
+            expect(dropped).toEqual([]);
         }
     });
 });
