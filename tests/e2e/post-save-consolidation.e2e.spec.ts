@@ -174,11 +174,15 @@ test.describe('Post-save consolidation', () => {
     // ...and the SAVED review is present, from the server's authority. Asserting only the absence above would
     // pass just as happily on the F-05 defect, where the review showed the user nothing at all.
     //
-    // This has to be a RETRYING assertion. The review text arrives from a read of the saved row, so a bare
-    // innerText() samples whichever frame it lands on - usually the pending notice - and would report the
-    // restored review as missing. Asserting the actual words also beats a length check, which a stray
-    // placeholder would satisfy.
-    await expect(page.getByTestId('review-transcript')).toContainText(/welcome everyone/i, { timeout: 15000 });
+    // Assert the WORDS, not a length: a length check is satisfied by a stray placeholder, and this must fail
+    // on the F-05 defect where the review showed nothing at all.
+    //
+    // The expected words come from the fixture, and specifically from its LAST line. `mockLiveTranscript`
+    // drives `simulateTranscription` once per line and the bridge REPLACES the transcript each time rather
+    // than appending, so the text that reaches the server - and therefore the review - is the final line.
+    // Naming the first line here would assert a concatenation the harness never produces.
+    const persistedMockLine = MOCK_TRANSCRIPTS[MOCK_TRANSCRIPTS.length - 1];
+    await expect(page.getByTestId('review-transcript')).toContainText(persistedMockLine, { timeout: 10000 });
 
     await navigateToRoute(page, '/analytics');
     const latest = page.getByTestId(/session-history-item-/).first();
