@@ -91,7 +91,17 @@ export function validateProviderBody(bodyText, contract) {
   return { valid: true, word_counts: wordCounts, parsed, model_version: envelope.modelVersion ?? null };
 }
 
-export async function runProof({ contract, targetSha, sampleCount, apiKey, fetchImpl = fetch, sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)), spacingMs = 8000 }) {
+export async function runProof({
+  contract,
+  targetSha,
+  sampleCount,
+  apiKey,
+  fetchImpl = fetch,
+  sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)),
+  spacingMs = 8000,
+  requestTimeoutMs = 30_000,
+  onProgress = () => {},
+}) {
   validateContract(contract);
   if (!/^[0-9a-f]{40}$/i.test(targetSha)) throw new Error('target SHA must be a full 40-character commit');
   if (![1, 10].includes(sampleCount)) throw new Error('sample count must be 1 or 10');
@@ -111,6 +121,7 @@ export async function runProof({ contract, targetSha, sampleCount, apiKey, fetch
     provider_requests: 0,
     samples: [],
   };
+  onProgress(evidence);
 
   const attemptsPerSample = sampleCount === 1 ? 4 : 1;
   for (let sample = 1; sample <= sampleCount; sample += 1) {
@@ -125,19 +136,26 @@ export async function runProof({ contract, targetSha, sampleCount, apiKey, fetch
       const started = Date.now();
       let response;
       let bodyText = '';
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(new Error(`provider request exceeded ${requestTimeoutMs}ms`)), requestTimeoutMs);
       try {
         response = await fetchImpl(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: contract.generationConfig }),
+          signal: controller.signal,
         });
         bodyText = await response.text();
       } catch (error) {
         row.attempts.push({ attempt, http_status: null, elapsed_ms: Date.now() - started, error: String(error) });
-        row.reason = 'provider request threw';
+        row.reason = controller.signal.aborted ? 'provider request timed out' : 'provider request threw';
+        onProgress(evidence);
         break;
+      } finally {
+        clearTimeout(timeout);
       }
       row.attempts.push({ attempt, http_status: response.status, elapsed_ms: Date.now() - started, raw_response: bodyText });
+      onProgress(evidence);
       if (!response.ok) {
         row.reason = `provider HTTP ${response.status}`;
         if (attempt < attemptsPerSample && RETRYABLE.has(response.status)) {
@@ -151,15 +169,22 @@ export async function runProof({ contract, targetSha, sampleCount, apiKey, fetch
       break;
     }
     evidence.samples.push(row);
+    onProgress(evidence);
   }
   evidence.success = evidence.samples.length === sampleCount && evidence.samples.every((sample) => sample.valid === true);
+  onProgress(evidence);
   return evidence;
 }
 
 async function main() {
   const contractPath = resolve(process.env.GEMINI_CONTRACT_PATH ?? '');
   const outPath = resolve(process.env.PROOF_OUT ?? 'artifacts/gemini-model-currency-proof.json');
-  let evidence = { target_sha: process.env.TARGET_SHA ?? null, success: false, error: null };
+  let evidence = { target_sha: process.env.TARGET_SHA ?? null, success: false, phase: 'harness-started', error: null };
+  const persist = (value) => {
+    mkdirSync(dirname(outPath), { recursive: true });
+    writeFileSync(outPath, `${JSON.stringify(value, null, 2)}\n`);
+  };
+  persist(evidence);
   try {
     const contractText = readFileSync(contractPath, 'utf8');
     const contract = validateContract(JSON.parse(contractText));
@@ -168,12 +193,12 @@ async function main() {
       targetSha: process.env.TARGET_SHA ?? '',
       sampleCount: Number(process.env.SAMPLE_N ?? '1'),
       apiKey: process.env.GEMINI_API_KEY,
+      onProgress: persist,
     });
   } catch (error) {
     evidence.error = error instanceof Error ? error.message : String(error);
   } finally {
-    mkdirSync(dirname(outPath), { recursive: true });
-    writeFileSync(outPath, `${JSON.stringify(evidence, null, 2)}\n`);
+    persist(evidence);
   }
   if (!evidence.success) {
     console.error(`Gemini proof failed: ${evidence.error ?? evidence.samples?.filter((sample) => !sample.valid).map((sample) => sample.reason).join('; ') ?? 'unknown failure'}`);

@@ -93,6 +93,7 @@ describe('trusted Gemini model proof', () => {
   });
 
   it('samples ten logical results with at most ten actual provider requests and preserves invalid evidence', async () => {
+    const checkpoints: unknown[] = [];
     const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
       expect(_url).toMatch(/^https:\/\/generativelanguage\.googleapis\.com\//);
       expect(_url).not.toContain('attacker');
@@ -111,6 +112,7 @@ describe('trusted Gemini model proof', () => {
       fetchImpl,
       sleep: async () => {},
       spacingMs: 0,
+      onProgress: (evidence: unknown) => { checkpoints.push(structuredClone(evidence)); },
     });
     expect(fetchImpl).toHaveBeenCalledTimes(10);
     expect(evidence.provider_requests).toBe(10);
@@ -118,6 +120,7 @@ describe('trusted Gemini model proof', () => {
     expect(evidence.samples[0].valid).toBe(false);
     expect(evidence.samples.slice(1).every((sample) => sample.valid)).toBe(true);
     expect(evidence.success).toBe(false);
+    expect(checkpoints.length).toBeGreaterThan(10);
     expect(JSON.stringify(evidence)).not.toContain('secret-for-test');
   });
 
@@ -134,6 +137,27 @@ describe('trusted Gemini model proof', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(4);
     expect(evidence.provider_requests).toBe(4);
     expect(evidence.samples[0].reason).toBe('provider HTTP 503');
+    expect(evidence.success).toBe(false);
+  });
+
+  it('aborts a stalled provider read and reports a deliberate timeout result', async () => {
+    const fetchImpl = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+    }));
+    const checkpoints: unknown[] = [];
+    const evidence = await runProof({
+      contract,
+      targetSha: 'c'.repeat(40),
+      sampleCount: 1,
+      apiKey: 'secret-for-test',
+      fetchImpl,
+      sleep: async () => {},
+      requestTimeoutMs: 1,
+      onProgress: (value: unknown) => { checkpoints.push(structuredClone(value)); },
+    });
+    expect(evidence.samples[0].reason).toBe('provider request timed out');
+    expect(evidence.samples[0].attempts[0].http_status).toBeNull();
+    expect(checkpoints.length).toBeGreaterThan(1);
     expect(evidence.success).toBe(false);
   });
 });
