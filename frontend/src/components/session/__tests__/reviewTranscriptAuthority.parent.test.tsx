@@ -100,6 +100,30 @@ describe('#1416 F-05 the review transcript comes from the retained authority', (
         expect(screen.getAllByTestId('coverage-span').length).toBeGreaterThan(0);
     });
 
+    it('CASUALTY: Focus Points makes no negative coverage claim until retained words are available', () => {
+        // A failed/pending read is unknown, not an empty speech. The old fallback derived from '' and
+        // confidently rendered 0/N plus every point as "Not detected" while slot B said it could not
+        // load the transcript. Keep the declared points visible, but pending, until evidence exists.
+        render(
+            <SessionOverhaulView
+                {...after}
+                completedObjectivePoints={['renewal risk', 'pricing objection']}
+                reviewTranscript={{ kind: 'unavailable' }}
+            />,
+        );
+
+        expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'unavailable');
+        expect(screen.getByTestId('coverage-awaiting-transcript')).toHaveTextContent(/when your transcript is available/i);
+        expect(screen.queryByTestId('coverage-pace')).not.toBeInTheDocument();
+        expect(screen.queryByText(/not detected/i)).not.toBeInTheDocument();
+        expect(screen.getAllByTestId(/^focus-point-\d+$/)).toHaveLength(2);
+        for (const row of screen.getAllByTestId(/^focus-point-\d+$/)) {
+            expect(row).toHaveAttribute('data-status', 'pending');
+        }
+        expect(screen.queryByTestId('coverage-footer')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('focus-delivery-strip')).not.toBeInTheDocument();
+    });
+
     it('CASUALTY: an UNWIRED parent shows no transcript, not working memory', () => {
         // No `reviewTranscript` prop at all — a parent that has not been migrated. It must not
         // silently keep reading the purged buffer, because that is the defect wearing a default.
