@@ -140,6 +140,28 @@ describe('trusted Gemini model proof', () => {
     expect(evidence.success).toBe(false);
   });
 
+  it('does not multiply paid requests by retrying logical samples', async () => {
+    const fetchImpl = vi.fn(async () => {
+      const call = fetchImpl.mock.calls.length;
+      return call === 1
+        ? new Response('busy', { status: 503 })
+        : new Response(providerBody(validSuggestions), { status: 200 });
+    });
+    const evidence = await runProof({
+      contract,
+      targetSha: 'd'.repeat(40),
+      sampleCount: 10,
+      apiKey: 'secret-for-test',
+      fetchImpl,
+      sleep: async () => {},
+      spacingMs: 0,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(10);
+    expect(evidence.samples[0].attempts).toHaveLength(1);
+    expect(evidence.samples[0].reason).toBe('provider HTTP 503');
+    expect(evidence.samples.slice(1).every((sample) => sample.valid)).toBe(true);
+  });
+
   it('aborts a stalled provider read and reports a deliberate timeout result', async () => {
     const fetchImpl = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
       init.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
