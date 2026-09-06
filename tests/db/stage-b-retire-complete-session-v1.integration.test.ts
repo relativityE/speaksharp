@@ -372,18 +372,26 @@ describe('#1306 M4 — the handwritten-substitute population cannot grow', () =>
     const KNOWN_SUBSTITUTES = [
         'analytics-summary-rpc.integration.test.ts',
         'atomic-completion-concurrency-realpg.sql',
-        'atomic-completion-retention.integration.test.ts',
+        'helpers/completionEnv.ts',
         'metrics-only-stage-a.integration.test.ts',
     ];
     const CREATES = /CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+public\.complete_session\s*\(/i;
 
+    // The scan is RECURSIVE. A flat readdir let a substitute disappear from this guard simply by moving into
+    // a subdirectory — which is exactly how the population grows without anyone deciding to grow it. Paths
+    // are recorded relative to tests/db so the allowlist names where a substitute lives, not just its
+    // basename.
+    const substituteFiles = (dir: string, prefix = ''): string[] =>
+        readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+            const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+            if (entry.isDirectory()) return substituteFiles(resolve(dir, entry.name), rel);
+            if (!/\.(ts|sql)$/.test(entry.name)) return [];
+            if (rel === 'stage-b-retire-complete-session-v1.integration.test.ts') return [];
+            return CREATES.test(readFileSync(resolve(dir, entry.name), 'utf8')) ? [rel] : [];
+        });
+
     it('only the four pre-existing files define complete_session by hand', () => {
-        const dir = resolve(process.cwd(), 'tests', 'db');
-        const offenders = readdirSync(dir)
-            .filter(f => /\.(ts|sql)$/.test(f))
-            .filter(f => f !== 'stage-b-retire-complete-session-v1.integration.test.ts')
-            .filter(f => CREATES.test(readFileSync(resolve(dir, f), 'utf8')))
-            .sort();
+        const offenders = substituteFiles(resolve(process.cwd(), 'tests', 'db')).sort();
         expect(offenders, 'a NEW handwritten complete_session substitute was added').toEqual(KNOWN_SUBSTITUTES);
     });
 
