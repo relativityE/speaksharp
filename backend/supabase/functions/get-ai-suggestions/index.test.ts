@@ -4,7 +4,7 @@ import { assertEquals, assertNotEquals, assertStringIncludes } from 'https://den
 const suggestionA = {
   version: 'gemini_coaching_v1',
   what_worked: 'Risk-first opening clarified the launch decision.',
-  what_to_try_next: 'Move the support bottleneck after the recommendation.',
+  what_to_try_next: 'Move the support bottleneck later.',
 } as const;
 const suggestionB = {
   version: 'gemini_coaching_v1',
@@ -382,6 +382,21 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     // reaching consume_ai_suggestion_quota is the configured one.
     assertEquals(mock.state.quotaArgs?.p_limit, AI_SUGGESTION_DAILY_LIMIT);
     assertEquals(AI_SUGGESTION_DAILY_LIMIT, 10);
+  });
+
+  await t.step('the request past the daily cap is refused 429, and spends no provider call', async () => {
+    resetProvider();
+    // The server-side RPC is the authority; this is the shape it returns once the configured cap is spent.
+    const mock = mockSupabase({
+      session: savedSession(),
+      quota: { allowed: false, remaining: 0, limit: AI_SUGGESTION_DAILY_LIMIT },
+    });
+    const response = await handler(request(), mock.create);
+    assertEquals(response.status, 429);
+    // The cap is worthless if it refuses the user but still spends the call.
+    assertEquals(fetchCount, 0);
+    const body = JSON.parse(await response.text());
+    assertEquals(body.limit, AI_SUGGESTION_DAILY_LIMIT);
   });
 
   // Each field is broken ALONE. An over-budget fixture that breaks both at once passes even when one of the

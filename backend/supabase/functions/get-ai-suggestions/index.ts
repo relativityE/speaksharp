@@ -27,7 +27,8 @@ export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/
 /**
  * #1424 A2 - the two-phrase coaching format, as ONE definition.
  *
- * The product format is two phrases: what worked in at most 6 words, what to try next in at most 8. The
+ * The product format is two phrases of at most 6 words each. (The release-and-iterate policy reads 6 and 8;
+ * the PM directive of this turn sets 6 for BOTH, and supersedes it.) The
  * shipped prompt never said so - its only length instruction was "concise enough to display in the app" -
  * so the model returned 22-36 words per field and nothing truncated it in the UI. The user read whatever
  * arrived.
@@ -35,7 +36,7 @@ export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/
  * The budget is enforced in all three places a violation can enter: asked for in the PROMPT, capped in the
  * SCHEMA, and refused by the PARSER. Prompt wording alone is a request; only the parser is a guarantee.
  */
-export const COACHING_WORD_BUDGET = Object.freeze({ what_worked: 6, what_to_try_next: 8 });
+export const COACHING_WORD_BUDGET = Object.freeze({ what_worked: 6, what_to_try_next: 6 });
 
 /** Words, counted the way a reader would: runs of non-whitespace. */
 export const countWords = (value: string): number => value.trim().split(/\s+/).filter(Boolean).length;
@@ -47,7 +48,7 @@ export const GEMINI_GENERATION_CONFIG = {
     "properties": {
       "version": { "type": "STRING", "enum": ["gemini_coaching_v1"] },
       "what_worked": { "type": "STRING", "maxLength": 90 },
-      "what_to_try_next": { "type": "STRING", "maxLength": 120 }
+      "what_to_try_next": { "type": "STRING", "maxLength": 90 }
     },
     "required": ["version", "what_worked", "what_to_try_next"]
   }
@@ -277,7 +278,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       - Do not invent facts, audience context, or performance details not present in the transcript or metrics.
       - Prefer concrete rewrites, next-step drills, or "try saying..." examples over generic encouragement.
       - If the transcript is too short for a category, say what additional evidence would make that category measurable.
-      - HARD LIMIT: "what_worked" must be AT MOST 6 words. "what_to_try_next" must be AT MOST 8 words.
+      - HARD LIMIT: "what_worked" must be AT MOST 6 words. "what_to_try_next" must be AT MOST 6 words.
         These are the product's two coaching phrases, not summaries. Count the words before answering.
         An answer over budget is discarded and the user sees an error instead of coaching.
 
@@ -289,7 +290,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       {
         "version": "gemini_coaching_v1",
         "what_worked": "<=6 words: what worked, session-specific.",
-        "what_to_try_next": "<=8 words: one concrete change for the next attempt."
+        "what_to_try_next": "<=6 words: one concrete change for the next attempt."
       }
       Do not add keys. Metric recital or reusable generic advice is invalid.
     `;
