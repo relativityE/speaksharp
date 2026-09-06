@@ -559,6 +559,15 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     assertEquals(built.match(/Metrics:/g)?.length, 1);
   });
 
+  await t.step('the prompt exemplar obeys the same six-word contract it asks Gemini to follow', () => {
+    const built = buildCoachingPrompt('fabricated transcript', 'fabricated metrics');
+    const exemplarMatch = /\{\s*"version": "gemini_coaching_v1",\s*"what_worked": "([^"]+)",\s*"what_to_try_next": "([^"]+)"\s*\}/.exec(built);
+    assertEquals(exemplarMatch !== null, true, 'the exact two-field response exemplar must remain present');
+    const [, whatWorked, whatToTryNext] = exemplarMatch!;
+    assertEquals(countWords(whatWorked) <= COACHING_WORD_BUDGET.what_worked, true);
+    assertEquals(countWords(whatToTryNext) <= COACHING_WORD_BUDGET.what_to_try_next, true);
+  });
+
   await t.step('caps saved transcript length before provider submission', async () => {
     resetProvider();
     const mock = mockSupabase({ session: savedSession({ transcript: `START-${'x'.repeat(9000)}-END` }) });
