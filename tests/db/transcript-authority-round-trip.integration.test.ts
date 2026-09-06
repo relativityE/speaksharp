@@ -34,33 +34,39 @@ const STORAGE = resolve(process.cwd(), 'frontend', 'src', 'lib', 'storage.ts');
  * a perfectly retained transcript is told we could not load it. A hard-coded copy here would keep asserting
  * the old, correct list and stay green through exactly that regression.
  */
-function readerDetailColumns(): string[] {
-    const src = executableText(readFileSync(STORAGE, 'utf8'), 'slash');
-    const analysis = /const SESSION_ANALYSIS_COLUMNS\s*=\s*\[([\s\S]*?)\];/.exec(src);
-    const detail = /const SESSION_DETAIL_COLUMNS\s*=\s*\[([\s\S]*?)\];/.exec(src);
-    if (!analysis || !detail) throw new Error('could not locate the reader column lists in storage.ts — coupling broken');
+function readerDetailColumns(source = readFileSync(STORAGE, 'utf8')): string[] {
+    const src = executableText(source, 'slash');
     // Consume the array STRICTLY (Codex finding). A regex that harvests only the literals it recognises
     // silently drops the rest: switch one entry from single to double quotes and this returned a SUBSET,
     // the two explicit authority assertions still passed, and the reduced SELECT still succeeded — so the
     // suite would have gone on green while production selected a column it never exercised.
-    const literals = (body: string, where: string): string[] => {
+    const resolveColumns = (name: string, stack: string[] = []): string[] => {
+        if (stack.includes(name)) {
+            throw new Error(`cyclic reader column spread: ${[...stack, name].join(' -> ')}`);
+        }
+        const match = new RegExp(`const ${name}\\s*=\\s*\\[([\\s\\S]*?)\\];`).exec(src);
+        if (!match) {
+            throw new Error(`unknown reader column spread ${name} — the test would exercise fewer columns than production selects`);
+        }
         const out: string[] = [];
-        for (const raw of body.split(',')) {
+        for (const raw of match[1].split(',')) {
             // Strip line comments and whitespace; a trailing empty segment is the trailing comma.
             const entry = raw.replace(/\/\/.*$/gm, '').trim();
             if (entry === '') continue;
-            if (/^\.\.\.[A-Z_]+$/.test(entry)) continue;    // a spread, handled by the caller
+            const spread = /^\.\.\.([A-Z_]+)$/.exec(entry);
+            if (spread) {
+                out.push(...resolveColumns(spread[1], [...stack, name]));
+                continue;
+            }
             const quoted = /^'([a-z_]+)'$/.exec(entry);
             if (!quoted) {
-                throw new Error(`unparsed column entry in ${where}: ${JSON.stringify(entry)} — this parser would have silently dropped it, so the test would exercise fewer columns than production selects`);
+                throw new Error(`unparsed column entry in ${name}: ${JSON.stringify(entry)} — this parser would have silently dropped it, so the test would exercise fewer columns than production selects`);
             }
             out.push(quoted[1]);
         }
         return out;
     };
-    const inherited = /\.\.\.SESSION_ANALYSIS_COLUMNS/.test(detail[1])
-        ? literals(analysis[1], 'SESSION_ANALYSIS_COLUMNS') : [];
-    return [...inherited, ...literals(detail[1], 'SESSION_DETAIL_COLUMNS')];
+    return resolveColumns('SESSION_DETAIL_COLUMNS');
 }
 
 /** Read the row back through the columns the PRODUCTION reader asks for — not a convenient subset. */
@@ -213,6 +219,15 @@ describe('#1423 T6 — the saved receipt is the database’s statement, not the 
 });
 
 describe('#1423 T6 — the reader’s select carries the authority it depends on', () => {
+    it('refuses an additional unresolved spread instead of silently testing a subset', () => {
+        const source = readFileSync(STORAGE, 'utf8').replace(
+            '...SESSION_ANALYSIS_COLUMNS,',
+            '...SESSION_ANALYSIS_COLUMNS,\n  ...SESSION_UNRESOLVED_COLUMNS,',
+        );
+        expect(source).toContain('...SESSION_UNRESOLVED_COLUMNS,');
+        expect(() => readerDetailColumns(source)).toThrow(/unknown reader column spread SESSION_UNRESOLVED_COLUMNS/);
+    });
+
     it('the DETAIL columns name BOTH the text and the server state', async () => {
         const cols = readerDetailColumns();
         expect(cols).toContain('transcript');
