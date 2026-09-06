@@ -173,6 +173,33 @@ describe('#1416 product switching from the session route', () => {
       await waitFor(() => expect(screen.queryByTestId('nav-open-mic-pending')).not.toBeInTheDocument());
     });
 
+    it('keeps the switch pending through DOWNLOAD_REQUIRED and the intermediate READY that resumes Start', async () => {
+      useSessionStore.getState().setActiveObjectiveBrief({
+        projectId: 'p1', briefId: 'b1', points: ['Name the price'], topic: 'Pitch',
+      });
+      useSessionStore.getState().setRuntimeState('DOWNLOAD_REQUIRED');
+      useSessionStore.getState().setEngineSelectionLock(true, null);
+      const user = userEvent.setup();
+      renderApp('/session');
+
+      await user.click(screen.getByTestId('nav-products-button'));
+      await user.click(await screen.findByTestId('nav-products-open-mic'));
+      expect(await screen.findByTestId('nav-open-mic-pending')).toHaveTextContent(/after this take/i);
+      expect(useSessionStore.getState().activeObjectiveBrief).toMatchObject({ briefId: 'b1' });
+
+      // READY is not necessarily terminal. On a cold start it is the hand-off that resumes the same
+      // pending click, and the controller keeps its authoritative lock published across that seam.
+      act(() => { useSessionStore.getState().setRuntimeState('READY'); });
+      expect(useSessionStore.getState().engineSelectionLocked).toBe(true);
+      expect(useSessionStore.getState().activeObjectiveBrief).toMatchObject({ briefId: 'b1' });
+      expect(screen.getByTestId('nav-open-mic-pending')).toBeInTheDocument();
+
+      // Only the controller's actual resolution unlock applies the deferred choice.
+      act(() => { useSessionStore.getState().setEngineSelectionLock(false, null); });
+      await waitFor(() => expect(useSessionStore.getState().activeObjectiveBrief).toBeNull());
+      await waitFor(() => expect(screen.queryByTestId('nav-open-mic-pending')).not.toBeInTheDocument());
+    });
+
     it.each([
       ['desktop', 'nav-products-button', 'nav-products-open-mic'],
       ['mobile', 'nav-mobile-products-button', 'nav-mobile-products-open-mic'],
@@ -201,7 +228,7 @@ describe('#1416 product switching from the session route', () => {
       await waitFor(() => expect(screen.queryByTestId('nav-open-mic-pending')).not.toBeInTheDocument());
     });
 
-    it('applies the pending switch when the take ends WITHOUT the stop seam clearing the brief', async () => {
+    it('applies the pending switch when a failed/cancelled attempt settles without completing a brief', async () => {
       // The previous test set `isListening:false` and cleared the brief in the same act, so it
       // manufactured the outcome it was checking: it passed whether or not anything applied the
       // switch. Only the CLEAN stop path retires the brief; a take that ends through failed
@@ -215,7 +242,8 @@ describe('#1416 product switching from the session route', () => {
       await user.click(await screen.findByTestId('nav-products-open-mic'));
       expect(await screen.findByTestId('nav-open-mic-pending')).toBeInTheDocument();
 
-      // ONLY the take ends. The brief stays bound, as it does on every non-clean path.
+      // ONLY the attempt settles. The brief stays bound because no Focus Points completion exists;
+      // the controller's authoritative lock is already false, so Navigation must apply the choice.
       act(() => { useSessionStore.setState({ isListening: false }); });
 
       await waitFor(() => expect(useSessionStore.getState().activeObjectiveBrief).toBeNull());

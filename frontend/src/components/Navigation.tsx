@@ -48,6 +48,7 @@ const Navigation = () => {
   // "did selecting Open Mic change anything" (it navigated to the route the user was already on).
   const activeObjectiveBrief = useSessionStore(state => state.activeObjectiveBrief);
   const isListening = useSessionStore(state => state.isListening);
+  const engineSelectionLocked = useSessionStore(state => state.engineSelectionLocked);
   const setActiveObjectiveBrief = useSessionStore(state => state.setActiveObjectiveBrief);
   const { surface: practiceSurface } = usePracticeSurface();
   const [isUpgrading, setIsUpgrading] = useState(false);
@@ -165,7 +166,15 @@ const Navigation = () => {
   // which already retires the brief once coverage is finalized — is where the change lands. The
   // pending switch is announced rather than left silent, because a control that appears to do
   // nothing is its own defect.
-  const takeInFlight = isListening || ['INITIATING', 'ENGINE_INITIALIZING', 'RECORDING', 'STOPPING'].includes(reportRuntimeState);
+  // The controller's published lock is the recording-attempt authority. In particular, it remains
+  // held while a cold Start is parked in DOWNLOAD_REQUIRED, through the intermediate READY transition
+  // that resumes that same click, and through unresolved save/retry work. A runtime-state whitelist
+  // cannot distinguish that READY from a genuinely settled READY and applied Open Mic too early.
+  // Keep the explicit lifecycle states as a defensive presentation guard while the store projection
+  // catches up; neither is allowed to shorten the controller-owned lock.
+  const takeInFlight = engineSelectionLocked
+    || isListening
+    || ['INITIATING', 'ENGINE_INITIALIZING', 'RECORDING', 'STOPPING'].includes(reportRuntimeState);
   const switchDeferred = takeInFlight && Boolean(activeObjectiveBrief);
   const [openMicPending, setOpenMicPending] = useState(false);
   const selectOpenMic = () => {

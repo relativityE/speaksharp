@@ -349,6 +349,18 @@ describe('#1415 — one click, one recording', () => {
     });
 
     describe('#1415 P1 — engine and policy stay locked through preparation', () => {
+        it('publishes the lock in the same turn as Start intent, before the queue reaches INITIATING', async () => {
+            engine.downloadEnabled = false;
+            const started = controller.startRecording(POLICY as never, []);
+            started.catch(() => { /* settled by the lifecycle after this synchronous assertion */ });
+
+            expect(useSessionStore.getState().runtimeState).toBe('IDLE');
+            expect(useSessionStore.getState().engineSelectionLocked).toBe(true);
+
+            await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('TERMINATED');
+            await settle();
+        });
+
         it('the lock is HELD while a click waits on a model download', async () => {
             engine.downloadEnabled = false;   // preparation stays open
             const started = controller.startRecording(POLICY as never, []);
@@ -360,6 +372,13 @@ describe('#1415 — one click, one recording', () => {
             // change during the download would have the recording resume on an engine the user never
             // asked for, under a policy the intent was not minted with.
             expect(controller.isEngineSelectionLocked()).toBe(true);
+            expect(useSessionStore.getState().engineSelectionLocked).toBe(true);
+
+            // Preparation publishes an intermediate READY before it resumes the same Start. The UI
+            // projection must stay locked at that exact seam; otherwise Navigation can consume the
+            // Focus Points brief and relabel the recording that is about to begin.
+            await (controller as unknown as { transition: (s: string) => Promise<void> }).transition('READY');
+            expect(useSessionStore.getState().engineSelectionLocked).toBe(true);
         });
 
         it('the lock is RELEASED once that exact attempt is retired', async () => {
@@ -375,6 +394,7 @@ describe('#1415 — one click, one recording', () => {
 
             // The lock lasts exactly as long as the wish — no longer.
             expect(controller.isEngineSelectionLocked()).toBe(false);
+            expect(useSessionStore.getState().engineSelectionLocked).toBe(false);
         });
     });
 

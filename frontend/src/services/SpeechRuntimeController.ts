@@ -729,12 +729,14 @@ export class SpeechRuntimeController {
                     mode: pending.progressContext?.mode ?? null,
                 });
             }
+            const progressContext = pending.progressContext ?? { mode: 'unknown' as const };
             await this.completeProgressForRecording(
-                pending.progressContext ?? { mode: 'unknown' },
+                progressContext,
                 targetSessionId,
                 res.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
                 pending.progressMetrics?.persisted ?? false,
             );
+            this.retireObjectiveBriefAfterSettlement(progressContext);
             return true;
         } catch {
             return false;
@@ -815,12 +817,14 @@ export class SpeechRuntimeController {
                         sessionId: targetSessionId,
                         mode: fullSave.progressContext?.mode ?? null,
                     });
+                    const progressContext = fullSave.progressContext ?? { mode: 'unknown' as const };
                     await this.completeProgressForRecording(
-                        fullSave.progressContext ?? { mode: 'unknown' },
+                        progressContext,
                         targetSessionId,
                         attrRes.attributed ? ATTRIBUTION_STATUS.VERIFIED : ATTRIBUTION_STATUS.UNVERIFIED,
                         metricsPersisted,
                     );
+                    this.retireObjectiveBriefAfterSettlement(progressContext);
                 }
                 return true;
             } catch {
@@ -1872,6 +1876,10 @@ export class SpeechRuntimeController {
         // lock lifts on its own. No separate unlock path can now drift from the lock path, because
         // there is only one expression.
         this.engineSelectionIntentLocked = pendingRecordingIntent() !== null;
+        // `syncProvider` runs before the post-transition attempt ownership above is reconciled. Republish
+        // the settled predicate so a pre-recording failure cannot leave the UI locked merely because the
+        // synchronous Start bridge was still true during the earlier projection.
+        this.publishLockState();
 
         logger.info({ from: previousState, to: newState }, '[SpeechRuntimeController] ⚡ Transition');
         const store = useSessionStore.getState();
@@ -2781,6 +2789,10 @@ export class SpeechRuntimeController {
         // #1033: lock engine selection SYNCHRONOUSLY at Start intent — before any async enqueue reaches
         // INITIATING — so a rapid engine change right after Start cannot win the race. Released in transition().
         this.engineSelectionIntentLocked = true;
+        // Publish in the same synchronous turn as the click. Navigation and the engine selector consume
+        // this projection; waiting for the queued INITIATING transition leaves a same-turn window in which
+        // the controller is locked but the UI still believes the take is settled.
+        this.publishLockState();
         // This take has no persisted row yet. Clear the previous take synchronously so a report opened
         // during setup/start cannot inherit stale session correlation.
         clearPrivateRecordingIdentity();
@@ -2871,6 +2883,7 @@ export class SpeechRuntimeController {
                 // lock yet). Release the synchronous Start-intent lock so it can't leak. If another recording is
                 // genuinely active it stays locked via RECORDING_LIFECYCLE_STATES; a stale/double Start does not.
                 this.engineSelectionIntentLocked = false;
+                this.publishLockState();
                 return;
             }
 
@@ -2887,6 +2900,7 @@ export class SpeechRuntimeController {
                 retireRecordingIntent('superseded', intent.token);
                 // #1033 item 4: aborting before the INITIATING transition — release the Start-intent lock.
                 this.engineSelectionIntentLocked = false;
+                this.publishLockState();
                 return;
             }
 
@@ -3451,6 +3465,10 @@ export class SpeechRuntimeController {
                 // successful completion so the post-READY persistence write can carry
                 // the exact session id + mode for proofs (data-session-persisted-id).
                 let persistedSessionMarker: { sessionId: string; mode: string | null } | null = null;
+                // A completed Focus Points brief is retired only after the controller publishes the
+                // clean READY settlement. Keeping this local to the stop prevents a later attempt or
+                // retry from consuming another recording's brief.
+                let completedProgressContext: ProgressCompletionContext | null = null;
                 logger.info({ wasRecording, state: this.state, sessionId: this.sessionId }, '[DEBUG-STOP] state-check');
                 if (wasRecording) {
                     let sessionId = this.sessionId;
@@ -4109,6 +4127,7 @@ export class SpeechRuntimeController {
                                 attributionTerminalStatus,
                                 metricsOk,
                             );
+                            completedProgressContext = progressContext;
 
                             clearSessionRecoveryDraft(sessionId);
 
@@ -4150,6 +4169,7 @@ export class SpeechRuntimeController {
 
                 logger.info('[DEBUG-STOP] transition READY starting');
                 await this.transition('READY');
+                this.retireObjectiveBriefAfterSettlement(completedProgressContext);
                 // #1033 (item 3): the stop path reached its NORMAL terminal — the recording was saved, discarded
                 // as no-speech/low-quality, or had nothing to persist. Unless a durable retry was stashed (a
                 // full-save or attribution failure, which keeps the lock for Retry Save), the recording is fully
@@ -4275,10 +4295,6 @@ export class SpeechRuntimeController {
 
         const store = useSessionStore.getState();
         store.setCompletedObjectiveBrief(context.brief);
-        const liveBrief = store.activeObjectiveBrief;
-        if (liveBrief?.projectId === context.brief.projectId && liveBrief.briefId === context.brief.briefId) {
-            store.setActiveObjectiveBrief(null);
-        }
         return this.applyProgressGate(sessionId, await this.finalizeObjectiveAndGateProgress(
             { projectId: context.brief.projectId, briefId: context.brief.briefId },
             sessionId,
@@ -4286,6 +4302,20 @@ export class SpeechRuntimeController {
             context.durationSeconds,
             runProgressEval,
         ));
+    }
+
+    /**
+     * Retire only the brief that owned the completed take, and only after its asynchronous Progress work
+     * has settled. The normal stop path calls this after READY; retry paths call it after their awaited
+     * completion seam. A later brief selected for another take is never cleared by stale completion work.
+     */
+    private retireObjectiveBriefAfterSettlement(context: ProgressCompletionContext | null): void {
+        if (!context || context.mode !== 'focus_points') return;
+        const store = useSessionStore.getState();
+        const liveBrief = store.activeObjectiveBrief;
+        if (liveBrief?.projectId === context.brief.projectId && liveBrief.briefId === context.brief.briefId) {
+            store.setActiveObjectiveBrief(null);
+        }
     }
 
     /**
