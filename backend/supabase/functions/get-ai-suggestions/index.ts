@@ -27,12 +27,14 @@ export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/
 /**
  * #1424 A2 - the two-phrase coaching format, as ONE definition.
  *
- * The product format is two phrases of at most 7 words each.
+ * The product format is two phrases of at most 6 words each.
  *
  * The release-and-iterate policy carried two different budgets - 6 for what worked, 8 for try next - which
  * gave two numbers to remember, two ways to be wrong, and no reason for the asymmetry. PO ruling: reconcile
- * both to 7. One number, and it sits between the two it replaces, so neither phrase gets materially tighter
- * or looser. The
+ * both to one number. Six, and measured rather than chosen: 3.6 writes to FILL whatever budget it is given
+ * - 5 and 5 words under a six-word budget, 6 and 7 under a seven-word one - so slack buys no margin, it just
+ * gets spent. A field landing ON the limit is one word from a 502. Six is also the number the policy already
+ * carried for "what worked", so this reconciles to an existing number rather than inventing one. The
  * shipped prompt never said so - its only length instruction was "concise enough to display in the app" -
  * so the model returned 22-36 words per field and nothing truncated it in the UI. The user read whatever
  * arrived.
@@ -40,7 +42,7 @@ export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/
  * The budget is enforced in all three places a violation can enter: asked for in the PROMPT, capped in the
  * SCHEMA, and refused by the PARSER. Prompt wording alone is a request; only the parser is a guarantee.
  */
-export const COACHING_WORD_BUDGET = Object.freeze({ what_worked: 7, what_to_try_next: 7 });
+export const COACHING_WORD_BUDGET = Object.freeze({ what_worked: 6, what_to_try_next: 6 });
 
 /** Words, counted the way a reader would: runs of non-whitespace. */
 export const countWords = (value: string): number => value.trim().split(/\s+/).filter(Boolean).length;
@@ -51,8 +53,8 @@ export const GEMINI_GENERATION_CONFIG = {
     "type": "OBJECT",
     "properties": {
       "version": { "type": "STRING", "enum": ["gemini_coaching_v1"] },
-      "what_worked": { "type": "STRING", "maxLength": 105 },
-      "what_to_try_next": { "type": "STRING", "maxLength": 105 }
+      "what_worked": { "type": "STRING", "maxLength": 90 },
+      "what_to_try_next": { "type": "STRING", "maxLength": 90 }
     },
     "required": ["version", "what_worked", "what_to_try_next"]
   }
@@ -282,7 +284,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       - Do not invent facts, audience context, or performance details not present in the transcript or metrics.
       - Prefer concrete rewrites, next-step drills, or "try saying..." examples over generic encouragement.
       - If the transcript is too short for a category, say what additional evidence would make that category measurable.
-      - HARD LIMIT: each of "what_worked" and "what_to_try_next" must be AT MOST 7 words.
+      - HARD LIMIT: each of "what_worked" and "what_to_try_next" must be AT MOST 6 words.
         These are the product's two coaching phrases, not summaries. Count the words before answering.
         An answer over budget is discarded and the user sees an error instead of coaching.
 
@@ -293,8 +295,8 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       Return exactly one JSON object and no surrounding prose or markdown:
       {
         "version": "gemini_coaching_v1",
-        "what_worked": "<=7 words: what worked, session-specific.",
-        "what_to_try_next": "<=7 words: one concrete change for the next attempt."
+        "what_worked": "<=6 words: what worked, session-specific.",
+        "what_to_try_next": "<=6 words: one concrete change for the next attempt."
       }
       Do not add keys. Metric recital or reusable generic advice is invalid.
     `;

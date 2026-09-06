@@ -19,9 +19,11 @@ concurrency:
 
 jobs:
   proof:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'gemini-proof'
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'gemini-proof' || github.event.label.name == 'gemini-sample'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The sampling label makes ten spaced calls to characterise the word-count distribution, so it needs
+    # materially more wall clock than the single-call gate.
+    timeout-minutes: 25
     steps:
       # A labeled `pull_request` run checks out the event's synthetic MERGE commit by default, not the PR
       # head (Codex finding). Claiming a proof ran at an exact head while the runner built a different tree
@@ -44,6 +46,8 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PROOF_OUT: artifacts/gemini-model-currency-proof.json
           PROOF_SHA: ${{ steps.proven.outputs.sha }}
+          # One call for the gate; ten when the sampling label fires.
+          SAMPLE_N: ${{ github.event.label.name == 'gemini-sample' && '10' || '1' }}
         run: node scripts/gemini-model-currency-proof.mjs
 
       - name: Retain the raw response as evidence
@@ -51,5 +55,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gemini-model-currency-proof
-          path: artifacts/gemini-model-currency-proof.json
+          path: artifacts/gemini-model-currency-proof*.json
           if-no-files-found: warn

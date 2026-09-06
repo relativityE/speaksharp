@@ -108,24 +108,30 @@ console.log(`G4: calling model=${MODEL} via the URL exported by the edge functio
 // a bounded number of times, because every attempt is billed.
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 const ATTEMPTS = 4;
-const started = Date.now();
-let res;
-let bodyText = '';
-let attempt = 0;
-for (attempt = 1; attempt <= ATTEMPTS; attempt++) {
-    res = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // The SAME body shape the edge function sends.
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: GENERATION_CONFIG }),
-    });
-    bodyText = await res.text();
-    if (res.ok || !RETRYABLE.has(res.status)) break;
-    if (attempt === ATTEMPTS) break;
-    const backoffMs = 5000 * 2 ** (attempt - 1);
-    console.log(`G4: attempt ${attempt} got HTTP ${res.status} (retryable); waiting ${backoffMs}ms`);
-    await new Promise((r) => setTimeout(r, backoffMs));
+
+async function callModel() {
+    let res;
+    let bodyText = '';
+    let attempt = 0;
+    for (attempt = 1; attempt <= ATTEMPTS; attempt++) {
+        res = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            // The SAME body shape the edge function sends.
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: GENERATION_CONFIG }),
+        });
+        bodyText = await res.text();
+        if (res.ok || !RETRYABLE.has(res.status)) break;
+        if (attempt === ATTEMPTS) break;
+        const backoffMs = 5000 * 2 ** (attempt - 1);
+        console.log(`  attempt ${attempt} got HTTP ${res.status} (retryable); waiting ${backoffMs}ms`);
+        await new Promise((r) => setTimeout(r, backoffMs));
+    }
+    return { res, bodyText, attempt };
 }
+
+const started = Date.now();
+let { res, bodyText, attempt } = await callModel();
 const elapsedMs = Date.now() - started;
 
 // The raw body is retained as evidence. The transcript that produced it is fabricated, so this carries no
@@ -179,6 +185,7 @@ const budgetMatch = /export const COACHING_WORD_BUDGET = Object\.freeze\(\{([^}]
 if (!budgetMatch) fail('could not read COACHING_WORD_BUDGET from the edge function — coupling broken');
 const BUDGET = Object.fromEntries([...budgetMatch[1].matchAll(/(\w+)\s*:\s*(\d+)/g)].map((m) => [m[1], Number(m[2])]));
 const words = (v) => v.trim().split(/\s+/).filter(Boolean).length;
+const COACHING_BUDGET_MAX = Math.max(...Object.values(BUDGET));
 for (const [field, max] of Object.entries(BUDGET)) {
     const n = words(parsed[field]);
     console.log(`G4: ${field} = ${n} words (budget ${max})`);
@@ -186,3 +193,46 @@ for (const [field, max] of Object.entries(BUDGET)) {
 }
 
 console.log(`G4 PASS: ${MODEL} responded and its answer satisfies parseSuggestions exactly (keys=${JSON.stringify(gotKeys)}).`);
+
+// ---- 6. Optional: SAMPLE the word-count distribution -----------------------------------------------------
+//
+// One passing call tells us the budget is achievable, not how often it is achieved. The budget matters
+// because an over-budget answer is REFUSED - the user gets a 502 instead of coaching - so the number worth
+// knowing is the refusal RATE at each candidate budget, not a single observation. This mode measures it.
+//
+// Pacing is deliberate: the project is on the Gemini free tier at 10 requests per minute, so samples are
+// spaced to stay under it rather than manufacturing the 429s we are trying to characterise.
+const SAMPLE_N = Number(process.env.SAMPLE_N ?? '1');
+if (Number.isFinite(SAMPLE_N) && SAMPLE_N > 1) {
+    const SPACING_MS = 8000; // 10 RPM ceiling => >=6s apart; 8s leaves headroom for the call itself.
+    const samples = [{ what_worked: words(parsed.what_worked), what_to_try_next: words(parsed.what_to_try_next), text: parsed }];
+    const failures = [];
+
+    console.log(`\nSAMPLING: ${SAMPLE_N} total calls, ${SPACING_MS}ms apart (free-tier 10 RPM).`);
+    for (let i = samples.length; i < SAMPLE_N; i++) {
+        await new Promise((r) => setTimeout(r, SPACING_MS));
+        const s = await callModel();
+        if (!s.res.ok) { failures.push(s.res.status); console.log(`  sample ${i + 1}: HTTP ${s.res.status} (no tokens)`); continue; }
+        try {
+            const d = JSON.parse(s.bodyText);
+            const t = JSON.parse(String(d?.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim());
+            const row = { what_worked: words(t.what_worked ?? ''), what_to_try_next: words(t.what_to_try_next ?? ''), text: t };
+            samples.push(row);
+            console.log(`  sample ${i + 1}: what_worked=${row.what_worked}w what_to_try_next=${row.what_to_try_next}w`);
+        } catch { failures.push('unparseable'); console.log(`  sample ${i + 1}: response was not parseable JSON`); }
+    }
+
+    const all = samples.flatMap((r) => [r.what_worked, r.what_to_try_next]);
+    const stat = (xs) => ({ min: Math.min(...xs), max: Math.max(...xs), mean: (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(2) });
+    console.log(`\nSAMPLES: ${samples.length} usable, ${failures.length} failed (${JSON.stringify(failures)})`);
+    console.log(`what_worked      ${JSON.stringify(stat(samples.map((r) => r.what_worked)))}`);
+    console.log(`what_to_try_next ${JSON.stringify(stat(samples.map((r) => r.what_to_try_next)))}`);
+    console.log(`\nREFUSAL RATE BY BUDGET (a field over budget = a 502 for that user):`);
+    for (const b of [5, 6, 7, 8, 9, 10]) {
+        const refused = samples.filter((r) => r.what_worked > b || r.what_to_try_next > b).length;
+        const pct = ((refused / samples.length) * 100).toFixed(0);
+        console.log(`  budget ${b}: ${refused}/${samples.length} responses refused (${pct}%)  ${b === COACHING_BUDGET_MAX ? '  <-- configured' : ''}`);
+    }
+    writeFileSync(resolve(process.cwd(), out.replace(/\.json$/, '-samples.json')), JSON.stringify({ model: MODEL, proven_sha: process.env.PROOF_SHA ?? null, samples, failures }, null, 2));
+    console.log(`\nsample evidence written alongside ${out}`);
+}

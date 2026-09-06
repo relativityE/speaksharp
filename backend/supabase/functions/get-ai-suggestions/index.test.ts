@@ -400,8 +400,8 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
   });
 
   await t.step('the budget boundary is exact: at the limit passes, one word over is refused', async () => {
-    const atLimit = 'One two three four five six seven';          // exactly 7
-    const overBy1 = 'One two three four five six seven eight';    // exactly 8
+    const atLimit = 'One two three four five six';          // exactly 6
+    const overBy1 = 'One two three four five six seven';    // exactly 7
     assertEquals(countWords(atLimit), COACHING_WORD_BUDGET.what_worked);
     assertEquals(countWords(overBy1), COACHING_WORD_BUDGET.what_worked + 1);
 
