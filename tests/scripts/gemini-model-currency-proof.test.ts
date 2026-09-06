@@ -45,6 +45,10 @@ describe('trusted Gemini model proof', () => {
     expect(() => validateContract({ ...contract, wordBudget: { ...contract.wordBudget, what_worked: 7 } })).toThrow();
     expect(() => validateContract({
       ...contract,
+      generationConfig: { ...contract.generationConfig, candidateCount: 4 },
+    })).toThrow();
+    expect(() => validateContract({
+      ...contract,
       generationConfig: {
         ...contract.generationConfig,
         responseSchema: {

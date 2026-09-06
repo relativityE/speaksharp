@@ -38,13 +38,21 @@ export function validateContract(contract) {
 
   const config = contract.generationConfig;
   const schema = config?.responseSchema;
+  if (!config || !exactKeys(config, ['responseMimeType', 'responseSchema'])) throw new Error('generation config contains untrusted or missing fields');
   if (config?.responseMimeType !== 'application/json') throw new Error('response MIME type must be application/json');
+  if (!schema || !exactKeys(schema, ['type', 'properties', 'required'])) throw new Error('response schema contains untrusted or missing fields');
   if (schema?.type !== 'OBJECT') throw new Error('response schema must be an object');
   if (!exactKeys(schema?.properties ?? {}, REQUIRED_KEYS)) throw new Error('response schema property set does not match production');
   if (JSON.stringify([...(schema?.required ?? [])].sort()) !== JSON.stringify(REQUIRED_KEYS)) throw new Error('response schema required set does not match production');
+  if (!exactKeys(schema.properties.version ?? {}, ['type', 'enum']) || schema.properties.version.type !== 'STRING') {
+    throw new Error('response schema version contains untrusted or missing fields');
+  }
   if (JSON.stringify(schema.properties.version?.enum) !== JSON.stringify([EXPECTED_VERSION])) throw new Error('response schema version enum does not match production');
   for (const field of COACHING_FIELDS) {
     const fieldSchema = schema.properties[field];
+    if (!fieldSchema || !exactKeys(fieldSchema, ['type', 'minLength', 'maxLength', 'pattern'])) {
+      throw new Error(field + ' schema contains untrusted or missing fields');
+    }
     if (fieldSchema?.type !== 'STRING' || fieldSchema.minLength !== 1 || fieldSchema.pattern !== '.*\\S.*') {
       throw new Error(`${field} schema must reject empty and whitespace-only strings`);
     }
