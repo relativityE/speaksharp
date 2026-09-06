@@ -281,7 +281,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
                 completedObjectivePoints={POINTS}
                 completedObjectivePaceGuideSecPerPoint={60}
                 showAnalyticsPrompt
-                transcriptContent="I will name the price now."
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
                 elapsedTime={0}
                 scoringElapsedSeconds={84}
             />,
@@ -300,7 +301,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
                 completedObjectivePoints={POINTS}
                 completedObjectivePaceGuideSecPerPoint={60}
                 showAnalyticsPrompt
-                transcriptContent="I will name the price now."
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
                 elapsedTime={0}
             />,
         );
@@ -320,7 +322,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
                 objectivePoints={null}
                 completedObjectivePoints={POINTS}
                 showAnalyticsPrompt
-                transcriptContent="I will name the price now."
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
                 elapsedTime={0}
                 scoringElapsedSeconds={84}
             />,
