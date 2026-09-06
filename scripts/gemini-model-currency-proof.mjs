@@ -69,25 +69,46 @@ const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) fail('GEMINI_API_KEY is not set in this environment — the proof cannot run (this is a credential-availability blocker, not a result)');
 
 console.log(`G4: calling model=${MODEL} via the URL exported by the edge function`);
+
+// A 503 UNAVAILABLE ("high demand") is the model declining to answer RIGHT NOW; a 404 NOT_FOUND is the model
+// not existing. Conflating them would let a transient spike read as "the endpoint is dead", or worse, let a
+// genuinely retired endpoint hide behind "probably transient". Only the transient class is retried, and only
+// a bounded number of times, because every attempt is billed.
+const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+const ATTEMPTS = 4;
 const started = Date.now();
-const res = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    // The SAME body shape the edge function sends.
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-});
+let res;
+let bodyText = '';
+let attempt = 0;
+for (attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    res = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // The SAME body shape the edge function sends.
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    });
+    bodyText = await res.text();
+    if (res.ok || !RETRYABLE.has(res.status)) break;
+    if (attempt === ATTEMPTS) break;
+    const backoffMs = 5000 * 2 ** (attempt - 1);
+    console.log(`G4: attempt ${attempt} got HTTP ${res.status} (retryable); waiting ${backoffMs}ms`);
+    await new Promise((r) => setTimeout(r, backoffMs));
+}
 const elapsedMs = Date.now() - started;
-const bodyText = await res.text();
 
 // The raw body is retained as evidence. The transcript that produced it is fabricated, so this carries no
 // user content. The API key is never written.
 mkdirSync(dirname(resolve(process.cwd(), out)), { recursive: true });
 writeFileSync(resolve(process.cwd(), out), JSON.stringify({
     model: MODEL, url: GEMINI_API_URL, http_status: res.status, elapsed_ms: elapsedMs,
-    fabricated_transcript: FABRICATED_TRANSCRIPT, raw_response: bodyText,
+    attempts: attempt, fabricated_transcript: FABRICATED_TRANSCRIPT, raw_response: bodyText,
 }, null, 2));
-console.log(`G4: http_status=${res.status} elapsed_ms=${elapsedMs} evidence=${out}`);
+console.log(`G4: http_status=${res.status} attempts=${attempt} elapsed_ms=${elapsedMs} evidence=${out}`);
 
+if (res.status === 404) fail(`the model ${MODEL} does not exist at the URL the product calls — this is the endpoint being retired, not a spike`);
+if (!res.ok && RETRYABLE.has(res.status)) {
+    fail(`the model was still unavailable (HTTP ${res.status}) after ${ATTEMPTS} attempts. The model EXISTS - this is not a 404 - but it did not answer, so the response SHAPE remains unproven. Re-run the proof; do not read this as a pass.`);
+}
 if (!res.ok) fail(`the model returned HTTP ${res.status} — the endpoint the product calls is not usable`);
 
 // ---- 5. The response must satisfy the SHIPPED acceptance rule ---------------------------------------------
