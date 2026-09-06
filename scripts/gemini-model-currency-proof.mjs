@@ -38,6 +38,27 @@ const versionMatch = /candidate\.version !== '([a-z0-9_]+)'/.exec(src);
 if (!versionMatch) fail('could not read the required version literal from parseSuggestions — coupling broken');
 const REQUIRED_VERSION = versionMatch[1];
 
+// ---- 2b. The generation config, taken from the product ---------------------------------------------------
+// Balanced-brace extraction, then JSON.parse. If the literal in the edge function stops being valid JSON this
+// throws rather than quietly sending a different config than production does.
+const cfgStart = src.indexOf('export const GEMINI_GENERATION_CONFIG = {');
+if (cfgStart === -1) fail('could not read GEMINI_GENERATION_CONFIG from the edge function - coupling broken');
+let depth = 0, cfgEnd = -1;
+for (let i = src.indexOf('{', cfgStart); i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}') { depth--; if (depth === 0) { cfgEnd = i + 1; break; } }
+}
+if (cfgEnd === -1) fail('GEMINI_GENERATION_CONFIG literal is unbalanced - coupling broken');
+let GENERATION_CONFIG;
+try { GENERATION_CONFIG = JSON.parse(src.slice(src.indexOf('{', cfgStart), cfgEnd)); }
+catch (e) { fail(`GEMINI_GENERATION_CONFIG is not parseable as JSON, so this proof cannot send what production sends: ${e.message}`); }
+// The schema and the parser must agree. If they disagree, production asks the model for one contract and then
+// rejects the answer against another - which is a 502 for every user, produced by our own code.
+const schemaKeys = Object.keys(GENERATION_CONFIG?.responseSchema?.properties ?? {}).sort();
+if (JSON.stringify(schemaKeys) !== JSON.stringify(REQUIRED_KEYS)) {
+    fail(`the response schema asks for ${JSON.stringify(schemaKeys)} but parseSuggestions requires ${JSON.stringify(REQUIRED_KEYS)}`);
+}
+
 // ---- 3. The prompt, taken from the product ---------------------------------------------------------------
 const promptMatch = /const prompt = `([\s\S]*?)`;/.exec(src);
 if (!promptMatch) fail('could not read the prompt template from the edge function — coupling broken');
@@ -85,7 +106,7 @@ for (attempt = 1; attempt <= ATTEMPTS; attempt++) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // The SAME body shape the edge function sends.
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: GENERATION_CONFIG }),
     });
     bodyText = await res.text();
     if (res.ok || !RETRYABLE.has(res.status)) break;

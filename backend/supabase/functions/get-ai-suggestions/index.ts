@@ -11,6 +11,28 @@ import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 // {version, what_worked, what_to_try_next}, and that rejection is what must reach the user as an
 // error rather than as an empty review.
 export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent';
+// #1424 (Codex finding): the request used to constrain its answer by PROMPT WORDING alone, and
+// `parseSuggestions` then demanded exactly {version, what_worked, what_to_try_next}. That made the contract a
+// request rather than a constraint: a model is free to wrap its answer in a markdown fence or add a key, and
+// every such answer is a 502 for every user. An executed call proving the model complied ONCE is evidence
+// about that call, not a guarantee about the next one.
+//
+// Declaring the MIME type and schema moves the contract into the API, where the provider enforces it. The
+// literal is written as valid JSON on purpose: the G4 proof parses this exact object out of this file and
+// sends it, so the proof cannot drift from what production requests.
+export const GEMINI_GENERATION_CONFIG = {
+  "responseMimeType": "application/json",
+  "responseSchema": {
+    "type": "OBJECT",
+    "properties": {
+      "version": { "type": "STRING" },
+      "what_worked": { "type": "STRING" },
+      "what_to_try_next": { "type": "STRING" }
+    },
+    "required": ["version", "what_worked", "what_to_try_next"]
+  }
+};
+
 const MAX_TRANSCRIPT_CHARS = 8000;
 const AI_SUGGESTION_DAILY_LIMIT = 20;
 
@@ -249,6 +271,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: GEMINI_GENERATION_CONFIG,
         }),
       });
 

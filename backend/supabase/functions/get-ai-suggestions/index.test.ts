@@ -1,4 +1,4 @@
-import { handler, GEMINI_API_URL } from './index.ts';
+import { handler, GEMINI_API_URL, GEMINI_GENERATION_CONFIG } from './index.ts';
 import { assertEquals, assertNotEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 
 const suggestionA = {
@@ -43,6 +43,7 @@ let fetchStatus = 200;
 let geminiText = JSON.stringify(suggestionA);
 let adaptiveGemini = false;
 let lastPrompt = '';
+let lastRequestBody: Record<string, unknown> = {};
 
 globalThis.fetch = async (url, init) => {
   if (!url.toString().includes('generativelanguage.googleapis.com')) {
@@ -51,6 +52,7 @@ globalThis.fetch = async (url, init) => {
   fetchCount++;
   const body = JSON.parse(String((init as { body?: BodyInit | null } | undefined)?.body ?? '{}'));
   lastPrompt = String(body?.contents?.[0]?.parts?.[0]?.text ?? '');
+  lastRequestBody = body as Record<string, unknown>;
   if (fetchStatus !== 200) return new Response('upstream unavailable', { status: fetchStatus });
   const text = adaptiveGemini && lastPrompt.includes('renewal story')
     ? JSON.stringify(suggestionB)
@@ -354,6 +356,28 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     const secondSuggestions = (await second.json()).suggestions;
     assertNotEquals(firstSuggestions, secondSuggestions);
     assertEquals(secondSuggestions, suggestionB);
+  });
+
+  // #1424 (Codex finding): the JSON contract must be REQUESTED of the provider, not merely hoped for in prose.
+  // Without this the model is free to fence its answer or add a key, and every such answer is a 502 for every
+  // user. A single executed call that happened to comply is evidence about that call, not about the next one.
+  await t.step('asks the provider for the JSON contract it will be judged against', async () => {
+    resetProvider();
+    const mock = mockSupabase({ session: savedSession() });
+    assertEquals((await handler(request(), mock.create)).status, 200);
+
+    const config = (lastRequestBody as { generationConfig?: Record<string, unknown> }).generationConfig;
+    assertEquals(config !== undefined, true, 'the request must carry a generationConfig');
+    assertEquals((config as { responseMimeType?: string }).responseMimeType, 'application/json');
+
+    // The schema and parseSuggestions must demand the same keys. If they diverge, we ask the model for one
+    // contract and then reject its obedient answer against another — a 502 we cause ourselves.
+    const schema = (config as { responseSchema?: { properties?: Record<string, unknown>; required?: string[] } }).responseSchema;
+    const schemaKeys = Object.keys(schema?.properties ?? {}).sort();
+    assertEquals(schemaKeys, ['version', 'what_to_try_next', 'what_worked']);
+    assertEquals((schema?.required ?? []).slice().sort(), ['version', 'what_to_try_next', 'what_worked']);
+    // And the exported constant is the one actually sent, not a second copy that can drift from it.
+    assertEquals(config, GEMINI_GENERATION_CONFIG);
   });
 
   await t.step('caps saved transcript length before provider submission', async () => {
