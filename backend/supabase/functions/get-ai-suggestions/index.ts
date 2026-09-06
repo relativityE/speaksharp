@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
+import coachingContract from './contract.json' with { type: 'json' };
 
 // #1416 — `gemini-3-flash-preview` is a PREVIEW endpoint and Google lists `gemini-3.6-flash` as its
 // successor. Preview shutdowns have run 14 days from announcement, so this is an availability risk in
@@ -10,7 +11,7 @@ import { corsGuard, corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 // not a quality one — `parseSuggestions` already rejects any object whose keys are not exactly
 // {version, what_worked, what_to_try_next}, and that rejection is what must reach the user as an
 // error rather than as an empty review.
-export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent';
+export const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${coachingContract.model}:generateContent`;
 // #1424 (Codex finding): the request used to constrain its answer by PROMPT WORDING alone, and
 // `parseSuggestions` then demanded exactly {version, what_worked, what_to_try_next}. That made the contract a
 // request rather than a constraint: a model is free to wrap its answer in a markdown fence or add a key, and
@@ -42,30 +43,19 @@ export const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/
  * The budget is enforced in all three places a violation can enter: asked for in the PROMPT, capped in the
  * SCHEMA, and refused by the PARSER. Prompt wording alone is a request; only the parser is a guarantee.
  */
-export const COACHING_WORD_BUDGET = Object.freeze({ what_worked: 6, what_to_try_next: 6 });
+export const COACHING_WORD_BUDGET = Object.freeze(coachingContract.wordBudget);
 
 /** Words, counted the way a reader would: runs of non-whitespace. */
 export const countWords = (value: string): number => value.trim().split(/\s+/).filter(Boolean).length;
 
-export const GEMINI_GENERATION_CONFIG = {
-  "responseMimeType": "application/json",
-  "responseSchema": {
-    "type": "OBJECT",
-    "properties": {
-      "version": { "type": "STRING", "enum": ["gemini_coaching_v1"] },
-      "what_worked": { "type": "STRING", "maxLength": 90 },
-      "what_to_try_next": { "type": "STRING", "maxLength": 90 }
-    },
-    "required": ["version", "what_worked", "what_to_try_next"]
-  }
-};
+export const GEMINI_GENERATION_CONFIG = coachingContract.generationConfig;
 
 const MAX_TRANSCRIPT_CHARS = 8000;
 // #1424 A1. Lowered from 20 with #1422's P2-4 in view: the review now fires automatically at post-save
 // readiness rather than on a click, so the ceiling is reached by ordinary use rather than by deliberate
 // retries. Note this is a DAILY cap and the binding provider constraint is per-MINUTE (see the operating
 // note in the PR body) - a daily number cannot prevent a burst.
-export const AI_SUGGESTION_DAILY_LIMIT = 10;
+export const AI_SUGGESTION_DAILY_LIMIT = coachingContract.uncachedGenerationCapPerUtcDay;
 
 type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
 
@@ -108,7 +98,7 @@ interface SessionEvidence {
  * was already fine. A rule introduced today must not retroactively invalidate what the product said
  * yesterday.
  */
-function parseSuggestions(rawText: string, { enforceWordBudget = false } = {}): AISuggestions | null {
+export function parseSuggestions(rawText: string, { enforceWordBudget = false } = {}): AISuggestions | null {
   try {
     const parsed = JSON.parse(rawText.trim()) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
@@ -135,6 +125,17 @@ function parseSuggestions(rawText: string, { enforceWordBudget = false } = {}): 
     console.error('Failed to parse AI suggestions JSON:', error);
     return null;
   }
+}
+
+/**
+ * Build the exact prompt sent to Gemini from the same inert contract used by the trusted proof harness.
+ * Replacements happen before caller content is inserted, so transcript text that happens to contain a
+ * placeholder cannot alter the metrics boundary.
+ */
+export function buildCoachingPrompt(transcriptForPrompt: string, metricsText: string): string {
+  return coachingContract.promptTemplate
+    .replace('{{TRANSCRIPT}}', transcriptForPrompt)
+    .replace('{{METRICS}}', metricsText);
 }
 
 // Define the handler with dependency injection for testability
@@ -290,31 +291,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       - Filler Words: ${session.filler_words == null ? 'N/A' : JSON.stringify(session.filler_words)}
     `;
 
-    const prompt = `
-      You are an expert public speaking coach. Analyze the following speech transcript and metrics as if the user wants practical coaching they can use in the next practice session.
-      Go beyond delivery metrics. Evaluate the speech content's logical structure, vocabulary variety, sentence variety, transitions, specificity, and audience impact in addition to pacing, clarity, pauses, and filler words.
-
-      Coaching rules:
-      - Be specific and evidence-based. Reference short phrases or patterns from the transcript when useful.
-      - Do not invent facts, audience context, or performance details not present in the transcript or metrics.
-      - Prefer concrete rewrites, next-step drills, or "try saying..." examples over generic encouragement.
-      - If the transcript is too short for a category, say what additional evidence would make that category measurable.
-      - HARD LIMIT: each of "what_worked" and "what_to_try_next" must be AT MOST 6 words.
-        These are the product's two coaching phrases, not summaries. Count the words before answering.
-        An answer over budget is discarded and the user sees an error instead of coaching.
-
-      Transcript:
-      "${transcriptForPrompt}"
-      ${metricsText}
-
-      Return exactly one JSON object and no surrounding prose or markdown:
-      {
-        "version": "gemini_coaching_v1",
-        "what_worked": "<=6 words: what worked, session-specific.",
-        "what_to_try_next": "<=6 words: one concrete change for the next attempt."
-      }
-      Do not add keys. Metric recital or reusable generic advice is invalid.
-    `;
+    const prompt = buildCoachingPrompt(transcriptForPrompt, metricsText);
 
     let suggestions: AISuggestions | null = null;
 

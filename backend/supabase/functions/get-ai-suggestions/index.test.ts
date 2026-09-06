@@ -1,4 +1,12 @@
-import { handler, GEMINI_API_URL, GEMINI_GENERATION_CONFIG, COACHING_WORD_BUDGET, countWords, AI_SUGGESTION_DAILY_LIMIT } from './index.ts';
+import {
+  handler,
+  GEMINI_API_URL,
+  GEMINI_GENERATION_CONFIG,
+  COACHING_WORD_BUDGET,
+  countWords,
+  AI_SUGGESTION_DAILY_LIMIT,
+  buildCoachingPrompt,
+} from './index.ts';
 import { assertEquals, assertNotEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 
 const suggestionA = {
@@ -519,14 +527,36 @@ Deno.test('get-ai-suggestions saved-session contract', async (t) => {
     // free to write an essay that the parser then refuses, which is a 502 the provider could have prevented.
     // The ceiling must be GENEROUS enough that a legal in-budget phrase is never rejected upstream.
     for (const [field, budget] of Object.entries(COACHING_WORD_BUDGET)) {
-      const max = (schema?.properties?.[field] as { maxLength?: number } | undefined)?.maxLength;
+      const fieldSchema = schema?.properties?.[field] as {
+        minLength?: number;
+        maxLength?: number;
+        pattern?: string;
+      } | undefined;
+      const max = fieldSchema?.maxLength;
       assertEquals(typeof max, 'number', `${field} must declare a maxLength ceiling`);
       // A word averages well under 15 characters; anything tighter could refuse a valid in-budget phrase.
       assertEquals((max as number) >= budget * 15, true, `${field} ceiling ${max} is tighter than its ${budget}-word budget`);
+      // The provider schema must reject the same blank/whitespace-only values the production parser rejects.
+      // Gemini's Schema supports both fields; this closes the provider/parser mismatch without pretending the
+      // schema can count words (the parser remains authoritative for that rule).
+      assertEquals(fieldSchema?.minLength, 1, `${field} must reject an empty string upstream`);
+      assertEquals(fieldSchema?.pattern, '.*\\S.*', `${field} must reject whitespace-only strings upstream`);
     }
     assertEquals((schema?.required ?? []).slice().sort(), ['version', 'what_to_try_next', 'what_worked']);
     // And the exported constant is the one actually sent, not a second copy that can drift from it.
     assertEquals(config, GEMINI_GENERATION_CONFIG);
+  });
+
+  await t.step('the data contract builds the exact prompt without executing source-text substitutions', () => {
+    const transcript = 'A literal {{METRICS}} in user speech stays transcript text.';
+    const metrics = 'Metrics:\n- Total Words: 9';
+    const built = buildCoachingPrompt(transcript, metrics);
+    assertStringIncludes(built, `"${transcript}"`);
+    assertStringIncludes(built, metrics);
+    assertEquals(built.includes('{{TRANSCRIPT}}'), false);
+    // The transcript placeholder is replaced before caller content is inserted, so a placeholder-looking
+    // utterance cannot consume or move the separate metrics substitution.
+    assertEquals(built.match(/Metrics:/g)?.length, 1);
   });
 
   await t.step('caps saved transcript length before provider submission', async () => {
