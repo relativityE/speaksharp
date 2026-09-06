@@ -173,6 +173,34 @@ describe('#1416 product switching from the session route', () => {
       await waitFor(() => expect(screen.queryByTestId('nav-open-mic-pending')).not.toBeInTheDocument());
     });
 
+    it.each([
+      ['desktop', 'nav-products-button', 'nav-products-open-mic'],
+      ['mobile', 'nav-mobile-products-button', 'nav-mobile-products-open-mic'],
+    ])('%s CASUALTY: STOPPING keeps the completed take coherent until terminal settlement', async (_surface, trigger, item) => {
+      startFocusPointsTake();
+      useSessionStore.setState({ runtimeState: 'RECORDING' });
+      const user = userEvent.setup();
+      renderApp('/session');
+
+      await user.click(screen.getByTestId(trigger));
+      await user.click(await screen.findByTestId(item));
+
+      // The microphone goes idle at the START of finalization. STOPPING remains the lifecycle
+      // authority, so the reviewed take's brief and its pending-switch notice must survive.
+      act(() => {
+        useSessionStore.setState({ runtimeState: 'STOPPING', isListening: false });
+      });
+      expect(useSessionStore.getState().activeObjectiveBrief).toMatchObject({ briefId: 'b1' });
+      expect(await screen.findByTestId('nav-open-mic-pending')).toHaveTextContent(/after this take/i);
+
+      // Only the terminal transition applies the user's deferred choice.
+      act(() => {
+        useSessionStore.getState().setRuntimeState('READY');
+      });
+      await waitFor(() => expect(useSessionStore.getState().activeObjectiveBrief).toBeNull());
+      await waitFor(() => expect(screen.queryByTestId('nav-open-mic-pending')).not.toBeInTheDocument());
+    });
+
     it('applies the pending switch when the take ends WITHOUT the stop seam clearing the brief', async () => {
       // The previous test set `isListening:false` and cleared the brief in the same act, so it
       // manufactured the outcome it was checking: it passed whether or not anything applied the
