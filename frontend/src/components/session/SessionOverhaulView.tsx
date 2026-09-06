@@ -26,7 +26,7 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { selectReviewFillerSnapshot } from '@/utils/sessionAnalysis';
 import type { PracticeSession } from '@/types/session';
 import type { SttStatus } from '@/types/transcription';
-import type { ReviewTranscriptOutcome } from '@/services/transcriptAuthority/reviewTranscript';
+import type { TranscriptView } from '@/lib/storage';
 import { ReviewTranscriptNotice } from './ReviewTranscriptNotice';
 
 /**
@@ -66,7 +66,14 @@ export interface SessionOverhaulViewProps {
      * the moment they are told the session was saved. #1306's own purge docstring says clearing the
      * raw text "never affects the save, a Retry Save, or the review reader" — this is that reader.
      */
-    reviewTranscript?: ReviewTranscriptOutcome;
+    reviewTranscript?: TranscriptView;
+    /**
+     * True while the retained read has not settled — finalization still running, or the fetch in
+     * flight. Distinct from `isFinalizing`, which describes the TRANSCRIPT lifecycle: a settled
+     * session whose row is still loading is not finalizing, and must not be told its transcript
+     * failed to load.
+     */
+    reviewStillSettling?: boolean;
     onRetryReviewTranscript?: (() => void) | null;
     /** #1306 Option A: FINAL metric snapshot for the terminal review (the transcript/chunks are purged there,
      *  and the live fillerData is zeroed by the useFillerWords sync — so the review reads these instead). */
@@ -137,6 +144,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     micLevel,
     transcriptContent,
     reviewTranscript,
+    reviewStillSettling = false,
     onRetryReviewTranscript = null,
     finalizedWordCount,
     finalizedFillerData,
@@ -276,10 +284,10 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // that has not been migrated silently keeps the old behaviour — and since finalization empties
     // the buffer, "the old behaviour" is the blank review this fixes. Defaulting to pending makes an
     // unwired parent visible instead of quietly wrong.
-    const effectiveReview: ReviewTranscriptOutcome = inAfter
-        ? (reviewTranscript ?? { status: 'pending' })
-        : { status: 'pending' };
-    const reviewText = inAfter && effectiveReview.status === 'available' ? effectiveReview.text : null;
+    const effectiveReview: TranscriptView = inAfter
+        ? (reviewTranscript ?? { kind: 'unavailable' })
+        : { kind: 'unavailable' };
+    const reviewText = inAfter && effectiveReview.kind === 'available' ? effectiveReview.text : null;
     const tokens = tokensFromTranscript(inAfter ? (reviewText ?? '') : transcriptContent);
     // during: append the live-updating tail as muted "interim" tokens so re-writes read as intentional.
     const duringTokens = interimTranscript && interimTranscript.trim()
@@ -489,8 +497,8 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                 finalizeEstimateSeconds={finalizeEstimateSeconds}
                 // #1046 Focus Points: highlights mean coverage here, not fillers — the footer says so, and
                 // the filler breakdown is deferred to the delivery strip below (spec §4/§5).
-                slotBNotice={inAfter && effectiveReview.status !== 'available'
-                    ? <ReviewTranscriptNotice outcome={effectiveReview} onRetry={onRetryReviewTranscript} />
+                slotBNotice={inAfter && effectiveReview.kind !== 'available'
+                    ? <ReviewTranscriptNotice view={effectiveReview} isFinalizing={reviewStillSettling} onRetry={onRetryReviewTranscript} />
                     : undefined}
                 fillerFooter={isObjective
                     ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>

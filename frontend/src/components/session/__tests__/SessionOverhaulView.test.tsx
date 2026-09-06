@@ -45,7 +45,7 @@ describe('SessionOverhaulView (#1222 S11)', () => {
                 {...base}
                 showAnalyticsPrompt
                 transcriptContent="so um hello"
-                reviewTranscript={{ status: 'available', text: 'so um hello' }}
+                reviewTranscript={{ kind: 'available', text: 'so um hello' }}
             />,
         );
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
