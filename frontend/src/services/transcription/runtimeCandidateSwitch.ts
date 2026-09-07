@@ -9,11 +9,9 @@
  *
  * This is the one runtime channel that can, and it is deliberately the narrowest thing that works:
  *
- *   INTERNAL BUILDS ONLY. Gated on the same `VITE_INTERNAL_BUILD` signal as the
- *   `acknowledgeNotProductionReady` escape hatch, so a build a real user receives has no runtime
- *   selector at all — the config file remains the sole selector there. This is why it is not a
- *   reintroduction of the URL/localStorage plane that #1263 retired: those answered to anyone holding
- *   a link, on any build.
+ *   QUALIFICATION CANDIDATES ONLY. The hidden CDP surface accepts the three candidates in the PO's
+ *   comparison and nothing else. It has no URL, storage, flag, or visible UI input, so a customer
+ *   cannot select a model by following a link or changing an app control.
  *
  *   REFUSED WHILE BUSY. Swapping the engine mid-recording would abandon audio the user believed was
  *   being captured, and mid-save would leave a row describing a model that no longer exists. A refusal
@@ -24,7 +22,10 @@
  *   another — the exact failure the attribution work exists to prevent, arriving through the door
  *   built to measure it.
  */
-import { CANDIDATES, UnknownCandidateError, type CandidateId, type EngineKind } from './candidateRegistry';
+import {
+    CANDIDATES, UnknownCandidateError,
+    type Candidate, type CandidateId, type EngineKind,
+} from './candidateRegistry';
 
 /**
  * The engines the product facade can actually construct.
@@ -40,13 +41,32 @@ export const PRODUCT_ENGINES: readonly EngineKind[] = Object.freeze([
     'transformers-js', 'transformers-js-v4', 'moonshine-streaming',
 ]);
 
+/** The complete PO-approved comparison slate. Registry membership alone is not permission to run. */
+export const COMPARISON_CANDIDATE_IDS = Object.freeze([
+    'v2:base.en', 'v4:distil:q4', 'moonshine:streaming-medium',
+] as const satisfies readonly CandidateId[]);
+
+/**
+ * Installed before app code by the loopback CDP harness. A Symbol avoids a string-named page control;
+ * no application code exports a setter, and a normal Production navigation never creates it.
+ */
+export const MODEL_COMPARISON_CDP_ARM_KEY = 'speaksharp.model-comparison.cdp';
+
+export function runtimeCandidateAccessAllowed(
+    env: Record<string, unknown> = import.meta.env as unknown as Record<string, unknown>,
+    root: typeof globalThis = globalThis,
+): boolean {
+    return env?.VITE_INTERNAL_BUILD === 'true'
+        || (root as unknown as Record<symbol, unknown>)[Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY)] === true;
+}
+
 /** States in which the engine is doing something that a swap would corrupt. */
 export const SWITCH_BLOCKING_STATES: readonly string[] = Object.freeze([
     'INITIATING', 'ENGINE_INITIALIZING', 'RECORDING', 'STOPPING',
 ]);
 
 export type SwitchFailureCode =
-    | 'not_internal_build' | 'unknown_candidate' | 'engine_not_integrated'
+    | 'not_armed' | 'unknown_candidate' | 'not_comparison_candidate' | 'engine_not_integrated'
     | 'busy' | 'switch_in_progress' | 'no_executor' | 'teardown_failed' | 'init_failed'
     // The engine came up, but not as the candidate that was asked for. Distinct from `init_failed`
     // because nothing failed: this is the success path producing the wrong model.
@@ -55,6 +75,17 @@ export type SwitchFailureCode =
 export type SwitchOutcome =
     | { ok: true; candidate: CandidateId }
     | { ok: false; code: SwitchFailureCode; reason: string };
+
+/** Exported so the facade-integration guard remains provable even while every comparison arm works. */
+export function engineIntegrationRefusal(candidate: Candidate): SwitchOutcome | null {
+    if (PRODUCT_ENGINES.includes(candidate.engine)) return null;
+    return {
+        ok: false,
+        code: 'engine_not_integrated',
+        reason: `candidate "${candidate.id}" runs on ${candidate.engine}, which the product facade cannot `
+            + 'construct. Selecting it would run a DIFFERENT model under this id.',
+    };
+}
 
 /**
  * What the app must supply so a switch can actually happen. Injected rather than imported so this
@@ -79,6 +110,8 @@ export interface SwitchExecutor {
 
 let executor: SwitchExecutor | null = null;
 let override: CandidateId | null = null;
+/** The arm the qualification operator asked this page to prove on its next take. */
+let expected: CandidateId | null = null;
 /** One switch at a time. Two overlapping teardowns would race over the same worker. */
 let inFlight: Promise<SwitchOutcome> | null = null;
 const listeners = new Set<(id: CandidateId | null) => void>();
@@ -88,9 +121,13 @@ export function registerSwitchExecutor(next: SwitchExecutor | null): void { exec
 /** The candidate a runtime switch put in force, or null when config decides. */
 export function runtimeCandidateOverride(): CandidateId | null { return override; }
 
+/** Independent third term for requested === observed === expected at the take boundary. */
+export function runtimeCandidateExpectation(): CandidateId | null { return expected; }
+
 /** Drop the override so config decides again. Does NOT reinitialise; callers own that. */
 export function clearRuntimeCandidateOverride(): void {
     override = null;
+    expected = null;
     for (const l of listeners) { try { l(null); } catch { /* a listener must not break a switch */ } }
 }
 
@@ -99,17 +136,13 @@ export function onRuntimeCandidateChange(fn: (id: CandidateId | null) => void): 
     return () => { listeners.delete(fn); };
 }
 
-function internalBuild(env: Record<string, unknown>): boolean {
-    return env?.VITE_INTERNAL_BUILD === 'true';
-}
-
 /**
  * Switch the running candidate. Returns an OUTCOME rather than throwing: every refusal here is an
  * expected operating condition the harness has to report, not an exception.
  */
 export async function switchCandidate(
     id: string,
-    env: Record<string, unknown> = import.meta.env as unknown as Record<string, unknown>,
+    _env: Record<string, unknown> = import.meta.env as unknown as Record<string, unknown>,
     /**
      * The candidate table. Injected like `env` so the "engine the facade cannot construct" refusal
      * stays provable: every REGISTERED engine is buildable now, so proving that guard through a real
@@ -118,8 +151,12 @@ export async function switchCandidate(
      */
     candidates: typeof CANDIDATES = CANDIDATES,
 ): Promise<SwitchOutcome> {
-    if (!internalBuild(env)) {
-        return { ok: false, code: 'not_internal_build', reason: 'runtime model switching requires an internal build' };
+    if (!runtimeCandidateAccessAllowed(_env)) {
+        return {
+            ok: false,
+            code: 'not_armed',
+            reason: 'runtime model switching requires the pre-navigation CDP qualification arm',
+        };
     }
     if (!(id in candidates)) {
         return {
@@ -127,14 +164,17 @@ export async function switchCandidate(
             reason: new UnknownCandidateError(`unknown candidate "${id}"`).message,
         };
     }
-    const candidate = candidates[id as CandidateId];
-    if (!PRODUCT_ENGINES.includes(candidate.engine)) {
-        // FAIL CLOSED. Falling through would run the configured engine under the requested id.
+    if (!(COMPARISON_CANDIDATE_IDS as readonly string[]).includes(id)) {
         return {
-            ok: false, code: 'engine_not_integrated',
-            reason: `candidate "${id}" runs on ${candidate.engine}, which the product facade cannot `
-                + 'construct. Selecting it would run a DIFFERENT model under this id.',
+            ok: false, code: 'not_comparison_candidate',
+            reason: `candidate "${id}" is registered but is not in the three-model comparison`,
         };
+    }
+    const candidate = candidates[id as CandidateId];
+    const integrationRefusal = engineIntegrationRefusal(candidate);
+    if (integrationRefusal) {
+        // FAIL CLOSED. Falling through would run the configured engine under the requested id.
+        return integrationRefusal;
     }
     if (!executor) {
         return { ok: false, code: 'no_executor', reason: 'no engine is registered to switch' };
@@ -151,13 +191,16 @@ export async function switchCandidate(
     const engine = executor;
     const run = async (): Promise<SwitchOutcome> => {
     const previous = override;
+    const previousExpected = expected;
     // Set BEFORE initialising: the engine reads the selection on the way up, so a switch that flipped
     // the value afterwards would bring up the OLD model and then claim the new one.
     override = id as CandidateId;
+    expected = id as CandidateId;
     try {
         await engine.teardown();
     } catch (e) {
         override = previous;
+        expected = previousExpected;
         return { ok: false, code: 'teardown_failed', reason: e instanceof Error ? e.message : String(e) };
     }
     try {

@@ -34,7 +34,11 @@ describe('SessionAfterState (#1222 after)', () => {
         render(<SessionAfterState {...afterProps} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         expect(screen.getByTestId('session-slot-a')).toContainElement(screen.getByTestId('playback-scrubber'));
-        expect(screen.getByTestId('session-slot-b')).toContainElement(screen.getByTestId('live-transcript'));
+        // The AFTER state's slot B renders the transcript the SERVER retained, not the ephemeral working
+        // memory the DURING state shows, so it carries its own identity — otherwise a leak of working memory
+        // and a correctly restored review are indistinguishable to the suite.
+        expect(screen.getByTestId('session-slot-b')).toContainElement(screen.getByTestId('review-transcript'));
+        expect(screen.queryByTestId('live-transcript')).toBeNull();
         expect(screen.getByTestId('session-slot-c')).toContainElement(screen.getByTestId('progress-vs-baseline'));
         expect(screen.getByTestId('session-slot-d')).toContainElement(screen.getByTestId('session-verdict'));
     });

@@ -20,6 +20,8 @@ import { reconciliationStatusCopy } from '@/utils/finalizedSessionAnalysis';
 import { useNavigate } from 'react-router-dom';
 import AISuggestions from '@/components/session/AISuggestions';
 import { progressGateNotice } from '@/services/progress/progressStartGate';
+import { useSession } from '@/hooks/useSession';
+import { resolveTranscriptView } from '@/lib/storage';
 
 /**
  * ARCHITECTURE:
@@ -178,6 +180,25 @@ export const SessionPage: React.FC = () => {
 
     const navigate = useNavigate();
 
+    // #1416 F-05 — THE REVIEW READER THE PURGE DOCSTRING ALREADY ASSUMED.
+    //
+    // `purgeTranscriptWorkingMemory` empties the live transcript at finalization by contract, and its
+    // own comment says clearing it "never affects the save, a Retry Save, or the review reader".
+    // That reader was never built, so the after-state kept rendering the emptied buffer and the user
+    // watched their words vanish at the moment they were told the session was saved.
+    //
+    // Nothing new is introduced here: `useSession` already fetches the saved row and
+    // `resolveTranscriptView` is documented as "the ONE place that decides whether a session's
+    // transcript may be shown", shared with the PDF so the two cannot drift. This connects them.
+    const reviewSessionId = finalizedAnalysis?.sessionId ?? null;
+    const { data: savedSession, isFetching: reviewFetching, refetch: refetchReview } =
+        useSession(reviewSessionId ?? undefined);
+    // Server state decides. `isFinalizing` only separates "still settling" from "we could not load
+    // it" — two readings of `unavailable` that need different sentences and that a saved-row resolver
+    // cannot tell apart, because finalization is a client lifecycle.
+    const reviewTranscript = resolveTranscriptView(savedSession ?? null);
+    const reviewStillSettling = isTranscriptFinalizing || reviewFetching || !(showAnalyticsPrompt && !!finalizedAnalysis);
+
     if (!metrics) return <SessionPageSkeleton />;
 
     // Dual-State Status Derivation (FSM + Service State)
@@ -215,6 +236,8 @@ export const SessionPage: React.FC = () => {
     // reconciliation + formatting reaches complete/failed and the final text is applied. Until
     // then the transcript keeps its finalizing/tidying treatment and no settled/ready claim is made.
     const postSaveReady = showAnalyticsPrompt && !!finalizedAnalysis;
+
+
     // Mode-aware reconciliation status copy for the consolidated status bar's left side.
     const reconciliationCopy = finalizedAnalysis
         ? reconciliationStatusCopy(finalizedAnalysis.reconciliation, { mode: finalizedAnalysis.mode })
@@ -438,14 +461,41 @@ export const SessionPage: React.FC = () => {
                     practiceLoopReview={(
                         <AISuggestions
                             sessionId={finalizedAnalysis?.sessionId}
+                            /**
+                             * #1422 P2/P5 — READINESS IS THE SERVER'S TRANSCRIPT STATE, not a word count.
+                             *
+                             * This required `finalizedWordCount > 0`, which is computed LOCALLY at the
+                             * recording boundary. `complete_session_v2` can save the session and still
+                             * report `transcript_outcome: 'retention_failed'`, and the controller
+                             * publishes `finalizedAnalysis` regardless — so the local count stayed
+                             * positive while the row held no readable transcript. The review then looked
+                             * ready, and with P2-4 firing automatically it sent a request that
+                             * `get-ai-suggestions` MUST reject: that function requires
+                             * `transcript_state === 'available'` and answers 409.
+                             *
+                             * A doomed request is not a neutral cost. It spends one of the user's ten
+                             * daily generations, and it lands the user on an error for a session that
+                             * saved perfectly well.
+                             *
+                             * `reviewTranscript` is the authority #1423 put on main — the server's state,
+                             * resolved by the one place allowed to decide whether a transcript may be
+                             * shown. Gating on `available` makes the automatic request (P5) fire on
+                             * exactly the same evidence the review renders from (P2), so the two can
+                             * never disagree. When it is not available the review stays unavailable WITH
+                             * recovery: the notice states which case it is, and
+                             * `onRetryReviewTranscript` re-reads rather than re-generating.
+                             */
                             canReview={Boolean(
                                 postSaveReady
                                 && finalizedAnalysis?.sessionId
-                                && typeof finalizedWordCount === 'number'
-                                && finalizedWordCount > 0
+                                && reviewTranscript?.kind === 'available'
                             )}
                         />
                     )}
+                    aiSuggestions={undefined} /* #1306: coaching prose retired; next action replaces it */
+                    reviewTranscript={reviewTranscript}
+                    reviewStillSettling={reviewStillSettling}
+                    onRetryReviewTranscript={() => { void refetchReview(); }}
                     onSeeAllSessions={() => navigate('/analytics')}
                     interimTranscript={interimTranscript}
                     isFinalizing={isTranscriptFinalizing}
