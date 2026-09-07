@@ -20,6 +20,15 @@ import * as RecoveryHook from '@/hooks/useUnresolvedRecovery';
 
 vi.mock('@/hooks/useSessionLifecycle', () => ({ useSessionLifecycle: vi.fn() }));
 vi.mock('@/hooks/useUnresolvedRecovery', () => ({ useUnresolvedRecovery: vi.fn() }));
+// These tests exercise completed-review ACTION wiring, so model the retained transcript authority that
+// a real completed review supplies. Working memory is purged at this point and cannot license coverage.
+vi.mock('@/hooks/useSession', () => ({
+    useSession: () => ({
+        data: { transcript_state: 'available', transcript: 'Opening hook. The ask.' },
+        isFetching: false,
+        refetch: vi.fn(),
+    }),
+}));
 vi.mock('@/components/session/StatusNotificationBar', () => ({ StatusNotificationBar: () => <div /> }));
 vi.mock('@/components/session/LiveTranscriptPanel', () => ({ LiveTranscriptPanel: () => <div /> }));
 vi.mock('@/components/session/FillerWordsCard', () => ({ FillerWordsCard: () => <div /> }));
