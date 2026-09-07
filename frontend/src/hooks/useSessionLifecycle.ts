@@ -25,6 +25,10 @@ import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { checkClientFreshness, canRecord, blockedMessage } from '@/services/staleClientGuard';
 import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
+import {
+    beginSessionInitializationLatency,
+    beginSessionStopLatency,
+} from '@/services/sessionLatencyTelemetry';
 
 const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string => {
     const err = error as { name?: string; message?: string } | null;
@@ -206,12 +210,22 @@ export const useSessionLifecycle = () => {
         isProcessingRef.current = true;
 
         if (shouldStop) {
+            // #1428 F-16 — Stop intent -> terminal review/save decision. The timer begins immediately before
+            // the controller authority receives Stop, and settles only after its awaited result tells this
+            // caller whether review is ready, the take was discarded, or finalization/save failed.
+            const stopLatency = beginSessionStopLatency(effectiveMode);
             // ✅ Master Invariant: stopRecording() is now handled 
             // by SpeechRuntimeController. It performs cleanup and DB ops.
 
             // Bypass minimum duration check if there is an external stop reason (e.g. tier limits)
             if (elapsedTime < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
-                await speechRuntimeController.stopRecording();
+                try {
+                    await speechRuntimeController.stopRecording();
+                    stopLatency.settle('discarded');
+                } catch (error) {
+                    stopLatency.settle('failed');
+                    throw error;
+                }
                 setShowAnalyticsPrompt(false);
                 setSTTStatus({
                     type: 'info',
@@ -227,6 +241,7 @@ export const useSessionLifecycle = () => {
                 const stopResult = await speechRuntimeController.stopRecording();
 
                 if (!stopResult) {
+                    stopLatency.settle('discarded');
                     setShowAnalyticsPrompt(false);
                     return;
                 }
@@ -270,8 +285,11 @@ export const useSessionLifecycle = () => {
                 void queryClient.invalidateQueries({ queryKey: ['session'] });
                 void queryClient.invalidateQueries({ queryKey: ['sessionCount'] });
                 setShowAnalyticsPrompt(true);
+                // End boundary: the controller is terminal and this state transition licenses the saved review.
+                stopLatency.settle('review_ready');
 
             } catch (error) {
+                stopLatency.settle('failed');
                 logger.error({ err: error }, '[useSessionLifecycle] Error stopping recording');
             } finally {
                 hasAutoStoppedRef.current = false;
@@ -364,7 +382,17 @@ export const useSessionLifecycle = () => {
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
                 const latestMode = requestedMode;
                 const selectedPolicy = buildPolicyForUser(canUsePrivateStt, latestMode);
-                await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
+                // #1428 F-15 — controller Start -> authoritative RECORDING. `startRecording` deliberately
+                // remains pending across cold model preparation, so this captures the delay the user experiences
+                // without guessing from intermediate statuses or encoding a performance target.
+                const initializationLatency = beginSessionInitializationLatency(latestMode);
+                try {
+                    await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
+                    initializationLatency.settle('recording_started');
+                } catch (error) {
+                    initializationLatency.settle('failed');
+                    throw error;
+                }
                 analyticsBuffer.push('session_started', {
                     mode: latestMode,
                     requested_mode: requestedMode,

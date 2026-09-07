@@ -1134,6 +1134,87 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
+    it('#1428 F-15 settles initialization latency only when the controller reaches recording authority', async () => {
+        let resolveStart!: () => void;
+        const startPending = new Promise<void>((resolve) => { resolveStart = resolve; });
+        vi.mocked(speechRuntimeController.startRecording).mockReturnValueOnce(startPending);
+        const pushSpy = vi.spyOn(analyticsBuffer, 'push');
+        const mockStore = createTestSessionStore({
+            isListening: false,
+            runtimeState: 'READY',
+            sttMode: 'private',
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        vi.mocked(useUsageLimit).mockReturnValue({
+            ...mockUsageLimitQuery,
+            data: { ...baseUsageLimit, can_start: true },
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+        let startAction!: Promise<void>;
+        act(() => { startAction = result.current.handleStartStop(); });
+
+        await waitFor(() => expect(speechRuntimeController.startRecording).toHaveBeenCalledTimes(1));
+        expect(pushSpy.mock.calls.some(([event]) => event === 'session_initialization_latency_measured')).toBe(false);
+
+        await act(async () => {
+            resolveStart();
+            await startAction;
+        });
+        const latency = pushSpy.mock.calls.find(([event]) => event === 'session_initialization_latency_measured');
+        expect(latency?.[1]).toMatchObject({
+            mode: 'private',
+            outcome: 'recording_started',
+            duration_ms: expect.any(Number),
+        });
+        expect(Number.isInteger((latency?.[1] as Record<string, unknown>)?.duration_ms)).toBe(true);
+        pushSpy.mockRestore();
+    });
+
+    it('#1428 F-16 settles Stop latency only after the saved review decision is ready', async () => {
+        let resolveStop!: (value: TranscriptStats) => void;
+        const stopPending = new Promise<TranscriptStats>((resolve) => { resolveStop = resolve; });
+        vi.mocked(speechRuntimeController.stopRecording).mockReturnValueOnce(stopPending);
+        const pushSpy = vi.spyOn(analyticsBuffer, 'push');
+        const mockStore = createTestSessionStore({
+            isListening: true,
+            runtimeState: 'RECORDING',
+            elapsedTime: 30,
+            startTime: Date.now() - 30_000,
+            sttMode: 'private',
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => <TranscriptionProvider>{children}</TranscriptionProvider>,
+        });
+        let stopAction!: Promise<void>;
+        act(() => { stopAction = result.current.handleStartStop(); });
+
+        await waitFor(() => expect(speechRuntimeController.stopRecording).toHaveBeenCalledTimes(1));
+        expect(pushSpy.mock.calls.some(([event]) => event === 'session_stop_to_review_save_latency_measured')).toBe(false);
+        expect(result.current.showAnalyticsPrompt).toBe(false);
+
+        await act(async () => {
+            resolveStop({ transcript: '', total_words: 0, accuracy: 100, duration: 30 });
+            await stopAction;
+        });
+        expect(result.current.showAnalyticsPrompt).toBe(true);
+        const latency = pushSpy.mock.calls.find(([event]) => event === 'session_stop_to_review_save_latency_measured');
+        expect(latency?.[1]).toMatchObject({
+            mode: 'private',
+            outcome: 'review_ready',
+            duration_ms: expect.any(Number),
+        });
+        pushSpy.mockRestore();
+    });
+
 
     // #957 safety branch: mic start-ability is gated on the DURABLE privateModelStatus
     // (data-model-status), not the transient sttStatus. This is the exact logic whose absence

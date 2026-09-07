@@ -28,6 +28,11 @@ import type { FocusCoverageRow } from '@/utils/focusCoverage';
 export interface FocusPointsRailProps {
     rows: FocusCoverageRow[];
     sessionState: 'before' | 'during' | 'after';
+    /**
+     * The take is complete, but retained transcript evidence is unavailable. Keep after-state actions
+     * without turning unknown rows into negative coverage claims.
+     */
+    coveragePending?: boolean;
     /** #1046 G6/G7: the topic (the `goal`), shown above the points as an unnumbered header — never a point,
      *  never checked for coverage. null/blank ⇒ no topic line (e.g. a set saved before topic was threaded). */
     topic?: string | null;
@@ -60,6 +65,7 @@ const Marker: React.FC<{ kind: 'pending' | 'covered' | 'next' | 'missed'; index:
 export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
     rows,
     sessionState,
+    coveragePending = false,
     topic,
     nextIndex,
     onEdit,
@@ -68,7 +74,7 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
 }) => {
     const isAfter = sessionState === 'after';
     // §3: the card names the TASK, not ownership. before/during = "Points to cover"; after = "What you covered".
-    const title = isAfter ? 'What we detected' : 'Points to cover';
+    const title = isAfter && !coveragePending ? 'What we detected' : 'Points to cover';
     const topicLabel = (topic ?? '').trim();
 
     return (
@@ -103,7 +109,7 @@ export const FocusPointsRail: React.FC<FocusPointsRailProps> = ({
             <ol className="mt-[14px] space-y-[13px]" data-testid="focus-points-rail-list">
                 {rows.map((row, i) => {
                     const isNext = sessionState === 'during' && !row.covered && nextIndex === i;
-                    const isMissed = isAfter && !row.covered;
+                    const isMissed = isAfter && !coveragePending && !row.covered;
                     const kind = row.covered ? 'covered' : isNext ? 'next' : isMissed ? 'missed' : 'pending';
                     const rowTint = isNext
                         ? 'rounded-lg border border-[#e6dcfb] bg-[#f5f0ff] px-3 py-2'

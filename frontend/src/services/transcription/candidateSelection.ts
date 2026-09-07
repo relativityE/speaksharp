@@ -205,10 +205,9 @@ export function effectiveCandidate(
         };
     }
     if (runtimeOverride) {
-        // Only reachable on an internal build: `switchCandidate` refuses to set this otherwise. The
-        // candidate is returned WITHOUT the activation check, because the whole point of the switch is
-        // to run candidates that are not production-approved yet — the same permission the config's
-        // `acknowledgeNotProductionReady` grants, asked for at runtime instead of at build time.
+        // Only reachable through the hidden qualification switch, whose closed slate is narrower than
+        // the registry. The candidate is returned WITHOUT the activation check because the comparison
+        // must run candidates before one of them can be approved as the default.
         return { candidate: CANDIDATES[runtimeOverride], fallbackCause: null };
     }
     return { candidate: activeCandidate(config, env), fallbackCause: null };

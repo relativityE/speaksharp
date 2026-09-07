@@ -16,7 +16,9 @@
 // Real weights on real hardware are #1390's job; this proves the wiring that #1390 depends on.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installRuntimeCandidateSwitch } from '../installRuntimeSwitch';
-import { clearRuntimeCandidateOverride, registerSwitchExecutor } from '../runtimeCandidateSwitch';
+import {
+    clearRuntimeCandidateOverride, registerSwitchExecutor, MODEL_COMPARISON_CDP_ARM_KEY,
+} from '../runtimeCandidateSwitch';
 import { clearResolvedEngine } from '@/services/telemetry/runtimeAttribution';
 import { sttRegistry } from '../STTRegistry';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
@@ -45,7 +47,6 @@ vi.mock('../utils/webgpuSupport', () => ({
     detectWebGPUSupport: async () => ({ supported: true, adapter: 'stub', reason: null }),
 }));
 
-const INTERNAL = { VITE_INTERNAL_BUILD: 'true' };
 const SEQUENCE = ['v4:distil:q4', 'moonshine:streaming-medium', 'v2:base.en'] as const;
 
 const stubEngine = (): IPrivateSTTEngine => ({
@@ -69,6 +70,9 @@ const active = () => (window as unknown as {
 
 describe('v2 → distil → Moonshine → v2 on the real facade', () => {
     beforeEach(() => {
+        Object.defineProperty(window, Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY), {
+            value: true, configurable: true,
+        });
         clearRuntimeCandidateOverride();
         clearResolvedEngine();
         registerSwitchExecutor(null);
@@ -84,7 +88,8 @@ describe('v2 → distil → Moonshine → v2 on the real facade', () => {
             const engine = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
             await engine.init();
         });
-        installRuntimeCandidateSwitch(INTERNAL);
+        // No internal-build flag: this is the canonical-Production CDP path #1426 must expose.
+        installRuntimeCandidateSwitch({});
     });
 
     afterEach(() => {
@@ -95,6 +100,7 @@ describe('v2 → distil → Moonshine → v2 on the real facade', () => {
         clearResolvedEngine();
         speechRuntimeController.service = null;
         document.documentElement.removeAttribute('data-runtime-state');
+        delete (window as unknown as Record<symbol, unknown>)[Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY)];
     });
 
     it('CASUALTY: every hop reaches READY with requested === observed', async () => {

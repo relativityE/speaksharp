@@ -56,6 +56,8 @@ const RUNTIME_STATES = [
 ] as const;
 /** `ClientFreshness` in staleClientGuard.ts. 'unverified' and 'local' are real and were being dropped. */
 const FRESHNESS = ['fresh', 'stale', 'unverified', 'local'] as const;
+const SESSION_INITIALIZATION_OUTCOMES = ['recording_started', 'failed'] as const;
+const SESSION_STOP_OUTCOMES = ['review_ready', 'discarded', 'failed'] as const;
 
 const TIERS = ['free', 'pro', 'trial', 'unknown', 'anonymous'] as const;
 const TRIAL_STATES = ['active', 'expired', 'none', 'unknown'] as const;
@@ -176,6 +178,18 @@ export const EVENT_SCHEMAS = Object.freeze({
         streak_count: { kind: 'int', min: 0, max: 100_000 } as FieldRule,
         is_new_streak_day: { kind: 'bool' } as FieldRule,
         ...EXPERIMENT_FIELDS,
+    },
+    // #1428 F-15/F-16: observations only. `duration_ms` has a representational ceiling, not a product
+    // threshold; neither event can declare pass/fail. Event names fix the two lifecycle boundaries.
+    session_initialization_latency_measured: {
+        duration_ms: { kind: 'int', min: 0, max: Number.MAX_SAFE_INTEGER } as FieldRule,
+        mode: enumOf(STT_MODES),
+        outcome: enumOf(SESSION_INITIALIZATION_OUTCOMES),
+    },
+    session_stop_to_review_save_latency_measured: {
+        duration_ms: { kind: 'int', min: 0, max: Number.MAX_SAFE_INTEGER } as FieldRule,
+        mode: enumOf(STT_MODES),
+        outcome: enumOf(SESSION_STOP_OUTCOMES),
     },
     recording_start_failed: {
         mode: enumOf(STT_MODES),

@@ -17,7 +17,7 @@ import { CoveragePace } from './CoveragePace';
 import { FocusPointsRail } from './FocusPointsRail';
 import { useFocusNudge } from '@/hooks/useFocusNudge';
 import { FocusDeliveryStrip } from './FocusDeliveryStrip';
-import { deriveFocusCoverage, markCoveredTokens, type FocusCoverage } from '@/utils/focusCoverage';
+import { deriveFocusCoverage, markCoveredTokens, type FocusCoverage, type FocusCoverageRow } from '@/utils/focusCoverage';
 import type { PracticeFocus } from '@/constants/practiceFocus';
 import type { ProgressVsBaselineResult } from '@/utils/progressVsBaseline';
 import { tokensFromTranscript, waveformFromLevels } from '@/utils/transcriptTokens';
@@ -26,6 +26,8 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { selectReviewFillerSnapshot } from '@/utils/sessionAnalysis';
 import type { PracticeSession } from '@/types/session';
 import type { SttStatus } from '@/types/transcription';
+import type { TranscriptView } from '@/lib/storage';
+import { ReviewTranscriptNotice } from './ReviewTranscriptNotice';
 
 /**
  * #1222 S11 — the session-overhaul VIEW: maps the live session runtime onto the fixed shell + the three
@@ -56,6 +58,23 @@ export interface SessionOverhaulViewProps {
     scoringElapsedSeconds?: number;
     micLevel: number;
     transcriptContent: string;
+    /**
+     * #1416 F-05 — the AFTER-state transcript, resolved from the retained authority.
+     *
+     * `transcriptContent` is working memory, and `purgeTranscriptWorkingMemory` empties it at
+     * finalization by contract. Rendering the review from it shows the user an empty transcript at
+     * the moment they are told the session was saved. #1306's own purge docstring says clearing the
+     * raw text "never affects the save, a Retry Save, or the review reader" — this is that reader.
+     */
+    reviewTranscript?: TranscriptView;
+    /**
+     * True while the retained read has not settled — finalization still running, or the fetch in
+     * flight. Distinct from `isFinalizing`, which describes the TRANSCRIPT lifecycle: a settled
+     * session whose row is still loading is not finalizing, and must not be told its transcript
+     * failed to load.
+     */
+    reviewStillSettling?: boolean;
+    onRetryReviewTranscript?: (() => void) | null;
     /** #1306 Option A: FINAL metric snapshot for the terminal review (the transcript/chunks are purged there,
      *  and the live fillerData is zeroed by the useFillerWords sync — so the review reads these instead). */
     finalizedWordCount?: number | null;
@@ -124,6 +143,9 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     scoringElapsedSeconds,
     micLevel,
     transcriptContent,
+    reviewTranscript,
+    reviewStillSettling = false,
+    onRetryReviewTranscript = null,
     finalizedWordCount,
     finalizedFillerData,
     showAnalyticsPrompt,
@@ -174,10 +196,32 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // #1256 P1 — the after-state scores the FINISHED take, whose duration lives in `scoringElapsedSeconds`
     // (live `elapsedTime` has already normalized to 0). Before/during keep the live timer.
     const effElapsed = inAfter ? (scoringElapsedSeconds ?? elapsedTime) : elapsedTime;
+    // In the AFTER state the retained authority decides what is readable; working memory has been
+    // purged and is not a fallback. Falling back to it would reintroduce exactly the empty review
+    // this fixes, only intermittently — which is worse, because it would look like flakiness.
+    // An absent authority is PENDING, not permission to read working memory. Without this, a parent
+    // that has not been migrated silently keeps the old behaviour — and since finalization empties
+    // the buffer, "the old behaviour" is the blank review this fixes. Defaulting to pending makes an
+    // unwired parent visible instead of quietly wrong.
+    const effectiveReview: TranscriptView = inAfter
+        ? (reviewTranscript ?? { kind: 'unavailable' })
+        : { kind: 'unavailable' };
+    const reviewText = inAfter && effectiveReview.kind === 'available' ? effectiveReview.text : null;
+    /**
+     * ONE source of transcript truth for the whole state, and every derivation reads it.
+     *
+     * The after state must never consult `transcriptContent`: finalization purges that buffer, so anything
+     * computed from it after terminal is computed from an empty string. Routing only the RENDERED tokens
+     * through the retained authority — and leaving coverage on the purged buffer — produced a review that
+     * showed the user's saved words while reporting every focus point as missed, with no highlights. That is
+     * the same defect as F-05 one layer down: a confident, wrong answer about what someone said.
+     */
+    const transcriptSource = inAfter ? (reviewText ?? '') : transcriptContent;
+
     // #1306 Option A: in the terminal review the transcript/chunks have been purged (and the live fillerData
     // zeroed by the useFillerWords sync), so the review's word count + filler breakdown + headline come from the
     // FINAL snapshot captured at the terminal transition; before/during still read the live values.
-    const reviewWordCount = inAfter && typeof finalizedWordCount === 'number' ? finalizedWordCount : wordCount(transcriptContent);
+    const reviewWordCount = inAfter && typeof finalizedWordCount === 'number' ? finalizedWordCount : wordCount(transcriptSource);
     // #1314 C3: ONE validated snapshot feeds every filler element. The displayed total is derived from the
     // SAME chip map the breakdown renders, so the sentence total and the chips can never disagree. An
     // unavailable snapshot (SQL NULL) makes no numeric claim; `{}` is a measured zero (0, no chips).
@@ -255,7 +299,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     }
     const { amplitudes, recordedCount } = waveformFromLevels(levelsRef.current);
 
-    const tokens = tokensFromTranscript(transcriptContent);
+    const tokens = tokensFromTranscript(transcriptSource);
     // during: append the live-updating tail as muted "interim" tokens so re-writes read as intentional.
     const duringTokens = interimTranscript && interimTranscript.trim()
         ? [...tokens, ...tokensFromTranscript(interimTranscript).map((t) => ({ ...t, interim: true }))]
@@ -286,11 +330,23 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // device). `coveredLatch` guarantees a lit tick never regresses (spec §6); it resets on a fresh session.
     const coveredLatch = React.useRef<Set<number>>(new Set());
     if (isObjective && sessionState === 'before') coveredLatch.current = new Set();
+    // The terminal result exists only when the retained transcript exists. Treating a pending/failed read
+    // as an empty transcript turns "we cannot read it" into the confident false result 0/N + every point
+    // "Not detected". Before/during still derive from working memory; after derives only from the retained
+    // authority and withholds the entire transcript-derived result until that authority is available.
+    const canDeriveCoverage = isObjective && (!inAfter || effectiveReview.kind === 'available');
     let coverage: FocusCoverage | null = null;
-    if (isObjective) {
-        coverage = deriveFocusCoverage(effObjectivePoints ?? [], transcriptContent, effElapsed, coveredLatch.current);
+    if (canDeriveCoverage) {
+        coverage = deriveFocusCoverage(effObjectivePoints ?? [], transcriptSource, effElapsed, coveredLatch.current);
         coverage.rows.forEach((r, i) => { if (r.covered) coveredLatch.current.add(i); });
     }
+    const pendingObjectiveRows: FocusCoverageRow[] = (effObjectivePoints ?? []).map((label) => ({
+        label,
+        status: 'missing',
+        covered: false,
+        coveredAtSec: null,
+        quote: null,
+    }));
 
     // For Focus Points the transcript highlights mean COVERAGE (purple during / green after), never
     // fillers — mark the covering spans on the base tokens (fillers cleared) and re-append the live tail.
@@ -321,9 +377,12 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     const objectiveDuringSlotC = coverage
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={elapsedTime} guideSecPerPoint={guideSecPerPoint} sessionState="during" nudge={nudge} />
         : undefined;
+    const coverageMayBecomeAvailable = effectiveReview.kind === 'unavailable';
     const objectiveAfterSlotC = coverage
         ? <CoveragePace covered={coverage.coveredCount} total={coverage.total} elapsedSec={effElapsed} guideSecPerPoint={guideSecPerPoint} sessionState="after" />
-        : undefined;
+        : isObjective && coverageMayBecomeAvailable
+            ? <section data-testid="coverage-awaiting-transcript" role="status" className="rounded-2xl border border-[hsl(var(--border-strong))] bg-card p-5 text-[14px] font-semibold text-[#4b5563]">Coverage will appear when your transcript is available.</section>
+            : undefined;
     const objectivePlanSlotD = coverage
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="before" onEdit={onEditPoints} />
         : undefined;
@@ -332,7 +391,16 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         : undefined;
     const objectiveAfterSlotD = coverage
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="after" onRetry={onRetryPoints ?? onStartStop} onNewSet={onNewSet} />
-        : undefined;
+        : isObjective
+            ? <FocusPointsRail
+                rows={pendingObjectiveRows}
+                topic={effObjectiveTopic ?? null}
+                sessionState="after"
+                coveragePending
+                onRetry={onRetryPoints ?? onStartStop}
+                onNewSet={onNewSet}
+            />
+            : undefined;
 
     // #1354 CASE 4/6 — the rendered gate. Open Mic and Focus Points render through THIS component and
     // this single `mic.disabled`, so both entry points inherit the identical gate by construction rather
@@ -453,24 +521,31 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     // §Duplication: the coverage FRACTION appears exactly once, in Slot C — never repeated
                     // here. The FP header speaks to the highlights, not a second `n of m` scoreboard.
                     headerMeta: isObjective
-                        ? `${reviewWordCount} words · green marks where each point landed`
+                        ? (coverage
+                            ? `${reviewWordCount} words · green marks where each point landed`
+                            : `${reviewWordCount} words`)
                         : `${reviewWordCount} words · orange marks fillers`,
                     stats: fillerStatsLine,
-                    coverageMode: isObjective ? 'after' : undefined,
+                    coverageMode: isObjective && coverage ? 'after' : undefined,
                 }}
                 progress={progress}
-                slotCContent={objectiveAfterSlotC ?? <ComparableProgressNotice sessionState="after" />}
+                slotCContent={isObjective ? objectiveAfterSlotC : <ComparableProgressNotice sessionState="after" />}
                 finalizing={isFinalizing}
                 finalizeEstimateSeconds={finalizeEstimateSeconds}
                 // #1046 Focus Points: highlights mean coverage here, not fillers — the footer says so, and
                 // the filler breakdown is deferred to the delivery strip below (spec §4/§5).
+                slotBNotice={inAfter && effectiveReview.kind !== 'available'
+                    ? <ReviewTranscriptNotice view={effectiveReview} isFinalizing={reviewStillSettling} onRetry={onRetryReviewTranscript} />
+                    : undefined}
                 fillerFooter={isObjective
-                    ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
+                    ? (coverage
+                        ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
+                        : null)
                     : <FillerBreakdown fillerData={reviewFillerData} stats={fillerStatsLine} />}
                 verdict={{ ...verdictFromSuggestions(aiSuggestions, reviewFillerData, elapsedTime), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
                 slotDContent={objectiveAfterSlotD}
             />
-            {isObjective && (
+            {isObjective && coverage && (
                 <FocusDeliveryStrip
                     fillerCount={reviewFillerCount ?? 0}
                     fillerData={reviewFillerData}

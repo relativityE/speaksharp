@@ -39,6 +39,16 @@ export interface LiveTranscriptProps {
      * `after`) instead of fillers being highlighted at all.
      */
     coverageMode?: 'during' | 'after';
+    /**
+     * Which surface this is. The DURING state renders ephemeral working memory; the AFTER state renders the
+     * transcript the SERVER retained. #1306 purges the former at terminal finalization and #1258/#1314 retains
+     * the latter for review — two different properties, and both are user-visible promises.
+     *
+     * Rendering both under one test id makes them indistinguishable, so a suite can no longer observe that the
+     * purge happened, and "the review shows the saved transcript" and "working memory leaked" look identical.
+     * The default keeps the live identity; the after state names itself.
+     */
+    testId?: string;
 }
 
 const fillerStyle: React.CSSProperties = {
@@ -56,12 +66,12 @@ const coverageStyle = (mode: 'during' | 'after'): React.CSSProperties => ({
     padding: '0 2px',
 });
 
-export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCaret = true, onFillerSeek, coverageMode }) => {
+export const LiveTranscript: React.FC<LiveTranscriptProps> = ({ tokens, showCaret = true, onFillerSeek, coverageMode, testId = 'live-transcript' }) => {
     const seekable = typeof onFillerSeek === 'function';
 
     return (
         <div
-            data-testid="live-transcript"
+            data-testid={testId}
             style={{ minHeight: 420, fontSize: 19, lineHeight: 1.75, color: '#1f2733' }}
         >
             {tokens.map((t, i) => (
