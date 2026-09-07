@@ -193,7 +193,7 @@ export const SessionPage: React.FC = () => {
     // transcript may be shown", shared with the PDF so the two cannot drift. This connects them.
     const reviewSessionId = finalizedAnalysis?.sessionId ?? null;
     const queryClient = useQueryClient();
-    const { data: savedSession, isFetching: reviewFetching, refetch: refetchReview } =
+    const { data: savedSession, isFetching: reviewFetching, refetch: refetchReview, abandonCurrentRead } =
         useSession(reviewSessionId ?? undefined);
     // Server state decides. `isFinalizing` only separates "still settling" from "we could not load
     // it" — two readings of `unavailable` that need different sentences and that a saved-row resolver
@@ -269,6 +269,9 @@ export const SessionPage: React.FC = () => {
     React.useEffect(() => {
         if (!reviewFetching || reviewReadTimedOut) return;
         const timer = setTimeout(() => {
+            // Abandon at the wire first — this is the deliberate decision that the answer is no longer
+            // wanted — then cancel the query so its result cannot be adopted into the cache either.
+            abandonCurrentRead();
             void queryClient.cancelQueries({ queryKey: ['session', reviewSessionId] }).then(() => {
                 setReviewReadAttempt((spent) => {
                     if (spent + 1 < REVIEW_READ_MAX_ATTEMPTS) {
@@ -283,7 +286,7 @@ export const SessionPage: React.FC = () => {
             });
         }, REVIEW_READ_TIMEOUT_MS);
         return () => clearTimeout(timer);
-    }, [reviewFetching, reviewReadTimedOut, reviewSessionId, queryClient, refetchReview]);
+    }, [reviewFetching, reviewReadTimedOut, reviewSessionId, queryClient, refetchReview, abandonCurrentRead]);
 
     // NOTE ON RETIREMENT (leaving the page, or moving to another session): no cleanup is written here.
     // An explicit `cancelQueries` on unmount/key-change was tried and PROVED REDUNDANT — removing it
