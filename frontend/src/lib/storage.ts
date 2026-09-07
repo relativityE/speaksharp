@@ -140,17 +140,7 @@ export const getSessionHistory = async (
  * @param {string} sessionId - The ID of the session.
  * @returns {Promise<PracticeSession | null>} A promise that resolves to the session object or null if not found.
  */
-export const getSessionById = async (
-  sessionId: string,
-  // #1422 — CANCELLATION MUST REACH THE WIRE.
-  //
-  // A caller that stops waiting is not the same as a request that stops running. Without this signal
-  // the reader can be gone — unmounted, or moved to another session — while the request is still in
-  // flight, and its answer still lands in the query cache under the old key. The next reader then
-  // sees a row it never asked for. Bounding the UI's patience is not enough; the request itself has
-  // to be abandoned.
-  signal?: AbortSignal,
-): Promise<PracticeSession | null> => {
+export const getSessionById = async (sessionId: string): Promise<PracticeSession | null> => {
   const supabase = getSupabaseClient();
   if (!sessionId) {
     logger.error('Get Session By ID: Session ID is required.');
@@ -158,13 +148,11 @@ export const getSessionById = async (
   }
 
   try {
-    const runQuery = (select: string) => {
-      const filtered = supabase
-        .from('sessions')
-        .select(select)
-        .eq('id', sessionId);
-      return (signal ? filtered.abortSignal(signal) : filtered).single();
-    };
+    const runQuery = (select: string) => supabase
+      .from('sessions')
+      .select(select)
+      .eq('id', sessionId)
+      .single();
 
     let { data, error } = await runQuery(SESSION_DETAIL_SELECT);
     // Pre-migration only: retry WITHOUT transcript_state on the specific missing-column error. Must stay on
@@ -176,9 +164,6 @@ export const getSessionById = async (
     }
 
     if (error) {
-      // An abandoned read is not a failure the user should be told about. Reporting it as one would
-      // turn our own cancellation into a visible error on whatever the reader moved on to.
-      if (signal?.aborted) throw error;
       if (error.code === 'PGRST116') {
         // No rows returned
         return null;
@@ -188,7 +173,6 @@ export const getSessionById = async (
     }
     return data as unknown as PracticeSession | null;
   } catch (fetchError) {
-    if (signal?.aborted) throw fetchError;
     logger.error({ error: fetchError, sessionId }, '[getSessionById] Failed');
     throw new Error('Unable to load this session. Please refresh and try again.');
   }

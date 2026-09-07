@@ -285,33 +285,16 @@ describe('F-07 completed-session Practice Loop review', () => {
     });
 
     // ---------------------------------------------------------------------------------------------
-    // #1422 Codex P2 — A BOUND THAT ONLY STOPS LISTENING IS A LEAK.
+    // #1422 Codex P2 — AN ABANDONED READ'S ANSWER MUST NOT BECOME THE REVIEW.
     //
-    // The first version of this fix bounded the UI and left the request running, and the casualties
-    // above used promises that NEVER resolve. That combination cannot fail: if nothing ever arrives,
-    // a test proves nothing about what happens when something arrives late. These three close it.
+    // The first version bounded the UI and left the request running, and its casualties used promises
+    // that NEVER resolve — a combination that cannot fail, because if nothing ever arrives a test
+    // proves nothing about what happens when something arrives late.
+    //
+    // What is guaranteed here is at the CACHE, not the wire: a cancelled query's result is discarded
+    // rather than published under its key. Aborting the request itself was implemented twice and
+    // reverted — it killed reads that were going to succeed. See `useSession`.
     // ---------------------------------------------------------------------------------------------
-
-    it('CASUALTY: the bound ABORTS the request — it does not merely stop listening to it', async () => {
-        vi.useFakeTimers();
-        try {
-            publishCompletedSession(4, 'session-stalled');
-            getSessionById.mockReturnValue(new Promise(() => { /* stalls */ }));
-            render(<SessionPage />);
-            // ONE bound: the abort is what the FIRST expiry does. Spending the whole budget here would
-            // still pass and would stop proving that the first expiry abandons anything.
-            await act(async () => { vi.advanceTimersByTime(15_000); });
-
-            // The read must have been handed a signal, and the bound must have fired it. Without the
-            // signal reaching the data layer, cancellation stops at our own component boundary and the
-            // request keeps running against the server.
-            const signal = getSessionById.mock.calls[0]?.[1] as AbortSignal | undefined;
-            expect({ received: signal instanceof AbortSignal, aborted: signal?.aborted })
-                .toEqual({ received: true, aborted: true });
-        } finally {
-            vi.useRealTimers();
-        }
-    });
 
     it('CASUALTY: the first bound RE-READS rather than stranding the review', async () => {
         // This is the regression CI caught. Cancelling on the first bound and stopping there took the
@@ -370,30 +353,6 @@ describe('F-07 completed-session Practice Loop review', () => {
         } finally {
             vi.useRealTimers();
         }
-    });
-
-    it('CASUALTY: leaving the session ABANDONS its in-flight read', async () => {
-        // Retirement, not timeout. The user navigates away while the read is still running; nothing has
-        // failed and no bound has expired, but the request has outlived the only reader that wanted it.
-        //
-        // React Query provides this, not code in SessionPage: an explicit cancel-on-unmount was written,
-        // mutation-tested, found redundant and removed. The casualty stays because the REQUIREMENT is
-        // ours — if the query layer is ever configured or replaced such that abandoned reads keep
-        // running, this is what notices.
-        publishCompletedSession(4, 'session-leaving');
-        getSessionById.mockReturnValue(new Promise(() => { /* still in flight when we leave */ }));
-
-        const { unmount } = render(<SessionPage />);
-        await waitFor(() => expect(getSessionById).toHaveBeenCalled());
-
-        const signal = getSessionById.mock.calls[0]?.[1] as AbortSignal;
-        expect({ aborted: signal?.aborted, phase: 'still mounted' })
-            .toEqual({ aborted: false, phase: 'still mounted' });
-
-        unmount();
-
-        await waitFor(() => expect({ aborted: signal.aborted, phase: 'after leaving' })
-            .toEqual({ aborted: true, phase: 'after leaving' }));
     });
 
     it('CASUALTY: Retry clears the verdict — the fresh read reads as PENDING, not still-failed', async () => {

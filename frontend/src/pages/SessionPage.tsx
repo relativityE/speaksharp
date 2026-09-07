@@ -194,7 +194,7 @@ export const SessionPage: React.FC = () => {
     const reviewSessionId = finalizedAnalysis?.sessionId ?? null;
     const queryClient = useQueryClient();
     const {
-        data: savedSession, isFetching: reviewFetching, refetch: refetchReview, abandonCurrentRead,
+        data: savedSession, isFetching: reviewFetching, refetch: refetchReview,
         // How many times the query layer has failed and retried THIS read. It is progress, not noise:
         // see the bound below.
         failureCount: reviewFailureCount,
@@ -219,8 +219,9 @@ export const SessionPage: React.FC = () => {
      * The bound also CANCELS the read. Deciding to stop believing a request while letting it run is not
      * a bound, it is a leak: the abandoned request can still resolve and publish its row into the query
      * cache under `['session', id]` after this reader is gone or has moved to another session, so the
-     * next reader inherits an answer nobody asked for. `cancelQueries` aborts the signal that
-     * `useSession` now hands to `getSessionById`, which aborts the PostgREST request itself.
+     * next reader inherits an answer nobody asked for. `cancelQueries` makes React Query DISCARD that
+     * answer instead of adopting it. The request itself is left to finish and be thrown away — see
+     * `useSession` for why aborting it at the wire is not an option here.
      *
      * Because cancelling settles the query, `reviewFetching` goes false as a CONSEQUENCE of the timeout.
      * The verdict therefore cannot be reset on that transition — doing so would erase the very state the
@@ -287,9 +288,9 @@ export const SessionPage: React.FC = () => {
     React.useEffect(() => {
         if (!reviewFetching || reviewReadTimedOut) return;
         const timer = setTimeout(() => {
-            // Abandon at the wire first — this is the deliberate decision that the answer is no longer
-            // wanted — then cancel the query so its result cannot be adopted into the cache either.
-            abandonCurrentRead();
+            // Cancel the QUERY, not the request. React Query discards a cancelled query's result rather
+            // than publishing it under its key, which is the leak this finding is about. Aborting the
+            // request itself was tried twice and killed reads that were going to succeed.
             void queryClient.cancelQueries({ queryKey: ['session', reviewSessionId] }).then(() => {
                 setReviewReadAttempt((spent) => {
                     if (spent + 1 < REVIEW_READ_MAX_ATTEMPTS) {
@@ -311,7 +312,7 @@ export const SessionPage: React.FC = () => {
         // layer down. It went unnoticed because the real query's state churns across the cancel and
         // happened to re-run the effect for unrelated reasons.
     }, [reviewFetching, reviewFailureCount, reviewReadAttempt, reviewReadTimedOut, reviewSessionId,
-        queryClient, refetchReview, abandonCurrentRead]);
+        queryClient, refetchReview]);
 
     // NOTE ON RETIREMENT (leaving the page, or moving to another session): no cleanup is written here.
     // An explicit `cancelQueries` on unmount/key-change was tried and PROVED REDUNDANT — removing it
