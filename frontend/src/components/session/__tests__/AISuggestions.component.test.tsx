@@ -526,9 +526,14 @@ describe('AISuggestions Integration', () => {
             expect(screen.getByRole('button', { name: /creating review/i })).toBeDisabled();
         });
 
-        it('allows fetching suggestions multiple times', async () => {
-            const user = userEvent.setup();
-
+        it('CASUALTY: once a review is on screen, NO control is offered to refresh it', async () => {
+            // This assertion is the inverse of the one it replaces, and the inversion is the point.
+            //
+            // The old control read "Refresh review" and promised something the product cannot do: the
+            // coaching is generated once and persisted, so pressing it re-read the stored review and
+            // rendered the identical two phrases. The user is invited to improve what they are looking
+            // at, waits, and gets the same words back — which reads as the feature being broken rather
+            // than working exactly as designed.
             mockSupabaseClient.functions.invoke.mockResolvedValue({
                 data: {
                     suggestions: {
@@ -546,10 +551,47 @@ describe('AISuggestions Integration', () => {
             await waitFor(() => expect(screen.getByText(/concise opening established the decision/i)).toBeInTheDocument());
             expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(1);
 
-            // The control is now a refresh, and it still works — the automatic first request must not
-            // consume the user's ability to ask again.
-            await user.click(screen.getByRole('button', { name: /refresh review/i }));
-            await waitFor(() => expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledTimes(2));
+            // No refresh, and no retry either — there is nothing here left to retry.
+            expect({
+                refresh: screen.queryByRole('button', { name: /refresh/i }),
+                retry: screen.queryByRole('button', { name: /retry review/i }),
+            }).toEqual({ refresh: null, retry: null });
+
+            // The review itself is untouched: this removes an ACTION, not the coaching.
+            expect(screen.getByText(/Close by restating the requested decision/i)).toBeInTheDocument();
+        });
+
+        it('CONTROL: after a FAILURE the retry is still offered and still works', async () => {
+            // The control must survive exactly where pressing it can change the outcome. Removing it
+            // there would strand a user on a failed review with no way forward — a worse defect than
+            // the one being fixed.
+            const user = userEvent.setup();
+
+            mockSupabaseClient.functions.invoke.mockResolvedValueOnce({
+                data: null,
+                error: { message: 'Edge Function returned a non-2xx status code', context: { status: 500 } },
+            });
+
+            render(<AISuggestions transcript="Hello world" sessionId="session-retry" />);
+
+            const retry = await screen.findByRole('button', { name: /retry review/i });
+
+            mockSupabaseClient.functions.invoke.mockResolvedValue({
+                data: {
+                    suggestions: {
+                        version: 'gemini_coaching_v1',
+                        what_worked: 'The concise opening established the decision quickly.',
+                        what_to_try_next: 'Close by restating the requested decision.',
+                    },
+                },
+                error: null,
+            });
+
+            await user.click(retry);
+
+            await waitFor(() => expect(screen.getByText(/concise opening established the decision/i)).toBeInTheDocument());
+            // ...and once it succeeds, the control goes away, like any other success.
+            expect(screen.queryByRole('button', { name: /review/i })).toBeNull();
         });
     });
 });

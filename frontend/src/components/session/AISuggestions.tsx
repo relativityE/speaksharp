@@ -249,21 +249,35 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canRevie
           <Sparkles className="h-5 w-5 text-purple-500" />
           Practice Loop review
         </CardTitle>
-        <Button
-          onClick={() => { void fetchSuggestions(); }}
-          disabled={isLoading || !reviewReady}
-          size="sm"
-          className="w-full sm:w-auto"
-        >
-          {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {/*
-            #1416 P2-4 — the control is a RETRY, not a request. The first review now arrives on its
-            own, so "Get my review" would offer the user something they have already been given, and
-            pressing it would spend another provider call to reproduce what is on screen. It reads as
-            retry after a failure and as refresh once a review exists.
-          */}
-          {isLoading ? 'Creating review...' : error ? 'Retry review' : suggestions ? 'Refresh review' : 'Retry review'}
-        </Button>
+        {/*
+          #1416 P2-4 — the control is a RETRY, not a request. The first review arrives on its own, so
+          "Get my review" would offer the user something they have already been given.
+
+          #1422 — AND IT IS GONE ONCE THERE IS A REVIEW TO READ.
+
+          It used to read "Refresh review" after a success, which promised something the product cannot
+          do. The coaching is generated once and persisted; pressing it re-reads the stored review and
+          renders the identical two phrases. The user is invited to improve what they are looking at,
+          waits, and receives the same words back — which reads as the feature being broken rather than
+          as it working exactly as designed. A control that cannot change its own outcome should not be
+          offered.
+
+          It stays for the two states where pressing it CAN change something: after a failure, and
+          before any review exists. Nothing about the locked Gemini contract moves — the daily
+          generation budget, the two-phrase shape, and cached coaching remaining readable after
+          exhaustion are all untouched. This removes an action, not a capability.
+        */}
+        {(error || !suggestions) && (
+          <Button
+            onClick={() => { void fetchSuggestions(); }}
+            disabled={isLoading || !reviewReady}
+            size="sm"
+            className="w-full sm:w-auto"
+          >
+            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {isLoading ? 'Creating review...' : 'Retry review'}
+          </Button>
+        )}
       </CardHeader>
       <CardContent>
         {isLoading && (
