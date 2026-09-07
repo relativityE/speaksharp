@@ -14,8 +14,16 @@
 import { safeEmit } from './safeEmit';
 import { currentAttemptId } from './journeyIdentity';
 
-export type ContentSource = 'generated' | 'fallback';
-export type SuppressionReason = 'none' | 'no_suggestions' | 'not_in_review_state';
+/**
+ * `not_applicable` is not a kind of fallback. The Focus Points review shows a points rail instead of a
+ * coaching verdict and is never handed suggestions, so reporting `fallback` there claimed substitute
+ * coaching copy had been displayed. Nothing was displayed — a different fact entirely.
+ */
+export type ContentSource = 'generated' | 'fallback' | 'not_applicable';
+export type SuppressionReason = 'none' | 'no_suggestions' | 'not_in_review_state' | 'objective_rail';
+
+/** WHICH review the user is actually looking at. The two products render different surfaces. */
+export type ReviewSurface = 'coaching_verdict' | 'focus_points_rail';
 
 /**
  * #1259 item 5 — the phase this receipt describes.
@@ -41,6 +49,8 @@ export interface PracticeLoopInput {
     rendered: boolean;
     nextActionPersisted: boolean;
     suppressionReason: SuppressionReason;
+    /** Defaults to the coaching verdict, which is what every pre-existing caller describes. */
+    reviewSurface?: ReviewSurface;
 }
 
 /**
@@ -69,6 +79,7 @@ export function emitPracticeLoop(input: PracticeLoopInput): void {
         what_to_improve_source: input.whatToImproveSource,
         rendered: input.rendered,
         next_action_persisted: input.nextActionPersisted,
+        review_surface: input.reviewSurface ?? 'coaching_verdict',
         suppression_reason: input.suppressionReason,
     };
     // `currentAttemptId()` is null between takes; that is a real scope too — a review shown with no

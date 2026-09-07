@@ -27,7 +27,7 @@ import { selectReviewFillerSnapshot } from '@/utils/sessionAnalysis';
 import type { PracticeSession } from '@/types/session';
 import type { SttStatus } from '@/types/transcription';
 import { emitJourneyStep } from '@/services/telemetry/journeyStep';
-import { emitPracticeLoop } from '@/services/telemetry/practiceLoopTelemetry';
+import { emitPracticeLoop, COUNT_NOT_APPLICABLE } from '@/services/telemetry/practiceLoopTelemetry';
 import { markCompletionStage } from '@/services/telemetry/completionStages';
 import { emitMicObservability } from '@/services/telemetry/micObservation';
 import type { TranscriptView } from '@/lib/storage';
@@ -195,6 +195,15 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
     // like Focus Points (the isolation invariant that motivated clearing the live brief in the first place).
     const inAfter = sessionState === 'after';
 
+    // #1259 P1 — WHICH REVIEW THIS IS, derived before anything describes it.
+    //
+    // The receipts below were written as if there were one review. There are two: Raw Takes shows the
+    // coaching verdict, Focus Points replaces it with the points rail (`objectiveAfterSlotD`) and is
+    // never passed `aiSuggestions` in production at all. Both facts have to be known before the effects
+    // run, so the same derivation the render uses is hoisted here rather than recomputed differently.
+    const objectivePointsForSurface = objectivePoints ?? (inAfter ? completedObjectivePoints ?? null : null);
+    const isObjectiveSurface = Array.isArray(objectivePointsForSurface) && objectivePointsForSurface.length > 0;
+
     /**
      * #1259 F08 — WHAT THE FINISHED SESSION ACTUALLY OFFERED.
      *
@@ -211,10 +220,14 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
      */
     React.useEffect(() => {
         if (!inAfter) return;
-        const offered: string[] = ['practice_next'];
-        if (onSeeAllSessions) offered.push('view_analytics');
+        // The Focus Points rail offers "Retry this set" and "Start a new set" — not Practice again and
+        // See all sessions. Reporting the coaching review's menu for it described a screen that was
+        // never rendered, which is the one thing an "options offered" receipt must not do.
+        const offered: string[] = isObjectiveSurface
+            ? ['retry_points', ...(onNewSet ? ['new_set'] : [])]
+            : ['practice_next', ...(onSeeAllSessions ? ['view_analytics'] : [])];
         emitJourneyStep({ step: 'post_session_options', optionsShown: offered });
-    }, [inAfter, onSeeAllSessions]);
+    }, [inAfter, onSeeAllSessions, isObjectiveSurface, onNewSet]);
 
     /**
      * #1259 F07 — WHAT THE REVIEW ACTUALLY SHOWED, and where it came from.
@@ -251,6 +264,20 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         onStartStop();
     }, [onStartStop]);
 
+    // The rail's two actions were passed through unwrapped, so the Focus Points review recorded which
+    // options were offered and never which one was taken — the same gap `option_selected` was added to
+    // close for the coaching review. Emitted before delegating, so a handler that navigates or throws
+    // cannot swallow the fact.
+    const chooseRetryPoints = React.useCallback(() => {
+        emitJourneyStep({ step: 'option_selected', optionSelected: 'retry_points' });
+        (onRetryPoints ?? onStartStop)();
+    }, [onRetryPoints, onStartStop]);
+
+    const chooseNewSet = React.useCallback(() => {
+        emitJourneyStep({ step: 'option_selected', optionSelected: 'new_set' });
+        onNewSet?.();
+    }, [onNewSet]);
+
     const chooseSeeAllSessions = React.useCallback(() => {
         emitJourneyStep({ step: 'option_selected', optionSelected: 'view_analytics' });
         onSeeAllSessions?.();
@@ -262,9 +289,29 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         }
         const wentWell = Boolean(aiSuggestions?.what_worked?.trim());
         const toImprove = Boolean(aiSuggestions?.what_to_try_next?.trim());
-        emitPracticeLoop({
+        // #1259 P1 — DESCRIBE THE SURFACE THAT RENDERED, not the one this effect was written for.
+        //
+        // On Focus Points the coaching verdict is replaced by the rail and no suggestions are ever
+        // passed, so the previous receipt reported `what_went_well_source: 'fallback'` and a count of 0
+        // for coaching copy that was not merely absent but not part of the screen. Decoded, an entire
+        // product looked like a review whose generation had failed.
+        emitPracticeLoop(isObjectiveSurface ? {
+            phase: 'rendered',
+            reviewSurface: 'focus_points_rail',
+            // Not applicable, not zero. Zero would say the rail tried to show a phrase and had none.
+            whatWentWellCount: COUNT_NOT_APPLICABLE,
+            whatToImproveCount: COUNT_NOT_APPLICABLE,
+            suggestionsPresent: false,
+            whatWentWellSource: 'not_applicable',
+            whatToImproveSource: 'not_applicable',
+            rendered: true,
+            // The rail's own two handlers are this screen's next action.
+            nextActionPersisted: Boolean(onRetryPoints || onNewSet),
+            suppressionReason: 'objective_rail',
+        } : {
             // The user is looking at it. This is the only phase that can claim that.
             phase: 'rendered',
+            reviewSurface: 'coaching_verdict',
             // The contract is exactly one of each. A count proves the shape without carrying a word of
             // coaching text — and 2 or 0 here is the defect, reported as a number rather than as prose.
             whatWentWellCount: wentWell ? 1 : 0,
@@ -273,8 +320,6 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
             whatWentWellSource: wentWell ? 'generated' : 'fallback',
             whatToImproveSource: toImprove ? 'generated' : 'fallback',
             rendered: true,
-            // The rail's retry/new-set handlers are the persisted next action on this screen; their
-            // absence is what "no prescribed next step" looks like in the product.
             nextActionPersisted: Boolean(onRetryPoints || onNewSet),
             suppressionReason: aiSuggestions ? 'none' : 'no_suggestions',
         });
@@ -287,7 +332,7 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         // after-state waveform. No per-frame hook is needed and none is added: streaming levels is
         // both forbidden and would drown every other signal.
         emitMicObservability(levelsRef.current, stopControlRenderedRef.current);
-    }, [reviewSettled, aiSuggestions, onRetryPoints, onNewSet]);
+    }, [reviewSettled, aiSuggestions, onRetryPoints, onNewSet, isObjectiveSurface]);
     const effObjectivePoints = objectivePoints ?? (inAfter ? completedObjectivePoints ?? null : null);
     const effObjectiveTopic = objectiveTopic ?? (inAfter ? completedObjectiveTopic ?? null : null);
     const effObjectivePaceGuideSecPerPoint = objectivePaceGuideSecPerPoint ?? (inAfter ? completedObjectivePaceGuideSecPerPoint ?? null : null);
@@ -506,15 +551,15 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
         ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="during" nextIndex={coverage.nextIndex} />
         : undefined;
     const objectiveAfterSlotD = coverage
-        ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="after" onRetry={onRetryPoints ?? onStartStop} onNewSet={onNewSet} />
+        ? <FocusPointsRail rows={coverage.rows} topic={effObjectiveTopic ?? null} sessionState="after" onRetry={chooseRetryPoints} onNewSet={onNewSet ? chooseNewSet : undefined} />
         : isObjective
             ? <FocusPointsRail
                 rows={pendingObjectiveRows}
                 topic={effObjectiveTopic ?? null}
                 sessionState="after"
                 coveragePending
-                onRetry={onRetryPoints ?? onStartStop}
-                onNewSet={onNewSet}
+                onRetry={chooseRetryPoints}
+                onNewSet={onNewSet ? chooseNewSet : undefined}
             />
             : undefined;
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { beginJourney } from '@/services/telemetry/journeyIdentity';
 
 /** The product surfaces. Entering any of them from outside them starts a journey. */
@@ -19,16 +19,42 @@ export const isProductRoute = (pathname: string): boolean =>
  * journey, and splitting it would hide exactly the post-session navigation the journey events exist to
  * describe. So a journey begins only on a transition from a non-product route into a product route —
  * including the first render, when there is no previous route to compare against.
+ *
+ * #1259 P1 — WHY THE PREVIOUS ROUTE IS MODULE STATE AND NOT A REF.
+ *
+ * It was a `useRef` inside this hook, and the hook runs in App while the route event is emitted by
+ * `JourneyRouteTelemetry`, a DESCENDANT. React flushes descendant passive effects before ancestor ones,
+ * so on every cached re-entry into a product the entry `route_change` was captured under the OUTGOING
+ * journey and only then did App mint the new id for everything after it. The one event that names the
+ * transition sat on the wrong side of the boundary it describes.
+ *
+ * Making the boundary a module-level, idempotent function fixes the ordering rather than betting on it:
+ * whichever of the two runs first establishes the journey, and the other becomes a no-op. The emitter
+ * calls it immediately before emitting, so the entry event cannot precede its own journey.
  */
-export function useJourneyBoundary(pathname: string): void {
-    // `null` on the first render so entering a product directly by URL still counts as an entry.
-    const previousPathRef = useRef<string | null>(null);
+let previousPath: string | null = null;
 
+/**
+ * Establish the journey boundary for `pathname`. Safe to call from anywhere, any number of times: only
+ * a genuine non-product -> product transition begins a journey, and the first caller for a given
+ * navigation consumes it.
+ */
+export function ensureJourneyBoundary(pathname: string): void {
+    const previous = previousPath;
+    if (previous === pathname) return;
+    previousPath = pathname;
+    const enteringProduct = isProductRoute(pathname);
+    const wasInProduct = previous !== null && isProductRoute(previous);
+    if (enteringProduct && !wasInProduct) beginJourney();
+}
+
+/** Test seam only. Production never resets the boundary except by navigating. */
+export function __resetJourneyBoundaryForTests(): void {
+    previousPath = null;
+}
+
+export function useJourneyBoundary(pathname: string): void {
     useEffect(() => {
-        const previous = previousPathRef.current;
-        previousPathRef.current = pathname;
-        const enteringProduct = isProductRoute(pathname);
-        const wasInProduct = previous !== null && isProductRoute(previous);
-        if (enteringProduct && !wasInProduct) beginJourney();
+        ensureJourneyBoundary(pathname);
     }, [pathname]);
 }

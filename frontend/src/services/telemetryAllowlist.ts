@@ -63,6 +63,11 @@ const FRESHNESS = ['fresh', 'stale', 'unverified', 'local'] as const;
  */
 const NAVIGATION_OPTIONS = [
     'practice_next', 'view_analytics', 'try_another_mode', 'home', 'products', 'none',
+    // #1259 P1 — the Focus Points review does NOT offer the two above. Its rail offers "Retry this set"
+    // and "Start a new set", and reporting those as `practice_next`/`view_analytics` described a menu
+    // that product never rendered. A closed vocabulary is only worth having if it names what is on the
+    // screen, so the two real options are named rather than approximated.
+    'retry_points', 'new_set',
 ] as const;
 
 const TIERS = ['free', 'pro', 'trial', 'unknown', 'anonymous'] as const;
@@ -315,11 +320,19 @@ export const EVENT_SCHEMAS = Object.freeze({
         what_went_well_count: { kind: 'int', min: -1, max: 32 } as FieldRule,
         what_to_improve_count: { kind: 'int', min: -1, max: 32 } as FieldRule,
         suggestions_present: { kind: 'bool' } as FieldRule,
-        what_went_well_source: enumOf(['generated', 'fallback']),
-        what_to_improve_source: enumOf(['generated', 'fallback']),
+        // `not_applicable` is a THIRD state, distinct from `fallback`. The Focus Points review replaces
+        // the coaching verdict with the points rail and is never given suggestions, so calling its
+        // source `fallback` asserted that substitute coaching copy was shown to someone. It was not
+        // shown at all — a different fact, and the one that matters when asking whether the loop ran.
+        what_went_well_source: enumOf(['generated', 'fallback', 'not_applicable']),
+        what_to_improve_source: enumOf(['generated', 'fallback', 'not_applicable']),
         rendered: { kind: 'bool' } as FieldRule,
         next_action_persisted: { kind: 'bool' } as FieldRule,
-        suppression_reason: enumOf(['none', 'no_suggestions', 'not_in_review_state']),
+        // WHICH review surface this receipt describes. Without it the two products' reviews decode
+        // identically, and the Focus Points rail — which has no coaching phrases by design — is
+        // indistinguishable from a Raw Takes review whose generation failed.
+        review_surface: enumOf(['coaching_verdict', 'focus_points_rail']),
+        suppression_reason: enumOf(['none', 'no_suggestions', 'not_in_review_state', 'objective_rail']),
     },
 
     /**

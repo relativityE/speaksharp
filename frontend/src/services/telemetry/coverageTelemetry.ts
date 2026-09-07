@@ -23,6 +23,7 @@
  * by POSITION only.
  */
 import { safeEmit } from './safeEmit';
+import { currentAttemptId, currentAttemptSeq } from './journeyIdentity';
 
 /** Bumped when the matcher's behaviour changes, so verdicts stay comparable across releases. */
 export const EVALUATOR_VERSION = 'keyword-ratio-v1';
@@ -73,7 +74,18 @@ export function emitCoverageEvaluation(input: CoverageEvaluationInput): void {
         transcript_word_count: input.transcriptWordCount,
     };
 
-    const signature = JSON.stringify([base, input.observations]);
+    // #1259 P1 — THE SIGNATURE IS SCOPED TO THE ATTEMPT.
+    //
+    // Without the attempt in it, this de-duplication reached across takes. A user who retries the same
+    // Focus Points set and delivers it much the same way produces the same word count, ratios, verdicts
+    // and latch state — so the second take's signature matched the first and EVERY `coverage_evaluation`
+    // and `coverage_point` for it was suppressed. Nothing in production resets this module between
+    // takes, and the attempt envelope is attached after this returns, so the readback simply lost an
+    // ordinary retry: the exact event a Focus Points experiment is built to compare.
+    //
+    // The ordinal is included alongside the id so that a take which never opened an attempt still
+    // separates from the next one rather than sharing the null.
+    const signature = JSON.stringify([currentAttemptId(), currentAttemptSeq(), base, input.observations]);
     if (signature === lastSignature) return;
     lastSignature = signature;
 

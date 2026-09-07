@@ -46,10 +46,18 @@ vi.mock('@/contexts/AuthProvider', () => ({
 // Configurable per test: the retention observation reads the sessionHistory CACHE, and whether it reads
 // the RIGHT account's entry is a P1 that a client without `getQueriesData` can never exercise.
 const { queryCacheEntries } = vi.hoisted(() => ({ queryCacheEntries: { current: null as unknown[][] | null } }));
+// The mock HONOURS `type: 'active'`. It did not, which is why the "read the right entry" P1 could not be
+// exercised here at all: a double that returns every entry regardless of the filter cannot tell a test
+// that the filter is missing from the code. Entries are [key, data] or [key, data, active]; active
+// defaults to true so the existing cases keep their meaning.
 vi.mock('@tanstack/react-query', () => ({
     useQueryClient: () => ({
         invalidateQueries: vi.fn(),
-        getQueriesData: queryCacheEntries.current === null ? undefined : () => queryCacheEntries.current,
+        getQueriesData: queryCacheEntries.current === null
+            ? undefined
+            : (filters?: { type?: string }) => (queryCacheEntries.current ?? [])
+                .filter((row) => (filters?.type === 'active' ? (row[2] ?? true) !== false : true))
+                .map((row) => [row[0], row[1]]),
     }),
 }));
 
@@ -282,6 +290,52 @@ describe('#1259 F01 — every intent reaches analytics through the real hook', (
         expect(retention.length).toBeGreaterThan(0);
         // One, from this account — not three, from the stranger's cache that happened to be first.
         expect(retention[0].content_free_history_count).toBe(1);
+    });
+
+    it('CASUALTY: the receipt reads the ACTIVE pagination entry, not a stale same-account one', async () => {
+        // One account can hold several `sessionHistory` entries at once: a `{limit}` variant left behind by
+        // a previous visit to Analytics alongside the Session page's own `{}`. Both match the account, and
+        // React Query preserves insertion order — which is visit order, not relevance. The prefix
+        // invalidation refetches only ACTIVE queries, so the leftover keeps its pre-save contents, and
+        // reading it reports unchanged counts for a save that plainly succeeded.
+        queryCacheEntries.current = [
+            // Stale, inactive, and deliberately FIRST — exactly what insertion order hands you.
+            [['sessionHistory', 'test-user', { limit: 20 }], [
+                { transcript_state: 'available' }, { transcript_state: 'available' }, { transcript_state: 'available' },
+            ], false],
+            // The entry this page is actually reading.
+            [['sessionHistory', 'test-user', {}], [{ transcript_state: 'available' }], true],
+        ];
+
+        const { result } = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 30 });
+        await act(async () => { await result.current.handleStartStop(); });
+        await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+        const retention = pushSpy.mock.calls
+            .filter((c) => c[0] === 'retention_observation')
+            .map((c) => c[1] as Record<string, unknown>);
+        expect(retention.length).toBeGreaterThan(0);
+        // One, from the active entry — not three, from the stale one that happened to be first.
+        expect({ count: retention[0].content_free_history_count }).toEqual({ count: 1 });
+    });
+
+    it('CASUALTY: two ACTIVE entries for one account report nothing rather than a guess', async () => {
+        // If two are active we cannot tell which one this page is reading. Picking either would be a guess
+        // presented as an observation — the same failure as reading the stale one, without the excuse.
+        queryCacheEntries.current = [
+            [['sessionHistory', 'test-user', {}], [{ transcript_state: 'available' }], true],
+            [['sessionHistory', 'test-user', { limit: 20 }], [{ transcript_state: 'available' }], true],
+        ];
+
+        const { result } = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 30 });
+        await act(async () => { await result.current.handleStartStop(); });
+        await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+        const retention = pushSpy.mock.calls
+            .filter((c) => c[0] === 'retention_observation')
+            .map((c) => c[1] as Record<string, unknown>);
+        expect(retention.length).toBeGreaterThan(0);
+        expect(retention[0].content_free_history_count ?? null).toBeNull();
     });
 
     it('an ACCEPTED start reports its intent BEFORE startRecording is awaited', async () => {

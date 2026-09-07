@@ -320,18 +320,38 @@ export const useSessionLifecycle = () => {
                 // The SAME value `usePracticeHistory` builds its key from — `user?.id` out of
                 // `useAuthProvider` — so the comparison cannot drift from the key it is matching.
                 const activeUserId = user?.id ?? null;
+                //
+                // AND TO THE ACTIVE PAGINATION ENTRY, not merely to a same-account one. The key is
+                // `['sessionHistory', id, paginationOptions]`, so one account can hold several entries at
+                // once — a `{limit: ...}` variant left behind by a previous visit to Analytics alongside
+                // the Session page's own. Taking "the first account-matching array" took whichever React
+                // Query happened to have inserted first, and insertion order is visit order, not
+                // relevance. The prefix invalidation above refetches ACTIVE queries, so the stale
+                // Analytics entry keeps its pre-save contents — and the receipt then reports unchanged
+                // counts and a null transcript state for a save that plainly succeeded.
+                //
+                // `type: 'active'` is the discriminator that actually means "the entry this page is
+                // reading": a query is active when a mounted component observes it. Anything else is a
+                // leftover.
                 const readSavedSessions = (): Array<{ transcript_state?: string | null }> | null => {
                     // No separate signed-out guard: the key comparison below already excludes every entry
                     // when there is no active account, and a redundant branch no test can reach is a line
                     // that can rot without anything noticing.
                     try {
-                        const entries = queryClient.getQueriesData?.<unknown>({ queryKey: ['sessionHistory'] });
-                        for (const [key, data] of entries ?? []) {
+                        const entries = queryClient.getQueriesData?.<unknown>({
+                            queryKey: ['sessionHistory'],
+                            type: 'active',
+                        });
+                        const mine = (entries ?? []).filter(
                             // The account id is the second segment of the key. Anything else is a different
                             // person's cache, or a key shape we do not recognise — both are refusals.
-                            if (!Array.isArray(key) || key[1] !== activeUserId) continue;
-                            if (Array.isArray(data)) return data as Array<{ transcript_state?: string | null }>;
-                        }
+                            ([key, data]) => Array.isArray(key) && key[1] === activeUserId && Array.isArray(data),
+                        );
+                        // Exactly one, or nothing. Two active entries for one account means we cannot tell
+                        // which one this page is reading, and picking either would be a guess presented as
+                        // an observation — the same failure as reading the stale one, minus the excuse.
+                        if (mine.length !== 1) return null;
+                        return mine[0][1] as Array<{ transcript_state?: string | null }>;
                     } catch {
                         return null;
                     }

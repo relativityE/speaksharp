@@ -5,6 +5,7 @@ import logger from '../lib/logger';
 import { sanitizePrivateTelemetryProps } from './transcription/privateTelemetrySanitizer';
 import { sanitizeV4TelemetryProps, isV4TelemetryEvent } from './transcription/privateV4TelemetrySanitizer';
 import { projectEventProps, isGovernedEvent, type GovernedEvent } from './telemetryAllowlist';
+import { endRecordingAttempt } from './telemetry/journeyIdentity';
 import { buildEnvelope, stripEnvelopeKeys, type EnvelopeSources, type EventEnvelope } from './telemetry/envelope';
 import { buildTrafficSignals } from './telemetry/trafficType';
 import { resolvedEngine } from './telemetry/runtimeAttribution';
@@ -50,7 +51,7 @@ interface AnalyticsEvent {
 // Widening the pattern only defers the problem to the next field someone invents. Event properties are now
 // projected onto a per-event allowlist in `telemetryAllowlist.ts`, which fails CLOSED on anything unknown.
 
-/** Every governed family this tab has emitted. Names only — never properties. */
+/** Every governed family this tab has DELIVERED. Names only — never properties, never Private names. */
 const seenEventFamilies = new Set<string>();
 
 /** What the completeness gate reads. A copy, so a caller cannot edit the record it is judging. */
@@ -205,11 +206,12 @@ class AnalyticsBuffer {
     modelAttributionVerified = true,
   ): void {
 
-    // #1259 P1 — the completeness gate needs a record of what this tab ACTUALLY emitted. Recorded at the
-    // producer boundary, before any queueing or backpressure decision, so a dropped or delayed event still
-    // counts as produced: the gate asks whether the instrumentation ran, which is a different question
-    // from whether the transport delivered.
-    seenEventFamilies.add(event);
+    // NOTE: the completeness record is NOT written here. It used to be, on the argument that the gate
+    // asks whether the instrumentation ran rather than whether the transport delivered. That argument
+    // was wrong about this gate. Its whole purpose is to notice that a required event is ABSENT FROM
+    // THE READBACK, and an event recorded here and then evicted by the backpressure branch a few lines
+    // below is absent from the readback while the gate reports QUALIFIED — the exact false pass it was
+    // built to prevent. The record is written at delivery, in `send()`.
 
     const analyticsEvent: AnalyticsEvent = {
       event,
@@ -399,6 +401,18 @@ class AnalyticsBuffer {
         $priority: event.priority,
         $ts: event.timestamp
       });
+
+      // #1259 P1 — COMPLETENESS IS RECORDED ON DELIVERY, AND ONLY FOR GOVERNED FAMILIES.
+      //
+      // On delivery, because an event that was produced and then dropped cannot appear in the readback
+      // the gate judges; recording it earlier lets a lossy tab qualify.
+      //
+      // Governed only, because `evaluateTelemetryCompleteness()` treats every name outside
+      // `GOVERNED_EVENTS` as unrecognised and forces HOLD. The ordinary Private path emits
+      // `private_model_acquisition_*`, which are deliberately outside the registry and carry their own
+      // allowlist — so recording them here made a NORMAL, complete Private session unable to qualify.
+      // Private telemetry is audited on its own terms; it is not part of the governed-family question.
+      if (isGovernedEvent(event.event)) seenEventFamilies.add(event.event);
     } catch (err) {
       logger.warn({ err, event: event.event }, '[AnalyticsBuffer] Failed to send event to PostHog');
     }
@@ -436,11 +450,32 @@ class AnalyticsBuffer {
   }
 
   public identify(userId: string): void {
+    // #1259 P1 — AN ATTEMPT NEVER CROSSES AN ACCOUNT BOUNDARY.
+    //
+    // Account A finishes a take, signs out, and account B signs in in the same tab before any accepted
+    // Start. Nothing in that path closes the attempt: retirement happens where the NEXT take begins,
+    // and product exit does not touch it. So B's `account_identified` — emitted immediately below,
+    // through the same envelope — inherited A's `attempt_id` and `attempt_seq`, joining two people's
+    // events under one correlation key. That is the one failure mode this identifier must not have.
+    //
+    // Retired BEFORE the capture, not after: `captureAccountIdentified()` builds its envelope during
+    // this call, so a retirement that ran afterwards would clean up everything except the very event
+    // that carried the confusion.
+    //
+    // Only on a CHANGE, and only away from a previously identified account. Re-identifying the same
+    // account (a token refresh, a revisit) is not a boundary, and retiring there would sever a take
+    // from its own save. A first identification after anonymous use is likewise the same person
+    // arriving, not a different one.
+    const previousAccountId = AnalyticsBuffer.currentAccountId;
+    const nextAccountId = userId || null;
+    if (previousAccountId !== null && previousAccountId !== nextAccountId) {
+      endRecordingAttempt();
+    }
 
     // Record BEFORE the capture below: `account_identified` is itself a governed event, and an
     // account identified after the fact would emit that first event as `user` traffic — precisely the
     // canary-looks-like-a-user confusion the field exists to remove.
-    AnalyticsBuffer.currentAccountId = userId || null;
+    AnalyticsBuffer.currentAccountId = nextAccountId;
     this.identityProbe.identifyCalls += 1;
     try {
       posthog.identify(userId);
@@ -532,6 +567,10 @@ class AnalyticsBuffer {
    * identity (and so PostHog feature-flag evaluation reverts to the anonymous/default cohort).
    */
   public resetIdentity(): void {
+    // Sign-out is an account boundary too, and the same rule applies: whatever take was open belonged
+    // to the person who just left. Retiring here also means the guard in `identify()` does not depend
+    // on `currentAccountId` surviving sign-out to notice the change.
+    endRecordingAttempt();
     try {
       posthog.reset();
       // Re-evaluate flags for the fresh anonymous id so a signed-out shared device does not retain

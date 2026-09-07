@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useLocation } from 'react-router-dom';
 import { emitJourneyStep } from '@/services/telemetry/journeyStep';
+import { ensureJourneyBoundary } from '@/hooks/useJourneyBoundary';
 import { useSessionStore } from '@/stores/useSessionStore';
 
 /**
@@ -25,6 +26,13 @@ export function JourneyRouteTelemetry(): null {
         const to = location.pathname;
         const from = previous.current;
         previous.current = to;
+
+        // #1259 P1 — the boundary is established BEFORE this event is emitted, not by an ancestor
+        // effect that React runs afterwards. Entering a product is a new journey, and the event that
+        // names the entry must be the first event inside it rather than the last event of the one
+        // being left. Idempotent: if the ancestor got there first this does nothing.
+        ensureJourneyBoundary(to);
+
         if (from === null || from === to) return;
         emitJourneyStep({
             step: 'route_change',
