@@ -63,6 +63,7 @@ const mergedMetrics = {
   numTotalTests: 0,
   totalDuration: 0,
   numPendingTests: 0,
+  testFiles: [],
   failures: [],
 };
 let metricsMergedCount = 0;
@@ -80,6 +81,7 @@ for (let shard = 1; shard <= SHARDS; shard++) {
     mergedMetrics.numTotalTests += data.numTotalTests || 0;
     mergedMetrics.totalDuration += data.totalDuration || 0;
     mergedMetrics.numPendingTests += data.numPendingTests || 0;
+    if (Array.isArray(data.testFiles)) mergedMetrics.testFiles.push(...data.testFiles);
     if (Array.isArray(data.failures)) mergedMetrics.failures = mergedMetrics.failures.concat(data.failures);
     metricsMergedCount++;
     console.log(
@@ -91,6 +93,7 @@ for (let shard = 1; shard <= SHARDS; shard++) {
   }
 }
 if (metricsMergedCount > 0) {
+  mergedMetrics.testFiles = [...new Set(mergedMetrics.testFiles)].sort();
   fs.writeFileSync(path.join(ROOT, 'unit-metrics.json'), JSON.stringify(mergedMetrics, null, 2));
   console.log(
     `Merged unit-metrics from ${metricsMergedCount}/${SHARDS} shards: ${mergedMetrics.numTotalTests} tests total, ` +

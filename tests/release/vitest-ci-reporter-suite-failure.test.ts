@@ -60,6 +60,22 @@ describe('Vitest CI reporter failure accounting', () => {
                 error: expect.stringContaining('ShieldCheck'),
             }),
         ]);
+        expect(results.testFiles).toEqual([]);
+    });
+
+    it('emits the exact executed test files as a machine-readable receipt', () => {
+        const tempDir = mkdtempSync(join(tmpdir(), 'speaksharp-vitest-reporter-files-'));
+        tempDirs.push(tempDir);
+        cwdSpy.mockReturnValue(tempDir);
+        Object.defineProperty(process, 'send', {
+            value: undefined,
+            configurable: true,
+            writable: true,
+        });
+        const file = join(tempDir, 'frontend/src/lib/__tests__/pdfGenerator.test.ts');
+        new VitestCIReporter().onFinished([{ filepath: file, name: file, tasks: [] }]);
+        const results = JSON.parse(readFileSync(join(tempDir, 'test-results/unit/results.json'), 'utf8'));
+        expect(results.testFiles).toEqual(['frontend/src/lib/__tests__/pdfGenerator.test.ts']);
     });
 
     it('does not double-count a failed suite that already contains a failed child test', () => {

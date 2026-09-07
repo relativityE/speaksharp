@@ -606,8 +606,12 @@ jobs:
           if [ -d "artifacts/unit-artifacts/frontend/coverage" ]; then
             cp -r artifacts/unit-artifacts/frontend/coverage/* artifacts/coverage/ 2>/dev/null || true
           fi
-          cp artifacts/unit-artifacts/unit-metrics.json artifacts/metrics/ 2>/dev/null || true
-          cp artifacts/unit-artifacts/unit-metrics.json . 2>/dev/null || true
+          test -s artifacts/unit-artifacts/unit-metrics.json \
+            || { echo "::error::merged unit-metrics.json is missing or empty"; exit 1; }
+          mkdir -p test-results/unit
+          cp artifacts/unit-artifacts/unit-metrics.json artifacts/metrics/
+          cp artifacts/unit-artifacts/unit-metrics.json unit-metrics.json
+          cp artifacts/unit-artifacts/unit-metrics.json test-results/unit/results.json
 
           # Canonical Playwright evidence contract (ONE exact shape):
           #   artifacts/playwright/shard-<N>/report-full-suite-<N>.zip   for N in 1..4
@@ -656,6 +660,11 @@ jobs:
 
       - name: Aggregate CI Metrics
         run: node scripts/aggregate-ci.mjs
+
+      # Generate only after canonical test counts and logical runtime have been aggregated. Generating
+      # inside the earlier Markdown report step published plausible 0/0 and zero-runtime evidence.
+      - name: Generate qualified software quality evidence
+        run: node scripts/write-software-quality-evidence.mjs
 
       - name: Report CI Timing And Failures
         if: always()

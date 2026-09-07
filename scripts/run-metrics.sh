@@ -29,11 +29,13 @@ if [ ! -f "$unit_metrics_file" ]; then
     unit_failed="null"
     unit_skipped="null"
     unit_total="null"
+    unit_test_files="[]"
 else
     unit_passed=$(jq '.numPassedTests' "$unit_metrics_file")
     unit_failed=$(jq '.numFailedTests' "$unit_metrics_file")
     unit_skipped=$(jq '.numPendingTests' "$unit_metrics_file")
     unit_total=$(jq '.numTotalTests' "$unit_metrics_file")
+    unit_test_files=$(jq '.testFiles // []' "$unit_metrics_file")
 fi
 
 # ─── Coverage Metrics ─────────────────────────────────────────────────────────
@@ -114,14 +116,18 @@ if [ "${e2e_failed}" -gt 0 ] 2>/dev/null; then
 fi
 
 # ─── Bundle Size Metrics ──────────────────────────────────────────────────────
-entry_file=$(grep -o '/assets/index-[^"]*\.js' frontend/dist/index.html | head -n 1 || true)
+# Read the actual emitted module entry instead of assuming Rollup names it `index-*`.
+entry_file=$(grep -oE 'src="[^"]+\.js"' frontend/dist/index.html 2>/dev/null | head -n 1 | cut -d '"' -f 2 || true)
 entry_file="${entry_file#/}"
+entry_file="${entry_file#./}"
 full_path="frontend/dist/$entry_file"
 
 if [ -f "$full_path" ]; then
     bundle_size=$(du -h "$full_path" | awk '{print $1}')
     chunk_size_kb=$(du -k "$full_path" | awk '{print $1}')
 else
+    echo "❌ Initial JavaScript entry chunk is missing or unreadable: ${entry_file:-<not found>}" >&2
+    if [ "${CI:-false}" = "true" ]; then exit 1; fi
     bundle_size="unknown"
     chunk_size_kb=0
 fi
@@ -167,6 +173,7 @@ jq -n \
   --argjson unit_failed           "$unit_failed" \
   --argjson unit_skipped          "$unit_skipped" \
   --argjson unit_total            "$unit_total" \
+  --argjson unit_test_files       "$unit_test_files" \
   --argjson coverage_statements   "$coverage_statements" \
   --argjson coverage_branches     "$coverage_branches" \
   --argjson coverage_functions    "$coverage_functions" \
@@ -191,7 +198,8 @@ jq -n \
         "passed":  $unit_passed,
         "failed":  $unit_failed,
         "skipped": $unit_skipped,
-        "total":   $unit_total
+        "total":   $unit_total,
+        "testFiles": $unit_test_files
     },
     "coverage": {
         "statements": $coverage_statements,

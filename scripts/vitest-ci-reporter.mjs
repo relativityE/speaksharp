@@ -88,6 +88,13 @@ export default class VitestCIReporter {
         const resultsDir = path.join(rootDir, 'test-results', 'unit');
         if (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir, { recursive: true });
 
+        const testFiles = [...new Set(files.map((file) => {
+            const raw = file.filepath || file.name || file.file?.filepath || file.file?.name;
+            if (typeof raw !== 'string' || raw.trim() === '') return null;
+            const normalized = path.isAbsolute(raw) ? path.relative(rootDir, raw) : raw;
+            return normalized.replaceAll(path.sep, '/').replace(/^\.\//, '');
+        }).filter((file) => file && !file.startsWith('../')))];
+
         const bridge = {
             numPassedTests: stats.passed,
             numFailedTests: stats.failed,
@@ -95,6 +102,7 @@ export default class VitestCIReporter {
             numTotalTests: stats.total,
             totalDuration: stats.totalDuration,
             numPendingTests: 0,
+            testFiles,
             failures: stats.failures,
         };
         fs.writeFileSync(path.join(resultsDir, 'results.json'), JSON.stringify(bridge, null, 2));

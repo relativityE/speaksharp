@@ -91,6 +91,13 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           install-playwright: 'true'
+      - name: Classify Gate 3 evidence target
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          EXPECTED_RELEASE_SHA: ${{ github.sha }}
+          EVIDENCE_SCOPE: ${{ github.event.inputs.diagnostic_dast_spec == '' && 'canonical-production' || 'diagnostic' }}
+          EVIDENCE_ELIGIBILITY_FILE: ${{ runner.temp }}/gate-3-evidence-eligibility.json
+        run: node scripts/rc-evidence-target-preflight.mjs
       - name: Run DAST Local Gate
         if: ${{ github.event.inputs.diagnostic_dast_spec == '' }}
         env:
@@ -140,6 +147,9 @@ jobs:
         if: ${{ github.event.inputs.diagnostic_dast_spec == '' }}
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
+          EXPECTED_RELEASE_SHA: ${{ github.sha }}
+          EVIDENCE_SCOPE: canonical-production
+          EVIDENCE_ELIGIBILITY_FILE: ${{ runner.temp }}/gate-3-evidence-eligibility.json
           # #960: pass Vercel Protection Bypass so DAST can reach a PROTECTED preview (fix validation /
           # per-commit bisect). No-op against the public prod URL. playwright.deployed-live.config.ts
           # sends x-vercel-protection-bypass when this is set.
@@ -169,6 +179,9 @@ jobs:
         if: ${{ github.event.inputs.diagnostic_dast_spec == '' && github.event.inputs.paid_launch == 'true' }}
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
+          EXPECTED_RELEASE_SHA: ${{ github.sha }}
+          EVIDENCE_SCOPE: canonical-production
+          EVIDENCE_ELIGIBILITY_FILE: ${{ runner.temp }}/gate-3-evidence-eligibility.json
           # #960: pass Vercel Protection Bypass so DAST can reach a PROTECTED preview (fix validation /
           # per-commit bisect). No-op against the public prod URL. playwright.deployed-live.config.ts
           # sends x-vercel-protection-bypass when this is set.
@@ -202,6 +215,9 @@ jobs:
         if: ${{ github.event.inputs.diagnostic_dast_spec != '' }}
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
+          EXPECTED_RELEASE_SHA: ${{ github.sha }}
+          EVIDENCE_SCOPE: diagnostic
+          EVIDENCE_ELIGIBILITY_FILE: ${{ runner.temp }}/gate-3-evidence-eligibility.json
           # #960: pass Vercel Protection Bypass so DAST can reach a PROTECTED preview (fix validation /
           # per-commit bisect). No-op against the public prod URL. playwright.deployed-live.config.ts
           # sends x-vercel-protection-bypass when this is set.
@@ -244,17 +260,30 @@ jobs:
             echo ""
             echo "Root-cause classification only. The release gate stays **FAIL** until a FULL Gate 3 (no diagnostic input) passes."
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload Gate 3 DAST artifacts (trace/screenshot/video/report)
-        if: ${{ always() }}
+      - name: Upload canonical Production Gate 3 artifacts
+        if: ${{ always() && github.event.inputs.diagnostic_dast_spec == '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: gate-3-dast-artifacts
+          name: gate-3-dast-production-${{ github.sha }}
           path: |
+            ${{ runner.temp }}/gate-3-evidence-eligibility.json
             test-results/
             playwright-report/
             blob-report/
           retention-days: 14
-          if-no-files-found: ignore
+          if-no-files-found: error
+      - name: Upload ineligible diagnostic Gate 3 artifacts
+        if: ${{ always() && github.event.inputs.diagnostic_dast_spec != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-3-dast-diagnostic-ineligible-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/gate-3-evidence-eligibility.json
+            test-results/
+            playwright-report/
+            blob-report/
+          retention-days: 14
+          if-no-files-found: error
 
   gate-4-sca:
     name: Gate 4 - SCA / Dependency Review
