@@ -39,6 +39,24 @@ const savedRow = (transcriptState: string | null, transcript: string | null = 'A
     id, user_id: 'owner-1', transcript, transcript_state: transcriptState,
     total_words: 4, duration: 42, created_at: new Date().toISOString(), status: 'completed',
 });
+/**
+ * Drive the review read to the end of its budget.
+ *
+ * The bound does not strand the read on its first expiry — it cancels the obsolete request and starts
+ * one fresh one, because cancelling and stopping there lost Focus Points users their coverage card when
+ * a first read merely ran long. Two bounds is the end of it, and that is when `unavailable` + Retry is
+ * the honest reading. Tests that want the exhausted state have to spend both.
+ */
+const settleMicrotasks = async () => {
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+};
+const exhaustReviewReadBudget = async () => {
+    await act(async () => { vi.advanceTimersByTime(15_000); });
+    await settleMicrotasks();
+    await act(async () => { vi.advanceTimersByTime(15_000); });
+    await settleMicrotasks();
+};
+
 const mockLifecycle = vi.mocked(SessionLifecycleHook.useSessionLifecycle);
 const mockRecovery = vi.mocked(RecoveryHook.useUnresolvedRecovery);
 
@@ -162,7 +180,7 @@ describe('F-07 completed-session Practice Loop review', () => {
             // Before the bound: still honestly pending, and no recovery offered yet.
             expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'pending');
 
-            await act(async () => { vi.advanceTimersByTime(15_000); });
+            await exhaustReviewReadBudget();
 
             // After it: the honest statement is "we could not load it", which is the reading that offers
             // recovery.
@@ -181,7 +199,7 @@ describe('F-07 completed-session Practice Loop review', () => {
             publishCompletedSession(4);
             getSessionById.mockReturnValue(new Promise(() => { /* stalls */ }));
             render(<SessionPage />);
-            await act(async () => { vi.advanceTimersByTime(15_000); });
+            await exhaustReviewReadBudget();
             expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'unavailable');
 
             // The server answers on the retry.
@@ -215,7 +233,7 @@ describe('F-07 completed-session Practice Loop review', () => {
             publishCompletedSession(4);
             getSessionById.mockReturnValue(new Promise(() => { /* stalls */ }));
             const view = render(<SessionPage />);
-            await act(async () => { vi.advanceTimersByTime(15_000); });
+            await exhaustReviewReadBudget();
             expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'unavailable');
             view.unmount();
 
@@ -241,7 +259,7 @@ describe('F-07 completed-session Practice Loop review', () => {
             publishCompletedSession(4, 'session-stalled');
             getSessionById.mockReturnValue(new Promise(() => { /* stalls */ }));
             render(<SessionPage />);
-            await act(async () => { vi.advanceTimersByTime(15_000); });
+            await exhaustReviewReadBudget();
             expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'unavailable');
 
             // Real timers from here: `waitFor` cannot advance a fake clock, and the bound has already
@@ -280,6 +298,8 @@ describe('F-07 completed-session Practice Loop review', () => {
             publishCompletedSession(4, 'session-stalled');
             getSessionById.mockReturnValue(new Promise(() => { /* stalls */ }));
             render(<SessionPage />);
+            // ONE bound: the abort is what the FIRST expiry does. Spending the whole budget here would
+            // still pass and would stop proving that the first expiry abandons anything.
             await act(async () => { vi.advanceTimersByTime(15_000); });
 
             // The read must have been handed a signal, and the bound must have fired it. Without the
@@ -293,28 +313,59 @@ describe('F-07 completed-session Practice Loop review', () => {
         }
     });
 
+    it('CASUALTY: the first bound RE-READS rather than stranding the review', async () => {
+        // This is the regression CI caught. Cancelling on the first bound and stopping there took the
+        // Focus Points coverage card away from anyone whose first read merely ran long — permanently,
+        // with no request left in flight and nothing on screen yet offering Retry. Abandoning the
+        // obsolete request has to come with a fresh one.
+        vi.useFakeTimers();
+        try {
+            publishCompletedSession(4, 'session-slow');
+            getSessionById.mockReturnValue(new Promise(() => { /* the first read runs long */ }));
+            render(<SessionPage />);
+            expect(getSessionById.mock.calls.length).toBe(1);
+
+            await act(async () => { vi.advanceTimersByTime(15_000); });
+            await settleMicrotasks();
+
+            // A SECOND read is in flight, and the surface still says pending — not "we could not load
+            // it", because we are in fact still asking.
+            expect({ reads: getSessionById.mock.calls.length }).toEqual({ reads: 2 });
+            expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'pending');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('CASUALTY: an abandoned read that answers LATE cannot publish its row', async () => {
-        // The provider here IGNORES the abort and answers anyway — a hostile but entirely realistic
-        // shape, since aborting is a request to stop, not a guarantee. This is the only shape that can
-        // distinguish "we discarded the answer" from "no answer ever came".
+        // Each read gets its OWN promise, because that is the shape of the defect: the ABANDONED first
+        // request answers while a newer one is still in flight. A shared promise cannot express that —
+        // resolving it settles both reads at once, so the test could not say which one published.
+        //
+        // The provider here also IGNORES the abort and answers anyway, which is realistic: aborting is a
+        // request to stop, not a guarantee. A promise that never resolves — what the first version of
+        // these casualties used — cannot detect late publication at all.
         vi.useFakeTimers();
         try {
             publishCompletedSession(4, 'session-late');
-            let settle!: (row: unknown) => void;
-            getSessionById.mockReturnValue(new Promise((resolve) => { settle = resolve; }));
+            const settlers: Array<(row: unknown) => void> = [];
+            getSessionById.mockImplementation(() => new Promise((resolve) => { settlers.push(resolve); }));
+
             render(<SessionPage />);
             await act(async () => { vi.advanceTimersByTime(15_000); });
-            expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'unavailable');
+            await settleMicrotasks();
+
+            // The first read was abandoned and a second is in flight.
+            expect({ reads: settlers.length }).toEqual({ reads: 2 });
 
             await act(async () => {
-                settle(savedRow('available', 'A completed saved transcript', 'session-late'));
-                await vi.advanceTimersByTimeAsync(100);
+                settlers[0](savedRow('available', 'A completed saved transcript', 'session-late'));
+                await vi.advanceTimersByTimeAsync(50);
             });
 
-            // The answer belongs to a read we stopped believing. Publishing it would resurrect the
-            // review from a request the user was already told had failed — and, worse, would grant
-            // readiness and fire the automatic request off an abandoned read.
-            expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'unavailable');
+            // The abandoned answer must not become the review. Publishing it would resurrect a read we
+            // stopped believing — and, worse, grant readiness and fire the automatic request off it.
+            expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'pending');
             expect(invoke).not.toHaveBeenCalled();
         } finally {
             vi.useRealTimers();
@@ -358,7 +409,7 @@ describe('F-07 completed-session Practice Loop review', () => {
             publishCompletedSession(4);
             getSessionById.mockReturnValue(new Promise(() => { /* stalls */ }));
             render(<SessionPage />);
-            await act(async () => { vi.advanceTimersByTime(15_000); });
+            await exhaustReviewReadBudget();
             expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'unavailable');
 
             vi.useRealTimers();

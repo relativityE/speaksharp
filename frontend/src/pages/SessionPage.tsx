@@ -227,21 +227,63 @@ export const SessionPage: React.FC = () => {
      * automatic Gemini request still cannot fire. A stall must never become a doomed request.
      */
     const REVIEW_READ_TIMEOUT_MS = 15_000;
-    const [reviewReadTimedOut, setReviewReadTimedOut] = React.useState(false);
+    /**
+     * ABANDONING A READ MUST NOT MEAN GIVING UP ON IT.
+     *
+     * Cancelling on the first bound and stopping there was a REGRESSION, and CI caught it: the Focus
+     * Points after-state derives its coverage card from this transcript, so a first read that merely ran
+     * long lost the user their coverage permanently, with no request left in flight to recover it. The
+     * previous behaviour hid that by letting the abandoned request publish late — which is the leak, not
+     * a feature, but it was doing real work.
+     *
+     * So the bound cancels the obsolete request AND starts one fresh read. The obsolete answer can no
+     * longer land in the cache, and the user still gets their transcript without pressing anything. The
+     * second bound is the end of it: two stalled reads is a stall, and that is when the honest
+     * `unavailable` reading with a Retry belongs on screen. Bounded, so this can never become a
+     * self-renewing request loop against a server that is already struggling.
+     */
+    const REVIEW_READ_MAX_ATTEMPTS = 2;
+    /**
+     * ONE piece of state, because the budget and the verdict are the same fact.
+     *
+     * A separate boolean derived from `reviewFetching` could not express this. Cancelling settles the
+     * query, so `reviewFetching` goes FALSE for the moment between abandoning one read and starting the
+     * next — and during that moment a `reviewFetching`-derived verdict said "we could not load it" and
+     * offered Retry, while a fresh request was already on its way. A recovery that flashes failure at
+     * the user first is not a recovery.
+     */
+    const [reviewReadAttempt, setReviewReadAttempt] = React.useState(0);
+    const reviewReadTimedOut = reviewReadAttempt >= REVIEW_READ_MAX_ATTEMPTS;
+    // NOTE: an extra "recovering between attempts" flag was added here and then REMOVED as redundant.
+    // Mutating it away left the casualty that asserts the surface still reads `pending` after the first
+    // bound still passing, because `resetQueries` marks the query fetching in the same update that spends
+    // the attempt — so `reviewFetching` already covers the window. The requirement is pinned by that
+    // casualty rather than by a second flag no test can distinguish.
 
-    // A verdict belongs to the session it was reached for. A new session starts unjudged.
+    // A verdict belongs to the session it was reached for. A new session starts unjudged, and its
+    // budget starts over — a previous session's exhausted attempts must not condemn this one's first read.
     React.useEffect(() => {
-        setReviewReadTimedOut(false);
+        setReviewReadAttempt(0);
     }, [reviewSessionId]);
 
     React.useEffect(() => {
         if (!reviewFetching || reviewReadTimedOut) return;
         const timer = setTimeout(() => {
-            setReviewReadTimedOut(true);
-            void queryClient.cancelQueries({ queryKey: ['session', reviewSessionId] });
+            void queryClient.cancelQueries({ queryKey: ['session', reviewSessionId] }).then(() => {
+                setReviewReadAttempt((spent) => {
+                    if (spent + 1 < REVIEW_READ_MAX_ATTEMPTS) {
+                        // `resetQueries` first for the same reason Retry does it: a refetch alone is
+                        // inert against a query React Query still considers in flight.
+                        void queryClient
+                            .resetQueries({ queryKey: ['session', reviewSessionId] })
+                            .then(() => refetchReview());
+                    }
+                    return spent + 1;
+                });
+            });
         }, REVIEW_READ_TIMEOUT_MS);
         return () => clearTimeout(timer);
-    }, [reviewFetching, reviewReadTimedOut, reviewSessionId, queryClient]);
+    }, [reviewFetching, reviewReadTimedOut, reviewSessionId, queryClient, refetchReview]);
 
     // NOTE ON RETIREMENT (leaving the page, or moving to another session): no cleanup is written here.
     // An explicit `cancelQueries` on unmount/key-change was tried and PROVED REDUNDANT — removing it
@@ -563,7 +605,9 @@ export const SessionPage: React.FC = () => {
                     onRetryReviewTranscript={() => {
                         // Clearing the verdict is what makes this a NEW read rather than a repaint of the
                         // failed one; without it the surface stays "unavailable" while a fresh request runs.
-                        setReviewReadTimedOut(false);
+                        // The budget resets too: the user asking again is a new decision, not a
+                        // continuation of the automatic attempts that preceded it.
+                        setReviewReadAttempt(0);
                         void queryClient
                             .resetQueries({ queryKey: ['session', reviewSessionId] })
                             .then(() => refetchReview());
