@@ -31,6 +31,7 @@ on:
       - 'scripts/private-v2-worker-evidence.mts'
       - 'scripts/validate-stt-evidence.mjs'
       - 'tests/evidence/**'
+      - 'tsconfig.evidence.json'
       - '.github/workflows/stt-runtime-evidence.yml'
   workflow_dispatch:
 
@@ -72,7 +73,7 @@ jobs:
         run: |
           STT_CROSS_ORIGIN_ISOLATED=0 pnpm exec vite preview --config frontend/vite.config.mjs --host 127.0.0.1 --port 4173 > "$RUNNER_TEMP/stt-runtime-vite.log" 2>&1 &
           pnpm exec wait-on --timeout 120000 http-get://127.0.0.1:4173/private-dropin.html
-      - name: Prove production worker + one-thread request/configuration + PCM route
+      - name: Prove every pinned natural-language fixture across the production worker boundary
         run: |
           pnpm evidence:stt:private-worker -- \
             --base-url http://127.0.0.1:4173 \

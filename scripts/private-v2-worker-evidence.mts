@@ -2,10 +2,10 @@
  * #1037 production-browser-worker closure proof.
  *
  * Runs the checked-in Private v2 drop-in page through the real production
- * TransformersJSEngine and its module worker. The PCM fixture is decoded in
- * Node, passed to the page, hashed on the main thread and independently hashed
- * inside the worker that owns the model. No microphone, auth, database, Cloud,
- * Hugging Face, or application-server call is involved.
+ * TransformersJSEngine and its module worker. Every pinned natural-language
+ * PCM fixture is decoded in Node, passed to the page, hashed on the main thread
+ * and independently hashed inside the worker that owns the model. No microphone,
+ * auth, database, Cloud, Hugging Face, or application-server call is involved.
  */
 import { chromium } from 'playwright';
 import { createHash } from 'node:crypto';
@@ -14,15 +14,58 @@ import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve, join } from 'node:path';
 import {
   finalizeRow,
-  privateWorkerTranscriptProblems,
   unverifiedWorkerDiagnosticProblems,
 } from '../tests/evidence/sttEvidenceSchema';
-import { NORMALIZATION_VERSION } from '../tests/evidence/werMetric';
 import { verifyModelAgainstManifest, type ExpectedModelManifest } from '../tests/evidence/modelProvenance';
+import {
+  provePrivateWorkerNaturalLanguageJourney,
+  type NaturalLanguageFixtureContract,
+  type PrivateWorkerNaturalLanguageObservation,
+} from '../tests/evidence/privateWorkerNaturalLanguageJourney';
 
 const MODEL_REVISION = '95bf40a508535962c6483ead40270b2e32267508';
 const MODEL_NAME = 'whisper-base.en';
 const MODEL_ID = 'Xenova/whisper-base.en';
+
+interface BrowserWorkerRuntimeProof {
+  runtime: {
+    model: string;
+    requestedThreads: number | null;
+    configuredThreads: number | null;
+    workerReportedThreads: number | null;
+    crossOriginIsolated: boolean;
+    modelLoadTimeMs: number;
+  };
+  input: {
+    sha256: string;
+    samples: number;
+    bytes: number;
+    audioLengthSeconds: number;
+    latencyMs: number;
+  };
+  dropIn: {
+    modelReady: boolean;
+    modelReadyLatencyMs: number | null;
+    adapterInputSha256: string | null;
+    capturedSamples: number;
+    capturedSeconds: number;
+  };
+  sharedArrayBufferAvailable: boolean;
+  userAgent: string;
+  appRelease: string | null;
+}
+
+declare global {
+  interface Window {
+    __APP_RELEASE__?: string;
+    __PRIVATE_V2_WORKER_RUNTIME_EVIDENCE__?: BrowserWorkerRuntimeProof['runtime'];
+    __PRIVATE_V2_WORKER_INPUT_EVIDENCE__?: BrowserWorkerRuntimeProof['input'];
+    __PRIVATE_DROPIN__?: BrowserWorkerRuntimeProof['dropIn'] & {
+      transcribePcmBase64: (pcmBase64: string) => Promise<string>;
+    };
+  }
+}
+
 const require_ = createRequire(import.meta.url);
 const transformersPackagePath = require_.resolve('@xenova/transformers/package.json');
 const requireFromTransformers = createRequire(transformersPackagePath);
@@ -131,17 +174,24 @@ async function main(): Promise<void> {
   }
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
     groundTruthVersion: string;
-    fixtures: Array<{ fixtureId: string; path: string; fixtureSha256: string; referenceText: string }>;
+    fixtures: Array<NaturalLanguageFixtureContract & { path: string }>;
   };
-  const fixture = manifest.fixtures[0];
-  if (!fixture) throw new Error('corpus manifest contains no fixture');
-  const wavPath = resolve(dirname(manifestPath), fixture.path);
-  const wavBytes = readFileSync(wavPath);
-  if (sha256(wavBytes) !== fixture.fixtureSha256) throw new Error('fixture hash does not match manifest');
-  const audio = decodeWav16kMono(wavBytes);
-  const pcmBytes = Buffer.from(audio.buffer, audio.byteOffset, audio.byteLength);
-  const mainInputSha256 = sha256(pcmBytes);
-  const pcmBase64 = pcmBytes.toString('base64');
+  const preparedFixtures = manifest.fixtures.map(fixture => {
+    const wavPath = resolve(dirname(manifestPath), fixture.path);
+    const wavBytes = readFileSync(wavPath);
+    if (sha256(wavBytes) !== fixture.fixtureSha256) {
+      throw new Error(`fixture '${fixture.fixtureId}' hash does not match manifest`);
+    }
+    const audio = decodeWav16kMono(wavBytes);
+    const pcmBytes = Buffer.from(audio.buffer, audio.byteOffset, audio.byteLength);
+    return {
+      fixture,
+      audio,
+      pcmBytes,
+      mainInputSha256: sha256(pcmBytes),
+      pcmBase64: pcmBytes.toString('base64'),
+    };
+  });
   const externalRequests: string[] = [];
   const writeRequests: string[] = [];
   const consoleEvents: string[] = [];
@@ -174,42 +224,89 @@ async function main(): Promise<void> {
     );
     await page.waitForFunction(() => Boolean(window.__PRIVATE_DROPIN__), null, { timeout: 30_000 });
     const startedAt = performance.now();
-    let transcript: string;
-    try {
-      transcript = await page.evaluate(async payload => window.__PRIVATE_DROPIN__!.transcribePcmBase64(payload), pcmBase64);
-    } catch (error) {
-      console.error(consoleEvents.filter(event => /error|failed|model|onnx/i.test(event)).join('\n'));
-      console.error(`blocked external requests: ${JSON.stringify(externalRequests, null, 2)}`);
-      throw error;
-    }
-    const transcriptProblems = privateWorkerTranscriptProblems(transcript);
-    if (transcriptProblems.length > 0) {
-      throw new Error(`production worker transcript failed validation: ${transcriptProblems.join('; ')}`);
-    }
-    const totalLatencyMs = Math.round(performance.now() - startedAt);
-    const proof = await page.evaluate(() => ({
-      runtime: window.__PRIVATE_V2_WORKER_RUNTIME_EVIDENCE__ ?? null,
-      input: window.__PRIVATE_V2_WORKER_INPUT_EVIDENCE__ ?? null,
-      dropIn: window.__PRIVATE_DROPIN__ ? {
-        modelReady: window.__PRIVATE_DROPIN__.modelReady,
-        modelReadyLatencyMs: window.__PRIVATE_DROPIN__.modelReadyLatencyMs,
-        adapterInputSha256: window.__PRIVATE_DROPIN__.adapterInputSha256,
-        capturedSamples: window.__PRIVATE_DROPIN__.capturedSamples,
-        capturedSeconds: window.__PRIVATE_DROPIN__.capturedSeconds,
-      } : null,
-      crossOriginIsolated,
-      sharedArrayBufferAvailable: typeof SharedArrayBuffer !== 'undefined',
-      userAgent: navigator.userAgent,
-      appRelease: window.__APP_RELEASE__ ?? null,
-    }));
+    const observations: PrivateWorkerNaturalLanguageObservation[] = [];
+    const runtimeProofs: Array<{
+      prepared: typeof preparedFixtures[number];
+      proof: BrowserWorkerRuntimeProof;
+    }> = [];
 
-    if (!proof.runtime || !proof.input || !proof.dropIn) throw new Error('production worker did not publish runtime/input proof');
-    if (proof.appRelease !== releaseSha) {
-      throw new Error(`loaded release '${proof.appRelease ?? 'missing'}' does not match requested exact SHA '${releaseSha}'`);
+    for (const prepared of preparedFixtures) {
+      let transcript: string;
+      try {
+        transcript = await page.evaluate(
+          async payload => window.__PRIVATE_DROPIN__!.transcribePcmBase64(payload),
+          prepared.pcmBase64,
+        );
+      } catch (error) {
+        console.error(consoleEvents.filter(event => /error|failed|model|onnx/i.test(event)).join('\n'));
+        console.error(`blocked external requests: ${JSON.stringify(externalRequests, null, 2)}`);
+        throw error;
+      }
+
+      const rawProof = await page.evaluate(() => ({
+        runtime: window.__PRIVATE_V2_WORKER_RUNTIME_EVIDENCE__ ?? null,
+        input: window.__PRIVATE_V2_WORKER_INPUT_EVIDENCE__ ?? null,
+        dropIn: window.__PRIVATE_DROPIN__ ? {
+          modelReady: window.__PRIVATE_DROPIN__.modelReady,
+          modelReadyLatencyMs: window.__PRIVATE_DROPIN__.modelReadyLatencyMs,
+          adapterInputSha256: window.__PRIVATE_DROPIN__.adapterInputSha256,
+          capturedSamples: window.__PRIVATE_DROPIN__.capturedSamples,
+          capturedSeconds: window.__PRIVATE_DROPIN__.capturedSeconds,
+        } : null,
+        sharedArrayBufferAvailable: typeof SharedArrayBuffer !== 'undefined',
+        userAgent: navigator.userAgent,
+        appRelease: window.__APP_RELEASE__ ?? null,
+      }));
+      if (!rawProof.runtime || !rawProof.input || !rawProof.dropIn) {
+        throw new Error(`fixture '${prepared.fixture.fixtureId}' did not publish production worker runtime/input proof`);
+      }
+      const proof: BrowserWorkerRuntimeProof = {
+        ...rawProof,
+        runtime: rawProof.runtime,
+        input: rawProof.input,
+        dropIn: rawProof.dropIn,
+      };
+      if (proof.appRelease !== releaseSha) {
+        throw new Error(`loaded release '${proof.appRelease ?? 'missing'}' does not match requested exact SHA '${releaseSha}'`);
+      }
+      if (proof.runtime.model !== MODEL_NAME) {
+        throw new Error(`production worker loaded '${proof.runtime.model}', expected fixed model '${MODEL_NAME}'`);
+      }
+
+      const mainInputSamples = prepared.audio.length;
+      const mainInputBytes = prepared.pcmBytes.byteLength;
+      const mainInputDurationSeconds = mainInputSamples / 16_000;
+      if (proof.dropIn.adapterInputSha256 !== prepared.mainInputSha256) {
+        throw new Error(`fixture '${prepared.fixture.fixtureId}' Node and page adapter PCM hashes differ`);
+      }
+      if (proof.dropIn.capturedSamples !== mainInputSamples ||
+          proof.dropIn.capturedSeconds !== mainInputDurationSeconds) {
+        throw new Error(`fixture '${prepared.fixture.fixtureId}' Node and page adapter PCM sample/duration tuples differ`);
+      }
+
+      observations.push({
+        fixtureId: prepared.fixture.fixtureId,
+        transcript,
+        mainThreadInput: {
+          sha256: prepared.mainInputSha256,
+          samples: mainInputSamples,
+          bytes: mainInputBytes,
+          durationSeconds: mainInputDurationSeconds,
+        },
+        workerInput: {
+          sha256: proof.input.sha256,
+          samples: proof.input.samples,
+          bytes: proof.input.bytes,
+          durationSeconds: proof.input.audioLengthSeconds,
+        },
+      });
+      runtimeProofs.push({ prepared, proof });
     }
-    if (proof.runtime.model !== MODEL_NAME) {
-      throw new Error(`production worker loaded '${proof.runtime.model}', expected fixed model '${MODEL_NAME}'`);
-    }
+
+    const naturalLanguageJourney = provePrivateWorkerNaturalLanguageJourney(manifest.fixtures, observations);
+    const totalLatencyMs = Math.round(performance.now() - startedAt);
+    const firstProof = runtimeProofs[0]?.proof;
+    if (!firstProof) throw new Error('natural-language worker journey produced no runtime proof');
     const requiredModelRequests = [
       '/models/whisper-base.en/onnx/encoder_model_quantized.onnx',
       '/models/whisper-base.en/onnx/decoder_model_merged_quantized.onnx',
@@ -232,83 +329,85 @@ async function main(): Promise<void> {
       throw new Error('production worker did not request a built same-origin /assets/*.wasm file');
     }
     const wasmAssetFiles = [...new Set(rawWasmAssetRequests.map(request => basename(request.slice(4))))].sort();
-    if (proof.dropIn.adapterInputSha256 !== mainInputSha256) throw new Error('Node and page adapter PCM hashes differ');
-    const mainInputSamples = audio.length;
-    const mainInputBytes = pcmBytes.byteLength;
-    const mainInputDurationSeconds = mainInputSamples / 16_000;
-    if (proof.dropIn.capturedSamples !== mainInputSamples ||
-        proof.dropIn.capturedSeconds !== mainInputDurationSeconds) {
-      throw new Error('Node and page adapter PCM sample/duration tuple differs');
-    }
-    const hashesMatch = proof.input.sha256 === mainInputSha256;
-    const browserVersion = /Chrome\/(\S+)/.exec(proof.userAgent)?.[1] ?? 'unknown';
-    const row = finalizeRow({
-      comparability_class: 'corpus_fixture',
-      engine: 'private-v2-browser-worker',
-      engine_version: `private_v2:${MODEL_NAME}`,
-      model_name: MODEL_NAME,
-      attribution_status: 'unverified',
-      browser: 'Chromium',
-      browser_version: browserVersion,
-      os: process.platform,
-      device: process.arch,
-      network_condition: 'local-self-hosted-assets; external requests blocked',
-      fixture_id: fixture.fixtureId,
-      wer: null,
-      first_partial_latency_ms: null,
-      finalization_latency_ms: proof.input.latencyMs,
-      failure_class: 'none',
-      release_sha: releaseSha,
-      audio_route_evidence: {
-        fixtureSha256: fixture.fixtureSha256,
-        adapterInputPayloadSha256: mainInputSha256,
-        adapterInputBytes: mainInputBytes,
-        decodedSampleCount: mainInputSamples,
-        decodedDurationSeconds: mainInputDurationSeconds,
-      },
-      runtime_capability: {
-        requestedThreads: proof.runtime.requestedThreads,
-        configuredThreads: proof.runtime.configuredThreads,
-        workerReportedThreads: proof.runtime.workerReportedThreads,
-        runtimePath: proof.runtime.configuredThreads === 1 ? 'wasm' : 'wasm-multithread',
-        crossOriginIsolated: proof.runtime.crossOriginIsolated,
-        sharedArrayBufferAvailable: proof.sharedArrayBufferAvailable,
-        fallbackReason: proof.runtime.configuredThreads === 1
-          ? 'crossOriginIsolated=false; production worker requested and configured one ORT thread; effective worker thread count is unreported'
-          : null,
-      },
-      comparability_inputs: {
-        fixtureHash: fixture.fixtureSha256,
-        groundTruthVersion: manifest.groundTruthVersion,
-        normalizationVersion: NORMALIZATION_VERSION,
-        decodeConfiguration: `${MODEL_NAME}/q8/pcm16k-mono/production-worker`,
-        modelRevision: MODEL_REVISION,
-        runtimeVersions: {
-          '@xenova/transformers': TRANSFORMERS_VERSION,
-          'onnxruntime-web': ONNXRUNTIME_WEB_VERSION,
+    const browserVersion = /Chrome\/(\S+)/.exec(firstProof.userAgent)?.[1] ?? 'unknown';
+    const rows = runtimeProofs.map(({ prepared, proof }, index) => {
+      const observation = observations[index];
+      const measured = naturalLanguageJourney.results[index];
+      if (!observation || !measured || measured.fixtureId !== prepared.fixture.fixtureId) {
+        throw new Error(`fixture '${prepared.fixture.fixtureId}' lost its ordered runtime measurement`);
+      }
+      const row = finalizeRow({
+        comparability_class: 'corpus_fixture',
+        engine: 'private-v2-browser-worker',
+        engine_version: `private_v2:${MODEL_NAME}`,
+        model_name: MODEL_NAME,
+        attribution_status: 'unverified',
+        browser: 'Chromium',
+        browser_version: browserVersion,
+        os: process.platform,
+        device: process.arch,
+        network_condition: 'local-self-hosted-assets; external requests blocked',
+        fixture_id: prepared.fixture.fixtureId,
+        wer: null,
+        first_partial_latency_ms: null,
+        finalization_latency_ms: proof.input.latencyMs,
+        failure_class: 'none',
+        release_sha: releaseSha,
+        audio_route_evidence: {
+          fixtureSha256: prepared.fixture.fixtureSha256,
+          adapterInputPayloadSha256: observation.mainThreadInput.sha256,
+          adapterInputBytes: observation.mainThreadInput.bytes,
+          decodedSampleCount: observation.mainThreadInput.samples,
+          decodedDurationSeconds: observation.mainThreadInput.durationSeconds,
         },
-      },
-      private_worker_evidence: {
-        workerUsed: true,
-        modelSource: 'self-hosted',
-        modelLoaded: proof.runtime.model,
-        modelProvenance,
-        mainThreadInputSha256: mainInputSha256,
-        mainThreadInputSamples: mainInputSamples,
-        mainThreadInputBytes: mainInputBytes,
-        mainThreadInputDurationSeconds: mainInputDurationSeconds,
-        workerInputSha256: proof.input.sha256,
-        workerInputSamples: proof.input.samples,
-        workerInputBytes: proof.input.bytes,
-        workerInputDurationSeconds: proof.input.audioLengthSeconds,
-        inputHashesMatch: hashesMatch,
-        cloudProviderCalls: externalRequests.length,
-      },
+        runtime_capability: {
+          requestedThreads: proof.runtime.requestedThreads,
+          configuredThreads: proof.runtime.configuredThreads,
+          workerReportedThreads: proof.runtime.workerReportedThreads,
+          runtimePath: proof.runtime.configuredThreads === 1 ? 'wasm' : 'wasm-multithread',
+          crossOriginIsolated: proof.runtime.crossOriginIsolated,
+          sharedArrayBufferAvailable: proof.sharedArrayBufferAvailable,
+          fallbackReason: proof.runtime.configuredThreads === 1
+            ? 'crossOriginIsolated=false; production worker requested and configured one ORT thread; effective worker thread count is unreported'
+            : null,
+        },
+        comparability_inputs: {
+          fixtureHash: prepared.fixture.fixtureSha256,
+          groundTruthVersion: manifest.groundTruthVersion,
+          normalizationVersion: measured.normalizationVersion,
+          track: null,
+          decodeConfiguration: `${MODEL_NAME}/q8/pcm16k-mono/production-worker`,
+          modelRevision: MODEL_REVISION,
+          runtimeVersions: {
+            '@xenova/transformers': TRANSFORMERS_VERSION,
+            'onnxruntime-web': ONNXRUNTIME_WEB_VERSION,
+          },
+        },
+        private_worker_evidence: {
+          workerUsed: true,
+          modelSource: 'self-hosted',
+          modelLoaded: proof.runtime.model,
+          modelProvenance,
+          mainThreadInputSha256: observation.mainThreadInput.sha256,
+          mainThreadInputSamples: observation.mainThreadInput.samples,
+          mainThreadInputBytes: observation.mainThreadInput.bytes,
+          mainThreadInputDurationSeconds: observation.mainThreadInput.durationSeconds,
+          workerInputSha256: observation.workerInput.sha256,
+          workerInputSamples: observation.workerInput.samples,
+          workerInputBytes: observation.workerInput.bytes,
+          workerInputDurationSeconds: observation.workerInput.durationSeconds,
+          inputHashesMatch: observation.mainThreadInput.sha256 === observation.workerInput.sha256,
+          cloudProviderCalls: externalRequests.length,
+        },
+      });
+      const diagnosticProblems = unverifiedWorkerDiagnosticProblems(row);
+      if (diagnosticProblems.length > 0) {
+        throw new Error(
+          `fixture '${prepared.fixture.fixtureId}' unverified worker diagnostic failed validation: ${diagnosticProblems.join('; ')}`,
+        );
+      }
+      return row;
     });
-    const diagnosticProblems = unverifiedWorkerDiagnosticProblems(row);
-    if (diagnosticProblems.length > 0) {
-      throw new Error(`unverified worker diagnostic failed validation: ${diagnosticProblems.join('; ')}`);
-    }
 
     const artifact = {
       generatedFor: '#1037 production Private-v2 browser-worker: one thread requested/configured; effective worker threads unreported',
@@ -316,17 +415,21 @@ async function main(): Promise<void> {
       classification: 'unverified-worker-diagnostic-non-rankable',
       persistedAttributionProven: false,
       limitations: [
-        'No persisted session attribution is exercised; the row is intentionally unverified, invalid, WER-free, and non-rankable.',
+        'No persisted session attribution is exercised; each schema row is intentionally unverified, invalid, WER-free, and non-rankable.',
+        'Per-fixture WER is only an executable acceptance bound for this diagnostic and is not published in the rankable schema rows.',
         'Batch worker emits no partial transcript; first_partial_latency_ms is honestly null.',
       ],
       totalJourneyLatencyMs: totalLatencyMs,
       timingMs: {
-        modelLoad: proof.runtime.modelLoadTimeMs,
-        modelReadyIncludingWarmup: proof.dropIn.modelReadyLatencyMs,
-        decode: proof.input.latencyMs,
+        modelLoad: firstProof.runtime.modelLoadTimeMs,
+        modelReadyIncludingWarmup: firstProof.dropIn.modelReadyLatencyMs,
+        perFixtureDecode: runtimeProofs.map(({ prepared, proof }) => ({
+          fixtureId: prepared.fixture.fixtureId,
+          milliseconds: proof.input.latencyMs,
+        })),
         totalJourney: totalLatencyMs,
       },
-      loadedReleaseSha: proof.appRelease,
+      loadedReleaseSha: firstProof.appRelease,
       runtimeIdentity: {
         transformers: TRANSFORMERS_VERSION,
         onnxruntimeWeb: ONNXRUNTIME_WEB_VERSION,
@@ -335,11 +438,12 @@ async function main(): Promise<void> {
       requiredModelRequests,
       workerAssetFiles,
       wasmAssetFiles,
-      transcriptProduced: transcript.trim().length > 0,
+      naturalLanguageJourney,
+      transcriptProduced: naturalLanguageJourney.fixtureCount === manifest.fixtures.length,
       writeRequests,
       externalRequests,
       localRequestCount: localRequests.length,
-      rows: [row],
+      rows,
     };
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, JSON.stringify(artifact, null, 2));
