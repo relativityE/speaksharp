@@ -47,15 +47,26 @@ test.describe('Paid invite trust smoke', () => {
     await navigateToRoute(page, '/session');
 
     await page.getByTestId('nav-report-issue-button').click();
-    // Single support-oriented disclosure — reports are account-linked (internal id only; no email/name).
-    await expect(page.getByTestId('issue-report-disclosure')).toContainText(/Linked to your account using an internal ID/i);
-    await expect(page.getByTestId('issue-report-disclosure')).toContainText(/do not include your email, name, password, login credentials, transcript, or audio/i);
+
+    // #1416 — the disclosure is PROGRESSIVE and the detail is behind "What's included", so the default
+    // form stays short. The old assertions required the long always-visible privacy block that the
+    // redesign deliberately removed, and required an absolute "never included" promise that was not
+    // true: the feedback box itself is submitted.
+    await expect(page.getByTestId('issue-report-page-context'))
+      .toContainText(/transcript and audio aren.t attached automatically/i);
+    await expect(page.getByTestId('issue-report-disclosure')).toHaveCount(0);
+
+    await page.getByRole('button', { name: "What's included" }).click();
+    const disclosure = page.getByTestId('issue-report-disclosure');
+    await expect(disclosure).toContainText(/internal account reference/i);
+    await expect(disclosure).toContainText(/We don.t automatically attach your email, name, credentials, transcript, or audio/i);
+    // The one thing the previous copy never said, and the reason the absolute promise was false.
+    await expect(disclosure).toContainText(/Anything you type in the feedback box is included in your report/i);
+
     await expect(page.getByText(/Anonymous report/i)).toHaveCount(0);
     await expect(page.getByText(/Account support report/i)).toHaveCount(0);
-
-    // Disclosure is category-agnostic now (no anonymous/account-context branch).
-    await page.getByTestId('issue-report-category').selectOption('billing_subscription');
-    await expect(page.getByTestId('issue-report-disclosure')).toContainText(/Linked to your account using an internal ID/i);
+    // The redesigned form asks two questions. There is no category selector to branch the disclosure on.
+    await expect(page.getByTestId('issue-report-category')).toHaveCount(0);
   });
 
   test('keeps pricing and AI copy aligned with paid early access', async ({ page }) => {

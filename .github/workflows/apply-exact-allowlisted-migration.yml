@@ -19,6 +19,7 @@ on:
           - '20260812041600'
           - '20260819120000'
           - '20260829120000'
+          - '20260904150000'
           - '20260812042000'
       expected_head_sha:
         description: 'Exact 40-character main SHA authorized by the Product Owner'
@@ -154,7 +155,7 @@ jobs:
         # ONE resolution serves both. Stage B originally resolved the pooler a second time, which the
         # SEC-002 contract rejects: two resolutions can drift, leaving this proof attesting to parameters
         # the postflight never uses.
-        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') || contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') }}
+        if: ${{ contains(steps.contract.outputs.target_file, '20260819120000_complete_session_v2_atomic_retention_1314') || contains(steps.contract.outputs.target_file, '20260829120000_retire_complete_session_v1_1306') || contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') }}
         run: |
           set -euo pipefail
           sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
@@ -195,6 +196,32 @@ jobs:
           # THE PREMISE. If v1 is already absent there is nothing to retire, and continuing would report a
           # success this migration did not cause.
           bash scripts/postflight-gate-1306.sh before
+
+      - name: Preflight #1416 storage-contract credentials and BEFORE state (before the irreversible apply)
+        # SAME scoping discipline as #1314 and #1306: only targets verified through raw psql need the
+        # pooler, and making every allowlisted migration depend on it would broaden this beyond its
+        # frozen scope.
+        if: ${{ contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${SUPABASE_DB_PASSWORD:-}" ] || missing+=(SUPABASE_DB_PASSWORD)
+          [ -n "${SUPABASE_PROJECT_ID:-}" ] || missing+=(SUPABASE_PROJECT_ID)
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::#1416 postflight credentials missing BEFORE apply: ${missing[*]} — refusing to apply, as the postflight could not run"
+            exit 1
+          fi
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # Reuse the pooler parameters resolved ONCE by the shared reachability proof above, which runs
+          # for this target too. Fails closed if that proof never ran, so this gate can never execute
+          # against parameters nothing proved reachable (SEC-002).
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          # THE PREMISE. If the column and the exact pairing are already present there is nothing to
+          # apply, and continuing would report a success this migration did not cause.
+          bash scripts/postflight-gate-1416.sh before
 
       - name: Revalidate main IMMEDIATELY before the irreversible apply
         env:
@@ -350,6 +377,38 @@ jobs:
           fi
           echo "#1306 postflight enforced: success"
 
+      - name: Enforce reviewed #1416 storage contract (postflight gate)
+        id: postflight_1416
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq postgresql-client >/dev/null 2>&1 || true
+          # REUSE the parameters proven reachable before the apply — never re-resolve, or the postflight
+          # could attest to a path the pre-apply proof never validated.
+          [ -f "$RUNNER_TEMP/pooler.env" ] || { echo '::error::pooler parameters absent — pre-apply connectivity proof did not run'; exit 1; }
+          set -a; . "$RUNNER_TEMP/pooler.env"; set +a
+          export PGPASSWORD="${SUPABASE_DB_PASSWORD}"
+          unset DB_URL
+          # Column, UNCONDITIONAL unique index (a partial one is unusable as a PostgREST conflict
+          # target, so Send would fail on every normal submission), and the exact severity and
+          # type/kind pairing the reviewed constraint carries.
+          bash scripts/postflight-gate-1416.sh after
+          # NO UNRELATED CHANGE. Exactly one migration may have moved from pending to applied.
+          node "$GITHUB_WORKSPACE/scripts/exact-migration-gate.mjs" after \
+            "$RUNNER_TEMP/migrations-before.txt" "$RUNNER_TEMP/migrations-after.txt"
+          echo "#1416 storage-contract postflight passed on production"
+
+      - name: Require #1416 postflight when applicable
+        if: ${{ always() && steps.apply.outcome == 'success' && contains(steps.contract.outputs.target_file, '20260904150000_share_feedback_redesign') }}
+        run: |
+          set -euo pipefail
+          outcome='${{ steps.postflight_1416.outcome }}'
+          if [ "$outcome" != 'success' ]; then
+            echo "::error::#1416 applied but its postflight gate outcome was '$outcome' (must be success)"
+            exit 1
+          fi
+          echo "#1416 postflight enforced: success"
+
       - name: Require unambiguous exact-operation success
         id: terminal
         if: always()
@@ -362,7 +421,8 @@ jobs:
             "${{ steps.apply.outcome }}" "${{ steps.verify.outcome }}" "${{ steps.lint_verify.outcome }}" \
             "${{ steps.contract.outputs.target_file }}" \
             "postflight_1314=${{ steps.postflight_1314.outcome }}" \
-            "postflight_1306=${{ steps.postflight_1306.outcome }}"
+            "postflight_1306=${{ steps.postflight_1306.outcome }}" \
+            "postflight_1416=${{ steps.postflight_1416.outcome }}"
 
       - name: Publish sanitized result
         if: always()

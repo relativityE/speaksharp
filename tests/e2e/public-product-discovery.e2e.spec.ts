@@ -114,5 +114,13 @@ test.describe('#1061 one canonical auth-aware page', () => {
     await page.keyboard.press('Escape');
     await page.getByTestId('practice-card-freeform').click();
     await expect(page).toHaveURL(/\/session(\?|$)/, { timeout: 30000 });
+
+    // A user who finishes or enters Open Mic can move directly to Focus Points from the header;
+    // returning Home is never a prerequisite for switching products.
+    await page.getByTestId('nav-products-button').click();
+    await expect(page.getByTestId('nav-products-open-mic')).toBeVisible();
+    await page.getByTestId('nav-products-focus-points').click();
+    await expect(page).toHaveURL(/\/practice(?:\?|$)/, { timeout: 30000 });
+    await expect(page.getByTestId('objective-setup-dialog')).toBeVisible();
   });
 });
