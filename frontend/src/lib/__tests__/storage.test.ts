@@ -565,6 +565,70 @@ describe('storage.ts', () => {
             expect(fields).toContain('transcript_state');
         });
 
+        // #1422 Codex P2 — cancellation has to reach PostgREST. A caller that stops waiting while the
+        // request keeps running can still have its answer land in the cache under the old key.
+        it('DETAIL propagates the caller AbortSignal to the request', async () => {
+            const single = vi.fn().mockResolvedValue({ data: { id: 's1' }, error: null });
+            const abortSignal = vi.fn().mockReturnValue({ single });
+            mockSupabase.from.mockReturnValue({
+                select: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ abortSignal, single }) }),
+            } as never);
+
+            const controller = new AbortController();
+            await getSessionById('s1', controller.signal);
+
+            expect({ handedToPostgrest: abortSignal.mock.calls[0]?.[0] === controller.signal })
+                .toEqual({ handedToPostgrest: true });
+        });
+
+        // The signal is optional, and a caller that supplies none must not be forced through a
+        // cancellation path that does not exist for it.
+        it('DETAIL without a signal never calls abortSignal', async () => {
+            const single = vi.fn().mockResolvedValue({ data: { id: 's1' }, error: null });
+            const abortSignal = vi.fn().mockReturnValue({ single });
+            mockSupabase.from.mockReturnValue({
+                select: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ abortSignal, single }) }),
+            } as never);
+
+            await getSessionById('s1');
+
+            expect({ abortCalls: abortSignal.mock.calls.length }).toEqual({ abortCalls: 0 });
+        });
+
+        // An abandoned read is not a failure to report. Rewriting the abort into the generic
+        // "Unable to load this session" would surface OUR cancellation as the user's error.
+        //
+        // PostgREST can signal the abort either way — as a rejection, or as an `error` in a resolved
+        // envelope. Both are covered, because a guard on only one of them leaves the other rewriting
+        // our own cancellation into a user-visible load failure.
+        it('an ABORTED read RETURNING an error rethrows it rather than reporting a load failure', async () => {
+            const controller = new AbortController();
+            const returnedError = { code: '20', message: 'aborted' };
+            const single = vi.fn().mockResolvedValue({ data: null, error: returnedError });
+            mockSupabase.from.mockReturnValue({
+                select: vi.fn().mockReturnValue({
+                    eq: vi.fn().mockReturnValue({ abortSignal: vi.fn().mockReturnValue({ single }), single }),
+                }),
+            } as never);
+            controller.abort();
+
+            await expect(getSessionById('s1', controller.signal)).rejects.toBe(returnedError);
+        });
+
+        it('an ABORTED read rethrows rather than reporting a load failure', async () => {
+            const controller = new AbortController();
+            const abortError = new Error('AbortError');
+            const single = vi.fn().mockRejectedValue(abortError);
+            mockSupabase.from.mockReturnValue({
+                select: vi.fn().mockReturnValue({
+                    eq: vi.fn().mockReturnValue({ abortSignal: vi.fn().mockReturnValue({ single }), single }),
+                }),
+            } as never);
+            controller.abort();
+
+            await expect(getSessionById('s1', controller.signal)).rejects.toBe(abortError);
+        });
+
         it('the detail select is a strict superset of the list select', async () => {
             const listSelect = captureSelect({ data: [], error: null });
             await getSessionHistory('user1');

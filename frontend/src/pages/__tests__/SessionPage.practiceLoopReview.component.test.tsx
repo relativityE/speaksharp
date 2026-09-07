@@ -266,6 +266,114 @@ describe('F-07 completed-session Practice Loop review', () => {
         }
     });
 
+    // ---------------------------------------------------------------------------------------------
+    // #1422 Codex P2 — A BOUND THAT ONLY STOPS LISTENING IS A LEAK.
+    //
+    // The first version of this fix bounded the UI and left the request running, and the casualties
+    // above used promises that NEVER resolve. That combination cannot fail: if nothing ever arrives,
+    // a test proves nothing about what happens when something arrives late. These three close it.
+    // ---------------------------------------------------------------------------------------------
+
+    it('CASUALTY: the bound ABORTS the request — it does not merely stop listening to it', async () => {
+        vi.useFakeTimers();
+        try {
+            publishCompletedSession(4, 'session-stalled');
+            getSessionById.mockReturnValue(new Promise(() => { /* stalls */ }));
+            render(<SessionPage />);
+            await act(async () => { vi.advanceTimersByTime(15_000); });
+
+            // The read must have been handed a signal, and the bound must have fired it. Without the
+            // signal reaching the data layer, cancellation stops at our own component boundary and the
+            // request keeps running against the server.
+            const signal = getSessionById.mock.calls[0]?.[1] as AbortSignal | undefined;
+            expect({ received: signal instanceof AbortSignal, aborted: signal?.aborted })
+                .toEqual({ received: true, aborted: true });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('CASUALTY: an abandoned read that answers LATE cannot publish its row', async () => {
+        // The provider here IGNORES the abort and answers anyway — a hostile but entirely realistic
+        // shape, since aborting is a request to stop, not a guarantee. This is the only shape that can
+        // distinguish "we discarded the answer" from "no answer ever came".
+        vi.useFakeTimers();
+        try {
+            publishCompletedSession(4, 'session-late');
+            let settle!: (row: unknown) => void;
+            getSessionById.mockReturnValue(new Promise((resolve) => { settle = resolve; }));
+            render(<SessionPage />);
+            await act(async () => { vi.advanceTimersByTime(15_000); });
+            expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'unavailable');
+
+            await act(async () => {
+                settle(savedRow('available', 'A completed saved transcript', 'session-late'));
+                await vi.advanceTimersByTimeAsync(100);
+            });
+
+            // The answer belongs to a read we stopped believing. Publishing it would resurrect the
+            // review from a request the user was already told had failed — and, worse, would grant
+            // readiness and fire the automatic request off an abandoned read.
+            expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'unavailable');
+            expect(invoke).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('CASUALTY: leaving the session ABANDONS its in-flight read', async () => {
+        // Retirement, not timeout. The user navigates away while the read is still running; nothing has
+        // failed and no bound has expired, but the request has outlived the only reader that wanted it.
+        //
+        // React Query provides this, not code in SessionPage: an explicit cancel-on-unmount was written,
+        // mutation-tested, found redundant and removed. The casualty stays because the REQUIREMENT is
+        // ours — if the query layer is ever configured or replaced such that abandoned reads keep
+        // running, this is what notices.
+        publishCompletedSession(4, 'session-leaving');
+        getSessionById.mockReturnValue(new Promise(() => { /* still in flight when we leave */ }));
+
+        const { unmount } = render(<SessionPage />);
+        await waitFor(() => expect(getSessionById).toHaveBeenCalled());
+
+        const signal = getSessionById.mock.calls[0]?.[1] as AbortSignal;
+        expect({ aborted: signal?.aborted, phase: 'still mounted' })
+            .toEqual({ aborted: false, phase: 'still mounted' });
+
+        unmount();
+
+        await waitFor(() => expect({ aborted: signal.aborted, phase: 'after leaving' })
+            .toEqual({ aborted: true, phase: 'after leaving' }));
+    });
+
+    it('CASUALTY: Retry clears the verdict — the fresh read reads as PENDING, not still-failed', async () => {
+        // The existing recovery casualty above cannot catch this. It lets the retry SUCCEED, and once the
+        // transcript is available the notice disappears whether or not the stale verdict was cleared —
+        // the same non-discriminating shape that hid the inert retry in the first place.
+        //
+        // The difference is only visible while the SECOND read is still in flight: a cleared verdict says
+        // "asking again", a stale one says "we could not load it" underneath a request that is running.
+        // That second reading is the dead end this whole finding is about.
+        vi.useFakeTimers();
+        try {
+            publishCompletedSession(4);
+            getSessionById.mockReturnValue(new Promise(() => { /* stalls */ }));
+            render(<SessionPage />);
+            await act(async () => { vi.advanceTimersByTime(15_000); });
+            expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'unavailable');
+
+            vi.useRealTimers();
+
+            // The retry's read is ALSO still pending.
+            getSessionById.mockReturnValue(new Promise(() => { /* the re-read is in flight */ }));
+            await act(async () => { screen.getByTestId('review-transcript-retry').click(); });
+
+            await waitFor(() => expect(screen.getByTestId('review-transcript-notice'))
+                .toHaveAttribute('data-outcome', 'pending'));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('P2/P5 CASUALTY: an UNSETTLED read withholds — unknown is not permission', async () => {
         // The read has not answered yet. "We do not know whether a transcript is there" must not fire a
         // request on optimism; the request is not free.

@@ -201,7 +201,7 @@ export const SessionPage: React.FC = () => {
     const reviewTranscript = resolveTranscriptView(savedSession ?? null);
 
     /**
-     * #1422 — A STALLED READ MUST SETTLE, NOT SPIN FOREVER.
+     * #1422 — A STALLED READ MUST SETTLE, NOT SPIN FOREVER — AND MUST BE ABANDONED, NOT JUST IGNORED.
      *
      * `reviewStillSettling` reported "still loading" for as long as `reviewFetching` was true, and a
      * request that never answers keeps that true indefinitely. The notice then renders "Loading your
@@ -211,22 +211,44 @@ export const SessionPage: React.FC = () => {
      *
      * Bounding the wait converts "we are still asking" into "we could not load it", which is the honest
      * statement once we have stopped expecting an answer — and it is the reading that offers recovery.
-     * The request is not cancelled: if it does answer later, the query updates and the review appears.
-     * What is bounded is how long the UI claims to be waiting.
+     *
+     * The bound also CANCELS the read. Deciding to stop believing a request while letting it run is not
+     * a bound, it is a leak: the abandoned request can still resolve and publish its row into the query
+     * cache under `['session', id]` after this reader is gone or has moved to another session, so the
+     * next reader inherits an answer nobody asked for. `cancelQueries` aborts the signal that
+     * `useSession` now hands to `getSessionById`, which aborts the PostgREST request itself.
+     *
+     * Because cancelling settles the query, `reviewFetching` goes false as a CONSEQUENCE of the timeout.
+     * The verdict therefore cannot be reset on that transition — doing so would erase the very state the
+     * cancellation just established, and the UI would fall back to "still settling" forever. It is reset
+     * where a genuinely new read begins: a change of session, or an explicit Retry.
      *
      * Fail-closed is preserved: a timed-out read leaves `reviewTranscript.kind` un-`available`, so the
      * automatic Gemini request still cannot fire. A stall must never become a doomed request.
      */
     const REVIEW_READ_TIMEOUT_MS = 15_000;
     const [reviewReadTimedOut, setReviewReadTimedOut] = React.useState(false);
+
+    // A verdict belongs to the session it was reached for. A new session starts unjudged.
     React.useEffect(() => {
-        // Reset on every new read AND on a change of session: a bound belongs to the read it bounds, and
-        // a verdict from a previous session's stalled read must never carry into the next one.
         setReviewReadTimedOut(false);
-        if (!reviewFetching) return;
-        const timer = setTimeout(() => setReviewReadTimedOut(true), REVIEW_READ_TIMEOUT_MS);
+    }, [reviewSessionId]);
+
+    React.useEffect(() => {
+        if (!reviewFetching || reviewReadTimedOut) return;
+        const timer = setTimeout(() => {
+            setReviewReadTimedOut(true);
+            void queryClient.cancelQueries({ queryKey: ['session', reviewSessionId] });
+        }, REVIEW_READ_TIMEOUT_MS);
         return () => clearTimeout(timer);
-    }, [reviewFetching, reviewSessionId]);
+    }, [reviewFetching, reviewReadTimedOut, reviewSessionId, queryClient]);
+
+    // NOTE ON RETIREMENT (leaving the page, or moving to another session): no cleanup is written here.
+    // An explicit `cancelQueries` on unmount/key-change was tried and PROVED REDUNDANT — removing it
+    // left the abandonment casualty below still passing, because React Query already aborts the
+    // signal it owns when the last observer goes away or the key changes. Keeping a second mechanism
+    // that cannot be observed to do anything would be dead code dressed as a safeguard. The casualty
+    // stays, so the behaviour is pinned even though the library, not this file, provides it.
 
     const reviewStillSettling = !reviewReadTimedOut
         && (isTranscriptFinalizing || reviewFetching || !(showAnalyticsPrompt && !!finalizedAnalysis));
@@ -539,6 +561,9 @@ export const SessionPage: React.FC = () => {
                      * `resetQueries` discards the stuck query's state so the next read genuinely starts.
                      */
                     onRetryReviewTranscript={() => {
+                        // Clearing the verdict is what makes this a NEW read rather than a repaint of the
+                        // failed one; without it the surface stays "unavailable" while a fresh request runs.
+                        setReviewReadTimedOut(false);
                         void queryClient
                             .resetQueries({ queryKey: ['session', reviewSessionId] })
                             .then(() => refetchReview());
