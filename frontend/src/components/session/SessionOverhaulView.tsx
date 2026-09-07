@@ -471,7 +471,18 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                     ? <span data-testid="coverage-footer">Green highlights show where each point landed.</span>
                     : <FillerBreakdown fillerData={reviewFillerData} stats={fillerStatsLine} />}
                 verdict={{ ...verdictFromSuggestions(aiSuggestions, reviewFillerData, elapsedTime), onPracticeAgain: onStartStop, onSeeAllSessions: onSeeAllSessions ?? (() => {}) }}
-                slotDContent={isObjective ? objectiveAfterSlotD : practiceLoopReview}
+                /**
+                 * #1422 P1 — AUGMENT slot D, never replace it.
+                 *
+                 * For Open Mic this passed `practiceLoopReview`, which is always an element once a session
+                 * completes — so it replaced the default `CoachingCard`/`SessionVerdict` rather than adding
+                 * to it, and took `Practice this again` with it. That button is the ONLY desktop control
+                 * wired to `onStartStop`; `MobileActionBar` is hidden at the `md` breakpoint, so a desktop
+                 * user finishing a session had no way to start another take from the completed screen at
+                 * all. Focus Points already did the right thing — its review renders BELOW the shell and
+                 * leaves slot D to the rail — so Open Mic now follows the same shape.
+                 */
+                slotDContent={isObjective ? objectiveAfterSlotD : undefined}
             />
             {isObjective && (
                 <>
@@ -480,12 +491,16 @@ export const SessionOverhaulView: React.FC<SessionOverhaulViewProps> = ({
                         fillerData={reviewFillerData}
                         hasMissedPoint={Boolean(coverage && coverage.coveredCount < coverage.total)}
                     />
-                    {practiceLoopReview && (
-                        <div className="mt-[14px]" data-testid="focus-practice-loop-review">
-                            {practiceLoopReview}
-                        </div>
-                    )}
                 </>
+            )}
+            {/* The review sits below the shell in BOTH products, so slot D keeps its verdict either way. */}
+            {practiceLoopReview && (
+                <div
+                    className="mt-[14px]"
+                    data-testid={isObjective ? 'focus-practice-loop-review' : 'open-mic-practice-loop-review'}
+                >
+                    {practiceLoopReview}
+                </div>
             )}
         </>
     );

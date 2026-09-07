@@ -48,33 +48,69 @@ const parseAISuggestions = (value: unknown): AISuggestionsData | null => {
   };
 };
 
-const getSafeAiSuggestionError = (err: unknown): SafeSuggestionError => {
-  const rawMessage = err instanceof Error
-    ? err.message
-    : (typeof err === 'object' && err !== null && 'message' in err)
-      ? String((err as { message?: unknown }).message ?? '')
-      : typeof err === 'string'
-        ? err
-        : '';
-  const message = rawMessage.toLowerCase();
+/**
+ * The HTTP status the edge function actually returned, or null when there is none to read.
+ *
+ * `supabase.functions.invoke` rejects with a `FunctionsHttpError` carrying the `Response` on `context`;
+ * a transport failure rejects with `FunctionsFetchError`, which has no status at all. Reading the status
+ * is the only way to learn what the server decided — the message is prose written for a human.
+ */
+const errorStatus = (err: unknown): number | null => {
+  const ctx = (err as { context?: unknown } | null)?.context;
+  const fromContext = (ctx as { status?: unknown } | null)?.status;
+  if (typeof fromContext === 'number') return fromContext;
+  const direct = (err as { status?: unknown } | null)?.status;
+  return typeof direct === 'number' ? direct : null;
+};
 
-  if (message.includes('not on a pro') || message.includes('pro plan') || message.includes('trial has ended') || message.includes('403')) {
-    return { reason: 'access_denied', message: 'Your account cannot request a new review right now. Your saved session is unchanged.' };
-  }
-  if (message.includes('rate') || message.includes('quota') || message.includes('too many')) {
-    return { reason: 'rate_limited', message: 'Review requests are temporarily limited. Please try again later.' };
-  }
-  if (message.includes('network') || message.includes('fetch') || message.includes('connect')) {
+/** A rejection with no status is a transport failure — the request never reached a verdict. */
+const isTransportFailure = (err: unknown): boolean => {
+  const name = (err as { name?: unknown } | null)?.name;
+  return name === 'FunctionsFetchError' || name === 'TypeError' || name === 'AbortError';
+};
+
+/**
+ * Classify a failed review request FROM THE SERVER'S STATUS, never from its prose.
+ *
+ * This matched substrings — `'403'`, `'quota'`, `'transcript'`, `'not found'` — against the error
+ * message. Three things were wrong with that, and only the first is obvious:
+ *
+ *   1. It is guesswork. A message reworded upstream silently reclassifies every one of these outcomes,
+ *      and the user is then told the wrong thing about their own session — "your account cannot do this"
+ *      when the truth was a temporary outage.
+ *   2. It matched the WRONG failures. A transcript that genuinely could not be fetched produced a
+ *      network error whose message contains "transcript", which reported `transcript_unavailable` — a
+ *      statement about their saved data — for what was actually a connectivity blip.
+ *   3. The message is the field most likely to carry echoed request material, so pattern-matching it
+ *      couples product behaviour to a string we deliberately never look at anywhere else.
+ *
+ * The status is what the server decided. The mapping below is taken from the function's own responses.
+ */
+const getSafeAiSuggestionError = (err: unknown): SafeSuggestionError => {
+  if (isTransportFailure(err) && errorStatus(err) === null) {
     return { reason: 'network', message: 'The review could not connect. Check your connection and try again.' };
   }
-  if (message.includes('transcript') || message.includes('409')) {
-    return { reason: 'transcript_unavailable', message: 'This saved session does not have a transcript available for review.' };
-  }
-  if (message.includes('not found') || message.includes('404')) {
-    return { reason: 'not_found', message: 'This saved session could not be found. Your other sessions are unchanged.' };
-  }
 
-  return { reason: 'unavailable', message: 'The review is unavailable right now. Your session is saved, and you can try again.' };
+  switch (errorStatus(err)) {
+    // 401 authentication failed · 403 trial has ended — both are "this account may not, right now".
+    case 401:
+    case 403:
+      return { reason: 'access_denied', message: 'Your account cannot request a new review right now. Your saved session is unchanged.' };
+    // 429 daily coaching limit reached.
+    case 429:
+      return { reason: 'rate_limited', message: 'Review requests are temporarily limited. Please try again later.' };
+    // 409 the saved session has no available transcript. The ONLY status that licenses a claim about
+    // their stored data, which is why it must never be inferred from prose.
+    case 409:
+      return { reason: 'transcript_unavailable', message: 'This saved session does not have a transcript available for review.' };
+    // 404 the session was not found.
+    case 404:
+      return { reason: 'not_found', message: 'This saved session could not be found. Your other sessions are unchanged.' };
+    // 400 bad request, 500/502/503 upstream or provider trouble, and anything unrecognised. All of them
+    // mean "not now", and none of them licenses a claim about the user's account or their data.
+    default:
+      return { reason: 'unavailable', message: 'The review is unavailable right now. Your session is saved, and you can try again.' };
+  }
 };
 
 const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript = '', canReview, sessionId, initialSuggestions }) => {

@@ -48,6 +48,70 @@ describe('AISuggestions Integration', () => {
         });
     });
 
+    describe('#1422 P3 — a failed review is classified by the SERVER\'S STATUS, not by its prose', () => {
+        // The classifier matched substrings: '403', 'quota', 'transcript', 'not found'. Reword any of those
+        // upstream and every outcome silently reclassifies, so the user is told the wrong thing about their
+        // own session. The status is what the server actually decided.
+        const httpError = (status: number) => {
+            const err = new Error('server said something') as Error & { name: string; context: { status: number } };
+            err.name = 'FunctionsHttpError';
+            err.context = { status };
+            return { data: null, error: err };
+        };
+
+        it.each([
+            [403, /cannot request a new review/i],
+            [401, /cannot request a new review/i],
+            [429, /temporarily limited/i],
+            [409, /does not have a transcript available/i],
+            [404, /could not be found/i],
+            [500, /unavailable right now/i],
+            [502, /unavailable right now/i],
+            [400, /unavailable right now/i],
+        ])('status %i produces the matching copy', async (status, expected) => {
+            mockSupabaseClient.functions.invoke.mockResolvedValue(httpError(status as number));
+            render(<AISuggestions transcript="Hello world" canReview sessionId={`s-${status}`} />);
+            expect(await screen.findByText(expected as RegExp)).toBeInTheDocument();
+        });
+
+        it('CASUALTY: a network failure whose message CONTAINS "transcript" is not a data claim', async () => {
+            // The exact defect. The old classifier saw "transcript" in a connectivity error and told the
+            // user their saved session had no transcript available — a false statement about their stored
+            // data, produced by a blip. Only a 409 licenses that sentence.
+            const err = new Error('failed to fetch transcript for review') as Error & { name: string };
+            err.name = 'FunctionsFetchError';
+            mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error: err });
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-net" />);
+
+            expect(await screen.findByText(/could not connect/i)).toBeInTheDocument();
+            expect(screen.queryByText(/does not have a transcript available/i)).toBeNull();
+        });
+
+        it('CASUALTY: prose alone cannot grant access_denied', async () => {
+            // A 503 whose message happens to mention a pro plan must not read as an account restriction.
+            const err = new Error('pro plan check unavailable: 403 upstream') as Error & { name: string; context: { status: number } };
+            err.name = 'FunctionsHttpError';
+            err.context = { status: 503 };
+            mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error: err });
+            render(<AISuggestions transcript="Hello world" canReview sessionId="s-503" />);
+
+            expect(await screen.findByText(/unavailable right now/i)).toBeInTheDocument();
+            expect(screen.queryByText(/cannot request a new review/i)).toBeNull();
+        });
+
+        it('the raw server prose never reaches the user', async () => {
+            const err = new Error('PGRST116: row for relation "sessions" violates policy') as Error & { name: string; context: { status: number } };
+            err.name = 'FunctionsHttpError';
+            err.context = { status: 500 };
+            mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error: err });
+            const { container } = render(<AISuggestions transcript="Hello world" canReview sessionId="s-prose" />);
+
+            expect(await screen.findByText(/unavailable right now/i)).toBeInTheDocument();
+            expect(container.textContent).not.toContain('PGRST116');
+            expect(container.textContent).not.toContain('relation');
+        });
+    });
+
     describe('#1416 P2-4 — the first review fires itself', () => {
         const ok = {
             data: { suggestions: { version: 'gemini_coaching_v1', what_worked: 'a strength', what_to_try_next: 'an improvement' } },
@@ -260,10 +324,12 @@ describe('AISuggestions Integration', () => {
     describe('Error Handling', () => {
         it('displays error when Supabase function fails', async () => {
 
-            mockSupabaseClient.functions.invoke.mockResolvedValue({
-                data: null,
-                error: { message: 'Network error' },
-            });
+            // A real transport failure from `functions.invoke` is a FunctionsFetchError with NO status —
+            // the request never reached a verdict. The previous mock was a bare object, which only
+            // produced network copy because the classifier was matching the word "Network" in its prose.
+            const transportError = new Error('Network error') as Error & { name: string };
+            transportError.name = 'FunctionsFetchError';
+            mockSupabaseClient.functions.invoke.mockResolvedValue({ data: null, error: transportError });
 
             render(<AISuggestions transcript="Hello world" sessionId="session-test" />);
 
@@ -286,7 +352,12 @@ describe('AISuggestions Integration', () => {
 
 
             await waitFor(() => {
-                expect(screen.getByText(/review requests are temporarily limited/i)).toBeInTheDocument();
+                // An error in the RESPONSE BODY carries no HTTP status, so the server gave no category we
+                // can trust. This used to read "temporarily limited" purely because the prose contained
+                // "Rate limit" — the substring guess this PR removes. Unknown means "not now", which makes
+                // no claim about the account or the saved data.
+                expect(screen.getByText(/unavailable right now/i)).toBeInTheDocument();
+                // The part that always mattered and still holds: the raw server prose never reaches them.
                 expect(screen.queryByText(/rate limit exceeded/i)).not.toBeInTheDocument();
             });
         });

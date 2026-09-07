@@ -202,6 +202,33 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
     });
 
+    it('P1 CASUALTY: Open Mic after-state keeps Practice this again, and it starts a new take', () => {
+        // `practiceLoopReview` is always an element once a session completes, and passing it as
+        // `slotDContent` REPLACED the default verdict instead of adding to it — taking `Practice this
+        // again` with it. That is the only desktop control wired to `onStartStop`, and `MobileActionBar`
+        // is hidden at `md`, so a desktop user finishing a session had no way to start another take.
+        const onStartStop = vi.fn();
+        render(
+            <SessionOverhaulView
+                {...base}
+                showAnalyticsPrompt
+                onStartStop={onStartStop}
+                practiceLoopReview={<div data-testid="review-slot">the review</div>}
+            />,
+        );
+        expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
+
+        // Both are present: the review did not evict the verdict.
+        const practiceAgain = screen.getByTestId('verdict-practice-again');
+        expect(practiceAgain).toBeInTheDocument();
+        expect(screen.getByTestId('review-slot')).toBeInTheDocument();
+        expect(screen.getByTestId('open-mic-practice-loop-review')).toBeInTheDocument();
+
+        // And it actually starts a take rather than merely rendering.
+        fireEvent.click(practiceAgain);
+        expect(onStartStop).toHaveBeenCalledTimes(1);
+    });
+
     it('objective after → coverage count, missed-point reason, retry + delivery strip', () => {
         render(<SessionOverhaulView {...base} objectivePoints={POINTS} showAnalyticsPrompt transcriptContent="I will name the price now." elapsedTime={84} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
