@@ -280,11 +280,11 @@ const startInitializing = async () => {
 
   // Defer heavy WASM initialization to avoid competing with React hydration
   const initSTT = () => {
-    // Install the in-page model switch. Returns immediately on any build that is not marked internal,
-    // so a build a real user receives has no runtime selector — the config file remains the only one.
+    // Install the hidden CDP qualification switch. It has no UI/URL/storage input and accepts only the
+    // PO-approved three-model slate; canonical Production needs it for the authenticated human test.
     void import('./services/transcription/installRuntimeSwitch')
       .then(({ installRuntimeCandidateSwitch }) => {
-        if (installRuntimeCandidateSwitch()) logger.debug('[main.tsx] internal build: model switch installed');
+        if (installRuntimeCandidateSwitch()) logger.debug('[main.tsx] CDP model-comparison switch installed');
       })
       .catch((err) => logger.warn({ err }, '[main.tsx] runtime model switch unavailable'));
     // Lazy import of SpeechRuntimeController
