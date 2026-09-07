@@ -24,7 +24,7 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 import { emitRecordingIntent } from '@/services/telemetry/journeyEvents';
-import { ensureRecordingAttempt, endRecordingAttempt } from '@/services/telemetry/journeyIdentity';
+import { beginRecordingAttempt, endRecordingAttempt } from '@/services/telemetry/journeyIdentity';
 import { markCompletionStage } from '@/services/telemetry/completionStages';
 import { emitTranscriptAuthority } from '@/services/telemetry/transcriptAuthority';
 import { emitRetentionObservation } from '@/services/telemetry/retentionObservation';
@@ -79,7 +79,7 @@ export function shouldReloadSttOnForegroundReturn(params: {
 }
 
 export const useSessionLifecycle = () => {
-    const { session } = useAuthProvider();
+    const { session, user } = useAuthProvider();
     const { profile, isVerified } = useProfile();
     const queryClient = useQueryClient();
     const tick = useSessionStore(state => state.tick);
@@ -309,10 +309,27 @@ export const useSessionLifecycle = () => {
                 // which unwinds the rest of the stop handling, so the user's saved-session copy and the
                 // analytics prompt never appear and their session looks like it failed. An existing
                 // auto-stop test caught precisely that. Unknown is null; it is never an exception.
+                //
+                // SCOPED TO THE ACTIVE ACCOUNT. `usePracticeHistory` keys as
+                // `['sessionHistory', user?.id, paginationOptions]`, and a bare prefix lookup matches EVERY
+                // cached account. After an auth-driven account switch that does not run the explicit
+                // `signOut()` path, the previous account's query stays cached — and taking "the first
+                // array" could hand this account's retention receipt the PREVIOUS user's counts and
+                // transcript states. A receipt attributed to the wrong person is worse than a missing one,
+                // because it looks like data.
+                // The SAME value `usePracticeHistory` builds its key from — `user?.id` out of
+                // `useAuthProvider` — so the comparison cannot drift from the key it is matching.
+                const activeUserId = user?.id ?? null;
                 const readSavedSessions = (): Array<{ transcript_state?: string | null }> | null => {
+                    // No separate signed-out guard: the key comparison below already excludes every entry
+                    // when there is no active account, and a redundant branch no test can reach is a line
+                    // that can rot without anything noticing.
                     try {
                         const entries = queryClient.getQueriesData?.<unknown>({ queryKey: ['sessionHistory'] });
-                        for (const [, data] of entries ?? []) {
+                        for (const [key, data] of entries ?? []) {
+                            // The account id is the second segment of the key. Anything else is a different
+                            // person's cache, or a key shape we do not recognise — both are refusals.
+                            if (!Array.isArray(key) || key[1] !== activeUserId) continue;
                             if (Array.isArray(data)) return data as Array<{ transcript_state?: string | null }>;
                         }
                     } catch {
@@ -332,11 +349,18 @@ export const useSessionLifecycle = () => {
                     persisted: true,
                     sessionIdPresent: Boolean(useSessionStore.getState().finalizedAnalysis?.sessionId),
                 });
-                // The take is over. Closing here — AFTER the post-stop events that belong to it — is what
-                // stops the NEXT accepted Start being attributed to this recording: the controller only
-                // closed on TERMINATED/IDLE, so a normal stop back to READY left the attempt open and the
-                // following take inherited this one's id.
-                endRecordingAttempt();
+                // NOT closed here.
+                //
+                // Closing at stop looked right and broke the review: `setShowAnalyticsPrompt(true)` renders
+                // the practice loop AFTER this line, so `currentAttemptId()` was already null when
+                // `practice_loop` emitted. Two successive reviews with identical properties then shared the
+                // signature `[null, props]` and the second receipt was suppressed — the very defect the
+                // attempt-scoped dedupe was introduced to fix.
+                //
+                // The attempt is retired where the NEXT one begins instead. Everything after Stop — save,
+                // retention, the rendered review — genuinely belongs to the take that produced it, and a
+                // take that is never followed by another simply stays the last one. See the accepted-start
+                // path below.
                 // P1: read the controller's current terminal status FIRST. If it left a warning/error (e.g.
                 // filler/metrics persistence failed → guardedStopStatus), preserve it — apply NEITHER the
                 // stopReason NOR the ordinary success/streak copy. This holds for auto-stops (which carry a
@@ -370,7 +394,10 @@ export const useSessionLifecycle = () => {
                     emitRetentionObservation({
                         transcriptBearingBefore: bearingBefore,
                         transcriptBearingAfter: bearing(savedAfter),
-                        contentFreeHistoryCount: savedAfter?.length ?? 0,
+                        // NULL, not 0. Zero asserts "this user has no saved sessions", which is a
+                        // measurement; an unavailable cache means we did not observe, which is not. The
+                        // rest of this event already refuses to guess and this field was contradicting it.
+                        contentFreeHistoryCount: savedAfter === null ? null : savedAfter.length,
                         // The server's state for the row just written, or null when the refreshed list does
                         // not contain it. A guess here would be a claim about someone's transcript.
                         savedTranscriptState: savedRow?.transcript_state ?? null,
@@ -487,10 +514,19 @@ export const useSessionLifecycle = () => {
                 // Emitted BEFORE the await. `session_started` is pushed only after startRecording
                 // RESOLVES — so a start that hangs (the 113s and 126s waits Production already shows)
                 // records nothing at all today. The accepted intent is what makes the hang visible.
-                // Open the attempt FIRST so the accepted intent carries the id of the take it starts.
-                // Emitted after `beginRecordingAttempt` but still before the await, so a hung start is
-                // both visible AND attributable.
-                ensureRecordingAttempt();
+                // RETIRE THE PREVIOUS TAKE, THEN OPEN THIS ONE.
+                //
+                // This is the only point where a new attempt genuinely starts, so it is the honest place to
+                // end the previous one. Doing both here fixes two things at once: the next accepted Start
+                // can no longer inherit the previous recording's id (it is closed first), and a take that
+                // never saved — a stop under the five-second minimum, which returns without any close and
+                // leaves the controller at READY — cannot have its id and ordinal silently reused by the
+                // user's immediate retry.
+                //
+                // Opened BEFORE `reportIntent('accepted')` so the intent carries the id of the take it
+                // starts, and still before the await, so a hung start is both visible and attributable.
+                endRecordingAttempt();
+                beginRecordingAttempt();
                 reportIntent('accepted');
                 await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                 analyticsBuffer.push('session_started', {
@@ -566,6 +602,11 @@ export const useSessionLifecycle = () => {
             }
         }
     }, [
+        // The active account, because the retention read compares against it. Omitting it would let this
+        // callback close over a STALE id after an account switch and match the previous user's cached
+        // history — reintroducing the cross-account bleed this scoping exists to prevent, by a closure
+        // instead of a key.
+        user?.id,
         isListening,
         elapsedTime,
         setCaptureLimitReached,

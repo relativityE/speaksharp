@@ -77,6 +77,7 @@ import {
 import { evaluateStartGate, startGateMessage } from '@/services/progress/progressStartGate';
 import { installSttEvidenceCollector } from '@/services/transcription/sttEvidenceCollector';
 import { installSttIdentityAccessor } from '@/services/transcription/sttIdentity';
+import { evaluateRuntimeCandidateTakeGate } from '@/services/transcription/runtimeCandidateTakeGate';
 
 declare global {
     interface Window {
@@ -2820,6 +2821,26 @@ export class SpeechRuntimeController {
          */
         carriedSettlement?: IntentSettlement,
     ): Promise<void> {
+        // #1426 — THE SWITCH'S SUCCESS IS NOT THE TAKE'S AUTHORITY.
+        //
+        // A scored model-comparison take is admitted only after recomputing requested === observed ===
+        // expected here, at the recording authority. This runs before service creation, locks, auth,
+        // attestation, microphone acquisition, or transcription. A mismatch therefore produces an
+        // explicit refusal and a content-free governed signal, never a wrongly labelled recording.
+        if ((policy?.preferredMode ?? 'private') === 'private') {
+            const candidateGate = evaluateRuntimeCandidateTakeGate();
+            if (candidateGate.enabled && !candidateGate.allowed) {
+                emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.ERROR, {
+                    error_code: 'RuntimeCandidateIdentityMismatch',
+                    fallback_reason: candidateGate.refusal,
+                    model_attribution_verified: false,
+                });
+                const message = 'Model comparison identity could not be verified. Switch the model again before recording.';
+                useSessionStore.getState().setSTTStatus({ type: 'error', message });
+                throw new Error(`RUNTIME_CANDIDATE_IDENTITY_MISMATCH:${candidateGate.refusal}`);
+            }
+        }
+
         // #1033: do not start a new recording while a prior recording is unresolved — a pending attribution
         // retry, OR a recording that began and failed post-start without a durable save. Its identity must be
         // resolved (Retry Save) or explicitly discarded first. This bounds the system to AT MOST ONE

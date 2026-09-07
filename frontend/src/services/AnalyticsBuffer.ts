@@ -50,6 +50,19 @@ interface AnalyticsEvent {
 // Widening the pattern only defers the problem to the next field someone invents. Event properties are now
 // projected onto a per-event allowlist in `telemetryAllowlist.ts`, which fails CLOSED on anything unknown.
 
+/** Every governed family this tab has emitted. Names only — never properties. */
+const seenEventFamilies = new Set<string>();
+
+/** What the completeness gate reads. A copy, so a caller cannot edit the record it is judging. */
+export function observedEventFamilies(): string[] {
+  return [...seenEventFamilies];
+}
+
+/** Test seam only. */
+export function __resetObservedEventFamiliesForTests(): void {
+  seenEventFamilies.clear();
+}
+
 class AnalyticsBuffer {
   private static instance: AnalyticsBuffer;
 
@@ -191,6 +204,12 @@ class AnalyticsBuffer {
      */
     modelAttributionVerified = true,
   ): void {
+
+    // #1259 P1 — the completeness gate needs a record of what this tab ACTUALLY emitted. Recorded at the
+    // producer boundary, before any queueing or backpressure decision, so a dropped or delayed event still
+    // counts as produced: the gate asks whether the instrumentation ran, which is a different question
+    // from whether the transport delivered.
+    seenEventFamilies.add(event);
 
     const analyticsEvent: AnalyticsEvent = {
       event,

@@ -43,8 +43,14 @@ vi.mock('@/contexts/AuthProvider', () => ({
 
 // Redundant useUserProfile removed
 
+// Configurable per test: the retention observation reads the sessionHistory CACHE, and whether it reads
+// the RIGHT account's entry is a P1 that a client without `getQueriesData` can never exercise.
+const { queryCacheEntries } = vi.hoisted(() => ({ queryCacheEntries: { current: null as unknown[][] | null } }));
 vi.mock('@tanstack/react-query', () => ({
-    useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+    useQueryClient: () => ({
+        invalidateQueries: vi.fn(),
+        getQueriesData: queryCacheEntries.current === null ? undefined : () => queryCacheEntries.current,
+    }),
 }));
 
 import { createTestSessionStore } from '../../../tests/unit/factories/storeFactory';
@@ -223,6 +229,7 @@ describe('#1259 F01 — every intent reaches analytics through the real hook', (
         vi.clearAllMocks();
         pushSpy.mockClear();
         delete window.__SS_E2E__;
+        queryCacheEntries.current = null;
         vi.mocked(useProfile).mockReturnValue({
             profile: { id: 'test-user', subscription_status: 'free', email: 'test@example.com' } as UserProfile,
             isVerified: true,
@@ -232,6 +239,50 @@ describe('#1259 F01 — every intent reaches analytics through the real hook', (
     });
 
     afterEach(() => pushSpy.mockClear());
+
+    it('CASUALTY: an UNOBSERVED history reports null, not zero — through the real stop path', async () => {
+        // The emitter and the schema both accept null; what was untested is the CALL SITE. This harness's
+        // query client has no `getQueriesData`, which IS the unobserved case, so the retention receipt must
+        // say "we did not look" rather than "this user has no saved sessions". Asserting on the emitter
+        // alone left `?? 0` in the hook free to reappear — and it did.
+        const { result } = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 30 });
+        await act(async () => { await result.current.handleStartStop(); });
+        // The observation is emitted from a resolved promise after the refresh, so let microtasks drain.
+        await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+        const retention = pushSpy.mock.calls
+            .filter((c) => c[0] === 'retention_observation')
+            .map((c) => c[1] as Record<string, unknown>);
+        expect(retention.length).toBeGreaterThan(0);
+        expect(retention[0].content_free_history_count ?? null).toBeNull();
+    });
+
+    it('CASUALTY: the retention receipt reads THIS account\'s cache, not whichever is first', async () => {
+        // `usePracticeHistory` keys as ['sessionHistory', user?.id, pagination], and a bare prefix lookup
+        // matches EVERY cached account. After an auth-driven switch that skips the explicit signOut path,
+        // the previous account's query stays cached — and taking "the first array" hands this user's
+        // retention receipt the PREVIOUS person's counts and transcript states. A receipt attributed to
+        // the wrong account is worse than a missing one, because it looks like data.
+        queryCacheEntries.current = [
+            // Another account's cache, deliberately FIRST.
+            [['sessionHistory', 'someone-else', {}], [
+                { transcript_state: 'available' }, { transcript_state: 'available' }, { transcript_state: 'available' },
+            ]],
+            // The active account: one saved session.
+            [['sessionHistory', 'test-user', {}], [{ transcript_state: 'available' }]],
+        ];
+
+        const { result } = mountWith({ runtimeState: 'RECORDING', isListening: true, elapsedTime: 30 });
+        await act(async () => { await result.current.handleStartStop(); });
+        await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+        const retention = pushSpy.mock.calls
+            .filter((c) => c[0] === 'retention_observation')
+            .map((c) => c[1] as Record<string, unknown>);
+        expect(retention.length).toBeGreaterThan(0);
+        // One, from this account — not three, from the stranger's cache that happened to be first.
+        expect(retention[0].content_free_history_count).toBe(1);
+    });
 
     it('an ACCEPTED start reports its intent BEFORE startRecording is awaited', async () => {
         const { result } = mountWith({ runtimeState: 'READY' });

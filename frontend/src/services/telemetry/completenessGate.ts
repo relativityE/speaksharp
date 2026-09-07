@@ -1,4 +1,5 @@
 import { GOVERNED_EVENTS, type GovernedEvent } from '../telemetryAllowlist';
+import { observedEventFamilies } from '../AnalyticsBuffer';
 
 /**
  * #1259 — a readback that finds nothing must say HOLD, not pass.
@@ -36,6 +37,14 @@ export const REQUIRED_EVENT_FAMILIES: readonly GovernedEvent[] = Object.freeze([
     'practice_loop',
     // The journey the above hang from.
     'journey_step',
+    /**
+     * A saved session necessarily reaches several completion marks — the user's Stop, runtime
+     * termination, the save — and each emits `stage_latency`. Leaving it out meant a readback that lost
+     * every latency row could still be marked QUALIFIED, while the post-Stop breakdown this
+     * instrumentation exists to produce was wholly missing. A gate that cannot notice the absence of the
+     * thing being measured is not a gate.
+     */
+    'stage_latency',
 ]);
 
 export type CompletenessVerdict = 'QUALIFIED' | 'HOLD';
@@ -54,6 +63,22 @@ export interface CompletenessResult {
  * this decides. `observed` is whatever the readback saw — duplicates, unknown names and junk included,
  * because a decoder that silently tidies its input cannot report that the input was wrong.
  */
+/**
+ * The verdict for THIS TAB, from the families the buffer has actually emitted.
+ *
+ * The evaluator existed with no production caller: a repository-wide search found only the module and
+ * its unit test, so the HOLD it promised could never fire however well its branches were tested. A
+ * requirement captured but not wired is not implemented, and it looks exactly like one that is.
+ *
+ * `observedEventFamilies()` is the buffer's own record of what it emitted, so this reports on the run
+ * that actually happened rather than on an assumption about it.
+ */
+export function currentRunCompleteness(
+    observed: readonly string[] = observedEventFamilies(),
+): CompletenessResult {
+    return evaluateTelemetryCompleteness([...observed]);
+}
+
 export function evaluateTelemetryCompleteness(
     observed: unknown,
     required: readonly string[] = REQUIRED_EVENT_FAMILIES,
