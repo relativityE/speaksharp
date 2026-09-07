@@ -1,6 +1,6 @@
 /** F-07 casualty: the real completed-session parent must expose the saved-session 1+1 review. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '../../../tests/support/test-utils';
+import { render, screen, waitFor, act } from '../../../tests/support/test-utils';
 import SessionPage from '../SessionPage';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { reconcileFinalizedFillers } from '@/utils/finalizedSessionAnalysis';
@@ -35,8 +35,8 @@ const invoke = vi.fn();
 const { getSessionById } = vi.hoisted(() => ({ getSessionById: vi.fn() }));
 
 /** The saved row as the server reports it. `transcript_state` is the only thing that grants readiness. */
-const savedRow = (transcriptState: string | null, transcript: string | null = 'A completed saved transcript') => ({
-    id: 'session-complete-1', user_id: 'owner-1', transcript, transcript_state: transcriptState,
+const savedRow = (transcriptState: string | null, transcript: string | null = 'A completed saved transcript', id = 'session-complete-1') => ({
+    id, user_id: 'owner-1', transcript, transcript_state: transcriptState,
     total_words: 4, duration: 42, created_at: new Date().toISOString(), status: 'completed',
 });
 const mockLifecycle = vi.mocked(SessionLifecycleHook.useSessionLifecycle);
@@ -67,13 +67,13 @@ const lifecycle = () => ({
     sunsetModal: { type: 'daily', open: false },
 });
 
-const publishCompletedSession = (wordCount: number) => {
+const publishCompletedSession = (wordCount: number, sessionId = 'session-complete-1') => {
     const store = useSessionStore.getState();
     store.setFinalizedWordCount(wordCount);
     store.setFinalizedFillerData({});
     store.setFinalizedFillerCount(0);
     store.setFinalizedAnalysis({
-        sessionId: 'session-complete-1',
+        sessionId,
         mode: 'private',
         reconciliation: reconcileFinalizedFillers('A completed saved transcript', {}),
         persistedTotal: 0,
@@ -145,6 +145,125 @@ describe('F-07 completed-session Practice Loop review', () => {
         expect(await screen.findByTestId('practice-loop-review-not-ready')).toBeInTheDocument();
         await new Promise((resolve) => setTimeout(resolve, 50));
         expect(invoke).not.toHaveBeenCalled();
+    });
+
+    it('CASUALTY: a STALLED read settles as unavailable WITH Retry, not a permanent spinner', async () => {
+        // The read that never answers. `reviewFetching` stays true forever, so the notice reported
+        // "Loading your transcript…" indefinitely — and Retry belongs to the FAILED reading, not the
+        // pending one, so the user was left on a spinner with nothing to press for a session that saved
+        // perfectly well.
+        vi.useFakeTimers();
+        try {
+            publishCompletedSession(4);
+            getSessionById.mockReturnValue(new Promise(() => { /* never settles */ }));
+
+            render(<SessionPage />);
+
+            // Before the bound: still honestly pending, and no recovery offered yet.
+            expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'pending');
+
+            await act(async () => { vi.advanceTimersByTime(15_000); });
+
+            // After it: the honest statement is "we could not load it", which is the reading that offers
+            // recovery.
+            expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'unavailable');
+            expect(screen.getByTestId('review-transcript-retry')).toBeInTheDocument();
+            // FAIL-CLOSED PRESERVED: a stall must never become a doomed automatic request.
+            expect(invoke).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('CASUALTY: Retry re-READS and recovers — it does not regenerate', async () => {
+        vi.useFakeTimers();
+        try {
+            publishCompletedSession(4);
+            getSessionById.mockReturnValue(new Promise(() => { /* stalls */ }));
+            render(<SessionPage />);
+            await act(async () => { vi.advanceTimersByTime(15_000); });
+            expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'unavailable');
+
+            // The server answers on the retry.
+            getSessionById.mockResolvedValue(savedRow('available'));
+            invoke.mockResolvedValue({
+                data: { suggestions: {
+                    version: 'gemini_coaching_v1', what_worked: 'Clear opening.',
+                    what_to_try_next: 'Lead with the recommendation.',
+                } },
+                error: null,
+            });
+            // Real timers from here: the recovery is asynchronous and `waitFor` cannot advance a fake
+            // clock. The bound has already been exercised above; what follows is the recovery itself.
+            vi.useRealTimers();
+            await act(async () => { screen.getByTestId('review-transcript-retry').click(); });
+
+            // Recovered: the retry RE-READ the saved row rather than regenerating coaching, and the
+            // bound reset with the new read.
+            await waitFor(() => expect(screen.queryByTestId('review-transcript-notice')).toBeNull());
+            expect(getSessionById.mock.calls.length).toBeGreaterThan(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('CASUALTY: a stalled read for one session cannot condemn the NEXT session', async () => {
+        // The timeout verdict belongs to the read that earned it. Carrying it across sessions would mark
+        // a perfectly readable transcript unavailable because a previous one stalled.
+        vi.useFakeTimers();
+        try {
+            publishCompletedSession(4);
+            getSessionById.mockReturnValue(new Promise(() => { /* stalls */ }));
+            const view = render(<SessionPage />);
+            await act(async () => { vi.advanceTimersByTime(15_000); });
+            expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'unavailable');
+            view.unmount();
+
+            // A new session, which reads cleanly.
+            useSessionStore.getState().resetSession();
+            getSessionById.mockResolvedValue(savedRow('available'));
+            publishCompletedSession(4);
+            render(<SessionPage />);
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            expect(screen.queryByTestId('review-transcript-notice')).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('CASUALTY: a timed-out verdict does not carry into the NEXT read in the same mount', async () => {
+        // The bound belongs to the read that earned it. Without resetting per read, one stalled session
+        // would mark every later session unavailable for the life of the page — and unmounting is not the
+        // production shape: the user records again on the same screen.
+        vi.useFakeTimers();
+        try {
+            publishCompletedSession(4, 'session-stalled');
+            getSessionById.mockReturnValue(new Promise(() => { /* stalls */ }));
+            render(<SessionPage />);
+            await act(async () => { vi.advanceTimersByTime(15_000); });
+            expect(screen.getByTestId('review-transcript-notice')).toHaveAttribute('data-outcome', 'unavailable');
+
+            // Real timers from here: `waitFor` cannot advance a fake clock, and the bound has already
+            // been exercised above.
+            vi.useRealTimers();
+
+            // A NEW session on the same mounted page whose read is STILL IN FLIGHT.
+            //
+            // This is the case that discriminates. Asserting the notice disappears would prove nothing:
+            // it disappears whenever the transcript resolves as available, flag or no flag. The flag only
+            // decides what an UNAVAILABLE view is called — "loading" or "we could not load it" — so the
+            // second read has to still be pending for the difference to be visible.
+            getSessionById.mockReturnValue(new Promise(() => { /* the next read is pending too */ }));
+            await act(async () => { publishCompletedSession(4, 'session-next'); });
+
+            // Pending, not the previous read's verdict. Without the per-read reset this still says
+            // `unavailable`, telling the user a session we have not finished asking about is unreadable.
+            await waitFor(() => expect(screen.getByTestId('review-transcript-notice'))
+                .toHaveAttribute('data-outcome', 'pending'));
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('P2/P5 CASUALTY: an UNSETTLED read withholds — unknown is not permission', async () => {

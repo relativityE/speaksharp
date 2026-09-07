@@ -21,6 +21,7 @@ import { useNavigate } from 'react-router-dom';
 import AISuggestions from '@/components/session/AISuggestions';
 import { progressGateNotice } from '@/services/progress/progressStartGate';
 import { useSession } from '@/hooks/useSession';
+import { useQueryClient } from '@tanstack/react-query';
 import { resolveTranscriptView } from '@/lib/storage';
 
 /**
@@ -191,13 +192,44 @@ export const SessionPage: React.FC = () => {
     // `resolveTranscriptView` is documented as "the ONE place that decides whether a session's
     // transcript may be shown", shared with the PDF so the two cannot drift. This connects them.
     const reviewSessionId = finalizedAnalysis?.sessionId ?? null;
+    const queryClient = useQueryClient();
     const { data: savedSession, isFetching: reviewFetching, refetch: refetchReview } =
         useSession(reviewSessionId ?? undefined);
     // Server state decides. `isFinalizing` only separates "still settling" from "we could not load
     // it" — two readings of `unavailable` that need different sentences and that a saved-row resolver
     // cannot tell apart, because finalization is a client lifecycle.
     const reviewTranscript = resolveTranscriptView(savedSession ?? null);
-    const reviewStillSettling = isTranscriptFinalizing || reviewFetching || !(showAnalyticsPrompt && !!finalizedAnalysis);
+
+    /**
+     * #1422 — A STALLED READ MUST SETTLE, NOT SPIN FOREVER.
+     *
+     * `reviewStillSettling` reported "still loading" for as long as `reviewFetching` was true, and a
+     * request that never answers keeps that true indefinitely. The notice then renders "Loading your
+     * transcript…" permanently, with no Retry — because Retry belongs to the FAILED reading, not the
+     * pending one. The user is left on a spinner for a session that saved perfectly well, with nothing
+     * to press.
+     *
+     * Bounding the wait converts "we are still asking" into "we could not load it", which is the honest
+     * statement once we have stopped expecting an answer — and it is the reading that offers recovery.
+     * The request is not cancelled: if it does answer later, the query updates and the review appears.
+     * What is bounded is how long the UI claims to be waiting.
+     *
+     * Fail-closed is preserved: a timed-out read leaves `reviewTranscript.kind` un-`available`, so the
+     * automatic Gemini request still cannot fire. A stall must never become a doomed request.
+     */
+    const REVIEW_READ_TIMEOUT_MS = 15_000;
+    const [reviewReadTimedOut, setReviewReadTimedOut] = React.useState(false);
+    React.useEffect(() => {
+        // Reset on every new read AND on a change of session: a bound belongs to the read it bounds, and
+        // a verdict from a previous session's stalled read must never carry into the next one.
+        setReviewReadTimedOut(false);
+        if (!reviewFetching) return;
+        const timer = setTimeout(() => setReviewReadTimedOut(true), REVIEW_READ_TIMEOUT_MS);
+        return () => clearTimeout(timer);
+    }, [reviewFetching, reviewSessionId]);
+
+    const reviewStillSettling = !reviewReadTimedOut
+        && (isTranscriptFinalizing || reviewFetching || !(showAnalyticsPrompt && !!finalizedAnalysis));
 
     if (!metrics) return <SessionPageSkeleton />;
 
@@ -495,7 +527,22 @@ export const SessionPage: React.FC = () => {
                     aiSuggestions={undefined} /* #1306: coaching prose retired; next action replaces it */
                     reviewTranscript={reviewTranscript}
                     reviewStillSettling={reviewStillSettling}
-                    onRetryReviewTranscript={() => { void refetchReview(); }}
+                    /**
+                     * RESET, then re-read.
+                     *
+                     * `refetch()` alone is inert here, and the casualty proved it: react-query will not
+                     * start a second fetch while the first is still in flight, and the stalled read that
+                     * caused this notice IS still in flight. So the Retry the timeout makes reachable
+                     * would have been a button that does nothing — worse than the spinner, because it
+                     * looks like recovery.
+                     *
+                     * `resetQueries` discards the stuck query's state so the next read genuinely starts.
+                     */
+                    onRetryReviewTranscript={() => {
+                        void queryClient
+                            .resetQueries({ queryKey: ['session', reviewSessionId] })
+                            .then(() => refetchReview());
+                    }}
                     onSeeAllSessions={() => navigate('/analytics')}
                     interimTranscript={interimTranscript}
                     isFinalizing={isTranscriptFinalizing}
