@@ -30,7 +30,7 @@ import {
 import { getQueuedSessionIdsForUser } from '../progressReconcileQueue';
 
 const ELIGIBLE_ROW = {
-    eligible: true, word_count: 200, filler_count: 4, wpm: 140, clarity_raw: 96.5,
+    eligible: true, word_count: 200, filler_count: 4, error_marker_count: 0, wpm: 140, clarity_raw: 96.5,
     cohort_key: 'private|v2|base|clarity_v1', engine: 'private', engine_version: 'v2',
     model_name: 'base', attribution_status: 'verified',
 };
@@ -68,6 +68,17 @@ describe('#1045 recordProgress consumer — the wiring guard', () => {
         ['fractional', 1.5],
     ])('does not persist coaching from an eligible-marked row with %s filler evidence', async (_label, filler_count) => {
         evalRow = { ...ELIGIBLE_ROW, filler_count };
+        await wireProgressEvaluationOnSave(ctx());
+        expect(rpcNames()).toContain('record_progress_evaluation');
+        expect(rpcNames()).not.toContain('record_progress_recommendation');
+    });
+
+    it.each([
+        ['missing', null],
+        ['negative', -1],
+        ['fractional', 1.5],
+    ])('does not persist coaching from an eligible-marked row with %s error-marker evidence', async (_label, error_marker_count) => {
+        evalRow = { ...ELIGIBLE_ROW, error_marker_count };
         await wireProgressEvaluationOnSave(ctx());
         expect(rpcNames()).toContain('record_progress_evaluation');
         expect(rpcNames()).not.toContain('record_progress_recommendation');

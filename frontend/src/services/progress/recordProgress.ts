@@ -248,7 +248,7 @@ export async function reconcileProgressRecommendation(sessionId: string): Promis
 
     const { data, error } = await supabase
         .from('session_progress_evaluations')
-        .select('eligible, word_count, filler_count, wpm, clarity_raw, cohort_key, engine, engine_version, model_name, attribution_status')
+        .select('eligible, word_count, filler_count, error_marker_count, wpm, clarity_raw, cohort_key, engine, engine_version, model_name, attribution_status')
         .eq('session_id', sessionId)
         .eq('formula_version', PROGRESS_FORMULA_VERSION)
         .maybeSingle();
@@ -270,7 +270,7 @@ export async function reconcileProgressRecommendation(sessionId: string): Promis
         exclusionReasons: [],
         clarityRaw: data.clarity_raw ?? null,
         fillerCount: data.filler_count ?? null,
-        errorMarkerCount: null,
+        errorMarkerCount: data.error_marker_count ?? null,
         wpm: data.wpm ?? null,
         cohortKey: data.cohort_key ?? null,
     };

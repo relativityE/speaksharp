@@ -51,6 +51,29 @@ describe('focusCoverage.applyFinalizedCoverageAuthority — terminal truth', () 
         expect(terminal?.rows[1]).toMatchObject({ status: 'covered', covered: true, quote: null });
     });
 
+    it('counts a partial terminal match as detected while preserving the partial status', () => {
+        const derived = deriveFocusCoverage(POINTS, 'Unrelated retained words.', 60);
+        const terminal = applyFinalizedCoverageAuthority(derived, POINTS, [
+            { id: 'brief-point-1', label: POINTS[0], status: 'partial' },
+            { id: 'brief-point-2', label: POINTS[1], status: 'missing' },
+        ]);
+
+        expect(terminal?.coveredCount).toBe(1);
+        expect(terminal?.rows[0]).toMatchObject({ status: 'partial', covered: true });
+    });
+
+    it('never attributes a weaker matcher quote or timestamp to a status-only terminal verdict', () => {
+        const derived = deriveFocusCoverage(POINTS, 'I will name the price now.', 60);
+        expect(derived.rows[0].quote).not.toBeNull();
+        const terminal = applyFinalizedCoverageAuthority(derived, POINTS, [
+            { id: 'brief-point-1', label: POINTS[0], status: 'covered' },
+            { id: 'brief-point-2', label: POINTS[1], status: 'missing' },
+        ]);
+
+        expect(terminal?.rows[0]).toMatchObject({ status: 'covered', covered: true, quote: null, coveredAtSec: null });
+        expect(terminal?.coveredQuotes).toEqual([]);
+    });
+
     it.each([
         ['missing', null],
         ['short', [{ id: 'brief-point-1', label: POINTS[0], status: 'covered' as const }]],

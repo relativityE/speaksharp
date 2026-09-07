@@ -62,14 +62,19 @@ export function applyFinalizedCoverageAuthority(
 
     const rows = derived.rows.map((row, index) => {
         const status = authority[index].status;
-        const covered = status === 'covered';
+        // The stop seam sends an evidence offset for both `covered` and `partial`; both are therefore
+        // detected. Preserve the richer status for the amber/green rail while keeping the binary count
+        // aligned with the server verdict.
+        const covered = status === 'covered' || status === 'partial';
         return {
             ...row,
             status,
             covered,
-            // Presentation evidence may be kept only when it agrees with the terminal verdict.
-            coveredAtSec: covered && row.covered ? row.coveredAtSec : null,
-            quote: covered && row.covered ? row.quote : null,
+            // The persisted stop-seam authority currently carries status only. Even when the weaker
+            // presentation matcher reaches the same status, it may have selected a different span. Do
+            // not attach a quote or timestamp that the terminal result cannot verify.
+            coveredAtSec: null,
+            quote: null,
         };
     });
     const coveredCount = rows.filter((row) => row.covered).length;
@@ -79,7 +84,8 @@ export function applyFinalizedCoverageAuthority(
         total: rows.length,
         coveredCount,
         nextIndex: nextIndex === -1 ? null : nextIndex,
-        coveredQuotes: rows.map((row) => row.quote).filter((quote): quote is string => Boolean(quote)),
+        // Terminal attribution is withheld until the stop-seam authority carries exact evidence.
+        coveredQuotes: [],
     };
 }
 

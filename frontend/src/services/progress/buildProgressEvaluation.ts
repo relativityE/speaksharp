@@ -112,12 +112,13 @@ function hasClarityEvidence(e: SessionEvidence): boolean {
  * partially migrated row (especially NULL/invalid filler evidence) from producing coaching or a score.
  */
 export function hasCompleteEligibleProgressEvidence(
-    evaluation: Pick<ProgressEvaluation, 'eligible' | 'wordCount' | 'clarityRaw' | 'fillerCount' | 'wpm'>,
+    evaluation: Pick<ProgressEvaluation, 'eligible' | 'wordCount' | 'clarityRaw' | 'fillerCount' | 'errorMarkerCount' | 'wpm'>,
 ): boolean {
     return evaluation.eligible
         && Number.isInteger(evaluation.wordCount) && evaluation.wordCount > 0
         && typeof evaluation.clarityRaw === 'number' && Number.isFinite(evaluation.clarityRaw)
         && Number.isInteger(evaluation.fillerCount) && (evaluation.fillerCount as number) >= 0
+        && Number.isInteger(evaluation.errorMarkerCount) && (evaluation.errorMarkerCount as number) >= 0
         && typeof evaluation.wpm === 'number' && Number.isFinite(evaluation.wpm);
 }
 
