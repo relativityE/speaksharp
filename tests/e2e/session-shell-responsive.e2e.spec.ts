@@ -46,10 +46,15 @@ const heightFor = (w: number) => (w < MD_BREAKPOINT ? 844 : 900);
  * still positioned for the wider layout. That is not a product overflow, it is a stale frame, and it
  * produced failures on branches containing no frontend files at all while passing on same-commit reruns.
  *
- * Two conditions, because either alone is insufficient: the layout viewport must report the new width, and
- * a frame must have been produced after it did.
+ * Three conditions, because the captured 375px node was not always stale layout. With `popLayout`, the
+ * outgoing route remains absolutely positioned at its measured width until its 200ms exit completes. A
+ * newly visible destination can therefore coexist with the old 375px PracticePage while the test switches
+ * to 320px. That animation is valid product behavior, but measuring both route trees is not a stable-state
+ * responsive assertion. Wait for presence settlement first, then for the layout viewport and a committed
+ * frame at the requested width.
  */
 async function settleViewport(page: Page, width: number) {
+  await expect(page.getByTestId('route-presence-child')).toHaveCount(1, { timeout: 5_000 });
   await page.setViewportSize({ width, height: heightFor(width) });
   await page.waitForFunction((w) => window.innerWidth === w, width, { timeout: 5_000 });
   // Two rAFs: the first runs before style/layout for this frame, the second after it has been committed.
