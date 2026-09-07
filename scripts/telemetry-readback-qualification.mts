@@ -31,8 +31,10 @@
 import {
     evaluateTelemetryCompleteness,
     REQUIRED_EVENT_FAMILIES,
+    PRE_JOURNEY_EVENT_FAMILIES,
     type CompletenessResult,
 } from '../frontend/src/services/telemetry/completenessGate';
+import { TRAFFIC_TYPES } from '../frontend/src/services/telemetry/trafficType';
 import { GOVERNED_EVENTS } from '../frontend/src/services/telemetryAllowlist';
 
 type Evidence = {
@@ -56,9 +58,20 @@ const arg = (flag: string): string | null => {
 
 const releaseSha = arg('--release-sha') ?? process.env.RELEASE_SHA ?? null;
 const journeyId = arg('--journey-id') ?? process.env.TELEMETRY_QUALIFICATION_JOURNEY_ID ?? null;
-// The traffic classification the qualifying journey must carry. Defaulted to `internal` because a
-// release gate is measured on a controlled run, never on whatever customer traffic happened to arrive.
-const trafficType = arg('--traffic-type') ?? process.env.TELEMETRY_QUALIFICATION_TRAFFIC_TYPE ?? 'internal';
+/**
+ * The traffic classification the controlled run actually carries.
+ *
+ * NOT defaulted to `internal`. `resolveTrafficType()` reserves `internal` for a `VITE_INTERNAL_BUILD`
+ * that Production users never receive, and emits `canary` for the automated qualification account and
+ * `internal_test` for a human dogfood session on canonical Production. Hard-coding `internal` therefore
+ * matched nothing on the deployment this gate is meant to qualify: the readback returned no rows and
+ * HELD even when the intended journey had been ingested perfectly — a gate that always fails is as
+ * useless as one that always passes, and more expensive.
+ *
+ * There is no safe default, so there is none: the caller names the class, and an unrecognised one HOLDs
+ * rather than being sent to the query as a value that can only ever match zero rows.
+ */
+const trafficType = arg('--traffic-type') ?? process.env.TELEMETRY_QUALIFICATION_TRAFFIC_TYPE ?? null;
 const windowHours = Number(arg('--window-hours') ?? 24);
 
 /** Every refusal lands here, so a missing precondition cannot become a pass by another route. */
@@ -87,6 +100,10 @@ async function main(): Promise<void> {
     // Required, not defaulted. Without it this would union unrelated users, tabs and attempts into one
     // apparently-complete set — the false pass this gate exists to prevent.
     if (!journeyId) hold('no --journey-id supplied; completeness is a property of ONE journey, never of a time window');
+    if (!trafficType) hold('no --traffic-type supplied; there is no safe default — name the controlled run\'s class');
+    if (!(TRAFFIC_TYPES as readonly string[]).includes(trafficType)) {
+        hold(`--traffic-type ${trafficType} is not one of the classifications the product emits (${TRAFFIC_TYPES.join(', ')})`);
+    }
     if (!Number.isFinite(windowHours) || windowHours <= 0) hold(`--window-hours ${windowHours} is not a positive number`);
 
     const projectId = process.env.POSTHOG_PROJECT_ID;
@@ -103,14 +120,24 @@ async function main(): Promise<void> {
     // adding a name with a quote in it.
     const sql = (value: string) => `'${value.replace(/'/g, "''")}'`;
     const governedList = GOVERNED_EVENTS.map(sql).join(', ');
+    // TWO SCOPES, because the required families do not all live in one journey.
+    //
+    // The identity receipts are emitted at sign-in, under the pre-product journey; the product journey is
+    // minted on entry, before recording. Asking for both inside one `journey_id` can only ever return one
+    // set, so an ordinary complete run could never qualify. They are still required and still pinned to
+    // this release and traffic class — they are simply not journey-scoped, because they were never in it.
+    const preJourneyList = PRE_JOURNEY_EVENT_FAMILIES.map(sql).join(', ');
     const query = `
         SELECT DISTINCT event
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
           AND properties.release_sha = ${sql(releaseSha)}
-          AND properties.journey_id = ${sql(journeyId)}
           AND properties.traffic_type = ${sql(trafficType)}
           AND event IN (${governedList})
+          AND (
+            properties.journey_id = ${sql(journeyId)}
+            OR event IN (${preJourneyList})
+          )
     `;
 
     let response: Response;

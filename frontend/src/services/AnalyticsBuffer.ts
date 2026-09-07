@@ -177,7 +177,25 @@ class AnalyticsBuffer {
 
   private constructor() {
     if (typeof window !== 'undefined') {
-      window.addEventListener('pagehide', () => this.drainSynchronously());
+      /**
+       * #1259 F12 — REPORT THE TEARDOWN DRAIN, not just perform it.
+       *
+       * `pagehide_drained` was declared as a flush outcome and allowlisted, and no production path ever
+       * emitted it — so the health signal could not distinguish "the queue was forced out as the tab
+       * closed" from an ordinary flush, nor say how much was still pending when it happened. A declared
+       * outcome nothing can produce reads, in a dashboard, exactly like one that never occurred.
+       *
+       * Measured BEFORE the drain, because the depth after it is always zero and the interesting number
+       * is what teardown had to force. Emitted first, then drained, so the health event is itself in the
+       * queue this drain flushes — on `pagehide` there is no later opportunity to send it.
+       */
+      window.addEventListener('pagehide', () => {
+        const pending = this.queue.length;
+        const dropped = this.backpressureDropped;
+        this.backpressureDropped = 0;
+        recordFlush('pagehide_drained', pending, dropped);
+        this.drainSynchronously();
+      });
     }
   }
 

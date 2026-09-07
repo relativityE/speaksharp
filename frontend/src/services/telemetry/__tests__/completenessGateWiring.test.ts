@@ -100,6 +100,45 @@ describe('#1259 completeness gate wiring', () => {
         }).toEqual({ filtersByJourney: true, filtersByTraffic: true, holdsWithoutAJourney: true });
     });
 
+    it('CASUALTY: the traffic class is NAMED, never defaulted to one Production cannot emit', () => {
+        // `resolveTrafficType()` reserves `internal` for a build Production users never receive, and emits
+        // `canary` for the automated account and `internal_test` for a human dogfood session. Hard-coding
+        // `internal` matched nothing on the deployment this gate qualifies: the readback returned no rows
+        // and HELD even when the intended journey had been ingested perfectly. A gate that always fails
+        // is as useless as one that always passes, and more expensive to ignore.
+        const src = readFileSync(join(REPO, 'scripts/telemetry-readback-qualification.mts'), 'utf8');
+        const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+        expect({
+            noSilentDefault: !/TELEMETRY_QUALIFICATION_TRAFFIC_TYPE\s*\?\?\s*'/.test(code),
+            holdsWhenUnnamed: src.includes('no --traffic-type supplied'),
+            rejectsUnknownClasses: src.includes('is not one of the classifications the product emits'),
+        }).toEqual({ noSilentDefault: true, holdsWhenUnnamed: true, rejectsUnknownClasses: true });
+
+        const wf = readFileSync(join(REPO, '.github/workflows/service-level-evidence.yml'), 'utf8');
+        const wfCode = wf.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+        expect({ hardCodedInternal: /TELEMETRY_QUALIFICATION_TRAFFIC_TYPE:\s*internal\s*$/m.test(wfCode) })
+            .toEqual({ hardCodedInternal: false });
+    });
+
+    it('CASUALTY: the identity receipts are required but NOT journey-scoped', () => {
+        // A controlled user signs in and only then enters the product, so `account_identified` and the
+        // positive control carry the PRE-PRODUCT journey while the session receipts carry the one minted
+        // on entry. Requiring both inside a single `journey_id` selects one set or the other and can
+        // never see both — an ordinary complete run could not qualify. They stay required, and stay
+        // pinned to the release and traffic class; they are simply not in the journey.
+        const src = readFileSync(join(REPO, 'scripts/telemetry-readback-qualification.mts'), 'utf8');
+        expect({
+            scopesPreJourneyFamiliesSeparately: src.includes('PRE_JOURNEY_EVENT_FAMILIES'),
+            stillJourneyScopedOtherwise: src.includes('properties.journey_id'),
+            stillPinnedToTraffic: src.includes('properties.traffic_type'),
+        }).toEqual({
+            scopesPreJourneyFamiliesSeparately: true,
+            stillJourneyScopedOtherwise: true,
+            stillPinnedToTraffic: true,
+        });
+    });
+
     it('that caller is reachable as a command', () => {
         const pkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
         const wired = Object.entries(pkg.scripts)

@@ -7,6 +7,7 @@ import {
 } from '../journeyIdentity';
 import {
     evaluateTelemetryCompleteness, currentRunCompleteness, REQUIRED_EVENT_FAMILIES,
+    PRE_JOURNEY_EVENT_FAMILIES, IN_JOURNEY_EVENT_FAMILIES,
 } from '../completenessGate';
 import { emitRetentionObservation } from '../retentionObservation';
 import { emitCoverageEvaluation, __resetCoverageTelemetryForTests } from '../coverageTelemetry';
@@ -309,5 +310,47 @@ describe('#1421 P2 — an SDK attempt is not ingestion', () => {
             readsTheServerBack: releaseGate.includes('HogQLQuery'),
             importsTheInTabRecord: /attemptedEventFamilies|currentRunCompleteness/.test(releaseGate),
         }).toEqual({ readsTheServerBack: true, importsTheInTabRecord: false });
+    });
+});
+
+
+describe('#1421 — the required families split across the sign-in and the journey', () => {
+    it('CASUALTY: every required family belongs to exactly one scope', () => {
+        // A family in neither scope is required by nothing; a family in both is required twice, and the
+        // journey-scoped query would then demand an identity receipt that is never inside a journey.
+        const inBoth = IN_JOURNEY_EVENT_FAMILIES.filter((f) => PRE_JOURNEY_EVENT_FAMILIES.includes(f));
+        const covered = [...IN_JOURNEY_EVENT_FAMILIES, ...PRE_JOURNEY_EVENT_FAMILIES];
+        const uncovered = REQUIRED_EVENT_FAMILIES.filter((f) => !covered.includes(f));
+        expect({ inBoth, uncovered }).toEqual({ inBoth: [], uncovered: [] });
+    });
+
+    it('CASUALTY: the identity receipts are the ones outside the journey', () => {
+        // Named explicitly, because the split is a claim about WHEN each receipt is emitted, and a
+        // silent change to that list would quietly narrow what a journey has to prove.
+        expect([...PRE_JOURNEY_EVENT_FAMILIES].sort())
+            .toEqual(['account_identified', 'telemetry_positive_control']);
+    });
+});
+
+describe('#1421 F12 — the teardown drain reports itself', () => {
+    it('CASUALTY: pagehide emits the drain outcome with what was still pending', () => {
+        // `pagehide_drained` was declared and allowlisted, and nothing produced it: the health signal
+        // could not distinguish a forced teardown drain from an ordinary flush, nor say how much was
+        // pending. Measured BEFORE the drain, because afterwards the depth is always zero.
+        // The health module is told how to send by the buffer, not the other way round; without this the
+        // emitter is undefined and `recordFlush` is a no-op — which would make this test pass or fail for
+        // reasons that have nothing to do with the pagehide path.
+        analyticsBuffer.wireHealthEmitter();
+        analyticsBuffer.ready = true;
+        analyticsBuffer.queue.length = 0;
+        analyticsBuffer.push('session_started', { mode: 'private' }, 'LOW');
+
+        window.dispatchEvent(new Event('pagehide'));
+
+        const health = captured('telemetry_health');
+        const pagehide = health.filter((row) => row.flush_outcome === 'pagehide_drained');
+        expect({ emitted: pagehide.length > 0 }).toEqual({ emitted: true });
+        // Depth is a BAND, never a raw count — the field carries no user content either way.
+        expect(pagehide[0]?.queue_depth_band).toBeDefined();
     });
 });

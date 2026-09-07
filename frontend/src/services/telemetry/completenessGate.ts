@@ -47,6 +47,30 @@ export const REQUIRED_EVENT_FAMILIES: readonly GovernedEvent[] = Object.freeze([
     'stage_latency',
 ]);
 
+/**
+ * The required families that are NOT part of a product journey, by construction.
+ *
+ * A controlled user signs in and only then enters `/practice`. `account_identified` and the
+ * identity-settled positive control are therefore emitted under the PRE-PRODUCT journey, and
+ * `ensureJourneyBoundary()` mints a new `journey_id` on the transition into the product — correctly, and
+ * before any recording begins. A single journey-scoped readback can consequently contain the identity
+ * receipts or the session receipts, never both, so requiring both inside one journey made an ordinary
+ * complete run impossible to qualify.
+ *
+ * Splitting them is the honest fix rather than moving the boundary: these two receipts genuinely belong
+ * to the sign-in, not to the pass through the product. They are still REQUIRED, and still scoped to the
+ * release and traffic class — just not to the journey, because they were never in it.
+ */
+export const PRE_JOURNEY_EVENT_FAMILIES: readonly GovernedEvent[] = Object.freeze([
+    'telemetry_positive_control',
+    'account_identified',
+]);
+
+/** The required families that a single pass through the product must itself produce. */
+export const IN_JOURNEY_EVENT_FAMILIES: readonly GovernedEvent[] = Object.freeze(
+    REQUIRED_EVENT_FAMILIES.filter((f) => !PRE_JOURNEY_EVENT_FAMILIES.includes(f)),
+);
+
 export type CompletenessVerdict = 'QUALIFIED' | 'HOLD';
 
 export interface CompletenessResult {

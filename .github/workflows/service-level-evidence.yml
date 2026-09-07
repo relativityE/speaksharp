@@ -170,7 +170,11 @@ jobs:
           # pass through the product: without this the readback would union unrelated users, tabs and
           # attempts into an apparently-complete set. Absent, the script HOLDs rather than guessing.
           TELEMETRY_QUALIFICATION_JOURNEY_ID: ${{ vars.TELEMETRY_QUALIFICATION_JOURNEY_ID }}
-          TELEMETRY_QUALIFICATION_TRAFFIC_TYPE: internal
+          # The class the controlled run ACTUALLY carries. `internal` is reserved for a build Production
+          # users never receive, so hard-coding it matched nothing on the deployment this qualifies and
+          # HELD even when the journey had been ingested perfectly. Named by the operator alongside the
+          # journey; an unrecognised class HOLDs rather than silently matching zero rows.
+          TELEMETRY_QUALIFICATION_TRAFFIC_TYPE: ${{ vars.TELEMETRY_QUALIFICATION_TRAFFIC_TYPE }}
         # No `if: always()` and no `continue-on-error`. This step's exit status GOVERNS: the evaluator
         # exits non-zero on HOLD, and a HOLD must fail the release evidence job rather than be recorded
         # beside a green one. A qualification that cannot fail the build is a report, not a gate.
