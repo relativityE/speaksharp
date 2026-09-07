@@ -1,5 +1,5 @@
 import { GOVERNED_EVENTS, type GovernedEvent } from '../telemetryAllowlist';
-import { observedEventFamilies } from '../AnalyticsBuffer';
+import { attemptedEventFamilies } from '../AnalyticsBuffer';
 
 /**
  * #1259 — a readback that finds nothing must say HOLD, not pass.
@@ -64,19 +64,21 @@ export interface CompletenessResult {
  * because a decoder that silently tidies its input cannot report that the input was wrong.
  */
 /**
- * The verdict for THIS TAB, from the families the buffer has actually emitted.
+ * A DEBUGGING view for this tab. NOT a release gate.
  *
- * The evaluator existed with no production caller: a repository-wide search found only the module and
- * its unit test, so the HOLD it promised could never fire however well its branches were tested. A
- * requirement captured but not wired is not implemented, and it looks exactly like one that is.
+ * It reports whether this tab ATTEMPTED to send each required family — useful while diagnosing a
+ * session, and no more than that. `posthog.capture()` is fire-and-forget, so an attempt establishes
+ * nothing about ingestion: a tab whose every request failed in the network would still look complete
+ * here. Release completeness is decided only by reading the events back from the server, in
+ * `scripts/telemetry-readback-qualification.mts`.
  *
- * `observedEventFamilies()` is the buffer's own record of what it emitted, so this reports on the run
- * that actually happened rather than on an assumption about it.
+ * The name says `currentRun`, not `qualified`, for that reason. A QUALIFIED verdict from this function
+ * means "this tab tried"; it must never be quoted as evidence that a release is instrumented.
  */
 export function currentRunCompleteness(
-    observed: readonly string[] = observedEventFamilies(),
+    attempted: readonly string[] = attemptedEventFamilies(),
 ): CompletenessResult {
-    return evaluateTelemetryCompleteness([...observed]);
+    return evaluateTelemetryCompleteness([...attempted]);
 }
 
 export function evaluateTelemetryCompleteness(

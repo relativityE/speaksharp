@@ -160,6 +160,22 @@ jobs:
             console.log('Service-level evidence passed and counts as release evidence.');
           "
 
+      - name: Qualify telemetry readback (fail closed)
+        env:
+          POSTHOG_API_HOST: ${{ vars.POSTHOG_API_HOST }}
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+          RELEASE_SHA: ${{ github.sha }}
+          # The controlled journey this qualification is scoped to. Completeness is a property of ONE
+          # pass through the product: without this the readback would union unrelated users, tabs and
+          # attempts into an apparently-complete set. Absent, the script HOLDs rather than guessing.
+          TELEMETRY_QUALIFICATION_JOURNEY_ID: ${{ vars.TELEMETRY_QUALIFICATION_JOURNEY_ID }}
+          TELEMETRY_QUALIFICATION_TRAFFIC_TYPE: internal
+        # No `if: always()` and no `continue-on-error`. This step's exit status GOVERNS: the evaluator
+        # exits non-zero on HOLD, and a HOLD must fail the release evidence job rather than be recorded
+        # beside a green one. A qualification that cannot fail the build is a report, not a gate.
+        run: pnpm telemetry:readback-qualification
+
       - name: Upload service-level evidence
         if: always()
         uses: actions/upload-artifact@v6

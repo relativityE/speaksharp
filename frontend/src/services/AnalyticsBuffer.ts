@@ -5,7 +5,7 @@ import logger from '../lib/logger';
 import { sanitizePrivateTelemetryProps } from './transcription/privateTelemetrySanitizer';
 import { sanitizeV4TelemetryProps, isV4TelemetryEvent } from './transcription/privateV4TelemetrySanitizer';
 import { projectEventProps, isGovernedEvent, type GovernedEvent } from './telemetryAllowlist';
-import { endRecordingAttempt } from './telemetry/journeyIdentity';
+import { beginJourney } from './telemetry/journeyIdentity';
 import { buildEnvelope, stripEnvelopeKeys, type EnvelopeSources, type EventEnvelope } from './telemetry/envelope';
 import { buildTrafficSignals } from './telemetry/trafficType';
 import { resolvedEngine } from './telemetry/runtimeAttribution';
@@ -51,17 +51,30 @@ interface AnalyticsEvent {
 // Widening the pattern only defers the problem to the next field someone invents. Event properties are now
 // projected onto a per-event allowlist in `telemetryAllowlist.ts`, which fails CLOSED on anything unknown.
 
-/** Every governed family this tab has DELIVERED. Names only — never properties, never Private names. */
-const seenEventFamilies = new Set<string>();
+/**
+ * Every governed family for which this tab has ATTEMPTED a send. Names only — never properties, never
+ * Private names.
+ *
+ * NOT "delivered", and the distinction is the whole point. `posthog.capture()` is fire-and-forget: it
+ * returns once the SDK has accepted the event, which says nothing about whether the server ingested it.
+ * Calling that delivery would be the same false-pass one layer along from calling the producer call
+ * delivery — a tab whose requests all failed in the network would still report a full set.
+ *
+ * So this is producer/SDK-attempt evidence, and it is not release evidence. It answers "did this tab
+ * try to emit the required families?", which is worth knowing while debugging a session. Whether the
+ * required families actually EXIST is answered only by reading them back from the server — see
+ * `scripts/telemetry-readback-qualification.mts`, which is what governs a release.
+ */
+const attemptedFamilies = new Set<string>();
 
-/** What the completeness gate reads. A copy, so a caller cannot edit the record it is judging. */
-export function observedEventFamilies(): string[] {
-  return [...seenEventFamilies];
+/** The families this tab attempted. A copy, so a caller cannot edit the record it is reading. */
+export function attemptedEventFamilies(): string[] {
+  return [...attemptedFamilies];
 }
 
 /** Test seam only. */
 export function __resetObservedEventFamiliesForTests(): void {
-  seenEventFamilies.clear();
+  attemptedFamilies.clear();
 }
 
 class AnalyticsBuffer {
@@ -402,17 +415,19 @@ class AnalyticsBuffer {
         $ts: event.timestamp
       });
 
-      // #1259 P1 — COMPLETENESS IS RECORDED ON DELIVERY, AND ONLY FOR GOVERNED FAMILIES.
+      // #1259 — RECORDED AT THE SEND ATTEMPT, AND ONLY FOR GOVERNED FAMILIES.
       //
-      // On delivery, because an event that was produced and then dropped cannot appear in the readback
-      // the gate judges; recording it earlier lets a lossy tab qualify.
+      // Here rather than at `push()`, because an event that was produced and then evicted by
+      // backpressure never reached the SDK at all. But this is still only an ATTEMPT: capture() is
+      // fire-and-forget, so nothing here establishes ingestion, and nothing here may be used to
+      // qualify a release. See the note on `attemptedEventFamilies`.
       //
       // Governed only, because `evaluateTelemetryCompleteness()` treats every name outside
       // `GOVERNED_EVENTS` as unrecognised and forces HOLD. The ordinary Private path emits
       // `private_model_acquisition_*`, which are deliberately outside the registry and carry their own
       // allowlist — so recording them here made a NORMAL, complete Private session unable to qualify.
       // Private telemetry is audited on its own terms; it is not part of the governed-family question.
-      if (isGovernedEvent(event.event)) seenEventFamilies.add(event.event);
+      if (isGovernedEvent(event.event)) attemptedFamilies.add(event.event);
     } catch (err) {
       logger.warn({ err, event: event.event }, '[AnalyticsBuffer] Failed to send event to PostHog');
     }
@@ -450,7 +465,7 @@ class AnalyticsBuffer {
   }
 
   public identify(userId: string): void {
-    // #1259 P1 — AN ATTEMPT NEVER CROSSES AN ACCOUNT BOUNDARY.
+    // #1259 P1 — NO CORRELATION SCOPE CROSSES AN ACCOUNT BOUNDARY.
     //
     // Account A finishes a take, signs out, and account B signs in in the same tab before any accepted
     // Start. Nothing in that path closes the attempt: retirement happens where the NEXT take begins,
@@ -466,10 +481,16 @@ class AnalyticsBuffer {
     // account (a token refresh, a revisit) is not a boundary, and retiring there would sever a take
     // from its own save. A first identification after anonymous use is likewise the same person
     // arriving, not a different one.
+    // Retiring only the ATTEMPT was not enough. `journey_id` is the wider correlation key and it is
+    // what actually joins events together: leaving it in place meant B's whole visit was reported
+    // inside A's journey, so the two people's events remained joinable by the very field the envelope
+    // exists to provide. `attempt_seq` and the initialisation ordinals continue across it too, so B's
+    // first take would report as A's second. `beginJourney()` mints a new journey AND clears the
+    // attempt and its ordinal, which is the entire scope.
     const previousAccountId = AnalyticsBuffer.currentAccountId;
     const nextAccountId = userId || null;
     if (previousAccountId !== null && previousAccountId !== nextAccountId) {
-      endRecordingAttempt();
+      beginJourney();
     }
 
     // Record BEFORE the capture below: `account_identified` is itself a governed event, and an
@@ -567,10 +588,10 @@ class AnalyticsBuffer {
    * identity (and so PostHog feature-flag evaluation reverts to the anonymous/default cohort).
    */
   public resetIdentity(): void {
-    // Sign-out is an account boundary too, and the same rule applies: whatever take was open belonged
-    // to the person who just left. Retiring here also means the guard in `identify()` does not depend
-    // on `currentAccountId` surviving sign-out to notice the change.
-    endRecordingAttempt();
+    // Sign-out is an account boundary too, and the same rule applies: whatever was open belonged to the
+    // person who just left. Retiring the whole journey here also means the guard in `identify()` does
+    // not depend on `currentAccountId` surviving sign-out to notice the change.
+    beginJourney();
     try {
       posthog.reset();
       // Re-evaluate flags for the fresh anonymous id so a signed-out shared device does not retain

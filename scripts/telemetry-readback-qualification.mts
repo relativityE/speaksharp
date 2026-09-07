@@ -7,10 +7,17 @@
  * branches were exercised. A requirement that is captured but not wired is not implemented — and it is
  * indistinguishable, from the outside, from one that is. This is the caller.
  *
- * WHAT IT DOES. Reads back, from PostHog, the GOVERNED event families actually ingested for one
- * release SHA inside a bounded window, and hands those names — unfiltered, junk included — to the
+ * WHAT IT DOES. Reads back, from PostHog, the GOVERNED event families actually ingested for ONE
+ * CONTROLLED JOURNEY on one release SHA, and hands those names — unfiltered, junk included — to the
  * evaluator. The evaluator decides. This script only collects and reports, so the decision stays in
  * one falsifiable place rather than being re-implemented here in a slightly different form.
+ *
+ * WHY ONE JOURNEY AND NOT A TIME WINDOW. A window unions everything that happened in it: several
+ * users, several tabs, several attempts. Ten different people each producing a different third of the
+ * required families would union to a complete set, and the gate would report QUALIFIED for a run in
+ * which nobody's session was actually complete. Completeness is a property of ONE pass through the
+ * product, so the readback is scoped to one `journey_id` and one traffic classification, and both are
+ * required rather than defaulted.
  *
  * WHY IT FAILS CLOSED ON EVERYTHING MISSING. Absent credentials, an unreachable API, an HTTP error, a
  * malformed response and an empty result all produce HOLD, never a skip and never a pass. A
@@ -31,6 +38,8 @@ import { GOVERNED_EVENTS } from '../frontend/src/services/telemetryAllowlist';
 type Evidence = {
     gate: 'TELEMETRY-READBACK-COMPLETENESS';
     release_sha: string | null;
+    journey_id: string | null;
+    traffic_type: string;
     window_hours: number;
     observed_families: string[];
     required_families: string[];
@@ -46,6 +55,10 @@ const arg = (flag: string): string | null => {
 };
 
 const releaseSha = arg('--release-sha') ?? process.env.RELEASE_SHA ?? null;
+const journeyId = arg('--journey-id') ?? process.env.TELEMETRY_QUALIFICATION_JOURNEY_ID ?? null;
+// The traffic classification the qualifying journey must carry. Defaulted to `internal` because a
+// release gate is measured on a controlled run, never on whatever customer traffic happened to arrive.
+const trafficType = arg('--traffic-type') ?? process.env.TELEMETRY_QUALIFICATION_TRAFFIC_TYPE ?? 'internal';
 const windowHours = Number(arg('--window-hours') ?? 24);
 
 /** Every refusal lands here, so a missing precondition cannot become a pass by another route. */
@@ -54,6 +67,8 @@ function hold(reason: string, observed: string[] = []): never {
     const evidence: Evidence = {
         gate: 'TELEMETRY-READBACK-COMPLETENESS',
         release_sha: releaseSha,
+        journey_id: journeyId,
+        traffic_type: trafficType,
         window_hours: windowHours,
         observed_families: observed,
         required_families: [...REQUIRED_EVENT_FAMILIES],
@@ -69,6 +84,9 @@ function hold(reason: string, observed: string[] = []): never {
 
 async function main(): Promise<void> {
     if (!releaseSha) hold('no --release-sha supplied; a readback not pinned to a release proves nothing');
+    // Required, not defaulted. Without it this would union unrelated users, tabs and attempts into one
+    // apparently-complete set — the false pass this gate exists to prevent.
+    if (!journeyId) hold('no --journey-id supplied; completeness is a property of ONE journey, never of a time window');
     if (!Number.isFinite(windowHours) || windowHours <= 0) hold(`--window-hours ${windowHours} is not a positive number`);
 
     const projectId = process.env.POSTHOG_PROJECT_ID;
@@ -80,12 +98,18 @@ async function main(): Promise<void> {
 
     // Governed vocabulary only, bound to this release. `event` is the family name; no property is
     // selected, so nothing user-authored can reach this process.
-    const governedList = GOVERNED_EVENTS.map((e) => `'${e.replace(/'/g, "''")}'`).join(', ');
+    // Every governed family name is a compile-time constant from the allowlist, but each is escaped
+    // anyway: a vocabulary is a thing people edit, and the escaping must not depend on nobody ever
+    // adding a name with a quote in it.
+    const sql = (value: string) => `'${value.replace(/'/g, "''")}'`;
+    const governedList = GOVERNED_EVENTS.map(sql).join(', ');
     const query = `
         SELECT DISTINCT event
         FROM events
         WHERE timestamp > now() - INTERVAL ${Math.floor(windowHours)} HOUR
-          AND properties.release_sha = '${releaseSha.replace(/'/g, "''")}'
+          AND properties.release_sha = ${sql(releaseSha)}
+          AND properties.journey_id = ${sql(journeyId)}
+          AND properties.traffic_type = ${sql(trafficType)}
           AND event IN (${governedList})
     `;
 
@@ -121,6 +145,8 @@ async function main(): Promise<void> {
     const evidence: Evidence = {
         gate: 'TELEMETRY-READBACK-COMPLETENESS',
         release_sha: releaseSha,
+        journey_id: journeyId,
+        traffic_type: trafficType,
         window_hours: windowHours,
         observed_families: observed.filter((n) => typeof n === 'string'),
         required_families: [...REQUIRED_EVENT_FAMILIES],
@@ -135,7 +161,7 @@ async function main(): Promise<void> {
         console.error(`HOLD — ${result.reasons.join('; ')}`);
         process.exit(1);
     }
-    console.log('QUALIFIED — every required governed family is present in the Production readback.');
+    console.log(`QUALIFIED — every required governed family was INGESTED for journey ${journeyId} on ${releaseSha}.`);
 }
 
 await main();

@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { analyticsBuffer, observedEventFamilies, __resetObservedEventFamiliesForTests } from '../../AnalyticsBuffer';
+import { analyticsBuffer, attemptedEventFamilies, __resetObservedEventFamiliesForTests } from '../../AnalyticsBuffer';
 import { emitPracticeLoop, __resetPracticeLoopTelemetryForTests } from '../practiceLoopTelemetry';
 import {
     beginRecordingAttempt, endRecordingAttempt, currentAttemptId, currentAttemptSeq,
-    beginJourney, __resetJourneyIdentityForTests,
+    beginJourney, currentJourneyId, __resetJourneyIdentityForTests,
 } from '../journeyIdentity';
 import {
     evaluateTelemetryCompleteness, currentRunCompleteness, REQUIRED_EVENT_FAMILIES,
@@ -13,6 +13,8 @@ import { emitCoverageEvaluation, __resetCoverageTelemetryForTests } from '../cov
 import { ensureJourneyBoundary, __resetJourneyBoundaryForTests } from '@/hooks/useJourneyBoundary';
 import { projectEventProps } from '../../telemetryAllowlist';
 import posthog from 'posthog-js';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 vi.mock('posthog-js', () => ({
     default: { capture: vi.fn(), identify: vi.fn(), reset: vi.fn(), reloadFeatureFlags: vi.fn() },
@@ -95,7 +97,7 @@ describe('#1421 P1 — the completeness gate is wired and demands what a session
 
     it('CASUALTY: the gate reads what this tab actually DELIVERED', () => {
         // The evaluator had no production caller at all: a requirement captured but never able to fire.
-        expect(observedEventFamilies()).toEqual([]);
+        expect(attemptedEventFamilies()).toEqual([]);
         expect(currentRunCompleteness().verdict).toBe('HOLD');
 
         for (const family of REQUIRED_EVENT_FAMILIES) {
@@ -114,7 +116,7 @@ describe('#1421 P1 — the completeness gate is wired and demands what a session
         // it exists to prevent. Recording at delivery is what makes the verdict answerable.
         analyticsBuffer.ready = false;
         analyticsBuffer.push('session_started', { mode: 'private' }, 'LOW');
-        expect(observedEventFamilies()).not.toContain('session_started');
+        expect(attemptedEventFamilies()).not.toContain('session_started');
         expect(currentRunCompleteness().verdict).toBe('HOLD');
     });
 
@@ -129,7 +131,7 @@ describe('#1421 P1 — the completeness gate is wired and demands what a session
         }
         analyticsBuffer.push('private_model_acquisition_start' as Parameters<typeof analyticsBuffer.push>[0], {}, 'CRITICAL');
 
-        expect(observedEventFamilies()).not.toContain('private_model_acquisition_start');
+        expect(attemptedEventFamilies()).not.toContain('private_model_acquisition_start');
         const result = currentRunCompleteness();
         expect({ verdict: result.verdict, unrecognised: result.unrecognised })
             .toEqual({ verdict: 'QUALIFIED', unrecognised: [] });
@@ -162,32 +164,48 @@ describe('#1421 P2 — an unobserved history is null, never zero', () => {
 
 
 describe('#1421 P1 — an attempt never crosses an account boundary', () => {
-    it('CASUALTY: the incoming account\'s FIRST event does not carry the previous account\'s attempt', () => {
+    it('CASUALTY: the incoming account inherits NO part of the previous account\'s correlation scope', () => {
         analyticsBuffer.identify('account-A');
+        const journeyA = currentJourneyId();
         const attemptA = beginRecordingAttempt();
+        const seqA = currentAttemptSeq();
         expect(attemptA).not.toBeNull();
 
-        // B signs in in the same tab. Nothing else closes the attempt: retirement happens where the next
-        // take begins, and product exit does not touch it.
+        // A's own identify legitimately carries A's scope; only what B emits is under test.
+        const beforeB = captured('account_identified').length;
+
+        // B signs in in the same tab. Nothing else closes any of this: attempt retirement happens where
+        // the next take begins, and product exit touches neither the attempt nor the journey.
         analyticsBuffer.identify('account-B');
 
-        expect(currentAttemptId()).toBeNull();
+        // RETIRING ONLY THE ATTEMPT WAS NOT ENOUGH. `journey_id` is the wider correlation key and is
+        // what actually joins events together; leaving it in place reported B's entire visit inside A's
+        // journey, so two people's events stayed joinable by the very field the envelope provides.
+        expect({
+            attempt: currentAttemptId(),
+            journeyCarriedOver: currentJourneyId() === journeyA,
+            ordinalCarriedOver: currentAttemptSeq() >= seqA,
+        }).toEqual({ attempt: null, journeyCarriedOver: false, ordinalCarriedOver: false });
 
         // The ordering is the finding, not just the retirement. `account_identified` is emitted DURING
         // identify(), so a retirement that ran afterwards would have cleaned up everything except the one
         // event that carried the confusion.
-        const identified = captured('account_identified');
-        const inherited = identified.filter((row) => row.attempt_id === attemptA);
-        expect({ eventsInheritingAsAttempt: inherited.length }).toEqual({ eventsInheritingAsAttempt: 0 });
+        const bEvents = captured('account_identified').slice(beforeB);
+        expect({ bEmittedSomething: bEvents.length > 0 }).toEqual({ bEmittedSomething: true });
+        const inherited = bEvents.filter((row) => row.attempt_id === attemptA || row.journey_id === journeyA);
+        expect({ eventsInheritingPreviousScope: inherited.length }).toEqual({ eventsInheritingPreviousScope: 0 });
     });
 
     it('CONTROL: re-identifying the SAME account is not a boundary', () => {
         analyticsBuffer.identify('account-A');
         const attempt = beginRecordingAttempt();
+        const journey = currentJourneyId();
         // A token refresh or a revisit. Retiring here would sever a take from its own save — the exact
-        // defect the previous fix removed by moving retirement to the next accepted start.
+        // defect the previous fix removed by moving retirement to the next accepted start — and would
+        // additionally split one visit into two journeys.
         analyticsBuffer.identify('account-A');
-        expect(currentAttemptId()).toBe(attempt);
+        expect({ attempt: currentAttemptId(), journey: currentJourneyId() })
+            .toEqual({ attempt, journey });
     });
 
     it('CONTROL: a FIRST identification after anonymous use is the same person arriving', () => {
@@ -265,5 +283,31 @@ describe('#1421 P1 — the journey boundary is established before the entry even
         const second = captured('session_started')[1]?.journey_id;
 
         expect({ sameJourney: second === first }).toEqual({ sameJourney: true });
+    });
+});
+
+
+describe('#1421 P2 — an SDK attempt is not ingestion', () => {
+    it('CASUALTY: the in-tab record is ATTEMPT evidence, and says so', () => {
+        // `posthog.capture()` is fire-and-forget: it returns once the SDK accepts the event, which
+        // establishes nothing about whether the server ingested it. A tab whose every request failed in
+        // the network would still look complete here. That is fine for debugging a session and is not
+        // release evidence, so the release decision must not be able to read this.
+        for (const family of REQUIRED_EVENT_FAMILIES) {
+            analyticsBuffer.push(family as Parameters<typeof analyticsBuffer.push>[0], {}, 'CRITICAL');
+        }
+
+        // The tab tried everything it was supposed to try...
+        expect(currentRunCompleteness().verdict).toBe('QUALIFIED');
+
+        // ...and that verdict is about ATTEMPTS. The thing that governs a release reads the server back,
+        // and it lives outside the browser bundle entirely.
+        const releaseGate = readFileSync(
+            resolve(__dirname, '../../../../../scripts/telemetry-readback-qualification.mts'), 'utf8',
+        );
+        expect({
+            readsTheServerBack: releaseGate.includes('HogQLQuery'),
+            importsTheInTabRecord: /attemptedEventFamilies|currentRunCompleteness/.test(releaseGate),
+        }).toEqual({ readsTheServerBack: true, importsTheInTabRecord: false });
     });
 });

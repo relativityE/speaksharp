@@ -60,6 +60,46 @@ describe('#1259 completeness gate wiring', () => {
         expect(callers.length).toBeGreaterThan(0);
     });
 
+    it('CASUALTY: the caller RUNS in a credentialed workflow, and its exit status governs', () => {
+        // A command nobody executes is the same defect one directory further out. It has to run where
+        // the credentials exist, and — this is the part that makes it a gate rather than a report — its
+        // failure has to fail the job. A step marked `continue-on-error`, or guarded by `if: always()`
+        // so it is recorded beside a green result, cannot hold anything.
+        const wf = readFileSync(join(REPO, '.github/workflows/service-level-evidence.yml'), 'utf8');
+        const raw = wf.split('- name:').find((s) => s.includes('telemetry:readback-qualification'));
+        expect({ stepExists: Boolean(raw) }).toEqual({ stepExists: true });
+
+        // COMMENTS STRIPPED FIRST. The step's own comment explains why it carries neither
+        // `continue-on-error` nor `if: always()`, and a substring check that reads prose as
+        // configuration matched exactly those words — this assertion failed on its own explanation.
+        const step = raw!.split('\n').filter((line) => !line.trim().startsWith('#')).join('\n');
+        expect({
+            hasApiKey: step!.includes('POSTHOG_PERSONAL_API_KEY'),
+            hasProject: step!.includes('POSTHOG_PROJECT_ID'),
+            pinnedToTheRelease: step!.includes('RELEASE_SHA'),
+            scopedToOneJourney: step!.includes('TELEMETRY_QUALIFICATION_JOURNEY_ID'),
+            // Both of these would stop the step from governing anything.
+            swallowsFailure: step!.includes('continue-on-error'),
+            runsRegardlessOfOutcome: step!.includes('if: always()'),
+        }).toEqual({
+            hasApiKey: true, hasProject: true, pinnedToTheRelease: true, scopedToOneJourney: true,
+            swallowsFailure: false, runsRegardlessOfOutcome: false,
+        });
+    });
+
+    it('CASUALTY: qualification is scoped to ONE journey — never a union across a time window', () => {
+        // A window unions everything inside it: several users, several tabs, several attempts. Ten
+        // people each producing a different third of the required families would union to a complete
+        // set, and the gate would report QUALIFIED for a run in which nobody's session was complete.
+        const src = readFileSync(join(REPO, 'scripts/telemetry-readback-qualification.mts'), 'utf8');
+        expect({
+            filtersByJourney: src.includes('properties.journey_id'),
+            filtersByTraffic: src.includes('properties.traffic_type'),
+            // Required, not defaulted: a missing journey must HOLD rather than silently widen the query.
+            holdsWithoutAJourney: src.includes('no --journey-id supplied'),
+        }).toEqual({ filtersByJourney: true, filtersByTraffic: true, holdsWithoutAJourney: true });
+    });
+
     it('that caller is reachable as a command', () => {
         const pkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
         const wired = Object.entries(pkg.scripts)
