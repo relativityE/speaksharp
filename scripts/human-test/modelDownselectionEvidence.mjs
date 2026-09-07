@@ -1,0 +1,318 @@
+/**
+ * #1432 / F-17 — executable contract for the Production three-model decision.
+ *
+ * This module does not choose a model. It accepts a completed, content-free evidence packet only
+ * after the PO's real-world CDP test and fails closed when any row cannot be tied to a passing
+ * Production observer receipt and decoded PostHog events from the same release/model/attempt.
+ */
+
+export const MODEL_DOWNSELECTION_SCHEMA_VERSION = 'speaksharp.model-downselection.v1';
+export const PRODUCTION_ORIGIN = 'https://speaksharp-public.vercel.app';
+export const COMPARISON_CANDIDATES = Object.freeze([
+  'v2:base.en',
+  'v4:distil:q4',
+  'moonshine:streaming-medium',
+]);
+export const REQUIRED_JOURNEYS = Object.freeze(['open_mic', 'focus_points']);
+
+export const LOCKED_GEMINI_CONTRACT = Object.freeze({
+  model: 'gemini-3.6-flash',
+  uncachedRequestsPerUserUtcDay: 10,
+  quotaScope: 'user_utc_day',
+  whatWorkedItems: 1,
+  whatToImproveItems: 1,
+  maxWhitespaceWordsPerPhrase: 6,
+  cachedResultsReadable: true,
+});
+
+const SHA40 = /^[0-9a-f]{40}$/;
+const SHA256 = /^[0-9a-f]{64}$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const TOKEN = /^[A-Za-z0-9._:-]{1,128}$/;
+const CANDIDATE_SET = new Set(COMPARISON_CANDIDATES);
+const JOURNEY_SET = new Set(REQUIRED_JOURNEYS);
+
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isIsoInstant = (value) => typeof value === 'string'
+  && Number.isFinite(Date.parse(value))
+  && new Date(value).toISOString() === value;
+const takeKey = (candidateId, journey) => `${candidateId}/${journey}`;
+
+function exactKeys(value, keys, path, problems) {
+  if (!isObject(value)) {
+    problems.push(`${path} must be an object`);
+    return false;
+  }
+  const expected = new Set(keys);
+  for (const key of keys) if (!Object.hasOwn(value, key)) problems.push(`${path}.${key} is missing`);
+  for (const key of Object.keys(value)) if (!expected.has(key)) problems.push(`${path}.${key} is not allowed`);
+  return true;
+}
+
+function expectEqual(actual, expected, path, problems) {
+  if (actual !== expected) problems.push(`${path} must be ${JSON.stringify(expected)}`);
+}
+
+function validateEnvironment(environment, problems) {
+  if (!exactKeys(environment, ['origin', 'releaseSha'], 'environment', problems)) return;
+  expectEqual(environment.origin, PRODUCTION_ORIGIN, 'environment.origin', problems);
+  if (typeof environment.releaseSha !== 'string' || !SHA40.test(environment.releaseSha)) {
+    problems.push('environment.releaseSha must be a full lowercase git SHA');
+  }
+}
+
+function validateGeminiContract(contract, problems) {
+  const keys = Object.keys(LOCKED_GEMINI_CONTRACT);
+  if (!exactKeys(contract, keys, 'geminiContract', problems)) return;
+  for (const key of keys) expectEqual(contract[key], LOCKED_GEMINI_CONTRACT[key], `geminiContract.${key}`, problems);
+}
+
+function validateReceipt(receipt, row, releaseSha, path, problems) {
+  const keys = [
+    'verdict', 'holdKind', 'dryRun', 'targetOrigin', 'releaseSha', 'expectedCandidate',
+    'requestedCandidate', 'observedCandidate', 'capturedAt', 'receiptSha256',
+  ];
+  if (!exactKeys(receipt, keys, `${path}.receipt`, problems)) return;
+  expectEqual(receipt.verdict, 'PASS', `${path}.receipt.verdict`, problems);
+  expectEqual(receipt.holdKind, null, `${path}.receipt.holdKind`, problems);
+  expectEqual(receipt.dryRun, false, `${path}.receipt.dryRun`, problems);
+  expectEqual(receipt.targetOrigin, PRODUCTION_ORIGIN, `${path}.receipt.targetOrigin`, problems);
+  expectEqual(receipt.releaseSha, releaseSha, `${path}.receipt.releaseSha`, problems);
+  for (const key of ['expectedCandidate', 'requestedCandidate', 'observedCandidate']) {
+    expectEqual(receipt[key], row.candidateId, `${path}.receipt.${key}`, problems);
+  }
+  if (!isIsoInstant(receipt.capturedAt)) problems.push(`${path}.receipt.capturedAt must be an ISO instant`);
+  if (typeof receipt.receiptSha256 !== 'string' || !SHA256.test(receipt.receiptSha256)) {
+    problems.push(`${path}.receipt.receiptSha256 must be a lowercase SHA-256 digest`);
+  }
+}
+
+function validateTelemetryReadback(readback, releaseSha, problems) {
+  const keys = ['source', 'queryId', 'decodedAt', 'positiveControlNonce', 'events'];
+  if (!exactKeys(readback, keys, 'telemetryReadback', problems)) return [];
+  expectEqual(readback.source, 'posthog_decoded_readback', 'telemetryReadback.source', problems);
+  if (typeof readback.queryId !== 'string' || !TOKEN.test(readback.queryId)) {
+    problems.push('telemetryReadback.queryId must be a bounded readback identifier');
+  }
+  if (!isIsoInstant(readback.decodedAt)) problems.push('telemetryReadback.decodedAt must be an ISO instant');
+  if (typeof readback.positiveControlNonce !== 'string' || !TOKEN.test(readback.positiveControlNonce)) {
+    problems.push('telemetryReadback.positiveControlNonce must be a bounded nonce');
+  }
+  if (!Array.isArray(readback.events)) {
+    problems.push('telemetryReadback.events must be an array');
+    return [];
+  }
+
+  const eventKeys = [
+    'uuid', 'event', 'releaseSha', 'candidateId', 'journeyId', 'attemptId', 'attemptSeq',
+    'wordCount', 'controlNonce', 'transportInitialized',
+  ];
+  const uuids = new Set();
+  for (const [index, event] of readback.events.entries()) {
+    const path = `telemetryReadback.events[${index}]`;
+    if (!exactKeys(event, eventKeys, path, problems)) continue;
+    if (typeof event.uuid !== 'string' || !TOKEN.test(event.uuid)) problems.push(`${path}.uuid is invalid`);
+    else if (uuids.has(event.uuid)) problems.push(`${path}.uuid duplicates ${event.uuid}`);
+    else uuids.add(event.uuid);
+    if (typeof event.event !== 'string' || !TOKEN.test(event.event)) problems.push(`${path}.event is invalid`);
+    expectEqual(event.releaseSha, releaseSha, `${path}.releaseSha`, problems);
+    if (event.candidateId !== null && !CANDIDATE_SET.has(event.candidateId)) {
+      problems.push(`${path}.candidateId is not a comparison candidate`);
+    }
+    if (typeof event.journeyId !== 'string' || !TOKEN.test(event.journeyId)) {
+      problems.push(`${path}.journeyId is invalid`);
+    }
+    if (event.attemptId !== null && (typeof event.attemptId !== 'string' || !TOKEN.test(event.attemptId))) {
+      problems.push(`${path}.attemptId is invalid`);
+    }
+    if (!Number.isInteger(event.attemptSeq) || event.attemptSeq < 0) problems.push(`${path}.attemptSeq is invalid`);
+    if (event.wordCount !== null && (!Number.isInteger(event.wordCount) || event.wordCount < 0)) {
+      problems.push(`${path}.wordCount is invalid`);
+    }
+    if (event.controlNonce !== null && (typeof event.controlNonce !== 'string' || !TOKEN.test(event.controlNonce))) {
+      problems.push(`${path}.controlNonce is invalid`);
+    }
+    if (event.transportInitialized !== null && typeof event.transportInitialized !== 'boolean') {
+      problems.push(`${path}.transportInitialized is invalid`);
+    }
+  }
+
+  const controls = readback.events.filter((event) => event?.event === 'telemetry_positive_control');
+  if (controls.length !== 1) problems.push('telemetryReadback must contain exactly one telemetry_positive_control event');
+  else {
+    expectEqual(controls[0].controlNonce, readback.positiveControlNonce,
+      'telemetryReadback positive-control nonce', problems);
+    expectEqual(controls[0].transportInitialized, true,
+      'telemetryReadback positive-control transportInitialized', problems);
+  }
+  return readback.events;
+}
+
+function validateCandidateEvidence(rows, events, releaseSha, problems) {
+  if (!Array.isArray(rows)) {
+    problems.push('candidateEvidence must be an array');
+    return new Set();
+  }
+  const expectedKeys = new Set(COMPARISON_CANDIDATES.flatMap((candidate) =>
+    REQUIRED_JOURNEYS.map((journey) => takeKey(candidate, journey))));
+  const seen = new Set();
+  const correlations = new Set();
+  const receiptDigests = new Set();
+
+  for (const [index, row] of rows.entries()) {
+    const path = `candidateEvidence[${index}]`;
+    const keys = ['candidateId', 'journey', 'journeyId', 'attemptId', 'attemptSeq', 'receipt'];
+    if (!exactKeys(row, keys, path, problems)) continue;
+    if (!CANDIDATE_SET.has(row.candidateId)) problems.push(`${path}.candidateId is not in the three-model slate`);
+    if (!JOURNEY_SET.has(row.journey)) problems.push(`${path}.journey is not required`);
+    const key = takeKey(row.candidateId, row.journey);
+    if (seen.has(key)) problems.push(`${path} duplicates ${key}`);
+    seen.add(key);
+    if (typeof row.journeyId !== 'string' || !TOKEN.test(row.journeyId)) problems.push(`${path}.journeyId is invalid`);
+    if (typeof row.attemptId !== 'string' || !TOKEN.test(row.attemptId)) problems.push(`${path}.attemptId is invalid`);
+    if (!Number.isInteger(row.attemptSeq) || row.attemptSeq < 1) problems.push(`${path}.attemptSeq must be positive`);
+    const correlation = `${row.journeyId}/${row.attemptId}`;
+    if (correlations.has(correlation)) problems.push(`${path} reuses telemetry correlation ${correlation}`);
+    correlations.add(correlation);
+    validateReceipt(row.receipt, row, releaseSha, path, problems);
+    const receiptDigest = row.receipt?.receiptSha256;
+    if (typeof receiptDigest === 'string' && SHA256.test(receiptDigest)) {
+      if (receiptDigests.has(receiptDigest)) problems.push(`${path} reuses observer receipt ${receiptDigest}`);
+      receiptDigests.add(receiptDigest);
+    }
+
+    const linked = events.filter((event) => event?.releaseSha === releaseSha
+      && event?.candidateId === row.candidateId
+      && event?.journeyId === row.journeyId
+      && event?.attemptId === row.attemptId
+      && event?.attemptSeq === row.attemptSeq);
+    const starts = linked.filter((event) => event.event === 'session_started');
+    const saves = linked.filter((event) => event.event === 'session_saved');
+    if (starts.length !== 1) problems.push(`${path} must link exactly one decoded session_started event`);
+    if (saves.length !== 1) problems.push(`${path} must link exactly one decoded session_saved event`);
+    else if (!Number.isInteger(saves[0].wordCount) || saves[0].wordCount < 1) {
+      problems.push(`${path} session_saved must prove a non-empty decoded transcript`);
+    }
+  }
+  for (const key of expectedKeys) if (!seen.has(key)) problems.push(`candidateEvidence is missing ${key}`);
+  for (const key of seen) if (!expectedKeys.has(key)) problems.push(`candidateEvidence has unexpected row ${key}`);
+  return expectedKeys;
+}
+
+function validateOutputShape(output, path, problems) {
+  const keys = [
+    'whatWorkedItems', 'whatToImproveItems', 'whatWorkedWhitespaceWords',
+    'whatToImproveWhitespaceWords', 'readable', 'suggestionDigest',
+  ];
+  if (!exactKeys(output, keys, path, problems)) return;
+  expectEqual(output.whatWorkedItems, 1, `${path}.whatWorkedItems`, problems);
+  expectEqual(output.whatToImproveItems, 1, `${path}.whatToImproveItems`, problems);
+  for (const key of ['whatWorkedWhitespaceWords', 'whatToImproveWhitespaceWords']) {
+    if (!Number.isInteger(output[key]) || output[key] < 1 || output[key] > 6) {
+      problems.push(`${path}.${key} must be between 1 and 6`);
+    }
+  }
+  expectEqual(output.readable, true, `${path}.readable`, problems);
+  if (typeof output.suggestionDigest !== 'string' || !SHA256.test(output.suggestionDigest)) {
+    problems.push(`${path}.suggestionDigest must be a lowercase SHA-256 digest`);
+  }
+}
+
+function validateGeminiEvidence(observations, requiredTakeKeys, problems) {
+  if (!Array.isArray(observations)) {
+    problems.push('geminiEvidence must be an array');
+    return;
+  }
+  const freshByTake = new Map();
+  const quotaOrdinals = new Set();
+  let validCacheReplay = false;
+  for (const [index, observation] of observations.entries()) {
+    const path = `geminiEvidence[${index}]`;
+    const keys = ['takeKey', 'source', 'model', 'providerRequestMade', 'quota', 'output'];
+    if (!exactKeys(observation, keys, path, problems)) continue;
+    if (!requiredTakeKeys.has(observation.takeKey)) problems.push(`${path}.takeKey is not a required take`);
+    if (!['fresh', 'cached'].includes(observation.source)) problems.push(`${path}.source is invalid`);
+    expectEqual(observation.model, LOCKED_GEMINI_CONTRACT.model, `${path}.model`, problems);
+    validateOutputShape(observation.output, `${path}.output`, problems);
+
+    if (observation.source === 'fresh') {
+      expectEqual(observation.providerRequestMade, true, `${path}.providerRequestMade`, problems);
+      if (freshByTake.has(observation.takeKey)) problems.push(`${path} duplicates fresh coaching for ${observation.takeKey}`);
+      else freshByTake.set(observation.takeKey, observation);
+      const quotaKeys = ['scope', 'userDigest', 'utcDate', 'limit', 'requestNumber'];
+      if (exactKeys(observation.quota, quotaKeys, `${path}.quota`, problems)) {
+        expectEqual(observation.quota.scope, 'user_utc_day', `${path}.quota.scope`, problems);
+        expectEqual(observation.quota.limit, 10, `${path}.quota.limit`, problems);
+        if (typeof observation.quota.userDigest !== 'string' || !SHA256.test(observation.quota.userDigest)) {
+          problems.push(`${path}.quota.userDigest must be a lowercase SHA-256 digest`);
+        }
+        if (typeof observation.quota.utcDate !== 'string' || !DATE.test(observation.quota.utcDate)) {
+          problems.push(`${path}.quota.utcDate must be YYYY-MM-DD`);
+        }
+        if (!Number.isInteger(observation.quota.requestNumber)
+          || observation.quota.requestNumber < 1 || observation.quota.requestNumber > 10) {
+          problems.push(`${path}.quota.requestNumber must be between 1 and 10`);
+        }
+        const quotaKey = `${observation.quota.userDigest}/${observation.quota.utcDate}/${observation.quota.requestNumber}`;
+        if (quotaOrdinals.has(quotaKey)) problems.push(`${path} duplicates uncached quota receipt ${quotaKey}`);
+        quotaOrdinals.add(quotaKey);
+      }
+    } else {
+      expectEqual(observation.providerRequestMade, false, `${path}.providerRequestMade`, problems);
+      expectEqual(observation.quota, null, `${path}.quota`, problems);
+      const fresh = freshByTake.get(observation.takeKey);
+      if (!fresh) problems.push(`${path} has no preceding fresh observation for ${observation.takeKey}`);
+      else if (fresh.output?.suggestionDigest !== observation.output?.suggestionDigest) {
+        problems.push(`${path} cached suggestion digest differs from the fresh result`);
+      } else if (observation.output?.readable === true) validCacheReplay = true;
+    }
+  }
+  for (const key of requiredTakeKeys) if (!freshByTake.has(key)) problems.push(`geminiEvidence is missing fresh coaching for ${key}`);
+  if (!validCacheReplay) problems.push('geminiEvidence must include a readable cache replay with no provider request');
+}
+
+function validateSelection(selection, problems) {
+  const keys = [
+    'status', 'primary', 'fallback', 'sitsOut', 'decidedBy', 'decidedAt', 'decisionEvidenceDigest',
+  ];
+  if (!exactKeys(selection, keys, 'selection', problems)) return;
+  if (selection.status === 'pending_po_test') {
+    for (const key of keys.slice(1)) expectEqual(selection[key], null, `selection.${key}`, problems);
+    problems.push('selection is pending the Product Owner real-world CDP test');
+    return;
+  }
+  expectEqual(selection.status, 'selected', 'selection.status', problems);
+  expectEqual(selection.decidedBy, 'product_owner', 'selection.decidedBy', problems);
+  if (!isIsoInstant(selection.decidedAt)) problems.push('selection.decidedAt must be an ISO instant');
+  if (typeof selection.decisionEvidenceDigest !== 'string' || !SHA256.test(selection.decisionEvidenceDigest)) {
+    problems.push('selection.decisionEvidenceDigest must be a lowercase SHA-256 digest');
+  }
+  const roles = [selection.primary, selection.fallback, selection.sitsOut];
+  if (roles.some((candidate) => !CANDIDATE_SET.has(candidate))) {
+    problems.push('selection roles must use the three comparison candidates');
+  }
+  if (new Set(roles).size !== COMPARISON_CANDIDATES.length) {
+    problems.push('selection primary, fallback, and sitsOut must be distinct');
+  }
+  for (const candidate of COMPARISON_CANDIDATES) {
+    if (!roles.includes(candidate)) problems.push(`selection omits ${candidate}`);
+  }
+}
+
+export function validateModelDownselectionEvidence(value) {
+  const problems = [];
+  const keys = [
+    'schemaVersion', 'environment', 'geminiContract', 'telemetryReadback',
+    'candidateEvidence', 'geminiEvidence', 'selection',
+  ];
+  if (!exactKeys(value, keys, 'evidence', problems)) return { verdict: 'HOLD', problems };
+  expectEqual(value.schemaVersion, MODEL_DOWNSELECTION_SCHEMA_VERSION, 'evidence.schemaVersion', problems);
+  validateEnvironment(value.environment, problems);
+  validateGeminiContract(value.geminiContract, problems);
+  const releaseSha = typeof value.environment?.releaseSha === 'string' ? value.environment.releaseSha : '';
+  const events = validateTelemetryReadback(value.telemetryReadback, releaseSha, problems);
+  const requiredTakeKeys = validateCandidateEvidence(value.candidateEvidence, events, releaseSha, problems);
+  validateGeminiEvidence(value.geminiEvidence, requiredTakeKeys, problems);
+  validateSelection(value.selection, problems);
+  return { verdict: problems.length === 0 ? 'PASS' : 'HOLD', problems };
+}

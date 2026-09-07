@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "speaksharp.model-downselection.v1",
+  "environment": {
+    "origin": "https://speaksharp-public.vercel.app",
+    "releaseSha": null
+  },
+  "geminiContract": {
+    "model": "gemini-3.6-flash",
+    "uncachedRequestsPerUserUtcDay": 10,
+    "quotaScope": "user_utc_day",
+    "whatWorkedItems": 1,
+    "whatToImproveItems": 1,
+    "maxWhitespaceWordsPerPhrase": 6,
+    "cachedResultsReadable": true
+  },
+  "telemetryReadback": {
+    "source": "posthog_decoded_readback",
+    "queryId": null,
+    "decodedAt": null,
+    "positiveControlNonce": null,
+    "events": []
+  },
+  "candidateEvidence": [],
+  "geminiEvidence": [],
+  "selection": {
+    "status": "pending_po_test",
+    "primary": null,
+    "fallback": null,
+    "sitsOut": null,
+    "decidedBy": null,
+    "decidedAt": null,
+    "decisionEvidenceDigest": null
+  }
+}

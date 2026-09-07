@@ -1,47 +1,37 @@
-# Model down-selection evidence — F-17
+# Model downselection evidence — F-17
 
-**Status: SCAFFOLD. No implementation exists on this branch yet.**
+**Status: executable pre-test contract; Production result intentionally pending.**
 
-Branched from `main@1a5730cece35cf192893163e0f6ef091a7d54744`.
+This increment does not select a model and contains no claimed real-world result. It makes the later
+decision mechanically reviewable instead of asking a reviewer to trust a prose summary.
 
-## Findings this branch is bounded to
+The checked-in template is
+`product_release/evidence/human-test/model-downselection.template.json`. Populate a copy only from the
+Product Owner's canonical-Production CDP run, then validate it with:
 
-- **F-17** — the three-model comparison RESULT. Requires the Production test itself, not code.
+```bash
+pnpm human-test:validate-downselection <evidence.json>
+```
 
-## Why this file exists
+The validator holds unless all of these are present:
 
-A branch with no commits cannot carry a pull request, so this scaffold makes the
-branch reviewable and records its scope before any code is written. It is not a
-plan, a design, or a claim of progress.
+- both Open Mic and Focus Points for each of `v2:base.en`, `v4:distil:q4`, and
+  `moonshine:streaming-medium`;
+- a unique non-dry-run PASS receipt from the canonical Production origin, at one exact release, with
+  expected, requested, and observed candidate identity equal;
+- decoded PostHog `session_started` and non-empty `session_saved` events linked by the same release,
+  observed candidate, journey id, attempt id, and attempt ordinal, plus one decoded transport positive
+  control;
+- the locked `gemini-3.6-flash` contract: no more than 10 uncached requests per user per UTC day,
+  exactly one “what worked” and one “what to improve,” each at most six whitespace-delimited words,
+  and a readable cached replay that makes no provider request;
+- an explicit Product Owner decision assigning the three distinct roles `primary`, `fallback`, and
+  `sitsOut`.
 
-## Blocking gap — read before starting work
+Missing rows, duplicate takes/receipts/events/quota ordinals, local or dry-run receipts, mismatched
+identity, undecodable telemetry, changed Gemini policy, regenerated cache reads, and incomplete or
+non-PO selection all produce `HOLD`.
 
-The F/W/Q finding identifiers exist only in PM/PO correspondence. They appear
-nowhere in this repository: not in the #1399 intake document, not in ledger
-issue #1052, not in any issue, and not in the body of any merged pull request.
-
-For the findings above, **no requirement text, severity, or acceptance
-criterion is on record**. That means the definition of done cannot currently be
-stated, so completion here can be neither asserted nor disputed.
-
-**Required before implementation starts:** the PM supplies, per finding ID, the
-exact requirement or failure being closed, its severity, and the evidence that
-would prove it closed.
-
-## HOLD — scaffold only
-
-Per the directive this branch is a scaffold and **execution is held** until the
-PO completes the Production three-model CDP comparison.
-
-F-17 is the only finding of the 32 that cannot be closed by writing software:
-it is a measurement, and the measurement needs every other lane deployed plus
-all three models runtime-swappable on canonical Production
-(`feat/model-comparison-selector`, F-11/Q-09).
-
-Nothing should be committed here until those receipts exist. Committing an
-anticipated result would be fabricating evidence.
-
-## Closure rule
-
-Merged is not release-closed. No finding on this branch is release-closed until
-it is merged, deployed, and proven on canonical Production.
+The JSON Schema documents the wire shape. The JavaScript validator owns cross-record rules that JSON
+Schema cannot express, including exact three-way role coverage, requested/observed equality, decoded
+event correlation, uniqueness, and fresh-to-cached digest equality.
