@@ -14,11 +14,22 @@ import { join, resolve } from 'node:path';
  * neither the module nor a test — the exact search Codex ran by hand, made permanent.
  */
 const REPO = resolve(__dirname, '../../../../..');
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'coverage', 'playwright-report', 'test-results', '.next', 'build']);
+// `apt-bundle` is a CI-only cache the runner creates with restrictive permissions; it holds no source.
+const SKIP_DIRS = new Set([
+    'node_modules', '.git', 'dist', 'coverage', 'playwright-report', 'test-results', '.next', 'build',
+    'apt-bundle',
+]);
 const SOURCE_EXT = /\.(ts|tsx|mts|mjs|js|jsx|yml|yaml|json)$/;
 
 function walk(dir: string, out: string[] = []): string[] {
-    for (const entry of readdirSync(dir)) {
+    // A directory this process cannot read is skipped, not fatal. CI produces a few (EACCES on the
+    // runner's apt cache), and refusing to walk the repository because of one of them would turn a
+    // wiring guard into an environment-dependent failure. Nothing is masked: the assertions below name
+    // the exact path they require, so an unreadable directory can only ever make this test FAIL, never
+    // pass by omission.
+    let entries: string[];
+    try { entries = readdirSync(dir); } catch { return out; }
+    for (const entry of entries) {
         if (SKIP_DIRS.has(entry)) continue;
         const full = join(dir, entry);
         let st;
