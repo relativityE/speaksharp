@@ -193,8 +193,12 @@ export const SessionPage: React.FC = () => {
     // transcript may be shown", shared with the PDF so the two cannot drift. This connects them.
     const reviewSessionId = finalizedAnalysis?.sessionId ?? null;
     const queryClient = useQueryClient();
-    const { data: savedSession, isFetching: reviewFetching, refetch: refetchReview, abandonCurrentRead } =
-        useSession(reviewSessionId ?? undefined);
+    const {
+        data: savedSession, isFetching: reviewFetching, refetch: refetchReview, abandonCurrentRead,
+        // How many times the query layer has failed and retried THIS read. It is progress, not noise:
+        // see the bound below.
+        failureCount: reviewFailureCount,
+    } = useSession(reviewSessionId ?? undefined);
     // Server state decides. `isFinalizing` only separates "still settling" from "we could not load
     // it" — two readings of `unavailable` that need different sentences and that a saved-row resolver
     // cannot tell apart, because finalization is a client lifecycle.
@@ -225,6 +229,20 @@ export const SessionPage: React.FC = () => {
      *
      * Fail-closed is preserved: a timed-out read leaves `reviewTranscript.kind` un-`available`, so the
      * automatic Gemini request still cannot fire. A stall must never become a doomed request.
+     */
+    /**
+     * STALLED MEANS "NO PROGRESS", NOT "TAKING A WHILE".
+     *
+     * Measuring the bound against wall-clock alone was wrong, and CI proved it three times. React Query
+     * retries a failed read on its own with exponential backoff, and that ladder plus the requests
+     * themselves can run most of fifteen seconds — so a read that was recovering normally looked
+     * identical to one that had died. While the bound only changed what the UI said, that mistake was
+     * invisible. Once the bound also CANCELS, it started killing recoveries that used to succeed, and
+     * saved sessions stopped rendering their transcript.
+     *
+     * The timer is therefore restarted on every retry (`reviewFailureCount` is in the effect's
+     * dependencies), so the bound means fifteen seconds during which the query layer made no attempt at
+     * all. That is what being stuck actually looks like.
      */
     const REVIEW_READ_TIMEOUT_MS = 15_000;
     /**
@@ -286,7 +304,14 @@ export const SessionPage: React.FC = () => {
             });
         }, REVIEW_READ_TIMEOUT_MS);
         return () => clearTimeout(timer);
-    }, [reviewFetching, reviewReadTimedOut, reviewSessionId, queryClient, refetchReview, abandonCurrentRead]);
+        // `reviewReadAttempt` is a dependency, not an incidental one: spending an attempt is what must
+        // restart the timer for the NEXT one. Without it, nothing in this list changes when the first
+        // bound fires, so the effect never re-runs, no second timer is ever armed, and a read that
+        // stalls again after its automatic retry spins forever — the original defect, restored one
+        // layer down. It went unnoticed because the real query's state churns across the cancel and
+        // happened to re-run the effect for unrelated reasons.
+    }, [reviewFetching, reviewFailureCount, reviewReadAttempt, reviewReadTimedOut, reviewSessionId,
+        queryClient, refetchReview, abandonCurrentRead]);
 
     // NOTE ON RETIREMENT (leaving the page, or moving to another session): no cleanup is written here.
     // An explicit `cancelQueries` on unmount/key-change was tried and PROVED REDUNDANT — removing it
