@@ -80,6 +80,20 @@ describe('#1047 U2 loadSessionProgress', () => {
         expect(await loadSessionProgress('s2')).toMatchObject({ status: 'error' });
     });
 
+    it.each([
+        ['missing', null],
+        ['negative', -1],
+        ['fractional', 1.5],
+    ])('refuses an eligible-marked row with %s filler evidence before producing coaching', async (_label, filler_count) => {
+        current = ev('s2', { filler_count });
+        const view = await loadSessionProgress('s2');
+        expect(view).toMatchObject({
+            status: 'unavailable',
+            message: 'Progress evidence is incomplete for this session.',
+        });
+        expect(rpc).not.toHaveBeenCalled();
+    });
+
     it('uses persisted baseline/previous references without client history', async () => {
         current = ev('s2', { clarity_raw: 90, baseline_session_id: 's0', previous_comparable_session_id: 's1' });
         references = [ev('s1', { clarity_raw: 84 }), ev('s0', { clarity_raw: 80 })];

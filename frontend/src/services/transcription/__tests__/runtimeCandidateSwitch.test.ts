@@ -2,7 +2,7 @@
  * #1263 — the in-page model switch: what it must do, and what it must REFUSE.
  *
  * The human comparison reads one script under three candidates in one authenticated session. These
- * prove the switch actually changes what runs, cannot be reached from a production build, and cannot
+ * prove the switch actually changes what runs, accepts only the closed comparison slate, and cannot
  * corrupt a session that is mid-flight.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -11,10 +11,17 @@ import { effectiveCandidate } from '../candidateSelection';
 import {
     switchCandidate, registerSwitchExecutor, runtimeCandidateOverride,
     clearRuntimeCandidateOverride, onRuntimeCandidateChange, SWITCH_BLOCKING_STATES,
+    engineIntegrationRefusal, MODEL_COMPARISON_CDP_ARM_KEY,
 } from '../runtimeCandidateSwitch';
 
 const INTERNAL = { VITE_INTERNAL_BUILD: 'true' };
 const PRODUCTION = { VITE_INTERNAL_BUILD: undefined };
+const armProduction = () => {
+    Object.defineProperty(globalThis, Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY), {
+        value: true, configurable: true,
+    });
+};
+const disarmProduction = () => { delete (globalThis as unknown as Record<symbol, unknown>)[Symbol.for(MODEL_COMPARISON_CDP_ARM_KEY)]; };
 
 function executor(state = 'READY') {
     const calls: string[] = [];
@@ -35,8 +42,8 @@ function executor(state = 'READY') {
 }
 
 describe('the in-page model switch', () => {
-    beforeEach(() => { clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
-    afterEach(() => { clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
+    beforeEach(() => { disarmProduction(); clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
+    afterEach(() => { disarmProduction(); clearRuntimeCandidateOverride(); registerSwitchExecutor(null); });
 
     it('CASUALTY: the FULL comparison runs in one page — v2 → distil → moonshine → v2', async () => {
         // The sequence the human test actually performs. Moonshine was refused here until it was
@@ -61,12 +68,9 @@ describe('the in-page model switch', () => {
         // Moonshine is integrated now, so the guard is proven against a synthetic candidate instead —
         // otherwise the check would have been deleted along with its only example, and the next engine
         // added without a provider path would fall through and run the CONFIGURED model under its id.
-        const e = executor(); registerSwitchExecutor(e);
         const unbuildable = { ...CANDIDATES['v2:base.en'], id: 'v9:unbuildable', engine: 'not-an-engine' };
-        const patched = { ...CANDIDATES, 'v9:unbuildable': unbuildable } as unknown as typeof CANDIDATES;
-        const out = await switchCandidate('v9:unbuildable', INTERNAL, patched);
+        const out = engineIntegrationRefusal(unbuildable as never);
         expect(out).toMatchObject({ ok: false, code: 'engine_not_integrated' });
-        expect(e.teardown).not.toHaveBeenCalled();
         expect(runtimeCandidateOverride()).toBeNull();
     });
 
@@ -91,11 +95,27 @@ describe('the in-page model switch', () => {
         expect((await switchCandidate('v2:base.en', INTERNAL)).ok).toBe(true);
     });
 
-    it('CASUALTY: a PRODUCTION build has no runtime selector at all', async () => {
+    it('CASUALTY: canonical Production can run the three-model CDP comparison', async () => {
+        armProduction();
         registerSwitchExecutor(executor());
         const out = await switchCandidate('v4:distil:q4', PRODUCTION);
-        expect(out).toMatchObject({ ok: false, code: 'not_internal_build' });
+        expect(out).toEqual({ ok: true, candidate: 'v4:distil:q4' });
+        expect(runtimeCandidateOverride()).toBe('v4:distil:q4');
+    });
+
+    it('CASUALTY: registry membership does not widen the three-model comparison', async () => {
+        armProduction();
+        const e = executor(); registerSwitchExecutor(e);
+        const out = await switchCandidate('v4:base:q4', PRODUCTION);
+        expect(out).toMatchObject({ ok: false, code: 'not_comparison_candidate' });
+        expect(e.teardown).not.toHaveBeenCalled();
         expect(runtimeCandidateOverride()).toBeNull();
+    });
+
+    it('CASUALTY: an ordinary Production page cannot call the switch without the CDP arm', async () => {
+        const e = executor(); registerSwitchExecutor(e);
+        expect(await switchCandidate('v2:base.en', PRODUCTION)).toMatchObject({ ok: false, code: 'not_armed' });
+        expect(e.teardown).not.toHaveBeenCalled();
     });
 
     it('CASUALTY: it is REFUSED in every state a swap would corrupt', async () => {

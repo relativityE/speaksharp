@@ -1,5 +1,5 @@
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import { PROGRESS_FORMULA_VERSION, type ExclusionReason, type ProgressEvaluation } from './buildProgressEvaluation';
+import { hasCompleteEligibleProgressEvidence, PROGRESS_FORMULA_VERSION, type ExclusionReason, type ProgressEvaluation } from './buildProgressEvaluation';
 import { describeDirection, buildTakeaways, type DirectionResult, type Takeaways } from './progressPresentation';
 import { reconcileProgressRecommendation } from './recordProgress';
 
@@ -172,6 +172,9 @@ export async function loadSessionProgress(sessionId: string): Promise<SessionPro
     const current = toEvaluation(currentRow);
     const baseline = baselineRow ? toEvaluation(baselineRow) : null;
     const previous = previousRow ? toEvaluation(previousRow) : null;
+    if (!hasCompleteEligibleProgressEvidence(current)) {
+        return { status: 'unavailable', sessionId, message: 'Progress evidence is incomplete for this session.' };
+    }
     let comparison: 'baseline' | 'previous' | 'restarted';
     // Retention can NULL/delete the referenced baseline while a later previous row survives. Without the
     // baseline, the stored direction chain is incomplete: never turn `describeDirection(current, null)`

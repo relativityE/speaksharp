@@ -13,7 +13,7 @@
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
 import { useSessionStore } from '@/stores/useSessionStore';
-import { PROGRESS_FORMULA_VERSION, type ProgressEvaluation } from './buildProgressEvaluation';
+import { hasCompleteEligibleProgressEvidence, PROGRESS_FORMULA_VERSION, type ProgressEvaluation } from './buildProgressEvaluation';
 import { buildTakeaways } from './progressPresentation';
 import {
     enqueueProgressReconcile,
@@ -274,6 +274,8 @@ export async function reconcileProgressRecommendation(sessionId: string): Promis
         wpm: data.wpm ?? null,
         cohortKey: data.cohort_key ?? null,
     };
+
+    if (!hasCompleteEligibleProgressEvidence(current)) return null;
 
     const { target, practiceThisNext } = buildTakeaways(current, null);
     await recordProgressRecommendation({

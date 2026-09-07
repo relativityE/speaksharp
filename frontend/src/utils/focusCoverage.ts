@@ -17,6 +17,7 @@
  */
 import { computeObjectiveCoverage, type TranscriptSegment } from '@/services/objective/objectiveCoverage';
 import type { CoverageStatus } from '@/services/rehearsal/outcomeScorecard';
+import type { CoverageRailPoint } from '@/components/session/CoverageRail';
 
 export interface FocusCoverageRow {
     label: string;
@@ -36,6 +37,50 @@ export interface FocusCoverage {
     nextIndex: number | null;
     /** Covering phrases, in transcript order, for the coverage highlights in slot B. */
     coveredQuotes: string[];
+}
+
+/**
+ * Apply the stop-seam result to the terminal presentation.
+ *
+ * The retained transcript is useful for quotes/highlights, but it is not the terminal scoring authority:
+ * the stop seam evaluated timestamped segments against the immutable brief (including its configured
+ * cues). Re-running the weaker view matcher over flattened text can disagree and turn a detected point
+ * into a false negative. A missing/misaligned authority returns null so the caller can render an honest
+ * pending state instead of manufacturing a score.
+ */
+export function applyFinalizedCoverageAuthority(
+    derived: FocusCoverage,
+    points: string[],
+    authority: CoverageRailPoint[] | null,
+): FocusCoverage | null {
+    const cleanPoints = (points ?? []).filter((p) => (p ?? '').trim() !== '');
+    if (!authority || authority.length !== cleanPoints.length || derived.rows.length !== cleanPoints.length) {
+        return null;
+    }
+    if (authority.some((row, index) =>
+        row.label !== cleanPoints[index] || !['covered', 'partial', 'missing'].includes(row.status))) return null;
+
+    const rows = derived.rows.map((row, index) => {
+        const status = authority[index].status;
+        const covered = status === 'covered';
+        return {
+            ...row,
+            status,
+            covered,
+            // Presentation evidence may be kept only when it agrees with the terminal verdict.
+            coveredAtSec: covered && row.covered ? row.coveredAtSec : null,
+            quote: covered && row.covered ? row.quote : null,
+        };
+    });
+    const coveredCount = rows.filter((row) => row.covered).length;
+    const nextIndex = rows.findIndex((row) => !row.covered);
+    return {
+        rows,
+        total: rows.length,
+        coveredCount,
+        nextIndex: nextIndex === -1 ? null : nextIndex,
+        coveredQuotes: rows.map((row) => row.quote).filter((quote): quote is string => Boolean(quote)),
+    };
 }
 
 /**

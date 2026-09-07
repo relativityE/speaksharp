@@ -37,7 +37,17 @@ describe('SessionOverhaulView (#1222 S11)', () => {
     });
 
     it('stopped runtime → after state, transcript-only (no audio play/time)', () => {
-        render(<SessionOverhaulView {...base} showAnalyticsPrompt transcriptContent="so um hello" />);
+        // #1416 F-05 — the after-state transcript now comes from the RETAINED authority, because
+        // finalization purges working memory by contract. Passing `transcriptContent` alone described
+        // a parent that no longer exists; a real one supplies what the server retained.
+        render(
+            <SessionOverhaulView
+                {...base}
+                showAnalyticsPrompt
+                transcriptContent="so um hello"
+                reviewTranscript={{ kind: 'available', text: 'so um hello' }}
+            />,
+        );
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         expect(screen.getByTestId('playback-scrubber')).toBeInTheDocument();
         // Transcript-only: no audio playback affordances.
@@ -203,7 +213,10 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
     });
 
     it('objective after → coverage count, missed-point reason, retry + delivery strip', () => {
-        render(<SessionOverhaulView {...base} objectivePoints={POINTS} showAnalyticsPrompt transcriptContent="I will name the price now." elapsedTime={84} />);
+        // Production shape after #1423: finalization PURGES working memory, and the retained transcript
+        // arrives from the server as the review authority. A fixture that leaves words in the buffer models
+        // a state the app can no longer be in, and would let coverage pass by reading the wrong source.
+        render(<SessionOverhaulView {...base} objectivePoints={POINTS} showAnalyticsPrompt transcriptContent="" reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }} elapsedTime={84} />);
         expect(screen.getByTestId('session-shell')).toHaveAttribute('data-session-state', 'after');
         expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
         // §Duplication acceptance check: the coverage fraction appears EXACTLY ONCE (Slot C). The transcript
@@ -216,6 +229,76 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
         expect(screen.queryByTestId('scrubber-legend')).toBeNull();
         expect(screen.queryByRole('button', { name: /seek/i })).toBeNull();
         expect(screen.queryByTestId('comparable-progress-notice')).toBeNull();
+    });
+
+    it('terminal coverage uses the stop-seam authority, not a weaker transcript re-score', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={[
+                    { id: 'point-1', label: POINTS[0], status: 'missing' },
+                    { id: 'point-2', label: POINTS[1], status: 'covered' },
+                ]}
+                showAnalyticsPrompt
+                transcriptContent=""
+                // The flattened label matcher cannot match "guarantee" here; the stop seam matched the
+                // configured cue against timestamped segments and is the terminal authority.
+                reviewTranscript={{ kind: 'available', text: 'I discussed the warranty terms.' }}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+        expect(screen.getByTestId('focus-point-1')).toHaveAttribute('data-status', 'covered');
+        expect(screen.queryByTestId('focus-point-1-not-detected')).toBeNull();
+    });
+
+    it('withholds terminal claims when SessionPage supplies no stop-seam result', () => {
+        render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={null}
+                showAnalyticsPrompt
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
+            />,
+        );
+        expect(screen.getAllByTestId(/focus-point-\d+$/).map((row) => row.getAttribute('data-status')))
+            .toEqual(['pending', 'pending']);
+        expect(screen.queryByTestId('coverage-pace-count')).toBeNull();
+        expect(screen.queryByText(/not detected/i)).toBeNull();
+    });
+
+    it('a direct after→during retry starts at 0/N instead of inheriting the prior take count', () => {
+        const { rerender } = render(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={[
+                    { id: 'point-1', label: POINTS[0], status: 'covered' },
+                    { id: 'point-2', label: POINTS[1], status: 'missing' },
+                ]}
+                showAnalyticsPrompt
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('1/2');
+
+        // Model the batched retry path: no intermediate before render.
+        rerender(
+            <SessionOverhaulView
+                {...base}
+                objectivePoints={POINTS}
+                objectiveCoverage={null}
+                isListening
+                showAnalyticsPrompt={false}
+                transcriptContent="Unrelated opening words"
+                elapsedTime={2}
+            />,
+        );
+        expect(screen.getByTestId('coverage-pace-count')).toHaveTextContent('0/2');
+        expect(screen.getByTestId('focus-point-0')).toHaveAttribute('data-status', 'pending');
     });
 
     it('no brief (Open Mic) → no coverage/pace card / points rail; the prompt offer is present', () => {
@@ -236,7 +319,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
                 objectivePoints={null}
                 completedObjectivePoints={POINTS}
                 showAnalyticsPrompt
-                transcriptContent="I will name the price now."
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
                 elapsedTime={84}
             />,
         );
@@ -267,7 +351,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
                 completedObjectivePoints={POINTS}
                 completedObjectivePaceGuideSecPerPoint={60}
                 showAnalyticsPrompt
-                transcriptContent="I will name the price now."
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
                 elapsedTime={0}
                 scoringElapsedSeconds={84}
             />,
@@ -286,7 +371,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
                 completedObjectivePoints={POINTS}
                 completedObjectivePaceGuideSecPerPoint={60}
                 showAnalyticsPrompt
-                transcriptContent="I will name the price now."
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
                 elapsedTime={0}
             />,
         );
@@ -306,7 +392,8 @@ describe('SessionOverhaulView Focus Points (#1046)', () => {
                 objectivePoints={null}
                 completedObjectivePoints={POINTS}
                 showAnalyticsPrompt
-                transcriptContent="I will name the price now."
+                transcriptContent=""
+                reviewTranscript={{ kind: 'available', text: 'I will name the price now.' }}
                 elapsedTime={0}
                 scoringElapsedSeconds={84}
             />,

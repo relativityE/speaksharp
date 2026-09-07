@@ -157,16 +157,40 @@ test.describe('Post-save consolidation', () => {
   });
 
   test('SessionPage purges the live transcript after terminal; the saved review RETAINS it', async ({ page }) => {
+    // This test now asserts BOTH halves of the contract - the live surface purged AND the review populated
+    // from the saved row - and the second half waits on a read that only starts after persistence. Record,
+    // stop, persist and the post-save link already consume most of the default 60s, so the added assertion
+    // was being cut off by the test budget rather than by the product. Same allowance the metric-parity
+    // test in this file already takes.
+    test.setTimeout(90_000);
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await navigateToRoute(page, '/session');
     await recordAndStop(page);
     // Let finalization reach terminal (metrics captured, session persisted).
     await expect(page.getByTestId('post-save-review-session-link')).toBeVisible({ timeout: 15000 });
-    const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
-    // #1306 Option A: the session-page transcript is ephemeral working memory — PURGED after terminal
-    // finalization. The metrics-only review retains no transcript text.
-    const sessionText = norm(await page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT).innerText().catch(() => ''));
-    expect(sessionText.length).toBe(0);
+    // Two DISTINCT promises, and the after state must keep both. #1306 purges the LIVE surface — ephemeral
+    // working memory — at terminal finalization. #1258/#1314 retains the transcript server-side and the review
+    // renders it from that authority. Rendering both under one test id made the pair unobservable: a leak of
+    // working memory and a correctly restored review looked identical, which is why the after state now names
+    // itself `review-transcript`.
+    // Assert ABSENCE as absence. Reading innerText() off a locator that does not resolve makes Playwright
+    // auto-wait the full actionability timeout before throwing, and .catch() then hides that it waited at
+    // all - roughly 30s of the test's budget spent proving nothing. It was instant only while the after
+    // state still rendered `live-transcript`, which is exactly what this branch stopped doing.
+    await expect(page.getByTestId(TEST_IDS.LIVE_TRANSCRIPT)).toHaveCount(0, { timeout: 10000 });
+
+    // ...and the SAVED review is present, from the server's authority. Asserting only the absence above would
+    // pass just as happily on the F-05 defect, where the review showed the user nothing at all.
+    //
+    // Assert the WORDS, not a length: a length check is satisfied by a stray placeholder, and this must fail
+    // on the F-05 defect where the review showed nothing at all.
+    //
+    // The expected words come from the fixture, and specifically from its LAST line. `mockLiveTranscript`
+    // drives `simulateTranscription` once per line and the bridge REPLACES the transcript each time rather
+    // than appending, so the text that reaches the server - and therefore the review - is the final line.
+    // Naming the first line here would assert a concatenation the harness never produces.
+    const persistedMockLine = MOCK_TRANSCRIPTS[MOCK_TRANSCRIPTS.length - 1];
+    await expect(page.getByTestId('review-transcript')).toContainText(persistedMockLine, { timeout: 10000 });
 
     await navigateToRoute(page, '/analytics');
     const latest = page.getByTestId(/session-history-item-/).first();

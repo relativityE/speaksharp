@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveFocusCoverage, markCoveredTokens, segmentTranscript } from '@/utils/focusCoverage';
+import { applyFinalizedCoverageAuthority, deriveFocusCoverage, markCoveredTokens, segmentTranscript } from '@/utils/focusCoverage';
 
 const POINTS = ['Name the price', 'State the guarantee'];
 
@@ -34,6 +34,33 @@ describe('focusCoverage.deriveFocusCoverage', () => {
         const c = deriveFocusCoverage(POINTS, '', 0, new Set([0]));
         expect(c.rows[0].covered).toBe(true);
         expect(c.coveredCount).toBe(1);
+    });
+});
+
+describe('focusCoverage.applyFinalizedCoverageAuthority — terminal truth', () => {
+    it('uses the stop-seam verdict when the weaker flattened-text matcher disagrees', () => {
+        const derived = deriveFocusCoverage(POINTS, 'I discussed warranty terms.', 60);
+        expect(derived.coveredCount).toBe(0);
+
+        const terminal = applyFinalizedCoverageAuthority(derived, POINTS, [
+            { id: 'brief-point-1', label: POINTS[0], status: 'missing' },
+            { id: 'brief-point-2', label: POINTS[1], status: 'covered' },
+        ]);
+
+        expect(terminal?.coveredCount).toBe(1);
+        expect(terminal?.rows[1]).toMatchObject({ status: 'covered', covered: true, quote: null });
+    });
+
+    it.each([
+        ['missing', null],
+        ['short', [{ id: 'brief-point-1', label: POINTS[0], status: 'covered' as const }]],
+        ['wrong brief', [
+            { id: 'brief-point-1', label: 'Different point', status: 'covered' as const },
+            { id: 'brief-point-2', label: POINTS[1], status: 'missing' as const },
+        ]],
+    ])('refuses a %s terminal authority instead of manufacturing a verdict', (_label, authority) => {
+        const derived = deriveFocusCoverage(POINTS, 'I will name the price now.', 60);
+        expect(applyFinalizedCoverageAuthority(derived, POINTS, authority)).toBeNull();
     });
 });
 

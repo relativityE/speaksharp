@@ -101,10 +101,24 @@ export function progressCohortKey(e: Pick<SessionEvidence, 'engine' | 'engineVer
 /** Gate 1 — does a clear-delivery measurement structurally EXIST? A measured zero is valid. */
 function hasClarityEvidence(e: SessionEvidence): boolean {
     return e.hasTranscript
-        && typeof e.wordCount === 'number' && e.wordCount > 0
-        && typeof e.fillerCount === 'number' && e.fillerCount >= 0
-        && typeof e.errorMarkerCount === 'number' && e.errorMarkerCount >= 0
+        && Number.isInteger(e.wordCount) && (e.wordCount as number) > 0
+        && Number.isInteger(e.fillerCount) && (e.fillerCount as number) >= 0
+        && Number.isInteger(e.errorMarkerCount) && (e.errorMarkerCount as number) >= 0
         && typeof e.wpm === 'number' && Number.isFinite(e.wpm);
+}
+
+/**
+ * A persisted row marked eligible is still untrusted readback. This predicate prevents a malformed or
+ * partially migrated row (especially NULL/invalid filler evidence) from producing coaching or a score.
+ */
+export function hasCompleteEligibleProgressEvidence(
+    evaluation: Pick<ProgressEvaluation, 'eligible' | 'wordCount' | 'clarityRaw' | 'fillerCount' | 'wpm'>,
+): boolean {
+    return evaluation.eligible
+        && Number.isInteger(evaluation.wordCount) && evaluation.wordCount > 0
+        && typeof evaluation.clarityRaw === 'number' && Number.isFinite(evaluation.clarityRaw)
+        && Number.isInteger(evaluation.fillerCount) && (evaluation.fillerCount as number) >= 0
+        && typeof evaluation.wpm === 'number' && Number.isFinite(evaluation.wpm);
 }
 
 /**

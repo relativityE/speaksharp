@@ -62,6 +62,17 @@ describe('#1045 recordProgress consumer — the wiring guard', () => {
         expect(recCall![1]).toMatchObject({ p_source_session_id: 's1', p_target_metric: expect.any(String) });
     });
 
+    it.each([
+        ['missing', null],
+        ['negative', -1],
+        ['fractional', 1.5],
+    ])('does not persist coaching from an eligible-marked row with %s filler evidence', async (_label, filler_count) => {
+        evalRow = { ...ELIGIBLE_ROW, filler_count };
+        await wireProgressEvaluationOnSave(ctx());
+        expect(rpcNames()).toContain('record_progress_evaluation');
+        expect(rpcNames()).not.toContain('record_progress_recommendation');
+    });
+
     it('records an AUDITABLE EXCLUSION for a completed, terminal-but-unverified session (no recommendation)', async () => {
         // unverified is terminal; the RPC will store an ineligible row, so the SELECT reports not-eligible.
         evalRow = { ...ELIGIBLE_ROW, eligible: false };
