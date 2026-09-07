@@ -1,49 +1,35 @@
 # Forward fix — surviving #1419 P1 lifecycle races
 
-**Status: SCAFFOLD. No implementation exists on this branch yet.**
+**Status: IMPLEMENTED LOCALLY. Awaiting exact-head CI and independent review.**
 
-Branched from `main@1a5730cece35cf192893163e0f6ef091a7d54744`.
+Implemented from `main@a97b740b39f678e8b5e8f769725e272d59428c64`.
 
 ## Findings this branch is bounded to
 
 Not one of the 32. This is a forward fix for defects that survived #1419.
 
-## Why this file exists
+## Acceptance criteria
 
-A branch with no commits cannot carry a pull request, so this scaffold makes the
-branch reviewable and records its scope before any code is written. It is not a
-plan, a design, or a claim of progress.
+- If attempt A is suspended in `service.startTranscription()`, a hard reset
+  advances the lifecycle, and B starts, A's eventual result cannot change B's
+  runtime/store state, producer identity, service, or intent.
+- A transition may enter `RECORDING` only when it names the current pending
+  recording intent. Missing or foreign ownership changes no recording state and
+  cannot start the shared-store session; the current owner still starts once.
+- Every service error callback is bound to the service generation that received
+  it. An error from a replaced service changes neither B during preparation nor
+  B while recording, and cannot complete or destroy B's session.
 
-## Blocking gap — read before starting work
+## Implementation boundary
 
-The F/W/Q finding identifiers exist only in PM/PO correspondence. They appear
-nowhere in this repository: not in the #1399 intake document, not in ledger
-issue #1052, not in any issue, and not in the body of any merged pull request.
-
-For the findings above, **no requirement text, severity, or acceptance
-criterion is on record**. That means the definition of done cannot currently be
-stated, so completion here can be neither asserted nor disputed.
-
-**Required before implementation starts:** the PM supplies, per finding ID, the
-exact requirement or failure being closed, its severity, and the evidence that
-would prove it closed.
-
-## What is known, and what is not
-
-#1419 merged as `main@55912522` and established the token-owned-attempt
-invariant: one Start activation owns one token-scoped attempt, and a stale,
-failed, superseded or navigated-away attempt can never start, reset, settle,
-unlock or relabel a newer one.
-
-The directive names **three surviving P1 lifecycle races**. Their specifics are
-not recorded on #1419, in its merge commit, or anywhere I can read.
-
-**Required before work starts:** the PM identifies each of the three races —
-the sequence that reproduces it and the observable user-visible symptom. Every
-defect found in this area so far has been a CALL SITE declining to name its
-token, never the `recordingIntent` module itself, which already refuses foreign
-tokens; module-level tests are structurally incapable of catching that class,
-so the reproduction sequence matters more than usual here.
+- `transition()` rejects a cancelled or obsolete lifecycle token before shared
+  mutation and rejects `RECORDING` without current intent ownership.
+- The real post-`startTranscription()` continuation rechecks lifecycle,
+  recording id, and intent ownership before binding any recording state.
+- A monotonic service generation is captured by each controller-owned error
+  callback and invalidated when its service reference is detached.
+- Production-shaped controller casualties exercise the real suspension,
+  transition, reset, callback, and shared-store boundaries.
 
 ## Closure rule
 

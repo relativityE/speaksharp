@@ -10,7 +10,7 @@
 // Content-free: synthetic strings only.
 import { describe, it, expect, beforeAll } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
-import { readFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const M = resolve(process.cwd(), 'backend', 'supabase', 'migrations');
@@ -370,21 +370,63 @@ describe('#1306 Stage B — M1-M5 mutate the SHIPPED migration itself', () => {
 
 describe('#1306 M4 — the handwritten-substitute population cannot grow', () => {
     const KNOWN_SUBSTITUTES = [
-        'analytics-summary-rpc.integration.test.ts',
-        'atomic-completion-concurrency-realpg.sql',
-        'atomic-completion-retention.integration.test.ts',
-        'metrics-only-stage-a.integration.test.ts',
+        'db/analytics-summary-rpc.integration.test.ts',
+        'db/atomic-completion-concurrency-realpg.sql',
+        'db/helpers/completionEnv.ts',
+        'db/metrics-only-stage-a.integration.test.ts',
     ];
     const CREATES = /CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+public\.complete_session\s*\(/i;
+    const SELF = 'db/stage-b-retire-complete-session-v1.integration.test.ts';
+    const MUTATION_START = "describe('#1306 Stage B — M1-M5 mutate the SHIPPED migration itself'";
+    const MUTATION_END = "describe('#1306 M4";
+    const stripComments = (src: string) =>
+        src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+    const scannableSource = (dir: string, rel: string): string => {
+        let source = readFileSync(resolve(dir, rel), 'utf8');
+        if (rel === SELF) {
+            const mutationStart = source.indexOf(MUTATION_START);
+            const mutationEnd = source.indexOf(MUTATION_END, mutationStart);
+            if (mutationStart < 0 || mutationEnd <= mutationStart) {
+                throw new Error('could not bound the self-file mutation exemption');
+            }
+            source = source.slice(0, mutationStart) + source.slice(mutationEnd);
+        }
+        return stripComments(source);
+    };
+
+    // The scan is RECURSIVE. A flat readdir let a substitute disappear from this guard simply by moving into
+    // a subdirectory — which is exactly how the population grows without anyone deciding to grow it. Paths
+    // are recorded relative to tests/ so the allowlist names where a substitute lives, not just its
+    // basename.
+    const substituteFiles = (dir: string, prefix = '', root = dir): string[] =>
+        readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+            const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+            if (entry.isDirectory()) return substituteFiles(resolve(dir, entry.name), rel, root);
+            if (!/\.(ts|sql)$/.test(entry.name)) return [];
+            return CREATES.test(scannableSource(root, rel)) ? [rel] : [];
+        });
+    const repositorySubstitutes = () => substituteFiles(resolve(process.cwd(), 'tests'));
 
     it('only the four pre-existing files define complete_session by hand', () => {
-        const dir = resolve(process.cwd(), 'tests', 'db');
-        const offenders = readdirSync(dir)
-            .filter(f => /\.(ts|sql)$/.test(f))
-            .filter(f => f !== 'stage-b-retire-complete-session-v1.integration.test.ts')
-            .filter(f => CREATES.test(readFileSync(resolve(dir, f), 'utf8')))
-            .sort();
+        const offenders = repositorySubstitutes().sort();
         expect(offenders, 'a NEW handwritten complete_session substitute was added').toEqual(KNOWN_SUBSTITUTES);
+    });
+
+    it('detects a substitute nested under a previously unlisted test root', () => {
+        const casualtyRoot = resolve(process.cwd(), 'tests', 'unit', 'fixtures');
+        const casualtyName = `complete-session-substitute-casualty-${process.pid}.sql`;
+        const casualty = resolve(casualtyRoot, casualtyName);
+        try {
+            mkdirSync(casualtyRoot, { recursive: true });
+            writeFileSync(
+                casualty,
+                'CREATE' + ' FUNCTION public.complete_session(uuid) RETURNS jsonb LANGUAGE sql AS $$ SELECT null::jsonb $$;',
+            );
+            expect(repositorySubstitutes()).toContain(`unit/fixtures/${casualtyName}`);
+        } finally {
+            rmSync(casualty, { force: true });
+        }
     });
 
     it('this suite never hand-creates complete_session in SETUP — only inside the bounded mutation block', () => {
@@ -392,8 +434,8 @@ describe('#1306 M4 — the handwritten-substitute population cannot grow', () =>
         // bounded to the mutation describe, which creates a forwarder deliberately as mutant M5.
         const self = readFileSync(resolve(
             process.cwd(), 'tests', 'db', 'stage-b-retire-complete-session-v1.integration.test.ts'), 'utf8');
-        const mutationStart = self.indexOf("describe('#1306 Stage B — M1-M5 mutate the SHIPPED migration itself'");
-        const mutationEnd = self.indexOf("describe('#1306 M4", mutationStart);
+        const mutationStart = self.indexOf(MUTATION_START);
+        const mutationEnd = self.indexOf(MUTATION_END, mutationStart);
         expect(mutationStart, 'mutation block must exist').toBeGreaterThan(-1);
         expect(mutationEnd, 'mutation block must be bounded').toBeGreaterThan(mutationStart);
 
@@ -403,8 +445,6 @@ describe('#1306 M4 — the handwritten-substitute population cannot grow', () =>
         // the defect from the defect. Comments are stripped before scanning; the bounded mutation block
         // is excluded because M5 creates a forwarder deliberately. Nothing else is excluded, so a
         // substitute cannot hide in setup.
-        const stripComments = (src: string) =>
-            src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
         const outsideMutationBlock = stripComments(self.slice(0, mutationStart) + self.slice(mutationEnd));
         expect(CREATES.test(outsideMutationBlock),
             'setup hand-creates complete_session — the object under test must come from the migration')

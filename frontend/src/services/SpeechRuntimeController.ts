@@ -64,6 +64,7 @@ import {
 import { evaluateStartGate, startGateMessage } from '@/services/progress/progressStartGate';
 import { installSttEvidenceCollector } from '@/services/transcription/sttEvidenceCollector';
 import { installSttIdentityAccessor } from '@/services/transcription/sttIdentity';
+import { evaluateRuntimeCandidateTakeGate } from '@/services/transcription/runtimeCandidateTakeGate';
 
 declare global {
     interface Window {
@@ -405,7 +406,13 @@ export class SpeechRuntimeController {
     private emissionQueue: TranscriptUpdate[] = [];
     private historyQueue: HistorySegment[][] = [];
     private subscriberCallbacks: Partial<TranscriptionServiceOptions> = {};
-    private readonly serviceCallbacks: Partial<TranscriptionServiceOptions>;
+    private serviceCallbacks: Partial<TranscriptionServiceOptions>;
+    /**
+     * Identifies the service instance whose callbacks may mutate controller/store state.
+     * A destroyed or replaced service can still deliver a queued error; its captured
+     * generation must not be allowed to fail the replacement lifecycle.
+     */
+    private serviceGeneration = 0;
     private policy: TranscriptionPolicy | null = null;
     private userWords: string[] = [];
 
@@ -436,7 +443,7 @@ export class SpeechRuntimeController {
             onHistoryUpdate: this.handleHistoryUpdate.bind(this),
             onModeChange: this.handleModeChange.bind(this),
             onAudioData: this.handleAudioData.bind(this),
-            onError: this.handleError.bind(this),
+            onError: (error) => this.handleError(error, 0),
         };
 
         // E2E HOOK: Sanctioned Mocks
@@ -485,6 +492,35 @@ export class SpeechRuntimeController {
                 };
             }
         }
+    }
+
+    /** Bind callbacks to one newly-created/adopted service generation. */
+    private callbacksForNewService(
+        callbacks?: Partial<TranscriptionServiceOptions>,
+    ): Partial<TranscriptionServiceOptions> {
+        const generation = ++this.serviceGeneration;
+        this.serviceCallbacks = {
+            ...this.serviceCallbacks,
+            onError: (error) => this.handleError(error, generation),
+        };
+        return callbacks
+            ? createControllerOwnedServiceCallbacks(
+                callbacks,
+                this.serviceCallbacks as Required<typeof this.serviceCallbacks>,
+            )
+            : this.serviceCallbacks;
+    }
+
+    /**
+     * Detach only the expected service and invalidate its callbacks synchronously.
+     * The identity check prevents a late cleanup from detaching a newer service.
+     */
+    private detachService(expected?: TranscriptionService | null): TranscriptionService | null {
+        const current = this.service;
+        if (expected && current !== expected) return null;
+        this.service = null;
+        this.serviceGeneration += 1;
+        return current;
     }
 
     /**
@@ -1405,7 +1441,7 @@ export class SpeechRuntimeController {
                     // pattern) forces the next readiness path back through initInternal to rebuild a fresh one.
                     this.readyPromise = null;
                     this.resetEphemeralState('service_destroyed_in_sync');
-                    this.service = null;
+                    this.detachService(this.service);
                     return;
                 }
 
@@ -1435,7 +1471,7 @@ export class SpeechRuntimeController {
             logger.info('[SpeechRuntimeController] \u{1F3C1} Infrastructure initialization started');
 
             if (!this.service) {
-                this.service = sessionManager.getOrCreateService(this.serviceCallbacks, this.lock);
+                this.service = sessionManager.getOrCreateService(this.callbacksForNewService(), this.lock);
             }
 
             readiness.setAppState('SERVICE_READY');
@@ -1771,6 +1807,13 @@ export class SpeechRuntimeController {
      * keep the unscoped behaviour, because there a pending intent SHOULD be retired whoever owns it.
      */
     private async transition(newState: RuntimeState, error?: Error, token?: LifecycleToken, intentToken?: string): Promise<void> {
+        // #1431 — a lifecycle token is an ownership proof, not merely queue metadata. A hard reset
+        // invalidates it synchronously; anything arriving afterwards must return before touching the
+        // controller, lock, shared store, intent settlement, or recovery state.
+        if (token && (token.cancelled || token.version !== this.lifecycleVersion)) {
+            return;
+        }
+
         // #1033: release the Start-intent BRIDGE once a real state is reached — the lifecycle-state set,
         // the pending-retry, and recordingStartedUnresolved now govern isEngineSelectionLocked(). Once a
         // recording has actually begun, mark it unresolved so a POST-start failure (which lands in a
@@ -1785,7 +1828,10 @@ export class SpeechRuntimeController {
         // the user never agreed to download. The lock now follows the attempt: it is held while an
         // intent is pending and released when that intent settles.
         if (newState === 'RECORDING') {
-            if (!this.canTransitionToRecording()) {
+            // #1431 — readiness is necessary but not sufficient. The transition must name the
+            // CURRENT pending intent before any RECORDING-owned state is mutated. A stale attempt's
+            // late success therefore cannot start audio under, or resolve, its successor's click.
+            if (!intentToken || !isCurrentIntent(intentToken) || !this.canTransitionToRecording()) {
                 return;
             }
             // Recording confirmed to begin → keep engine selection locked until durable save/retry/discard,
@@ -2047,9 +2093,12 @@ export class SpeechRuntimeController {
         void this.checkRecordingInvariant();
     }
 
-    private async checkRecordingInvariant() {
+    private async checkRecordingInvariant(
+        token?: LifecycleToken,
+        intentToken: string | undefined = pendingRecordingIntent()?.token,
+    ) {
         if (this.canTransitionToRecording() && (this.state === 'INITIATING' || this.state === 'ENGINE_INITIALIZING')) {
-            await this.transition('RECORDING');
+            await this.transition('RECORDING', undefined, token, intentToken);
         }
     }
 
@@ -2083,7 +2132,11 @@ export class SpeechRuntimeController {
         }
     }
 
-    private handleError(error: Error): void {
+    private handleError(error: Error, sourceGeneration: number = this.serviceGeneration): void {
+        // #1431 — callbacks outlive services. Ignore a queued error from a destroyed/replaced service
+        // before it can overwrite the replacement generation's status or lifecycle state.
+        if (sourceGeneration !== this.serviceGeneration) return;
+
         const store = useSessionStore.getState();
         const rawMessage = error.message || '';
         const isMicPermissionError = /permission|not-allowed|service-not-allowed|microphone|mic/i.test(rawMessage);
@@ -2732,6 +2785,26 @@ export class SpeechRuntimeController {
          */
         carriedSettlement?: IntentSettlement,
     ): Promise<void> {
+        // #1426 — THE SWITCH'S SUCCESS IS NOT THE TAKE'S AUTHORITY.
+        //
+        // A scored model-comparison take is admitted only after recomputing requested === observed ===
+        // expected here, at the recording authority. This runs before service creation, locks, auth,
+        // attestation, microphone acquisition, or transcription. A mismatch therefore produces an
+        // explicit refusal and a content-free governed signal, never a wrongly labelled recording.
+        if ((policy?.preferredMode ?? 'private') === 'private') {
+            const candidateGate = evaluateRuntimeCandidateTakeGate();
+            if (candidateGate.enabled && !candidateGate.allowed) {
+                emitPrivateTelemetry(PRIVATE_TELEMETRY_EVENTS.ERROR, {
+                    error_code: 'RuntimeCandidateIdentityMismatch',
+                    fallback_reason: candidateGate.refusal,
+                    model_attribution_verified: false,
+                });
+                const message = 'Model comparison identity could not be verified. Switch the model again before recording.';
+                useSessionStore.getState().setSTTStatus({ type: 'error', message });
+                throw new Error(`RUNTIME_CANDIDATE_IDENTITY_MISMATCH:${candidateGate.refusal}`);
+            }
+        }
+
         // #1033: do not start a new recording while a prior recording is unresolved — a pending attribution
         // retry, OR a recording that began and failed post-start without a durable save. Its identity must be
         // resolved (Retry Save) or explicitly discarded first. This bounds the system to AT MOST ONE
@@ -2892,13 +2965,13 @@ export class SpeechRuntimeController {
 
             if (this.service?.isServiceDestroyed()) {
                 pushNativeRuntimeTrace('controller_start_service_destroyed_reset');
-                this.service = null;
+                this.detachService(this.service);
             }
 
             if (!this.service) {
                 pushNativeRuntimeTrace('controller_start_create_service');
                 this.service = getTranscriptionService(
-                    createControllerOwnedServiceCallbacks(this.subscriberCallbacks, this.serviceCallbacks as Required<typeof this.serviceCallbacks>),
+                    this.callbacksForNewService(this.subscriberCallbacks),
                     this.lock
                 );
             }
@@ -3040,6 +3113,19 @@ export class SpeechRuntimeController {
                 }
 
                 await service.startTranscription(policy, userWords);
+                // #1431 — `startTranscription` is a real suspension point. A hard reset can advance
+                // the lifecycle, detach/destroy this service, and establish a successor recording
+                // while this await is unresolved. Reject the obsolete continuation before it binds
+                // shadow state, latches a producer, enables emissions, saves a row, or transitions
+                // the successor. The detached service is owned by the reset that invalidated us.
+                if (
+                    _token.cancelled
+                    || _token.version !== this.lifecycleVersion
+                    || this.currentRecordingId !== recordingId
+                    || !isCurrentIntent(intent.token)
+                ) {
+                    return;
+                }
                 // #891 Phase 5.7 (SHADOW): the negotiated/actual mode is now settled — bind it so the shadow
                 // engine filters by the REAL mode (not the requested one), keeping the early events it
                 // captured while provisional. rebindShadowSession re-confirms it at the DB-id step below.
@@ -3084,7 +3170,7 @@ export class SpeechRuntimeController {
                     // would resume the intent against a model that is still absent; going through
                     // DOWNLOAD_REQUIRED drives the download first, exactly as a click should.
                     this.setEngineReady(false);
-                    this.service = null;
+                    this.detachService(service);
                     if (isCurrentIntent(intent.token) && !intent.resumed) {
                         await this.transition('DOWNLOAD_REQUIRED', undefined, _token);
                         void Promise.resolve()
@@ -3104,7 +3190,7 @@ export class SpeechRuntimeController {
                 this.isEmissionsSafe = true;
                 // (Owner + initial-save recovery context were established BEFORE startTranscription — #1033 (1).)
                 pushNativeRuntimeTrace('controller_recording_invariant_start');
-                await this.checkRecordingInvariant();
+                await this.checkRecordingInvariant(_token, intent.token);
                 pushNativeRuntimeTrace('controller_recording_invariant_done');
 
                 if (userId) {
@@ -3200,7 +3286,7 @@ export class SpeechRuntimeController {
                     // user is back in FAILED_VISIBLE having gained nothing. This mirrors what the
                     // existing DOWNLOAD_REQUIRED branch on the success path already does.
                     this.setEngineReady(false);
-                    this.service = null;
+                    this.detachService(service);
                     await this.transition('DOWNLOAD_REQUIRED', undefined, _token);
                     // Drive the preparation the user's click implicitly asked for. Failure to even
                     // begin it retires the intent, so a click can never wait forever on nothing.
@@ -3307,8 +3393,7 @@ export class SpeechRuntimeController {
 
         // 4. Detach the service. DESTRUCTION IS THE CALLER'S CHOICE: `reset()` keeps the historical
         //    fire-and-forget behaviour, `hardResetAwaited()` waits for it.
-        const svc = this.service;
-        this.service = null;
+        const svc = this.detachService();
         if (svc) {
             this.stopWatchdog();
             this.stopHeartbeat();
@@ -4139,7 +4224,7 @@ export class SpeechRuntimeController {
                 this.lifecycleVersion++;
                 this.stopWatchdog();
                 await service.destroy();
-                this.service = null;
+                this.detachService(service);
                 useSessionStore.getState().setTranscriptFinalizing(false);
                 useSessionStore.getState().freezeTranscriptAtStop(null);
                 // #1306 P1: metrics are derived and the session is finalized here — purge the ephemeral live
@@ -4384,17 +4469,17 @@ export class SpeechRuntimeController {
         const version = this.lifecycleVersion;
 
         if (this.service?.isServiceDestroyed()) {
-            this.service = null;
+            this.detachService(this.service);
         }
 
         if (!this.service) {
             this.service = getTranscriptionService(
-                createControllerOwnedServiceCallbacks({
+                this.callbacksForNewService({
                     navigate: this.navigate,
                     session: this.session,
                     getAssemblyAIToken: this.getAssemblyAIToken,
                     userWords: this.userWords
-                }, this.serviceCallbacks as Required<typeof this.serviceCallbacks>),
+                }),
                 this.lock
             );
         }
@@ -4577,11 +4662,12 @@ export class SpeechRuntimeController {
                 });
             }
             await this.transition('FAILED', error, token);
-            if (this.service) {
+            const failedService = this.service;
+            if (failedService) {
                 this.lifecycleVersion++;
-                this.service.handleHeartbeatFailure(error);
-                await this.service.destroy();
-                this.service = null;
+                failedService.handleHeartbeatFailure(error);
+                await failedService.destroy();
+                this.detachService(failedService);
             }
         });
     }
