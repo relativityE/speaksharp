@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Result } from '../transcription/modes/types';
+import logger from '../../lib/logger';
 // Both the store and the intent module must be the instances the freshly-imported controller closes
 // over. A top-level import survives `vi.resetModules()` and would be a DIFFERENT module object, so
 // every assertion would read a store nothing writes to — which looked exactly like a silent product
@@ -501,5 +502,137 @@ describe('#1415 — one click, one recording', () => {
             // controller: after teardown there is no wish, so readiness is just readiness.
             expect(engine.startCalls).toBe(0);
         });
+    });
+});
+
+/**
+ * #1431 — RETRY THIS SET MUST START A SECOND TAKE.
+ *
+ * The ownership work rejects continuations from a superseded generation, which is right. What it must
+ * not do is reject the LEGITIMATE next take: after a Focus Points review the user presses "Retry this
+ * set", and that is an ordinary new recording on the same page, indistinguishable at the controller
+ * from a first one except that state from the previous take still exists.
+ *
+ * The e2e that caught this asserts the session shell reaches `during` after the retry click. These
+ * drive the controller directly so the failure is attributable to ownership rather than to routing.
+ */
+describe('#1431 — a completed take does not block the next one', () => {
+    let controller: import('../SpeechRuntimeController').SpeechRuntimeController;
+    let engine: ControlledEngine;
+
+    beforeEach(async () => {
+        localStorage.clear();
+        engine = new ControlledEngine();
+        // Warm: the retry path is not a cold start, and a cache miss here would test preparation
+        // instead of ownership.
+        engine.modelCached = true;
+
+        vi.resetModules();
+        const { sttRegistry } = await import('../transcription/STTRegistry');
+        sttRegistry.register('transformers-js', () => engine as never);
+        sttRegistry.register('private', () => engine as never);
+
+        useSessionStore = (await import('@/stores/useSessionStore')).useSessionStore;
+        intentApi = await import('../recordingIntent');
+        intentApi.__resetRecordingIntentForTests();
+
+        const mod = await import('../SpeechRuntimeController');
+        controller = mod.speechRuntimeController;
+        const priv = controller as unknown as Record<string, unknown>;
+        priv.state = 'IDLE';
+        priv.service = null;
+        priv.isEngineReady = false;
+        priv.recordingStartedUnresolved = false;
+        priv.pendingAttributionRetry = null;
+        priv.pendingFullSaveRetry = null;
+
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('IDLE');
+    });
+
+    afterEach(() => vi.clearAllMocks());
+
+    it('CASUALTY: after a take is saved and stopped, RETRY reaches RECORDING again', async () => {
+        // Take one: the set the user just practised.
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+        expect(useSessionStore.getState().runtimeState).toBe('RECORDING');
+
+        await controller.stopRecording();
+        await settle(30);
+
+        // "Retry this set" — a second take on the same page, with take one's state still around.
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+
+        // The whole finding: the second take must actually record. A retry that silently does nothing
+        // leaves the user pressing a button that looks live and produces no session.
+        expect({ state: useSessionStore.getState().runtimeState, starts: engine.startCalls })
+            .toEqual({ state: 'RECORDING', starts: 2 });
+    });
+
+    it('CASUALTY: a save that resolves AFTER a reset does not write its id over the successor', async () => {
+        // `saveSession` is a real suspension point. A hard reset during it can advance the lifecycle and
+        // establish a successor take; take A resolving afterwards would write A's database id into
+        // `this.sessionId`, mark the store persisted, and rebind shadow state — a saved session bound to
+        // the wrong recording. The ownership question has to be asked again AFTER the await, not only
+        // after `startTranscription`.
+        const storage = await import('../../lib/storage');
+        let releaseSave!: (v: unknown) => void;
+        vi.mocked(storage.saveSession).mockReturnValueOnce(
+            new Promise((resolve) => { releaseSave = resolve; }) as never,
+        );
+
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+
+        const priv = controller as unknown as { sessionId: string | null; lifecycleVersion: number };
+        priv.sessionId = null;
+
+        // The hard reset: the lifecycle moves on while A's save is still in flight.
+        priv.lifecycleVersion += 1;
+
+        releaseSave({ session: { id: 'A-row' }, usageExceeded: false });
+        await settle(30);
+
+        // A's row exists in the database and is not lost — it is simply no longer ours to bind.
+        expect({ boundSessionId: priv.sessionId }).toEqual({ boundSessionId: null });
+    });
+
+    it('CASUALTY: the second take gets its OWN callbacks — the first take\'s are the ones dropped', async () => {
+        // Generation binding drops callbacks from a superseded service. Wrapping each generation around
+        // the PREVIOUS generation's wrappers compounds those guards, so take two's callbacks would sit
+        // inside take one's check — false the moment take two exists — and every callback for every
+        // service after the first would be silently dropped. Found by this casualty, fixed by wrapping
+        // the unwrapped originals each time.
+        const priv = controller as unknown as {
+            serviceCallbacks: Record<string, ((...a: unknown[]) => void) | undefined>;
+        };
+
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+        const takeOneCallbacks = { ...priv.serviceCallbacks };
+
+        await controller.stopRecording();
+        await settle(30);
+        await controller.startRecording(POLICY as never, []);
+        await settle(30);
+        const takeTwoCallbacks = { ...priv.serviceCallbacks };
+
+        const droppedCount = () => vi.mocked(logger.debug).mock.calls.filter(
+            ([, msg]) => typeof msg === 'string' && msg.includes('superseded service generation'),
+        ).length;
+
+        // Take TWO's callback is live: invoking it is not reported as a drop.
+        const beforeLive = droppedCount();
+        takeTwoCallbacks.onHistoryUpdate?.([]);
+        const afterLive = droppedCount();
+
+        // Take ONE's callback belongs to a superseded generation and IS dropped.
+        takeOneCallbacks.onHistoryUpdate?.([]);
+        const afterStale = droppedCount();
+
+        expect({ liveWasDropped: afterLive > beforeLive, staleWasDropped: afterStale > afterLive })
+            .toEqual({ liveWasDropped: false, staleWasDropped: true });
     });
 });

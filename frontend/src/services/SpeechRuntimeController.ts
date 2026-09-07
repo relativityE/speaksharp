@@ -408,6 +408,13 @@ export class SpeechRuntimeController {
     private subscriberCallbacks: Partial<TranscriptionServiceOptions> = {};
     private serviceCallbacks: Partial<TranscriptionServiceOptions>;
     /**
+     * The UNWRAPPED callbacks, kept so each generation wraps these rather than the previous
+     * generation's wrappers. Wrapping a wrapper compounds the guards: generation 2's callbacks would
+     * sit inside generation 1's check, which is false the moment 2 exists, and every callback for
+     * every service after the first would be silently dropped. Found while writing the casualty.
+     */
+    private readonly baseServiceCallbacks: Partial<TranscriptionServiceOptions>;
+    /**
      * Identifies the service instance whose callbacks may mutate controller/store state.
      * A destroyed or replaced service can still deliver a queued error; its captured
      * generation must not be allowed to fail the replacement lifecycle.
@@ -445,6 +452,7 @@ export class SpeechRuntimeController {
             onAudioData: this.handleAudioData.bind(this),
             onError: (error) => this.handleError(error, 0),
         };
+        this.baseServiceCallbacks = { ...this.serviceCallbacks };
 
         // E2E HOOK: Sanctioned Mocks
         if (typeof window !== 'undefined') {
@@ -494,13 +502,58 @@ export class SpeechRuntimeController {
         }
     }
 
-    /** Bind callbacks to one newly-created/adopted service generation. */
+    /**
+     * Bind callbacks to one newly-created/adopted service generation.
+     *
+     * #1431 — EVERY CALLBACK THAT MUTATES SHARED STATE IS BOUND, NOT ONLY `onError`.
+     *
+     * The spread previously carried the transcript, history, readiness, status, mode, audio and
+     * capture-limit callbacks through UNGUARDED, so only errors were generation-checked. A queued
+     * callback from replaced service A could therefore still append A's transcript to B's session, and
+     * an A `ready` could move B out of DOWNLOAD_REQUIRED, claim B's intent and resume it before B was
+     * actually ready. Guarding one of eight paths is not guarding the state; it is guarding the path
+     * that happened to be noticed.
+     *
+     * A stale callback is DROPPED, not deferred: it describes a service that no longer exists, so
+     * there is nothing for it to be correct about later.
+     */
     private callbacksForNewService(
         callbacks?: Partial<TranscriptionServiceOptions>,
     ): Partial<TranscriptionServiceOptions> {
         const generation = ++this.serviceGeneration;
+        /** True only while `generation` is still the live service. */
+        const owns = () => this.serviceGeneration === generation;
+        /**
+         * Wrap one callback so a superseded generation cannot deliver into shared state.
+         * Typed through the callback's own signature, so a wrapped callback stays exactly as
+         * callable as the one it replaces.
+         */
+        const bound = <A extends unknown[]>(
+            fn: ((...args: A) => void) | undefined,
+            name: string,
+        ) => (...args: A): void => {
+            if (!owns()) {
+                logger.debug({ callback: name, generation, live: this.serviceGeneration },
+                    '[controller] dropped a callback from a superseded service generation');
+                return;
+            }
+            fn?.(...args);
+        };
+        // From the UNWRAPPED originals, never from the previous generation's wrappers — see
+        // `baseServiceCallbacks`.
+        const base = this.baseServiceCallbacks;
         this.serviceCallbacks = {
             ...this.serviceCallbacks,
+            onTranscriptUpdate: bound(base.onTranscriptUpdate, 'onTranscriptUpdate'),
+            onStatusChange: bound(base.onStatusChange, 'onStatusChange'),
+            onCaptureLimitReached: bound(base.onCaptureLimitReached, 'onCaptureLimitReached'),
+            onModelLoadProgress: bound(base.onModelLoadProgress, 'onModelLoadProgress'),
+            onReady: bound(base.onReady, 'onReady'),
+            onHistoryUpdate: bound(base.onHistoryUpdate, 'onHistoryUpdate'),
+            onModeChange: bound(base.onModeChange, 'onModeChange'),
+            onAudioData: bound(base.onAudioData, 'onAudioData'),
+            // `handleError` already takes the generation and decides for itself; it must still run for
+            // a superseded generation so a late failure can be recorded without failing the successor.
             onError: (error) => this.handleError(error, generation),
         };
         return callbacks
@@ -3112,20 +3165,64 @@ export class SpeechRuntimeController {
                     }
                 }
 
+                /**
+                 * #1431 — THE OWNERSHIP QUESTION, ASKED IDENTICALLY AT EVERY SUSPENSION POINT.
+                 *
+                 * Four conditions, all of which must still hold for this continuation to be allowed to
+                 * touch shared state: our lifecycle token is live, the lifecycle has not been bumped, the
+                 * current recording is still ours, and our intent is still the current one. Written once
+                 * so the later checks cannot drift into asking a weaker question than the first — the
+                 * check after `saveSession` tested only two of the four, which is how A's database id
+                 * could be written into `this.sessionId` while B was recording.
+                 */
+                /**
+                 * AFTER the take is established, ownership is the RECORDING, not the intent.
+                 *
+                 * The intent is consumed the moment it becomes a recording, so `isCurrentIntent` is false
+                 * for every legitimate continuation past that point — including the save. Asking it there
+                 * rejected the take's own `saveSession` result and left `sessionId` null, which the STT
+                 * safeguards suite caught immediately. What still identifies us is the recording id and
+                 * the lifecycle: those are what a hard reset changes.
+                 */
+                const stillOurs = () => !_token.cancelled
+                    && _token.version === this.lifecycleVersion
+                    && this.currentRecordingId === recordingId;
+
+                /**
+                 * BEFORE the take is established, the intent is exactly the right question: nothing else
+                 * yet distinguishes this attempt from a successor click.
+                 */
+                const stillOursBeforeRecording = () => stillOurs() && isCurrentIntent(intent.token);
+
                 await service.startTranscription(policy, userWords);
                 // #1431 — `startTranscription` is a real suspension point. A hard reset can advance
                 // the lifecycle, detach/destroy this service, and establish a successor recording
                 // while this await is unresolved. Reject the obsolete continuation before it binds
                 // shadow state, latches a producer, enables emissions, saves a row, or transitions
                 // the successor. The detached service is owned by the reset that invalidated us.
-                if (
-                    _token.cancelled
-                    || _token.version !== this.lifecycleVersion
-                    || this.currentRecordingId !== recordingId
-                    || !isCurrentIntent(intent.token)
-                ) {
-                    return;
-                }
+                //
+                // AND IT IS NOT THE ONLY SUSPENSION POINT. `stillOurs()` is defined once, above, and
+                // asked again after every later await, because a guard that covers the first await
+                // only moves the race later rather than removing it.
+                if (!stillOursBeforeRecording()) return;
+
+                // #1431 — DRIVE THE INVARIANT WITH THE INTENT THIS START OWNS.
+                //
+                // `transition('RECORDING')` refuses silently when it is handed no intent token, and
+                // `checkRecordingInvariant()` defaults that token to whatever is still PENDING. Those two
+                // defaults meet badly on the second take of a session: the start path has already claimed
+                // its intent, so nothing is pending, and a `ready` arriving after the claim — which is the
+                // ordinary case once the model is warm, i.e. every retry — produces `intentToken:
+                // undefined` and a refusal. The runtime then sits in INITIATING with the user looking at a
+                // button they already pressed.
+                //
+                // The first take hides it: preparation is still running when readiness arrives, so the
+                // intent is genuinely pending and the default happens to be right.
+                //
+                // Passing `intent.token` asks the question this start can actually answer — "is MY intent
+                // still the current one?" — rather than depending on it not yet having been claimed.
+                await this.checkRecordingInvariant(_token, intent.token);
+
                 // #891 Phase 5.7 (SHADOW): the negotiated/actual mode is now settled — bind it so the shadow
                 // engine filters by the REAL mode (not the requested one), keeping the early events it
                 // captured while provisional. rebindShadowSession re-confirms it at the DB-id step below.
@@ -3221,6 +3318,18 @@ export class SpeechRuntimeController {
                     });
                     const dbSession = saveResult?.session;
 
+                    // `saveSession` is the second real suspension point, and the mutations below are the
+                    // damaging ones: writing our database id into `this.sessionId`, marking the store
+                    // persisted, and rebinding shadow state. A hard reset during this await can start B,
+                    // and A resolving afterwards would attribute A's row to B's recording — a saved
+                    // session belonging to the wrong take, which is exactly the corruption this branch
+                    // exists to prevent. The row itself is already written and is not lost; it is simply
+                    // no longer ours to bind.
+                    if (!stillOurs()) {
+                        pushNativeRuntimeTrace('controller_save_superseded', { recordingId });
+                        return;
+                    }
+
                     if (dbSession) {
                         this.sessionId = dbSession.id;
                         this.applyPrivateTelemetryContext();
@@ -3238,6 +3347,12 @@ export class SpeechRuntimeController {
                                 logger.warn({ e, sessionId: dbSession.id }, '[controller] attribution intent bind threw — session will be unattributed');
                             }
                         }
+                        // The bind above is awaited too, so ownership is asked once more before the
+                        // shadow rebind — the last shared mutation on this path.
+                        if (!stillOurs()) {
+                            pushNativeRuntimeTrace('controller_bind_superseded', { recordingId });
+                            return;
+                        }
                         // #1033 (1): the row now EXISTS — the pre-session initial-save window is closed.
                         this.pendingInitialSaveContext = null;
                         // #891 Phase 5.7 (SHADOW): bind the real DB id + negotiated mode into the already-running
@@ -3245,8 +3360,12 @@ export class SpeechRuntimeController {
                         this.rebindShadowSession(this.sessionId, negMode);
                     }
 
-                    if (_token.cancelled || _token.version !== this.lifecycleVersion) {
-                        await this.transition('READY', undefined, _token);
+                    if (!stillOurs()) {
+                        // Only transition when the LIFECYCLE is still ours; if a successor owns it,
+                        // moving it to READY would settle B's recording from A's continuation.
+                        if (!_token.cancelled && _token.version === this.lifecycleVersion) {
+                            await this.transition('READY', undefined, _token);
+                        }
                         return;
                     }
 

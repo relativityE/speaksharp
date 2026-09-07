@@ -22,10 +22,24 @@ vi.mock('@/hooks/useSessionLifecycle', () => ({ useSessionLifecycle: vi.fn() }))
 vi.mock('@/hooks/useUnresolvedRecovery', () => ({ useUnresolvedRecovery: vi.fn() }));
 // These tests exercise completed-review ACTION wiring, so model the retained transcript authority that
 // a real completed review supplies. Working memory is purged at this point and cannot license coverage.
+// CONFIGURABLE, because "the review is already available" is not the only state the after-screen has.
+// The e2e that caught the retry regression reaches this screen while the saved-transcript read is still
+// in flight — coverage cannot be derived yet and the rail renders in its pending form. A mock that is
+// permanently available cannot see that screen at all, which is why the component test passed while the
+// journey failed.
+const { reviewRead } = vi.hoisted(() => ({
+    reviewRead: {
+        current: {
+            data: { transcript_state: 'available', transcript: 'Opening hook. The ask.' } as unknown,
+            isFetching: false,
+        },
+    },
+}));
 vi.mock('@/hooks/useSession', () => ({
     useSession: () => ({
-        data: { transcript_state: 'available', transcript: 'Opening hook. The ask.' },
-        isFetching: false,
+        data: reviewRead.current.data,
+        isFetching: reviewRead.current.isFetching,
+        failureCount: 0,
         refetch: vi.fn(),
     }),
 }));
@@ -259,6 +273,25 @@ describe('#1407 — Retry and Open Mic are untouched', () => {
         await user.click(screen.getByTestId('focus-points-retry'));
         expect(handleStartStop).toHaveBeenCalled();
         expect(useSessionStore.getState().activeObjectiveBrief).toMatchObject({ briefId: 'brief-1' });
+    });
+
+    it('CASUALTY: Retry starts a take even while the saved-transcript read is STILL PENDING', async () => {
+        // The journey reaches this screen before the review read settles: coverage cannot be derived,
+        // so the rail renders in its `coveragePending` form. Retry belongs to the user's brief, not to
+        // the transcript, and must not wait on a read it does not depend on. The existing retry test
+        // could not see this because its `useSession` mock is permanently available.
+        const user = userEvent.setup();
+        reviewRead.current = { data: undefined, isFetching: true };
+
+        givenAfterReview();
+
+        const retry = screen.getByTestId('focus-points-retry');
+        await user.click(retry);
+
+        expect({
+            started: handleStartStop.mock.calls.length > 0,
+            briefRebound: useSessionStore.getState().activeObjectiveBrief?.briefId,
+        }).toEqual({ started: true, briefRebound: 'brief-1' });
     });
 
     it('Open Mic (no brief) shows no Focus Points actions at all', () => {
